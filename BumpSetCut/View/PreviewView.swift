@@ -30,7 +30,6 @@ struct PreviewView: View {
 
     private func controlBar() -> some View {
         GeometryReader { geometry in
-            let frameHeight = geometry.size.height
             HStack {
                 if !isRecording {
                     Button(action: {
@@ -70,7 +69,7 @@ struct PreviewView: View {
 }
 
 #Preview {
-    @StateObject var model = CameraModel()
+    @Previewable @StateObject var model = CameraModel()
     return PreviewView()
         .environmentObject(model)
 }

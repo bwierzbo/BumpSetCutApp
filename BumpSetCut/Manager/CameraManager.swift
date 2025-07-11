@@ -63,7 +63,7 @@ class CameraManager: NSObject {
             }
         }
     }
-        
+
     var isRunning: Bool {
         captureSession.isRunning
     }
