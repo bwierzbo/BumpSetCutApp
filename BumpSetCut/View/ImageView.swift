@@ -14,7 +14,9 @@ struct ImageView: View {
             if let image = image {
                 image
                     .resizable()
-                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .scaledToFill()     // preserve aspect ratio, fill the container
+                    .clipped()          // cut off any overflow
+                    .ignoresSafeArea()
             }
         }
     }
