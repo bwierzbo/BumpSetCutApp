@@ -2,7 +2,7 @@
 //  CameraManager.swift
 //  BumpSetCut
 //
-//  Created by Benjamin Wierzbanowski on 7/9/25.
+//  Updated with proper orientation handling
 //
 
 import UIKit
@@ -23,14 +23,13 @@ class CameraManager: NSObject {
     private var videoOutput: AVCaptureVideoDataOutput?
     private var sessionQueue: DispatchQueue!
     
+    // Orientation tracking
+    private var deviceOrientation: UIDeviceOrientation = .portrait
+    private var videoOrientation: AVCaptureVideoOrientation = .portrait
+    
     // device related
     private var allCaptureDevices: [AVCaptureDevice] {
-        AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInTrueDepthCamera, .builtInDualCamera, .builtInDualWideCamera, .builtInWideAngleCamera, .builtInDualWideCamera], mediaType: .video, position: .unspecified).devices
-    }
-    
-    private var frontCaptureDevices: [AVCaptureDevice] {
-        allCaptureDevices
-            .filter { $0.position == .front }
+        AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInTrueDepthCamera, .builtInDualCamera, .builtInDualWideCamera, .builtInWideAngleCamera, .builtInDualWideCamera], mediaType: .video, position: .back).devices
     }
     
     private var backCaptureDevices: [AVCaptureDevice] {
@@ -42,9 +41,6 @@ class CameraManager: NSObject {
         var devices = [AVCaptureDevice]()
         if let backDevice = backCaptureDevices.first {
             devices += [backDevice]
-        }
-        if let frontDevice = frontCaptureDevices.first {
-            devices += [frontDevice]
         }
         return devices
     }
@@ -66,16 +62,6 @@ class CameraManager: NSObject {
 
     var isRunning: Bool {
         captureSession.isRunning
-    }
-    
-    var isUsingFrontCaptureDevice: Bool {
-        guard let captureDevice = captureDevice else { return false }
-        return frontCaptureDevices.contains(captureDevice)
-    }
-    
-    var isUsingBackCaptureDevice: Bool {
-        guard let captureDevice = captureDevice else { return false }
-        return backCaptureDevices.contains(captureDevice)
     }
     
     // for capture photo
@@ -119,11 +105,79 @@ class CameraManager: NSObject {
     override init() {
         super.init()
         // The value of this property is an AVCaptureSessionPreset indicating the current session preset in use by the receiver. The sessionPreset property may be set while the receiver is running.
-        captureSession.sessionPreset = .low
+        captureSession.sessionPreset = .high
         
         sessionQueue = DispatchQueue(label: "session queue")
         captureDevice = availableCaptureDevices.first ?? AVCaptureDevice.default(for: .video)
         
+        // Start monitoring device orientation
+        startOrientationMonitoring()
+    }
+    
+    deinit {
+        stopOrientationMonitoring()
+    }
+    
+    // MARK: - Orientation Handling
+    
+    private func startOrientationMonitoring() {
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(deviceOrientationDidChange),
+            name: UIDevice.orientationDidChangeNotification,
+            object: nil
+        )
+        
+        // Set initial orientation
+        deviceOrientation = UIDevice.current.orientation
+        videoOrientation = AVCaptureVideoOrientation(deviceOrientation: deviceOrientation) ?? .portrait
+    }
+    
+    private func stopOrientationMonitoring() {
+        NotificationCenter.default.removeObserver(self)
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
+    }
+    
+    @objc private func deviceOrientationDidChange() {
+        let newOrientation = UIDevice.current.orientation
+        
+        // Only update for valid orientations
+        guard newOrientation.isValidInterfaceOrientation else { return }
+        
+        deviceOrientation = newOrientation
+        
+        if let newVideoOrientation = AVCaptureVideoOrientation(deviceOrientation: newOrientation) {
+            videoOrientation = newVideoOrientation
+            
+            // Update all connections
+            sessionQueue.async { [weak self] in
+                self?.updateAllConnectionOrientations()
+            }
+        }
+    }
+    
+    private func updateAllConnectionOrientations() {
+        // Update video output connection
+        if let videoOutput = videoOutput,
+           let connection = videoOutput.connection(with: .video),
+           connection.isVideoOrientationSupported {
+            connection.videoOrientation = videoOrientation
+        }
+        
+        // Update movie file output connection
+        if let movieFileOutput = movieFileOutput,
+           let connection = movieFileOutput.connection(with: .video),
+           connection.isVideoOrientationSupported {
+            connection.videoOrientation = videoOrientation
+        }
+        
+        // Update photo output connection
+        if let photoOutput = photoOutput,
+           let connection = photoOutput.connection(with: .video),
+           connection.isVideoOrientationSupported {
+            connection.videoOrientation = videoOrientation
+        }
     }
     
 
@@ -161,16 +215,6 @@ class CameraManager: NSObject {
         }
     }
     
-    // switch between available cameras
-    func switchCaptureDevice() {
-        if let captureDevice = captureDevice, let index = availableCaptureDevices.firstIndex(of: captureDevice) {
-            let nextIndex = (index + 1) % availableCaptureDevices.count
-            self.captureDevice = availableCaptureDevices[nextIndex]
-        } else {
-            self.captureDevice = AVCaptureDevice.default(for: .video)
-        }
-    }
-    
     
     func startRecordingVideo() {
         guard let movieFileOutput = self.movieFileOutput else {
@@ -189,6 +233,12 @@ class CameraManager: NSObject {
         let filePath = directoryPath
             .appendingPathComponent(fileName)
             .appendingPathExtension("mp4")
+        
+        // Update orientation right before recording
+        if let connection = movieFileOutput.connection(with: .video),
+           connection.isVideoOrientationSupported {
+            connection.videoOrientation = videoOrientation
+        }
         
         movieFileOutput.startRecording(to: filePath, recordingDelegate: self)
     }
@@ -220,8 +270,9 @@ class CameraManager: NSObject {
             }
             photoSettings.photoQualityPrioritization = .balanced
             
-            if let photoOutputVideoConnection = photoOutput.connection(with: .video) {
-                photoOutputVideoConnection.videoRotationAngle = RotationAngle.portrait.rawValue
+            if let photoOutputVideoConnection = photoOutput.connection(with: .video),
+               photoOutputVideoConnection.isVideoOrientationSupported {
+                photoOutputVideoConnection.videoOrientation = self.videoOrientation
             }
             
             photoOutput.capturePhoto(with: photoSettings, delegate: self)
@@ -313,6 +364,7 @@ class CameraManager: NSObject {
         photoOutput.maxPhotoQualityPrioritization = .quality
         
         updateVideoOutputConnection()
+        updateAllConnectionOrientations()
         
         isCaptureSessionConfigured = true
         
@@ -344,8 +396,8 @@ class CameraManager: NSObject {
     
     private func updateVideoOutputConnection() {
         if let videoOutput = videoOutput, let videoOutputConnection = videoOutput.connection(with: .video) {
-            if videoOutputConnection.isVideoMirroringSupported {
-                videoOutputConnection.isVideoMirrored = isUsingFrontCaptureDevice
+            if videoOutputConnection.isVideoOrientationSupported {
+                videoOutputConnection.videoOrientation = videoOrientation
             }
         }
     }
@@ -371,7 +423,11 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixelBuffer = sampleBuffer.imageBuffer else { return }
-        connection.videoRotationAngle = RotationAngle.portrait.rawValue
+        
+        if connection.isVideoOrientationSupported {
+            connection.videoOrientation = videoOrientation
+        }
+        
         addToPreviewStream?(CIImage(cvPixelBuffer: pixelBuffer))
     }
 }
@@ -387,10 +443,21 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
 }
 
 
-private enum RotationAngle: CGFloat {
-    case portrait = 90
-    case portraitUpsideDown = 270
-    case landscapeRight = 180
-    case landscapeLeft = 0
-}
+// MARK: - AVCaptureVideoOrientation Extension
 
+extension AVCaptureVideoOrientation {
+    init?(deviceOrientation: UIDeviceOrientation) {
+        switch deviceOrientation {
+        case .portrait:
+            self = .portrait
+        case .portraitUpsideDown:
+            self = .portraitUpsideDown
+        case .landscapeLeft:
+            self = .landscapeRight
+        case .landscapeRight:
+            self = .landscapeLeft
+        default:
+            return nil
+        }
+    }
+}
