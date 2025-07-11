@@ -6,27 +6,8 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXContainerItemProxy section */
-		36F390312E1C86F50020C100 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 36F390182E1C86F40020C100 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 36F3901F2E1C86F40020C100;
-			remoteInfo = BumpSetCut;
-		};
-		36F3903B2E1C86F50020C100 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 36F390182E1C86F40020C100 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 36F3901F2E1C86F40020C100;
-			remoteInfo = BumpSetCut;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin PBXFileReference section */
 		36F390202E1C86F40020C100 /* BumpSetCut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BumpSetCut.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		36F390302E1C86F50020C100 /* BumpSetCutTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BumpSetCutTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		36F3903A2E1C86F50020C100 /* BumpSetCutUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BumpSetCutUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -35,34 +16,10 @@
 			path = BumpSetCut;
 			sourceTree = "<group>";
 		};
-		36F390332E1C86F50020C100 /* BumpSetCutTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = BumpSetCutTests;
-			sourceTree = "<group>";
-		};
-		36F3903D2E1C86F50020C100 /* BumpSetCutUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = BumpSetCutUITests;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		36F3901D2E1C86F40020C100 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		36F3902D2E1C86F50020C100 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		36F390372E1C86F50020C100 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -76,8 +33,6 @@
 			isa = PBXGroup;
 			children = (
 				36F390222E1C86F40020C100 /* BumpSetCut */,
-				36F390332E1C86F50020C100 /* BumpSetCutTests */,
-				36F3903D2E1C86F50020C100 /* BumpSetCutUITests */,
 				36F390212E1C86F40020C100 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -86,8 +41,6 @@
 			isa = PBXGroup;
 			children = (
 				36F390202E1C86F40020C100 /* BumpSetCut.app */,
-				36F390302E1C86F50020C100 /* BumpSetCutTests.xctest */,
-				36F3903A2E1C86F50020C100 /* BumpSetCutUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -117,52 +70,6 @@
 			productReference = 36F390202E1C86F40020C100 /* BumpSetCut.app */;
 			productType = "com.apple.product-type.application";
 		};
-		36F3902F2E1C86F50020C100 /* BumpSetCutTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 36F390472E1C86F50020C100 /* Build configuration list for PBXNativeTarget "BumpSetCutTests" */;
-			buildPhases = (
-				36F3902C2E1C86F50020C100 /* Sources */,
-				36F3902D2E1C86F50020C100 /* Frameworks */,
-				36F3902E2E1C86F50020C100 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				36F390322E1C86F50020C100 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				36F390332E1C86F50020C100 /* BumpSetCutTests */,
-			);
-			name = BumpSetCutTests;
-			packageProductDependencies = (
-			);
-			productName = BumpSetCutTests;
-			productReference = 36F390302E1C86F50020C100 /* BumpSetCutTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		36F390392E1C86F50020C100 /* BumpSetCutUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 36F3904A2E1C86F50020C100 /* Build configuration list for PBXNativeTarget "BumpSetCutUITests" */;
-			buildPhases = (
-				36F390362E1C86F50020C100 /* Sources */,
-				36F390372E1C86F50020C100 /* Frameworks */,
-				36F390382E1C86F50020C100 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				36F3903C2E1C86F50020C100 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				36F3903D2E1C86F50020C100 /* BumpSetCutUITests */,
-			);
-			name = BumpSetCutUITests;
-			packageProductDependencies = (
-			);
-			productName = BumpSetCutUITests;
-			productReference = 36F3903A2E1C86F50020C100 /* BumpSetCutUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -175,14 +82,6 @@
 				TargetAttributes = {
 					36F3901F2E1C86F40020C100 = {
 						CreatedOnToolsVersion = 16.0;
-					};
-					36F3902F2E1C86F50020C100 = {
-						CreatedOnToolsVersion = 16.0;
-						TestTargetID = 36F3901F2E1C86F40020C100;
-					};
-					36F390392E1C86F50020C100 = {
-						CreatedOnToolsVersion = 16.0;
-						TestTargetID = 36F3901F2E1C86F40020C100;
 					};
 				};
 			};
@@ -201,28 +100,12 @@
 			projectRoot = "";
 			targets = (
 				36F3901F2E1C86F40020C100 /* BumpSetCut */,
-				36F3902F2E1C86F50020C100 /* BumpSetCutTests */,
-				36F390392E1C86F50020C100 /* BumpSetCutUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		36F3901E2E1C86F40020C100 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		36F3902E2E1C86F50020C100 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		36F390382E1C86F50020C100 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -239,34 +122,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		36F3902C2E1C86F50020C100 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		36F390362E1C86F50020C100 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		36F390322E1C86F50020C100 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 36F3901F2E1C86F40020C100 /* BumpSetCut */;
-			targetProxy = 36F390312E1C86F50020C100 /* PBXContainerItemProxy */;
-		};
-		36F3903C2E1C86F50020C100 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 36F3901F2E1C86F40020C100 /* BumpSetCut */;
-			targetProxy = 36F3903B2E1C86F50020C100 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		36F390422E1C86F50020C100 /* Debug */ = {
@@ -399,6 +255,8 @@
 				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Record Volleyball Footage";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Access Volleyball Footage";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -428,6 +286,8 @@
 				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Record Volleyball Footage";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Access Volleyball Footage";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -443,78 +303,6 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-		36F390482E1C86F50020C100 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2J4SZTDKKP;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = wplus12.BumpSetCutTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BumpSetCut.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BumpSetCut";
-			};
-			name = Debug;
-		};
-		36F390492E1C86F50020C100 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2J4SZTDKKP;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = wplus12.BumpSetCutTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BumpSetCut.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BumpSetCut";
-			};
-			name = Release;
-		};
-		36F3904B2E1C86F50020C100 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2J4SZTDKKP;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = wplus12.BumpSetCutUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = BumpSetCut;
-			};
-			name = Debug;
-		};
-		36F3904C2E1C86F50020C100 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2J4SZTDKKP;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = wplus12.BumpSetCutUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = BumpSetCut;
 			};
 			name = Release;
 		};
@@ -535,24 +323,6 @@
 			buildConfigurations = (
 				36F390452E1C86F50020C100 /* Debug */,
 				36F390462E1C86F50020C100 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		36F390472E1C86F50020C100 /* Build configuration list for PBXNativeTarget "BumpSetCutTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				36F390482E1C86F50020C100 /* Debug */,
-				36F390492E1C86F50020C100 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		36F3904A2E1C86F50020C100 /* Build configuration list for PBXNativeTarget "BumpSetCutUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				36F3904B2E1C86F50020C100 /* Debug */,
-				36F3904C2E1C86F50020C100 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
