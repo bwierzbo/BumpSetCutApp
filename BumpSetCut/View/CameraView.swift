@@ -13,8 +13,9 @@ struct CameraView: View {
     
     var body: some View {
         MCamera()
-            //.setErrorScreen(CustomCameraErrorScreen.init)
+            .setCameraScreen(CustomCameraScreen.init)
             .startSession()
         
     }
 }
+
