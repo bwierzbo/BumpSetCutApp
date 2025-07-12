@@ -9,7 +9,7 @@ import SwiftUI
 import MijickCamera
 
 struct CameraView: View {
-    @Environment(\.dismiss) private var dismiss
+    var viewModel: CameraViewModel = .init()
     
     var body: some View {
         MCamera()
