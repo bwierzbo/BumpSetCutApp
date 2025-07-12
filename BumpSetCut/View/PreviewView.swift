@@ -1,178 +1,179 @@
 //
-//  PreviewView.swift
+//  FixedCameraPreviewView.swift
 //  BumpSetCut
 //
-//  Updated with iPhone-style fixed control position
+//  iPhone-style camera UI with fixed controls
 //
 
 import SwiftUI
-
+import AVFoundation
 
 struct PreviewView: View {
     @EnvironmentObject var model: CameraModel
     @State private var isRecording: Bool = false
     @Environment(\.dismiss) private var dismiss
-    @State private var currentOrientation = UIDevice.current.orientation
-
-    private let footerHeight: CGFloat = 110.0
+    @State private var orientation = UIDeviceOrientation.portrait
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Camera preview - fills entire screen
-                ImageView(image: model.previewImage)
-                    .ignoresSafeArea()
-                
-                // Control overlay - stays at physical bottom of device
-                controlBarContainer(geometry: geometry)
-            }
+        ZStack {
+            // Camera preview
+            CameraPreviewLayer(session: model.camera.captureSession)
+                .ignoresSafeArea()
+            
+            // Fixed UI overlay
+            CameraControlsOverlay(
+                isRecording: $isRecording,
+                orientation: $orientation,
+                onCancel: { dismiss() },
+                onRecord: {
+                    if isRecording {
+                        model.camera.stopRecordingVideo()
+                    } else {
+                        model.camera.startRecordingVideo()
+                    }
+                    isRecording.toggle()
+                }
+            )
         }
         .background(Color.black)
         .statusBarHidden(true)
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             withAnimation(.easeInOut(duration: 0.3)) {
-                currentOrientation = UIDevice.current.orientation
+                orientation = UIDevice.current.orientation
             }
         }
     }
+}
+
+// Camera preview using UIViewRepresentable
+struct CameraPreviewLayer: UIViewRepresentable {
+    let session: AVCaptureSession
     
-    @ViewBuilder
-    private func controlBarContainer(geometry: GeometryProxy) -> some View {
-        let isLandscape = currentOrientation.isLandscape
-        let isLandscapeLeft = currentOrientation == .landscapeLeft
-        let isLandscapeRight = currentOrientation == .landscapeRight
-        let isUpsideDown = currentOrientation == .portraitUpsideDown
+    class VideoPreviewView: UIView {
+        override class var layerClass: AnyClass {
+            AVCaptureVideoPreviewLayer.self
+        }
         
-        controlBar()
-            .frame(width: isLandscape ? footerHeight : geometry.size.width,
-                   height: footerHeight)
-            .background(.black.opacity(0.5))
-            .rotationEffect(.degrees(rotationAngle(for: currentOrientation)))
-            .position(
-                x: controlBarX(for: currentOrientation, geometry: geometry),
-                y: controlBarY(for: currentOrientation, geometry: geometry)
-            )
-    }
-    
-    private func rotationAngle(for orientation: UIDeviceOrientation) -> Double {
-        switch orientation {
-        case .landscapeLeft:
-            return 90
-        case .landscapeRight:
-            return -90
-        case .portraitUpsideDown:
-            return 180
-        default:
-            return 0
+        var videoPreviewLayer: AVCaptureVideoPreviewLayer {
+            return layer as! AVCaptureVideoPreviewLayer
         }
     }
     
-    private func controlBarX(for orientation: UIDeviceOrientation, geometry: GeometryProxy) -> CGFloat {
-        switch orientation {
-        case .landscapeLeft:
-            return geometry.size.width - footerHeight / 2
-        case .landscapeRight:
-            return footerHeight / 2
-        case .portraitUpsideDown:
-            return geometry.size.width / 2
-        default: // portrait
-            return geometry.size.width / 2
-        }
+    func makeUIView(context: Context) -> VideoPreviewView {
+        let view = VideoPreviewView()
+        view.backgroundColor = .black
+        view.videoPreviewLayer.session = session
+        view.videoPreviewLayer.videoGravity = .resizeAspectFill
+        return view
     }
     
-    private func controlBarY(for orientation: UIDeviceOrientation, geometry: GeometryProxy) -> CGFloat {
-        switch orientation {
-        case .landscapeLeft, .landscapeRight:
-            return geometry.size.height / 2
-        case .portraitUpsideDown:
-            return footerHeight / 2
-        default: // portrait
-            return geometry.size.height - footerHeight / 2
-        }
+    func updateUIView(_ uiView: VideoPreviewView, context: Context) {
+        // Preview layer handles rotation automatically
     }
+}
 
-    private func controlBar() -> some View {
-        HStack(spacing: 50) {
-            // Cancel button (only show when not recording)
-            Group {
-                if !isRecording {
-                    Button(action: {
-                        dismiss()
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(Color.white)
-                            .font(.system(size: 30))
-                    }
-                } else {
-                    // Placeholder to maintain spacing
-                    Color.clear
-                        .frame(width: 30, height: 30)
+// Fixed controls overlay
+struct CameraControlsOverlay: View {
+    @Binding var isRecording: Bool
+    @Binding var orientation: UIDeviceOrientation
+    let onCancel: () -> Void
+    let onRecord: () -> Void
+    
+    var body: some View {
+        VStack {
+            Spacer()
+            
+            // Control bar - always at bottom of screen
+            HStack(spacing: 60) {
+                // Cancel button
+                Button(action: onCancel) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundColor(.white)
+                        .rotationEffect(rotationAngle)
                 }
-            }
-            .frame(width: 60)
-
-            // Record button
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    if isRecording {
-                        isRecording = false
-                        model.camera.stopRecordingVideo()
-                    } else {
-                        isRecording = true
-                        model.camera.startRecordingVideo()
-                    }
-                }
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 70, height: 70)
-                    
-                    if isRecording {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.red)
-                            .frame(width: 35, height: 35)
-                    } else {
+                .opacity(isRecording ? 0 : 1)
+                .animation(.easeInOut(duration: 0.2), value: isRecording)
+                
+                // Record button
+                Button(action: onRecord) {
+                    ZStack {
                         Circle()
-                            .fill(Color.red)
-                            .frame(width: 60, height: 60)
-                    }
-                }
-            }
-
-            // Recording indicator or spacer
-            Group {
-                if !isRecording {
-                    // Empty space to balance the layout
-                    Color.clear
-                        .frame(width: 30, height: 30)
-                } else {
-                    // Recording indicator
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 12, height: 12)
-                            .overlay(
-                                Circle()
-                                    .fill(Color.red)
-                                    .opacity(0.3)
-                                    .scaleEffect(isRecording ? 2.5 : 1)
-                                    .animation(
-                                        .easeInOut(duration: 1)
-                                        .repeatForever(autoreverses: true),
-                                        value: isRecording
-                                    )
-                            )
+                            .fill(Color.white)
+                            .frame(width: 70, height: 70)
                         
-                        Text("REC")
-                            .foregroundColor(.white)
-                            .font(.system(size: 16, weight: .semibold))
+                        if isRecording {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.red)
+                                .frame(width: 35, height: 35)
+                        } else {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 60, height: 60)
+                        }
+                    }
+                }
+                
+                // Recording indicator
+                Group {
+                    if isRecording {
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 12, height: 12)
+                                .overlay(
+                                    Circle()
+                                        .fill(Color.red)
+                                        .opacity(0.3)
+                                        .scaleEffect(2.5)
+                                        .opacity(isRecording ? 0 : 1)
+                                        .animation(
+                                            .easeInOut(duration: 1)
+                                            .repeatForever(autoreverses: true),
+                                            value: isRecording
+                                        )
+                                )
+                            
+                            Text("REC")
+                                .foregroundColor(.white)
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .rotationEffect(rotationAngle)
+                    } else {
+                        Color.clear
+                            .frame(width: 60, height: 30)
                     }
                 }
             }
-            .frame(width: 60)
+            .padding(.horizontal, 40)
+            .padding(.vertical, 30)
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.black.opacity(0.7),
+                        Color.black.opacity(0.5),
+                        Color.clear
+                    ]),
+                    startPoint: .bottom,
+                    endPoint: .top
+                )
+                .frame(height: 150)
+                .ignoresSafeArea()
+            )
         }
-        .padding(.vertical, 20)
+    }
+    
+    private var rotationAngle: Angle {
+        switch orientation {
+        case .landscapeLeft:
+            return .degrees(90)
+        case .landscapeRight:
+            return .degrees(-90)
+        case .portraitUpsideDown:
+            return .degrees(180)
+        default:
+            return .degrees(0)
+        }
     }
 }
 
