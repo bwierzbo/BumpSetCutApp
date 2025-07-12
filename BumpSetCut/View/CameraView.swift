@@ -1,40 +1,20 @@
 //
 //  CameraView.swift
-//  SwiftUIDemo2
+//  BumpSetCut
 //
-//  Created by Itsuki on 2024/05/18.
+//  Simplified camera using MijickCamera
 //
-
 
 import SwiftUI
+import MijickCamera
 
 struct CameraView: View {
-    @StateObject private var model = CameraModel()
-
+    @Environment(\.dismiss) private var dismiss
+    
     var body: some View {
-        ZStack {
-            if let _ = model.movieFileUrl {
-                SaveVideoView()
-            } else {
-                PreviewView()
-                    .onAppear {
-                        model.camera.isPreviewPaused = false
-                    }
-                    .onDisappear {
-                        model.camera.isPreviewPaused = true
-                    }
-            }
-        }
-        .task {
-            await model.camera.start()
-        }
-        .ignoresSafeArea(.all)
-        .environmentObject(model)
+        MCamera()
+            //.setErrorScreen(CustomCameraErrorScreen.init)
+            .startSession()
+        
     }
-}
-
-#Preview {
-    @StateObject var model = CameraModel()
-    return PreviewView()
-        .environmentObject(model)
 }

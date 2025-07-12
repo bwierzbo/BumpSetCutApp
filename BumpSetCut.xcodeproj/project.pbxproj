@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 3620E8B02E230C5C00BD0036 /* MijickCamera */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		36F390202E1C86F40020C100 /* BumpSetCut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BumpSetCut.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = BumpSetCut;
 			packageProductDependencies = (
+				3620E8B02E230C5C00BD0036 /* MijickCamera */,
 			);
 			productName = BumpSetCut;
 			productReference = 36F390202E1C86F40020C100 /* BumpSetCut.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = 36F390172E1C86F40020C100;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				3620E8AF2E230C5C00BD0036 /* XCRemoteSwiftPackageReference "Camera" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 36F390212E1C86F40020C100 /* Products */;
 			projectDirPath = "";
@@ -255,7 +264,9 @@
 				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Record Volleyball Footage";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "For video Audio";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Access Volleyball Footage";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -286,7 +297,9 @@
 				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Record Volleyball Footage";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "For video Audio";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Access Volleyball Footage";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -328,6 +341,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		3620E8AF2E230C5C00BD0036 /* XCRemoteSwiftPackageReference "Camera" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Mijick/Camera";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3620E8B02E230C5C00BD0036 /* MijickCamera */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3620E8AF2E230C5C00BD0036 /* XCRemoteSwiftPackageReference "Camera" */;
+			productName = MijickCamera;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 36F390182E1C86F40020C100 /* Project object */;
 }

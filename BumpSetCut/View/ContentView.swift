@@ -2,15 +2,15 @@
 //  ContentView.swift
 //  BumpSetCut
 //
-//  Updated with saved videos access
+//  Created by Benjamin Wierzbanowski on 7/9/25.
 //
 
 import SwiftUI
+import MijickCamera
 
 struct ContentView: View {
     @State private var showCamera = false
     @State private var showSavedVideos = false
-    @StateObject private var storageManager = VideoStorageManager.shared
 
     var body: some View {
         NavigationView {
@@ -44,10 +44,6 @@ struct ContentView: View {
                                 .font(.title2)
                             Text("Saved Games")
                                 .font(.title2)
-                            if !storageManager.savedVideos.isEmpty {
-                                Text("(\(storageManager.savedVideos.count))")
-                                    .font(.title3)
-                            }
                         }
                         .padding()
                         .frame(maxWidth: .infinity)
@@ -60,29 +56,12 @@ struct ContentView: View {
 
                 Spacer()
                 
-                // Quick stats
-                if !storageManager.savedVideos.isEmpty {
-                    VStack(spacing: 8) {
-                        Text("Total Games Recorded")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("\(storageManager.savedVideos.count)")
-                            .font(.largeTitle)
-                            .bold()
-                    }
-                    .padding()
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(12)
-                }
             }
             .padding()
             .navigationTitle("Home")
             .navigationBarHidden(true)
             .fullScreenCover(isPresented: $showCamera) {
                 CameraView()
-            }
-            .sheet(isPresented: $showSavedVideos) {
-                SavedVideosView()
             }
         }
     }
