@@ -6,63 +6,56 @@
 //
 
 import SwiftUI
+import AVKit
 import MijickCamera
 
 struct ContentView: View {
-    @State private var showCamera = false
-    @State private var showSavedVideos = false
-
+    var viewModel: ContentViewModel = .init()
+    
+    //@State private var showCamera = false
+    //@State private var showSavedVideos = false
+    
     var body: some View {
-        NavigationView {
-            VStack(spacing: 40) {
-                Text("🏐 Beach Volleyball MVP")
-                    .font(.largeTitle)
-                    .bold()
+        VStack(spacing: 0) {
+            createScrollableView()
+        }
+        .padding(.horizontal, 20)
+        .background(Color(.systemBackground).ignoresSafeArea())
+        .preferredColorScheme(.light)
+    }
+}
 
-                VStack(spacing: 20) {
-                    Button(action: {
-                        showCamera = true
-                    }) {
-                        HStack {
-                            Image(systemName: "video.circle.fill")
-                                .font(.title2)
-                            Text("Start New Game")
-                                .font(.title2)
-                        }
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                    }
-
-                    Button(action: {
-                        showSavedVideos = true
-                    }) {
-                        HStack {
-                            Image(systemName: "play.rectangle.fill")
-                                .font(.title2)
-                            Text("Saved Games")
-                                .font(.title2)
-                        }
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                    }
-                }
-                .padding(.horizontal)
-
-                Spacer()
-                
+private extension ContentView {
+    func createScrollableView() -> some View {
+        ScrollView {
+            VStack(spacing: 36) {
+                createCaptureMediaView()
+                createUploadedMediaView()
             }
-            .padding()
-            .navigationTitle("Home")
-            .navigationBarHidden(true)
-            .fullScreenCover(isPresented: $showCamera) {
-                CameraView()
-            }
+            .padding(.top, 12)
+            .padding(.bottom, 72)
+        }
+        .scrollIndicators(.hidden)
+    }
+}
+
+private extension ContentView {
+    func createTitleHeader() -> some View {
+        Text("🏐 Beach Volleyball MVP")
+            .font(.largeTitle)
+            .bold()
+    }
+}
+    
+private extension ContentView {
+    func createCaptureMediaView() -> some View {
+        ActionButton {
+            viewModel.self
+        }
+    }
+    func createUploadedMediaView() -> some View {
+        MediaButton {
+            viewModel.self
         }
     }
 }

@@ -1,19 +1,20 @@
 //
-//  CameraViewModel.swift
+//  ContentViewModel.swift
 //  BumpSetCut
 //
 //  Created by Benjamin Wierzbanowski on 7/12/25.
 //
 
 
+
 import Foundation
 
-@MainActor @Observable class CameraViewModel {
+@MainActor @Observable class ContentViewModel {
     private(set) var uploadedMedia: [CapturedMedia] = []
 }
 
 // MARK: Interaction With Data
-extension CameraViewModel {
+extension ContentViewModel {
     func addMedia(_ media: Any) async {
         guard let capturedMedia = await CapturedMedia(media) else { return }
         uploadedMedia.append(capturedMedia)

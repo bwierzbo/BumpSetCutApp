@@ -10,7 +10,9 @@
 import SwiftUI
 import MijickCamera
 
+
 struct CustomCameraScreen: MCameraScreen {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var cameraManager: CameraManager
     let namespace: Namespace.ID
     let closeMCameraAction: () -> ()
@@ -108,10 +110,9 @@ struct CustomCameraScreen: MCameraScreen {
             HStack(spacing: 0) {
                 // Cancel/Close button (left side)
                 Button(action: {
-                    if isRecordingVideo {
-                        stopRecording()
+                    if !isRecordingVideo {
+                        dismiss()
                     }
-                    closeMCameraAction()
                 }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 24, weight: .medium))
@@ -120,6 +121,10 @@ struct CustomCameraScreen: MCameraScreen {
                         .contentShape(Circle())
                 }
                 .frame(maxWidth: .infinity)
+                .opacity(isRecordingVideo ? 0 : 1)       // hide when recording
+                .disabled(isRecordingVideo)              // prevent taps when hidden
+                .animation(.easeInOut(duration: 0.2), value: isRecordingVideo)
+
                 
                 // Record button (center)
                 Button(action: {
