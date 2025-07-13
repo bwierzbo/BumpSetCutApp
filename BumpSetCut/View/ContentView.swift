@@ -49,10 +49,11 @@ private extension ContentView {
     
 private extension ContentView {
     func createCaptureMediaView() -> some View {
-        ActionButton {
-            viewModel.self
+        ActionButton{
+            viewModel.presentCaptureMediaView()
         }
     }
+    
     func createUploadedMediaView() -> some View {
         MediaButton {
             viewModel.self

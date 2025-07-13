@@ -6,20 +6,16 @@
 //
 
 import SwiftUI
-import MijickCamera
 
 struct ActionButton: View {
     let action: () -> ()
-
-
+    
     var body: some View {
-        Button(action: action, label: createButtonLabel)
+        Button(action: action, label: createActionButton)
     }
 }
 private extension ActionButton {
-    func createButtonLabel() -> some View {
-        Button(action: {
-        }) {
+    func createActionButton() -> some View {
             HStack {
                 Image(systemName: "video.circle.fill")
                     .font(.title2)
@@ -31,6 +27,5 @@ private extension ActionButton {
             .background(Color.blue)
             .foregroundColor(.white)
             .cornerRadius(12)
-        }
     }
 }

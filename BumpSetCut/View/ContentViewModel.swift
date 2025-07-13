@@ -24,3 +24,10 @@ extension ContentViewModel {
         uploadedMedia.remove(at: index)
     }
 }
+
+
+extension ContentViewModel {
+    func presentCaptureMediaView() { Task {
+        await CapturePicturePopup(viewModel: self).present()
+    }}
+}
