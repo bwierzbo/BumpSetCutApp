@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 3620E8B02E230C5C00BD0036 /* MijickCamera */; };
+		3634673D2E367FC900B10ECC /* MijickPopups in Frameworks */ = {isa = PBXBuildFile; productRef = 3634673C2E367FC900B10ECC /* MijickPopups */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3634673D2E367FC900B10ECC /* MijickPopups in Frameworks */,
 				3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -71,6 +73,7 @@
 			name = BumpSetCut;
 			packageProductDependencies = (
 				3620E8B02E230C5C00BD0036 /* MijickCamera */,
+				3634673C2E367FC900B10ECC /* MijickPopups */,
 			);
 			productName = BumpSetCut;
 			productReference = 36F390202E1C86F40020C100 /* BumpSetCut.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				3620E8AF2E230C5C00BD0036 /* XCRemoteSwiftPackageReference "Camera" */,
+				3634673B2E367FC900B10ECC /* XCRemoteSwiftPackageReference "Popups" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 36F390212E1C86F40020C100 /* Products */;
@@ -260,7 +264,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"BumpSetCut/Preview Content\"";
+				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -293,7 +297,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"BumpSetCut/Preview Content\"";
+				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -351,6 +355,14 @@
 				minimumVersion = 3.0.2;
 			};
 		};
+		3634673B2E367FC900B10ECC /* XCRemoteSwiftPackageReference "Popups" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Mijick/Popups";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.0.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -358,6 +370,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 3620E8AF2E230C5C00BD0036 /* XCRemoteSwiftPackageReference "Camera" */;
 			productName = MijickCamera;
+		};
+		3634673C2E367FC900B10ECC /* MijickPopups */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3634673B2E367FC900B10ECC /* XCRemoteSwiftPackageReference "Popups" */;
+			productName = MijickPopups;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

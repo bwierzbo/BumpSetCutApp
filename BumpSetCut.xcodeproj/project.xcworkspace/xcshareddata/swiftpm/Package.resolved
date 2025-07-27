@@ -1,5 +1,5 @@
 {
-  "originHash" : "44f57bd1fbe6c7a2dab492f9a51dc6189bfbd8668754ddecadf44e63da8192c5",
+  "originHash" : "4dcc4358b20e5843f681513ae4121cd8a75d2c7d171b905bec62ef2464a1c7c7",
   "pins" : [
     {
       "identity" : "camera",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "3cb2b56003910f765d7a5d39d2c2cb49717519cf",
         "version" : "3.0.2"
+      }
+    },
+    {
+      "identity" : "popups",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Mijick/Popups",
+      "state" : {
+        "revision" : "62457a91042e8ef68615fd8d2d27eb8240d2cd5b",
+        "version" : "4.0.1"
       }
     },
     {
