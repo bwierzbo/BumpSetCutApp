@@ -282,7 +282,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BumpSetCut/Info.plist;
-				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Record Volleyball Footage";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "For video Audio";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Access Volleyball Footage";
@@ -316,7 +316,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BumpSetCut/Info.plist;
-				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Record Volleyball Footage";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "For video Audio";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Access Volleyball Footage";

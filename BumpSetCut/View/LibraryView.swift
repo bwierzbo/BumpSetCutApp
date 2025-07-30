@@ -11,21 +11,39 @@ struct LibraryView: View {
     @Bindable var mediaStore: MediaStore
 
     var body: some View {
+        VStack(spacing: 0) {
+            createScrollableView()
+        }
+        .padding(.horizontal, 20)
+        .background(Color(.systemBackground).ignoresSafeArea())
+        .preferredColorScheme(.dark)
+    }
+}
+// SCROLLABLE VIEW
+private extension LibraryView {
+    func createScrollableView() -> some View {
         ScrollView {
-            VStack(spacing: 24) {
-                createHeader()
-                createMediaList()
-            }
-            .padding()
+            createMediaView()
         }
         .navigationTitle("Saved Games")
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
     }
 }
 
-// MARK: - Header
+// MEDIA VIEW
 private extension LibraryView {
-    func createHeader() -> some View {
+    func createMediaView() -> some View {
+        VStack(spacing: 24) {
+            createMediaHeader()
+            createMediaList()
+        }
+        .padding()
+    }
+}
+
+// MEDIA HEADER
+private extension LibraryView {
+    func createMediaHeader() -> some View {
         Text("Your Captured Games")
             .font(.title)
             .fontWeight(.bold)
@@ -33,7 +51,7 @@ private extension LibraryView {
     }
 }
 
-// MARK: - Media List
+// MEDIA LIST
 private extension LibraryView {
     func createMediaList() -> some View {
         VStack(spacing: 16) {
