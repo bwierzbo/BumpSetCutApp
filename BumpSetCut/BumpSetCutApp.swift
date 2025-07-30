@@ -13,7 +13,7 @@ import MijickCamera
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView().registerPopups()
         }
     }
 }

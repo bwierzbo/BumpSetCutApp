@@ -10,18 +10,18 @@ import AVKit
 import MijickCamera
 
 struct ContentView: View {
-    var viewModel: ContentViewModel = .init()
+    @State private var mediaStore = MediaStore()
     
-    //@State private var showCamera = false
-    //@State private var showSavedVideos = false
     
     var body: some View {
-        VStack(spacing: 0) {
-            createScrollableView()
+        NavigationStack {
+            VStack(spacing: 0) {
+                createScrollableView()
+            }
+            .padding(.horizontal, 20)
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .preferredColorScheme(.dark)
         }
-        .padding(.horizontal, 20)
-        .background(Color(.systemBackground).ignoresSafeArea())
-        .preferredColorScheme(.light)
     }
 }
 
@@ -29,8 +29,9 @@ private extension ContentView {
     func createScrollableView() -> some View {
         ScrollView {
             VStack(spacing: 36) {
+                createTitleHeader()
                 createCaptureMediaView()
-                createUploadedMediaView()
+                createLibraryButton()
             }
             .padding(.top, 12)
             .padding(.bottom, 72)
@@ -50,13 +51,23 @@ private extension ContentView {
 private extension ContentView {
     func createCaptureMediaView() -> some View {
         ActionButton{
-            viewModel.presentCaptureMediaView()
+                mediaStore.presentCapturePopup()
         }
     }
     
-    func createUploadedMediaView() -> some View {
-        MediaButton {
-            viewModel.self
+    func createLibraryButton() -> some View {
+        NavigationLink(destination: LibraryView(mediaStore: mediaStore)) {
+            HStack {
+                Image(systemName: "video.circle.fill")
+                    .font(.title2)
+                Text("Saved Games")
+                    .font(.title2)
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(Color.green)
+            .foregroundColor(.white)
+            .cornerRadius(12)
         }
     }
 }

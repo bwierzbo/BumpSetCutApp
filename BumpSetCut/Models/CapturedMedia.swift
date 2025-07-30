@@ -14,6 +14,7 @@ import SwiftUI
 import AVKit
 
 @MainActor struct CapturedMedia: Equatable {
+    let id = UUID()
     let image: Image
     let title: String
     let date: Date

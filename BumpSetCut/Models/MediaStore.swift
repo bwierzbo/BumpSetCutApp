@@ -1,19 +1,18 @@
 //
-//  CameraViewModel.swift
+//  MediaStore.swift
 //  BumpSetCut
 //
-//  Created by Benjamin Wierzbanowski on 7/12/25.
+//  Created by Benjamin Wierzbanowski on 7/30/25.
 //
-
 
 import Foundation
 
-@MainActor @Observable class CameraViewModel {
+@MainActor @Observable class MediaStore {
     private(set) var uploadedMedia: [CapturedMedia] = []
 }
 
 // MARK: Interaction With Data
-extension CameraViewModel {
+extension MediaStore {
     func addMedia(_ media: Any) async {
         guard let capturedMedia = await CapturedMedia(media) else { return }
         uploadedMedia.append(capturedMedia)
@@ -23,3 +22,12 @@ extension CameraViewModel {
         uploadedMedia.remove(at: index)
     }
 }
+
+
+extension MediaStore {
+    func presentCapturePopup() { Task {
+        await CapturePicturePopup(mediaStore: self).present()
+    }}
+}
+
+

@@ -15,9 +15,22 @@
 		36F390202E1C86F40020C100 /* BumpSetCut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BumpSetCut.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		366559732E3A753000E6A377 /* Exceptions for "BumpSetCut" folder in "BumpSetCut" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 36F3901F2E1C86F40020C100 /* BumpSetCut */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		36F390222E1C86F40020C100 /* BumpSetCut */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				366559732E3A753000E6A377 /* Exceptions for "BumpSetCut" folder in "BumpSetCut" target */,
+			);
 			path = BumpSetCut;
 			sourceTree = "<group>";
 		};
@@ -268,6 +281,7 @@
 				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BumpSetCut/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Record Volleyball Footage";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "For video Audio";
@@ -301,6 +315,7 @@
 				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BumpSetCut/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Record Volleyball Footage";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "For video Audio";
