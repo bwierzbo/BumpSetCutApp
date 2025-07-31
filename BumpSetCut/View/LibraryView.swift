@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct LibraryView: View {
-    @Bindable var mediaStore: MediaStore
+    @State private var savedVideos: [URL] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,9 +17,11 @@ struct LibraryView: View {
         .padding(.horizontal, 20)
         .background(Color(.systemBackground).ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .onAppear(perform: loadSavedVideos)
     }
 }
-// SCROLLABLE VIEW
+
+// MARK: - Scrollable View
 private extension LibraryView {
     func createScrollableView() -> some View {
         ScrollView {
@@ -30,7 +32,7 @@ private extension LibraryView {
     }
 }
 
-// MEDIA VIEW
+// MARK: - Media View
 private extension LibraryView {
     func createMediaView() -> some View {
         VStack(spacing: 24) {
@@ -41,7 +43,7 @@ private extension LibraryView {
     }
 }
 
-// MEDIA HEADER
+// MARK: - Header
 private extension LibraryView {
     func createMediaHeader() -> some View {
         Text("Your Captured Games")
@@ -51,21 +53,18 @@ private extension LibraryView {
     }
 }
 
-// MEDIA LIST
+// MARK: - Media List
 private extension LibraryView {
     func createMediaList() -> some View {
         VStack(spacing: 16) {
-            if mediaStore.uploadedMedia.isEmpty {
+            if savedVideos.isEmpty {
                 createEmptyState()
             } else {
-                ForEach(mediaStore.uploadedMedia, id: \.id) { item in
-                    UploadedMediaItem(
-                        image: item.image,
-                        title: item.title,
-                        date: item.date,
-                        duration: item.duration,
-                        onDeleteButtonTap: {
-                            mediaStore.deleteMedia(item)
+                ForEach(savedVideos, id: \.self) { url in
+                    StoredVideo(
+                        videoURL: url,
+                        onDelete: {
+                            deleteVideo(url)
                         }
                     )
                 }
@@ -83,5 +82,26 @@ private extension LibraryView {
                 .foregroundColor(.secondary)
         }
         .padding(.top, 40)
+    }
+
+    func loadSavedVideos() {
+        let fileManager = FileManager.default
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+
+        guard let docsURL = docs else { return }
+
+        if let files = try? fileManager.contentsOfDirectory(at: docsURL, includingPropertiesForKeys: nil) {
+            savedVideos = files.filter { $0.pathExtension == "mov" || $0.pathExtension == "mp4" }
+        }
+    }
+
+    func deleteVideo(_ url: URL) {
+        let fileManager = FileManager.default
+        do {
+            try fileManager.removeItem(at: url)
+            savedVideos.removeAll { $0 == url }
+        } catch {
+            print("Failed to delete video: \(error)")
+        }
     }
 }

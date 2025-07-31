@@ -56,7 +56,7 @@ private extension ContentView {
     }
     
     func createLibraryButton() -> some View {
-        NavigationLink(destination: LibraryView(mediaStore: mediaStore)) {
+        NavigationLink(destination: LibraryView()) {
             HStack {
                 Image(systemName: "video.circle.fill")
                     .font(.title2)

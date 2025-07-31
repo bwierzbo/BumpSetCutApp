@@ -8,19 +8,6 @@
 import Foundation
 
 @MainActor @Observable class MediaStore {
-    private(set) var uploadedMedia: [CapturedMedia] = []
-}
-
-// MARK: Interaction With Data
-extension MediaStore {
-    func addMedia(_ media: Any) async {
-        guard let capturedMedia = await CapturedMedia(media) else { return }
-        uploadedMedia.append(capturedMedia)
-    }
-    func deleteMedia(_ media: CapturedMedia) {
-        guard let index = uploadedMedia.firstIndex(of: media) else { return }
-        uploadedMedia.remove(at: index)
-    }
 }
 
 

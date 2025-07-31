@@ -42,12 +42,23 @@ private extension CapturePicturePopup {
     func closeMCameraAction() { Task {
         await dismissLastPopup()
     }}
-    func onImageCaptured(_ image: UIImage, _ controller: MCamera.Controller) { Task {
-        await mediaStore.addMedia(image)
-        controller.closeMCamera()
-    }}
+   // func onImageCaptured(_ image: UIImage, _ controller: MCamera.Controller) { Task {
+   //     await mediaStore.addMedia(image)
+   //     controller.closeMCamera()
+   // }}
     func onVideoCaptured(_ videoURL: URL, _ controller: MCamera.Controller) { Task {
-        await mediaStore.addMedia(videoURL)
+        let fileName = UUID().uuidString + ".mp4"
+            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let destinationURL = documentsURL.appendingPathComponent(fileName)
+
+            do {
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                try FileManager.default.moveItem(at: videoURL, to: destinationURL)
+            } catch {
+                print("Failed to move video: \(error)")
+            }
         controller.closeMCamera()
     }}
 }
