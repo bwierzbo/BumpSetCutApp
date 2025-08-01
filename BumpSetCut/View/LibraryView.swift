@@ -6,9 +6,12 @@
 //
 
 import SwiftUI
+import PhotosUI
 
 struct LibraryView: View {
     @State private var savedVideos: [URL] = []
+    @State private var showingPhotoPicker = false
+    @State private var selectedVideo: PhotosPickerItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +21,10 @@ struct LibraryView: View {
         .background(Color(.systemBackground).ignoresSafeArea())
         .preferredColorScheme(.dark)
         .onAppear(perform: loadSavedVideos)
+        .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedVideo, matching: .videos)
+        .onChange(of: selectedVideo) { _, newValue in
+            handleVideoSelection(newValue)
+        }
     }
 }
 
@@ -29,6 +36,24 @@ private extension LibraryView {
         }
         .navigationTitle("Saved Games")
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .toolbar(content: createToolbar)
+    }
+}
+
+// MARK: - Toolbar
+private extension LibraryView {
+    func createToolbar() -> some ToolbarContent {
+        ToolbarItem(placement: .navigationBarTrailing) {
+            createUploadButton()
+        }
+    }
+    
+    func createUploadButton() -> some View {
+        Button("Upload") {
+            showingPhotoPicker = true
+        }
+        .foregroundColor(.blue)
+        .fontWeight(.medium)
     }
 }
 
@@ -46,10 +71,12 @@ private extension LibraryView {
 // MARK: - Header
 private extension LibraryView {
     func createMediaHeader() -> some View {
-        Text("Your Captured Games")
-            .font(.title)
-            .fontWeight(.bold)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack {
+            Text("Your Captured Games")
+                .font(.title)
+                .fontWeight(.bold)
+            Spacer()
+        }
     }
 }
 
@@ -83,7 +110,10 @@ private extension LibraryView {
         }
         .padding(.top, 40)
     }
+}
 
+// MARK: - Video Management
+private extension LibraryView {
     func loadSavedVideos() {
         let fileManager = FileManager.default
         let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -102,6 +132,35 @@ private extension LibraryView {
             savedVideos.removeAll { $0 == url }
         } catch {
             print("Failed to delete video: \(error)")
+        }
+    }
+}
+
+// MARK: - Photo Picker
+private extension LibraryView {
+    func handleVideoSelection(_ item: PhotosPickerItem?) {
+        guard let item = item else { return }
+        
+        Task {
+            if let data = try? await item.loadTransferable(type: Data.self) {
+                await saveUploadedVideo(data)
+            }
+        }
+    }
+    
+    func saveUploadedVideo(_ data: Data) async {
+        let fileName = UUID().uuidString + ".mp4"
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let destinationURL = documentsURL.appendingPathComponent(fileName)
+        
+        do {
+            try data.write(to: destinationURL)
+            await MainActor.run {
+                savedVideos.append(destinationURL)
+                selectedVideo = nil
+            }
+        } catch {
+            print("Failed to save uploaded video: \(error)")
         }
     }
 }
