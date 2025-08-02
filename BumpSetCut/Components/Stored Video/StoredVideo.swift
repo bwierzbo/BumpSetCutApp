@@ -11,6 +11,7 @@ import AVKit
 struct StoredVideo: View {
     let videoURL: URL
     let onDelete: () -> ()
+    let onRefresh: () -> ()
     @State private var showingVideoPlayer = false
     @State private var showingDeleteConfirmation = false
     @State private var showingProcessVideo = false
@@ -167,6 +168,6 @@ private extension StoredVideo {
     }
     
     func createProcessVideoSheet() -> some View {
-        ProcessVideoView(videoURL: videoURL)
+        ProcessVideoView(videoURL: videoURL, onComplete: onRefresh)
     }
 }

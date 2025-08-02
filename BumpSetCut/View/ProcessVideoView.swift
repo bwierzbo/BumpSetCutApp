@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ProcessVideoView: View {
     let videoURL: URL
+    let onComplete: () -> ()
     @Environment(\.dismiss) private var dismiss
     @State private var processor = VideoProcessor()
     
@@ -65,10 +66,10 @@ private extension ProcessVideoView {
     
     func createProcessingView() -> some View {
         VStack(spacing: 12) {
-            ProgressView(value: processor.progress)
+            ProgressView(value: min(1.0, max(0.0, processor.progress)))
                 .progressViewStyle(LinearProgressViewStyle())
             
-            Text("Processing video... \(Int(processor.progress * 100))%")
+            Text("Processing video... \(Int(min(100.0, max(0.0, processor.progress * 100))))%")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -167,6 +168,7 @@ private extension ProcessVideoView {
         Task {
             do {
                 _ = try await processor.processVideo(videoURL)
+                onComplete() // Refresh the library
             } catch {
                 print("Processing failed: \(error)")
             }

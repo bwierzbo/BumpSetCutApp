@@ -92,6 +92,9 @@ private extension LibraryView {
                         videoURL: url,
                         onDelete: {
                             deleteVideo(url)
+                        },
+                        onRefresh: {
+                            loadSavedVideos()
                         }
                     )
                 }
