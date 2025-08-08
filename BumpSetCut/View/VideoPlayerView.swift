@@ -14,7 +14,7 @@ struct VideoPlayerView: View {
     @State private var player: AVPlayer?
     
     var body: some View {
-        NavigationView {
+        NavigationStack{
             VStack(spacing: 0) {
                 createVideoPlayer()
             }

@@ -14,7 +14,7 @@ struct ProcessVideoView: View {
     @State private var processor = VideoProcessor()
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 24) {
                 createHeaderView()
                 createProcessingContent()
