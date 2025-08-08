@@ -12,6 +12,7 @@ struct ProcessVideoView: View {
     let onComplete: () -> ()
     @Environment(\.dismiss) private var dismiss
     @State private var processor = VideoProcessor()
+    @State private var currentTask: Task<Void, Never>? = nil
     
     var body: some View {
         NavigationStack {
@@ -25,6 +26,7 @@ struct ProcessVideoView: View {
             .navigationTitle("AI Processing")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(content: createToolbar)
+            .onDisappear { currentTask?.cancel() }
         }
     }
 }
@@ -172,6 +174,7 @@ private extension ProcessVideoView {
         ToolbarItem(placement: .navigationBarLeading) {
             if !processor.isProcessing {
                 Button("Cancel") {
+                    currentTask?.cancel()
                     dismiss()
                 }
             }
@@ -182,22 +185,30 @@ private extension ProcessVideoView {
 // MARK: - Actions
 private extension ProcessVideoView {
     func startProcessing() {
-        Task {
+        // Cancel any in-flight job (e.g., a stuck debug run) before starting
+        currentTask?.cancel()
+        currentTask = Task {
             do {
                 _ = try await processor.processVideo(videoURL)
+                await MainActor.run { currentTask = nil }
                 onComplete() // Refresh the library
             } catch {
+                await MainActor.run { currentTask = nil }
                 print("Processing failed: \(error)")
             }
         }
     }
     
     func startDebugProcessing() {
-        Task {
+        // Cancel any in-flight job before starting debug
+        currentTask?.cancel()
+        currentTask = Task {
             do {
                 _ = try await processor.processVideoDebug(videoURL)
+                await MainActor.run { currentTask = nil }
                 onComplete() // Refresh the library
             } catch {
+                await MainActor.run { currentTask = nil }
                 print("Debug processing failed: \(error)")
             }
         }

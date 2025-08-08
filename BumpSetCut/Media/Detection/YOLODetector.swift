@@ -26,9 +26,13 @@ final class YOLODetector {
         for (name, ext) in candidates {
             if let url = Bundle.main.url(forResource: name, withExtension: ext) {
                 do {
-                    let mlModel = try MLModel(contentsOf: url)
-                    self.model = try VNCoreMLModel(for: mlModel)
-                    print("✅ Loaded CoreML model: \(name).\(ext)")
+                    var cfg = MLModelConfiguration()
+                    cfg.computeUnits = .all   // Use ANE/GPU if available
+                    let mlModel = try MLModel(contentsOf: url, configuration: cfg)
+                    let vnModel = try VNCoreMLModel(for: mlModel)
+                    vnModel.inputImageFeatureName = vnModel.inputImageFeatureName // no-op to silence unused warnings if needed
+                    self.model = vnModel
+                    print("✅ Loaded CoreML model: \(name).\(ext) [computeUnits=.all]")
                     return
                 } catch {
                     print("⚠️ Failed to load \(name).\(ext): \(error)")
@@ -44,6 +48,8 @@ final class YOLODetector {
         
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = .scaleFill
+        request.usesCPUOnly = false
+        request.preferBackgroundProcessing = true
         
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
         do {

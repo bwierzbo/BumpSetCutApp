@@ -2,14 +2,14 @@
 //  DebugAnnotator.swift
 //  BumpSetCut
 //
-//  Created by Benjamin Wierzbanowski on 8/8/25.
+//  Created by Benjamin Wierzbanowski on 8/8/25
 //
 
 //
 //  DebugAnnotator.swift
 //  BumpSetCut
 //
-//  Created by Benjamin Wierzbanowski on 8/8/25.
+//  Created by Benjamin Wierzbanowski on 8/8/25
 //
 
 import AVFoundation
@@ -36,7 +36,6 @@ final class DebugAnnotator {
     private let writer: AVAssetWriter
     private let videoInput: AVAssetWriterInput
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
-    private let audioInput: AVAssetWriterInput?
     private let ciContext = CIContext(options: nil)
 
     private let frameSize: CGSize
@@ -80,22 +79,6 @@ final class DebugAnnotator {
 
         guard writer.canAdd(videoInput) else { throw ProcessingError.exportFailed }
         writer.add(videoInput)
-
-        // Audio input (AAC) for passthrough
-        let audioSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVNumberOfChannelsKey: 2,
-            AVSampleRateKey: 44_100,
-            AVEncoderBitRateKey: 128_000
-        ]
-        let aIn = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-        aIn.expectsMediaDataInRealTime = false
-        if writer.canAdd(aIn) {
-            writer.add(aIn)
-            self.audioInput = aIn
-        } else {
-            self.audioInput = nil
-        }
     }
 
     func outputURL() -> URL { outURL }
@@ -117,15 +100,19 @@ final class DebugAnnotator {
             started = true
         }
 
-        // Wait until input is ready
-        while !videoInput.isReadyForMoreMediaData {
-            // This is called on a background context in our pipeline
-            usleep(2_000) // 2ms
+        // Bounded readiness wait to avoid hangs
+        var spins = 0
+        while !videoInput.isReadyForMoreMediaData && spins < 250 { // ~0.5s max
+            usleep(2_000)
+            spins += 1
+        }
+        if !videoInput.isReadyForMoreMediaData {
+            // Drop this frame rather than hang indefinitely
+            return
         }
 
         // Render base frame to CGImage
         let baseCI = CIImage(cvPixelBuffer: imageBuffer)
-        let rect = CGRect(origin: .zero, size: frameSize)
 
         // Create a new pixel buffer to draw into
         var outPB: CVPixelBuffer?
@@ -149,27 +136,9 @@ final class DebugAnnotator {
         }
     }
 
-    /// Append an audio sample buffer (passthrough). Safe to call interleaved with video.
-    func appendAudio(sampleBuffer: CMSampleBuffer) throws {
-        // Start the session at the first arriving buffer if not already started
-        if !started {
-            guard writer.startWriting() else { throw writer.error ?? ProcessingError.exportFailed }
-            writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-            started = true
-        }
-        guard let aIn = audioInput else { return }
-        while !aIn.isReadyForMoreMediaData {
-            usleep(2_000)
-        }
-        if !aIn.append(sampleBuffer) {
-            throw writer.error ?? ProcessingError.exportFailed
-        }
-    }
-
     /// Finish and return the file URL.
     func finish() async throws -> URL {
         videoInput.markAsFinished()
-        audioInput?.markAsFinished()
         if #available(iOS 18.0, *) {
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 writer.finishWriting {
@@ -254,8 +223,10 @@ final class DebugAnnotator {
             .foregroundColor: UIColor.black
         ]
         let textRect = CGRect(x: 10, y: barHeight + 8, width: size.width - 20, height: 30)
+        UIGraphicsPushContext(ctx)
         NSString(string: hud).draw(in: textRect.offsetBy(dx: 1, dy: 1), withAttributes: shadowAttrs)
         NSString(string: hud).draw(in: textRect, withAttributes: attrs)
+        UIGraphicsPopContext()
     }
 
     private static func rectFromVision(bbox: CGRect, canvas: CGSize) -> CGRect {

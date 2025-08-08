@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 3620E8B02E230C5C00BD0036 /* MijickCamera */; };
 		3634673D2E367FC900B10ECC /* MijickPopups in Frameworks */ = {isa = PBXBuildFile; productRef = 3634673C2E367FC900B10ECC /* MijickPopups */; };
+		3674FF662E4672F200A9C4CB /* MijickTimer in Frameworks */ = {isa = PBXBuildFile; productRef = 3674FF652E4672F200A9C4CB /* MijickTimer */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +43,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				3634673D2E367FC900B10ECC /* MijickPopups in Frameworks */,
+				3674FF662E4672F200A9C4CB /* MijickTimer in Frameworks */,
 				3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -87,6 +89,7 @@
 			packageProductDependencies = (
 				3620E8B02E230C5C00BD0036 /* MijickCamera */,
 				3634673C2E367FC900B10ECC /* MijickPopups */,
+				3674FF652E4672F200A9C4CB /* MijickTimer */,
 			);
 			productName = BumpSetCut;
 			productReference = 36F390202E1C86F40020C100 /* BumpSetCut.app */;
@@ -100,7 +103,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1600;
-				LastUpgradeCheck = 1600;
+				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					36F3901F2E1C86F40020C100 = {
 						CreatedOnToolsVersion = 16.0;
@@ -119,6 +122,7 @@
 			packageReferences = (
 				3620E8AF2E230C5C00BD0036 /* XCRemoteSwiftPackageReference "Camera" */,
 				3634673B2E367FC900B10ECC /* XCRemoteSwiftPackageReference "Popups" */,
+				3674FF642E4672F200A9C4CB /* XCRemoteSwiftPackageReference "Timer" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 36F390212E1C86F40020C100 /* Products */;
@@ -186,6 +190,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -209,6 +214,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -249,6 +255,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -265,6 +272,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -278,7 +286,6 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BumpSetCut/Info.plist;
@@ -312,7 +319,6 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 2J4SZTDKKP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BumpSetCut/Info.plist;
@@ -378,6 +384,14 @@
 				minimumVersion = 4.0.1;
 			};
 		};
+		3674FF642E4672F200A9C4CB /* XCRemoteSwiftPackageReference "Timer" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Mijick/Timer";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -390,6 +404,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 3634673B2E367FC900B10ECC /* XCRemoteSwiftPackageReference "Popups" */;
 			productName = MijickPopups;
+		};
+		3674FF652E4672F200A9C4CB /* MijickTimer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3674FF642E4672F200A9C4CB /* XCRemoteSwiftPackageReference "Timer" */;
+			productName = MijickTimer;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
