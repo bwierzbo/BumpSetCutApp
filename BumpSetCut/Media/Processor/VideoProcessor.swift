@@ -113,4 +113,91 @@ final class VideoProcessor {
         }
         return out
     }
+
+    // MARK: - Debug path (no cutting, full-length annotated video)
+    func processVideoDebug(_ url: URL) async throws -> URL {
+        await MainActor.run { isProcessing = true; progress = 0 }
+
+        // Recreate stage objects with current config
+        self.gate = BallisticsGate(config: config)
+        self.decider = RallyDecider(config: config)
+        decider.reset()
+
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            await MainActor.run { isProcessing = false }
+            throw ProcessingError.exportFailed
+        }
+
+        let duration = try await asset.load(.duration)
+        let fps = max(10, Int(try await track.load(.nominalFrameRate)))
+        let naturalSize = try await track.load(.naturalSize)
+        let preferredTransform = (try? await track.load(.preferredTransform)) ?? .identity
+
+        // Reader
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ])
+        reader.add(output)
+
+        // Annotator (writes full-length MP4 with overlays)
+        let annotator = try DebugAnnotator(size: naturalSize, transform: preferredTransform)
+
+        // Tracking
+        let tracker = KalmanBallTracker()
+
+        var frameCount = 0
+        let totalFramesEstimate = Int(duration.seconds * Double(fps))
+
+        reader.startReading()
+        while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
+              let pix = CMSampleBufferGetImageBuffer(sbuf) {
+
+            let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
+
+            // Detect → track
+            let dets = detector.detect(in: pix, at: pts)
+            tracker.update(with: dets)
+
+            // Pick the freshest track
+            let activeTrack: KalmanBallTracker.TrackedBall? = tracker.tracks
+                .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
+                .first
+
+            // Gate by physics + raw detection presence (debug-friendly)
+            let isProjectile = activeTrack.map { gate.isValidProjectile($0) } ?? false
+            let hasBall = !dets.isEmpty
+            let inRally = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
+
+            // Append annotated frame
+            try annotator.append(sampleBuffer: sbuf,
+                                 overlay: .init(detections: dets,
+                                                track: activeTrack,
+                                                isProjectile: isProjectile,
+                                                inRally: inRally,
+                                                time: pts))
+
+            // Progress (~once per second)
+            frameCount += 1
+            if frameCount % fps == 0 {
+                let p = min(1.0, max(0.0, Double(frameCount) / Double(max(totalFramesEstimate, 1))))
+                await MainActor.run { self.progress = p }
+                print(String(format: "[debug] t=%.2fs det=%d proj=%@ rally=%@ tracks=%d",
+                             CMTimeGetSeconds(pts),
+                             dets.count,
+                             isProjectile ? "Y" : "N",
+                             inRally ? "Y" : "N",
+                             tracker.tracks.count))
+            }
+        }
+
+        let out = try await annotator.finish()
+        await MainActor.run {
+            processedURL = out
+            isProcessing = false
+            progress = 1
+        }
+        return out
+    }
 }

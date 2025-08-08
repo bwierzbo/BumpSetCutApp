@@ -115,7 +115,10 @@ private extension ProcessVideoView {
             } else if processor.processedURL != nil {
                 createDoneButton()
             } else {
-                createStartButton()
+                VStack(spacing: 8) {
+                    createStartButton()
+                    createDebugButton()
+                }
             }
         }
     }
@@ -129,6 +132,20 @@ private extension ProcessVideoView {
             .padding()
             .frame(maxWidth: .infinity)
             .background(Color.blue)
+            .foregroundColor(.white)
+            .cornerRadius(12)
+        }
+    }
+    
+    func createDebugButton() -> some View {
+        Button(action: startDebugProcessing) {
+            HStack {
+                Image(systemName: "ladybug")
+                Text("Debug AI Processing")
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(Color.orange)
             .foregroundColor(.white)
             .cornerRadius(12)
         }
@@ -171,6 +188,17 @@ private extension ProcessVideoView {
                 onComplete() // Refresh the library
             } catch {
                 print("Processing failed: \(error)")
+            }
+        }
+    }
+    
+    func startDebugProcessing() {
+        Task {
+            do {
+                _ = try await processor.processVideoDebug(videoURL)
+                onComplete() // Refresh the library
+            } catch {
+                print("Debug processing failed: \(error)")
             }
         }
     }

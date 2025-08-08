@@ -1,0 +1,270 @@
+//
+//  DebugAnnotator.swift
+//  BumpSetCut
+//
+//  Created by Benjamin Wierzbanowski on 8/8/25.
+//
+
+//
+//  DebugAnnotator.swift
+//  BumpSetCut
+//
+//  Created by Benjamin Wierzbanowski on 8/8/25.
+//
+
+import AVFoundation
+import CoreImage
+import CoreGraphics
+import CoreVideo
+import UIKit
+
+/// Writes a full-length annotated video for debugging the AI pipeline.
+/// Overlays:
+///  - Volleyball detections (yellow boxes)
+///  - Recent track path (cyan polyline)
+///  - Thin top bar (green when in-rally, red when idle)
+///  - HUD text: time, detection count, projectile Y/N, rally Y/N
+final class DebugAnnotator {
+    struct OverlayFrameData {
+        let detections: [DetectionResult]
+        let track: KalmanBallTracker.TrackedBall?
+        let isProjectile: Bool
+        let inRally: Bool
+        let time: CMTime
+    }
+
+    private let writer: AVAssetWriter
+    private let videoInput: AVAssetWriterInput
+    private let adaptor: AVAssetWriterInputPixelBufferAdaptor
+    private let audioInput: AVAssetWriterInput?
+    private let ciContext = CIContext(options: nil)
+
+    private let frameSize: CGSize
+    private let transform: CGAffineTransform
+    private let outURL: URL
+
+    private var started = false
+
+    /// Create an annotator. Orientation is preserved via `transform` (usually source track's preferredTransform).
+    init(outputURL: URL? = nil, size: CGSize, transform: CGAffineTransform) throws {
+        self.frameSize = size
+        self.transform = transform
+
+        let url = outputURL ?? DebugAnnotator.makeOutputURL()
+        self.outURL = url
+
+        // Configure writer
+        self.writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: Int(size.width),
+            AVVideoHeightKey: Int(size.height),
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: max(2_000_000, Int(size.width * size.height * 6)), // heuristic
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
+            ]
+        ]
+
+        self.videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        self.videoInput.expectsMediaDataInRealTime = false
+        self.videoInput.transform = transform
+
+        let srcAttrs: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
+            kCVPixelBufferWidthKey as String: Int(size.width),
+            kCVPixelBufferHeightKey as String: Int(size.height),
+            kCVPixelFormatOpenGLESCompatibility as String: true
+        ]
+        self.adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: srcAttrs)
+
+        guard writer.canAdd(videoInput) else { throw ProcessingError.exportFailed }
+        writer.add(videoInput)
+
+        // Audio input (AAC) for passthrough
+        let audioSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVNumberOfChannelsKey: 2,
+            AVSampleRateKey: 44_100,
+            AVEncoderBitRateKey: 128_000
+        ]
+        let aIn = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+        aIn.expectsMediaDataInRealTime = false
+        if writer.canAdd(aIn) {
+            writer.add(aIn)
+            self.audioInput = aIn
+        } else {
+            self.audioInput = nil
+        }
+    }
+
+    func outputURL() -> URL { outURL }
+
+    private static func makeOutputURL() -> URL {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return dir.appendingPathComponent("debug_ai_\(UUID().uuidString).mp4")
+    }
+
+    /// Append a frame with overlays. Call `finish()` when done.
+    func append(sampleBuffer: CMSampleBuffer, overlay data: OverlayFrameData) throws {
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let pts = data.time
+
+        // Start the session at the first PTS
+        if !started {
+            guard writer.startWriting() else { throw writer.error ?? ProcessingError.exportFailed }
+            writer.startSession(atSourceTime: pts)
+            started = true
+        }
+
+        // Wait until input is ready
+        while !videoInput.isReadyForMoreMediaData {
+            // This is called on a background context in our pipeline
+            usleep(2_000) // 2ms
+        }
+
+        // Render base frame to CGImage
+        let baseCI = CIImage(cvPixelBuffer: imageBuffer)
+        let rect = CGRect(origin: .zero, size: frameSize)
+
+        // Create a new pixel buffer to draw into
+        var outPB: CVPixelBuffer?
+        guard let pool = adaptor.pixelBufferPool else { throw ProcessingError.exportFailed }
+        let status = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &outPB)
+        guard status == kCVReturnSuccess, let pixelBuffer = outPB else { throw ProcessingError.exportFailed }
+
+        // Render the base image into the output pixel buffer
+        ciContext.render(baseCI, to: pixelBuffer)
+
+        // Draw overlays
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        if let ctx = DebugAnnotator.makeContext(for: pixelBuffer, size: frameSize) {
+            DebugAnnotator.drawOverlays(in: ctx, size: frameSize, data: data)
+        }
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+
+        // Append to writer
+        if !adaptor.append(pixelBuffer, withPresentationTime: pts) {
+            throw writer.error ?? ProcessingError.exportFailed
+        }
+    }
+
+    /// Append an audio sample buffer (passthrough). Safe to call interleaved with video.
+    func appendAudio(sampleBuffer: CMSampleBuffer) throws {
+        // Start the session at the first arriving buffer if not already started
+        if !started {
+            guard writer.startWriting() else { throw writer.error ?? ProcessingError.exportFailed }
+            writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+            started = true
+        }
+        guard let aIn = audioInput else { return }
+        while !aIn.isReadyForMoreMediaData {
+            usleep(2_000)
+        }
+        if !aIn.append(sampleBuffer) {
+            throw writer.error ?? ProcessingError.exportFailed
+        }
+    }
+
+    /// Finish and return the file URL.
+    func finish() async throws -> URL {
+        videoInput.markAsFinished()
+        audioInput?.markAsFinished()
+        if #available(iOS 18.0, *) {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                writer.finishWriting {
+                    cont.resume()
+                }
+            }
+        } else {
+            writer.finishWriting {}
+            while writer.status == .writing {
+                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+            }
+        }
+        if writer.status == .failed {
+            throw writer.error ?? ProcessingError.exportFailed
+        }
+        return outURL
+    }
+
+    // MARK: - Drawing helpers
+
+    private static func makeContext(for pixelBuffer: CVPixelBuffer, size: CGSize) -> CGContext? {
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue))
+        return CGContext(data: base,
+                         width: Int(size.width),
+                         height: Int(size.height),
+                         bitsPerComponent: 8,
+                         bytesPerRow: bytesPerRow,
+                         space: colorSpace,
+                         bitmapInfo: bitmapInfo.rawValue)
+    }
+
+    private static func drawOverlays(in ctx: CGContext, size: CGSize, data: OverlayFrameData) {
+        // Flip to typical top-left origin for drawing text/rects
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+
+        // Drawing assumes origin at top-left (CoreGraphics default for bitmap contexts)
+        // 1) Top bar
+        let barHeight: CGFloat = 6
+        ctx.setFillColor((data.inRally ? UIColor.systemGreen : UIColor.systemRed).cgColor)
+        ctx.fill(CGRect(x: 0, y: 0, width: size.width, height: barHeight))
+
+        // 2) Detections (Vision bbox: normalized, origin bottom-left → convert)
+        ctx.setLineWidth(2)
+        ctx.setStrokeColor(UIColor.systemYellow.cgColor)
+        for det in data.detections {
+            let rect = rectFromVision(bbox: det.bbox, canvas: size)
+            ctx.stroke(rect)
+        }
+
+        // 3) Track path (positions are normalized top-left)
+        if let track = data.track {
+            let pts = track.positions.suffix(30).map { $0.0 } // last 30 points
+            if pts.count >= 2 {
+                ctx.setStrokeColor(UIColor.cyan.cgColor)
+                ctx.setLineWidth(3)
+                ctx.beginPath()
+                let first = pts.first!
+                ctx.move(to: CGPoint(x: first.x * size.width, y: first.y * size.height))
+                for p in pts.dropFirst() {
+                    ctx.addLine(to: CGPoint(x: p.x * size.width, y: p.y * size.height))
+                }
+                ctx.strokePath()
+            }
+        }
+
+        // 4) HUD text
+        let hud = String(format: "t=%.2fs  det=%d  proj=%@  rally=%@",
+                         data.time.seconds,
+                         data.detections.count,
+                         data.isProjectile ? "Y" : "N",
+                         data.inRally ? "Y" : "N")
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.monospacedSystemFont(ofSize: 22, weight: .medium),
+            .foregroundColor: UIColor.white
+        ]
+        let shadowAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.monospacedSystemFont(ofSize: 22, weight: .medium),
+            .foregroundColor: UIColor.black
+        ]
+        let textRect = CGRect(x: 10, y: barHeight + 8, width: size.width - 20, height: 30)
+        NSString(string: hud).draw(in: textRect.offsetBy(dx: 1, dy: 1), withAttributes: shadowAttrs)
+        NSString(string: hud).draw(in: textRect, withAttributes: attrs)
+    }
+
+    private static func rectFromVision(bbox: CGRect, canvas: CGSize) -> CGRect {
+        // Vision bbox: normalized, origin = bottom-left
+        let w = bbox.width * canvas.width
+        let h = bbox.height * canvas.height
+        let x = bbox.minX * canvas.width
+        // Convert bottom-left to top-left
+        let yTop = (1.0 - bbox.maxY) * canvas.height
+        return CGRect(x: x, y: yTop, width: w, height: h)
+    }
+}
