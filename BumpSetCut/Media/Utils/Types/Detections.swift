@@ -36,8 +36,8 @@ struct ProcessorConfig {
     var minVelocityToConsiderActive: CGFloat = 0.5
     
     // Rally detection
-    var startBuffer: Double = 0.5
-    var endTimeout: Double = 2.0
+    var startBuffer: Double = 0.3
+    var endTimeout: Double = 1.0
     
     // Export trimming
     var preroll: Double = 0.5

@@ -39,11 +39,18 @@ final class SegmentBuilder {
             currentStart = nil
         }
 
-        // Merge gaps
+        // Clamp each range to [0, duration] and drop invalid/empty
+        let clamped: [CMTimeRange] = ranges.compactMap { r in
+            let start = CMTimeMaximum(.zero, r.start)
+            let end = CMTimeMinimum(duration, r.end)
+            return CMTimeCompare(end, start) == 1 ? CMTimeRange(start: start, end: end) : nil
+        }
+
+        // Merge small gaps (on clamped ranges)
         var merged: [CMTimeRange] = []
-        for r in ranges.sorted(by: { $0.start < $1.start }) {
+        for r in clamped.sorted(by: { CMTimeCompare($0.start, $1.start) < 0 }) {
             if let last = merged.last, gapSec(between: last, and: r) <= config.minGapToMerge {
-                let union = CMTimeRange(start: last.start, end: max(last.end, r.end))
+                let union = CMTimeRange(start: last.start, end: CMTimeMaximum(last.end, r.end))
                 _ = merged.popLast()
                 merged.append(union)
             } else {
@@ -58,7 +65,7 @@ final class SegmentBuilder {
     private func closeSegment(start: CMTime, end: CMTime) {
         let pre = CMTimeMakeWithSeconds(config.preroll, preferredTimescale: 600)
         let post = CMTimeMakeWithSeconds(config.postroll, preferredTimescale: 600)
-        let s = max(.zero, CMTimeSubtract(start, pre))
+        let s = CMTimeMaximum(.zero, CMTimeSubtract(start, pre))
         let e = CMTimeAdd(end, post)
         ranges.append(CMTimeRange(start: s, end: e))
     }

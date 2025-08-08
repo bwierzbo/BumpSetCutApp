@@ -77,10 +77,10 @@ final class VideoProcessor {
                 .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
                 .first
 
-            // Gate by physics
+            // Gate by physics + fallback to raw detection presence (debug-friendly)
             let isProjectile = activeTrack.map { gate.isValidProjectile($0) } ?? false
-
-            let isActive = decider.update(isBallActive: isProjectile, timestamp: pts)
+            let hasBall = !dets.isEmpty
+            let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
             segments.observe(isActive: isActive, at: pts)
 
             // Progress (~once per second)
@@ -88,11 +88,18 @@ final class VideoProcessor {
             if frameCount % fps == 0 {
                 let p = min(1.0, max(0.0, Double(frameCount) / Double(max(totalFramesEstimate, 1))))
                 await MainActor.run { self.progress = p }
+                print(String(format: "[proc] t=%.2fs det=%d proj=%@ inRally=%@ tracks=%d",
+                             CMTimeGetSeconds(pts),
+                             dets.count,
+                             isProjectile ? "Y" : "N",
+                             isActive ? "Y" : "N",
+                             tracker.tracks.count))
             }
         }
 
         let keep = segments.finalize(until: duration)
         guard !keep.isEmpty else {
+            print("❌ No keep ranges. Detections may be too sparse or gating too strict. Check labels and thresholds.")
             await MainActor.run { isProcessing = false }
             throw ProcessingError.exportFailed
         }
