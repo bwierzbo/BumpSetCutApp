@@ -45,6 +45,9 @@ final class VideoProcessor {
 
         let duration = try await asset.load(.duration)
         let fps = max(10, Int(try await track.load(.nominalFrameRate)))
+        // Process every Nth frame to reduce load
+        let stride = 3
+        let procFps = max(1, fps / stride)
 
         // Reader
         let reader = try AVAssetReader(asset: asset)
@@ -58,13 +61,20 @@ final class VideoProcessor {
         segments.reset()
 
         var frameCount = 0
-        let totalFramesEstimate = Int(duration.seconds * Double(fps))
+        let totalFramesEstimate = Int(duration.seconds * Double(procFps))
+        var rawFrameIndex = 0
 
         reader.startReading()
         let tracker = KalmanBallTracker()
 
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
+
+            rawFrameIndex += 1
+            // Skip heavy processing for frames not on the stride
+            if rawFrameIndex % stride != 0 {
+                continue
+            }
 
             let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
 
@@ -85,7 +95,7 @@ final class VideoProcessor {
 
             // Progress (~once per second)
             frameCount += 1
-            if frameCount % fps == 0 {
+            if frameCount % procFps == 0 {
                 let p = min(1.0, max(0.0, Double(frameCount) / Double(max(totalFramesEstimate, 1))))
                 await MainActor.run { self.progress = p }
                 print(String(format: "[proc] t=%.2fs det=%d proj=%@ inRally=%@ tracks=%d",
@@ -131,8 +141,16 @@ final class VideoProcessor {
 
         let duration = try await asset.load(.duration)
         let fps = max(10, Int(try await track.load(.nominalFrameRate)))
+        // Process every Nth frame to reduce load
+        let stride = 3
+        let procFps = max(1, fps / stride)
         let naturalSize = try await track.load(.naturalSize)
         let preferredTransform = (try? await track.load(.preferredTransform)) ?? .identity
+        // Reuse last overlay on skipped frames
+        var lastDets: [DetectionResult] = []
+        var lastActiveTrack: KalmanBallTracker.TrackedBall? = nil
+        var lastIsProjectile = false
+        var lastInRally = false
 
         // Reader
         let reader = try AVAssetReader(asset: asset)
@@ -148,34 +166,47 @@ final class VideoProcessor {
         let tracker = KalmanBallTracker()
 
         var frameCount = 0
+        // We will write every frame in debug output
         let totalFramesEstimate = Int(duration.seconds * Double(fps))
+        var rawFrameIndex = 0
 
         reader.startReading()
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
 
+            rawFrameIndex += 1
             let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
 
-            // Detect → track
-            let dets = detector.detect(in: pix, at: pts)
-            tracker.update(with: dets)
+            // Decide whether to run the heavy path this frame
+            let shouldProcess = (rawFrameIndex == 1) || (rawFrameIndex % stride == 0)
+            if shouldProcess {
+                // Detect → track
+                let dets = detector.detect(in: pix, at: pts)
+                tracker.update(with: dets)
 
-            // Pick the freshest track
-            let activeTrack: KalmanBallTracker.TrackedBall? = tracker.tracks
-                .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
-                .first
+                // Pick the freshest track
+                let activeTrack: KalmanBallTracker.TrackedBall? = tracker.tracks
+                    .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
+                    .first
 
-            // Gate by physics + raw detection presence (debug-friendly)
-            let isProjectile = activeTrack.map { gate.isValidProjectile($0) } ?? false
-            let hasBall = !dets.isEmpty
-            let inRally = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
+                // Gate by physics + raw detection presence (debug-friendly)
+                let isProjectile = activeTrack.map { gate.isValidProjectile($0) } ?? false
+                let hasBall = !dets.isEmpty
+                let inRally = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
 
-            // Append annotated frame
+                // Cache for skipped frames
+                lastDets = dets
+                lastActiveTrack = activeTrack
+                lastIsProjectile = isProjectile
+                lastInRally = inRally
+            }
+
+            // Append annotated frame using the latest available overlay state
             try annotator.append(sampleBuffer: sbuf,
-                                 overlay: .init(detections: dets,
-                                                track: activeTrack,
-                                                isProjectile: isProjectile,
-                                                inRally: inRally,
+                                 overlay: .init(detections: lastDets,
+                                                track: lastActiveTrack,
+                                                isProjectile: lastIsProjectile,
+                                                inRally: lastInRally,
                                                 time: pts))
 
             // Progress (~once per second)
@@ -185,9 +216,9 @@ final class VideoProcessor {
                 await MainActor.run { self.progress = p }
                 print(String(format: "[debug] t=%.2fs det=%d proj=%@ rally=%@ tracks=%d",
                              CMTimeGetSeconds(pts),
-                             dets.count,
-                             isProjectile ? "Y" : "N",
-                             inRally ? "Y" : "N",
+                             lastDets.count,
+                             lastIsProjectile ? "Y" : "N",
+                             lastInRally ? "Y" : "N",
                              tracker.tracks.count))
             }
         }

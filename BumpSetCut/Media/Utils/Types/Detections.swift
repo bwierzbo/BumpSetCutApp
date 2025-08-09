@@ -29,11 +29,15 @@ enum ProcessingError: Error {
 }
 
 struct ProcessorConfig {
-    // Physics gating
-    var parabolaMinPoints: Int = 6
-    var parabolaMinR2: Double = 0.9
-    var accelConsistencyMaxStd: Double = 2.0
-    var minVelocityToConsiderActive: CGFloat = 0.5
+    // Physics gating (tighter)
+    var parabolaMinPoints: Int = 8
+    var parabolaMinR2: Double = 0.95
+    var accelConsistencyMaxStd: Double = 1.0
+    var minVelocityToConsiderActive: CGFloat = 0.6
+    
+    // Physics gating (ROI/coherence)
+    var maxJumpPerFrame: CGFloat = 0.08   // normalized; reject if center jumps >8% per frame
+    var roiYRadius: CGFloat = 0.04        // normalized; last Y must be within ±4% of predicted path
     
     // Rally detection
     var startBuffer: Double = 0.3

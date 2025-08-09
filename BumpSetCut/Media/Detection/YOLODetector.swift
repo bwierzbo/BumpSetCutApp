@@ -26,7 +26,7 @@ final class YOLODetector {
         for (name, ext) in candidates {
             if let url = Bundle.main.url(forResource: name, withExtension: ext) {
                 do {
-                    var cfg = MLModelConfiguration()
+                    let cfg = MLModelConfiguration()
                     cfg.computeUnits = .all   // Use ANE/GPU if available
                     let mlModel = try MLModel(contentsOf: url, configuration: cfg)
                     let vnModel = try VNCoreMLModel(for: mlModel)
@@ -48,7 +48,6 @@ final class YOLODetector {
         
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = .scaleFill
-        request.usesCPUOnly = false
         request.preferBackgroundProcessing = true
         
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
@@ -75,7 +74,8 @@ final class YOLODetector {
         return results.compactMap { (obs) -> DetectionResult? in
             guard let top = obs.labels.first else { return nil }
             let ident = top.identifier.lowercased()
-            guard ident == "volleyball" else { return nil }
+            let minConfidence: VNConfidence = 0.70
+            guard ident == "volleyball", top.confidence >= minConfidence else { return nil }
             return DetectionResult(
                 bbox: obs.boundingBox,
                 confidence: top.confidence,

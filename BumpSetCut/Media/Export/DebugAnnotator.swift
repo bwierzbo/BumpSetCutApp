@@ -46,7 +46,10 @@ final class DebugAnnotator {
 
     /// Create an annotator. Orientation is preserved via `transform` (usually source track's preferredTransform).
     init(outputURL: URL? = nil, size: CGSize, transform: CGAffineTransform) throws {
-        self.frameSize = size
+        // Normalize to even-sized dimensions (H.264 requirement / avoids reader issues)
+        let evenSize = CGSize(width: floor(size.width / 2) * 2,
+                              height: floor(size.height / 2) * 2)
+        self.frameSize = evenSize
         self.transform = transform
 
         let url = outputURL ?? DebugAnnotator.makeOutputURL()
@@ -57,10 +60,10 @@ final class DebugAnnotator {
 
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: Int(size.width),
-            AVVideoHeightKey: Int(size.height),
+            AVVideoWidthKey: Int(evenSize.width),
+            AVVideoHeightKey: Int(evenSize.height),
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: max(2_000_000, Int(size.width * size.height * 6)), // heuristic
+                AVVideoAverageBitRateKey: max(2_000_000, Int(evenSize.width * evenSize.height * 6)), // heuristic
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
             ]
         ]
@@ -71,8 +74,8 @@ final class DebugAnnotator {
 
         let srcAttrs: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
-            kCVPixelBufferWidthKey as String: Int(size.width),
-            kCVPixelBufferHeightKey as String: Int(size.height),
+            kCVPixelBufferWidthKey as String: Int(evenSize.width),
+            kCVPixelBufferHeightKey as String: Int(evenSize.height),
             kCVPixelFormatOpenGLESCompatibility as String: true
         ]
         self.adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: srcAttrs)
@@ -209,24 +212,29 @@ final class DebugAnnotator {
         }
 
         // 4) HUD text
+        // Flip vertically so text is upright (CoreGraphics origin is top-left, but text draws upside-down)
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: size.height)
+        ctx.scaleBy(x: 1, y: -1)
         let hud = String(format: "t=%.2fs  det=%d  proj=%@  rally=%@",
                          data.time.seconds,
                          data.detections.count,
                          data.isProjectile ? "Y" : "N",
                          data.inRally ? "Y" : "N")
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedSystemFont(ofSize: 22, weight: .medium),
+            .font: UIFont.monospacedSystemFont(ofSize: 36, weight: .medium),
             .foregroundColor: UIColor.white
         ]
         let shadowAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedSystemFont(ofSize: 22, weight: .medium),
+            .font: UIFont.monospacedSystemFont(ofSize: 36, weight: .medium),
             .foregroundColor: UIColor.black
         ]
-        let textRect = CGRect(x: 10, y: barHeight + 8, width: size.width - 20, height: 30)
+        let textRect = CGRect(x: 10, y: barHeight + 8, width: size.width - 20, height: 50)
         UIGraphicsPushContext(ctx)
         NSString(string: hud).draw(in: textRect.offsetBy(dx: 1, dy: 1), withAttributes: shadowAttrs)
         NSString(string: hud).draw(in: textRect, withAttributes: attrs)
         UIGraphicsPopContext()
+        ctx.restoreGState()
     }
 
     private static func rectFromVision(bbox: CGRect, canvas: CGSize) -> CGRect {
@@ -234,8 +242,8 @@ final class DebugAnnotator {
         let w = bbox.width * canvas.width
         let h = bbox.height * canvas.height
         let x = bbox.minX * canvas.width
-        // Convert bottom-left to top-left
-        let yTop = (1.0 - bbox.maxY) * canvas.height
+        // Treat bbox as top-left oriented to avoid vertical inversion in overlay
+        let yTop = bbox.minY * canvas.height
         return CGRect(x: x, y: yTop, width: w, height: h)
     }
 }
