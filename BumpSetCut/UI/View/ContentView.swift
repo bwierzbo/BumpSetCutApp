@@ -25,6 +25,7 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Scrollable View
 private extension ContentView {
     func createScrollableView() -> some View {
         ScrollView {
@@ -33,28 +34,41 @@ private extension ContentView {
                 createCaptureMediaView()
                 createLibraryButton()
             }
-            .padding(.top, 12)
+            .padding(.top, 32)
             .padding(.bottom, 72)
         }
         .scrollIndicators(.hidden)
     }
 }
 
+// MARK: - Header
 private extension ContentView {
     func createTitleHeader() -> some View {
-        Text("🏐 Beach Volleyball MVP")
-            .font(.largeTitle)
-            .bold()
+        VStack(spacing: 8) {
+            Text("🏐")
+                .font(.system(size: 56))
+            Text("Beach Volleyball MVP")
+                .font(.largeTitle)
+                .bold()
+            Text("Capture rallies and build your highlight reel")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
-    
+
+// MARK: - Capture Media
 private extension ContentView {
     func createCaptureMediaView() -> some View {
-        ActionButton{
-                mediaStore.presentCapturePopup()
+        ActionButton {
+            mediaStore.presentCapturePopup()
         }
     }
-    
+}
+
+// MARK: - Library Navigation
+private extension ContentView {
     func createLibraryButton() -> some View {
         NavigationLink(destination: LibraryView()) {
             HStack {
@@ -65,7 +79,13 @@ private extension ContentView {
             }
             .padding()
             .frame(maxWidth: .infinity)
-            .background(Color.green)
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [Color.green, Color.blue]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
             .foregroundColor(.white)
             .cornerRadius(12)
         }
