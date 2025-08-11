@@ -45,9 +45,7 @@ final class VideoProcessor {
 
         let duration = try await asset.load(.duration)
         let fps = max(10, Int(try await track.load(.nominalFrameRate)))
-        // Process every Nth frame to reduce load
-        let stride = 3
-        let procFps = max(1, fps / stride)
+        // Process every frame in production path
 
         // Reader
         let reader = try AVAssetReader(asset: asset)
@@ -61,20 +59,13 @@ final class VideoProcessor {
         segments.reset()
 
         var frameCount = 0
-        let totalFramesEstimate = Int(duration.seconds * Double(procFps))
-        var rawFrameIndex = 0
+        let totalFramesEstimate = Int(duration.seconds * Double(fps))
 
         reader.startReading()
         let tracker = KalmanBallTracker()
 
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
-
-            rawFrameIndex += 1
-            // Skip heavy processing for frames not on the stride
-            if rawFrameIndex % stride != 0 {
-                continue
-            }
 
             let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
 
@@ -95,7 +86,7 @@ final class VideoProcessor {
 
             // Progress (~once per second)
             frameCount += 1
-            if frameCount % procFps == 0 {
+            if frameCount % fps == 0 {
                 let p = min(1.0, max(0.0, Double(frameCount) / Double(max(totalFramesEstimate, 1))))
                 await MainActor.run { self.progress = p }
                 print(String(format: "[proc] t=%.2fs det=%d proj=%@ inRally=%@ tracks=%d",
@@ -143,7 +134,6 @@ final class VideoProcessor {
         let fps = max(10, Int(try await track.load(.nominalFrameRate)))
         // Process every Nth frame to reduce load
         let stride = 3
-        let procFps = max(1, fps / stride)
         let naturalSize = try await track.load(.naturalSize)
         let preferredTransform = (try? await track.load(.preferredTransform)) ?? .identity
         // Reuse last overlay on skipped frames

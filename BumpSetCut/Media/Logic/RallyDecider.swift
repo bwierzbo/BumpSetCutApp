@@ -13,18 +13,31 @@ import CoreGraphics
 final class RallyDecider {
     private let config: ProcessorConfig
 
+    // Tunables (can be overridden via init with defaults below)
+    private let minRallySec: Double
+    private let prePadSec: Double
+    private let postPadSec: Double
+
     // State
     private var inRally: Bool = false
     private var rallyStartCandidate: CMTime?
     private var lastAnyBall: CMTime?
     private var lastProjectile: CMTime?
+    private var projRunStart: CMTime?
 
     // Sliding window buffers (timestamps)
     private var ballTimes: [CMTime] = []
     private var windowSec: Double = 0.8   // evidence window
 
-    init(config: ProcessorConfig) {
+    // Segmenting state
+    private var rallyStartTime: CMTime?
+    private var pendingSegment: (start: CMTime, end: CMTime)?
+
+    init(config: ProcessorConfig, minRallySec: Double = 3.0, prePadSec: Double = 1.5, postPadSec: Double = 1.5) {
         self.config = config
+        self.minRallySec = minRallySec
+        self.prePadSec = prePadSec
+        self.postPadSec = postPadSec
     }
 
     func reset() {
@@ -32,7 +45,10 @@ final class RallyDecider {
         rallyStartCandidate = nil
         lastAnyBall = nil
         lastProjectile = nil
+        projRunStart = nil
         ballTimes.removeAll()
+        rallyStartTime = nil
+        pendingSegment = nil
     }
 
     /// Update with latest signals.
@@ -50,14 +66,37 @@ final class RallyDecider {
         }
         if isProjectile {
             lastProjectile = now
+            if projRunStart == nil { projRunStart = now }
+        } else {
+            // Require continuous projectile evidence; reset run when it drops
+            projRunStart = nil
         }
         // Drop old evidence
         pruneOldEvidence(now: now)
 
         if inRally {
-            if shouldEnd(now: now) { inRally = false }
+            if shouldEnd(now: now) {
+                inRally = false
+                // Only emit a segment if we actually had a recorded start time
+                if let start = rallyStartTime {
+                    let elapsed = CMTimeGetSeconds(CMTimeSubtract(now, start))
+                    if elapsed >= minRallySec {
+                        // Build padded segment
+                        let prePad = CMTimeMakeWithSeconds(prePadSec, preferredTimescale: 600)
+                        let postPad = CMTimeMakeWithSeconds(postPadSec, preferredTimescale: 600)
+                        let paddedStart = CMTimeMaximum(.zero, CMTimeSubtract(start, prePad))
+                        let paddedEnd = CMTimeAdd(now, postPad)
+                        pendingSegment = (paddedStart, paddedEnd)
+                    }
+                }
+                rallyStartTime = nil
+            }
         } else {
-            if shouldStart(now: now) { inRally = true; rallyStartCandidate = nil }
+            if shouldStart(now: now) {
+                inRally = true
+                rallyStartCandidate = nil
+                rallyStartTime = now
+            }
         }
         return inRally
     }
@@ -78,22 +117,22 @@ final class RallyDecider {
     }
 
     private func shouldStart(now: CMTime) -> Bool {
-        // Start if: any projectile recently OR ball rate sustained and buffered
-        let projRecent = timeSince(lastProjectile, now: now) <= 0.8
-        let rate = ballRatePerSec(now: now)
-        let hasSustainedBall = rate >= 1.5 // ~>= 1–2 detections per second in window
-
-        if projRecent || hasSustainedBall {
-            if rallyStartCandidate == nil { rallyStartCandidate = now }
-            let dt = CMTimeGetSeconds(CMTimeSubtract(now, rallyStartCandidate!))
-            return dt >= config.startBuffer
-        } else {
-            rallyStartCandidate = nil
-            return false
-        }
+        // Start only after continuous projectile evidence for at least startBuffer seconds
+        guard let runStart = projRunStart else { return false }
+        let dt = CMTimeGetSeconds(CMTimeSubtract(now, runStart))
+        return dt >= config.startBuffer
     }
 
     private func shouldEnd(now: CMTime) -> Bool {
+        // Enforce minimum rally duration to prevent flicker/short clips
+        if let start = rallyStartTime {
+            let elapsed = CMTimeGetSeconds(CMTimeSubtract(now, start))
+            if elapsed < minRallySec { return false }
+        }
+        // Keep rally alive if we've seen a valid projectile very recently (handles brief occlusions under the net)
+        if timeSince(lastProjectile, now: now) <= 1.0 {
+            return false
+        }
         // Hard end if we haven't seen *any* ball for a bit
         let noBallFor = timeSince(lastAnyBall, now: now)
         if noBallFor >= min(0.8, config.endTimeout) { return true }
@@ -106,5 +145,11 @@ final class RallyDecider {
 
         // Fallback to global timeout (safety)
         return noBallFor >= config.endTimeout
+    }
+
+    /// Returns the most recently ended rally segment with pre/post padding, if any, and clears it.
+    func popEndedSegment() -> (start: CMTime, end: CMTime)? {
+        defer { pendingSegment = nil }
+        return pendingSegment
     }
 }

@@ -21,7 +21,7 @@ import UIKit
 /// Writes a full-length annotated video for debugging the AI pipeline.
 /// Overlays:
 ///  - Volleyball detections (yellow boxes)
-///  - Recent track path (cyan polyline)
+///  - Dotted blue detection path + solid red verified trajectory
 ///  - Thin top bar (green when in-rally, red when idle)
 ///  - HUD text: time, detection count, projectile Y/N, rally Y/N
 final class DebugAnnotator {
@@ -31,6 +31,8 @@ final class DebugAnnotator {
         let isProjectile: Bool
         let inRally: Bool
         let time: CMTime
+        // Optional: verified trajectory (distinct color). Defaults to nil so existing callers compile.
+        let verifiedTrack: KalmanBallTracker.TrackedBall? = nil
     }
 
     private let writer: AVAssetWriter
@@ -195,12 +197,14 @@ final class DebugAnnotator {
             ctx.stroke(rect)
         }
 
-        // 3) Track path (positions are normalized top-left)
+        // 3) Path (dotted = detections in blue; solid = verified trajectory in red)
         if let track = data.track {
             let pts = track.positions.suffix(30).map { $0.0 } // last 30 points
             if pts.count >= 2 {
-                ctx.setStrokeColor(UIColor.cyan.cgColor)
+                // Dotted blue: raw detection chain
                 ctx.setLineWidth(3)
+                ctx.setLineDash(phase: 0, lengths: [6, 4])
+                ctx.setStrokeColor(UIColor.systemBlue.cgColor)
                 ctx.beginPath()
                 let first = pts.first!
                 ctx.move(to: CGPoint(x: first.x * size.width, y: first.y * size.height))
@@ -208,6 +212,19 @@ final class DebugAnnotator {
                     ctx.addLine(to: CGPoint(x: p.x * size.width, y: p.y * size.height))
                 }
                 ctx.strokePath()
+                ctx.setLineDash(phase: 0, lengths: [])
+
+                // Solid red: validated trajectory (when physics gate says projectile)
+                if data.isProjectile {
+                    ctx.setLineWidth(3)
+                    ctx.setStrokeColor(UIColor.systemRed.cgColor)
+                    ctx.beginPath()
+                    ctx.move(to: CGPoint(x: first.x * size.width, y: first.y * size.height))
+                    for p in pts.dropFirst() {
+                        ctx.addLine(to: CGPoint(x: p.x * size.width, y: p.y * size.height))
+                    }
+                    ctx.strokePath()
+                }
             }
         }
 

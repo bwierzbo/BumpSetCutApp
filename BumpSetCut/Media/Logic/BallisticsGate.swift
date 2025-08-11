@@ -17,10 +17,17 @@ final class BallisticsGate {
     
     func isValidProjectile(_ track: KalmanBallTracker.TrackedBall) -> Bool {
         // Must have enough samples to say anything meaningful
-        guard track.positions.count >= config.parabolaMinPoints else { return false }
+        let allSamples = track.positions
+        guard allSamples.count >= config.parabolaMinPoints else { return false }
+
+        // Time-windowed samples: use only the last `projectileWindowSec` seconds
+        let windowSec = max(0.1, config.projectileWindowSec)
+        let endT = allSamples.last!.1
+        let cutoff = CMTimeSubtract(endT, CMTimeMakeWithSeconds(windowSec, preferredTimescale: 600))
+        let samples = allSamples.filter { CMTimeCompare($0.1, cutoff) >= 0 }
+        guard samples.count >= config.parabolaMinPoints else { return false }
   
-        // Build time-based samples (use real timestamps; fallback to ~30fps indices if degenerate)
-        let samples = track.positions
+        // Build time-based arrays (use real timestamps; fallback to ~30fps indices if degenerate)
         let t0 = samples.first!.1
         var ts: [Double] = []
         var ys: [CGFloat] = []
@@ -34,22 +41,6 @@ final class BallisticsGate {
         if (ts.last ?? 0) <= 0 {
             // Fallback if timestamps are identical: assume ~30fps spacing
             ts = (0..<samples.count).map { Double($0) * (1.0 / 30.0) }
-        }
-        // --- Anti-stationary early rejections ---
-        if samples.count >= 2 {
-            // Total path length over the window
-            var path: CGFloat = 0
-            for i in 1..<samples.count {
-                let p0 = samples[i-1].0, p1 = samples[i].0
-                path += hypot(p1.x - p0.x, p1.y - p0.y)
-            }
-            // Net displacement first -> last
-            let disp = hypot(samples.last!.0.x - samples.first!.0.x, samples.last!.0.y - samples.first!.0.y)
-            // Vertical span
-            let spanY = (ys.max() ?? 0) - (ys.min() ?? 0)
-            if spanY < config.minVerticalSpan { return false }
-            if path < config.minPathLength { return false }
-            if disp < config.minNetDisplacement { return false }
         }
 
         // --- ROI / coherence checks (reject sudden jumps and off-trajectory last point) ---
@@ -91,20 +82,22 @@ final class BallisticsGate {
             }
         }
   
-        // Points for quadratic fit: x = time (s), y = normalized y (top-left origin)
+        // Points for quadratic fit: x = time (s), y = normalized y
+        // NOTE: Vision bounding boxes are bottom-left origin by default (y increases upward).
+        //       Use config.yIncreasingDown to pick the correct curvature sign.
         let points = zip(ts, ys).map { CGPoint(x: CGFloat($0.0), y: $0.1) }
   
         // Quadratic fit & acceptance
         guard let fit = fitQuadratic(points: points) else { return false }
         let minR2 = max(0.0, config.parabolaMinR2)
         let r2OK = fit.r2 >= minR2
-  
+
         // Vertical span must be non-trivial to avoid flat noise (normalized coords)
         let yMin = ys.min() ?? 0
         let yMax = ys.max() ?? 0
         let spanY = yMax - yMin
         let minSpan: CGFloat = 0.02 // ~2% of height
-  
+
         // Velocity & apex evidence (sign change in vertical velocity indicates a peak)
         var vels: [Double] = []
         vels.reserveCapacity(max(0, ts.count - 1))
@@ -120,15 +113,22 @@ final class BallisticsGate {
         let maxSpeed = vels.map { abs($0) }.max() ?? 0
         let minSpeed = Double(config.minVelocityToConsiderActive) // normalized / s
 
-        // Require a few samples above a minimum speed to reject standstill
-        var fastSamples = 0
-        for v in vels { if abs(v) >= Double(config.speedThreshold) { fastSamples += 1 } }
-        if fastSamples < config.minSpeedSamplesAbove { return false }
-  
-        // Tight acceptance: good fit, enough span, reasonable speed, and correct curvature sign
-        // With y increasing downward (top-left origin), gravity implies a downward-opening parabola => a > 0
-        let curvatureOK = fit.a > 0
-        let accept = r2OK && curvatureOK && spanY >= max(config.minVerticalSpan, 0.02)
+        // Curvature sign depends on Y axis direction:
+        // - If y increases downward (top-left), real projectile opens downward => a > 0
+        // - If y increases upward (Vision default bottom-left), real projectile opens downward in world => a < 0
+        let curvatureOK = config.yIncreasingDown ? (fit.a > 0) : (fit.a < 0)
+
+        // Gravity band: compare by magnitude due to different pixel/time scales; keep tunable range
+        let aMag = abs(fit.a)
+        let gravityOK = (!config.useGravityBand) || (aMag >= config.gravityMinA && aMag <= config.gravityMaxA)
+
+        // Tight acceptance: good fit, correct curvature, enough span, and some motion evidence
+        let accept = r2OK
+            && curvatureOK
+            && gravityOK
+            && (spanY >= minSpan)
+            && (hasApex || maxSpeed >= minSpeed)
+
         return accept
     }
     

@@ -8,27 +8,68 @@
 import CoreGraphics
 import CoreMedia
 
+/// Lightweight constant-velocity tracker with tight association gating.
+/// Uses normalized coordinates ([0,1] in both axes). Designed to resist
+/// hijacking by stationary false positives and far-away identical objects.
 final class KalmanBallTracker {
+
     struct TrackedBall {
-        var positions: [(CGPoint, CMTime)]
+        var positions: [(CGPoint, CMTime)]  // normalized center + timestamp
+
+        var age: Int { positions.count }
+        var last: (CGPoint, CMTime)? { positions.last }
+        var first: (CGPoint, CMTime)? { positions.first }
+
+        var netDisplacement: CGFloat {
+            guard let s = first?.0, let e = last?.0 else { return 0 }
+            return hypot(e.x - s.x, e.y - s.y)
+        }
     }
-    
+
     private(set) var tracks: [TrackedBall] = []
-    
+    private let config: ProcessorConfig
+
+    init(config: ProcessorConfig = ProcessorConfig()) {
+        self.config = config
+    }
+
+    /// Update tracker with detections for the current frame timestamp.
+    /// - Important: `DetectionResult.bbox` is expected to be normalized.
     func update(with detections: [DetectionResult]) {
-        // Simple nearest-neighbor association for now
-        for det in detections {
-            if let idx = tracks.firstIndex(where: { track in
-                guard let last = track.positions.last else { return false }
-                return distance(last.0, rectCenter(det.bbox)) < 50
-            }) {
-                tracks[idx].positions.append((rectCenter(det.bbox), det.timestamp))
+        // Precompute centers
+        let centers: [(pt: CGPoint, ts: CMTime)] = detections.map { det in
+            (pt: rectCenter(det.bbox), ts: det.timestamp)
+        }
+
+        // Associate each detection to the nearest predicted track position within a tight gate
+        var claimedTracks = Set<Int>()
+        for det in centers {
+            // Find the best track within gate
+            var bestIdx: Int? = nil
+            var bestDist: CGFloat = .greatestFiniteMagnitude
+            for (idx, track) in tracks.enumerated() where !claimedTracks.contains(idx) {
+                guard let predicted = predictedPosition(for: track) else { continue }
+                let d = distance(predicted, det.pt)
+                if d <= config.trackGateRadius, d < bestDist {
+                    bestDist = d
+                    bestIdx = idx
+                }
+            }
+
+            if let idx = bestIdx {
+                // Append to existing track
+                tracks[idx].positions.append((det.pt, det.ts))
+                claimedTracks.insert(idx)
             } else {
-                tracks.append(TrackedBall(positions: [(rectCenter(det.bbox), det.timestamp)]))
+                // Start a new track only if there isn't an older, stronger track nearby
+                // This reduces duplicate tracks for the same object.
+                if !existsStrongerNeighbor(near: det.pt) {
+                    tracks.append(TrackedBall(positions: [(det.pt, det.ts)]))
+                }
             }
         }
-        
-        // Optional: prune old tracks
+
+        // Prune stale tracks that haven't been updated for a while
         let now = detections.last?.timestamp
         if let now = now {
             tracks.removeAll { track in
@@ -37,11 +78,34 @@ final class KalmanBallTracker {
             }
         }
     }
-    
+
+    // MARK: - Helpers
+
+    private func predictedPosition(for track: TrackedBall) -> CGPoint? {
+        guard track.positions.count >= 1 else { return nil }
+        guard track.positions.count >= 2 else { return track.positions.last!.0 }
+        // Simple constant-velocity extrapolation based on last two samples
+        let p1 = track.positions[track.positions.count - 1].0
+        let p0 = track.positions[track.positions.count - 2].0
+        let v = CGPoint(x: p1.x - p0.x, y: p1.y - p0.y)
+        return CGPoint(x: p1.x + v.x, y: p1.y + v.y)
+    }
+
+    /// Checks whether there is an existing longer-lived track within the gate radius.
+    private func existsStrongerNeighbor(near point: CGPoint) -> Bool {
+        for track in tracks {
+            guard let last = track.last?.0 else { continue }
+            if distance(last, point) <= config.trackGateRadius, track.age >= config.minTrackAgeForPhysics {
+                return true
+            }
+        }
+        return false
+    }
+
     private func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
         hypot(a.x - b.x, a.y - b.y)
     }
-    
+
     private func rectCenter(_ rect: CGRect) -> CGPoint {
         CGPoint(x: rect.midX, y: rect.midY)
     }
