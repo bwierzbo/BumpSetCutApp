@@ -419,7 +419,7 @@ extension MediaStore {
         toDate: Date? = nil,
         inFolder: String? = nil
     ) -> [VideoMetadata] {
-        var results = manifest.videos.values
+        var results = Array(manifest.videos.values)
         
         // Text search
         if !query.isEmpty {
@@ -468,7 +468,7 @@ extension MediaStore {
             }
         }
         
-        return Array(results)
+        return results
     }
     
     func getFolderMetadata(at path: String) -> FolderMetadata? {
@@ -512,7 +512,7 @@ extension MediaStore {
 
 extension MediaStore {
     @available(*, deprecated, message: "Use getVideos(in:) with folder path parameter")
-    func getAllVideos() -> [URL] {
+    func getAllVideoURLs() -> [URL] {
         let videos = getVideos(in: "")
         return videos.compactMap { video in
             let fullPath = baseDirectory.appendingPathComponent(video.folderPath).appendingPathComponent(video.fileName)
