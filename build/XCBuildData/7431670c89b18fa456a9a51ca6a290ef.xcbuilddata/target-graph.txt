@@ -1,0 +1,19 @@
+Target dependency graph (8 targets)
+Target 'BumpSetCut' in project 'BumpSetCut'
+➜ Explicit dependency on target 'MijickPopups' in project 'MijickPopups'
+➜ Explicit dependency on target 'MijickTimer' in project 'MijickTimer'
+➜ Explicit dependency on target 'MijickCamera' in project 'MijickCamera'
+Target 'MijickCamera' in project 'MijickCamera'
+➜ Explicit dependency on target 'MijickCamera' in project 'MijickCamera'
+➜ Explicit dependency on target 'MijickCamera_MijickCamera' in project 'MijickCamera'
+➜ Explicit dependency on target 'MijickTimer' in project 'MijickTimer'
+Target 'MijickCamera' in project 'MijickCamera'
+➜ Explicit dependency on target 'MijickCamera_MijickCamera' in project 'MijickCamera'
+➜ Explicit dependency on target 'MijickTimer' in project 'MijickTimer'
+Target 'MijickCamera_MijickCamera' in project 'MijickCamera' (no dependencies)
+Target 'MijickTimer' in project 'MijickTimer'
+➜ Explicit dependency on target 'MijickTimer' in project 'MijickTimer'
+Target 'MijickTimer' in project 'MijickTimer' (no dependencies)
+Target 'MijickPopups' in project 'MijickPopups'
+➜ Explicit dependency on target 'MijickPopups' in project 'MijickPopups'
+Target 'MijickPopups' in project 'MijickPopups' (no dependencies)

@@ -1,28 +1,28 @@
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/ML/YOLODetector.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Extensions/MFontModifier.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/Math/QuadraticFit.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Components/Stored\ Video/StoredVideo.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Views/VideoPlayerView.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Domain/Logic/SegmentBuilder.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Data/Extensions/Task++.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Domain/Services/DebugAnnotator.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Views/ContentView.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Domain/Logic/RallyDecider.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/System/AVURLAsset++.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/ML/MLService.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Extensions/Font+MFontModifier.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Data/Extensions/Task++.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Domain/Services/DebugAnnotator.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Views/ProcessVideoView.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Domain/Logic/RallyDecider.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/App/BumpSetCutApp.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Extensions/View+MFontModifier.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Data/Models/Detections.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Domain/Services/VideoProcessor.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/Camera/CameraService.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Components/Action\ Button/ActionButton.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Views/LibraryView.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Views/ProcessVideoView.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/App/BumpSetCutApp.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Domain/Logic/BallisticsGate.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/System/CMTime+Helpers.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Popups/CaptureViewPopup.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Extensions/View+MFontModifier.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Data/Storage/MediaStore.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Domain/Tracking/KalmanBallTracker.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/ML/YOLODetector.swift
-/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Extensions/MFontModifier.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/Camera/CameraService.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Domain/Services/VideoExporter.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Components/Action\ Button/ActionButton.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Views/LibraryView.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Domain/Logic/SegmentBuilder.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Infrastructure/System/CMTime+Helpers.swift
+/Users/benjaminwierzbanowski/Code/BumpSetCut/BumpSetCut/Presentation/Popups/CaptureViewPopup.swift
 /Users/benjaminwierzbanowski/Code/BumpSetCut/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/DerivedSources/GeneratedAssetSymbols.swift
