@@ -83,7 +83,7 @@ struct FolderManifest: Codable {
     }
 }
 
-@MainActor @Observable class MediaStore {
+@MainActor class MediaStore: ObservableObject {
     weak var captureDelegate: CaptureDelegate?
     
     private var manifest: FolderManifest
@@ -392,6 +392,83 @@ extension MediaStore {
             video.displayName.lowercased().contains(lowercaseQuery) ||
             video.fileName.lowercased().contains(lowercaseQuery)
         }
+    }
+    
+    func searchFolders(query: String) -> [FolderMetadata] {
+        let lowercaseQuery = query.lowercased()
+        return manifest.folders.values.filter { folder in
+            folder.name.lowercased().contains(lowercaseQuery) ||
+            folder.path.lowercased().contains(lowercaseQuery)
+        }
+    }
+    
+    func getAllFolders() -> [FolderMetadata] {
+        return Array(manifest.folders.values)
+    }
+    
+    func getAllVideos() -> [VideoMetadata] {
+        return Array(manifest.videos.values)
+    }
+    
+    func advancedSearchVideos(
+        query: String,
+        fileType: String? = nil,
+        minSize: Int64? = nil,
+        maxSize: Int64? = nil,
+        fromDate: Date? = nil,
+        toDate: Date? = nil,
+        inFolder: String? = nil
+    ) -> [VideoMetadata] {
+        var results = manifest.videos.values
+        
+        // Text search
+        if !query.isEmpty {
+            let lowercaseQuery = query.lowercased()
+            results = results.filter { video in
+                video.displayName.lowercased().contains(lowercaseQuery) ||
+                video.fileName.lowercased().contains(lowercaseQuery)
+            }
+        }
+        
+        // File type filter
+        if let fileType = fileType, !fileType.isEmpty {
+            results = results.filter { video in
+                video.fileName.lowercased().hasSuffix(".\(fileType.lowercased())")
+            }
+        }
+        
+        // Size filters
+        if let minSize = minSize {
+            results = results.filter { $0.fileSize >= minSize }
+        }
+        
+        if let maxSize = maxSize {
+            results = results.filter { $0.fileSize <= maxSize }
+        }
+        
+        // Date filters
+        if let fromDate = fromDate {
+            results = results.filter { $0.createdDate >= fromDate }
+        }
+        
+        if let toDate = toDate {
+            results = results.filter { $0.createdDate <= toDate }
+        }
+        
+        // Folder filter
+        if let inFolder = inFolder {
+            if inFolder.isEmpty {
+                // Root folder only
+                results = results.filter { $0.folderPath.isEmpty }
+            } else {
+                // Specific folder and its subfolders
+                results = results.filter { 
+                    $0.folderPath == inFolder || $0.folderPath.hasPrefix("\(inFolder)/")
+                }
+            }
+        }
+        
+        return Array(results)
     }
     
     func getFolderMetadata(at path: String) -> FolderMetadata? {

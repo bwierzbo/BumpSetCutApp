@@ -10,36 +10,73 @@ import PhotosUI
 
 struct LibraryView: View {
     @StateObject private var folderManager: FolderManager
-    @State private var showingPhotoPicker = false
-    @State private var selectedVideo: PhotosPickerItem?
+    @StateObject private var uploadCoordinator: UploadCoordinator
+    @StateObject private var searchViewModel: SearchViewModel
     @State private var showingCreateFolder = false
     @State private var newFolderName = ""
     @State private var sortOption: ContentSortOption = .name
     @State private var viewMode: ViewMode = .list
     @State private var searchText = ""
+    @State private var isShowingAdvancedSearch = false
     
     init(mediaStore: MediaStore) {
         self._folderManager = StateObject(wrappedValue: FolderManager(mediaStore: mediaStore))
+        self._uploadCoordinator = StateObject(wrappedValue: UploadCoordinator(mediaStore: mediaStore))
+        self._searchViewModel = StateObject(wrappedValue: SearchViewModel(mediaStore: mediaStore))
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if !folderManager.currentPath.isEmpty {
-                    createBreadcrumbView()
+                if isShowingAdvancedSearch {
+                    // Advanced search interface
+                    AdvancedSearchView(
+                        searchViewModel: searchViewModel,
+                        onNavigateToFolder: { path in
+                            folderManager.navigateToFolder(path)
+                            isShowingAdvancedSearch = false
+                        },
+                        onNavigateToVideo: { video in
+                            // Navigate to the video's folder first
+                            folderManager.navigateToFolder(video.folderPath)
+                            isShowingAdvancedSearch = false
+                        }
+                    )
+                } else {
+                    // Normal library view
+                    if !folderManager.currentPath.isEmpty {
+                        createBreadcrumbView()
+                    }
+                    
+                    DropZoneView(uploadCoordinator: uploadCoordinator, destinationFolder: folderManager.currentPath) {
+                        createScrollableView()
+                    }
+                    
+                    // Upload status bar
+                    UploadStatusBar(uploadCoordinator: uploadCoordinator)
                 }
-                createScrollableView()
             }
             .background(Color(.systemBackground).ignoresSafeArea())
             .preferredColorScheme(.dark)
-            .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedVideo, matching: .videos)
-            .onChange(of: selectedVideo) { _, newValue in
-                handleVideoSelection(newValue)
-            }
             .sheet(isPresented: $showingCreateFolder) {
                 createFolderSheet()
             }
-            .searchable(text: $searchText, prompt: "Search videos and folders")
+            .searchable(
+                text: $searchText, 
+                isPresented: $isShowingAdvancedSearch,
+                prompt: "Search videos and folders"
+            )
+            .onChange(of: isShowingAdvancedSearch) { isShowing in
+                if isShowing {
+                    searchViewModel.searchText = searchText
+                } else {
+                    searchText = ""
+                    searchViewModel.clearSearch()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .uploadCompleted)) { _ in
+                folderManager.refreshContents()
+            }
         }
     }
 }
@@ -147,6 +184,15 @@ private extension LibraryView {
             
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 16) {
+                    // Advanced search button
+                    Button {
+                        isShowingAdvancedSearch.toggle()
+                    } label: {
+                        Image(systemName: isShowingAdvancedSearch ? "magnifyingglass.circle.fill" : "magnifyingglass.circle")
+                            .fontWeight(.medium)
+                            .foregroundColor(isShowingAdvancedSearch ? .blue : .primary)
+                    }
+                    
                     Menu {
                         Picker("Sort", selection: $sortOption) {
                             ForEach(ContentSortOption.allCases, id: \.self) { option in
@@ -172,12 +218,10 @@ private extension LibraryView {
                             .fontWeight(.medium)
                     }
                     
-                    Button {
-                        showingPhotoPicker = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .fontWeight(.medium)
-                    }
+                    EnhancedUploadButton(
+                        uploadCoordinator: uploadCoordinator,
+                        destinationFolder: folderManager.currentPath
+                    )
                 }
             }
         }
@@ -344,7 +388,20 @@ private extension LibraryView {
                     },
                     onRefresh: {
                         folderManager.refreshContents()
-                    }
+                    },
+                    onRename: { newName in
+                        Task {
+                            try await folderManager.renameVideo(video, to: newName)
+                        }
+                    },
+                    onMove: { targetFolder in
+                        Task {
+                            try await folderManager.moveVideoToFolder(video, targetFolderPath: targetFolder)
+                        }
+                    },
+                    isSelectable: false,
+                    isSelected: false,
+                    onSelectionToggle: nil
                 )
             }
         }
@@ -362,7 +419,20 @@ private extension LibraryView {
                     },
                     onRefresh: {
                         folderManager.refreshContents()
-                    }
+                    },
+                    onRename: { newName in
+                        Task {
+                            try await folderManager.renameVideo(video, to: newName)
+                        }
+                    },
+                    onMove: { targetFolder in
+                        Task {
+                            try await folderManager.moveVideoToFolder(video, targetFolderPath: targetFolder)
+                        }
+                    },
+                    isSelectable: false,
+                    isSelected: false,
+                    onSelectionToggle: nil
                 )
             }
         }
@@ -463,27 +533,3 @@ private extension LibraryView {
     }
 }
 
-// MARK: - Photo Picker
-private extension LibraryView {
-    func handleVideoSelection(_ item: PhotosPickerItem?) {
-        guard let item = item else { return }
-        
-        Task {
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                await saveUploadedVideo(data)
-            }
-        }
-    }
-    
-    func saveUploadedVideo(_ data: Data) async {
-        let fileName = UUID().uuidString + ".mp4"
-        
-        // Save to current folder
-        await MainActor.run {
-            // Note: This will need MediaStore integration to save to the current folder
-            // For now, we'll refresh the contents after saving
-            selectedVideo = nil
-            folderManager.refreshContents()
-        }
-    }
-}

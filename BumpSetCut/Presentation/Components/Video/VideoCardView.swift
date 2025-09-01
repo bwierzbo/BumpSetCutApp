@@ -12,11 +12,20 @@ struct VideoCardView: View {
     let video: VideoMetadata
     let onDelete: () -> Void
     let onRefresh: () -> Void
+    let onRename: ((String) -> Void)?
+    let onMove: ((String) -> Void)?
+    let isSelectable: Bool
+    let isSelected: Bool
+    let onSelectionToggle: (() -> Void)?
     
     @State private var showingVideoPlayer = false
     @State private var showingProcessVideo = false
     @State private var showingDeleteConfirmation = false
+    @State private var showingRenameDialog = false
+    @State private var showingMoveDialog = false
     @State private var thumbnail: UIImage?
+    @State private var newName = ""
+    @State private var isLongPressing = false
     
     var body: some View {
         VStack(spacing: 8) {
@@ -25,6 +34,14 @@ struct VideoCardView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color(.systemGray5))
                     .aspectRatio(16/9, contentMode: .fit)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 3)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(isLongPressing ? Color.black.opacity(0.2) : Color.clear)
+                    )
                 
                 Group {
                     if let thumbnail = thumbnail {
@@ -39,18 +56,75 @@ struct VideoCardView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 
-                // Play overlay
-                Circle()
-                    .fill(Color.black.opacity(0.6))
-                    .frame(width: 32, height: 32)
-                    .overlay(
-                        Image(systemName: "play.fill")
-                            .font(.caption)
-                            .foregroundColor(.white)
-                    )
+                // Selection checkbox
+                if isSelectable {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button {
+                                onSelectionToggle?()
+                            } label: {
+                                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                    .font(.title3)
+                                    .foregroundColor(isSelected ? .blue : .white)
+                                    .background(
+                                        Circle()
+                                            .fill(Color.black.opacity(0.6))
+                                            .frame(width: 24, height: 24)
+                                    )
+                            }
+                            .padding(8)
+                        }
+                        Spacer()
+                    }
+                }
+                
+                // Three-dot menu button
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button {
+                            // Context menu will be shown via contextMenu modifier
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .frame(width: 24, height: 24)
+                                .background(
+                                    Circle()
+                                        .fill(Color.black.opacity(0.6))
+                                )
+                        }
+                        .padding(8)
+                    }
+                    Spacer()
+                    
+                    // Play overlay
+                    Circle()
+                        .fill(Color.black.opacity(0.6))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "play.fill")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                        )
+                    
+                    Spacer()
+                }
             }
             .onTapGesture {
-                showingVideoPlayer = true
+                if isSelectable {
+                    onSelectionToggle?()
+                } else {
+                    showingVideoPlayer = true
+                }
+            }
+            .onLongPressGesture(minimumDuration: 0.5) {
+                // Long press handled via contextMenu
+            } onPressingChanged: { pressing in
+                withAnimation(.easeInOut(duration: 0.1)) {
+                    isLongPressing = pressing
+                }
             }
             
             // Video info
@@ -73,6 +147,11 @@ struct VideoCardView: View {
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
+                
+                // Additional metadata
+                Text(video.createdDate.formatted(date: .abbreviated, time: .omitted))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -81,8 +160,29 @@ struct VideoCardView: View {
             Button {
                 showingProcessVideo = true
             } label: {
-                Label("Process Video", systemImage: "gearshape")
+                Label("Process with AI", systemImage: "brain.head.profile")
             }
+            
+            Divider()
+            
+            if onRename != nil {
+                Button {
+                    newName = video.displayName
+                    showingRenameDialog = true
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+            }
+            
+            if onMove != nil {
+                Button {
+                    showingMoveDialog = true
+                } label: {
+                    Label("Move", systemImage: "folder")
+                }
+            }
+            
+            Divider()
             
             Button(role: .destructive) {
                 showingDeleteConfirmation = true
@@ -99,6 +199,30 @@ struct VideoCardView: View {
         }
         .sheet(isPresented: $showingProcessVideo) {
             ProcessVideoView(videoURL: video.originalURL, onComplete: onRefresh)
+        }
+        .sheet(isPresented: $showingRenameDialog) {
+            VideoRenameDialog(
+                currentName: video.displayName,
+                onRename: { newName in
+                    onRename?(newName)
+                    showingRenameDialog = false
+                },
+                onCancel: {
+                    showingRenameDialog = false
+                }
+            )
+        }
+        .sheet(isPresented: $showingMoveDialog) {
+            VideoMoveDialog(
+                currentFolder: video.folderPath,
+                onMove: { folderPath in
+                    onMove?(folderPath)
+                    showingMoveDialog = false
+                },
+                onCancel: {
+                    showingMoveDialog = false
+                }
+            )
         }
         .alert("Delete Video", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
