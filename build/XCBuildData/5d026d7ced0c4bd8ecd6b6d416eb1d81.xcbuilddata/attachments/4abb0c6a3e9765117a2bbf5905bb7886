@@ -1,0 +1,318 @@
+{
+  "" : {
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCut-master.dia",
+    "emit-module-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCut-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCut-master-emit-module.dia",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCut-master.swiftdeps"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/App/BumpSetCutApp.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCutApp.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCutApp.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCutApp.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCutApp.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCutApp.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCutApp.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCutApp.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BumpSetCutApp~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Archive/CustomCameraScreen.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CustomCameraScreen.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CustomCameraScreen.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CustomCameraScreen.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CustomCameraScreen.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CustomCameraScreen.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CustomCameraScreen.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CustomCameraScreen.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CustomCameraScreen~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Data/Models/Detections.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Detections.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Detections.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Detections.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Detections.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Detections.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Detections.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Detections.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Detections~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Data/Storage/MediaStore.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MediaStore.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MediaStore.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MediaStore.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MediaStore.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MediaStore.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MediaStore.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MediaStore.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MediaStore~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Logic/BallisticsGate.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BallisticsGate.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BallisticsGate.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BallisticsGate.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BallisticsGate.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BallisticsGate.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BallisticsGate.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BallisticsGate.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/BallisticsGate~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Logic/RallyDecider.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/RallyDecider.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/RallyDecider.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/RallyDecider.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/RallyDecider.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/RallyDecider.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/RallyDecider.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/RallyDecider.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/RallyDecider~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Logic/SegmentBuilder.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/SegmentBuilder.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/SegmentBuilder.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/SegmentBuilder.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/SegmentBuilder.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/SegmentBuilder.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/SegmentBuilder.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/SegmentBuilder.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/SegmentBuilder~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Services/DebugAnnotator.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/DebugAnnotator.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/DebugAnnotator.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/DebugAnnotator.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/DebugAnnotator.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/DebugAnnotator.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/DebugAnnotator.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/DebugAnnotator.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/DebugAnnotator~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Services/VideoExporter.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoExporter.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoExporter.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoExporter.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoExporter.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoExporter.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoExporter.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoExporter.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoExporter~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Services/VideoProcessor.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoProcessor.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoProcessor.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoProcessor.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoProcessor.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoProcessor.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoProcessor.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoProcessor.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoProcessor~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Tracking/KalmanBallTracker.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/KalmanBallTracker.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/KalmanBallTracker.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/KalmanBallTracker.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/KalmanBallTracker.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/KalmanBallTracker.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/KalmanBallTracker.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/KalmanBallTracker.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/KalmanBallTracker~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Extensions/Font+MFontModifier.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Font+MFontModifier.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Font+MFontModifier.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Font+MFontModifier.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Font+MFontModifier.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Font+MFontModifier.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Font+MFontModifier.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Font+MFontModifier.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Font+MFontModifier~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Extensions/MFontModifier.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MFontModifier.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MFontModifier.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MFontModifier.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MFontModifier.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MFontModifier.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MFontModifier.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MFontModifier.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MFontModifier~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Extensions/Task++.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Task++.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Task++.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Task++.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Task++.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Task++.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Task++.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Task++.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/Task++~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Extensions/View+MFontModifier.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/View+MFontModifier.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/View+MFontModifier.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/View+MFontModifier.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/View+MFontModifier.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/View+MFontModifier.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/View+MFontModifier.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/View+MFontModifier.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/View+MFontModifier~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Infrastructure/Camera/CameraService.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CameraService.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CameraService.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CameraService.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CameraService.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CameraService.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CameraService.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CameraService.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CameraService~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Infrastructure/ML/MLService.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MLService.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MLService.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MLService.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MLService.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MLService.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MLService.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MLService.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/MLService~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Infrastructure/ML/YOLODetector.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/YOLODetector.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/YOLODetector.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/YOLODetector.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/YOLODetector.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/YOLODetector.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/YOLODetector.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/YOLODetector.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/YOLODetector~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Infrastructure/System/AVURLAsset++.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/AVURLAsset++.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/AVURLAsset++.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/AVURLAsset++.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/AVURLAsset++.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/AVURLAsset++.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/AVURLAsset++.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/AVURLAsset++.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/AVURLAsset++~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Media/Utils/Math/QuadraticFit.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/QuadraticFit.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/QuadraticFit.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/QuadraticFit.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/QuadraticFit.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/QuadraticFit.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/QuadraticFit.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/QuadraticFit.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/QuadraticFit~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Media/Utils/Time/CMTime+Helpers.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CMTime+Helpers.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CMTime+Helpers.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CMTime+Helpers.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CMTime+Helpers.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CMTime+Helpers.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CMTime+Helpers.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CMTime+Helpers.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CMTime+Helpers~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Components/Action Button/ActionButton.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ActionButton.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ActionButton.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ActionButton.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ActionButton.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ActionButton.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ActionButton.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ActionButton.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ActionButton~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Components/Stored Video/StoredVideo.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/StoredVideo.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/StoredVideo.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/StoredVideo.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/StoredVideo.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/StoredVideo.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/StoredVideo.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/StoredVideo.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/StoredVideo~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Popups/CaptureViewPopup.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CaptureViewPopup.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CaptureViewPopup.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CaptureViewPopup.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CaptureViewPopup.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CaptureViewPopup.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CaptureViewPopup.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CaptureViewPopup.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/CaptureViewPopup~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Views/ContentView.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ContentView.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ContentView.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ContentView.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ContentView.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ContentView.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ContentView~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Views/LibraryView.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/LibraryView.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/LibraryView.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/LibraryView.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/LibraryView.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/LibraryView.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/LibraryView.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/LibraryView.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/LibraryView~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Views/ProcessVideoView.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ProcessVideoView.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ProcessVideoView.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ProcessVideoView.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ProcessVideoView.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ProcessVideoView.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ProcessVideoView.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ProcessVideoView.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/ProcessVideoView~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Views/VideoPlayerView.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoPlayerView.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoPlayerView.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoPlayerView.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoPlayerView.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoPlayerView.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoPlayerView.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoPlayerView.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/VideoPlayerView~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/DerivedSources/CoreMLGenerated/best/best.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/best.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/best.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/best.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/best.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/best.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/best.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/best.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/best~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/DerivedSources/CoreMLGenerated/bestv2/bestv2.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/bestv2.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/bestv2.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/bestv2.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/bestv2.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/bestv2.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/bestv2.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/bestv2.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/bestv2~partial.swiftmodule"
+  },
+  "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  }
+}

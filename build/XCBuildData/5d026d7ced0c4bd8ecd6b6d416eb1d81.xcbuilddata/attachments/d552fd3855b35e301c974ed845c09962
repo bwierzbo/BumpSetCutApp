@@ -1,0 +1,44 @@
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Configurables/Global/GlobalConfig+Center.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Configurables/Global/GlobalConfig+Vertical.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Configurables/Global/GlobalConfig.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Configurables/Local/LocalConfig+Center.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Configurables/Local/LocalConfig+Vertical.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Configurables/Local/LocalConfig.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Containers/GlobalConfigContainer.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Containers/PopupStack.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Containers/PopupStackContainer.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Extensions/Animation++.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Extensions/Array++.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Extensions/EdgeInsets++.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Extensions/Task++.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Extensions/View+Background.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Extensions/View+Gestures.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Extensions/View+Keyboard.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Extensions/View+ReadHeight.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Extensions/View+tvOS.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Models/ActivePopupProperties.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Models/AnyPopup.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Models/AnyPopupConfig.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Models/ID+Popup.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Models/Screen.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Models/StackPriority.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/UI/PopupCenterStackView.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/UI/PopupVerticalStackView.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/UI/PopupView.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Utilities/Logger.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Utilities/PopupActionScheduler.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/Utilities/PopupAlignment.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/View\ Models/ViewModel+CentreStack.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/View\ Models/ViewModel+VerticalStack.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Internal/View\ Models/ViewModel.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Dismiss/Public+Dismiss+PopupStack.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Dismiss/Public+Dismiss+View.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Popup/Public+Popup+Config.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Popup/Public+Popup+Main.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Popup/Public+Popup+Utilities.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Present/Public+Present+Popup.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Setup/Public+Setup+Config.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Setup/Public+Setup+ConfigContainer.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Setup/Public+Setup+PopupStackID.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Setup/Public+Setup+SceneDelegate.swift
+/Users/benjaminwierzbanowski/Library/Developer/Xcode/DerivedData/BumpSetCut-gqmpabjjwiygiobbnjxiogtowhfz/SourcePackages/checkouts/Popups/Sources/Public/Setup/Public+Setup+View.swift
