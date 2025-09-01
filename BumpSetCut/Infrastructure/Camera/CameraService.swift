@@ -6,15 +6,16 @@
 //
 
 import Foundation
+import SwiftUI
 import MijickCamera
 
 /// Infrastructure layer wrapper for camera functionality
 /// Isolates MijickCamera framework usage from the domain layer
-final class CameraService {
+final class CameraService: ObservableObject {
     
     /// Configuration for camera capture
     struct CaptureConfig {
-        let outputType: MCameraOutputType
+        let outputType: MCamera.OutputType
         let orientation: AppDelegate.Type?
         
         static let defaultVideo = CaptureConfig(
@@ -31,13 +32,15 @@ final class CameraService {
         config: CaptureConfig = .defaultVideo,
         onClose: @escaping () -> Void,
         onVideoCaptured: @escaping (URL, MCamera.Controller) -> Void
-    ) -> some View {
-        return MCamera()
-            .lockCameraInPortraitOrientation(config.orientation)
-            .setCameraOutputType(config.outputType)
-            .setCloseMCameraAction(onClose)
-            .onVideoCaptured(onVideoCaptured)
-            .startSession()
+    ) -> AnyView {
+        return AnyView(
+            MCamera()
+                .lockCameraInPortraitOrientation(config.orientation)
+                .setCameraOutputType(config.outputType)
+                .setCloseMCameraAction(onClose)
+                .onVideoCaptured(onVideoCaptured)
+                .startSession()
+        )
     }
     
     /// Handles video capture and file system operations
@@ -57,7 +60,7 @@ final class CameraService {
                 }
                 try FileManager.default.moveItem(at: videoURL, to: destinationURL)
                 
-                controller.closeMCamera()
+                await controller.closeMCamera()
                 completion(.success(destinationURL))
             } catch {
                 print("Failed to move video: \(error)")
