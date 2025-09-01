@@ -31,20 +31,29 @@ Using the test-runner agent ensures:
 - **Run**: Use Xcode (`⌘+R`) or iOS Simulator
 - **Tests**: Currently no dedicated test framework - testing is done manually with sample videos
 
-### Project Structure
+### Project Structure (Clean Layer Architecture)
 ```
 BumpSetCut/
-├── App/                    # App entry point and configuration
-├── UI/                     # SwiftUI views and components
-│   ├── Components/         # Reusable UI components
-│   └── View/              # Main screens and views
-├── Media/                  # Core video processing pipeline
-│   ├── Processor/         # Main VideoProcessor class
-│   ├── Logic/             # Rally detection logic
-│   ├── Tracking/          # Ball tracking algorithms
-│   └── Export/            # Video export functionality
-├── Models/                # Data models and storage
-└── Archive/               # Deprecated/unused code
+├── Presentation/           # UI Layer - User interface components
+│   ├── Views/             # Main screens (ContentView, LibraryView, etc.)
+│   ├── Components/        # Reusable UI components (ActionButton, etc.)
+│   ├── Popups/           # Modal presentations (CaptureViewPopup)
+│   └── Extensions/       # UI-specific extensions and modifiers
+├── Domain/                # Business Logic Layer - Core application logic
+│   ├── Services/         # Main processing services (VideoProcessor, VideoExporter)
+│   ├── Logic/            # Rally detection algorithms (RallyDecider, BallisticsGate)
+│   └── Tracking/         # Ball tracking implementation (KalmanBallTracker)
+├── Data/                  # Data Layer - Models and storage management
+│   ├── Models/           # Core data structures (DetectionResult, ProcessorConfig)
+│   ├── Storage/          # Data persistence (MediaStore)
+│   └── Extensions/       # Data-specific extensions (Task++)
+├── Infrastructure/        # Infrastructure Layer - External system integrations
+│   ├── ML/               # Machine learning services (YOLODetector, MLService)
+│   ├── Camera/           # Camera system integration (CameraService)
+│   ├── System/           # System utilities and extensions
+│   ├── Math/             # Mathematical utilities (QuadraticFit)
+│   └── App/              # App configuration and entry point
+└── Assets/               # App resources (images, colors, etc.)
 ```
 
 ## Architecture Overview
@@ -62,15 +71,34 @@ Multi-stage processing chain:
 - **Production**: Trimmed video with only rally segments
 - **Debug**: Full-length annotated video showing detection overlays (processes every 3rd frame for performance)
 
-### Key Components
-- **VideoProcessor**: Main processing orchestrator with `@Observable` pattern
-- **MediaStore**: File-based storage manager for Documents directory
-- **ProcessorConfig**: Centralized configuration with physics parameters
-- **Third-party**: MijickCamera (capture), MijickPopups (modals), CoreML/Vision (ML)
+### Key Components by Layer
+
+**Presentation Layer**:
+- **ContentView**: Main app interface with navigation and camera integration
+- **LibraryView/VideoPlayerView**: Video management and playback interfaces
+- **CaptureViewPopup**: Camera capture modal using MijickCamera integration
+- **ActionButton/StoredVideo**: Reusable UI components
+
+**Domain Layer**:
+- **VideoProcessor**: Main processing orchestrator with `@Observable` pattern and async workflow
+- **VideoExporter/DebugAnnotator**: Video generation services for production and debug outputs
+- **RallyDecider/BallisticsGate**: Rally detection logic with physics-based validation
+- **KalmanBallTracker**: Advanced ball tracking with constant-velocity prediction
+
+**Data Layer**:
+- **MediaStore**: File-based storage manager for Documents directory with delegate pattern
+- **DetectionResult/ProcessorConfig**: Core data models and configuration structures
+- **Extensions**: Task++ and other data-specific utilities
+
+**Infrastructure Layer**:
+- **YOLODetector/MLService**: CoreML integration for volleyball detection
+- **CameraService**: MijickCamera framework abstraction
+- **QuadraticFit**: Mathematical utilities for trajectory analysis
 
 ### UI Architecture
-- SwiftUI with `@Observable` pattern (VideoProcessor, MediaStore)
+- SwiftUI with `@Observable` pattern following clean architecture
 - NavigationStack-based navigation with modal presentations
+- Protocol-based decoupling between layers (CaptureDelegate pattern)
 - Component composition through private extensions
 - Consistent system colors and SF Symbols
 
@@ -96,8 +124,15 @@ Multi-stage processing chain:
 - **IMPLEMENT TEST FOR EVERY FUNCTION**
 - **NO INCONSISTENT NAMING**: Read existing codebase naming patterns
 - **NO OVER-ENGINEERING**: Don't add unnecessary abstractions when simple functions work
-- **NO MIXED CONCERNS**: Proper separation between UI, processing, and storage layers
+- **CLEAN LAYER SEPARATION**: Follow the 4-layer architecture with proper dependency directions
+- **NO UPWARD DEPENDENCIES**: Layers should only depend on lower layers (Presentation → Domain → Data ← Infrastructure)
 - **NO RESOURCE LEAKS**: Clean up video processing resources, file handles, and observers
+
+### Layer Architecture Guidelines
+- **Presentation Layer**: SwiftUI views, components, and UI-specific logic only
+- **Domain Layer**: Business logic, processing algorithms, and application services
+- **Data Layer**: Models, storage management, and data persistence
+- **Infrastructure Layer**: External system integrations (ML, camera, frameworks)
 
 ### Key Architecture Notes
 - Processing pipeline is modular and extensible
