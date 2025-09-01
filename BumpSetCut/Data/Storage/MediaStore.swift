@@ -7,14 +7,19 @@
 
 import Foundation
 
+protocol CaptureDelegate: AnyObject {
+    func presentCaptureInterface()
+}
+
 @MainActor @Observable class MediaStore {
+    weak var captureDelegate: CaptureDelegate?
 }
 
 
 extension MediaStore {
-    func presentCapturePopup() { Task {
-        await CapturePicturePopup(mediaStore: self).present()
-    }}
+    func presentCapturePopup() {
+        captureDelegate?.presentCaptureInterface()
+    }
 }
 
 

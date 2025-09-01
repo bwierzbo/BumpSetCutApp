@@ -8,6 +8,7 @@
 import SwiftUI
 import AVKit
 import MijickCamera
+import MijickPopups
 
 struct ContentView: View {
     @State private var mediaStore = MediaStore()
@@ -21,6 +22,23 @@ struct ContentView: View {
             .padding(.horizontal, 20)
             .background(Color(.systemBackground).ignoresSafeArea())
             .preferredColorScheme(.dark)
+        }
+        .onAppear {
+            mediaStore.captureDelegate = CaptureHandler(mediaStore: mediaStore)
+        }
+    }
+}
+
+class CaptureHandler: CaptureDelegate {
+    private let mediaStore: MediaStore
+    
+    init(mediaStore: MediaStore) {
+        self.mediaStore = mediaStore
+    }
+    
+    func presentCaptureInterface() {
+        Task {
+            await CapturePicturePopup(mediaStore: mediaStore).present()
         }
     }
 }

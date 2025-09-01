@@ -1,0 +1,31 @@
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Logic/BallisticsGate.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Views/ProcessVideoView.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Extensions/MFontModifier.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Infrastructure/System/AVURLAsset++.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Services/DebugAnnotator.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Media/Utils/Time/CMTime+Helpers.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Data/Storage/MediaStore.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Tracking/KalmanBallTracker.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Infrastructure/ML/MLService.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Logic/RallyDecider.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Views/VideoPlayerView.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Extensions/Task++.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/App/BumpSetCutApp.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Components/Stored\ Video/StoredVideo.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Services/VideoExporter.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Infrastructure/Camera/CameraService.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Views/ContentView.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Infrastructure/ML/YOLODetector.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Logic/SegmentBuilder.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Extensions/View+MFontModifier.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Media/Utils/Math/QuadraticFit.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Data/Models/Detections.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Domain/Services/VideoProcessor.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Views/LibraryView.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Extensions/Font+MFontModifier.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Components/Action\ Button/ActionButton.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Archive/CustomCameraScreen.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/BumpSetCut/Presentation/Popups/CaptureViewPopup.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/DerivedSources/CoreMLGenerated/best/best.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/DerivedSources/CoreMLGenerated/bestv2/bestv2.swift
+/Users/benjaminwierzbanowski/Code/epic-file-architecture-organizations/build/BumpSetCut.build/Debug-iphoneos/BumpSetCut.build/DerivedSources/GeneratedAssetSymbols.swift
