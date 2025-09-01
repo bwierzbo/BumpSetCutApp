@@ -88,7 +88,7 @@ struct FolderManifest: Codable {
     
     private var manifest: FolderManifest
     private let manifestURL: URL
-    private let baseDirectory: URL
+    let baseDirectory: URL
     
     init() {
         let fileManager = FileManager.default
@@ -428,6 +428,54 @@ extension MediaStore {
                 _ = addVideo(at: videoURL, toFolder: "", customName: nil)
             }
         }
+    }
+}
+
+// MARK: - Legacy Compatibility Layer
+
+extension MediaStore {
+    @available(*, deprecated, message: "Use getVideos(in:) with folder path parameter")
+    func getAllVideos() -> [URL] {
+        let videos = getVideos(in: "")
+        return videos.compactMap { video in
+            let fullPath = baseDirectory.appendingPathComponent(video.folderPath).appendingPathComponent(video.fileName)
+            return URL(fileURLWithPath: fullPath.path)
+        }
+    }
+    
+    @available(*, deprecated, message: "Use addVideo(at:toFolder:customName:) instead")
+    func saveVideo(at url: URL) -> Bool {
+        return addVideo(at: url, toFolder: "", customName: nil)
+    }
+    
+    @available(*, deprecated, message: "Use deleteVideo(fileName:) instead")
+    func removeVideo(at url: URL) -> Bool {
+        let fileName = url.lastPathComponent
+        return deleteVideo(fileName: fileName)
+    }
+    
+    func getVideoURL(for metadata: VideoMetadata) -> URL {
+        return baseDirectory
+            .appendingPathComponent(metadata.folderPath)
+            .appendingPathComponent(metadata.fileName)
+    }
+    
+    func loadVideosFromDocuments() -> [URL] {
+        let fileManager = FileManager.default
+        let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        
+        guard let files = try? fileManager.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        
+        return files.filter { url in
+            let ext = url.pathExtension.lowercased()
+            return ext == "mov" || ext == "mp4"
+        }
+    }
+    
+    func needsMigration() -> Bool {
+        return !loadVideosFromDocuments().isEmpty
     }
 }
 
