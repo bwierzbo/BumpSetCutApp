@@ -16,7 +16,7 @@ struct ProcessingMetadata: Codable, Identifiable {
     let videoId: UUID
     let processingVersion: String
     let processingDate: Date
-    let processingConfig: ProcessorConfig
+    let processingConfig: ProcessingConfiguration
 
     // Core Processing Results
     let rallySegments: [RallySegment]
@@ -24,8 +24,8 @@ struct ProcessingMetadata: Codable, Identifiable {
     let qualityMetrics: QualityMetrics
 
     // Enhanced Data (optional for backwards compatibility)
-    let trajectoryData: [TrajectoryData]?
-    let classificationResults: [ClassificationResult]?
+    let trajectoryData: [ProcessingTrajectoryData]?
+    let classificationResults: [ProcessingClassificationResult]?
     let physicsValidation: [PhysicsValidationData]?
 
     // Performance Data
@@ -36,15 +36,15 @@ struct ProcessingMetadata: Codable, Identifiable {
          rallySegments: [RallySegment],
          processingStats: ProcessingStats,
          qualityMetrics: QualityMetrics,
-         trajectoryData: [TrajectoryData]? = nil,
-         classificationResults: [ClassificationResult]? = nil,
+         trajectoryData: [ProcessingTrajectoryData]? = nil,
+         classificationResults: [ProcessingClassificationResult]? = nil,
          physicsValidation: [PhysicsValidationData]? = nil,
          performanceMetrics: PerformanceData) {
         self.id = UUID()
         self.videoId = videoId
         self.processingVersion = "1.0"
         self.processingDate = Date()
-        self.processingConfig = processingConfig
+        self.processingConfig = ProcessingConfiguration(from: processingConfig)
         self.rallySegments = rallySegments
         self.processingStats = processingStats
         self.qualityMetrics = qualityMetrics
@@ -62,14 +62,14 @@ struct ProcessingMetadata: Codable, Identifiable {
         videoId = try container.decode(UUID.self, forKey: .videoId)
         processingVersion = try container.decodeIfPresent(String.self, forKey: .processingVersion) ?? "1.0"
         processingDate = try container.decode(Date.self, forKey: .processingDate)
-        processingConfig = try container.decode(ProcessorConfig.self, forKey: .processingConfig)
+        processingConfig = try container.decode(ProcessingConfiguration.self, forKey: .processingConfig)
         rallySegments = try container.decode([RallySegment].self, forKey: .rallySegments)
         processingStats = try container.decode(ProcessingStats.self, forKey: .processingStats)
         qualityMetrics = try container.decode(QualityMetrics.self, forKey: .qualityMetrics)
 
         // Optional enhanced data for backwards compatibility
-        trajectoryData = try container.decodeIfPresent([TrajectoryData].self, forKey: .trajectoryData)
-        classificationResults = try container.decodeIfPresent([ClassificationResult].self, forKey: .classificationResults)
+        trajectoryData = try container.decodeIfPresent([ProcessingTrajectoryData].self, forKey: .trajectoryData)
+        classificationResults = try container.decodeIfPresent([ProcessingClassificationResult].self, forKey: .classificationResults)
         physicsValidation = try container.decodeIfPresent([PhysicsValidationData].self, forKey: .physicsValidation)
         performanceMetrics = try container.decode(PerformanceData.self, forKey: .performanceMetrics)
     }
@@ -79,6 +79,120 @@ struct ProcessingMetadata: Codable, Identifiable {
         case rallySegments, processingStats, qualityMetrics
         case trajectoryData, classificationResults, physicsValidation
         case performanceMetrics
+    }
+}
+
+// MARK: - Processing Configuration (Codable wrapper for ProcessorConfig)
+
+struct ProcessingConfiguration: Codable {
+    // Physics gating (tighter)
+    let parabolaMinPoints: Int
+    let parabolaMinR2: Double
+    let accelConsistencyMaxStd: Double
+    let minVelocityToConsiderActive: Double
+
+    // Time window (seconds) to collect samples for projectile fit
+    let projectileWindowSec: Double
+    let useGravityBand: Bool
+    let gravityMinA: Double
+    let gravityMaxA: Double
+
+    // Y coordinate system
+    let yIncreasingDown: Bool
+
+    // Physics gating (ROI/coherence)
+    let maxJumpPerFrame: Double
+    let roiYRadius: Double
+
+    // Tracking association
+    let trackGateRadius: Double
+    let minTrackAgeForPhysics: Int
+
+    // Rally detection
+    let startBuffer: Double
+    let endTimeout: Double
+
+    // Export trimming
+    let preroll: Double
+    let postroll: Double
+    let minGapToMerge: Double
+    let minSegmentLength: Double
+
+    // Enhanced Physics Validation
+    let enableEnhancedPhysics: Bool
+    let enhancedMinR2: Double
+    let excellentR2Threshold: Double
+    let goodR2Threshold: Double
+    let acceptableR2Threshold: Double
+
+    // Physics constraint parameters
+    let enablePhysicsConstraints: Bool
+    let maxAccelerationDeviation: Double
+    let velocityConsistencyThreshold: Double
+    let trajectorySmoothnessThreshold: Double
+
+    // Movement Classification
+    let movementClassifierEnabled: Bool
+    let minClassificationConfidence: Double
+
+    // Airborne detection parameters
+    let airbornePhysicsThreshold: Double
+    let minAccelerationPattern: Double
+    let minSmoothnessForAirborne: Double
+
+    // Carried/Rolling detection parameters
+    let maxVerticalMotionForRolling: Double
+    let minSmoothnessForRolling: Double
+    let maxAccelerationForRolling: Double
+
+    init(from config: ProcessorConfig) {
+        self.parabolaMinPoints = config.parabolaMinPoints
+        self.parabolaMinR2 = config.parabolaMinR2
+        self.accelConsistencyMaxStd = config.accelConsistencyMaxStd
+        self.minVelocityToConsiderActive = Double(config.minVelocityToConsiderActive)
+
+        self.projectileWindowSec = config.projectileWindowSec
+        self.useGravityBand = config.useGravityBand
+        self.gravityMinA = Double(config.gravityMinA)
+        self.gravityMaxA = Double(config.gravityMaxA)
+
+        self.yIncreasingDown = config.yIncreasingDown
+
+        self.maxJumpPerFrame = Double(config.maxJumpPerFrame)
+        self.roiYRadius = Double(config.roiYRadius)
+
+        self.trackGateRadius = Double(config.trackGateRadius)
+        self.minTrackAgeForPhysics = config.minTrackAgeForPhysics
+
+        self.startBuffer = config.startBuffer
+        self.endTimeout = config.endTimeout
+
+        self.preroll = config.preroll
+        self.postroll = config.postroll
+        self.minGapToMerge = config.minGapToMerge
+        self.minSegmentLength = config.minSegmentLength
+
+        self.enableEnhancedPhysics = config.enableEnhancedPhysics
+        self.enhancedMinR2 = config.enhancedMinR2
+        self.excellentR2Threshold = config.excellentR2Threshold
+        self.goodR2Threshold = config.goodR2Threshold
+        self.acceptableR2Threshold = config.acceptableR2Threshold
+
+        self.enablePhysicsConstraints = config.enablePhysicsConstraints
+        self.maxAccelerationDeviation = config.maxAccelerationDeviation
+        self.velocityConsistencyThreshold = config.velocityConsistencyThreshold
+        self.trajectorySmoothnessThreshold = config.trajectorySmoothnessThreshold
+
+        self.movementClassifierEnabled = config.movementClassifierEnabled
+        self.minClassificationConfidence = config.minClassificationConfidence
+
+        self.airbornePhysicsThreshold = config.airbornePhysicsThreshold
+        self.minAccelerationPattern = config.minAccelerationPattern
+        self.minSmoothnessForAirborne = config.minSmoothnessForAirborne
+
+        self.maxVerticalMotionForRolling = config.maxVerticalMotionForRolling
+        self.minSmoothnessForRolling = config.minSmoothnessForRolling
+        self.maxAccelerationForRolling = config.maxAccelerationForRolling
     }
 }
 
@@ -205,13 +319,13 @@ struct QualityBreakdown: Codable {
     let overallCoherence: Double
 }
 
-// MARK: - Trajectory Data
+// MARK: - Processing Trajectory Data
 
-struct TrajectoryData: Codable, Identifiable {
+struct ProcessingTrajectoryData: Codable, Identifiable {
     let id: UUID
     let startTime: Double
     let endTime: Double
-    let points: [TrajectoryPoint]
+    let points: [ProcessingTrajectoryPoint]
     let rSquared: Double
     let movementType: MovementType?
     let confidence: Double
@@ -226,7 +340,7 @@ struct TrajectoryData: Codable, Identifiable {
     }
 }
 
-struct TrajectoryPoint: Codable, Identifiable {
+struct ProcessingTrajectoryPoint: Codable, Identifiable {
     let id: UUID
     let timestamp: Double // CMTime converted to seconds
     let position: CGPoint
@@ -248,9 +362,9 @@ struct TrajectoryPoint: Codable, Identifiable {
     }
 }
 
-// MARK: - Classification Result
+// MARK: - Processing Classification Result
 
-struct ClassificationResult: Codable, Identifiable {
+struct ProcessingClassificationResult: Codable, Identifiable {
     let id: UUID
     let trajectoryId: UUID
     let timestamp: Double
@@ -396,8 +510,8 @@ extension ProcessingMetadata {
                                      rallySegments: [RallySegment],
                                      stats: ProcessingStats,
                                      quality: QualityMetrics,
-                                     trajectories: [TrajectoryData],
-                                     classifications: [ClassificationResult],
+                                     trajectories: [ProcessingTrajectoryData],
+                                     classifications: [ProcessingClassificationResult],
                                      physics: [PhysicsValidationData],
                                      performance: PerformanceData) -> ProcessingMetadata {
         return ProcessingMetadata(
