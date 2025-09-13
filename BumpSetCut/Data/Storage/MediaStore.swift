@@ -60,6 +60,11 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
     var processedDate: Date?
     var originalVideoId: UUID? // Points to the original video if this is a processed version
     var processedVideoIds: [UUID] = [] // IDs of videos processed from this original
+
+    // Metadata tracking fields
+    var hasProcessingMetadata: Bool = false
+    var metadataCreatedDate: Date?
+    var metadataFileSize: Int64?
     
     // Custom decoder to handle backwards compatibility
     init(from decoder: Decoder) throws {
@@ -84,6 +89,11 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         processedDate = try container.decodeIfPresent(Date.self, forKey: .processedDate)
         originalVideoId = try container.decodeIfPresent(UUID.self, forKey: .originalVideoId)
         processedVideoIds = try container.decodeIfPresent([UUID].self, forKey: .processedVideoIds) ?? []
+
+        // Metadata tracking fields with defaults for backwards compatibility
+        hasProcessingMetadata = try container.decodeIfPresent(Bool.self, forKey: .hasProcessingMetadata) ?? false
+        metadataCreatedDate = try container.decodeIfPresent(Date.self, forKey: .metadataCreatedDate)
+        metadataFileSize = try container.decodeIfPresent(Int64.self, forKey: .metadataFileSize)
     }
     
     // Custom encoder
@@ -109,6 +119,11 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         try container.encodeIfPresent(processedDate, forKey: .processedDate)
         try container.encodeIfPresent(originalVideoId, forKey: .originalVideoId)
         try container.encode(processedVideoIds, forKey: .processedVideoIds)
+
+        // Metadata tracking fields
+        try container.encode(hasProcessingMetadata, forKey: .hasProcessingMetadata)
+        try container.encodeIfPresent(metadataCreatedDate, forKey: .metadataCreatedDate)
+        try container.encodeIfPresent(metadataFileSize, forKey: .metadataFileSize)
     }
     
     // CodingKeys enum for custom coding
@@ -116,6 +131,7 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         case id, fileName, customName, folderPath, createdDate, fileSize, duration
         case debugSessionId, debugDataPath, debugCollectionDate, debugDataSize
         case isProcessed, processedDate, originalVideoId, processedVideoIds
+        case hasProcessingMetadata, metadataCreatedDate, metadataFileSize
     }
     
     var displayName: String {
@@ -140,6 +156,23 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
             .appendingPathComponent(folderPath)
             .appendingPathComponent(fileName)
     }
+
+    // MARK: - Metadata Properties
+
+    /// Path to the metadata JSON file for this video
+    var metadataFilePath: URL {
+        let baseDirectory = StorageManager.getPersistentStorageDirectory()
+        let metadataDirectory = baseDirectory.appendingPathComponent("ProcessedMetadata", isDirectory: true)
+        let filename = "\(id.uuidString).json"
+        return metadataDirectory.appendingPathComponent(filename)
+    }
+
+    /// Check if metadata file exists for this video
+    var hasMetadata: Bool {
+        let fileManager = FileManager.default
+        let metadataPath = metadataFilePath.path
+        return fileManager.fileExists(atPath: metadataPath)
+    }
     
     init(originalURL: URL, customName: String?, folderPath: String, createdDate: Date, fileSize: Int64, duration: TimeInterval?) {
         self.id = UUID()
@@ -157,6 +190,9 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.processedDate = nil
         self.originalVideoId = nil
         self.processedVideoIds = []
+        self.hasProcessingMetadata = false
+        self.metadataCreatedDate = nil
+        self.metadataFileSize = nil
     }
     
     init(fileName: String, customName: String?, folderPath: String, createdDate: Date, fileSize: Int64, duration: TimeInterval?) {
@@ -175,6 +211,9 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.processedDate = nil
         self.originalVideoId = nil
         self.processedVideoIds = []
+        self.hasProcessingMetadata = false
+        self.metadataCreatedDate = nil
+        self.metadataFileSize = nil
     }
     
     // Debug data management methods
@@ -190,6 +229,35 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.debugDataPath = nil
         self.debugCollectionDate = nil
         self.debugDataSize = nil
+    }
+
+    // MARK: - Metadata Management Methods
+
+    /// Update metadata tracking when metadata is created/updated
+    mutating func updateMetadataTracking(fileSize: Int64) {
+        self.hasProcessingMetadata = true
+        self.metadataCreatedDate = Date()
+        self.metadataFileSize = fileSize
+    }
+
+    /// Clear metadata tracking when metadata is deleted
+    mutating func clearMetadataTracking() {
+        self.hasProcessingMetadata = false
+        self.metadataCreatedDate = nil
+        self.metadataFileSize = nil
+    }
+
+    /// Get current metadata file size from disk (if it exists)
+    func getCurrentMetadataSize() -> Int64? {
+        guard hasMetadata else { return nil }
+
+        let fileManager = FileManager.default
+        do {
+            let attributes = try fileManager.attributesOfItem(atPath: metadataFilePath.path)
+            return attributes[.size] as? Int64
+        } catch {
+            return nil
+        }
     }
 }
 

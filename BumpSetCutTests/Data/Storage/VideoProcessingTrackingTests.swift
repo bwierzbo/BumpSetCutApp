@@ -235,16 +235,220 @@ final class VideoProcessingTrackingTests: XCTestCase {
             duration: 60
         )
         XCTAssertTrue(originalVideo.canBeProcessed, "Original videos should be processable")
-        
+
         // Test processed video (cannot be processed)
         var processedVideo = originalVideo
         processedVideo.isProcessed = true
         processedVideo.originalVideoId = UUID()
         XCTAssertFalse(processedVideo.canBeProcessed, "Processed videos should not be processable")
-        
+
         // Test original with processed versions (cannot be processed)
         var originalWithProcessed = originalVideo
         originalWithProcessed.processedVideoIds = [UUID()]
         XCTAssertFalse(originalWithProcessed.canBeProcessed, "Originals with processed versions should not be processable")
+    }
+
+    // MARK: - Metadata Support Tests
+
+    func testVideoMetadata_DefaultMetadataProperties() {
+        let videoMetadata = VideoMetadata(
+            fileName: "test.mp4",
+            customName: "Test Video",
+            folderPath: "",
+            createdDate: Date(),
+            fileSize: 1000000,
+            duration: 120.0
+        )
+
+        XCTAssertFalse(videoMetadata.hasProcessingMetadata, "New videos should not have processing metadata flag set")
+        XCTAssertNil(videoMetadata.metadataCreatedDate, "New videos should not have metadata created date")
+        XCTAssertNil(videoMetadata.metadataFileSize, "New videos should not have metadata file size")
+    }
+
+    func testVideoMetadata_MetadataFilePath() {
+        let videoId = UUID()
+        var videoMetadata = VideoMetadata(
+            fileName: "test.mp4",
+            customName: "Test Video",
+            folderPath: "",
+            createdDate: Date(),
+            fileSize: 1000000,
+            duration: 120.0
+        )
+
+        // Manually set the ID to test path generation
+        videoMetadata = VideoMetadata(
+            fileName: "test.mp4",
+            customName: "Test Video",
+            folderPath: "",
+            createdDate: Date(),
+            fileSize: 1000000,
+            duration: 120.0
+        )
+
+        let expectedPath = StorageManager.getPersistentStorageDirectory()
+            .appendingPathComponent("ProcessedMetadata", isDirectory: true)
+            .appendingPathComponent("\(videoMetadata.id.uuidString).json")
+
+        XCTAssertEqual(videoMetadata.metadataFilePath, expectedPath, "Metadata file path should match expected pattern")
+    }
+
+    func testVideoMetadata_HasMetadataProperty() {
+        let videoMetadata = VideoMetadata(
+            fileName: "test.mp4",
+            customName: "Test Video",
+            folderPath: "",
+            createdDate: Date(),
+            fileSize: 1000000,
+            duration: 120.0
+        )
+
+        // Initially should have no metadata
+        XCTAssertFalse(videoMetadata.hasMetadata, "Video without metadata file should return false for hasMetadata")
+
+        // This property checks actual file existence, so without creating a file it should be false
+        // The file doesn't exist in our test, so this validates the file existence check
+    }
+
+    func testVideoMetadata_UpdateMetadataTracking() {
+        var videoMetadata = VideoMetadata(
+            fileName: "test.mp4",
+            customName: "Test Video",
+            folderPath: "",
+            createdDate: Date(),
+            fileSize: 1000000,
+            duration: 120.0
+        )
+
+        // Update metadata tracking
+        let testFileSize: Int64 = 5120
+        videoMetadata.updateMetadataTracking(fileSize: testFileSize)
+
+        XCTAssertTrue(videoMetadata.hasProcessingMetadata, "Should set processing metadata flag to true")
+        XCTAssertNotNil(videoMetadata.metadataCreatedDate, "Should set metadata created date")
+        XCTAssertEqual(videoMetadata.metadataFileSize, testFileSize, "Should set metadata file size")
+
+        // Verify the created date is recent (within last second)
+        let timeDifference = Date().timeIntervalSince(videoMetadata.metadataCreatedDate!)
+        XCTAssertLessThan(timeDifference, 1.0, "Metadata created date should be recent")
+    }
+
+    func testVideoMetadata_ClearMetadataTracking() {
+        var videoMetadata = VideoMetadata(
+            fileName: "test.mp4",
+            customName: "Test Video",
+            folderPath: "",
+            createdDate: Date(),
+            fileSize: 1000000,
+            duration: 120.0
+        )
+
+        // Set metadata tracking first
+        videoMetadata.updateMetadataTracking(fileSize: 1024)
+        XCTAssertTrue(videoMetadata.hasProcessingMetadata, "Should have metadata tracking set")
+
+        // Clear metadata tracking
+        videoMetadata.clearMetadataTracking()
+
+        XCTAssertFalse(videoMetadata.hasProcessingMetadata, "Should clear processing metadata flag")
+        XCTAssertNil(videoMetadata.metadataCreatedDate, "Should clear metadata created date")
+        XCTAssertNil(videoMetadata.metadataFileSize, "Should clear metadata file size")
+    }
+
+    func testVideoMetadata_GetCurrentMetadataSize() throws {
+        let videoMetadata = VideoMetadata(
+            fileName: "test.mp4",
+            customName: "Test Video",
+            folderPath: "",
+            createdDate: Date(),
+            fileSize: 1000000,
+            duration: 120.0
+        )
+
+        // Should return nil when no metadata file exists
+        XCTAssertNil(videoMetadata.getCurrentMetadataSize(), "Should return nil when no metadata file exists")
+
+        // Test with actual metadata file
+        let metadataDirectory = StorageManager.getPersistentStorageDirectory()
+            .appendingPathComponent("ProcessedMetadata", isDirectory: true)
+
+        // Create the metadata directory if it doesn't exist
+        try FileManager.default.createDirectory(at: metadataDirectory, withIntermediateDirectories: true, attributes: nil)
+
+        // Create a test metadata file
+        let testMetadata = "{ \"test\": \"metadata\" }".data(using: .utf8)!
+        let metadataFilePath = videoMetadata.metadataFilePath
+        try testMetadata.write(to: metadataFilePath)
+
+        // Now the method should return the file size
+        let retrievedSize = videoMetadata.getCurrentMetadataSize()
+        XCTAssertEqual(retrievedSize, Int64(testMetadata.count), "Should return actual file size when metadata exists")
+
+        // Clean up test file
+        try? FileManager.default.removeItem(at: metadataFilePath)
+    }
+
+    // MARK: - Backwards Compatibility Tests
+
+    func testVideoMetadata_BackwardsCompatibleDecoding() throws {
+        // Create JSON data without metadata fields (simulating old format)
+        let oldFormatJSON = """
+        {
+            "id": "12345678-1234-1234-1234-123456789012",
+            "fileName": "old_video.mp4",
+            "customName": "Old Video",
+            "folderPath": "test_folder",
+            "createdDate": "2023-01-01T12:00:00Z",
+            "fileSize": 1024000,
+            "duration": 60.0,
+            "isProcessed": false,
+            "processedVideoIds": []
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        // Should decode successfully with defaults for new fields
+        let decodedVideo = try decoder.decode(VideoMetadata.self, from: oldFormatJSON)
+
+        XCTAssertEqual(decodedVideo.fileName, "old_video.mp4", "Should decode old fields correctly")
+        XCTAssertFalse(decodedVideo.hasProcessingMetadata, "Should default to false for missing hasProcessingMetadata")
+        XCTAssertNil(decodedVideo.metadataCreatedDate, "Should default to nil for missing metadataCreatedDate")
+        XCTAssertNil(decodedVideo.metadataFileSize, "Should default to nil for missing metadataFileSize")
+    }
+
+    func testVideoMetadata_NewFormatEncodingDecoding() throws {
+        var originalVideo = VideoMetadata(
+            fileName: "new_video.mp4",
+            customName: "New Video",
+            folderPath: "test_folder",
+            createdDate: Date(),
+            fileSize: 2048000,
+            duration: 120.0
+        )
+
+        // Set metadata tracking
+        originalVideo.updateMetadataTracking(fileSize: 5120)
+
+        // Encode to JSON
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let encodedData = try encoder.encode(originalVideo)
+
+        // Decode back
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decodedVideo = try decoder.decode(VideoMetadata.self, from: encodedData)
+
+        // Verify all fields are preserved
+        XCTAssertEqual(decodedVideo.id, originalVideo.id, "Should preserve video ID")
+        XCTAssertEqual(decodedVideo.fileName, originalVideo.fileName, "Should preserve file name")
+        XCTAssertTrue(decodedVideo.hasProcessingMetadata, "Should preserve metadata tracking flag")
+        XCTAssertEqual(decodedVideo.metadataFileSize, originalVideo.metadataFileSize, "Should preserve metadata file size")
+        XCTAssertNotNil(decodedVideo.metadataCreatedDate, "Should preserve metadata created date")
+
+        // Verify computed properties work correctly
+        XCTAssertEqual(decodedVideo.metadataFilePath, originalVideo.metadataFilePath, "Should compute same metadata path")
     }
 }
