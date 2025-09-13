@@ -30,6 +30,16 @@ struct RallyPlayerView: View {
     @State private var lastSeekTime = Date()
     @State private var seekPerformanceMs: Int = 0
 
+    // Overlay state for MetadataOverlayView
+    @State private var currentPlaybackTime: Double = 0.0
+    @State private var showOverlay = true
+    @State private var showTrajectories = true
+    @State private var showRallyBoundaries = true
+    @State private var showConfidenceIndicators = true
+
+    // Video player observation
+    @State private var playbackObserver: Any?
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -59,10 +69,33 @@ private extension RallyPlayerView {
             } else if let errorMessage = errorMessage {
                 createErrorView(message: errorMessage)
             } else if let player = player {
-                VideoPlayer(player: player)
-                    .aspectRatio(16/9, contentMode: .fit)
+                createVideoPlayerWithOverlay(player: player)
             } else {
                 createLoadingView()
+            }
+        }
+    }
+
+    func createVideoPlayerWithOverlay(player: AVPlayer) -> some View {
+        ZStack {
+            VideoPlayer(player: player)
+                .aspectRatio(16/9, contentMode: .fit)
+
+            // Metadata overlay
+            if showOverlay,
+               let metadata = processingMetadata,
+               metadata.hasEnhancedData {
+                GeometryReader { geometry in
+                    MetadataOverlayView(
+                        processingMetadata: metadata,
+                        currentTime: currentPlaybackTime,
+                        videoSize: geometry.size,
+                        showTrajectories: showTrajectories,
+                        showRallyBoundaries: showRallyBoundaries,
+                        showConfidenceIndicators: showConfidenceIndicators
+                    )
+                }
+                .aspectRatio(16/9, contentMode: .fit)
             }
         }
     }
@@ -117,6 +150,7 @@ private extension RallyPlayerView {
                 VStack(spacing: 12) {
                     createRallyProgressIndicator(metadata: metadata)
                     createRallyNavigationButtons(metadata: metadata)
+                    createOverlayControls()
                     createPerformanceIndicator()
                 }
                 .padding()
@@ -239,6 +273,40 @@ private extension RallyPlayerView {
             Spacer()
         }
     }
+
+    func createOverlayControls() -> some View {
+        VStack(spacing: 8) {
+            // Main overlay toggle
+            HStack {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showOverlay.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: showOverlay ? "eye.fill" : "eye.slash.fill")
+                        Text("Overlay")
+                        Text(showOverlay ? "On" : "Off")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .font(.caption)
+                    .foregroundColor(.white)
+                }
+
+                Spacer()
+            }
+
+            // Detailed overlay controls (only shown when overlay is enabled)
+            if showOverlay {
+                MetadataOverlayView.createOverlayControls(
+                    showTrajectories: $showTrajectories,
+                    showRallyBoundaries: $showRallyBoundaries,
+                    showConfidenceIndicators: $showConfidenceIndicators
+                )
+            }
+        }
+    }
 }
 
 // MARK: - Toolbar
@@ -337,12 +405,16 @@ private extension RallyPlayerView {
         player = avPlayer
         isPlayerReady = true
 
+        // Setup playback time observation for overlay synchronization
+        setupPlaybackTimeObserver(for: avPlayer)
+
         // Seek to first rally
         if let metadata = processingMetadata, !metadata.rallySegments.isEmpty {
             let firstRally = metadata.rallySegments[0]
             let seekTime = firstRally.startCMTime
 
             await avPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+            currentPlaybackTime = CMTimeGetSeconds(seekTime)
             avPlayer.play()
         }
     }
@@ -352,6 +424,24 @@ private extension RallyPlayerView {
         Task { @MainActor in
             await setupVideoPlayer()
             errorMessage = nil
+        }
+    }
+
+    func setupPlaybackTimeObserver(for player: AVPlayer) {
+        // Remove existing observer if any
+        if let observer = playbackObserver {
+            player.removeTimeObserver(observer)
+        }
+
+        // Add new observer for real-time overlay synchronization
+        let interval = CMTime(seconds: 0.033, preferredTimescale: 600) // ~30fps updates
+        playbackObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            guard let self = self else { return }
+
+            let timeInSeconds = CMTimeGetSeconds(time)
+            if timeInSeconds.isFinite {
+                self.currentPlaybackTime = timeInSeconds
+            }
         }
     }
 
@@ -397,6 +487,9 @@ private extension RallyPlayerView {
 
         Task { @MainActor in
             await player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+
+            // Update current playback time for overlay synchronization
+            currentPlaybackTime = CMTimeGetSeconds(seekTime)
 
             // Calculate seek performance
             let seekDuration = Date().timeIntervalSince(startTime) * 1000
@@ -445,6 +538,12 @@ private extension RallyPlayerView {
 
 private extension RallyPlayerView {
     func cleanupPlayer() {
+        // Remove playback time observer
+        if let observer = playbackObserver, let currentPlayer = player {
+            currentPlayer.removeTimeObserver(observer)
+            playbackObserver = nil
+        }
+
         player?.pause()
         player = nil
         isPlayerReady = false
