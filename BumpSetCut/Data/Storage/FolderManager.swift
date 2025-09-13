@@ -23,12 +23,19 @@ class FolderManager: ObservableObject {
         loadContents()
     }
     
+    // MARK: - Public Access
+    
+    var store: MediaStore {
+        return mediaStore
+    }
+    
     // MARK: - Content Loading
     
     func loadContents(at path: String? = nil) {
         let targetPath = path ?? currentPath
         
         isLoading = true
+        print("🔄 FolderManager.loadContents called for path: '\(targetPath)'")
         
         Task {
             await MainActor.run {
@@ -37,6 +44,8 @@ class FolderManager: ObservableObject {
                 self.currentPath = targetPath
                 self.isLoading = false
                 
+                print("✅ FolderManager loaded: \(self.folders.count) folders, \(self.videos.count) videos")
+                print("   Video names: \(self.videos.map { $0.displayName })")
                 logger.debug("Loaded contents for path: \(targetPath.isEmpty ? "root" : targetPath) - \(self.folders.count) folders, \(self.videos.count) videos")
             }
         }

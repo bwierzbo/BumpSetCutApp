@@ -17,7 +17,6 @@ struct LibraryView: View {
     @State private var sortOption: ContentSortOption = .name
     @State private var viewMode: ViewMode = .list
     @State private var searchText = ""
-    @State private var isShowingAdvancedSearch = false
     
     init(mediaStore: MediaStore) {
         self._folderManager = StateObject(wrappedValue: FolderManager(mediaStore: mediaStore))
@@ -28,32 +27,30 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if isShowingAdvancedSearch {
-                    // Advanced search interface
-                    AdvancedSearchView(
-                        searchViewModel: searchViewModel,
-                        onNavigateToFolder: { path in
-                            folderManager.navigateToFolder(path)
-                            isShowingAdvancedSearch = false
-                        },
-                        onNavigateToVideo: { video in
-                            // Navigate to the video's folder first
-                            folderManager.navigateToFolder(video.folderPath)
-                            isShowingAdvancedSearch = false
-                        }
-                    )
-                } else {
-                    // Normal library view
-                    if !folderManager.currentPath.isEmpty {
-                        createBreadcrumbView()
-                    }
-                    
-                    DropZoneView(uploadCoordinator: uploadCoordinator, destinationFolder: folderManager.currentPath) {
-                        createScrollableView()
-                    }
-                    
+                // Normal library view with search
+                if !folderManager.currentPath.isEmpty {
+                    createBreadcrumbView()
+                }
+                
+                DropZoneView(uploadCoordinator: uploadCoordinator, destinationFolder: folderManager.currentPath) {
+                    createScrollableView()
+                }
+                .onReceive(uploadCoordinator.uploadCompletedPublisher) { _ in
+                    // Refresh the folder contents when upload completes
+                    print("🔄 Upload completed, refreshing LibraryView contents")
+                    folderManager.loadContents()
+                }
+                
+                // Bottom progress indicators
+                VStack(spacing: 0) {
                     // Upload status bar
                     UploadStatusBar(uploadCoordinator: uploadCoordinator)
+                    
+                    // General loading indicator
+                    LoadingStatusBar(
+                        isLoading: folderManager.isLoading,
+                        message: "Loading content..."
+                    )
                 }
             }
             .background(Color(.systemBackground).ignoresSafeArea())
@@ -63,16 +60,11 @@ struct LibraryView: View {
             }
             .searchable(
                 text: $searchText, 
-                isPresented: $isShowingAdvancedSearch,
+                placement: .navigationBarDrawer(displayMode: .always),
                 prompt: "Search videos and folders"
             )
-            .onChange(of: isShowingAdvancedSearch) { isShowing in
-                if isShowing {
-                    searchViewModel.searchText = searchText
-                } else {
-                    searchText = ""
-                    searchViewModel.clearSearch()
-                }
+            .onChange(of: searchText) { _, newSearchText in
+                searchViewModel.searchText = newSearchText
             }
             .onReceive(NotificationCenter.default.publisher(for: .uploadCompleted)) { _ in
                 folderManager.refreshContents()
@@ -113,86 +105,26 @@ enum ViewMode: String, CaseIterable {
 // MARK: - Scrollable View
 private extension LibraryView {
     func createScrollableView() -> some View {
-        ScrollView {
-            createMediaView()
-        }
-        .navigationTitle(folderManager.currentPath.isEmpty ? "Library" : folderManager.currentPath.split(separator: "/").last?.description ?? "Library")
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
-        .toolbar(content: createToolbar)
-        .refreshable {
-            folderManager.refreshContents()
+        GeometryReader { geometry in
+            ScrollView {
+                createMediaView(geometry: geometry)
+            }
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .toolbar(content: createToolbar)
+            .refreshable {
+                folderManager.refreshContents()
+            }
         }
     }
 }
 
-// MARK: - Breadcrumb Navigation
-private extension LibraryView {
-    func createBreadcrumbView() -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(folderManager.getFolderHierarchy(), id: \.id) { breadcrumb in
-                    Button {
-                        folderManager.navigateToFolder(breadcrumb.path)
-                    } label: {
-                        HStack(spacing: 4) {
-                            if breadcrumb.isRoot {
-                                Image(systemName: "house.fill")
-                                    .font(.caption)
-                            }
-                            Text(breadcrumb.name)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                        }
-                        .foregroundColor(breadcrumb.path == folderManager.currentPath ? .primary : .secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            breadcrumb.path == folderManager.currentPath ? 
-                            Color.blue.opacity(0.2) : Color.clear
-                        )
-                        .clipShape(Capsule())
-                    }
-                    
-                    if breadcrumb.id != folderManager.getFolderHierarchy().last?.id {
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-            .padding(.horizontal, 16)
-        }
-        .padding(.vertical, 8)
-        .background(Color(.systemGroupedBackground))
-    }
-}
 
 // MARK: - Toolbar
 private extension LibraryView {
     func createToolbar() -> some ToolbarContent {
         Group {
-            ToolbarItem(placement: .navigationBarLeading) {
-                if folderManager.canNavigateUp() {
-                    Button {
-                        folderManager.navigateToParent()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .fontWeight(.medium)
-                    }
-                }
-            }
-            
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 16) {
-                    // Advanced search button
-                    Button {
-                        isShowingAdvancedSearch.toggle()
-                    } label: {
-                        Image(systemName: isShowingAdvancedSearch ? "magnifyingglass.circle.fill" : "magnifyingglass.circle")
-                            .fontWeight(.medium)
-                            .foregroundColor(isShowingAdvancedSearch ? .blue : .primary)
-                    }
-                    
+                HStack(spacing: 12) {
                     Menu {
                         Picker("Sort", selection: $sortOption) {
                             ForEach(ContentSortOption.allCases, id: \.self) { option in
@@ -208,14 +140,16 @@ private extension LibraryView {
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
-                            .fontWeight(.medium)
+                            .font(.system(size: 16, weight: .medium))
+                            .frame(width: 32, height: 32)
                     }
                     
                     Button {
                         showingCreateFolder = true
                     } label: {
                         Image(systemName: "folder.badge.plus")
-                            .fontWeight(.medium)
+                            .font(.system(size: 16, weight: .medium))
+                            .frame(width: 32, height: 32)
                     }
                     
                     EnhancedUploadButton(
@@ -223,6 +157,7 @@ private extension LibraryView {
                         destinationFolder: folderManager.currentPath
                     )
                 }
+                .padding(.trailing, 4)
             }
         }
     }
@@ -230,28 +165,25 @@ private extension LibraryView {
 
 // MARK: - Media View
 private extension LibraryView {
-    func createMediaView() -> some View {
+    func createMediaView(geometry: GeometryProxy) -> some View {
         LazyVStack(spacing: 16) {
-            createMediaHeader()
+            createMediaHeader(geometry: geometry)
             
-            if folderManager.isLoading {
-                ProgressView("Loading...")
-                    .padding()
-            } else {
-                createContent()
-            }
+            createContent(geometry: geometry)
         }
-        .padding()
+        .padding(geometry.size.width > geometry.size.height ? 20 : 16) // More padding in landscape
     }
 }
 
 // MARK: - Header
 private extension LibraryView {
-    func createMediaHeader() -> some View {
-        HStack {
+    func createMediaHeader(geometry: GeometryProxy) -> some View {
+        let isLandscape = geometry.size.width > geometry.size.height
+        
+        return HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text(folderManager.currentPath.isEmpty ? "Your Library" : "Contents")
-                    .font(.title2)
+                    .font(isLandscape ? .title3 : .title2) // Smaller title in landscape
                     .fontWeight(.bold)
                 
                 let folderCount = folderManager.folders.count
@@ -269,61 +201,66 @@ private extension LibraryView {
 
 // MARK: - Content Display
 private extension LibraryView {
-    func createContent() -> some View {
+    func createContent(geometry: GeometryProxy) -> some View {
         let filteredFolders = getFilteredFolders()
         let filteredVideos = getFilteredVideos()
+        let isLandscape = geometry.size.width > geometry.size.height
         
-        if filteredFolders.isEmpty && filteredVideos.isEmpty {
+        if filteredFolders.isEmpty && filteredVideos.isEmpty && !folderManager.isLoading {
             return AnyView(createEmptyState())
         }
         
         return AnyView(
-            VStack(spacing: 16) {
+            VStack(spacing: isLandscape ? 12 : 16) { // Tighter spacing in landscape
                 // Display folders first
                 if !filteredFolders.isEmpty {
-                    createFoldersSection(filteredFolders)
+                    createFoldersSection(filteredFolders, geometry: geometry)
                 }
                 
                 // Then display videos
                 if !filteredVideos.isEmpty {
-                    createVideosSection(filteredVideos)
+                    createVideosSection(filteredVideos, geometry: geometry)
                 }
             }
         )
     }
     
-    func createFoldersSection(_ folders: [FolderMetadata]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+    func createFoldersSection(_ folders: [FolderMetadata], geometry: GeometryProxy) -> some View {
+        let isLandscape = geometry.size.width > geometry.size.height
+        
+        return VStack(alignment: .leading, spacing: 12) {
             if !folderManager.videos.isEmpty {
                 HStack {
                     Text("Folders")
-                        .font(.headline)
+                        .font(isLandscape ? .subheadline : .headline)
                         .fontWeight(.semibold)
                     Spacer()
                 }
             }
             
             if viewMode == .grid {
-                createFoldersGrid(folders)
+                createFoldersGrid(folders, geometry: geometry)
             } else {
                 createFoldersList(folders)
             }
         }
     }
     
-    func createVideosSection(_ videos: [VideoMetadata]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+    func createVideosSection(_ videos: [VideoMetadata], geometry: GeometryProxy) -> some View {
+        let isLandscape = geometry.size.width > geometry.size.height
+        
+        return VStack(alignment: .leading, spacing: 12) {
             if !folderManager.folders.isEmpty {
                 HStack {
                     Text("Videos")
-                        .font(.headline)
+                        .font(isLandscape ? .subheadline : .headline)
                         .fontWeight(.semibold)
                     Spacer()
                 }
             }
             
             if viewMode == .grid {
-                createVideosGrid(videos)
+                createVideosGrid(videos, geometry: geometry)
             } else {
                 createVideosList(videos)
             }
@@ -353,8 +290,11 @@ private extension LibraryView {
         }
     }
     
-    func createFoldersGrid(_ folders: [FolderMetadata]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 12) {
+    func createFoldersGrid(_ folders: [FolderMetadata], geometry: GeometryProxy) -> some View {
+        let isLandscape = geometry.size.width > geometry.size.height
+        let columnCount = isLandscape ? 3 : 2 // More columns in landscape
+        
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columnCount), spacing: 12) {
             ForEach(folders, id: \.id) { folder in
                 FolderCardView(
                     folder: folder,
@@ -380,7 +320,8 @@ private extension LibraryView {
         VStack(spacing: 8) {
             ForEach(videos, id: \.id) { video in
                 StoredVideo(
-                    videoURL: video.originalURL,
+                    videoMetadata: video,
+                    mediaStore: folderManager.store,
                     onDelete: {
                         Task {
                             try await folderManager.deleteVideo(video)
@@ -407,11 +348,15 @@ private extension LibraryView {
         }
     }
     
-    func createVideosGrid(_ videos: [VideoMetadata]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 12) {
+    func createVideosGrid(_ videos: [VideoMetadata], geometry: GeometryProxy) -> some View {
+        let isLandscape = geometry.size.width > geometry.size.height
+        let columnCount = isLandscape ? 3 : 2 // More columns in landscape
+        
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columnCount), spacing: 12) {
             ForEach(videos, id: \.id) { video in
                 VideoCardView(
                     video: video,
+                    mediaStore: folderManager.store,
                     onDelete: {
                         Task {
                             try await folderManager.deleteVideo(video)
@@ -453,28 +398,87 @@ private extension LibraryView {
     // MARK: - Filtering Functions
     
     func getFilteredFolders() -> [FolderMetadata] {
-        let sorted = folderManager.getSortedFolders(by: sortOption.folderSort)
-        
         if searchText.isEmpty {
-            return sorted
-        }
-        
-        return sorted.filter { folder in
-            folder.name.localizedCaseInsensitiveContains(searchText)
+            // No search - show folders from current directory
+            return folderManager.getSortedFolders(by: sortOption.folderSort)
+        } else {
+            // Search active - search across ALL folders
+            return folderManager.store.searchFolders(query: searchText)
+                .sorted { folder1, folder2 in
+                    switch sortOption.folderSort {
+                    case .name:
+                        return folder1.name.localizedCaseInsensitiveCompare(folder2.name) == .orderedAscending
+                    case .dateCreated:
+                        return folder1.createdDate < folder2.createdDate
+                    case .dateModified:
+                        return folder1.modifiedDate < folder2.modifiedDate
+                    case .videoCount:
+                        return folder1.videoCount < folder2.videoCount
+                    }
+                }
         }
     }
     
     func getFilteredVideos() -> [VideoMetadata] {
-        let sorted = folderManager.getSortedVideos(by: sortOption.videoSort)
-        
         if searchText.isEmpty {
-            return sorted
+            // No search - show only videos from current folder
+            return folderManager.getSortedVideos(by: sortOption.videoSort)
+        } else {
+            // Search active - search across ALL folders
+            return folderManager.store.searchVideos(query: searchText)
+                .sorted { video1, video2 in
+                    switch sortOption.videoSort {
+                    case .name:
+                        return video1.displayName.localizedCaseInsensitiveCompare(video2.displayName) == .orderedAscending
+                    case .dateCreated:
+                        return video1.createdDate < video2.createdDate
+                    case .fileSize:
+                        return video1.fileSize < video2.fileSize
+                    }
+                }
         }
-        
-        return sorted.filter { video in
-            video.displayName.localizedCaseInsensitiveContains(searchText) ||
-            video.fileName.localizedCaseInsensitiveContains(searchText)
+    }
+}
+
+// MARK: - Breadcrumb Navigation
+private extension LibraryView {
+    func createBreadcrumbView() -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(folderManager.getFolderHierarchy(), id: \.id) { breadcrumb in
+                    Button {
+                        folderManager.navigateToFolder(breadcrumb.path)
+                    } label: {
+                        HStack(spacing: 6) {
+                            if breadcrumb.isRoot {
+                                Image(systemName: "house.fill")
+                                    .font(.subheadline)
+                            }
+                            Text(breadcrumb.name)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundColor(breadcrumb.path == folderManager.currentPath ? .primary : .secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            breadcrumb.path == folderManager.currentPath ? 
+                            Color.blue.opacity(0.2) : Color.clear
+                        )
+                        .clipShape(Capsule())
+                    }
+                    
+                    if breadcrumb.id != folderManager.getFolderHierarchy().last?.id {
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
         }
+        .padding(.vertical, 12)
+        .background(Color(.systemGroupedBackground))
     }
 }
 

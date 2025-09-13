@@ -53,8 +53,22 @@ final class VideoExporter {
             while exporter.status == .exporting {
                 try await Task.sleep(nanoseconds: 50_000_000)
             }
-            if let e = exporter.error { throw e }
-            return outURL
+            
+            // Check export session status before returning
+            switch exporter.status {
+            case .completed:
+                // Verify the file was actually created
+                guard FileManager.default.fileExists(atPath: outURL.path) else {
+                    throw ProcessingError.exportFailed
+                }
+                return outURL
+            case .failed:
+                throw exporter.error ?? ProcessingError.exportFailed
+            case .cancelled:
+                throw ProcessingError.exportCancelled
+            default:
+                throw ProcessingError.exportFailed
+            }
         }
     }
 }

@@ -68,7 +68,11 @@ final class MLService {
                 }
             }
         }
-        print("❌ No CoreML model found in bundle (expected best*.mlpackage or *.mlmodelc)")
+        print("❌ No CoreML model found in bundle (expected bestv2.mlpackage or bestv2.mlmodelc)")
+        print("ℹ️  AI features will be disabled. To enable:")
+        print("   1. Add bestv2.mlpackage or bestv2.mlmodelc to the Xcode project bundle")
+        print("   2. Ensure the model is included in the target and bundle resources")
+        print("   3. The model should be a YOLO volleyball detection model")
     }
     
     /// Perform object detection on pixel buffer

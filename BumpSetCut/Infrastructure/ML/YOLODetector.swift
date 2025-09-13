@@ -49,7 +49,7 @@ final class YOLODetector {
                     cfg.computeUnits = .all   // Use ANE/GPU if available
                     let mlModel = try MLModel(contentsOf: url, configuration: cfg)
                     let vnModel = try VNCoreMLModel(for: mlModel)
-                    vnModel.inputImageFeatureName = vnModel.inputImageFeatureName // no-op
+                    // Let VNCoreMLModel auto-detect the image input feature
                     self.model = vnModel
                     print("✅ Loaded CoreML model: \(name).\(ext) [computeUnits=.all]")
                     return
@@ -58,7 +58,11 @@ final class YOLODetector {
                 }
             }
         }
-        print("❌ No CoreML model found in bundle (expected best*.mlpackage or *.mlmodelc)")
+        print("❌ No CoreML model found in bundle (expected bestv2.mlpackage or bestv2.mlmodelc)")
+        print("ℹ️  AI video processing will be disabled. To enable:")
+        print("   1. Add bestv2.mlpackage or bestv2.mlmodelc to the Xcode project bundle")
+        print("   2. Ensure the model is included in the target and bundle resources") 
+        print("   3. The model should be a YOLO volleyball detection model")
     }
     
     /// Returns only "volleyball" detections from the model, after de-dupe and static suppression.
@@ -67,7 +71,7 @@ final class YOLODetector {
         
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = .scaleFill
-        request.preferBackgroundProcessing = true
+        request.preferBackgroundProcessing = false
         
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
         do {
@@ -76,6 +80,8 @@ final class YOLODetector {
             print("⚠️ Vision perform failed: \(error)")
             return []
         }
+        
+        // Vision request completed successfully
         
         guard let results = request.results as? [VNRecognizedObjectObservation] else { return [] }
         

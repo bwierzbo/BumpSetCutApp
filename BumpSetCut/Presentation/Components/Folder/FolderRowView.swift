@@ -44,7 +44,7 @@ struct FolderRowView: View {
                     
                     Spacer()
                     
-                    Text(folder.modifiedDate, style: .relative)
+                    Text(folder.modifiedDate.formatted(date: .abbreviated, time: .omitted))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

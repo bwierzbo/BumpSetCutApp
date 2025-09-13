@@ -53,6 +53,8 @@ BumpSetCut/
 │   ├── System/           # System utilities and extensions
 │   ├── Math/             # Mathematical utilities (QuadraticFit)
 │   └── App/              # App configuration and entry point
+├── Resources/            # App bundle resources
+│   └── ML/               # CoreML model files (bestv2.mlpackage, bestv2.mlmodelc)
 └── Assets/               # App resources (images, colors, etc.)
 ```
 
@@ -147,3 +149,11 @@ Multi-stage processing chain:
 - Processing can be memory intensive with large videos
 - Debug mode annotation requires significant GPU resources
 - Consider cancellation handling in long-running processing tasks
+
+### CoreML Model Requirements
+- **Required Files**: `bestv2.mlpackage` (preferred) or `bestv2.mlmodelc` (fallback)
+- **Location**: `Resources/ML/` directory in the Xcode project
+- **Type**: YOLO volleyball detection model trained for volleyball object recognition
+- **Bundle Inclusion**: Must be added to Xcode target and included in "Copy Bundle Resources"
+- **Graceful Degradation**: App functions without models but AI features are disabled
+- **Error Handling**: Missing models show helpful console messages with setup instructions

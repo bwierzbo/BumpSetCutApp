@@ -84,6 +84,7 @@ struct EnhancedVideoManagementExample: View {
         }
         .sheet(isPresented: $showingBulkMoveDialog) {
             BulkVideoMoveDialog(
+                mediaStore: mediaStore,
                 videoFileNames: Array(selectedVideoFileNames),
                 currentFolder: currentFolder,
                 onMove: handleBulkMove,
@@ -108,7 +109,8 @@ struct EnhancedVideoManagementExample: View {
         VStack(spacing: 8) {
             ForEach(videos, id: \.id) { video in
                 StoredVideo(
-                    videoURL: video.originalURL,
+                    videoMetadata: video,
+                    mediaStore: mediaStore,
                     onDelete: {
                         handleVideoDelete(video)
                     },
@@ -136,6 +138,7 @@ struct EnhancedVideoManagementExample: View {
             ForEach(videos, id: \.id) { video in
                 VideoCardView(
                     video: video,
+                    mediaStore: mediaStore,
                     onDelete: {
                         handleVideoDelete(video)
                     },

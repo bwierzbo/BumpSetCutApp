@@ -9,6 +9,7 @@ import Foundation
 import SwiftUI
 import PhotosUI
 import MijickPopups
+import Combine
 import os
 
 // MARK: - Enhanced Upload Coordinator
@@ -21,6 +22,13 @@ class UploadCoordinator: ObservableObject {
     
     @Published var isUploadInProgress = false
     @Published var showingUploadProgress = false
+    @Published var showCompleted = false
+    
+    // Publisher for notifying when upload is completed
+    private let uploadCompletedSubject = PassthroughSubject<Void, Never>()
+    var uploadCompletedPublisher: AnyPublisher<Void, Never> {
+        uploadCompletedSubject.eraseToAnyPublisher()
+    }
     
     // Upload flow state
     private var pendingUploads: [PhotosPickerItem] = []
@@ -30,6 +38,11 @@ class UploadCoordinator: ObservableObject {
     init(mediaStore: MediaStore) {
         self.mediaStore = mediaStore
         self.uploadManager = UploadManager(mediaStore: mediaStore)
+        setupUploadCompletionListener()
+    }
+    
+    private func setupUploadCompletionListener() {
+        // Removed old notification-based system - now using direct completion handling
     }
     
     // MARK: - Public Interface
@@ -59,6 +72,8 @@ class UploadCoordinator: ObservableObject {
     
     func cancelUploadFlow() {
         uploadManager.cancelAllUploads()
+        isUploadInProgress = false
+        showCompleted = false
         resetUploadFlow()
     }
     
@@ -119,30 +134,38 @@ class UploadCoordinator: ObservableObject {
             uploadItem.status = .naming
         }
         
+        logger.info("Starting video naming dialog for: \(uploadItem.originalFileName)")
+        
         return await withCheckedContinuation { continuation in
-            Task {
+            Task { @MainActor in
+                logger.info("About to present VideoUploadNamingDialog")
+                
                 await VideoUploadNamingDialog(
                     uploadItem: uploadItem,
                     onName: { customName in
-                        Task {
+                        Task { @MainActor in
                             uploadItem.displayName = customName
                             uploadItem.finalName = customName
+                            self.logger.info("Video named: \(customName)")
                             continuation.resume()
                         }
                     },
                     onSkip: {
-                        Task {
-                            // Keep original name
+                        Task { @MainActor in
+                            self.logger.info("Video naming skipped")
                             continuation.resume()
                         }
                     },
                     onCancel: {
-                        Task {
+                        Task { @MainActor in
                             uploadItem.cancel()
+                            self.logger.info("Video naming cancelled")
                             continuation.resume()
                         }
                     }
                 ).present()
+                
+                self.logger.info("VideoUploadNamingDialog present() called")
             }
         }
     }
@@ -187,7 +210,12 @@ class UploadCoordinator: ObservableObject {
     
     private func finishUploadFlow() async {
         logger.info("Upload flow completed")
-        resetUploadFlow()
+        // Don't immediately reset - let checkAndResetUploadProgress handle the delayed reset
+        // Just clear the upload queue but keep isUploadInProgress true for the completion display
+        showingUploadProgress = false
+        pendingUploads.removeAll()
+        currentUploadIndex = 0
+        currentFolderPath = ""
     }
     
     private func resetUploadFlow() {
@@ -225,7 +253,7 @@ struct DropViewDelegate: DropDelegate {
         
         for provider in providers {
             if provider.canLoadObject(ofClass: URL.self) {
-                provider.loadObject(ofClass: URL.self) { url, error in
+                _ = provider.loadObject(ofClass: URL.self) { url, error in
                     DispatchQueue.main.async {
                         if let url = url, error == nil {
                             Task {
@@ -243,18 +271,19 @@ struct DropViewDelegate: DropDelegate {
     private func handleDroppedVideo(url: URL) async {
         guard let data = try? Data(contentsOf: url) else { return }
         
+        await MainActor.run {
+            uploadCoordinator.isUploadInProgress = true
+        }
+        
         await uploadCoordinator.uploadManager.addUpload(
             data: data,
             fileName: url.lastPathComponent,
             destinationFolderPath: destinationFolder
         )
         
-        // Show upload progress
-        await UploadProgressPopup(uploadManager: uploadCoordinator.uploadManager).present()
-        
         // Start upload immediately for dropped files
-        for item in uploadCoordinator.uploadManager.uploadItems {
-            uploadCoordinator.uploadManager.startUpload(item: item)
+        if let uploadItem = uploadCoordinator.uploadManager.uploadItems.last {
+            uploadCoordinator.uploadManager.startUpload(item: uploadItem)
         }
     }
 }
@@ -297,8 +326,125 @@ extension UploadCoordinator {
 extension UploadCoordinator {
     func handleMultiplePhotosPickerItems(_ items: [PhotosPickerItem], destinationFolder: String = "") {
         logger.info("Handling \(items.count) photos picker items")
-        startUploadFlow(from: items, destinationFolder: destinationFolder)
+        
+        // Simple direct upload without naming dialog
+        print("🚀 UploadCoordinator: Starting direct upload, set isUploadInProgress = true")
+        
+        // Force UI update on main thread
+        Task { @MainActor in
+            isUploadInProgress = true
+            objectWillChange.send()
+            print("📱 UI Update: isUploadInProgress = true sent to UI")
+        }
+        
+        Task {
+            // Longer delay to ensure UI has time to show the progress bar
+            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+            await processItemsDirectly(items, destinationFolder: destinationFolder)
+        }
     }
+    
+    private func processItemsDirectly(_ items: [PhotosPickerItem], destinationFolder: String) async {
+        print("🔄 Processing \(items.count) items directly")
+        
+        for (index, item) in items.enumerated() {
+            guard let data = try? await item.loadTransferable(type: Data.self) else {
+                logger.warning("Failed to load data for item \(index)")
+                continue
+            }
+            
+            print("✅ Loaded data for item \(index), size: \(data.count) bytes")
+            
+            // Save directly to MediaStore without the fake upload simulation
+            await saveVideoDirectly(data: data, destinationFolder: destinationFolder)
+        }
+        
+        print("✨ Finished processing all items")
+        await handleUploadCompletion()
+    }
+    
+    private func saveVideoDirectly(data: Data, destinationFolder: String) async {
+        do {
+            let fileName = "Video_\(DateFormatter.yyyyMMdd_HHmmss.string(from: Date())).mp4"
+            let baseURL = StorageManager.getPersistentStorageDirectory()
+            let destinationURL = baseURL
+                .appendingPathComponent(destinationFolder)
+                .appendingPathComponent(fileName)
+            
+            // Ensure directory exists
+            try FileManager.default.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            
+            // Write file
+            try data.write(to: destinationURL)
+            print("✅ Successfully wrote file to: \(destinationURL.path)")
+            
+            // Create auto-generated name for uploaded video
+            let uploadDate = DateFormatter.shortDate.string(from: Date())
+            let autoName = "Uploaded video \(uploadDate)"
+            
+            // Add to MediaStore with auto-generated name
+            let success = mediaStore.addVideo(
+                at: destinationURL,
+                toFolder: destinationFolder,
+                customName: autoName
+            )
+            
+            if success {
+                print("✅ Video successfully added to MediaStore with name: \(autoName)")
+                logger.info("Video upload completed: \(fileName) -> \(autoName)")
+            } else {
+                print("❌ Failed to add video to MediaStore")
+                logger.error("Failed to add video to MediaStore: \(fileName)")
+            }
+            
+        } catch {
+            logger.error("Failed to save video: \(error.localizedDescription)")
+        }
+    }
+    
+    private func handleUploadCompletion() async {
+        print("🎉 All uploads completed, showing completion state")
+        
+        await MainActor.run {
+            showCompleted = true
+            
+            // Notify LibraryView to refresh its contents
+            print("📢 Sending upload completion notification")
+            uploadCompletedSubject.send()
+        }
+        
+        // Auto-dismiss after 2 seconds to keep it simple
+        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+        
+        await MainActor.run {
+            print("⏰ Auto-dismissing upload completion")
+            isUploadInProgress = false
+            showCompleted = false
+        }
+    }
+    
+    func completeUploadFlow() {
+        print("🔚 UploadCoordinator.completeUploadFlow() called")
+        print("🔚 Setting isUploadInProgress = false, showCompleted = false")
+        
+        // Update UI state immediately for responsiveness
+        isUploadInProgress = false
+        showCompleted = false
+        
+        // Move the cleanup to a background task
+        Task {
+            uploadManager.clearCompleted()
+            await MainActor.run {
+                print("🔚 Upload flow completion finished")
+                self.logger.info("Upload flow completed by user action")
+            }
+        }
+    }
+    
     
     func getUploadSummary() -> UploadSummary {
         return UploadSummary(

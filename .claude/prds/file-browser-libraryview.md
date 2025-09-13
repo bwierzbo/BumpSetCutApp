@@ -1,8 +1,9 @@
 ---
 name: file-browser-libraryview
 description: Enhanced video library with folder organization, sorting, renaming, and improved upload experience
-status: backlog
+status: complete
 created: 2025-09-01T18:53:13Z
+completed: 2025-09-02T23:31:17Z
 ---
 
 # PRD: File Browser LibraryView

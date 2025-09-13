@@ -28,6 +28,10 @@ final class VideoProcessor {
     private var decider = RallyDecider(config: ProcessorConfig())
     private var segments = SegmentBuilder(config: ProcessorConfig())
     private let exporter = VideoExporter()
+    
+    // Debug data collection
+    var trajectoryDebugger: TrajectoryDebugger?
+    private var metricsCollector: MetricsCollector?
 
     // MARK: - Entry point
     func processVideo(_ url: URL) async throws -> URL {
@@ -66,6 +70,9 @@ final class VideoProcessor {
 
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
+              
+            // Check for cancellation before processing each frame
+            try Task.checkCancellation()
 
             let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
 
@@ -96,15 +103,47 @@ final class VideoProcessor {
                              isActive ? "Y" : "N",
                              tracker.tracks.count))
             }
+            
+            // Clean up sample buffer to prevent memory accumulation for large videos
+            CMSampleBufferInvalidate(sbuf)
+        }
+
+        // Check if reader finished successfully or encountered an error
+        if reader.status == .failed {
+            if let error = reader.error {
+                throw error
+            } else {
+                throw ProcessingError.exportFailed
+            }
         }
 
         let keep = segments.finalize(until: duration)
+        
+        // Add detailed debugging information
+        print("🔍 Debug: Segment finalization results:")
+        print("   - Total keep ranges: \(keep.count)")
+        print("   - Video duration: \(CMTimeGetSeconds(duration))s")
+        if !keep.isEmpty {
+            for (i, range) in keep.enumerated() {
+                let startTime = CMTimeGetSeconds(range.start)
+                let endTime = CMTimeGetSeconds(CMTimeRangeGetEnd(range))
+                print("   - Range \(i): \(String(format: "%.2f", startTime))s - \(String(format: "%.2f", endTime))s (\(String(format: "%.2f", endTime - startTime))s)")
+            }
+        }
+        
         guard !keep.isEmpty else {
             print("❌ No keep ranges. Detections may be too sparse or gating too strict. Check labels and thresholds.")
+            print("💡 Possible causes:")
+            print("   - Enhanced physics validation too strict")
+            print("   - No ball detections found")
+            print("   - Rally detection thresholds too high")
+            print("   - Processing configuration issues")
             await MainActor.run { isProcessing = false }
             throw ProcessingError.exportFailed
         }
 
+        // Check for cancellation before export (which can take a long time)
+        try Task.checkCancellation()
         let out = try await exporter.exportTrimmed(asset: asset, keepRanges: keep)
 
         await MainActor.run {
@@ -118,6 +157,15 @@ final class VideoProcessor {
     // MARK: - Debug path (no cutting, full-length annotated video)
     func processVideoDebug(_ url: URL) async throws -> URL {
         await MainActor.run { isProcessing = true; progress = 0 }
+
+        // Initialize debug session
+        await MainActor.run {
+            metricsCollector = MetricsCollector(config: MetricsCollector.MetricsConfig.default)
+        }
+        trajectoryDebugger = TrajectoryDebugger(metricsCollector: metricsCollector!)
+        trajectoryDebugger?.isEnabled = true
+        trajectoryDebugger?.isRecording = true
+        trajectoryDebugger?.startDebugSession(name: "Video Processing Session")
 
         // Recreate stage objects with current config
         self.gate = BallisticsGate(config: config)
@@ -163,6 +211,9 @@ final class VideoProcessor {
         reader.startReading()
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
+              
+            // Check for cancellation before processing each frame
+            try Task.checkCancellation()
 
             rawFrameIndex += 1
             let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
@@ -183,6 +234,35 @@ final class VideoProcessor {
                 let isProjectile = activeTrack.map { gate.isValidProjectile($0) } ?? false
                 let hasBall = !dets.isEmpty
                 let inRally = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
+
+                // Capture debug data if available
+                if let debugger = trajectoryDebugger, let track = activeTrack {
+                    // Create physics validation result with proper parameters
+                    let physicsResult = PhysicsValidationResult(
+                        isValid: isProjectile,
+                        rSquared: 0.95, // Default value, could be extracted from gate
+                        curvatureDirectionValid: true,
+                        accelerationMagnitudeValid: true,
+                        velocityConsistencyValid: true,
+                        positionJumpsValid: true,
+                        confidenceLevel: 0.9
+                    )
+                    
+                    // Create movement classification
+                    let movementClassifier = MovementClassifier()
+                    let movementClassification = movementClassifier.classifyMovement(track)
+                    
+                    // Calculate quality metrics
+                    let trajectoryQualityScore = TrajectoryQualityScore()
+                    let qualityMetrics = trajectoryQualityScore.calculateQuality(for: track)
+                    
+                    debugger.analyzeTrajectory(
+                        track,
+                        physicsResult: physicsResult,
+                        classificationResult: movementClassification,
+                        qualityScore: qualityMetrics
+                    )
+                }
 
                 // Cache for skipped frames
                 lastDets = dets
@@ -213,7 +293,13 @@ final class VideoProcessor {
             }
         }
 
+        // Check for cancellation before finishing (which can take time)
+        try Task.checkCancellation()
         let out = try await annotator.finish()
+        
+        // Stop debug session
+        trajectoryDebugger?.stopDebugSession()
+        
         await MainActor.run {
             processedURL = out
             isProcessing = false

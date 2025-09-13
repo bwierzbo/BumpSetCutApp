@@ -103,19 +103,35 @@ struct SearchFilter {
 }
 
 struct SearchHistory: Codable, Identifiable {
-    let id = UUID()
+    let id: UUID
     let query: String
     let timestamp: Date
     let resultCount: Int
+    
+    init(query: String, timestamp: Date, resultCount: Int) {
+        self.id = UUID()
+        self.query = query
+        self.timestamp = timestamp
+        self.resultCount = resultCount
+    }
 }
 
 struct SavedSearch: Codable, Identifiable {
-    let id = UUID()
+    let id: UUID
     var name: String
     let query: String
     let filters: SearchFilterData
     let createdDate: Date
     var lastUsed: Date
+    
+    init(name: String, query: String, filters: SearchFilterData, createdDate: Date, lastUsed: Date) {
+        self.id = UUID()
+        self.name = name
+        self.query = query
+        self.filters = filters
+        self.createdDate = createdDate
+        self.lastUsed = lastUsed
+    }
     
     struct SearchFilterData: Codable {
         let fileType: String

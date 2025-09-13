@@ -10,6 +10,7 @@ import AVKit
 
 struct VideoCardView: View {
     let video: VideoMetadata
+    let mediaStore: MediaStore
     let onDelete: () -> Void
     let onRefresh: () -> Void
     let onRename: ((String) -> Void)?
@@ -127,16 +128,34 @@ struct VideoCardView: View {
                 }
             }
             
-            // Video info
+            // Video info - Fixed height to ensure consistency
             VStack(alignment: .leading, spacing: 4) {
+                // Title with fixed line limit
                 Text(video.displayName)
                     .font(.caption)
                     .fontWeight(.medium)
                     .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 
+                // Processing status
+                HStack(spacing: 4) {
+                    Image(systemName: processingStatusIcon)
+                        .font(.caption2)
+                        .foregroundColor(processingStatusColor)
+                    Text(processingStatusText)
+                        .font(.caption2)
+                        .foregroundColor(processingStatusColor)
+                    Spacer()
+                }
+                
+                // Duration and file size
                 HStack {
                     if let duration = video.duration {
                         Text(formatDuration(duration))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("--:--")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -148,22 +167,24 @@ struct VideoCardView: View {
                         .foregroundColor(.secondary)
                 }
                 
-                // Additional metadata
+                // Date - always shown for consistency
                 Text(video.createdDate.formatted(date: .abbreviated, time: .omitted))
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 70, maxHeight: 70, alignment: .topLeading) // Fixed consistent height
         }
+        .frame(maxWidth: .infinity, maxHeight: 200) // Fixed maximum height for consistent grid sizing
         .contentShape(Rectangle())
         .contextMenu {
-            Button {
-                showingProcessVideo = true
-            } label: {
-                Label("Process with AI", systemImage: "brain.head.profile")
+            if video.canBeProcessed {
+                Button {
+                    showingProcessVideo = true
+                } label: {
+                    Label("Process with AI", systemImage: "brain.head.profile")
+                }
+                
             }
-            
-            Divider()
             
             if onRename != nil {
                 Button {
@@ -198,7 +219,7 @@ struct VideoCardView: View {
                 .ignoresSafeArea()
         }
         .sheet(isPresented: $showingProcessVideo) {
-            ProcessVideoView(videoURL: video.originalURL, onComplete: onRefresh)
+            ProcessVideoView(videoURL: video.originalURL, mediaStore: mediaStore, folderPath: video.folderPath, onComplete: onRefresh)
         }
         .sheet(isPresented: $showingRenameDialog) {
             VideoRenameDialog(
@@ -214,6 +235,7 @@ struct VideoCardView: View {
         }
         .sheet(isPresented: $showingMoveDialog) {
             VideoMoveDialog(
+                mediaStore: mediaStore,
                 currentFolder: video.folderPath,
                 onMove: { folderPath in
                     onMove?(folderPath)
@@ -261,5 +283,38 @@ struct VideoCardView: View {
         formatter.allowedUnits = [.useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
+    }
+    
+    // MARK: - Processing Status Helpers
+    
+    private var processingStatusIcon: String {
+        if video.isProcessed {
+            return "checkmark.seal.fill"
+        } else if !video.processedVideoIds.isEmpty {
+            return "arrow.branch"
+        } else {
+            return "video.circle"
+        }
+    }
+    
+    private var processingStatusText: String {
+        if video.isProcessed {
+            return "Processed"
+        } else if !video.processedVideoIds.isEmpty {
+            let count = video.processedVideoIds.count
+            return "\(count) version\(count == 1 ? "" : "s")"
+        } else {
+            return "Original"
+        }
+    }
+    
+    private var processingStatusColor: Color {
+        if video.isProcessed {
+            return .orange
+        } else if !video.processedVideoIds.isEmpty {
+            return .blue
+        } else {
+            return .secondary
+        }
     }
 }

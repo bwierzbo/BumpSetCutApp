@@ -9,7 +9,8 @@ import SwiftUI
 import AVKit
 
 struct StoredVideo: View {
-    let videoURL: URL
+    let videoMetadata: VideoMetadata
+    let mediaStore: MediaStore
     let onDelete: () -> ()
     let onRefresh: () -> ()
     let onRename: ((String) -> Void)?
@@ -17,6 +18,11 @@ struct StoredVideo: View {
     let isSelectable: Bool
     let isSelected: Bool
     let onSelectionToggle: (() -> Void)?
+    
+    // Computed properties for backward compatibility
+    var videoURL: URL { videoMetadata.originalURL }
+    var displayName: String? { videoMetadata.customName }
+    var folderPath: String { videoMetadata.folderPath }
     
     @State private var showingVideoPlayer = false
     @State private var showingDeleteConfirmation = false
@@ -56,8 +62,40 @@ struct StoredVideo: View {
             Spacer()
             
             // Three-dot menu button
-            Button {
-                // Context menu will be shown via contextMenu modifier
+            Menu {
+                if videoMetadata.canBeProcessed {
+                    Button {
+                        showingProcessVideo = true
+                    } label: {
+                        Label("Process with AI", systemImage: "brain.head.profile")
+                    }
+                    
+                    Divider()
+                }
+                
+                if onRename != nil {
+                    Button {
+                        showingRenameDialog = true
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
+                }
+                
+                if onMove != nil {
+                    Button {
+                        showingMoveDialog = true
+                    } label: {
+                        Label("Move", systemImage: "folder")
+                    }
+                }
+                
+                Divider()
+                
+                Button(role: .destructive) {
+                    showingDeleteConfirmation = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.title3)
@@ -65,7 +103,9 @@ struct StoredVideo: View {
                     .frame(width: 30, height: 30)
             }
             
-            createProcessButton()
+            if videoMetadata.canBeProcessed {
+                createProcessButton()
+            }
             createDeleteButton()
         }
         .contentShape(Rectangle())
@@ -84,13 +124,15 @@ struct StoredVideo: View {
             }
         }
         .contextMenu {
-            Button {
-                showingProcessVideo = true
-            } label: {
-                Label("Process with AI", systemImage: "brain.head.profile")
+            if videoMetadata.canBeProcessed {
+                Button {
+                    showingProcessVideo = true
+                } label: {
+                    Label("Process with AI", systemImage: "brain.head.profile")
+                }
+                
+                Divider()
             }
-            
-            Divider()
             
             if onRename != nil {
                 Button {
@@ -121,7 +163,7 @@ struct StoredVideo: View {
         .sheet(isPresented: $showingProcessVideo, content: createProcessVideoSheet)
         .sheet(isPresented: $showingRenameDialog) {
             VideoRenameDialog(
-                currentName: videoURL.deletingPathExtension().lastPathComponent,
+                currentName: displayName ?? videoURL.deletingPathExtension().lastPathComponent,
                 onRename: { newName in
                     onRename?(newName)
                     showingRenameDialog = false
@@ -133,6 +175,7 @@ struct StoredVideo: View {
         }
         .sheet(isPresented: $showingMoveDialog) {
             VideoMoveDialog(
+                mediaStore: mediaStore,
                 currentFolder: "", // StoredVideo doesn't know its folder path - this needs to be passed in
                 onMove: { folderPath in
                     onMove?(folderPath)
@@ -192,19 +235,71 @@ private extension StoredVideo {
 // MARK: - Text Content
 private extension StoredVideo {
     func createText() -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             createTitleText()
-            createDateText()
+            createProcessingStatusText()
+            Spacer(minLength: 2)
+            HStack {
+                createDateText()
+                Spacer()
+                createExtensionText()
+            }
             createMetadataText()
-            createExtensionText()
-        }.frame(height: 72)
+        }
+        .frame(height: 72, alignment: .top)
     }
 
     func createTitleText() -> some View {
-        Text(videoURL.deletingPathExtension().lastPathComponent)
+        Text(videoMetadata.displayName)
             .font(.headline)
             .foregroundColor(.primary)
             .lineLimit(1)
+    }
+    
+    func createProcessingStatusText() -> some View {
+        HStack(spacing: 4) {
+            statusIcon
+            Text(statusText)
+                .font(.caption)
+                .foregroundColor(statusColor)
+        }
+    }
+    
+    private var statusIcon: some View {
+        Image(systemName: statusIconName)
+            .font(.caption)
+            .foregroundColor(statusColor)
+    }
+    
+    private var statusIconName: String {
+        if videoMetadata.isProcessed {
+            return "checkmark.seal.fill"
+        } else if !videoMetadata.processedVideoIds.isEmpty {
+            return "arrow.branch"
+        } else {
+            return "video.circle"
+        }
+    }
+    
+    private var statusText: String {
+        if videoMetadata.isProcessed {
+            return "Processed"
+        } else if !videoMetadata.processedVideoIds.isEmpty {
+            let count = videoMetadata.processedVideoIds.count
+            return "\(count) version\(count == 1 ? "" : "s")"
+        } else {
+            return "Original"
+        }
+    }
+    
+    private var statusColor: Color {
+        if videoMetadata.isProcessed {
+            return .orange
+        } else if !videoMetadata.processedVideoIds.isEmpty {
+            return .blue
+        } else {
+            return .secondary
+        }
     }
 
     func createDateText() -> some View {
@@ -231,12 +326,7 @@ private extension StoredVideo {
             
             Spacer()
             
-            // Show duration if available
-            if let duration = getVideoDuration() {
-                Text(formatDuration(duration))
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
+            // Duration display temporarily removed due to API deprecation
         }
     }
 
@@ -261,10 +351,9 @@ private extension StoredVideo {
     }
     
     func getVideoDuration() -> TimeInterval? {
-        let asset = AVURLAsset(url: videoURL)
-        let duration = asset.duration
-        guard duration.isValid && !duration.isIndefinite else { return nil }
-        return CMTimeGetSeconds(duration)
+        // Duration functionality temporarily disabled due to API deprecation
+        // The modern API requires async/await which doesn't fit this sync method
+        return nil
     }
 }
 
@@ -321,6 +410,6 @@ private extension StoredVideo {
     }
     
     func createProcessVideoSheet() -> some View {
-        ProcessVideoView(videoURL: videoURL, onComplete: onRefresh)
+        ProcessVideoView(videoURL: videoURL, mediaStore: mediaStore, folderPath: folderPath, onComplete: onRefresh)
     }
 }

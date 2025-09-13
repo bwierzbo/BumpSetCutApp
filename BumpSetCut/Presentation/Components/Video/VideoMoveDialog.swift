@@ -8,15 +8,13 @@
 import SwiftUI
 
 struct VideoMoveDialog: View {
+    let mediaStore: MediaStore
     let currentFolder: String
     let onMove: (String) -> Void
     let onCancel: () -> Void
     
     @State private var selectedFolderPath: String = ""
     @State private var folders: [FolderMetadata] = []
-    
-    // We'll need access to MediaStore - this should be passed in via environment
-    @EnvironmentObject private var mediaStore: MediaStore
     
     var body: some View {
         NavigationView {
@@ -178,6 +176,7 @@ struct VideoMoveDialog: View {
 
 #Preview {
     VideoMoveDialog(
+        mediaStore: MediaStore(),
         currentFolder: "Folder1",
         onMove: { folderPath in
             print("Move to: \(folderPath)")

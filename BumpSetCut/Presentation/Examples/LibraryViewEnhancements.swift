@@ -65,6 +65,8 @@ struct LibraryViewEnhancementsDemo {
             ForEach(videos, id: \.id) { video in
                 StoredVideo(
                     videoURL: video.originalURL,
+                    displayName: video.displayName,
+                    mediaStore: folderManager.store,
                     onDelete: {
                         Task {
                             try await folderManager.deleteVideo(video)
@@ -255,6 +257,7 @@ struct LibraryViewToolbarEnhancement {
  4. Add sheet modifiers for bulk operations:
     .sheet(isPresented: $showingBulkMoveDialog) {
         BulkVideoMoveDialog(
+            mediaStore: folderManager.store,
             videoFileNames: Array(selectedVideoFileNames),
             currentFolder: folderManager.currentPath,
             onMove: handleBulkMove,

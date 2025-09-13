@@ -12,6 +12,7 @@ import MijickPopups
 
 struct ContentView: View {
     @State private var mediaStore = MediaStore()
+    @State private var captureHandler: CaptureHandler?
     
     
     var body: some View {
@@ -24,7 +25,8 @@ struct ContentView: View {
             .preferredColorScheme(.dark)
         }
         .onAppear {
-            mediaStore.captureDelegate = CaptureHandler(mediaStore: mediaStore)
+            captureHandler = CaptureHandler(mediaStore: mediaStore)
+            mediaStore.captureDelegate = captureHandler
         }
     }
 }

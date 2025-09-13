@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AVKit
+import AVFoundation
 
 struct VideoPlayerView: View {
     let videoURL: URL
@@ -73,8 +74,23 @@ private extension VideoPlayerView {
 // MARK: - Player Management
 private extension VideoPlayerView {
     func setupPlayer() {
+        // Ensure audio session is active for this player
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("⚠️ Warning: Could not activate audio session: \(error)")
+        }
+        
         let avPlayer = AVPlayer(url: videoURL)
+        
+        // Enable audio output explicitly
+        avPlayer.volume = 1.0
+        avPlayer.isMuted = false
+        
         player = avPlayer
+        
+        // Auto-play the video
+        avPlayer.play()
     }
     
     func cleanupPlayer() {

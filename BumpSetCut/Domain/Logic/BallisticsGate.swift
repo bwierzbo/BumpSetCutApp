@@ -10,12 +10,86 @@ import CoreMedia
 
 final class BallisticsGate {
     private let config: ProcessorConfig
+    private let parabolicValidator: ParabolicValidator
+    private let movementClassifier: MovementClassifier
+    private let qualityScorer: TrajectoryQualityScore
     
     init(config: ProcessorConfig) {
         self.config = config
+        
+        // Initialize physics validation components
+        let validatorConfig = ParabolicValidator.Config(
+            minR2Threshold: config.enhancedMinR2,
+            minPoints: config.parabolaMinPoints,
+            gravityDirection: config.yIncreasingDown ? .down : .up,
+            maxVelocityChange: config.velocityConsistencyThreshold,
+            minParabolicCurvature: 0.001 // Use fixed value as not in config
+        )
+        self.parabolicValidator = ParabolicValidator(config: validatorConfig)
+        
+        let classifierConfig = ClassificationConfig()
+        self.movementClassifier = MovementClassifier(config: classifierConfig)
+        
+        let qualityConfig = TrajectoryQualityScore.QualityConfig(
+            smoothnessThreshold: config.trajectorySmoothnessThreshold,
+            velocityConsistencyThreshold: config.velocityConsistencyThreshold,
+            physicsScoreThreshold: config.enhancedMinR2
+        )
+        self.qualityScorer = TrajectoryQualityScore(config: qualityConfig)
     }
     
     func isValidProjectile(_ track: KalmanBallTracker.TrackedBall) -> Bool {
+        // Use enhanced physics validation if enabled
+        if config.enableEnhancedPhysics {
+            return isValidProjectileEnhanced(track)
+        }
+        
+        // Fall back to legacy validation
+        return isValidProjectileLegacy(track)
+    }
+    
+    /// Enhanced projectile validation using ParabolicValidator, MovementClassifier, and TrajectoryQualityScore
+    private func isValidProjectileEnhanced(_ track: KalmanBallTracker.TrackedBall) -> Bool {
+        // Must have enough samples to say anything meaningful
+        let allSamples = track.positions
+        guard allSamples.count >= config.parabolaMinPoints else { return false }
+
+        // Time-windowed samples: use only the last `projectileWindowSec` seconds
+        let windowSec = max(0.1, config.projectileWindowSec)
+        let endT = allSamples.last!.1
+        let cutoff = CMTimeSubtract(endT, CMTimeMakeWithSeconds(windowSec, preferredTimescale: 600))
+        let samples = allSamples.filter { CMTimeCompare($0.1, cutoff) >= 0 }
+        guard samples.count >= config.parabolaMinPoints else { return false }
+        
+        // Step 1: Movement Classification - reject non-airborne movements
+        let classification = movementClassifier.classifyMovement(track)
+        guard classification.isValidProjectile else { return false }
+        
+        // Step 2: Trajectory Quality Assessment
+        let qualityMetrics = qualityScorer.calculateQuality(for: track)
+        guard qualityMetrics.overall >= config.minQualityScore else { return false }
+        
+        // Step 3: Parabolic Validation - comprehensive physics check
+        let parabolicResult = parabolicValidator.validateTrajectory(samples)
+        guard parabolicResult.isValid else { return false }
+        
+        // Step 4: Basic coherence checks (preserve existing spatial jump detection)
+        if samples.count >= 2 {
+            let lastPt = samples.last!.0
+            let prevPt = samples[samples.count - 2].0
+            let jump = hypot(lastPt.x - prevPt.x, lastPt.y - prevPt.y)
+            if jump > config.maxJumpPerFrame {
+                return false
+            }
+        }
+        
+        // Step 5: Confidence-based final decision
+        let combinedConfidence = (classification.confidence + qualityMetrics.overall + parabolicResult.r2Correlation) / 3.0
+        return combinedConfidence >= config.minClassificationConfidence
+    }
+    
+    /// Legacy projectile validation method (original implementation)
+    private func isValidProjectileLegacy(_ track: KalmanBallTracker.TrackedBall) -> Bool {
         // Must have enough samples to say anything meaningful
         let allSamples = track.positions
         guard allSamples.count >= config.parabolaMinPoints else { return false }

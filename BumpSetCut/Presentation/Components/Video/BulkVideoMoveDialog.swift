@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct BulkVideoMoveDialog: View {
+    let mediaStore: MediaStore
     let videoFileNames: [String]
     let currentFolder: String
     let onMove: (String) -> Void
@@ -16,8 +17,6 @@ struct BulkVideoMoveDialog: View {
     @State private var selectedFolderPath: String = ""
     @State private var folders: [FolderMetadata] = []
     @State private var isLoading = false
-    
-    @EnvironmentObject private var mediaStore: MediaStore
     
     var body: some View {
         NavigationView {
@@ -230,6 +229,7 @@ struct BulkVideoMoveDialog: View {
 
 #Preview {
     BulkVideoMoveDialog(
+        mediaStore: MediaStore(),
         videoFileNames: ["video1.mp4", "video2.mov", "video3.mp4"],
         currentFolder: "Folder1",
         onMove: { folderPath in

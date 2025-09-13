@@ -66,47 +66,114 @@ struct DropZoneView<Content: View>: View {
 // MARK: - Upload Status Bar
 
 struct UploadStatusBar: View {
-    let uploadCoordinator: UploadCoordinator
+    @ObservedObject var uploadCoordinator: UploadCoordinator
+    @State private var uploadedVideoURL: URL?
     
     var body: some View {
-        if uploadCoordinator.isUploadInProgress {
-            let summary = uploadCoordinator.getUploadSummary()
-            
-            HStack(spacing: 12) {
-                ProgressView(value: summary.overallProgress)
-                    .frame(width: 60)
-                    .tint(.blue)
+        let _ = print("🔄 UploadStatusBar.body called - isUploadInProgress=\(uploadCoordinator.isUploadInProgress)")
+        
+        return Group {
+            if uploadCoordinator.isUploadInProgress {
+                let _ = print("✅ Progress bar should be visible!")
                 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(summary.statusText)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                VStack(spacing: 24) {
+                    createHeaderView()
                     
-                    Text("\(Int(summary.overallProgress * 100))% complete")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                Button("Show") {
-                    Task {
-                        await UploadProgressPopup(uploadManager: uploadCoordinator.uploadProgress).present()
+                    if uploadCoordinator.showCompleted {
+                        createCompletedView()
+                    } else {
+                        createUploadingView(progress: 0.0) // Progress not used anymore
+                    }
+                    
+                    if uploadCoordinator.showCompleted {
+                        createActionButtons()
+                    } else {
+                        createCancelButton()
                     }
                 }
-                .font(.caption)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .clipShape(Capsule())
+                .padding(24)
+                .background(Color(.systemGroupedBackground))
+                .cornerRadius(12)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+            } else {
+                let _ = print("❌ Progress bar should NOT be visible")
+                EmptyView()
             }
-            .padding()
-            .background(Color(.systemGray6))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .padding(.horizontal)
         }
     }
+    
+    // MARK: - Upload Status Bar Components
+    
+    private func createCancelButton() -> some View {
+        Button("Cancel") {
+            uploadCoordinator.cancelUploadFlow()
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(Color.red)
+        .foregroundColor(.white)
+        .cornerRadius(12)
+    }
+    
+    private func createHeaderView() -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "icloud.and.arrow.up")
+                .font(.system(size: 48))
+                .foregroundColor(.blue)
+            
+            Text("Processing Video")
+                .font(.title2)
+                .fontWeight(.bold)
+        }
+    }
+    
+    private func createUploadingView(progress: Double) -> some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .scaleEffect(1.5)
+                .progressViewStyle(CircularProgressViewStyle())
+            
+            Text("Processing video...")
+                .font(.headline)
+                .foregroundColor(.primary)
+            
+            Text("Adding to your library")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+    
+    private func createCompletedView() -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 32))
+                .foregroundColor(.green)
+            
+            Text("Upload Complete!")
+                .font(.headline)
+                .foregroundColor(.primary)
+            
+            Text("Video uploaded and automatically named with today's date")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+    
+    private func createActionButtons() -> some View {
+        Button("Done") {
+            print("✅ Done button pressed")
+            uploadCoordinator.completeUploadFlow()
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(Color.green)
+        .foregroundColor(.white)
+        .cornerRadius(12)
+    }
+    
+    
 }
 
 // MARK: - Enhanced Upload Button
@@ -117,6 +184,10 @@ struct EnhancedUploadButton: View {
     
     @State private var showingPhotoPicker = false
     @State private var selectedItems: [PhotosPickerItem] = []
+    @State private var showingNamingDialog = false
+    @State private var pendingVideoData: Data?
+    @State private var videoFileName = ""
+    @State private var customVideoName = ""
     
     var body: some View {
         Menu {
@@ -155,16 +226,136 @@ struct EnhancedUploadButton: View {
         .photosPicker(
             isPresented: $showingPhotoPicker,
             selection: $selectedItems,
-            maxSelectionCount: 10,
+            maxSelectionCount: 1, // Limited to single video for now
             matching: .videos
         )
         .onChange(of: selectedItems) { _, items in
-            if !items.isEmpty {
-                uploadCoordinator.handleMultiplePhotosPickerItems(items, destinationFolder: destinationFolder)
+            if !items.isEmpty, let item = items.first {
+                uploadCoordinator.handleMultiplePhotosPickerItems([item], destinationFolder: destinationFolder)
                 selectedItems.removeAll()
             }
         }
+        .sheet(isPresented: $showingNamingDialog) {
+            VideoNamingSheet(
+                customName: $customVideoName,
+                onSave: {
+                    if let data = pendingVideoData {
+                        let finalName = customVideoName.isEmpty ? videoFileName : customVideoName
+                        saveVideoWithName(data: data, name: finalName)
+                    }
+                    showingNamingDialog = false
+                },
+                onCancel: {
+                    showingNamingDialog = false
+                    pendingVideoData = nil
+                }
+            )
+        }
     }
+    
+    private func handleVideoSelection(_ item: PhotosPickerItem) {
+        Task {
+            guard let data = try? await item.loadTransferable(type: Data.self) else {
+                print("Failed to load video data")
+                return
+            }
+            
+            await MainActor.run {
+                self.pendingVideoData = data
+                self.videoFileName = "Video_\(DateFormatter.yyyyMMdd_HHmmss.string(from: Date()))"
+                self.customVideoName = ""
+                self.showingNamingDialog = true
+            }
+        }
+    }
+    
+    private func saveVideoWithName(data: Data, name: String) {
+        Task {
+            let fileName = name.hasSuffix(".mp4") ? name : "\(name).mp4"
+            await uploadCoordinator.uploadManager.addUpload(
+                data: data,
+                fileName: fileName,
+                destinationFolderPath: destinationFolder
+            )
+            
+            // Start the upload immediately
+            if let uploadItem = uploadCoordinator.uploadManager.uploadItems.last {
+                uploadItem.displayName = name
+                uploadItem.finalName = name
+                uploadCoordinator.uploadManager.startUpload(item: uploadItem, customName: name)
+            }
+        }
+    }
+}
+
+// MARK: - Simple Video Naming Sheet
+
+struct VideoNamingSheet: View {
+    @Binding var customName: String
+    let onSave: () -> Void
+    let onCancel: () -> Void
+    
+    @FocusState private var isTextFieldFocused: Bool
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Name Your Video")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    
+                    Text("Enter a name for your video")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Video Name")
+                        .font(.headline)
+                    
+                    TextField("Enter video name", text: $customName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .focused($isTextFieldFocused)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Name Video")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(
+                leading: Button("Cancel") {
+                    onCancel()
+                },
+                trailing: Button("Save") {
+                    onSave()
+                }
+                .fontWeight(.semibold)
+            )
+        }
+        .onAppear {
+            isTextFieldFocused = true
+        }
+    }
+}
+
+// MARK: - Date Formatter Extension
+
+extension DateFormatter {
+    static let yyyyMMdd_HHmmss: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        return formatter
+    }()
+    
+    static let shortDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM/dd/yyyy"
+        return formatter
+    }()
 }
 
 #Preview {

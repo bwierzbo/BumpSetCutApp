@@ -7,6 +7,33 @@
 
 import Foundation
 
+// MARK: - Storage Utilities
+
+struct StorageManager {
+    static func getPersistentStorageDirectory() -> URL {
+        let fileManager = FileManager.default
+        return fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BumpSetCut", isDirectory: true)
+    }
+    
+    static func verifyStorageIntegrity() {
+        let baseDir = getPersistentStorageDirectory()
+        let fileManager = FileManager.default
+        
+        print("StorageManager: Verifying storage at: \(baseDir.path)")
+        print("StorageManager: Directory exists: \(fileManager.fileExists(atPath: baseDir.path))")
+        
+        if fileManager.fileExists(atPath: baseDir.path) {
+            do {
+                let contents = try fileManager.contentsOfDirectory(atPath: baseDir.path)
+                print("StorageManager: Directory contents: \(contents)")
+            } catch {
+                print("StorageManager: Error reading directory: \(error)")
+            }
+        }
+    }
+}
+
 protocol CaptureDelegate: AnyObject {
     func presentCaptureInterface()
 }
@@ -15,29 +42,154 @@ protocol CaptureDelegate: AnyObject {
 
 struct VideoMetadata: Codable, Identifiable, Hashable {
     let id: UUID
-    let originalURL: URL
+    let fileName: String
     var customName: String?
     var folderPath: String
     let createdDate: Date
     let fileSize: Int64
     let duration: TimeInterval?
     
-    var displayName: String {
-        customName ?? originalURL.deletingPathExtension().lastPathComponent
+    // Debug data fields
+    var debugSessionId: UUID?
+    var debugDataPath: String?
+    var debugCollectionDate: Date?
+    var debugDataSize: Int64?
+    
+    // Processing tracking fields
+    var isProcessed: Bool = false
+    var processedDate: Date?
+    var originalVideoId: UUID? // Points to the original video if this is a processed version
+    var processedVideoIds: [UUID] = [] // IDs of videos processed from this original
+    
+    // Custom decoder to handle backwards compatibility
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        id = try container.decode(UUID.self, forKey: .id)
+        fileName = try container.decode(String.self, forKey: .fileName)
+        customName = try container.decodeIfPresent(String.self, forKey: .customName)
+        folderPath = try container.decode(String.self, forKey: .folderPath)
+        createdDate = try container.decode(Date.self, forKey: .createdDate)
+        fileSize = try container.decode(Int64.self, forKey: .fileSize)
+        duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration)
+        
+        // Debug fields with defaults for backwards compatibility
+        debugSessionId = try container.decodeIfPresent(UUID.self, forKey: .debugSessionId)
+        debugDataPath = try container.decodeIfPresent(String.self, forKey: .debugDataPath)
+        debugCollectionDate = try container.decodeIfPresent(Date.self, forKey: .debugCollectionDate)
+        debugDataSize = try container.decodeIfPresent(Int64.self, forKey: .debugDataSize)
+        
+        // Processing tracking fields with defaults for backwards compatibility
+        isProcessed = try container.decodeIfPresent(Bool.self, forKey: .isProcessed) ?? false
+        processedDate = try container.decodeIfPresent(Date.self, forKey: .processedDate)
+        originalVideoId = try container.decodeIfPresent(UUID.self, forKey: .originalVideoId)
+        processedVideoIds = try container.decodeIfPresent([UUID].self, forKey: .processedVideoIds) ?? []
     }
     
-    var fileName: String {
-        originalURL.lastPathComponent
+    // Custom encoder
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        
+        try container.encode(id, forKey: .id)
+        try container.encode(fileName, forKey: .fileName)
+        try container.encodeIfPresent(customName, forKey: .customName)
+        try container.encode(folderPath, forKey: .folderPath)
+        try container.encode(createdDate, forKey: .createdDate)
+        try container.encode(fileSize, forKey: .fileSize)
+        try container.encodeIfPresent(duration, forKey: .duration)
+        
+        // Debug fields
+        try container.encodeIfPresent(debugSessionId, forKey: .debugSessionId)
+        try container.encodeIfPresent(debugDataPath, forKey: .debugDataPath)
+        try container.encodeIfPresent(debugCollectionDate, forKey: .debugCollectionDate)
+        try container.encodeIfPresent(debugDataSize, forKey: .debugDataSize)
+        
+        // Processing tracking fields
+        try container.encode(isProcessed, forKey: .isProcessed)
+        try container.encodeIfPresent(processedDate, forKey: .processedDate)
+        try container.encodeIfPresent(originalVideoId, forKey: .originalVideoId)
+        try container.encode(processedVideoIds, forKey: .processedVideoIds)
+    }
+    
+    // CodingKeys enum for custom coding
+    private enum CodingKeys: String, CodingKey {
+        case id, fileName, customName, folderPath, createdDate, fileSize, duration
+        case debugSessionId, debugDataPath, debugCollectionDate, debugDataSize
+        case isProcessed, processedDate, originalVideoId, processedVideoIds
+    }
+    
+    var displayName: String {
+        customName ?? URL(fileURLWithPath: fileName).deletingPathExtension().lastPathComponent
+    }
+    
+    var debugDataAvailable: Bool {
+        return debugSessionId != nil && debugDataPath != nil
+    }
+    
+    var isOriginalVideo: Bool {
+        return originalVideoId == nil && !isProcessed
+    }
+    
+    var canBeProcessed: Bool {
+        return isOriginalVideo
+    }
+    
+    var originalURL: URL {
+        let baseDirectory = StorageManager.getPersistentStorageDirectory()
+        return baseDirectory
+            .appendingPathComponent(folderPath)
+            .appendingPathComponent(fileName)
     }
     
     init(originalURL: URL, customName: String?, folderPath: String, createdDate: Date, fileSize: Int64, duration: TimeInterval?) {
         self.id = UUID()
-        self.originalURL = originalURL
+        self.fileName = originalURL.lastPathComponent
         self.customName = customName
         self.folderPath = folderPath
         self.createdDate = createdDate
         self.fileSize = fileSize
         self.duration = duration
+        self.debugSessionId = nil
+        self.debugDataPath = nil
+        self.debugCollectionDate = nil
+        self.debugDataSize = nil
+        self.isProcessed = false
+        self.processedDate = nil
+        self.originalVideoId = nil
+        self.processedVideoIds = []
+    }
+    
+    init(fileName: String, customName: String?, folderPath: String, createdDate: Date, fileSize: Int64, duration: TimeInterval?) {
+        self.id = UUID()
+        self.fileName = fileName
+        self.customName = customName
+        self.folderPath = folderPath
+        self.createdDate = createdDate
+        self.fileSize = fileSize
+        self.duration = duration
+        self.debugSessionId = nil
+        self.debugDataPath = nil
+        self.debugCollectionDate = nil
+        self.debugDataSize = nil
+        self.isProcessed = false
+        self.processedDate = nil
+        self.originalVideoId = nil
+        self.processedVideoIds = []
+    }
+    
+    // Debug data management methods
+    mutating func attachDebugData(sessionId: UUID, dataPath: String, size: Int64) {
+        self.debugSessionId = sessionId
+        self.debugDataPath = dataPath
+        self.debugCollectionDate = Date()
+        self.debugDataSize = size
+    }
+    
+    mutating func clearDebugData() {
+        self.debugSessionId = nil
+        self.debugDataPath = nil
+        self.debugCollectionDate = nil
+        self.debugDataSize = nil
     }
 }
 
@@ -92,22 +244,32 @@ struct FolderManifest: Codable {
     
     init() {
         let fileManager = FileManager.default
-        self.baseDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("BumpSetCut", isDirectory: true)
         
+        // Use shared storage directory
+        self.baseDirectory = StorageManager.getPersistentStorageDirectory()
         self.manifestURL = baseDirectory.appendingPathComponent("manifest.json")
         
         // Create base directory if it doesn't exist
         try? fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true, attributes: nil)
+        print("MediaStore: Base directory: \(baseDirectory.path)")
+        print("MediaStore: Manifest URL: \(manifestURL.path)")
         
         // Load or create manifest
         if let data = try? Data(contentsOf: manifestURL),
            let loadedManifest = try? JSONDecoder().decode(FolderManifest.self, from: data) {
             self.manifest = loadedManifest
+            print("MediaStore: Loaded manifest with \(manifest.videos.count) videos and \(manifest.folders.count) folders")
         } else {
             self.manifest = FolderManifest()
+            print("MediaStore: Created new manifest")
             saveManifest()
         }
+        
+        // Verify storage integrity
+        StorageManager.verifyStorageIntegrity()
+        
+        // Clean up stale entries
+        cleanupStaleEntries()
     }
     
     private func saveManifest() {
@@ -117,6 +279,53 @@ struct FolderManifest: Codable {
             try data.write(to: manifestURL)
         } catch {
             print("Failed to save manifest: \(error)")
+        }
+    }
+    
+    private func cleanupStaleEntries() {
+        let fileManager = FileManager.default
+        var needsSave = false
+        
+        // Remove videos whose files no longer exist
+        let staleVideoKeys = manifest.videos.keys.filter { key in
+            guard let video = manifest.videos[key] else { return true }
+            let videoPath = baseDirectory
+                .appendingPathComponent(video.folderPath)
+                .appendingPathComponent(video.fileName)
+            return !fileManager.fileExists(atPath: videoPath.path)
+        }
+        
+        for key in staleVideoKeys {
+            if let video = manifest.videos[key] {
+                print("Removing stale video entry: \(video.displayName) (file not found)")
+                manifest.videos.removeValue(forKey: key)
+                needsSave = true
+                
+                // Update folder video count
+                if !video.folderPath.isEmpty,
+                   var folderMetadata = manifest.folders[video.folderPath] {
+                    folderMetadata.videoCount = max(0, folderMetadata.videoCount - 1)
+                    manifest.folders[video.folderPath] = folderMetadata
+                }
+            }
+        }
+        
+        // Remove folders whose directories no longer exist
+        let staleFolderKeys = manifest.folders.keys.filter { folderPath in
+            let folderURL = baseDirectory.appendingPathComponent(folderPath, isDirectory: true)
+            return !fileManager.fileExists(atPath: folderURL.path)
+        }
+        
+        for key in staleFolderKeys {
+            if let folder = manifest.folders[key] {
+                print("Removing stale folder entry: \(folder.name) (directory not found)")
+                manifest.folders.removeValue(forKey: key)
+                needsSave = true
+            }
+        }
+        
+        if needsSave {
+            saveManifest()
         }
     }
 }
@@ -265,15 +474,86 @@ extension MediaStore {
 // MARK: - Video Operations
 
 extension MediaStore {
-    func addVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil) -> Bool {
+    func addProcessedVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, originalVideoId: UUID) -> Bool {
         let videoKey = url.lastPathComponent
+        print("📹 MediaStore.addProcessedVideo called:")
+        print("   - URL: \(url)")
+        print("   - FolderPath: '\(folderPath)'")
+        print("   - CustomName: '\(customName ?? "nil")'")
+        print("   - OriginalVideoId: \(originalVideoId)")
+        print("   - VideoKey: '\(videoKey)'")
         
         // Get file attributes
         let fileManager = FileManager.default
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
               let fileSize = attributes[.size] as? Int64 else {
+            print("❌ Failed to get file attributes for: \(url.path)")
             return false
         }
+        print("✅ File attributes retrieved, size: \(fileSize) bytes")
+        
+        var videoMetadata = VideoMetadata(
+            originalURL: url,
+            customName: customName,
+            folderPath: folderPath,
+            createdDate: attributes[.creationDate] as? Date ?? Date(),
+            fileSize: fileSize,
+            duration: nil // Can be populated later if needed
+        )
+        
+        // Mark as processed and link to original
+        videoMetadata.isProcessed = true
+        videoMetadata.processedDate = Date()
+        videoMetadata.originalVideoId = originalVideoId
+        
+        manifest.videos[videoKey] = videoMetadata
+        print("✅ Processed video metadata added to manifest with key: '\(videoKey)'")
+        
+        // Update the original video to reference this processed version
+        if var originalVideo = manifest.videos.values.first(where: { $0.id == originalVideoId }) {
+            let originalKey = originalVideo.fileName
+            originalVideo.processedVideoIds.append(videoMetadata.id)
+            manifest.videos[originalKey] = originalVideo
+            print("✅ Updated original video '\(originalKey)' with processed video ID: \(videoMetadata.id)")
+        } else {
+            print("⚠️ Original video with ID \(originalVideoId) not found")
+        }
+        
+        // Update folder video count
+        if !folderPath.isEmpty {
+            if manifest.folders[folderPath] != nil {
+                manifest.folders[folderPath]?.videoCount += 1
+                manifest.folders[folderPath]?.modifiedDate = Date()
+                print("✅ Updated folder '\(folderPath)' video count to: \(manifest.folders[folderPath]?.videoCount ?? 0)")
+            } else {
+                print("⚠️ Folder '\(folderPath)' not found in manifest.folders")
+                print("   Available folders: \(manifest.folders.keys.sorted())")
+            }
+        } else {
+            print("📁 Added to root folder")
+        }
+        
+        saveManifest()
+        print("✅ Manifest saved successfully")
+        return true
+    }
+    
+    func addVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil) -> Bool {
+        let videoKey = url.lastPathComponent
+        print("📹 MediaStore.addVideo called:")
+        print("   - URL: \(url)")
+        print("   - FolderPath: '\(folderPath)'")
+        print("   - CustomName: '\(customName ?? "nil")'")
+        print("   - VideoKey: '\(videoKey)'")
+        
+        // Get file attributes
+        let fileManager = FileManager.default
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+              let fileSize = attributes[.size] as? Int64 else {
+            print("❌ Failed to get file attributes for: \(url.path)")
+            return false
+        }
+        print("✅ File attributes retrieved, size: \(fileSize) bytes")
         
         let videoMetadata = VideoMetadata(
             originalURL: url,
@@ -285,14 +565,24 @@ extension MediaStore {
         )
         
         manifest.videos[videoKey] = videoMetadata
+        print("✅ Video metadata added to manifest with key: '\(videoKey)'")
         
         // Update folder video count
         if !folderPath.isEmpty {
-            manifest.folders[folderPath]?.videoCount += 1
-            manifest.folders[folderPath]?.modifiedDate = Date()
+            if manifest.folders[folderPath] != nil {
+                manifest.folders[folderPath]?.videoCount += 1
+                manifest.folders[folderPath]?.modifiedDate = Date()
+                print("✅ Updated folder '\(folderPath)' video count to: \(manifest.folders[folderPath]?.videoCount ?? 0)")
+            } else {
+                print("⚠️ Folder '\(folderPath)' not found in manifest.folders")
+                print("   Available folders: \(manifest.folders.keys.sorted())")
+            }
+        } else {
+            print("📁 Added to root folder")
         }
         
         saveManifest()
+        print("✅ Manifest saved successfully")
         return true
     }
     
@@ -354,6 +644,9 @@ extension MediaStore {
         do {
             try FileManager.default.removeItem(at: fileURL)
             
+            // Clean up processed video relationships
+            cleanupProcessedVideoRelationships(for: videoMetadata)
+            
             manifest.videos.removeValue(forKey: fileName)
             
             // Update folder video count
@@ -369,6 +662,51 @@ extension MediaStore {
             return false
         }
     }
+    
+    private func cleanupProcessedVideoRelationships(for videoMetadata: VideoMetadata) {
+        if videoMetadata.isProcessed {
+            // This is a processed video - remove its ID from the original video's processedVideoIds
+            if let originalVideoId = videoMetadata.originalVideoId {
+                // Find the original video and remove this processed video's ID from its array
+                for (fileName, var originalVideo) in manifest.videos {
+                    if originalVideo.id == originalVideoId {
+                        originalVideo.processedVideoIds.removeAll { $0 == videoMetadata.id }
+                        manifest.videos[fileName] = originalVideo
+                        print("🔗 Removed processed video \(videoMetadata.id) from original video \(originalVideoId)")
+                        break
+                    }
+                }
+            }
+        } else {
+            // This is an original video - delete all its processed versions
+            let processedVideoIds = videoMetadata.processedVideoIds
+            if !processedVideoIds.isEmpty {
+                print("🗑️ Deleting \(processedVideoIds.count) processed videos for original \(videoMetadata.id)")
+                
+                // Find and delete all processed videos
+                let processedVideosToDelete = manifest.videos.filter { (_, video) in
+                    processedVideoIds.contains(video.id)
+                }
+                
+                for (fileName, processedVideo) in processedVideosToDelete {
+                    let processedFileURL = baseDirectory.appendingPathComponent(processedVideo.folderPath).appendingPathComponent(fileName)
+                    do {
+                        try FileManager.default.removeItem(at: processedFileURL)
+                        manifest.videos.removeValue(forKey: fileName)
+                        print("🗑️ Deleted processed video: \(fileName)")
+                        
+                        // Also clean up debug data if it exists
+                        if let debugPath = processedVideo.debugDataPath {
+                            let debugURL = URL(fileURLWithPath: debugPath)
+                            try? FileManager.default.removeItem(at: debugURL)
+                        }
+                    } catch {
+                        print("❌ Failed to delete processed video \(fileName): \(error)")
+                    }
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Query Operations
@@ -381,17 +719,45 @@ extension MediaStore {
     }
     
     func getVideos(in folderPath: String = "") -> [VideoMetadata] {
-        return manifest.videos.values
-            .filter { $0.folderPath == folderPath }
+        print("🔍 MediaStore.getVideos called for folderPath: '\(folderPath)'")
+        print("   Total videos in manifest: \(manifest.videos.count)")
+        
+        let fileManager = FileManager.default
+        let matchingFolderVideos = manifest.videos.values.filter { $0.folderPath == folderPath }
+        print("   Videos matching folder path: \(matchingFolderVideos.count)")
+        
+        let result = matchingFolderVideos
+            .filter { video in
+                let videoPath = baseDirectory
+                    .appendingPathComponent(video.folderPath)
+                    .appendingPathComponent(video.fileName)
+                let exists = fileManager.fileExists(atPath: videoPath.path)
+                if !exists {
+                    print("   ⚠️ Video file not found: \(videoPath.path)")
+                }
+                return exists
+            }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        
+        print("   Final filtered videos: \(result.count)")
+        print("   Video names: \(result.map { $0.displayName })")
+        return result
     }
     
     func searchVideos(query: String) -> [VideoMetadata] {
+        let fileManager = FileManager.default
         let lowercaseQuery = query.lowercased()
-        return manifest.videos.values.filter { video in
-            video.displayName.lowercased().contains(lowercaseQuery) ||
-            video.fileName.lowercased().contains(lowercaseQuery)
-        }
+        return manifest.videos.values
+            .filter { video in
+                let videoPath = baseDirectory
+                    .appendingPathComponent(video.folderPath)
+                    .appendingPathComponent(video.fileName)
+                return fileManager.fileExists(atPath: videoPath.path)
+            }
+            .filter { video in
+                video.displayName.lowercased().contains(lowercaseQuery) ||
+                video.fileName.lowercased().contains(lowercaseQuery)
+            }
     }
     
     func searchFolders(query: String) -> [FolderMetadata] {
@@ -553,6 +919,78 @@ extension MediaStore {
     
     func needsMigration() -> Bool {
         return !loadVideosFromDocuments().isEmpty
+    }
+    
+    // MARK: - Debug Data Operations
+    
+    func saveDebugData(
+        for videoId: UUID,
+        debugData: Data,
+        sessionId: UUID
+    ) throws -> String {
+        // Find video metadata by ID
+        guard let (fileName, videoMetadata) = manifest.videos.first(where: { $0.value.id == videoId }) else {
+            throw NSError(domain: "DebugError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Video not found"])
+        }
+        var updatedVideoMetadata = videoMetadata
+        
+        let debugPath = generateDebugDataPath(videoId: videoId, sessionId: sessionId)
+        let debugURL = URL(fileURLWithPath: debugPath)
+        
+        // Ensure debug data directory exists
+        try FileManager.default.createDirectory(
+            at: debugURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        
+        // Write debug data to file
+        try debugData.write(to: debugURL)
+        
+        // Update video metadata
+        updatedVideoMetadata.attachDebugData(
+            sessionId: sessionId,
+            dataPath: debugPath,
+            size: Int64(debugData.count)
+        )
+        
+        // Update manifest and save
+        manifest.videos[fileName] = updatedVideoMetadata
+        saveManifest()
+        
+        return debugPath
+    }
+    
+    func loadDebugData(for videoId: UUID) -> Data? {
+        guard let videoMetadata = manifest.videos.values.first(where: { $0.id == videoId }),
+              let debugPath = videoMetadata.debugDataPath else {
+            return nil
+        }
+        
+        let debugURL = URL(fileURLWithPath: debugPath)
+        return try? Data(contentsOf: debugURL)
+    }
+    
+    func deleteVideoWithDebugData(videoId: UUID) {
+        // Find video metadata
+        guard let (fileName, videoMetadata) = manifest.videos.first(where: { $0.value.id == videoId }) else {
+            return
+        }
+        
+        // Clean up debug data first
+        if let debugPath = videoMetadata.debugDataPath {
+            let debugURL = URL(fileURLWithPath: debugPath)
+            try? FileManager.default.removeItem(at: debugURL)
+        }
+        
+        // Use existing deletion method
+        _ = deleteVideo(fileName: fileName)
+    }
+    
+    private func generateDebugDataPath(videoId: UUID, sessionId: UUID) -> String {
+        let debugDir = baseDirectory.appendingPathComponent(".debug_data")
+        let filename = "\(videoId.uuidString)_\(sessionId.uuidString).json"
+        return debugDir.appendingPathComponent(filename).path
     }
 }
 

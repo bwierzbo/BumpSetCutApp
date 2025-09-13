@@ -85,7 +85,13 @@ class UploadManager: ObservableObject {
     private let logger = Logger(subsystem: "BumpSetCut", category: "UploadManager")
     
     @Published var uploadItems: [UploadItem] = []
-    var isActive: Bool { !uploadItems.isEmpty && !isComplete }
+    var isActive: Bool { 
+        let active = !uploadItems.isEmpty && !isComplete
+        if !uploadItems.isEmpty {
+            print("🔍 UploadManager.isActive: items=\(uploadItems.count), isComplete=\(isComplete), active=\(active)")
+        }
+        return active
+    }
     var isComplete: Bool { uploadItems.allSatisfy { 
         switch $0.status {
         case .complete, .cancelled, .failed: return true
@@ -182,6 +188,7 @@ class UploadManager: ObservableObject {
     // MARK: - Private Upload Implementation
     
     private func performUpload(item: UploadItem, customName: String?, folderPath: String?) async {
+        print("🔧 Starting performUpload for: \(item.originalFileName)")
         do {
             // Update final name and destination
             if let customName = customName {
@@ -193,12 +200,14 @@ class UploadManager: ObservableObject {
             }
             
             // Simulate upload progress
+            print("⏳ Starting upload progress simulation for: \(item.originalFileName)")
             try await simulateUploadProgress(item: item)
+            print("✅ Upload progress simulation completed for: \(item.originalFileName)")
             
             // Save to media store
             let fileName = UUID().uuidString + ".mp4"
-            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            let destinationURL = documentsURL.appendingPathComponent("BumpSetCut")
+            let baseURL = StorageManager.getPersistentStorageDirectory()
+            let destinationURL = baseURL
                 .appendingPathComponent(item.destinationFolderPath)
                 .appendingPathComponent(fileName)
             
@@ -211,6 +220,15 @@ class UploadManager: ObservableObject {
             
             // Write file
             try item.sourceData.write(to: destinationURL)
+            print("UploadManager: Successfully wrote file to: \(destinationURL.path)")
+            print("UploadManager: File size: \(item.sourceData.count) bytes")
+            
+            // Verify file was written
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                print("UploadManager: File verified to exist at: \(destinationURL.path)")
+            } else {
+                print("UploadManager: WARNING - File not found after writing!")
+            }
             
             // Add to MediaStore
             let success = mediaStore.addVideo(
@@ -320,21 +338,20 @@ enum UploadError: LocalizedError {
 
 struct VideoThumbnailGenerator {
     static func generateThumbnail(from url: URL) async -> UIImage? {
+        let asset = AVURLAsset(url: url)
+        let imageGenerator = AVAssetImageGenerator(asset: asset)
+        imageGenerator.appliesPreferredTrackTransform = true
+        
+        let time = CMTime(seconds: 1.0, preferredTimescale: 600)
+        
         return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .background).async {
-                let asset = AVAsset(url: url)
-                let imageGenerator = AVAssetImageGenerator(asset: asset)
-                imageGenerator.appliesPreferredTrackTransform = true
-                
-                let time = CMTime(seconds: 1.0, preferredTimescale: 600)
-                
-                do {
-                    let cgImage = try imageGenerator.copyCGImage(at: time, actualTime: nil)
-                    let thumbnail = UIImage(cgImage: cgImage)
-                    continuation.resume(returning: thumbnail)
-                } catch {
+            imageGenerator.generateCGImageAsynchronously(for: time) { cgImage, _, error in
+                guard let cgImage = cgImage, error == nil else {
                     continuation.resume(returning: nil)
+                    return
                 }
+                let thumbnail = UIImage(cgImage: cgImage)
+                continuation.resume(returning: thumbnail)
             }
         }
     }
