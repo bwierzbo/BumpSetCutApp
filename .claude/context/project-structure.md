@@ -1,7 +1,7 @@
 ---
 created: 2025-09-01T15:19:09Z
-last_updated: 2025-09-01T15:19:09Z
-version: 1.0
+last_updated: 2025-09-13T14:51:24Z
+version: 1.1
 author: Claude Code PM System
 ---
 
@@ -87,22 +87,39 @@ Extensions/
 - **Components**: Self-contained in dedicated folders
 - **Extensions**: Original type name + `++` or `+ExtensionPurpose`
 
-### Module Organization
-- **UI Layer**: SwiftUI views and components, no business logic
-- **Media Layer**: Core video processing, completely UI-independent  
-- **Models Layer**: Data structures and file management
-- **Extensions**: Cross-cutting utilities and convenience methods
+### Module Organization (Updated Sept 2025)
+- **Presentation Layer**: SwiftUI views, components, and UI-specific logic only
+- **Domain Layer**: Business logic, processing algorithms, and application services
+- **Data Layer**: Models, storage management, and data persistence
+- **Infrastructure Layer**: External system integrations (ML, camera, frameworks)
 
-### Dependency Flow
+### Clean Architecture Dependency Flow
 ```
-UI Layer (SwiftUI Views)
+Presentation Layer (SwiftUI Views, Components)
     ↓
-Models Layer (MediaStore, Data Types)
+Domain Layer (Services, Logic, Tracking)
     ↓
-Media Layer (VideoProcessor, Detection, Tracking)
-    ↓ 
-Extensions (Utilities)
+Data Layer (Models, Storage) ← Infrastructure Layer (ML, Camera, System)
 ```
+
+### New Structural Additions
+- **BumpSetCut/Domain/**: Business logic layer with processing services
+  - **Classification/**: Movement classification system
+  - **Debug/**: Debug data models and trajectory debugging
+  - **Logic/**: Rally detection and ballistics gate logic
+  - **Optimization/**: Parameter optimization algorithms
+  - **Physics/**: Parabolic validation and physics modeling
+  - **Quality/**: Trajectory quality scoring
+  - **Services/**: Core processing services and coordinators
+
+- **BumpSetCut/Resources/ML/**: CoreML model files
+  - **best.mlpackage**: Original YOLO volleyball detection model
+  - **bestv2.mlpackage**: Enhanced volleyball detection model
+
+- **BumpSetCutTests/**: Comprehensive test coverage
+  - **Domain/**: Business logic testing
+  - **Integration/**: End-to-end pipeline testing
+  - **Presentation/**: UI component testing
 
 ## Configuration Files
 

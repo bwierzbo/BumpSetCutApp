@@ -1,7 +1,7 @@
 ---
 created: 2025-09-01T15:19:09Z
-last_updated: 2025-09-01T15:19:09Z
-version: 1.0
+last_updated: 2025-09-13T14:51:24Z
+version: 1.1
 author: Claude Code PM System
 ---
 
@@ -128,9 +128,35 @@ author: Claude Code PM System
 
 ### User Satisfaction Metrics
 - **False Positive Rate**: Incorrectly identified rally segments
-- **False Negative Rate**: Missed actual rally sequences  
+- **False Negative Rate**: Missed actual rally sequences
 - **Processing Reliability**: Successful completion rate of video processing
 - **Ease of Use**: User ability to successfully process videos without instruction
+
+## Recent Product Enhancements (Sept 2025)
+
+### Advanced Video Management
+- **Comprehensive Search**: Multi-criteria search across filename, date, status, and duration
+- **Folder Organization**: Full folder management with drag-drop support and batch operations
+- **Processing Relationships**: Clear tracking of original vs processed video relationships
+- **Status Indicators**: Visual processing state throughout the interface
+
+### Enhanced User Experience
+- **Responsive Design**: Adaptive layouts for portrait/landscape orientations
+- **Upload Integration**: Seamless drag-drop upload with progress tracking
+- **Batch Operations**: Bulk video management, move, and delete operations
+- **Professional UI**: Consistent visual design with proper spacing and typography
+
+### Improved Processing Pipeline
+- **Enhanced Physics Validation**: Advanced trajectory validation with quadratic curve fitting
+- **Movement Classification**: Intelligent ball state detection (Static/Moving/Projectile)
+- **Debug Visualization**: Stable frame processing with comprehensive trajectory overlays
+- **Parameter Optimization**: Automated tuning system for improved accuracy
+
+### Developer Integration Tools
+- **Logicsandbox Environment**: Python analysis pipeline for parameter experimentation
+- **Real ML Model Testing**: Direct integration with bestv2.mlpackage for validation
+- **BumpSetCut-style Visualization**: Professional trajectory and rally visualization matching iOS app
+- **Parameter Synchronization**: Bidirectional iOS-Python parameter workflow
 
 ## Competitive Advantages
 

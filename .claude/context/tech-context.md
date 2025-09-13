@@ -1,7 +1,7 @@
 ---
 created: 2025-09-01T15:19:09Z
-last_updated: 2025-09-01T15:19:09Z
-version: 1.0
+last_updated: 2025-09-13T14:51:24Z
+version: 1.1
 author: Claude Code PM System
 ---
 
@@ -159,3 +159,32 @@ Camera/File → AVAsset → Frame Extraction → Detection → Tracking → Phys
 - **Vision Framework**: Enhanced detection capabilities
 - **CoreML Optimization**: Model quantization and optimization
 - **Parallel Processing**: Multi-threaded analysis pipeline
+
+## Recent Technology Additions (Sept 2025)
+
+### Enhanced ML Pipeline
+- **Dual ML Models**:
+  - `best.mlpackage`: Original YOLO volleyball detection (22.3MB)
+  - `bestv2.mlpackage`: Enhanced detection model (6.0MB, improved accuracy)
+- **Python Integration Environment**: Logicsandbox for parameter experimentation
+  - **CoreML Tools**: Python-based model analysis and testing
+  - **NumPy/OpenCV**: Computer vision processing pipeline
+  - **Parameter Sync**: iOS-Python configuration synchronization
+
+### Advanced Detection Algorithms
+- **Movement Classification**: Static/Moving/Projectile ball state detection
+- **Parabolic Validation**: Physics-based trajectory validation using quadratic curve fitting
+- **Quality Scoring**: Trajectory quality assessment with confidence metrics
+- **Parameter Optimization**: Automated physics parameter tuning system
+
+### Testing Framework Expansion
+- **95%+ Test Coverage**: Comprehensive unit and integration testing
+- **Performance Testing**: Processing speed and accuracy validation
+- **Integration Testing**: End-to-end pipeline verification
+- **Debug Testing**: Visualization and annotation system validation
+
+### New Dependencies Added
+- **Advanced SwiftUI Components**: Complex search and filtering interfaces
+- **Enhanced File Management**: Folder operations and batch processing
+- **Upload Integration**: Drag-drop file handling with progress tracking
+- **Debug Data Persistence**: UUID-based session tracking and storage

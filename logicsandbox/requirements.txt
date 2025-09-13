@@ -1,4 +1,0 @@
-opencv-python>=4.8.0
-numpy>=1.22.0,<1.28.0  # Compatible with tensorflow and coremltools
-coremltools>=7.0.0
-matplotlib>=3.7.0  # For visualization plots
