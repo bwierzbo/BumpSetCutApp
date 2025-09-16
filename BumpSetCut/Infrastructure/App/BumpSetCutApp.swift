@@ -14,7 +14,9 @@ import AVFoundation
 
     var body: some Scene {
         WindowGroup {
-            ContentView().registerPopups()
+            ContentView()
+                .registerPopups()
+                .withAppSettings()
         }
     }
 }

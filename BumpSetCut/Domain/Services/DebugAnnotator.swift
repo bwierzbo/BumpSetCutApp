@@ -139,6 +139,9 @@ final class DebugAnnotator {
         if !adaptor.append(pixelBuffer, withPresentationTime: pts) {
             throw writer.error ?? ProcessingError.exportFailed
         }
+
+        // Clean up sample buffer to prevent memory accumulation
+        CMSampleBufferInvalidate(sampleBuffer)
     }
 
     /// Finish and return the file URL.

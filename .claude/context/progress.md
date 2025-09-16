@@ -1,116 +1,112 @@
 ---
-created: 2025-09-01T15:19:09Z
-last_updated: 2025-09-13T14:51:24Z
+created: 2025-09-15T17:59:47Z
+last_updated: 2025-09-16T00:27:41Z
 version: 1.1
 author: Claude Code PM System
 ---
 
-# Project Progress
+# Project Progress Status
 
 ## Current Status
 
-**Branch:** `main`
-**Remote:** `https://github.com/bwierzbo/BumpSetCutApp.git`
-**Last Updated:** September 13, 2025
+**Repository**: BumpSetCut iOS App for Volleyball Rally Detection
+**Branch**: main
+**Repository URL**: https://github.com/bwierzbo/BumpSetCutApp.git
+**Last Major Epic**: metadatavideoprocessing (completed)
+**Current Focus**: TikTok-style Rally Player Implementation & Swift 6 Concurrency Migration
 
-## Recent Development Activity
+## Recent Work Completed
+
+### Major Development Session: TikTok-Style Rally Player
+- **Duration**: Current development session
+- **Scope**: Complete TikTok-style rally viewing experience with individual video files
+- **Key Achievements**:
+  - ✅ **TikTok Rally Player**: Implemented `TikTokRallyPlayerView` with individual rally video export
+  - ✅ **Auto-play/Loop**: Videos automatically start from beginning and loop seamlessly
+  - ✅ **Swipe Navigation**: Vertical (portrait) and horizontal (landscape) swipe between videos
+  - ✅ **Tap Controls**: Tap-to-pause/play functionality with state tracking
+  - ✅ **Clean Interface**: No visible video controls, TikTok-style user experience
+  - ✅ **Swift 6 Migration**: Resolved all main actor isolation issues and concurrency warnings
+  - ✅ **Memory Leak Fixes**: Implemented sliding window limits to prevent crashes on large videos
+  - ✅ **App Responsiveness**: Reverted complex nonisolated patterns to restore UI functionality
+
+### Critical Technical Resolutions
+- **Memory Management**: Fixed unbounded array growth in VideoProcessor, KalmanBallTracker, and DebugAnnotator
+- **Concurrency Compliance**: Full Swift 6 compatibility with proper actor isolation
+- **Video Export**: Individual rally segments exported as separate MP4 files for seamless playback
+- **State Management**: Simplified AppSettings architecture for reliable UI responsiveness
 
 ### Recent Commits (Last 10)
-- `c187ac1` - Fixed logicsandbox analyze_video functionality with working alternatives
-- `120880f` - Implement enhanced detection logic upgrades and physics validation system
-- `826b61c` - Issue #19: Complete comprehensive integration testing and performance optimization
-- `1371893` - Issue #18: Implement comprehensive search & sorting system
-- `7af2a11` - Issue #15: Enhanced LibraryView with folder navigation and UI improvements
-- `016a1fd` - Update epic execution status for parallel phase
-- `8c9074a` - Issue #14: Implement comprehensive folder operations system
-- `5f1c7ef` - Update epic execution status
-- `71ded07` - Issue #13: Implement migration & compatibility system
-- `f2cf79b` - Issue #12: Implement data model extension with folder management
+1. `19db53a` - Archive completed metadatavideoprocessing epic
+2. `4b7cc5e` - Merge epic: metadatavideoprocessing
+3. `568b5b4` - Final epic documentation update
+4. `1c56759` - Epic Complete: metadatavideoprocessing - All 7 tasks implemented
+5. `b6ca9f7` - 🎉 Epic Complete: metadatavideoprocessing - All 7 tasks implemented
+6. `b36b252` - Task 006: Implement MetadataOverlayView with SwiftUI Canvas
+7. `dba4a2f` - Task 005: Implement RallyPlayerView with rally-by-rally navigation
+8. `111af74` - Task 004: Implement metadata generation in VideoProcessor
+9. `55e71f4` - Task 003: Extend VideoMetadata model with metadata support fields and computed properties
+10. `41761f7` - Task 007: Implement Debug Export Service
 
 ## Current Working State
 
-### Major Features Completed (Sept 2025)
+### Modified Files (Unstaged)
+- `.DS_Store` - System file changes
+- `BumpSetCut/Domain/Services/VideoProcessor.swift` - Core processing enhancements
+- `BumpSetCut/Presentation/Components/MetadataOverlayView.swift` - Metadata visualization
+- `BumpSetCut/Presentation/Components/Stored Video/StoredVideo.swift` - Storage component updates
+- `BumpSetCut/Presentation/Components/Video/VideoCardView.swift` - Video display improvements
+- `BumpSetCut/Presentation/Views/ProcessVideoView.swift` - Processing interface updates
+- `BumpSetCut/Presentation/Views/RallyPlayerView.swift` - Rally navigation enhancements
 
-**🎯 Detection Logic Upgrades (Complete)**
-- **Enhanced Physics Validation**: Parabolic trajectory validation with quadratic curve fitting
-- **Movement Classification**: Ball state classification (Static, Moving, Projectile)
-- **Advanced Tracking**: Multi-object tracking with trajectory quality scoring
-- **Parameter Optimization**: Automated physics parameter tuning system
-- **Comprehensive Testing**: 95%+ test coverage for detection algorithms
+### New Files (Untracked)
+- `.claude/prds/rallyplayerview.md` - New PRD documentation for rally player functionality
 
-**🔍 Advanced Search & Library Management (Complete)**
-- **Multi-criteria Search**: Search by filename, date, processing status, duration
-- **Advanced Filtering**: Complex filter combinations with real-time results
-- **Folder Management**: Full folder organization with drag-drop support
-- **Batch Operations**: Bulk move, delete, and processing operations
-- **Processing Relationships**: Track original vs processed video relationships
+## Immediate Next Steps
 
-**🚀 Enhanced UI/UX (Complete)**
-- **Responsive Design**: Adaptive layouts for portrait/landscape orientations
-- **Status Indicators**: Visual processing state throughout interface
-- **Grid Consistency**: Uniform video card sizing and layout
-- **Upload Integration**: Drag-drop upload with progress tracking
-- **Video Management**: Rename, move, and organize with context menus
+### Development Priorities
+1. **Code Stabilization**: Review and commit current unstaged changes
+2. **Feature Integration**: Ensure all metadata processing features are fully integrated
+3. **Testing Validation**: Validate new rally player and metadata overlay functionality
+4. **Performance Optimization**: Review video processing pipeline efficiency
+5. **Documentation Updates**: Update technical documentation to reflect new capabilities
 
-**🧪 Logicsandbox Integration (Complete)**
-- **Python Analysis Environment**: Complete volleyball analysis pipeline
-- **Real ML Model Integration**: Working bestv2.mlpackage CoreML model
-- **Enhanced Visualization**: BumpSetCut-style trajectory and rally visualization
-- **Parameter Experimentation**: iOS-Python parameter synchronization
+### Technical Debt
+- Clean up debug output and logging statements
+- Optimize memory usage in video processing pipeline
+- Enhance error handling for edge cases in rally detection
+- Improve UI responsiveness during long processing operations
 
-**📊 Debug & Analytics (Complete)**
-- **Enhanced Debug Visualization**: Stable frame processing with trajectory overlays
-- **Performance Monitoring**: Processing speed and accuracy metrics
-- **Debug Data Persistence**: Session tracking with UUID-based storage
-- **Integration Testing**: End-to-end pipeline validation
+## Key Metrics
 
-### Current Issues & Cleanup
-- **Logicsandbox Migration**: Moving logicsandbox to separate directory structure
-- **Dependency Cleanup**: Removing unused symbolic links and temporary files
-- **Project Organization**: Finalizing clean separation of iOS app and Python analysis tools
+### Codebase Statistics
+- **Primary Language**: Swift (iOS SwiftUI)
+- **Project Type**: iOS App (Xcode project)
+- **Architecture**: Clean Layer Architecture (4 layers)
+- **Test Coverage**: Manual testing with sample videos
+- **Core ML Models**: 2 models (best.mlpackage, bestv2.mlpackage)
 
-### Outstanding Changes
-- Uncommitted logicsandbox deletion (moving to new location)
-- Xcode workspace state updates (normal development activity)
-- Project file organization improvements
+### Development Velocity
+- **Last Epic Duration**: 7 tasks completed in recent sprint
+- **Commit Frequency**: High activity with 10 commits in recent development cycle
+- **Feature Completeness**: MetadataVideoProcessing epic 100% complete
 
-## Next Steps
+## Project Health Indicators
 
-### Immediate Priorities
-1. **Finalize Project Organization**: Complete logicsandbox restructuring and cleanup
-2. **Commit Pending Changes**: Resolve outstanding file movements and cleanup
-3. **New Feature Development**: Begin planning next major feature (metadata video processing)
+### ✅ Strengths
+- Clear architectural separation and clean code organization
+- Comprehensive video processing pipeline with advanced ML integration
+- Strong documentation and PRD discipline
+- Active development with consistent commit history
+- Robust error handling and graceful degradation patterns
 
-### Future Development Focus
-- **Metadata Processing**: Enhanced video metadata extraction and management
-- **Performance Optimization**: Continue refinement of video processing pipeline
-- **Export Enhancements**: Additional format support and quality options
-- **Advanced Analytics**: Deeper insights from volleyball analysis data
+### ⚠️ Areas for Attention
+- Multiple unstaged changes need review and commit
+- New PRD documentation needs integration
+- Performance optimization opportunities in video processing
+- Test coverage relies on manual testing (opportunity for automation)
 
-### Technical Maintenance
-- **Dependency Updates**: Keep ML models and frameworks current
-- **Testing Coverage**: Maintain comprehensive test coverage
-- **Documentation**: Keep technical documentation synchronized
-
-## Development Velocity
-
-**Recent Activity Level:** Very High - Major epic completions with comprehensive features:
-- **Detection Logic Upgrades**: Complete physics-based validation system
-- **Search & Library Management**: Full-featured video organization
-- **UI/UX Enhancements**: Professional interface with responsive design
-- **Logicsandbox Integration**: Python-iOS parameter synchronization
-- **Testing & Quality**: Comprehensive test coverage and integration validation
-
-**Architecture Maturity:**
-- Clean layer separation (Presentation → Domain → Data ← Infrastructure)
-- Comprehensive error handling and graceful degradation
-- Responsive UI design with proper state management
-- Advanced testing framework with integration coverage
-- Production-ready video processing pipeline
-
-**Key Achievements:**
-- **5 Major Epics Completed** in development cycle
-- **95%+ Test Coverage** for critical detection algorithms
-- **Real ML Model Integration** with Python experimentation environment
-- **Advanced UI/UX** with professional video management features
-- **Comprehensive Documentation** with architectural patterns established
+### 🔄 Current Focus
+- Stabilizing recent metadata processing enhancements
+- Preparing for next development cycle
+- Maintaining code quality and architectural integrity

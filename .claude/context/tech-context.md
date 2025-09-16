@@ -1,18 +1,19 @@
 ---
-created: 2025-09-01T15:19:09Z
-last_updated: 2025-09-13T14:51:24Z
+created: 2025-09-15T17:59:47Z
+last_updated: 2025-09-16T00:27:41Z
 version: 1.1
 author: Claude Code PM System
 ---
 
 # Technology Context
 
-## Platform & Language
+## Platform & Development Environment
 
-**Primary Platform:** iOS (iPhone/iPad)  
-**Language:** Swift (SwiftUI framework)  
-**Deployment Target:** iOS 15+ (inferred from @Observable usage)  
-**Development Environment:** Xcode
+**Primary Platform:** iOS (iPhone/iPad)
+**Language:** Swift (SwiftUI framework)
+**Deployment Target:** iOS 17+ (uses @Observable pattern)
+**Development Environment:** Xcode with clean 4-layer architecture
+**Architecture Pattern:** Clean Layer Architecture (Presentation → Domain → Data ← Infrastructure)
 
 ## Core Technology Stack
 
@@ -160,31 +161,48 @@ Camera/File → AVAsset → Frame Extraction → Detection → Tracking → Phys
 - **CoreML Optimization**: Model quantization and optimization
 - **Parallel Processing**: Multi-threaded analysis pipeline
 
-## Recent Technology Additions (Sept 2025)
+## Recent Technology Stack Evolution
 
-### Enhanced ML Pipeline
-- **Dual ML Models**:
-  - `best.mlpackage`: Original YOLO volleyball detection (22.3MB)
-  - `bestv2.mlpackage`: Enhanced detection model (6.0MB, improved accuracy)
-- **Python Integration Environment**: Logicsandbox for parameter experimentation
-  - **CoreML Tools**: Python-based model analysis and testing
-  - **NumPy/OpenCV**: Computer vision processing pipeline
-  - **Parameter Sync**: iOS-Python configuration synchronization
+### Metadata Processing Enhancement (Latest)
+- **VideoMetadata Model**: Extended with comprehensive processing metadata support
+- **RallyPlayerView**: Rally-by-rally navigation with SwiftUI Canvas integration
+- **MetadataOverlayView**: Advanced visualization using SwiftUI Canvas for trajectory rendering
+- **Debug Export Service**: Enhanced debug data generation and export capabilities
+- **Processing State Management**: Sophisticated video processing relationship tracking
 
-### Advanced Detection Algorithms
-- **Movement Classification**: Static/Moving/Projectile ball state detection
-- **Parabolic Validation**: Physics-based trajectory validation using quadratic curve fitting
-- **Quality Scoring**: Trajectory quality assessment with confidence metrics
-- **Parameter Optimization**: Automated physics parameter tuning system
+### Advanced ML and Computer Vision Pipeline
+- **Dual CoreML Models**:
+  - `best.mlpackage`: Original YOLO volleyball detection model
+  - `bestv2.mlpackage`: Enhanced detection with improved accuracy and smaller footprint
+- **Movement Classification System**:
+  - Ball state detection (Static/Moving/Projectile)
+  - Physics-based trajectory validation using quadratic curve fitting
+  - Quality assessment algorithms with confidence scoring
+- **Parameter Optimization**: Automated tuning system for physics parameters
 
-### Testing Framework Expansion
-- **95%+ Test Coverage**: Comprehensive unit and integration testing
-- **Performance Testing**: Processing speed and accuracy validation
-- **Integration Testing**: End-to-end pipeline verification
-- **Debug Testing**: Visualization and annotation system validation
+### Enhanced Development and Testing Infrastructure
+- **Comprehensive Test Coverage**: Unit and integration testing for critical components
+- **Performance Monitoring**: Processing speed and accuracy validation systems
+- **Debug Data Architecture**: UUID-based session tracking with persistent debug information
+- **Integration Validation**: End-to-end pipeline verification and quality assurance
 
-### New Dependencies Added
-- **Advanced SwiftUI Components**: Complex search and filtering interfaces
-- **Enhanced File Management**: Folder operations and batch processing
-- **Upload Integration**: Drag-drop file handling with progress tracking
-- **Debug Data Persistence**: UUID-based session tracking and storage
+### Advanced UI/UX Technology Stack
+- **Responsive Design System**: Adaptive layouts for portrait/landscape orientations
+- **SwiftUI Canvas Integration**: Custom drawing and visualization capabilities
+- **File Management Framework**: Sophisticated folder operations and batch processing
+- **Upload and Progress Tracking**: Drag-drop integration with real-time progress monitoring
+
+### TikTok-Style Rally Player (Latest)
+- **Individual Video Export**: Each rally segment exported as separate MP4 files
+- **Auto-Play/Loop**: Seamless video looping with automatic restart
+- **Swipe Navigation**: Vertical (portrait) and horizontal (landscape) gesture-based navigation
+- **Tap Controls**: Tap-to-pause/play functionality with state tracking
+- **AVFoundation Integration**: AVPlayer management with proper cleanup and memory handling
+- **Clean Interface**: No visible video controls for TikTok-style user experience
+
+### Swift 6 Concurrency Migration
+- **Main Actor Isolation**: Complete migration to Swift 6 concurrency model
+- **AppSettings Architecture**: Simplified @MainActor class pattern for responsive UI
+- **Async Video Processing**: Proper main actor coordination for video export operations
+- **Memory Management**: Sliding window limits for unbounded arrays to prevent crashes
+- **Player State Management**: @MainActor VideoPlayerManager for coordinated playback control

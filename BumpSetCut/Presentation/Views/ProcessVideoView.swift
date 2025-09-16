@@ -12,6 +12,7 @@ struct ProcessVideoView: View {
     let mediaStore: MediaStore
     let folderPath: String
     let onComplete: () -> ()
+    let onShowPlayer: (() -> ())? // Optional callback to show player after processing
     @Environment(\.dismiss) private var dismiss
     @State private var processor = VideoProcessor()
     @State private var currentTask: Task<Void, Never>? = nil
@@ -121,6 +122,8 @@ private extension ProcessVideoView {
                 EmptyView()
             } else if processor.processedURL != nil {
                 createDoneButton()
+            } else if let metadata = currentVideoMetadata, metadata.hasMetadata {
+                createViewRalliesButton()
             } else if let metadata = currentVideoMetadata, !metadata.canBeProcessed {
                 createAlreadyProcessedMessage()
             } else {
@@ -287,6 +290,28 @@ private extension ProcessVideoView {
             .cornerRadius(12)
         }
     }
+
+    func createViewRalliesButton() -> some View {
+        Button(action: {
+            dismiss()
+            onComplete() // Trigger refresh
+
+            // Automatically show the video player after a brief delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                onShowPlayer?()
+            }
+        }) {
+            HStack {
+                Image(systemName: "play.fill")
+                Text("View Rallies")
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(Color.blue)
+            .foregroundColor(.white)
+            .cornerRadius(12)
+        }
+    }
 }
 
 // MARK: - Toolbar
@@ -410,21 +435,34 @@ private extension ProcessVideoView {
         
         currentTask = Task {
             do {
-                let tempProcessedURL: URL
+                let tempProcessedURL: URL?
                 let debugData: TrajectoryDebugger?
-                
+
                 if isDebugMode {
                     tempProcessedURL = try await processor.processVideoDebug(videoURL)
                     debugData = processor.trajectoryDebugger
                 } else {
-                    tempProcessedURL = try await processor.processVideo(videoURL)
+                    _ = try await processor.processVideo(videoURL, videoId: currentVideoMetadata?.id ?? UUID())
+                    tempProcessedURL = nil // No URL output for metadata processing
                     debugData = nil
                 }
-                
-                await MainActor.run { 
+
+                await MainActor.run {
                     currentTask = nil
                 }
-                
+
+                // Only process video file if we have one (debug mode)
+                guard let tempProcessedURL = tempProcessedURL else {
+                    // Metadata processing complete - no need to create new video file
+                    // The metadata has been stored by the VideoProcessor
+
+                    // Reload the current video metadata to reflect that it now has metadata
+                    await MainActor.run {
+                        loadCurrentVideoMetadata()
+                    }
+                    return
+                }
+
                 // Move processed video to MediaStore directory structure
                 let originalDisplayName = getVideoDisplayName()
                 let prefix = isDebugMode ? "Debug" : "Processed"

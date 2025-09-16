@@ -18,6 +18,8 @@ struct VideoCardView: View {
     let isSelectable: Bool
     let isSelected: Bool
     let onSelectionToggle: (() -> Void)?
+
+    @EnvironmentObject private var appSettings: AppSettings
     
     @State private var showingVideoPlayer = false
     @State private var showingProcessVideo = false
@@ -214,12 +216,17 @@ struct VideoCardView: View {
         .onAppear {
             generateThumbnail()
         }
-        .sheet(isPresented: $showingVideoPlayer) {
-            VideoPlayer(player: AVPlayer(url: video.originalURL))
-                .ignoresSafeArea()
+        .fullScreenCover(isPresented: $showingVideoPlayer) {
+            RallyPlayerFactory.createAnalyticsWrappedRallyPlayer(
+                for: video,
+                appSettings: appSettings
+            )
         }
         .sheet(isPresented: $showingProcessVideo) {
-            ProcessVideoView(videoURL: video.originalURL, mediaStore: mediaStore, folderPath: video.folderPath, onComplete: onRefresh)
+            ProcessVideoView(videoURL: video.originalURL, mediaStore: mediaStore, folderPath: video.folderPath, onComplete: onRefresh, onShowPlayer: {
+                // Auto-show video player after processing in VideoCardView
+                showingVideoPlayer = true
+            })
         }
         .sheet(isPresented: $showingRenameDialog) {
             VideoRenameDialog(

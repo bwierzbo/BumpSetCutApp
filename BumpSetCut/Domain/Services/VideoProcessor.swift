@@ -29,7 +29,7 @@ final class VideoProcessor {
     private var decider = RallyDecider(config: ProcessorConfig())
     private var segments = SegmentBuilder(config: ProcessorConfig())
     private let exporter = VideoExporter()
-    private let metadataStore = MetadataStore()
+    private var metadataStore: MetadataStore?
 
     // Debug data collection
     var trajectoryDebugger: TrajectoryDebugger?
@@ -322,6 +322,9 @@ final class VideoProcessor {
 
         let startTime = Date()
 
+        // Initialize metadata store on main actor
+        self.metadataStore = await MainActor.run { MetadataStore() }
+
         // Recreate stage objects with current config (no lazy)
         self.gate = BallisticsGate(config: config)
         self.decider = RallyDecider(config: config)
@@ -357,15 +360,20 @@ final class VideoProcessor {
         var rSquaredSum = 0.0
         var rSquaredCount = 0
 
-        // Trajectory data collection
+        // Trajectory data collection with memory limits
         var trajectoryDataCollection: [ProcessingTrajectoryData] = []
         var classificationResults: [ProcessingClassificationResult] = []
         var physicsValidationData: [PhysicsValidationData] = []
 
+        // Memory management constants from config
+        let maxTrajectoryData = config.enableMemoryLimits ? config.maxTrajectoryDataEntries : 10000
+        let maxClassificationResults = config.enableMemoryLimits ? config.maxClassificationEntries : 10000
+        let maxPhysicsValidationData = config.enableMemoryLimits ? config.maxPhysicsValidationEntries : 10000
+
         let totalFramesEstimate = Int(duration.seconds * Double(fps))
 
         reader.startReading()
-        let tracker = KalmanBallTracker()
+        let tracker = KalmanBallTracker(config: config)
 
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
@@ -416,18 +424,19 @@ final class VideoProcessor {
                     rSquaredCount += 1
                 }
 
-                // Create trajectory data for this time point
-                if let latestPosition = track.positions.last {
-                    let trajectoryPoint = ProcessingTrajectoryPoint(
-                        timestamp: pts,
-                        position: latestPosition.0,
-                        velocity: velocity,
-                        acceleration: acceleration,
-                        confidence: track.confidence
-                    )
+                // Create trajectory data for tracks with sufficient points
+                if track.positions.count >= 2 {
+                    // Convert all track positions to trajectory points
+                    let trajectoryPoints = track.positions.map { position in
+                        ProcessingTrajectoryPoint(
+                            timestamp: position.1,
+                            position: position.0,
+                            velocity: velocity,
+                            acceleration: acceleration,
+                            confidence: calculateTrackConfidence(track)
+                        )
+                    }
 
-                    // For simplicity in this implementation, create one trajectory per track update
-                    // In a more sophisticated version, we could group trajectory points by track ID
                     let movementClassifier = MovementClassifier()
                     let classification = movementClassifier.classifyMovement(track)
 
@@ -436,13 +445,18 @@ final class VideoProcessor {
                         id: UUID(),
                         startTime: CMTimeGetSeconds(trackStartTime),
                         endTime: CMTimeGetSeconds(pts),
-                        points: [trajectoryPoint],
+                        points: trajectoryPoints,
                         rSquared: rSquared,
                         movementType: classification.movementType,
-                        confidence: track.confidence,
+                        confidence: calculateTrackConfidence(track),
                         quality: classification.details.physicsScore
                     )
                     trajectoryDataCollection.append(newTrajectory)
+
+                    // Memory management: enforce sliding window for trajectory data
+                    if trajectoryDataCollection.count > maxTrajectoryData {
+                        trajectoryDataCollection.removeFirst(trajectoryDataCollection.count - maxTrajectoryData)
+                    }
 
                     // Store classification result
                     let classificationResult = ProcessingClassificationResult(
@@ -454,7 +468,12 @@ final class VideoProcessor {
                     )
                     classificationResults.append(classificationResult)
 
-                    confidenceSum += track.confidence
+                    // Memory management: enforce sliding window for classification results
+                    if classificationResults.count > maxClassificationResults {
+                        classificationResults.removeFirst(classificationResults.count - maxClassificationResults)
+                    }
+
+                    confidenceSum += calculateTrackConfidence(track)
                 }
 
                 // Store physics validation data
@@ -467,9 +486,14 @@ final class VideoProcessor {
                     accelerationValid: true,
                     velocityConsistent: true,
                     positionJumpsValid: true,
-                    confidenceLevel: track.confidence
+                    confidenceLevel: calculateTrackConfidence(track)
                 )
                 physicsValidationData.append(physicsData)
+
+                // Memory management: enforce sliding window for physics validation data
+                if physicsValidationData.count > maxPhysicsValidationData {
+                    physicsValidationData.removeFirst(physicsValidationData.count - maxPhysicsValidationData)
+                }
             }
 
             // Progress (~once per second)
@@ -587,6 +611,9 @@ final class VideoProcessor {
 
         // Save metadata to store
         do {
+            guard let metadataStore = metadataStore else {
+                throw ProcessingError.exportFailed
+            }
             try await metadataStore.saveMetadata(metadata)
             print("✅ Successfully saved metadata for video \(videoId)")
         } catch {
@@ -613,7 +640,7 @@ final class VideoProcessor {
         // Calculate velocity from last few points
         let recent = track.positions.suffix(3)
         var velocitySum = 0.0
-        var accelerationSum = 0.0
+        let accelerationSum = 0.0
 
         if recent.count >= 2 {
             let positions = Array(recent)
@@ -633,6 +660,25 @@ final class VideoProcessor {
         }
 
         return (0.0, 0.0, 0.0)
+    }
+
+    private func calculateTrackConfidence(_ track: KalmanBallTracker.TrackedBall) -> Double {
+        // Calculate confidence based on track age, consistency, and displacement
+        guard track.positions.count >= 2 else {
+            return 0.3 // Low confidence for single-point tracks
+        }
+
+        // Age-based confidence (longer tracks are more reliable)
+        let ageConfidence = min(1.0, Double(track.age) / 10.0)
+
+        // Movement-based confidence (tracks that move are more likely to be balls)
+        let movementConfidence = min(1.0, Double(track.netDisplacement) * 5.0)
+
+        // Combine factors
+        let baseConfidence = (ageConfidence + movementConfidence) / 2.0
+
+        // Ensure reasonable bounds
+        return max(0.1, min(0.95, baseConfidence))
     }
 
     private func calculateSimpleRSquared(positions: [CGPoint]) -> Double {

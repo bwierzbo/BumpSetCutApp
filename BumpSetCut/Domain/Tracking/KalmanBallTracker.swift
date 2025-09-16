@@ -14,15 +14,30 @@ import CoreMedia
 final class KalmanBallTracker {
 
     struct TrackedBall {
-        var positions: [(CGPoint, CMTime)]  // normalized center + timestamp
+        private var _positions: [(CGPoint, CMTime)] = []
+        private let maxPositions: Int
 
-        var age: Int { positions.count }
-        var last: (CGPoint, CMTime)? { positions.last }
-        var first: (CGPoint, CMTime)? { positions.first }
+        var positions: [(CGPoint, CMTime)] { _positions }
+
+        var age: Int { _positions.count }
+        var last: (CGPoint, CMTime)? { _positions.last }
+        var first: (CGPoint, CMTime)? { _positions.first }
 
         var netDisplacement: CGFloat {
             guard let s = first?.0, let e = last?.0 else { return 0 }
             return hypot(e.x - s.x, e.y - s.y)
+        }
+
+        init(maxPositions: Int = 100) {
+            self.maxPositions = maxPositions
+        }
+
+        mutating func appendPosition(_ position: (CGPoint, CMTime)) {
+            _positions.append(position)
+            // Enforce sliding window to prevent unbounded memory growth
+            if _positions.count > maxPositions {
+                _positions.removeFirst(_positions.count - maxPositions)
+            }
         }
     }
 
@@ -58,13 +73,16 @@ final class KalmanBallTracker {
 
             if let idx = bestIdx {
                 // Append to existing track
-                tracks[idx].positions.append((det.pt, det.ts))
+                tracks[idx].appendPosition((det.pt, det.ts))
                 claimedTracks.insert(idx)
             } else {
                 // Start a new track only if there isn't an older, stronger track nearby
                 // This reduces duplicate tracks for the same object.
                 if !existsStrongerNeighbor(near: det.pt) {
-                    tracks.append(TrackedBall(positions: [(det.pt, det.ts)]))
+                    let maxPositions = config.enableMemoryLimits ? config.maxTrackPositions : 1000
+                    var newTrack = TrackedBall(maxPositions: maxPositions)
+                    newTrack.appendPosition((det.pt, det.ts))
+                    tracks.append(newTrack)
                 }
             }
         }

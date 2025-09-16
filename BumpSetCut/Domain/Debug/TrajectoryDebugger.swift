@@ -23,12 +23,19 @@ final class TrajectoryDebugger {
     var debugHistory: [DebugSession] = []
     
     // MARK: - Visualization Data
-    
+
     private(set) var trajectoryPoints: [TrajectoryPoint] = []
     private(set) var qualityScores: [QualityScore] = []
     private(set) var classificationResults: [ClassificationResult] = []
     private(set) var physicsValidation: [PhysicsValidation] = []
     private(set) var performanceMetrics: [PerformanceMetric] = []
+
+    // Memory management constants for debug data (configurable via ProcessorConfig)
+    private var maxTrajectoryPoints = 1000
+    private var maxQualityScores = 500
+    private var maxClassificationResults = 500
+    private var maxPhysicsValidation = 500
+    private var maxPerformanceMetrics = 200
     
     // MARK: - Configuration
     
@@ -42,6 +49,17 @@ final class TrajectoryDebugger {
     init(metricsCollector: MetricsCollector, parameterOptimizer: ParameterOptimizer? = nil) {
         self.metricsCollector = metricsCollector
         self.parameterOptimizer = parameterOptimizer
+    }
+
+    /// Configure memory limits from ProcessorConfig
+    func configureMemoryLimits(from processorConfig: ProcessorConfig) {
+        if processorConfig.enableMemoryLimits {
+            maxTrajectoryPoints = processorConfig.maxDebugTrajectoryPoints
+            maxQualityScores = processorConfig.maxDebugQualityScores
+            maxClassificationResults = processorConfig.maxDebugClassificationResults
+            maxPhysicsValidation = processorConfig.maxDebugPhysicsValidation
+            maxPerformanceMetrics = processorConfig.maxDebugPerformanceMetrics
+        }
     }
     
     // MARK: - Debug Session Management
@@ -94,6 +112,11 @@ final class TrajectoryDebugger {
             )
         }
         trajectoryPoints.append(contentsOf: points)
+
+        // Memory management: enforce sliding window for trajectory points
+        if trajectoryPoints.count > maxTrajectoryPoints {
+            trajectoryPoints.removeFirst(trajectoryPoints.count - maxTrajectoryPoints)
+        }
         
         // Record quality scores
         let quality = QualityScore(
@@ -105,6 +128,11 @@ final class TrajectoryDebugger {
             overall: qualityScore.physicsScore
         )
         qualityScores.append(quality)
+
+        // Memory management: enforce sliding window for quality scores
+        if qualityScores.count > maxQualityScores {
+            qualityScores.removeFirst(qualityScores.count - maxQualityScores)
+        }
         
         // Record classification
         let classification = ClassificationResult(
@@ -115,6 +143,11 @@ final class TrajectoryDebugger {
             details: classificationResult.details
         )
         classificationResults.append(classification)
+
+        // Memory management: enforce sliding window for classification results
+        if classificationResults.count > maxClassificationResults {
+            classificationResults.removeFirst(classificationResults.count - maxClassificationResults)
+        }
         
         // Record physics validation
         let physics = PhysicsValidation(
@@ -128,6 +161,11 @@ final class TrajectoryDebugger {
             overallValid: physicsResult.isValid
         )
         physicsValidation.append(physics)
+
+        // Memory management: enforce sliding window for physics validation
+        if physicsValidation.count > maxPhysicsValidation {
+            physicsValidation.removeFirst(physicsValidation.count - maxPhysicsValidation)
+        }
     }
     
     // MARK: - Performance Monitoring
@@ -135,6 +173,11 @@ final class TrajectoryDebugger {
     func recordPerformanceMetric(_ metric: PerformanceMetric) {
         guard isEnabled && isRecording else { return }
         performanceMetrics.append(metric)
+
+        // Memory management: enforce sliding window for performance metrics
+        if performanceMetrics.count > maxPerformanceMetrics {
+            performanceMetrics.removeFirst(performanceMetrics.count - maxPerformanceMetrics)
+        }
     }
     
     // MARK: - Visualization Data Export

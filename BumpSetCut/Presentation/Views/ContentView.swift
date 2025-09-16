@@ -13,6 +13,8 @@ import MijickPopups
 struct ContentView: View {
     @State private var mediaStore = MediaStore()
     @State private var captureHandler: CaptureHandler?
+    @State private var showingSettings = false
+    @EnvironmentObject private var appSettings: AppSettings
     
     
     var body: some View {
@@ -23,6 +25,20 @@ struct ContentView: View {
             .padding(.horizontal, 20)
             .background(Color(.systemBackground).ignoresSafeArea())
             .preferredColorScheme(.dark)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .foregroundColor(.white)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+                .environmentObject(appSettings)
         }
         .onAppear {
             captureHandler = CaptureHandler(mediaStore: mediaStore)

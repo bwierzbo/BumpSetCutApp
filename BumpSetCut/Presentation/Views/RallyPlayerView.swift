@@ -39,6 +39,7 @@ struct RallyPlayerView: View {
 
     // Video player observation
     @State private var playbackObserver: Any?
+    @State private var observerPlayer: AVPlayer? // Track which player has the observer
 
     var body: some View {
         NavigationStack {
@@ -387,6 +388,9 @@ private extension RallyPlayerView {
     }
 
     func setupVideoPlayer() async {
+        // Don't create a new player if one already exists and is ready
+        guard player == nil || !isPlayerReady else { return }
+
         // Ensure audio session is active
         do {
             try AVAudioSession.sharedInstance().setActive(true)
@@ -428,21 +432,23 @@ private extension RallyPlayerView {
     }
 
     func setupPlaybackTimeObserver(for player: AVPlayer) {
-        // Remove existing observer if any
-        if let observer = playbackObserver {
-            player.removeTimeObserver(observer)
+        // Remove existing observer from the correct player
+        if let observer = playbackObserver, let oldPlayer = observerPlayer {
+            oldPlayer.removeTimeObserver(observer)
         }
 
         // Add new observer for real-time overlay synchronization
         let interval = CMTime(seconds: 0.033, preferredTimescale: 600) // ~30fps updates
-        playbackObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self = self else { return }
+        playbackObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
 
             let timeInSeconds = CMTimeGetSeconds(time)
             if timeInSeconds.isFinite {
                 self.currentPlaybackTime = timeInSeconds
             }
         }
+
+        // Track which player has the observer
+        observerPlayer = player
     }
 
     func handleMetadataLoadError(_ error: Error) {
@@ -538,10 +544,11 @@ private extension RallyPlayerView {
 
 private extension RallyPlayerView {
     func cleanupPlayer() {
-        // Remove playback time observer
-        if let observer = playbackObserver, let currentPlayer = player {
+        // Remove playback time observer from the correct player
+        if let observer = playbackObserver, let currentPlayer = observerPlayer {
             currentPlayer.removeTimeObserver(observer)
             playbackObserver = nil
+            observerPlayer = nil
         }
 
         player?.pause()

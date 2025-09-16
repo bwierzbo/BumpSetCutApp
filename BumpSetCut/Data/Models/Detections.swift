@@ -126,6 +126,25 @@ struct ProcessorConfig {
     /// Performance monitoring thresholds
     var maxProcessingOverheadPercent: Double = 5.0
     var performanceAlertThreshold: Double = 10.0
+
+    // MARK: - Memory Management (Issue #25)
+
+    /// Memory management for large video processing
+    var enableMemoryLimits: Bool = true
+    var maxTrajectoryDataEntries: Int = 500
+    var maxClassificationEntries: Int = 1000
+    var maxPhysicsValidationEntries: Int = 2000
+    var maxTrackPositions: Int = 100
+    var maxDebugTrajectoryPoints: Int = 1000
+    var maxDebugQualityScores: Int = 500
+    var maxDebugClassificationResults: Int = 500
+    var maxDebugPhysicsValidation: Int = 500
+    var maxDebugPerformanceMetrics: Int = 200
+
+    /// Memory pressure detection
+    var enableMemoryPressureDetection: Bool = true
+    var memoryPressureThresholdMB: Double = 512.0
+    var reduceQualityUnderMemoryPressure: Bool = true
     
     // MARK: - Parameter Optimization (Issue #24)
     
@@ -168,6 +187,23 @@ struct ProcessorConfig {
         // Performance threshold validation
         guard maxProcessingOverheadPercent > 0 && maxProcessingOverheadPercent <= 100 else {
             throw ConfigurationError.invalidParameter("maxProcessingOverheadPercent must be between 0 and 100")
+        }
+
+        // Memory management validation
+        guard maxTrajectoryDataEntries > 0 && maxTrajectoryDataEntries <= 10000 else {
+            throw ConfigurationError.invalidParameter("maxTrajectoryDataEntries must be between 1 and 10000")
+        }
+        guard maxClassificationEntries > 0 && maxClassificationEntries <= 10000 else {
+            throw ConfigurationError.invalidParameter("maxClassificationEntries must be between 1 and 10000")
+        }
+        guard maxPhysicsValidationEntries > 0 && maxPhysicsValidationEntries <= 10000 else {
+            throw ConfigurationError.invalidParameter("maxPhysicsValidationEntries must be between 1 and 10000")
+        }
+        guard maxTrackPositions > 0 && maxTrackPositions <= 1000 else {
+            throw ConfigurationError.invalidParameter("maxTrackPositions must be between 1 and 1000")
+        }
+        guard memoryPressureThresholdMB > 0 && memoryPressureThresholdMB <= 2048 else {
+            throw ConfigurationError.invalidParameter("memoryPressureThresholdMB must be between 1 and 2048")
         }
     }
     
