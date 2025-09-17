@@ -1,8 +1,8 @@
 ---
 name: peakingonswipe
-status: backlog
+status: completed
 created: 2025-09-17T00:27:27Z
-progress: 0%
+progress: 100%
 prd: .claude/prds/peakingonswipe.md
 github: https://github.com/bwierzbo/BumpSetCutApp/issues/39
 ---
