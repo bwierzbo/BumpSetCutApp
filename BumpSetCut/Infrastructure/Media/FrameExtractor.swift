@@ -145,7 +145,7 @@ final class FrameExtractor {
         }
 
         // Extract frame on background queue
-        let image = try await withCheckedThrowingContinuation { continuation in
+        let image = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UIImage, Error>) in
             extractionQueue.async { [weak self] in
                 guard let self = self else {
                     continuation.resume(throwing: FrameExtractionError.extractorReleased)
@@ -170,7 +170,8 @@ final class FrameExtractor {
                 DispatchQueue.global().asyncAfter(deadline: .now() + self.config.extractionTimeout, execute: timeoutTask)
 
                 // Extract frame
-                imageGenerator.generateCGImage(for: self.config.frameTime) { cgImage, actualTime, error in
+                let requestedTime = self.config.frameTime
+                imageGenerator.generateCGImagesAsynchronously(forTimes: [NSValue(time: requestedTime)]) { [weak imageGenerator] (requestedTime, cgImage, actualTime, result, error) in
                     timeoutTask.cancel()
 
                     if let error = error {
@@ -178,7 +179,7 @@ final class FrameExtractor {
                         return
                     }
 
-                    guard let cgImage = cgImage else {
+                    guard result == .succeeded, let cgImage = cgImage else {
                         continuation.resume(throwing: FrameExtractionError.imageGenerationFailed)
                         return
                     }
