@@ -1439,3 +1439,12 @@ enum PeekDirection {
     case next     // Vertical down (next rally) or horizontal left (next action)
     case previous // Vertical up (previous rally) or horizontal right (previous action)
 }
+
+extension PeekDirection: CustomStringConvertible {
+    var description: String {
+        switch self {
+        case .next: return "next"
+        case .previous: return "previous"
+        }
+    }
+}
