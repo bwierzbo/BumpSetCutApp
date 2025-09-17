@@ -18,6 +18,8 @@ struct StoredVideo: View {
     let isSelectable: Bool
     let isSelected: Bool
     let onSelectionToggle: (() -> Void)?
+
+    @EnvironmentObject private var appSettings: AppSettings
     
     // Computed properties for backward compatibility
     var videoURL: URL { videoMetadata.originalURL }
@@ -159,7 +161,7 @@ struct StoredVideo: View {
             }
         }
         .onAppear(perform: generateThumbnail)
-        .sheet(isPresented: $showingVideoPlayer, content: createVideoPlayerSheet)
+        .fullScreenCover(isPresented: $showingVideoPlayer, content: createVideoPlayerSheet)
         .sheet(isPresented: $showingProcessVideo, content: createProcessVideoSheet)
         .sheet(isPresented: $showingRenameDialog) {
             VideoRenameDialog(
@@ -406,10 +408,22 @@ private extension StoredVideo {
     }
     
     func createVideoPlayerSheet() -> some View {
-        VideoPlayerView(videoURL: videoURL)
+        RallyPlayerFactory.createAnalyticsWrappedRallyPlayer(
+            for: videoMetadata,
+            appSettings: appSettings
+        )
     }
     
     func createProcessVideoSheet() -> some View {
-        ProcessVideoView(videoURL: videoURL, mediaStore: mediaStore, folderPath: folderPath, onComplete: onRefresh)
+        ProcessVideoView(
+            videoURL: videoURL,
+            mediaStore: mediaStore,
+            folderPath: folderPath,
+            onComplete: onRefresh,
+            onShowPlayer: {
+                // Automatically show video player after processing
+                showingVideoPlayer = true
+            }
+        )
     }
 }

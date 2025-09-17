@@ -1,7 +1,7 @@
 ---
 created: 2025-09-15T17:59:47Z
-last_updated: 2025-09-16T00:27:41Z
-version: 1.1
+last_updated: 2025-09-16T05:23:42Z
+version: 1.2
 author: Claude Code PM System
 ---
 
@@ -19,6 +19,7 @@ BumpSetCut/
 ├── build/                     # Build artifacts
 ├── CLAUDE.md                  # Development guidelines and patterns
 ├── INTEGRATION_TEST_REPORT.md # Testing documentation
+├── SWIPEABLE_RALLY_INTEGRATION.md # Rally player integration documentation
 └── MetadataVideoProcessing_PRD.md # Recent PRD documentation
 ```
 
@@ -34,6 +35,8 @@ BumpSetCut/Presentation/
 │   ├── VideoPlayerView.swift         # Video playback component
 │   ├── RallyPlayerView.swift         # Legacy rally-by-rally navigation
 │   ├── TikTokRallyPlayerView.swift   # TikTok-style rally player with swipe navigation
+│   ├── SwipeableRallyPlayerView.swift # Alternative swipeable rally player
+│   ├── SettingsView.swift            # App settings and configuration
 │   └── RallyPlayerFactory.swift     # Factory for creating appropriate rally player
 ├── Components/                       # Reusable UI components
 │   ├── Folder/                       # Folder organization components

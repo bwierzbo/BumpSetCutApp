@@ -1,7 +1,7 @@
 ---
 created: 2025-09-15T17:59:47Z
-last_updated: 2025-09-16T00:27:41Z
-version: 1.1
+last_updated: 2025-09-16T05:23:42Z
+version: 1.2
 author: Claude Code PM System
 ---
 
@@ -29,11 +29,12 @@ author: Claude Code PM System
 - **YOLO**: Object detection model (volleyball-specific training)
 - **Custom Models**: Specialized volleyball detection algorithms
 
-### Video Processing
+### Video Processing & Media
 - **AVFoundation**: Core video processing and playback
 - **AVAssetReader**: Frame-by-frame video analysis
 - **CoreImage**: Image processing and filtering
 - **Metal**: GPU-accelerated processing (via CoreML)
+- **Photos**: Photo library integration for video export functionality
 
 ### Third-Party Dependencies
 

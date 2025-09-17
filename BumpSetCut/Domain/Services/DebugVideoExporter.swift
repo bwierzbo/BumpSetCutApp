@@ -399,9 +399,11 @@ final class DebugVideoExporter: ObservableObject {
         guard !recentPoints.isEmpty else { return nil }
 
         // Create a mock tracked ball with the recent positions
-        return KalmanBallTracker.TrackedBall(
-            positions: recentPoints
-        )
+        var trackedBall = KalmanBallTracker.TrackedBall(maxPositions: 1000)
+        for point in recentPoints {
+            trackedBall.appendPosition(point)
+        }
+        return trackedBall
     }
 }
 

@@ -81,6 +81,8 @@ private extension MetadataOverlayView {
         let scaleX = canvasSize.width
         let scaleY = canvasSize.height
 
+        // Simple scaling from normalized coordinates (0-1) to canvas coordinates
+        // Both video and UI coordinate systems use top-left origin (0,0)
         return CGAffineTransform(scaleX: scaleX, y: scaleY)
     }
 

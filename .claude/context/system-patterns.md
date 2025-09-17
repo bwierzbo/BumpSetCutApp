@@ -1,11 +1,11 @@
 ---
-created: 2025-09-01T15:19:09Z
-last_updated: 2025-09-01T15:19:09Z
+created: 2025-09-15T17:59:47Z
+last_updated: 2025-09-15T17:59:47Z
 version: 1.0
 author: Claude Code PM System
 ---
 
-# System Patterns
+# System Patterns and Architectural Design
 
 ## Architectural Patterns
 
@@ -322,3 +322,88 @@ struct CameraCapture {
 - Consistent API across app
 - Easy to swap implementations
 - Centralized third-party dependencies
+
+## Recent Pattern Evolution (Metadata Processing Era)
+
+### Enhanced State Management Patterns
+**Pattern:** Computed properties for reactive video processing state
+```swift
+extension VideoMetadata {
+    var processingStatus: String {
+        if isProcessed { return "Processed" }
+        if processedVideoIds.isEmpty { return "Original" }
+        return "\(processedVideoIds.count) versions"
+    }
+
+    var canBeProcessed: Bool {
+        return !isProcessed && processedVideoIds.isEmpty
+    }
+}
+```
+
+**Benefits:**
+- Reactive UI updates without stored state
+- Single source of truth for video status
+- Prevents inconsistent state management
+
+### SwiftUI Canvas Integration Pattern
+**Pattern:** Custom drawing and visualization using SwiftUI Canvas
+```swift
+struct MetadataOverlayView: View {
+    var body: some View {
+        Canvas { context, size in
+            // Custom trajectory and detection visualization
+            drawTrajectoryPath(context: context, size: size)
+            drawDetectionBoxes(context: context, size: size)
+        }
+    }
+}
+```
+
+**Usage:**
+- Rally trajectory visualization
+- Detection result overlay rendering
+- Debug information display
+
+### Relationship Management Pattern
+**Pattern:** Video processing relationship tracking with cleanup
+```swift
+class MediaStore {
+    func addProcessedVideo(_ video: VideoMetadata, original: VideoMetadata) {
+        original.processedVideoIds.append(video.id)
+        video.originalVideoId = original.id
+        video.isProcessed = true
+    }
+
+    func deleteVideo(_ video: VideoMetadata) {
+        cleanupProcessedVideoRelationships(video)
+        // Handle cascade deletion logic
+    }
+}
+```
+
+**Benefits:**
+- Data integrity maintenance
+- Automated cleanup of relationships
+- Consistent video processing state
+
+### Navigation State Pattern
+**Pattern:** Rally-by-rally navigation with metadata integration
+```swift
+struct RallyPlayerView: View {
+    @State private var currentRallyIndex = 0
+
+    var body: some View {
+        VStack {
+            // Rally selection and navigation
+            MetadataOverlayView(rally: currentRally)
+            // Video player with rally-specific positioning
+        }
+    }
+}
+```
+
+**Implementation:**
+- Rally metadata drives navigation state
+- Video player positioning based on rally timestamps
+- Integrated visualization overlay system

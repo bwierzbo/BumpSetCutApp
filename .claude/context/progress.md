@@ -1,7 +1,7 @@
 ---
 created: 2025-09-15T17:59:47Z
-last_updated: 2025-09-16T00:27:41Z
-version: 1.1
+last_updated: 2025-09-16T05:23:42Z
+version: 1.2
 author: Claude Code PM System
 ---
 
@@ -13,7 +13,7 @@ author: Claude Code PM System
 **Branch**: main
 **Repository URL**: https://github.com/bwierzbo/BumpSetCutApp.git
 **Last Major Epic**: metadatavideoprocessing (completed)
-**Current Focus**: TikTok-style Rally Player Implementation & Swift 6 Concurrency Migration
+**Current Focus**: Enhanced Rally Player with Export Features & Gesture Controls
 
 ## Recent Work Completed
 
@@ -36,31 +36,43 @@ author: Claude Code PM System
 - **Video Export**: Individual rally segments exported as separate MP4 files for seamless playback
 - **State Management**: Simplified AppSettings architecture for reliable UI responsiveness
 
+### Latest Development Session: Export Features & Gesture Control
+- **Duration**: September 15, 2025 development session
+- **Scope**: Enhanced rally player with photo library export and Tinder-style gestures
+- **Key Achievements**:
+  - ✅ **Export Options**: End-of-rallies export screen with individual/stitched video options
+  - ✅ **Photo Library Integration**: Videos save directly to device photo library using Photos framework
+  - ✅ **Tinder-Style Animations**: Horizontal swipe gestures with rotation and slide-off effects
+  - ✅ **Gesture Bug Fixes**: Fixed rotation reset issue when incomplete swipes occurred
+  - ✅ **Video Exporter Enhancements**: Added rally export methods with proper error handling
+
 ### Recent Commits (Last 10)
-1. `19db53a` - Archive completed metadatavideoprocessing epic
-2. `4b7cc5e` - Merge epic: metadatavideoprocessing
-3. `568b5b4` - Final epic documentation update
-4. `1c56759` - Epic Complete: metadatavideoprocessing - All 7 tasks implemented
-5. `b6ca9f7` - 🎉 Epic Complete: metadatavideoprocessing - All 7 tasks implemented
-6. `b36b252` - Task 006: Implement MetadataOverlayView with SwiftUI Canvas
-7. `dba4a2f` - Task 005: Implement RallyPlayerView with rally-by-rally navigation
-8. `111af74` - Task 004: Implement metadata generation in VideoProcessor
-9. `55e71f4` - Task 003: Extend VideoMetadata model with metadata support fields and computed properties
-10. `41761f7` - Task 007: Implement Debug Export Service
+1. `fa5f61b` - Implement TikTok-style rally player with gesture controls and memory fixes
+2. `19db53a` - Archive completed metadatavideoprocessing epic
+3. `4b7cc5e` - Merge epic: metadatavideoprocessing
+4. `568b5b4` - Final epic documentation update
+5. `1c56759` - Epic Complete: metadatavideoprocessing - All 7 tasks implemented
+6. `b6ca9f7` - 🎉 Epic Complete: metadatavideoprocessing - All 7 tasks implemented
+7. `b36b252` - Task 006: Implement MetadataOverlayView with SwiftUI Canvas
+8. `dba4a2f` - Task 005: Implement RallyPlayerView with rally-by-rally navigation
+9. `111af74` - Task 004: Implement metadata generation in VideoProcessor
+10. `55e71f4` - Task 003: Extend VideoMetadata model with metadata support fields and computed properties
 
 ## Current Working State
 
 ### Modified Files (Unstaged)
 - `.DS_Store` - System file changes
-- `BumpSetCut/Domain/Services/VideoProcessor.swift` - Core processing enhancements
+- `BumpSetCut/Domain/Services/DebugVideoExporter.swift` - Debug video export enhancements
+- `BumpSetCut/Domain/Services/VideoExporter.swift` - Export functionality with photo library integration
 - `BumpSetCut/Presentation/Components/MetadataOverlayView.swift` - Metadata visualization
 - `BumpSetCut/Presentation/Components/Stored Video/StoredVideo.swift` - Storage component updates
-- `BumpSetCut/Presentation/Components/Video/VideoCardView.swift` - Video display improvements
-- `BumpSetCut/Presentation/Views/ProcessVideoView.swift` - Processing interface updates
-- `BumpSetCut/Presentation/Views/RallyPlayerView.swift` - Rally navigation enhancements
+- `BumpSetCut/Presentation/Views/TikTokRallyPlayerView.swift` - Rally player with export features and Tinder-style gestures
 
 ### New Files (Untracked)
-- `.claude/prds/rallyplayerview.md` - New PRD documentation for rally player functionality
+- `.claude/prds/rallyplayerview.md` - PRD documentation for rally player functionality
+- `BumpSetCut/Presentation/Views/SettingsView.swift` - New settings interface
+- `BumpSetCut/Presentation/Views/SwipeableRallyPlayerView.swift` - Alternative swipeable player implementation
+- `SWIPEABLE_RALLY_INTEGRATION.md` - Integration documentation
 
 ## Immediate Next Steps
 
