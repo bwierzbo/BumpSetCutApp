@@ -46,6 +46,9 @@ struct TikTokRallyPlayerView: View {
     // Peek state
     @State private var peekProgress: Double = 0.0
     @State private var currentPeekDirection: PeekDirection? = nil
+    @State private var peekFrameImage: UIImage? = nil
+    @State private var isLoadingPeekFrame = false
+    @State private var peekFrameTask: Task<Void, Never>? = nil
 
     // Transition state
     @State private var isTransitioning = false
@@ -104,6 +107,11 @@ struct TikTokRallyPlayerView: View {
                         .clipped() // Ensure no video content bleeds outside
                 }
 
+                // Peek frame overlay
+                if !isLoading && !hasError && !rallyVideoURLs.isEmpty {
+                    peekFrameOverlay(geometry: geometry)
+                }
+
                 // Navigation overlay
                 if !isLoading && !hasError && !rallyVideoURLs.isEmpty {
                     navigationOverlay
@@ -141,6 +149,7 @@ struct TikTokRallyPlayerView: View {
         }
         .onDisappear {
             cleanupPlayers()
+            cleanupPeekFrame()
         }
     }
 
@@ -176,6 +185,90 @@ struct TikTokRallyPlayerView: View {
         }
         .clipped() // Prevent videos from showing outside bounds
         .gesture(swipeGesture(geometry: geometry))
+    }
+
+    // MARK: - Peek Frame Overlay
+
+    private func peekFrameOverlay(geometry: GeometryProxy) -> some View {
+        Group {
+            if peekProgress > 0.0, let direction = currentPeekDirection {
+                peekFrameView(direction: direction, geometry: geometry)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .animation(.easeInOut(duration: 0.2), value: peekProgress)
+            }
+        }
+    }
+
+    private func peekFrameView(direction: PeekDirection, geometry: GeometryProxy) -> some View {
+        ZStack {
+            // Background overlay
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+
+            // Peek frame container
+            VStack {
+                if direction == .previous {
+                    // Show previous rally frame at top for upward swipe
+                    peekFrameContent(geometry: geometry)
+                        .frame(height: geometry.size.height * min(peekProgress * 0.6, 0.4))
+                        .clipped()
+                        .cornerRadius(12)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 60) // Below navigation
+
+                    Spacer()
+                } else {
+                    // Show next rally frame at bottom for downward swipe
+                    Spacer()
+
+                    peekFrameContent(geometry: geometry)
+                        .frame(height: geometry.size.height * min(peekProgress * 0.6, 0.4))
+                        .clipped()
+                        .cornerRadius(12)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 120) // Above action buttons
+                }
+            }
+        }
+        .opacity(peekProgress * 0.9) // Fade in based on progress
+        .zIndex(2) // Above current video, below navigation
+    }
+
+    private func peekFrameContent(geometry: GeometryProxy) -> some View {
+        ZStack {
+            // Background
+            Color.black
+                .aspectRatio(16/9, contentMode: .fit)
+
+            if isLoadingPeekFrame {
+                // Loading indicator
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .tint(.white)
+            } else if let peekImage = peekFrameImage {
+                // Actual peek frame
+                Image(uiImage: peekImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .clipped()
+            } else {
+                // Placeholder
+                VStack(spacing: 8) {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 30))
+                        .foregroundColor(.gray)
+
+                    Text("Loading preview...")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+            }
+        }
+        .overlay(
+            // Border to distinguish from background
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+        )
     }
 
     // MARK: - Video Peek Helper Functions
@@ -376,6 +469,11 @@ struct TikTokRallyPlayerView: View {
             peekProgress = newPeekProgress
             currentPeekDirection = newPeekDirection
 
+            // Load peek frame when direction changes or progress starts
+            if newPeekDirection != nil && newPeekProgress > 0.0 {
+                loadPeekFrameForDirection(newPeekDirection!)
+            }
+
             // Emit callback if provided
             onPeekProgress?(peekProgress, currentPeekDirection)
         }
@@ -386,9 +484,85 @@ struct TikTokRallyPlayerView: View {
             peekProgress = 0.0
             currentPeekDirection = nil
 
+            // Cancel any ongoing frame loading
+            cleanupPeekFrame()
+
             // Emit reset callback
             onPeekProgress?(0.0, nil)
         }
+    }
+
+    // MARK: - Peek Frame Loading
+
+    private func loadPeekFrameForDirection(_ direction: PeekDirection) {
+        // Cancel previous loading task
+        peekFrameTask?.cancel()
+
+        // Determine target rally index
+        let targetIndex: Int
+        switch direction {
+        case .previous:
+            targetIndex = currentRallyIndex - 1
+        case .next:
+            targetIndex = currentRallyIndex + 1
+        }
+
+        // Check if target index is valid
+        guard targetIndex >= 0 && targetIndex < rallyVideoURLs.count else {
+            // No adjacent rally available
+            peekFrameImage = nil
+            isLoadingPeekFrame = false
+            return
+        }
+
+        let targetURL = rallyVideoURLs[targetIndex]
+
+        // Check if we already have the frame for this URL
+        if let cachedFrame = getCachedFrame(for: targetURL) {
+            peekFrameImage = cachedFrame
+            isLoadingPeekFrame = false
+            return
+        }
+
+        // Start loading frame
+        isLoadingPeekFrame = true
+        peekFrameImage = nil
+
+        peekFrameTask = Task { @MainActor in
+            do {
+                let frame = try await FrameExtractor.shared.extractFrame(from: targetURL)
+
+                // Check if task was cancelled
+                guard !Task.isCancelled else { return }
+
+                // Update UI with loaded frame
+                peekFrameImage = frame
+                isLoadingPeekFrame = false
+
+                print("🖼️ Loaded peek frame for rally \(targetIndex + 1)")
+
+            } catch {
+                // Check if task was cancelled
+                guard !Task.isCancelled else { return }
+
+                print("⚠️ Failed to load peek frame for rally \(targetIndex + 1): \(error)")
+                peekFrameImage = nil
+                isLoadingPeekFrame = false
+            }
+        }
+    }
+
+    private func getCachedFrame(for url: URL) -> UIImage? {
+        // Since FrameExtractor has its own LRU cache, we can try to check if frame is already cached
+        // For now, we'll let FrameExtractor handle all caching
+        return nil
+    }
+
+    private func cleanupPeekFrame() {
+        peekFrameTask?.cancel()
+        peekFrameTask = nil
+        peekFrameImage = nil
+        isLoadingPeekFrame = false
     }
 
     // MARK: - Navigation

@@ -15,6 +15,9 @@ import UIKit
 @MainActor
 final class FrameExtractor {
 
+    /// Shared instance for app-wide frame extraction
+    static let shared = FrameExtractor()
+
     /// Configuration for frame extraction
     struct ExtractionConfig {
         let frameTime: CMTime
