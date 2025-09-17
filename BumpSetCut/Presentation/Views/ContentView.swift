@@ -7,12 +7,9 @@
 
 import SwiftUI
 import AVKit
-import MijickCamera
-import MijickPopups
 
 struct ContentView: View {
     @State private var mediaStore = MediaStore()
-    @State private var captureHandler: CaptureHandler?
     @State private var showingSettings = false
     @EnvironmentObject private var appSettings: AppSettings
     
@@ -40,33 +37,15 @@ struct ContentView: View {
             SettingsView()
                 .environmentObject(appSettings)
         }
-        .onAppear {
-            captureHandler = CaptureHandler(mediaStore: mediaStore)
-            mediaStore.captureDelegate = captureHandler
-        }
     }
 }
 
-class CaptureHandler: CaptureDelegate {
-    private let mediaStore: MediaStore
-    
-    init(mediaStore: MediaStore) {
-        self.mediaStore = mediaStore
-    }
-    
-    func presentCaptureInterface() {
-        Task {
-            await CapturePicturePopup(mediaStore: mediaStore).present()
-        }
-    }
-}
 
 private extension ContentView {
     func createScrollableView() -> some View {
         ScrollView {
             VStack(spacing: 36) {
                 createTitleHeader()
-                createCaptureMediaView()
                 createLibraryButton()
             }
             .padding(.top, 12)
@@ -85,11 +64,6 @@ private extension ContentView {
 }
     
 private extension ContentView {
-    func createCaptureMediaView() -> some View {
-        ActionButton{
-                mediaStore.presentCapturePopup()
-        }
-    }
     
     func createLibraryButton() -> some View {
         NavigationLink(destination: LibraryView(mediaStore: mediaStore)) {

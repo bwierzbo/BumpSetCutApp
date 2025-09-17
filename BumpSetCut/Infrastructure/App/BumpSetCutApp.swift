@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import MijickCamera
 import AVFoundation
 
 @main struct BumpSetCutApp: App {
@@ -22,7 +21,7 @@ import AVFoundation
 }
 
 // MARK: App Delegate
-class AppDelegate: NSObject, UIApplicationDelegate, MApplicationDelegate {
+class AppDelegate: NSObject, UIApplicationDelegate {
     static var orientationLock = UIInterfaceOrientationMask.all
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {

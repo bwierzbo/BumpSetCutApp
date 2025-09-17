@@ -30,6 +30,7 @@ struct TikTokRallyPlayerView: View {
     // Rally management state
     @State private var savedRallies: Set<Int> = []
     @State private var removedRallies: Set<Int> = []
+    @State private var lastAction: (action: SwipeAction, rallyIndex: Int)?
 
     // Video players state
     @State private var players: [AVPlayer] = []
@@ -49,6 +50,17 @@ struct TikTokRallyPlayerView: View {
     // Action feedback state
     @State private var actionFeedback: ActionFeedback?
     @State private var showActionFeedback = false
+
+    // Tinder-style swipe animation state
+    @State private var swipeOffset: CGFloat = 0.0
+    @State private var swipeRotation: Double = 0.0
+    @State private var isPerformingAction = false
+    @State private var currentAction: SwipeAction?
+
+    // Export state
+    @State private var showExportOptions = false
+    @State private var isExporting = false
+    @State private var exportProgress: Double = 0.0
 
     private var isPortrait: Bool {
         verticalSizeClass == .regular
@@ -85,12 +97,30 @@ struct TikTokRallyPlayerView: View {
                     navigationOverlay
                 }
 
+                // Tinder-style action buttons
+                if !isLoading && !hasError && !rallyVideoURLs.isEmpty {
+                    actionButtonsOverlay
+                }
+
                 // Action feedback overlay
                 if showActionFeedback, let feedback = actionFeedback {
                     actionFeedbackOverlay(feedback: feedback)
                 }
             }
             .clipped() // Additional clipping at the top level
+            .sheet(isPresented: $showExportOptions) {
+                ExportOptionsView(
+                    savedRallies: Array(savedRallies).sorted(),
+                    totalRallies: rallyVideoURLs.count,
+                    processingMetadata: processingMetadata,
+                    videoMetadata: videoMetadata,
+                    isExporting: $isExporting,
+                    exportProgress: $exportProgress
+                ) {
+                    // Dismiss callback
+                    showExportOptions = false
+                }
+            }
         }
         .onAppear {
             Task {
@@ -107,25 +137,75 @@ struct TikTokRallyPlayerView: View {
     private func rallyPlayerStack(geometry: GeometryProxy) -> some View {
         ZStack {
             ForEach(Array(rallyVideoURLs.enumerated()), id: \.offset) { index, url in
-                if index == currentRallyIndex || (isDragging && abs(index - currentRallyIndex) <= 1) {
+                let shouldShow = shouldShowVideo(index: index)
+
+                if shouldShow {
                     TikTokVideoPlayer(
                         url: url,
                         isActive: index == currentRallyIndex,
                         size: geometry.size
                     )
                     .offset(
-                        x: 0, // Always centered horizontally, ignore horizontal drag
+                        x: calculateHorizontalOffset(for: index, geometry: geometry),
                         y: CGFloat(index - currentRallyIndex) * geometry.size.height + dragOffset.height
                     )
-                    .scaleEffect(index == currentRallyIndex ? videoScale : 0.95)
-                    .opacity(index == currentRallyIndex ? 1.0 : 0.0)
+                    .rotationEffect(.degrees(index == currentRallyIndex ? swipeRotation : 0))
+                    .scaleEffect(calculateScale(for: index, geometry: geometry))
+                    .opacity(calculateOpacity(for: index, geometry: geometry))
+                    .zIndex(index == currentRallyIndex ? 1 : 0) // Current video on top
                     .animation(.spring(response: 0.6, dampingFraction: 0.8, blendDuration: 0.2), value: currentRallyIndex)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: swipeOffset)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: swipeRotation)
+                    .animation(.easeInOut(duration: 0.3), value: transitionOpacity)
+                    .animation(.easeInOut(duration: 0.2), value: dragOffset.width)
                     .allowsHitTesting(index == currentRallyIndex) // Only allow interaction with current video
                 }
             }
         }
         .clipped() // Prevent videos from showing outside bounds
         .gesture(swipeGesture(geometry: geometry))
+    }
+
+    // MARK: - Video Peek Helper Functions
+
+    private func shouldShowVideo(index: Int) -> Bool {
+        // Always show current video
+        if index == currentRallyIndex {
+            return true
+        }
+
+        // Show adjacent videos during vertical dragging
+        if isDragging && abs(index - currentRallyIndex) <= 1 {
+            return true
+        }
+
+        return false
+    }
+
+
+    private func calculateHorizontalOffset(for index: Int, geometry: GeometryProxy) -> CGFloat {
+        if index == currentRallyIndex {
+            // Current video moves with swipe and animation
+            return swipeOffset + dragOffset.width
+        }
+
+        return 0
+    }
+
+    private func calculateScale(for index: Int, geometry: GeometryProxy) -> CGFloat {
+        if index == currentRallyIndex {
+            return videoScale
+        }
+
+        return 0.95
+    }
+
+    private func calculateOpacity(for index: Int, geometry: GeometryProxy) -> CGFloat {
+        if index == currentRallyIndex {
+            return transitionOpacity
+        }
+
+        return 0.0
     }
 
     // MARK: - Swipe Gesture
@@ -136,9 +216,19 @@ struct TikTokRallyPlayerView: View {
                 isDragging = true
                 dragOffset = value.translation
 
-                // Subtle scale effect during drag
-                let dragProgress = abs(dragOffset.height) / 100.0
-                videoScale = max(0.98, 1.0 - dragProgress * 0.02)
+                // Tinder-style horizontal swipe effects
+                let horizontalProgress = abs(dragOffset.width) / geometry.size.width
+                swipeRotation = Double(dragOffset.width / geometry.size.width) * 20 // Max 20 degrees rotation
+
+                // Add some visual feedback for potential actions
+                if abs(dragOffset.width) > 50 {
+                    let scaleFactor = min(1.0, horizontalProgress * 2)
+                    videoScale = max(0.95, 1.0 - scaleFactor * 0.05)
+                } else {
+                    // Subtle scale effect during vertical drag
+                    let verticalProgress = abs(dragOffset.height) / 100.0
+                    videoScale = max(0.98, 1.0 - verticalProgress * 0.02)
+                }
 
                 // Resistance at boundaries for vertical navigation (both orientations)
                 if !canGoNext && dragOffset.height < 0 {
@@ -185,6 +275,9 @@ struct TikTokRallyPlayerView: View {
                         } else if verticalOffset < 0 && canGoNext {
                             print("👆 Swipe UP (negative offset) -> Next rally")
                             navigateToNext()
+                        } else if verticalOffset < 0 && !canGoNext && currentRallyIndex == rallyVideoURLs.count - 1 {
+                            print("🏁 Reached end of rallies - showing export options")
+                            showExportOptions = true
                         } else {
                             print("⚠️ Navigation blocked - offset: \(verticalOffset), canNext: \(canGoNext), canPrev: \(canGoPrevious)")
                         }
@@ -197,10 +290,10 @@ struct TikTokRallyPlayerView: View {
                         print("🔄 Horizontal action detected")
                         if horizontalOffset < -actionThreshold {
                             print("⬅️ Swipe left - remove rally")
-                            performRemoveAction()
+                            performTinderStyleAction(.remove, direction: .left)
                         } else if horizontalOffset > actionThreshold {
                             print("➡️ Swipe right - save rally")
-                            performSaveAction()
+                            performTinderStyleAction(.save, direction: .right)
                         }
                     } else {
                         print("❌ Horizontal gesture too weak")
@@ -209,6 +302,7 @@ struct TikTokRallyPlayerView: View {
 
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
                     dragOffset = .zero
+                    swipeRotation = 0.0 // Reset rotation when drag ends
                     videoScale = 1.0 // Reset scale when drag ends
                 }
             }
@@ -265,6 +359,11 @@ struct TikTokRallyPlayerView: View {
     private func performRemoveAction() {
         let rallyIndex = currentRallyIndex
 
+        // Store the action for undo functionality (only if not already removed)
+        if !removedRallies.contains(rallyIndex) {
+            lastAction = (action: .remove, rallyIndex: rallyIndex)
+        }
+
         withAnimation(.easeInOut(duration: 0.5)) {
             removedRallies.insert(rallyIndex)
             actionFeedback = ActionFeedback(type: .remove, message: "Rally Removed")
@@ -295,6 +394,11 @@ struct TikTokRallyPlayerView: View {
     private func performSaveAction() {
         let rallyIndex = currentRallyIndex
 
+        // Store the action for undo functionality (only if not already saved)
+        if !savedRallies.contains(rallyIndex) {
+            lastAction = (action: .save, rallyIndex: rallyIndex)
+        }
+
         withAnimation(.easeInOut(duration: 0.5)) {
             savedRallies.insert(rallyIndex)
             removedRallies.remove(rallyIndex) // Remove from removed set if it was there
@@ -310,6 +414,60 @@ struct TikTokRallyPlayerView: View {
         }
 
         print("💾 Rally \(rallyIndex + 1) marked as saved")
+    }
+
+    private func performTinderStyleAction(_ action: SwipeAction, direction: SwipeDirection) {
+        let rallyIndex = currentRallyIndex
+        currentAction = action
+        isPerformingAction = true
+
+        // Calculate slide-off direction and rotation
+        let slideDistance: CGFloat = UIScreen.main.bounds.width * 1.5
+        let targetOffset = direction == .right ? slideDistance : -slideDistance
+        let targetRotation = direction == .right ? 30.0 : -30.0
+
+        // Animate video sliding off screen with Tinder-style rotation
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.8, blendDuration: 0.1)) {
+            swipeOffset = targetOffset
+            swipeRotation = targetRotation
+            transitionOpacity = 0.0
+        }
+
+        // Perform the actual action after animation starts
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            switch action {
+            case .save:
+                savedRallies.insert(rallyIndex)
+                removedRallies.remove(rallyIndex)
+                actionFeedback = ActionFeedback(type: .save, message: "Rally Saved")
+                print("💾 Rally \(rallyIndex + 1) marked as saved with Tinder animation")
+            case .remove:
+                removedRallies.insert(rallyIndex)
+                actionFeedback = ActionFeedback(type: .remove, message: "Rally Removed")
+                print("🗑️ Rally \(rallyIndex + 1) marked for removal with Tinder animation")
+            }
+
+            showActionFeedback = true
+        }
+
+        // Reset animation state and navigate to next rally
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                swipeOffset = 0.0
+                swipeRotation = 0.0
+                transitionOpacity = 1.0
+                isPerformingAction = false
+                currentAction = nil
+                showActionFeedback = false
+            }
+
+            // Navigate to next available rally
+            if canGoNext {
+                navigateToNext()
+            } else if canGoPrevious {
+                navigateToPrevious()
+            }
+        }
     }
 
     // MARK: - Rally Management
@@ -392,6 +550,116 @@ struct TikTokRallyPlayerView: View {
 
             Spacer()
         }
+    }
+
+    // MARK: - Action Buttons Overlay
+
+    private var actionButtonsOverlay: some View {
+        VStack {
+            Spacer()
+
+            HStack(spacing: 40) {
+                // Remove button (trash icon)
+                Button(action: {
+                    performButtonAction(.remove)
+                }) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 60, height: 60)
+                        .background(
+                            Circle()
+                                .fill(Color.red)
+                                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                        )
+                }
+                .scaleEffect(removedRallies.contains(currentRallyIndex) ? 1.2 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: removedRallies.contains(currentRallyIndex))
+
+                // Undo button
+                Button(action: {
+                    performUndoAction()
+                }) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 50, height: 50)
+                        .background(
+                            Circle()
+                                .fill(Color.gray)
+                                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                        )
+                }
+                .opacity(lastAction != nil ? 1.0 : 0.4)
+                .disabled(lastAction == nil)
+                .animation(.easeInOut(duration: 0.2), value: lastAction != nil)
+
+                // Save button (heart icon)
+                Button(action: {
+                    performButtonAction(.save)
+                }) {
+                    Image(systemName: savedRallies.contains(currentRallyIndex) ? "heart.fill" : "heart")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 60, height: 60)
+                        .background(
+                            Circle()
+                                .fill(savedRallies.contains(currentRallyIndex) ? Color.pink : Color.green)
+                                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                        )
+                }
+                .scaleEffect(savedRallies.contains(currentRallyIndex) ? 1.2 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: savedRallies.contains(currentRallyIndex))
+            }
+            .padding(.bottom, 100) // Position above bottom edge
+        }
+    }
+
+    // MARK: - Action Button Methods
+
+    private func performButtonAction(_ action: SwipeAction) {
+        let rallyIndex = currentRallyIndex
+
+        // Store the action for undo functionality
+        lastAction = (action: action, rallyIndex: rallyIndex)
+
+        switch action {
+        case .save:
+            performSaveAction()
+        case .remove:
+            performRemoveAction()
+        }
+    }
+
+    private func performUndoAction() {
+        guard let lastActionData = lastAction else { return }
+
+        let rallyIndex = lastActionData.rallyIndex
+
+        withAnimation(.easeInOut(duration: 0.3)) {
+            switch lastActionData.action {
+            case .save:
+                savedRallies.remove(rallyIndex)
+                actionFeedback = ActionFeedback(type: .undo, message: "Save Undone")
+            case .remove:
+                removedRallies.remove(rallyIndex)
+                actionFeedback = ActionFeedback(type: .undo, message: "Remove Undone")
+            }
+
+            showActionFeedback = true
+        }
+
+        // Clear the last action
+        lastAction = nil
+
+        // Auto-hide feedback after 2 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                showActionFeedback = false
+            }
+        }
+
+        print("↩️ Undid action: \(lastActionData.action) for rally \(rallyIndex + 1)")
     }
 
     // MARK: - Loading States
@@ -675,6 +943,7 @@ struct ActionFeedback {
     enum ActionType {
         case save
         case remove
+        case undo
 
         var iconName: String {
             switch self {
@@ -682,6 +951,8 @@ struct ActionFeedback {
                 return "heart.fill"
             case .remove:
                 return "trash.fill"
+            case .undo:
+                return "arrow.uturn.backward"
             }
         }
 
@@ -691,7 +962,383 @@ struct ActionFeedback {
                 return .green
             case .remove:
                 return .red
+            case .undo:
+                return .orange
             }
         }
     }
+}
+
+// MARK: - Export Options View
+
+struct ExportOptionsView: View {
+    let savedRallies: [Int]
+    let totalRallies: Int
+    let processingMetadata: ProcessingMetadata?
+    let videoMetadata: VideoMetadata
+    @Binding var isExporting: Bool
+    @Binding var exportProgress: Double
+    let onDismiss: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var exportType: ExportType?
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 24) {
+                headerView
+
+                if savedRallies.isEmpty {
+                    noSavedRalliesView
+                } else {
+                    exportOptionsView
+                }
+
+                Spacer()
+            }
+            .padding(24)
+            .navigationTitle("Export Rallies")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                        onDismiss()
+                    }
+                }
+            }
+        }
+        .sheet(item: $exportType) { type in
+            ExportProgressView(
+                exportType: type,
+                savedRallies: savedRallies,
+                processingMetadata: processingMetadata,
+                videoMetadata: videoMetadata,
+                isExporting: $isExporting,
+                exportProgress: $exportProgress
+            )
+        }
+    }
+
+    private var headerView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.green)
+
+            Text("Rally Review Complete!")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Text("You've reviewed all \(totalRallies) rallies")
+                .font(.body)
+                .foregroundColor(.secondary)
+
+            if !savedRallies.isEmpty {
+                Text("💾 \(savedRallies.count) rallies saved")
+                    .font(.headline)
+                    .foregroundColor(.green)
+                    .padding(.top, 8)
+            }
+        }
+    }
+
+    private var noSavedRalliesView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "heart.slash")
+                .font(.system(size: 48))
+                .foregroundColor(.gray)
+
+            Text("No Rallies Saved")
+                .font(.headline)
+                .foregroundColor(.primary)
+
+            Text("You didn't save any rallies to export. Go back and swipe right on rallies you want to keep!")
+                .font(.body)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+        .padding(.vertical, 32)
+    }
+
+    private var exportOptionsView: some View {
+        VStack(spacing: 20) {
+            Text("Choose Export Option")
+                .font(.headline)
+                .padding(.bottom, 8)
+
+            // Individual Export Option
+            ExportOptionCard(
+                title: "Export Individual Videos",
+                subtitle: "Save each rally as a separate video",
+                icon: "square.stack.3d.up",
+                color: .blue
+            ) {
+                exportType = .individual
+            }
+
+            // Stitched Export Option
+            ExportOptionCard(
+                title: "Export Combined Video",
+                subtitle: "Stitch all saved rallies into one video",
+                icon: "film.stack",
+                color: .purple
+            ) {
+                exportType = .stitched
+            }
+        }
+    }
+}
+
+// MARK: - Export Option Card
+
+struct ExportOptionCard: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundColor(color)
+                    .frame(width: 50, height: 50)
+                    .background(color.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundColor(.primary)
+
+                    Text(subtitle)
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+            .padding(16)
+            .background(Color(UIColor.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(UIColor.separator), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Export Progress View
+
+struct ExportProgressView: View {
+    let exportType: ExportType
+    let savedRallies: [Int]
+    let processingMetadata: ProcessingMetadata?
+    let videoMetadata: VideoMetadata
+    @Binding var isExporting: Bool
+    @Binding var exportProgress: Double
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var exportStatus: ExportStatus = .preparing
+    @State private var exportedCount = 0
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 32) {
+                Spacer()
+
+                progressIndicator
+
+                statusText
+
+                if exportStatus == .completed {
+                    successView
+                }
+
+                Spacer()
+
+                if exportStatus != .completed {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .font(.headline)
+                    .foregroundColor(.red)
+                }
+            }
+            .padding(24)
+            .navigationTitle(exportType.title)
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .onAppear {
+            startExport()
+        }
+    }
+
+    private var progressIndicator: some View {
+        VStack(spacing: 16) {
+            if exportStatus == .completed {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.green)
+            } else {
+                ProgressView(value: exportProgress)
+                    .progressViewStyle(CircularProgressViewStyle(tint: exportType.color))
+                    .scaleEffect(2.0)
+            }
+        }
+    }
+
+    private var statusText: some View {
+        VStack(spacing: 8) {
+            Text(exportStatus.message)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+
+            if exportStatus == .exporting {
+                Text("\(exportedCount) of \(savedRallies.count) rallies")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var successView: some View {
+        VStack(spacing: 16) {
+            Text("Export completed successfully!")
+                .font(.title3)
+                .fontWeight(.semibold)
+                .foregroundColor(.green)
+
+            Button("Done") {
+                dismiss()
+            }
+            .font(.headline)
+            .foregroundColor(.white)
+            .padding(.horizontal, 32)
+            .padding(.vertical, 12)
+            .background(Color.blue)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func startExport() {
+        Task {
+            await performExport()
+        }
+    }
+
+    private func performExport() async {
+        guard let metadata = processingMetadata else { return }
+
+        await MainActor.run {
+            isExporting = true
+            exportStatus = .preparing
+            exportProgress = 0.0
+        }
+
+        do {
+            await MainActor.run {
+                exportStatus = .exporting
+            }
+
+            let asset = AVURLAsset(url: videoMetadata.originalURL)
+            let exporter = VideoExporter()
+            let selectedSegments = savedRallies.compactMap { index in
+                index < metadata.rallySegments.count ? metadata.rallySegments[index] : nil
+            }
+
+            if exportType == .individual {
+                // Export individual videos
+                for (index, segment) in selectedSegments.enumerated() {
+                    let progress = Double(index) / Double(selectedSegments.count)
+                    await MainActor.run {
+                        exportProgress = progress
+                        exportedCount = index
+                    }
+
+                    try await exporter.exportRallyToPhotoLibrary(asset: asset, rally: segment, index: index)
+                }
+            } else {
+                // Export stitched video
+                try await exporter.exportStitchedRalliesToPhotoLibrary(asset: asset, rallies: selectedSegments)
+            }
+
+            await MainActor.run {
+                exportProgress = 1.0
+                exportStatus = .completed
+                isExporting = false
+            }
+
+        } catch {
+            await MainActor.run {
+                exportStatus = .failed(error.localizedDescription)
+                isExporting = false
+            }
+        }
+    }
+}
+
+// MARK: - Export Types and States
+
+enum ExportType: Identifiable, CaseIterable {
+    case individual
+    case stitched
+
+    var id: String { title }
+
+    var title: String {
+        switch self {
+        case .individual: return "Individual Videos"
+        case .stitched: return "Combined Video"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .individual: return .blue
+        case .stitched: return .purple
+        }
+    }
+}
+
+enum ExportStatus: Equatable {
+    case preparing
+    case exporting
+    case completed
+    case failed(String)
+
+    var message: String {
+        switch self {
+        case .preparing:
+            return "Preparing export..."
+        case .exporting:
+            return "Exporting rallies..."
+        case .completed:
+            return "Export complete!"
+        case .failed(let error):
+            return "Export failed: \(error)"
+        }
+    }
+}
+
+// MARK: - Tinder-Style Animation Types
+
+enum SwipeAction {
+    case save
+    case remove
+}
+
+enum SwipeDirection {
+    case left
+    case right
 }

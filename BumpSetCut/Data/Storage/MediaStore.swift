@@ -34,9 +34,6 @@ struct StorageManager {
     }
 }
 
-protocol CaptureDelegate: AnyObject {
-    func presentCaptureInterface()
-}
 
 // MARK: - Video Metadata Models
 
@@ -304,8 +301,6 @@ struct FolderManifest: Codable {
 }
 
 @MainActor class MediaStore: ObservableObject {
-    weak var captureDelegate: CaptureDelegate?
-    
     private var manifest: FolderManifest
     private let manifestURL: URL
     let baseDirectory: URL
@@ -1062,12 +1057,5 @@ extension MediaStore {
     }
 }
 
-// MARK: - Original Capture Functionality
-
-extension MediaStore {
-    func presentCapturePopup() {
-        captureDelegate?.presentCaptureInterface()
-    }
-}
 
 
