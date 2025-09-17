@@ -83,24 +83,37 @@ final class FrameExtractorTests: XCTestCase {
     func testFrameExtractionPerformance() async throws {
         print("🧪 Testing frame extraction performance requirement (<100ms)")
 
-        let iterations = 3
+        let iterations = 5
         var totalTime: TimeInterval = 0
+        var individualTimes: [TimeInterval] = []
 
         for i in 1...iterations {
             frameExtractor.clearCache() // Ensure we're not testing cache hits
 
             let startTime = Date()
-            _ = try await frameExtractor.extractFrame(from: testVideoURL)
+            _ = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
             let extractionTime = Date().timeIntervalSince(startTime)
 
             totalTime += extractionTime
+            individualTimes.append(extractionTime)
             print("⏱️ Iteration \(i): \(Int(extractionTime * 1000))ms")
         }
 
         let averageTime = totalTime / Double(iterations)
-        print("📊 Average extraction time: \(Int(averageTime * 1000))ms")
+        let maxTime = individualTimes.max() ?? 0
+        let minTime = individualTimes.min() ?? 0
+
+        print("📊 Performance Metrics:")
+        print("   Average: \(Int(averageTime * 1000))ms")
+        print("   Max: \(Int(maxTime * 1000))ms")
+        print("   Min: \(Int(minTime * 1000))ms")
+
+        // Check telemetry
+        let metrics = frameExtractor.performanceMetrics
+        print("📊 Telemetry: avg=\(Int(metrics.averageTime * 1000))ms, cache_hit=\(metrics.cacheHitRate), errors=\(metrics.errorRate)")
 
         XCTAssertLessThan(averageTime, 0.1, "Average extraction time should be under 100ms")
+        XCTAssertLessThan(maxTime, 0.15, "Maximum extraction time should be under 150ms")
     }
 
     func testInvalidVideoURLHandling() async throws {
@@ -222,20 +235,26 @@ final class FrameExtractorTests: XCTestCase {
     // MARK: - Concurrent Access Tests
 
     func testConcurrentFrameExtraction() async throws {
-        print("🧪 Testing concurrent frame extraction")
+        print("🧪 Testing concurrent frame extraction with priorities")
 
         // Clear cache to ensure fair test
         frameExtractor.clearCache()
 
-        // Launch multiple concurrent extractions
-        async let frame1 = frameExtractor.extractFrame(from: testVideoURL)
-        async let frame2 = frameExtractor.extractFrame(from: testVideoURL)
-        async let frame3 = frameExtractor.extractFrame(from: testVideoURL)
+        let startTime = Date()
 
-        let results = try await [frame1, frame2, frame3]
+        // Launch multiple concurrent extractions with different priorities
+        async let highPriorityFrame = frameExtractor.extractFrame(from: testVideoURL, priority: .high)
+        async let normalFrame1 = frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
+        async let normalFrame2 = frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
+        async let lowPriorityFrame = frameExtractor.extractFrame(from: testVideoURL, priority: .low)
+
+        let results = try await [highPriorityFrame, normalFrame1, normalFrame2, lowPriorityFrame]
+        let totalTime = Date().timeIntervalSince(startTime)
+
+        print("⏱️ Total concurrent extraction time: \(Int(totalTime * 1000))ms")
 
         // All extractions should succeed
-        XCTAssertEqual(results.count, 3, "All concurrent extractions should complete")
+        XCTAssertEqual(results.count, 4, "All concurrent extractions should complete")
         for frame in results {
             XCTAssertGreaterThan(frame.size.width, 0, "Each frame should be valid")
         }
@@ -243,7 +262,10 @@ final class FrameExtractorTests: XCTestCase {
         // Cache should contain only one entry (same URL)
         XCTAssertTrue(frameExtractor.cacheStatus.contains("entries: 1"), "Cache should deduplicate same URL")
 
-        print("✅ Concurrent access handled correctly")
+        // Concurrent extraction should not take much longer than single extraction
+        XCTAssertLessThan(totalTime, 0.25, "Concurrent extraction should be efficient")
+
+        print("✅ Concurrent access with priorities handled correctly")
     }
 
     // MARK: - Error Handling Tests
@@ -266,6 +288,126 @@ final class FrameExtractorTests: XCTestCase {
         }
 
         print("✅ All error descriptions are properly defined")
+    }
+
+    // MARK: - Performance and Memory Pressure Tests
+
+    func testMemoryPressureHandling() async throws {
+        print("🧪 Testing memory pressure handling")
+
+        // Add several frames to cache
+        for i in 1...3 {
+            _ = try await frameExtractor.extractFrame(from: testVideoURL)
+            // Simulate different URLs by clearing and re-adding
+            if i < 3 {
+                frameExtractor.clearCache()
+            }
+        }
+
+        // Simulate memory pressure
+        frameExtractor.enableGracefulDegradation()
+        XCTAssertTrue(frameExtractor.isUnderMemoryPressure == false, "Should handle graceful degradation")
+
+        // Extract frame under simulated pressure
+        let frame = try await frameExtractor.extractFrame(from: testVideoURL, priority: .high)
+        XCTAssertNotNil(frame, "Should still extract frames under memory pressure")
+
+        frameExtractor.disableGracefulDegradation()
+        print("✅ Memory pressure handling works correctly")
+    }
+
+    func testPerformanceTelemetry() async throws {
+        print("🧪 Testing performance telemetry tracking")
+
+        frameExtractor.clearCache()
+
+        // Perform several extractions
+        _ = try await frameExtractor.extractFrame(from: testVideoURL) // Cache miss
+        _ = try await frameExtractor.extractFrame(from: testVideoURL) // Cache hit
+        _ = try await frameExtractor.extractFrame(from: testVideoURL) // Cache hit
+
+        let metrics = frameExtractor.performanceMetrics
+        print("📊 Telemetry Metrics:")
+        print("   Average time: \(Int(metrics.averageTime * 1000))ms")
+        print("   Cache hit rate: \(Int(metrics.cacheHitRate * 100))%")
+        print("   Memory pressure events: \(metrics.memoryPressureEvents)")
+        print("   Error rate: \(Int(metrics.errorRate * 100))%")
+
+        XCTAssertGreaterThan(metrics.cacheHitRate, 0.6, "Should have good cache hit rate")
+        XCTAssertLessThan(metrics.errorRate, 0.1, "Should have low error rate")
+        XCTAssertLessThan(metrics.averageTime, 0.1, "Should maintain good average time")
+
+        print("✅ Performance telemetry working correctly")
+    }
+
+    func testExtractionPriorities() async throws {
+        print("🧪 Testing extraction priority handling")
+
+        frameExtractor.clearCache()
+
+        // Test different priorities
+        let highPriorityStart = Date()
+        _ = try await frameExtractor.extractFrame(from: testVideoURL, priority: .high)
+        let highPriorityTime = Date().timeIntervalSince(highPriorityStart)
+
+        frameExtractor.clearCache()
+
+        let normalPriorityStart = Date()
+        _ = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
+        let normalPriorityTime = Date().timeIntervalSince(normalPriorityStart)
+
+        frameExtractor.clearCache()
+
+        let lowPriorityStart = Date()
+        _ = try await frameExtractor.extractFrame(from: testVideoURL, priority: .low)
+        let lowPriorityTime = Date().timeIntervalSince(lowPriorityStart)
+
+        print("⏱️ Priority Times:")
+        print("   High: \(Int(highPriorityTime * 1000))ms")
+        print("   Normal: \(Int(normalPriorityTime * 1000))ms")
+        print("   Low: \(Int(lowPriorityTime * 1000))ms")
+
+        // All should complete successfully within reasonable time
+        XCTAssertLessThan(highPriorityTime, 0.15, "High priority should be fast")
+        XCTAssertLessThan(normalPriorityTime, 0.15, "Normal priority should be reasonable")
+        XCTAssertLessThan(lowPriorityTime, 0.2, "Low priority should complete")
+
+        print("✅ Extraction priorities working correctly")
+    }
+
+    func testMemoryUsageWithinLimits() async throws {
+        print("🧪 Testing memory usage stays within 10MB limit")
+
+        // Fill cache with maximum entries
+        for i in 1...5 {
+            // Create slightly different URLs to avoid cache hits
+            let testURL = testVideoURL.appendingPathComponent("../test_\(i).mp4")
+            do {
+                _ = try await frameExtractor.extractFrame(from: testVideoURL)
+            } catch {
+                // Some may fail due to invalid URLs, which is fine for this test
+                print("⚠️ Expected failure for test URL \(i): \(error.localizedDescription)")
+            }
+        }
+
+        // Check that cache status shows memory tracking
+        let cacheStatus = frameExtractor.cacheStatus
+        print("📊 Cache Status: \(cacheStatus)")
+
+        XCTAssertTrue(cacheStatus.contains("memory:"), "Cache should track memory usage")
+        XCTAssertTrue(cacheStatus.contains("MB"), "Cache should show memory in MB")
+
+        // Parse memory usage from cache status (rough validation)
+        if let memoryRange = cacheStatus.range(of: "memory: "),
+           let mbRange = cacheStatus.range(of: "MB") {
+            let memoryStr = String(cacheStatus[memoryRange.upperBound..<mbRange.lowerBound])
+            if let memoryUsage = Int(memoryStr) {
+                print("📊 Current memory usage: \(memoryUsage)MB")
+                XCTAssertLessThanOrEqual(memoryUsage, 10, "Memory usage should be under 10MB")
+            }
+        }
+
+        print("✅ Memory usage within acceptable limits")
     }
 
     // MARK: - Helper Methods

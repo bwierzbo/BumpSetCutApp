@@ -586,7 +586,8 @@ struct TikTokRallyPlayerView: View {
 
         peekFrameTask = Task { @MainActor in
             do {
-                let frame = try await FrameExtractor.shared.extractFrame(from: targetURL)
+                // Use high priority for peek frames to ensure responsiveness
+                let frame = try await FrameExtractor.shared.extractFrame(from: targetURL, priority: .high)
 
                 // Check if task was cancelled
                 guard !Task.isCancelled else { return }
@@ -601,7 +602,11 @@ struct TikTokRallyPlayerView: View {
                 // Check if task was cancelled
                 guard !Task.isCancelled else { return }
 
-                print("⚠️ Failed to load peek frame for rally \(targetIndex + 1): \(error)")
+                if case FrameExtractionError.memoryPressure = error {
+                    print("📱 Peek frame loading cancelled due to memory pressure")
+                } else {
+                    print("⚠️ Failed to load peek frame for rally \(targetIndex + 1): \(error)")
+                }
                 peekFrameImage = nil
                 isLoadingPeekFrame = false
             }
