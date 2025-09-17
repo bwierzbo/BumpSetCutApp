@@ -174,11 +174,11 @@ struct TikTokRallyPlayerView: View {
                     .scaleEffect(calculateScale(for: index, geometry: geometry))
                     .opacity(calculateOpacity(for: index, geometry: geometry))
                     .zIndex(index == currentRallyIndex ? 1 : 0) // Current video on top
-                    .animation(.spring(response: 0.6, dampingFraction: 0.8, blendDuration: 0.2), value: currentRallyIndex)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.75, blendDuration: 0.1), value: currentRallyIndex)
                     .animation(.spring(response: 0.4, dampingFraction: 0.7), value: swipeOffset)
                     .animation(.spring(response: 0.4, dampingFraction: 0.7), value: swipeRotation)
-                    .animation(.easeInOut(duration: 0.3), value: transitionOpacity)
-                    .animation(.easeInOut(duration: 0.2), value: dragOffset.width)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: transitionOpacity)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: videoScale)
                     .allowsHitTesting(index == currentRallyIndex) // Only allow interaction with current video
                 }
             }
@@ -193,28 +193,35 @@ struct TikTokRallyPlayerView: View {
         Group {
             if peekProgress > 0.0, let direction = currentPeekDirection {
                 peekFrameView(direction: direction, geometry: geometry)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                    .animation(.easeInOut(duration: 0.2), value: peekProgress)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.9).combined(with: .opacity),
+                        removal: .scale(scale: 0.95).combined(with: .opacity)
+                    ))
+                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: peekProgress)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: currentPeekDirection)
             }
         }
     }
 
     private func peekFrameView(direction: PeekDirection, geometry: GeometryProxy) -> some View {
         ZStack {
-            // Background overlay
-            Color.black.opacity(0.3)
+            // Background overlay with coordinated opacity
+            Color.black.opacity(0.3 * peekProgress)
                 .ignoresSafeArea()
+                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: peekProgress)
 
             // Peek frame container
             VStack {
                 if direction == .previous {
                     // Show previous rally frame at top for upward swipe
                     peekFrameContent(geometry: geometry)
-                        .frame(height: geometry.size.height * min(peekProgress * 0.6, 0.4))
+                        .frame(height: calculatePeekFrameHeight(geometry: geometry))
                         .clipped()
                         .cornerRadius(12)
                         .padding(.horizontal, 20)
                         .padding(.top, 60) // Below navigation
+                        .scaleEffect(calculatePeekFrameScale())
+                        .offset(y: calculatePeekFrameOffset(direction: direction, geometry: geometry))
 
                     Spacer()
                 } else {
@@ -222,15 +229,20 @@ struct TikTokRallyPlayerView: View {
                     Spacer()
 
                     peekFrameContent(geometry: geometry)
-                        .frame(height: geometry.size.height * min(peekProgress * 0.6, 0.4))
+                        .frame(height: calculatePeekFrameHeight(geometry: geometry))
                         .clipped()
                         .cornerRadius(12)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 120) // Above action buttons
+                        .scaleEffect(calculatePeekFrameScale())
+                        .offset(y: calculatePeekFrameOffset(direction: direction, geometry: geometry))
                 }
             }
         }
-        .opacity(peekProgress * 0.9) // Fade in based on progress
+        .opacity(calculatePeekFrameOpacity())
+        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: peekProgress)
+        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: videoScale)
+        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: swipeRotation)
         .zIndex(2) // Above current video, below navigation
     }
 
@@ -285,6 +297,41 @@ struct TikTokRallyPlayerView: View {
         }
 
         return false
+    }
+
+    // MARK: - Peek Frame Animation Calculations
+
+    private func calculatePeekFrameHeight(geometry: GeometryProxy) -> CGFloat {
+        let baseHeight = geometry.size.height * 0.4
+        let progressMultiplier = max(0.3, min(peekProgress * 0.6, 0.4))
+        return baseHeight * progressMultiplier
+    }
+
+    private func calculatePeekFrameScale() -> CGFloat {
+        // Coordinate with current video scale for harmony
+        let progressScale = 0.85 + (peekProgress * 0.15) // Scale from 0.85 to 1.0
+        let videoScaleInfluence = 0.95 + ((videoScale - 1.0) * 0.5) // Subtle influence from current video
+        return progressScale * videoScaleInfluence
+    }
+
+    private func calculatePeekFrameOpacity() -> Double {
+        // Smooth opacity curve that coordinates with progress
+        let baseOpacity = pow(peekProgress, 0.8) * 0.9 // Ease-in curve
+        let scaleInfluence = Double(max(0.7, videoScale)) // Reduce opacity if current video is scaled down
+        return baseOpacity * scaleInfluence
+    }
+
+    private func calculatePeekFrameOffset(direction: PeekDirection, geometry: GeometryProxy) -> CGFloat {
+        // Create subtle movement that responds to current video rotation
+        let rotationInfluence = CGFloat(abs(swipeRotation) / 20.0) * 10.0 // Max 10pt offset from rotation
+        let progressOffset = (1.0 - peekProgress) * 20.0 // Start slightly offset, settle into position
+
+        switch direction {
+        case .previous:
+            return -progressOffset + rotationInfluence
+        case .next:
+            return progressOffset - rotationInfluence
+        }
     }
 
 
@@ -408,14 +455,20 @@ struct TikTokRallyPlayerView: View {
                     }
                 }
 
+                // Coordinate all animation resets with single spring timing
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
                     dragOffset = .zero
                     swipeRotation = 0.0 // Reset rotation when drag ends
                     videoScale = 1.0 // Reset scale when drag ends
+                    peekProgress = 0.0 // Reset peek progress with same timing
+                    currentPeekDirection = nil
                 }
 
-                // Reset peek progress when gesture ends
-                resetPeekProgress()
+                // Cancel any ongoing frame loading
+                cleanupPeekFrame()
+
+                // Emit reset callback
+                onPeekProgress?(0.0, nil)
             }
     }
 
@@ -481,8 +534,11 @@ struct TikTokRallyPlayerView: View {
 
     private func resetPeekProgress() {
         if peekProgress != 0.0 || currentPeekDirection != nil {
-            peekProgress = 0.0
-            currentPeekDirection = nil
+            // Animate peek progress reset with spring timing to match current video animations
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                peekProgress = 0.0
+                currentPeekDirection = nil
+            }
 
             // Cancel any ongoing frame loading
             cleanupPeekFrame()
@@ -571,50 +627,60 @@ struct TikTokRallyPlayerView: View {
         guard canGoNext else { return }
         print("🔄 Navigating to NEXT rally: \(currentRallyIndex) -> \(currentRallyIndex + 1)")
 
-        // Reset peek progress before navigation
-        resetPeekProgress()
-
-        // Subtle scale animation during transition
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+        // Coordinate peek progress reset with navigation transition
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+            peekProgress = 0.0
+            currentPeekDirection = nil
             videoScale = 0.98
         }
+
+        // Cancel any ongoing frame loading immediately
+        cleanupPeekFrame()
 
         withAnimation(.spring(response: 0.5, dampingFraction: 0.75, blendDuration: 0.1)) {
             currentRallyIndex += 1
             dragOffset = .zero
         }
 
-        // Return to normal scale
+        // Return to normal scale with coordinated timing
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 videoScale = 1.0
             }
         }
+
+        // Emit final callback after navigation
+        onPeekProgress?(0.0, nil)
     }
 
     private func navigateToPrevious() {
         guard canGoPrevious else { return }
         print("🔄 Navigating to PREVIOUS rally: \(currentRallyIndex) -> \(currentRallyIndex - 1)")
 
-        // Reset peek progress before navigation
-        resetPeekProgress()
-
-        // Subtle scale animation during transition
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+        // Coordinate peek progress reset with navigation transition
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+            peekProgress = 0.0
+            currentPeekDirection = nil
             videoScale = 0.98
         }
+
+        // Cancel any ongoing frame loading immediately
+        cleanupPeekFrame()
 
         withAnimation(.spring(response: 0.5, dampingFraction: 0.75, blendDuration: 0.1)) {
             currentRallyIndex -= 1
             dragOffset = .zero
         }
 
-        // Return to normal scale
+        // Return to normal scale with coordinated timing
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 videoScale = 1.0
             }
         }
+
+        // Emit final callback after navigation
+        onPeekProgress?(0.0, nil)
     }
 
     // MARK: - Rally Actions
@@ -684,6 +750,12 @@ struct TikTokRallyPlayerView: View {
         currentAction = action
         isPerformingAction = true
 
+        // Immediately reset peek progress with coordinated animation timing
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+            peekProgress = 0.0
+            currentPeekDirection = nil
+        }
+
         // Calculate slide-off direction and rotation
         let slideDistance: CGFloat = UIScreen.main.bounds.width * 1.5
         let targetOffset = direction == .right ? slideDistance : -slideDistance
@@ -713,9 +785,10 @@ struct TikTokRallyPlayerView: View {
             showActionFeedback = true
         }
 
-        // Reset animation state and navigate to next rally
+        // Reset animation state and navigate to next rally with coordinated timing
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            withAnimation(.easeInOut(duration: 0.3)) {
+            // Use spring animation that matches our peek frame animations
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.75, blendDuration: 0.1)) {
                 swipeOffset = 0.0
                 swipeRotation = 0.0
                 transitionOpacity = 1.0
@@ -724,8 +797,11 @@ struct TikTokRallyPlayerView: View {
                 showActionFeedback = false
             }
 
-            // Reset peek progress after Tinder-style action completes
-            resetPeekProgress()
+            // Cancel any ongoing frame loading
+            cleanupPeekFrame()
+
+            // Emit final reset callback
+            onPeekProgress?(0.0, nil)
 
             // Navigate to next available rally
             if canGoNext {
