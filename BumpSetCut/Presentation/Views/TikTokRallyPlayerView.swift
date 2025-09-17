@@ -50,6 +50,10 @@ struct TikTokRallyPlayerView: View {
     @State private var isLoadingPeekFrame = false
     @State private var peekFrameTask: Task<Void, Never>? = nil
 
+    // Thumbnail preloading cache
+    @State private var preloadedThumbnails: [Int: UIImage] = [:]
+    @State private var thumbnailPreloadTask: Task<Void, Never>? = nil
+
     // Transition state
     @State private var isTransitioning = false
     @State private var transitionOpacity = 1.0
@@ -145,11 +149,13 @@ struct TikTokRallyPlayerView: View {
         .onAppear {
             Task {
                 await loadRallyVideos()
+                await preloadAllThumbnails()
             }
         }
         .onDisappear {
             cleanupPlayers()
             cleanupPeekFrame()
+            cleanupThumbnails()
         }
     }
 
@@ -192,58 +198,32 @@ struct TikTokRallyPlayerView: View {
     private func peekFrameOverlay(geometry: GeometryProxy) -> some View {
         Group {
             if peekProgress > 0.0, let direction = currentPeekDirection {
-                peekFrameView(direction: direction, geometry: geometry)
+                // Sticky note effect - show peek frame in same position as current video
+                peekStickyNoteView(direction: direction, geometry: geometry)
                     .transition(.asymmetric(
-                        insertion: .scale(scale: 0.9).combined(with: .opacity),
-                        removal: .scale(scale: 0.95).combined(with: .opacity)
+                        insertion: .scale(scale: 0.95).combined(with: .opacity),
+                        removal: .opacity
                     ))
-                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: peekProgress)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: currentPeekDirection)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: peekProgress)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: currentPeekDirection)
             }
         }
     }
 
-    private func peekFrameView(direction: PeekDirection, geometry: GeometryProxy) -> some View {
-        ZStack {
-            // Background overlay with coordinated opacity
-            Color.black.opacity(0.3 * peekProgress)
-                .ignoresSafeArea()
-                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: peekProgress)
-
-            // Peek frame container
-            VStack {
-                if direction == .previous {
-                    // Show previous rally frame at top for upward swipe
-                    peekFrameContent(geometry: geometry)
-                        .frame(height: calculatePeekFrameHeight(geometry: geometry))
-                        .clipped()
-                        .cornerRadius(12)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 60) // Below navigation
-                        .scaleEffect(calculatePeekFrameScale())
-                        .offset(y: calculatePeekFrameOffset(direction: direction, geometry: geometry))
-
-                    Spacer()
-                } else {
-                    // Show next rally frame at bottom for downward swipe
-                    Spacer()
-
-                    peekFrameContent(geometry: geometry)
-                        .frame(height: calculatePeekFrameHeight(geometry: geometry))
-                        .clipped()
-                        .cornerRadius(12)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 120) // Above action buttons
-                        .scaleEffect(calculatePeekFrameScale())
-                        .offset(y: calculatePeekFrameOffset(direction: direction, geometry: geometry))
-                }
-            }
-        }
-        .opacity(calculatePeekFrameOpacity())
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: peekProgress)
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: videoScale)
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: swipeRotation)
-        .zIndex(2) // Above current video, below navigation
+    private func peekStickyNoteView(direction: PeekDirection, geometry: GeometryProxy) -> some View {
+        // Sticky note effect - peek frame positioned exactly where current video is
+        peekFrameContent(geometry: geometry)
+            .frame(width: geometry.size.width * 0.9)
+            .aspectRatio(16/9, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .scaleEffect(calculateStickyNoteScale())
+            .rotationEffect(calculateStickyNoteRotation())
+            .offset(calculateStickyNoteOffset(direction: direction, geometry: geometry))
+            .opacity(calculateStickyNoteOpacity())
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: peekProgress)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: videoScale)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: swipeRotation)
+            .zIndex(1.5) // Between current video (1) and UI elements (2+)
     }
 
     private func peekFrameContent(geometry: GeometryProxy) -> some View {
@@ -252,16 +232,23 @@ struct TikTokRallyPlayerView: View {
             Color.black
                 .aspectRatio(16/9, contentMode: .fit)
 
-            if isLoadingPeekFrame {
+            // Use preloaded thumbnail or fallback to current loading logic
+            if let preloadedImage = getPreloadedThumbnail() {
+                // Preloaded thumbnail - instant display
+                Image(uiImage: preloadedImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .clipped()
+            } else if isLoadingPeekFrame {
                 // Loading indicator
                 ProgressView()
                     .scaleEffect(1.5)
                     .tint(.white)
             } else if let peekImage = peekFrameImage {
-                // Actual peek frame
+                // Fallback peek frame
                 Image(uiImage: peekImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .aspectRatio(contentMode: .fill)
                     .clipped()
             } else {
                 // Placeholder
@@ -270,16 +257,16 @@ struct TikTokRallyPlayerView: View {
                         .font(.system(size: 30))
                         .foregroundColor(.gray)
 
-                    Text("Loading preview...")
+                    Text("Preview")
                         .font(.caption)
                         .foregroundColor(.gray)
                 }
             }
         }
         .overlay(
-            // Border to distinguish from background
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+            // Subtle border to distinguish layers
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.white.opacity(0.2), lineWidth: 1)
         )
     }
 
@@ -299,39 +286,89 @@ struct TikTokRallyPlayerView: View {
         return false
     }
 
+    // MARK: - Thumbnail Preloading Functions
+
+    private func preloadAllThumbnails() async {
+        print("🖼️ Starting thumbnail preloading for \(rallyVideoURLs.count) rallies")
+
+        thumbnailPreloadTask = Task { @MainActor in
+            for (index, url) in rallyVideoURLs.enumerated() {
+                // Skip if already preloaded
+                guard preloadedThumbnails[index] == nil else { continue }
+
+                do {
+                    let image = try await FrameExtractor.shared.extractFrame(from: url, priority: .low)
+                    if !Task.isCancelled {
+                        preloadedThumbnails[index] = image
+                        print("✅ Preloaded thumbnail for rally \(index)")
+                    }
+                } catch {
+                    print("❌ Failed to preload thumbnail for rally \(index): \(error)")
+                }
+
+                // Check for cancellation between each thumbnail
+                if Task.isCancelled { break }
+
+                // Small delay to not overwhelm the system
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            }
+
+            print("🎉 Thumbnail preloading complete: \(preloadedThumbnails.count)/\(rallyVideoURLs.count)")
+        }
+    }
+
+    private func getPreloadedThumbnail() -> UIImage? {
+        guard let direction = currentPeekDirection else { return nil }
+
+        let targetIndex: Int
+        switch direction {
+        case .next:
+            targetIndex = currentRallyIndex + 1
+        case .previous:
+            targetIndex = currentRallyIndex - 1
+        }
+
+        // Check bounds
+        guard targetIndex >= 0 && targetIndex < rallyVideoURLs.count else { return nil }
+
+        return preloadedThumbnails[targetIndex]
+    }
+
     // MARK: - Peek Frame Animation Calculations
 
-    private func calculatePeekFrameHeight(geometry: GeometryProxy) -> CGFloat {
-        let baseHeight = geometry.size.height * 0.4
-        let progressMultiplier = max(0.3, min(peekProgress * 0.6, 0.4))
-        return baseHeight * progressMultiplier
+    // MARK: - Sticky Note Calculation Functions
+
+    private func calculateStickyNoteScale() -> CGFloat {
+        // Slightly smaller than current video to show it's underneath
+        let baseScale: CGFloat = 0.95
+        let peekScale = baseScale + (peekProgress * 0.05) // Grows as it's revealed
+        return peekScale * videoScale // Follow current video scaling
     }
 
-    private func calculatePeekFrameScale() -> CGFloat {
-        // Coordinate with current video scale for harmony
-        let progressScale = 0.85 + (peekProgress * 0.15) // Scale from 0.85 to 1.0
-        let videoScaleInfluence = 0.95 + ((videoScale - 1.0) * 0.5) // Subtle influence from current video
-        return progressScale * videoScaleInfluence
+    private func calculateStickyNoteRotation() -> Angle {
+        // Slight counter-rotation to suggest it's a separate layer
+        let counterRotation = -swipeRotation * 0.3 // Subtle counter-rotation
+        return Angle(degrees: counterRotation)
     }
 
-    private func calculatePeekFrameOpacity() -> Double {
-        // Smooth opacity curve that coordinates with progress
-        let baseOpacity = pow(peekProgress, 0.8) * 0.9 // Ease-in curve
-        let scaleInfluence = Double(max(0.7, videoScale)) // Reduce opacity if current video is scaled down
-        return baseOpacity * scaleInfluence
-    }
-
-    private func calculatePeekFrameOffset(direction: PeekDirection, geometry: GeometryProxy) -> CGFloat {
-        // Create subtle movement that responds to current video rotation
-        let rotationInfluence = CGFloat(abs(swipeRotation) / 20.0) * 10.0 // Max 10pt offset from rotation
-        let progressOffset = (1.0 - peekProgress) * 20.0 // Start slightly offset, settle into position
+    private func calculateStickyNoteOffset(direction: PeekDirection, geometry: GeometryProxy) -> CGSize {
+        // Start slightly offset in the direction being swiped, move to center as revealed
+        let maxOffset: CGFloat = 30
+        let progressOffset = maxOffset * (1.0 - peekProgress)
 
         switch direction {
-        case .previous:
-            return -progressOffset + rotationInfluence
         case .next:
-            return progressOffset - rotationInfluence
+            // Next video slides up from below current
+            return CGSize(width: 0, height: progressOffset)
+        case .previous:
+            // Previous video slides down from above current
+            return CGSize(width: 0, height: -progressOffset)
         }
+    }
+
+    private func calculateStickyNoteOpacity() -> Double {
+        // Fade in as progress increases, but not fully opaque to show layering
+        return Double(peekProgress) * 0.85
     }
 
 
@@ -624,6 +661,13 @@ struct TikTokRallyPlayerView: View {
         peekFrameTask = nil
         peekFrameImage = nil
         isLoadingPeekFrame = false
+    }
+
+    private func cleanupThumbnails() {
+        thumbnailPreloadTask?.cancel()
+        thumbnailPreloadTask = nil
+        preloadedThumbnails.removeAll()
+        print("🧹 Cleaned up preloaded thumbnails")
     }
 
     // MARK: - Navigation
