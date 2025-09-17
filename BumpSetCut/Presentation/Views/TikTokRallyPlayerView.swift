@@ -13,6 +13,7 @@ struct TikTokRallyPlayerView: View {
     // MARK: - Properties
 
     let videoMetadata: VideoMetadata
+    let onPeekProgress: ((Double, PeekDirection?) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @EnvironmentObject private var appSettings: AppSettings
@@ -41,6 +42,10 @@ struct TikTokRallyPlayerView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var isDragging = false
     @State private var bounceOffset: CGFloat = 0.0
+
+    // Peek state
+    @State private var peekProgress: Double = 0.0
+    @State private var currentPeekDirection: PeekDirection? = nil
 
     // Transition state
     @State private var isTransitioning = false
@@ -72,6 +77,13 @@ struct TikTokRallyPlayerView: View {
 
     private var canGoPrevious: Bool {
         currentRallyIndex > 0
+    }
+
+    // MARK: - Initializer
+
+    init(videoMetadata: VideoMetadata, onPeekProgress: ((Double, PeekDirection?) -> Void)? = nil) {
+        self.videoMetadata = videoMetadata
+        self.onPeekProgress = onPeekProgress
     }
 
     // MARK: - Body
@@ -216,6 +228,9 @@ struct TikTokRallyPlayerView: View {
                 isDragging = true
                 dragOffset = value.translation
 
+                // Calculate peek progress and direction
+                updatePeekProgress(translation: value.translation, geometry: geometry)
+
                 // Tinder-style horizontal swipe effects
                 let horizontalProgress = abs(dragOffset.width) / geometry.size.width
                 swipeRotation = Double(dragOffset.width / geometry.size.width) * 20 // Max 20 degrees rotation
@@ -305,7 +320,75 @@ struct TikTokRallyPlayerView: View {
                     swipeRotation = 0.0 // Reset rotation when drag ends
                     videoScale = 1.0 // Reset scale when drag ends
                 }
+
+                // Reset peek progress when gesture ends
+                resetPeekProgress()
             }
+    }
+
+    // MARK: - Peek Progress Handling
+
+    private func updatePeekProgress(translation: CGSize, geometry: GeometryProxy) {
+        // Define peek thresholds (start peeking after minimal movement)
+        let peekStartThreshold: CGFloat = 20
+        let actionThreshold: CGFloat = 120 // Existing action threshold
+
+        // Calculate absolute distances
+        let horizontalDistance = abs(translation.width)
+        let verticalDistance = abs(translation.height)
+
+        // Determine dominant direction
+        let isVerticalDominant = verticalDistance > horizontalDistance
+
+        var newPeekProgress: Double = 0.0
+        var newPeekDirection: PeekDirection? = nil
+
+        if isVerticalDominant && verticalDistance > peekStartThreshold {
+            // Vertical gesture - rally navigation
+            if translation.height > 0 && canGoPrevious {
+                // Swipe down -> previous rally
+                newPeekDirection = .previous
+                let progressRange = actionThreshold - peekStartThreshold
+                newPeekProgress = min(1.0, max(0.0, (verticalDistance - peekStartThreshold) / progressRange))
+            } else if translation.height < 0 && canGoNext {
+                // Swipe up -> next rally
+                newPeekDirection = .next
+                let progressRange = actionThreshold - peekStartThreshold
+                newPeekProgress = min(1.0, max(0.0, (verticalDistance - peekStartThreshold) / progressRange))
+            }
+        } else if !isVerticalDominant && horizontalDistance > peekStartThreshold {
+            // Horizontal gesture - actions
+            if translation.width < 0 {
+                // Swipe left -> remove action
+                newPeekDirection = .next // "next" action (remove)
+                let progressRange = actionThreshold - peekStartThreshold
+                newPeekProgress = min(1.0, max(0.0, (horizontalDistance - peekStartThreshold) / progressRange))
+            } else if translation.width > 0 {
+                // Swipe right -> save action
+                newPeekDirection = .previous // "previous" action (save)
+                let progressRange = actionThreshold - peekStartThreshold
+                newPeekProgress = min(1.0, max(0.0, (horizontalDistance - peekStartThreshold) / progressRange))
+            }
+        }
+
+        // Update state if changed
+        if newPeekProgress != peekProgress || newPeekDirection != currentPeekDirection {
+            peekProgress = newPeekProgress
+            currentPeekDirection = newPeekDirection
+
+            // Emit callback if provided
+            onPeekProgress?(peekProgress, currentPeekDirection)
+        }
+    }
+
+    private func resetPeekProgress() {
+        if peekProgress != 0.0 || currentPeekDirection != nil {
+            peekProgress = 0.0
+            currentPeekDirection = nil
+
+            // Emit reset callback
+            onPeekProgress?(0.0, nil)
+        }
     }
 
     // MARK: - Navigation
@@ -313,6 +396,9 @@ struct TikTokRallyPlayerView: View {
     private func navigateToNext() {
         guard canGoNext else { return }
         print("🔄 Navigating to NEXT rally: \(currentRallyIndex) -> \(currentRallyIndex + 1)")
+
+        // Reset peek progress before navigation
+        resetPeekProgress()
 
         // Subtle scale animation during transition
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
@@ -335,6 +421,9 @@ struct TikTokRallyPlayerView: View {
     private func navigateToPrevious() {
         guard canGoPrevious else { return }
         print("🔄 Navigating to PREVIOUS rally: \(currentRallyIndex) -> \(currentRallyIndex - 1)")
+
+        // Reset peek progress before navigation
+        resetPeekProgress()
 
         // Subtle scale animation during transition
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
@@ -460,6 +549,9 @@ struct TikTokRallyPlayerView: View {
                 currentAction = nil
                 showActionFeedback = false
             }
+
+            // Reset peek progress after Tinder-style action completes
+            resetPeekProgress()
 
             // Navigate to next available rally
             if canGoNext {
@@ -1341,4 +1433,9 @@ enum SwipeAction {
 enum SwipeDirection {
     case left
     case right
+}
+
+enum PeekDirection {
+    case next     // Vertical down (next rally) or horizontal left (next action)
+    case previous // Vertical up (previous rally) or horizontal right (previous action)
 }
