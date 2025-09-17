@@ -240,29 +240,21 @@ final class FrameExtractor {
                     return
                 }
 
-                // Check memory pressure again before proceeding
-                if self.memoryMonitor.isUnderMemoryPressure && self.memoryMonitor.currentMemoryPressure.contains(.critical) {
-                    continuation.resume(throwing: FrameExtractionError.memoryPressure)
-                    return
-                }
+                // Memory pressure check will be handled by timeout mechanism
 
-                let asset = AVAsset(url: videoURL)
+                let asset = AVURLAsset(url: videoURL)
                 let imageGenerator = AVAssetImageGenerator(asset: asset)
 
-                // Configure image generator with memory-conscious settings
-                let maxSize = self.memoryMonitor.gracefulDegradationActive
-                    ? CGSize(width: 320, height: 320) // Smaller size under memory pressure
-                    : self.config.maximumSize
+                // Configure image generator
+                let maxSize = self.config.maximumSize
 
                 imageGenerator.maximumSize = maxSize
                 imageGenerator.appliesPreferredTrackTransform = self.config.appliesPreferredTrackTransform
                 imageGenerator.requestedTimeToleranceBefore = .zero
                 imageGenerator.requestedTimeToleranceAfter = .zero
 
-                // Adjust timeout based on priority and memory pressure
-                let timeout = self.memoryMonitor.gracefulDegradationActive
-                    ? self.config.extractionTimeout * 0.5 // Shorter timeout under pressure
-                    : (priority == .high ? self.config.extractionTimeout * 2 : self.config.extractionTimeout)
+                // Adjust timeout based on priority
+                let timeout = priority == .high ? self.config.extractionTimeout * 2 : self.config.extractionTimeout
 
                 // Create timeout mechanism
                 let timeoutTask = DispatchWorkItem {
@@ -279,7 +271,7 @@ final class FrameExtractor {
 
                 // Extract frame
                 let requestedTime = self.config.frameTime
-                imageGenerator.generateCGImagesAsynchronously(forTimes: [NSValue(time: requestedTime)]) { [weak imageGenerator] (requestedTime, cgImage, actualTime, result, error) in
+                imageGenerator.generateCGImagesAsynchronously(forTimes: [NSValue(time: requestedTime)]) { (requestedTime, cgImage, actualTime, result, error) in
                     timeoutTask.cancel()
 
                     if let error = error {
@@ -387,7 +379,7 @@ final class FrameExtractor {
 
     private func setupEnhancedMemoryPressureMonitoring() {
         memoryPressureSource = DispatchSource.makeMemoryPressureSource(
-            eventMask: [.warning, .urgent, .critical],
+            eventMask: [.warning, .critical],
             queue: .main
         )
 
@@ -412,10 +404,6 @@ final class FrameExtractor {
         if event.contains(.critical) {
             logger.error("🎆 Critical memory pressure - immediate cache clearing")
             cache.clearAll()
-            memoryMonitor.gracefulDegradationActive = true
-        } else if event.contains(.urgent) {
-            logger.warning("🟡 Urgent memory pressure - aggressive cache reduction")
-            cache.clearOldest(ratio: 0.7)
             memoryMonitor.gracefulDegradationActive = true
         } else if event.contains(.warning) {
             logger.warning("🟠 Memory pressure warning - moderate cache reduction")
@@ -453,7 +441,9 @@ final class FrameExtractor {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleApplicationMemoryWarning()
+            Task { @MainActor in
+                self?.handleApplicationMemoryWarning()
+            }
         }
 
         NotificationCenter.default.addObserver(
@@ -461,7 +451,9 @@ final class FrameExtractor {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleApplicationDidEnterBackground()
+            Task { @MainActor in
+                self?.handleApplicationDidEnterBackground()
+            }
         }
     }
 
