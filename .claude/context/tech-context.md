@@ -77,10 +77,11 @@ author: Claude Code PM System
 ## Performance Optimizations
 
 ### Processing Efficiency
-- **Frame Skipping**: Debug mode processes every 3rd frame
-- **Async Processing**: Non-blocking video analysis
-- **Memory Management**: Explicit resource cleanup
-- **GPU Acceleration**: CoreML leverages Neural Engine/GPU
+- **Frame Skipping**: Debug mode processes every 3rd frame for performance
+- **Enhanced Frame Extraction**: Improved thumbnail generation with caching
+- **Async Processing**: Non-blocking video analysis with proper actor coordination
+- **Memory Management**: Comprehensive memory leak fixes and explicit resource cleanup
+- **GPU Acceleration**: CoreML leverages Neural Engine/GPU for ML inference
 
 ### Data Handling
 - **Streaming Processing**: Frame-by-frame analysis
@@ -193,17 +194,27 @@ Camera/File → AVAsset → Frame Extraction → Detection → Tracking → Phys
 - **File Management Framework**: Sophisticated folder operations and batch processing
 - **Upload and Progress Tracking**: Drag-drop integration with real-time progress monitoring
 
-### TikTok-Style Rally Player (Latest)
-- **Individual Video Export**: Each rally segment exported as separate MP4 files
-- **Auto-Play/Loop**: Seamless video looping with automatic restart
-- **Swipe Navigation**: Vertical (portrait) and horizontal (landscape) gesture-based navigation
-- **Tap Controls**: Tap-to-pause/play functionality with state tracking
-- **AVFoundation Integration**: AVPlayer management with proper cleanup and memory handling
-- **Clean Interface**: No visible video controls for TikTok-style user experience
+### Frame Extraction and Thumbnail System (Latest)
+- **Enhanced FrameExtractor**: Improved thumbnail generation with better caching
+- **Performance Optimization**: Memory-efficient frame processing with cleanup
+- **Thumbnail Preloading**: Sticky note effect with preloaded frame previews
+- **Export Integration**: Enhanced VideoExporter with rally-specific methods
 
-### Swift 6 Concurrency Migration
-- **Main Actor Isolation**: Complete migration to Swift 6 concurrency model
-- **AppSettings Architecture**: Simplified @MainActor class pattern for responsive UI
-- **Async Video Processing**: Proper main actor coordination for video export operations
-- **Memory Management**: Sliding window limits for unbounded arrays to prevent crashes
-- **Player State Management**: @MainActor VideoPlayerManager for coordinated playback control
+### Comprehensive Test Infrastructure
+- **600+ Test Cases**: Across 5 specialized test suites for complete coverage
+- **Integration Testing**: End-to-end validation including device compatibility
+- **Performance Testing**: Memory leak detection and optimization validation
+- **Edge Case Coverage**: Gesture interactions and peek functionality testing
+- **Device Compatibility**: Multi-device and orientation compatibility verification
+
+### Rally Player System Evolution
+- **TikTok-Style Player**: Comprehensive swipe navigation with performance optimization
+- **Swipeable Rally Player**: Alternative implementation with enhanced gesture handling
+- **Export Features**: Individual and batch rally export functionality
+- **Animation Coordination**: Smooth transitions with proper state management
+
+### Swift 6 Concurrency and Performance
+- **Memory Management**: Comprehensive memory leak fixes and sliding window limits
+- **Performance Optimization**: Enhanced processing pipeline efficiency
+- **Concurrency Compliance**: Full Swift 6 compatibility with proper actor isolation
+- **Resource Cleanup**: Proper cleanup of video processing resources and ML models

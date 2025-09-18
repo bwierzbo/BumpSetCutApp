@@ -175,6 +175,9 @@ Data Layer (Models, Storage) ← Infrastructure Layer (ML, Camera, System)
 ### Development Guidelines and Documentation
 - **CLAUDE.md**: Comprehensive development guidelines and architectural patterns
 - **.claude/**: Claude Code project management with epic tracking and PRDs
+  - **epics/archived/peakingonswipe/**: Completed epic with comprehensive test coverage
+  - **epics/rallyswipingfixes/**: Current epic for rally functionality improvements
+  - **prds/rallyswipingfixes.md**: Product requirements for rally enhancements
 - **INTEGRATION_TEST_REPORT.md**: Testing documentation and validation reports
 - **MetadataVideoProcessing_PRD.md**: Product requirements for metadata features
 
@@ -202,7 +205,7 @@ Data Layer (Models, Storage) ← Infrastructure Layer (ML, Camera, System)
 - **Clean Layer Separation**: Enforced dependency direction prevents circular dependencies
 - **Modular Processing Pipeline**: Easy addition of new detection/tracking algorithms
 - **Configuration-Driven Logic**: Parameters externalized for runtime tuning
-- **Test Coverage**: Comprehensive unit and integration testing for critical components
+- **Test Coverage**: 600+ test cases across 5 specialized test suites including integration and performance testing
 
 ### Performance and Resource Management
 - **File-Based Storage**: No database overhead, simple backup and synchronization
@@ -213,5 +216,5 @@ Data Layer (Models, Storage) ← Infrastructure Layer (ML, Camera, System)
 ### Development and Deployment
 - **Single Xcode Workspace**: Unified development environment
 - **Source Control**: Git workflow with feature branch development
-- **Testing Strategy**: Manual testing with real video samples plus automated unit tests
+- **Testing Strategy**: Comprehensive automated test suites with manual validation using real video samples
 - **iOS Distribution**: Standard App Store deployment process
