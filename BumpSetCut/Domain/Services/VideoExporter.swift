@@ -28,8 +28,22 @@ final class VideoExporter {
 
     /// Exports a single rally segment as an individual video file
     private func exportSingleRally(asset: AVAsset, timeRange: CMTimeRange, rallyIndex: Int) async throws -> URL {
+        // Create deterministic filename based on source video and time range for caching
+        let sourceURL = (asset as? AVURLAsset)?.url
+        let sourceHash = sourceURL?.lastPathComponent.hashValue ?? 0
+        let timeHash = "\(timeRange.start.seconds)_\(timeRange.duration.seconds)".hashValue
+        let cacheKey = "rally_\(sourceHash)_\(rallyIndex)_\(abs(timeHash))"
+
         let outURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("rally_\(rallyIndex)_\(UUID().uuidString).mp4")
+            .appendingPathComponent("\(cacheKey).mp4")
+
+        // Check if cached rally already exists
+        if FileManager.default.fileExists(atPath: outURL.path) {
+            print("📁 Using cached rally: \(outURL.lastPathComponent)")
+            return outURL
+        }
+
+        print("🎬 Creating new rally: \(outURL.lastPathComponent)")
 
         let comp = AVMutableComposition()
         guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
@@ -244,6 +258,71 @@ final class VideoExporter {
             default:
                 throw ProcessingError.exportFailed
             }
+        }
+    }
+
+    // MARK: - Rally Cache Management
+
+    /// Clean up old cached rally files to prevent excessive disk usage
+    func cleanupRallyCache(maxAge: TimeInterval = 7 * 24 * 60 * 60) { // 7 days default
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+
+        do {
+            let files = try FileManager.default.contentsOfDirectory(
+                at: documentsURL,
+                includingPropertiesForKeys: [.creationDateKey],
+                options: []
+            )
+
+            let rallyFiles = files.filter { $0.lastPathComponent.hasPrefix("rally_") }
+            let cutoffDate = Date().addingTimeInterval(-maxAge)
+
+            for file in rallyFiles {
+                do {
+                    let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+                    if let creationDate = attributes[.creationDate] as? Date,
+                       creationDate < cutoffDate {
+                        try FileManager.default.removeItem(at: file)
+                        print("🗑️ Cleaned up old rally cache: \(file.lastPathComponent)")
+                    }
+                } catch {
+                    print("⚠️ Failed to clean up rally file \(file.lastPathComponent): \(error)")
+                }
+            }
+        } catch {
+            print("⚠️ Failed to enumerate rally cache files: \(error)")
+        }
+    }
+
+    /// Get cache statistics for debugging
+    func getCacheInfo() -> (count: Int, totalSize: Int64) {
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+
+        do {
+            let files = try FileManager.default.contentsOfDirectory(
+                at: documentsURL,
+                includingPropertiesForKeys: [.fileSizeKey],
+                options: []
+            )
+
+            let rallyFiles = files.filter { $0.lastPathComponent.hasPrefix("rally_") }
+            var totalSize: Int64 = 0
+
+            for file in rallyFiles {
+                do {
+                    let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+                    if let size = attributes[.size] as? Int64 {
+                        totalSize += size
+                    }
+                } catch {
+                    print("⚠️ Failed to get size for \(file.lastPathComponent): \(error)")
+                }
+            }
+
+            return (count: rallyFiles.count, totalSize: totalSize)
+        } catch {
+            print("⚠️ Failed to get cache info: \(error)")
+            return (count: 0, totalSize: 0)
         }
     }
 }

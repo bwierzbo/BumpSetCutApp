@@ -9,6 +9,10 @@ import SwiftUI
 import AVKit
 import AVFoundation
 
+extension Notification.Name {
+    static let pauseAllVideos = Notification.Name("pauseAllVideos")
+}
+
 struct TikTokRallyPlayerView: View {
     // MARK: - Properties
 
@@ -50,9 +54,7 @@ struct TikTokRallyPlayerView: View {
     @State private var isLoadingPeekFrame = false
     @State private var peekFrameTask: Task<Void, Never>? = nil
 
-    // Thumbnail preloading cache
-    @State private var preloadedThumbnails: [Int: UIImage] = [:]
-    @State private var thumbnailPreloadTask: Task<Void, Never>? = nil
+    // Videos are now stacked and managed automatically
 
     // Transition state
     @State private var isTransitioning = false
@@ -100,6 +102,8 @@ struct TikTokRallyPlayerView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
 
+                // Stacked videos handle peek effect automatically
+
                 if isLoading {
                     loadingView
                 } else if hasError {
@@ -109,11 +113,6 @@ struct TikTokRallyPlayerView: View {
                 } else {
                     rallyPlayerStack(geometry: geometry)
                         .clipped() // Ensure no video content bleeds outside
-                }
-
-                // Peek frame overlay
-                if !isLoading && !hasError && !rallyVideoURLs.isEmpty {
-                    peekFrameOverlay(geometry: geometry)
                 }
 
                 // Navigation overlay
@@ -149,13 +148,12 @@ struct TikTokRallyPlayerView: View {
         .onAppear {
             Task {
                 await loadRallyVideos()
-                await preloadAllThumbnails()
+                // Videos are now automatically stacked and managed
             }
         }
         .onDisappear {
             cleanupPlayers()
             cleanupPeekFrame()
-            cleanupThumbnails()
         }
     }
 
@@ -173,18 +171,18 @@ struct TikTokRallyPlayerView: View {
                         size: geometry.size
                     )
                     .offset(
-                        x: calculateHorizontalOffset(for: index, geometry: geometry),
-                        y: CGFloat(index - currentRallyIndex) * geometry.size.height + dragOffset.height
+                        x: calculateDeckOffsetX(for: index, geometry: geometry),
+                        y: calculateDeckOffsetY(for: index)
                     )
-                    .rotationEffect(.degrees(index == currentRallyIndex ? swipeRotation : 0))
-                    .scaleEffect(calculateScale(for: index, geometry: geometry))
-                    .opacity(calculateOpacity(for: index, geometry: geometry))
-                    .zIndex(index == currentRallyIndex ? 1 : 0) // Current video on top
-                    .animation(.spring(response: 0.5, dampingFraction: 0.75, blendDuration: 0.1), value: currentRallyIndex)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: swipeOffset)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: swipeRotation)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: transitionOpacity)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: videoScale)
+                    .rotationEffect(.degrees(calculateDeckRotation(for: index)))
+                    .scaleEffect(calculateDeckScale(for: index))
+                    .opacity(calculateDeckOpacity(for: index))
+                    .zIndex(calculateDeckZIndex(for: index)) // Proper layering for bidirectional navigation
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1), value: currentRallyIndex)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.75), value: swipeOffset)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.75), value: swipeRotation)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.75), value: transitionOpacity)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.75), value: videoScale)
                     .allowsHitTesting(index == currentRallyIndex) // Only allow interaction with current video
                 }
             }
@@ -193,182 +191,111 @@ struct TikTokRallyPlayerView: View {
         .gesture(swipeGesture(geometry: geometry))
     }
 
-    // MARK: - Peek Frame Overlay
-
-    private func peekFrameOverlay(geometry: GeometryProxy) -> some View {
-        Group {
-            if peekProgress > 0.0, let direction = currentPeekDirection {
-                // Sticky note effect - show peek frame in same position as current video
-                peekStickyNoteView(direction: direction, geometry: geometry)
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.95).combined(with: .opacity),
-                        removal: .opacity
-                    ))
-                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: peekProgress)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: currentPeekDirection)
-            }
-        }
-    }
-
-    private func peekStickyNoteView(direction: PeekDirection, geometry: GeometryProxy) -> some View {
-        // Sticky note effect - peek frame positioned exactly where current video is
-        peekFrameContent(geometry: geometry)
-            .frame(width: geometry.size.width * 0.9)
-            .aspectRatio(16/9, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .scaleEffect(calculateStickyNoteScale())
-            .rotationEffect(calculateStickyNoteRotation())
-            .offset(calculateStickyNoteOffset(direction: direction, geometry: geometry))
-            .opacity(calculateStickyNoteOpacity())
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: peekProgress)
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: videoScale)
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: swipeRotation)
-            .zIndex(1.5) // Between current video (1) and UI elements (2+)
-    }
-
-    private func peekFrameContent(geometry: GeometryProxy) -> some View {
-        ZStack {
-            // Background
-            Color.black
-                .aspectRatio(16/9, contentMode: .fit)
-
-            // Use preloaded thumbnail or fallback to current loading logic
-            if let preloadedImage = getPreloadedThumbnail() {
-                // Preloaded thumbnail - instant display
-                Image(uiImage: preloadedImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .clipped()
-            } else if isLoadingPeekFrame {
-                // Loading indicator
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .tint(.white)
-            } else if let peekImage = peekFrameImage {
-                // Fallback peek frame
-                Image(uiImage: peekImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .clipped()
-            } else {
-                // Placeholder
-                VStack(spacing: 8) {
-                    Image(systemName: "video.fill")
-                        .font(.system(size: 30))
-                        .foregroundColor(.gray)
-
-                    Text("Preview")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-            }
-        }
-        .overlay(
-            // Subtle border to distinguish layers
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
-    }
 
     // MARK: - Video Peek Helper Functions
 
     private func shouldShowVideo(index: Int) -> Bool {
-        // Always show current video
-        if index == currentRallyIndex {
-            return true
-        }
-
-        // Show adjacent videos during vertical dragging
-        if isDragging && abs(index - currentRallyIndex) <= 1 {
-            return true
-        }
-
-        return false
+        // Show current video and adjacent videos for bidirectional navigation
+        // This creates a stack where current video is on top, with next/previous accessible
+        let distance = abs(index - currentRallyIndex)
+        return distance <= 1 // Show current, previous, and next
     }
 
-    // MARK: - Thumbnail Preloading Functions
+    // MARK: - Video Stacking Functions
 
-    private func preloadAllThumbnails() async {
-        print("🖼️ Starting thumbnail preloading for \(rallyVideoURLs.count) rallies")
-
-        thumbnailPreloadTask = Task { @MainActor in
-            for (index, url) in rallyVideoURLs.enumerated() {
-                // Skip if already preloaded
-                guard preloadedThumbnails[index] == nil else { continue }
-
-                do {
-                    let image = try await FrameExtractor.shared.extractFrame(from: url, priority: .low)
-                    if !Task.isCancelled {
-                        preloadedThumbnails[index] = image
-                        print("✅ Preloaded thumbnail for rally \(index)")
-                    }
-                } catch {
-                    print("❌ Failed to preload thumbnail for rally \(index): \(error)")
-                }
-
-                // Check for cancellation between each thumbnail
-                if Task.isCancelled { break }
-
-                // Small delay to not overwhelm the system
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-            }
-
-            print("🎉 Thumbnail preloading complete: \(preloadedThumbnails.count)/\(rallyVideoURLs.count)")
+    private func getAdjacentVideoIndex() -> Int? {
+        // Show next rally video underneath for peek effect
+        let nextIndex = currentRallyIndex + 1
+        if nextIndex < rallyVideoURLs.count {
+            return nextIndex
         }
-    }
-
-    private func getPreloadedThumbnail() -> UIImage? {
-        guard let direction = currentPeekDirection else { return nil }
-
-        let targetIndex: Int
-        switch direction {
-        case .next:
-            targetIndex = currentRallyIndex + 1
-        case .previous:
-            targetIndex = currentRallyIndex - 1
-        }
-
-        // Check bounds
-        guard targetIndex >= 0 && targetIndex < rallyVideoURLs.count else { return nil }
-
-        return preloadedThumbnails[targetIndex]
+        return nil
     }
 
     // MARK: - Peek Frame Animation Calculations
 
-    // MARK: - Sticky Note Calculation Functions
+    // MARK: - Deck Stacking Calculation Functions
 
-    private func calculateStickyNoteScale() -> CGFloat {
-        // Slightly smaller than current video to show it's underneath
-        let baseScale: CGFloat = 0.95
-        let peekScale = baseScale + (peekProgress * 0.05) // Grows as it's revealed
-        return peekScale * videoScale // Follow current video scaling
-    }
+    private func calculateDeckOffsetX(for index: Int, geometry: GeometryProxy) -> CGFloat {
+        let indexFromCurrent = index - currentRallyIndex
 
-    private func calculateStickyNoteRotation() -> Angle {
-        // Slight counter-rotation to suggest it's a separate layer
-        let counterRotation = -swipeRotation * 0.3 // Subtle counter-rotation
-        return Angle(degrees: counterRotation)
-    }
-
-    private func calculateStickyNoteOffset(direction: PeekDirection, geometry: GeometryProxy) -> CGSize {
-        // Start slightly offset in the direction being swiped, move to center as revealed
-        let maxOffset: CGFloat = 30
-        let progressOffset = maxOffset * (1.0 - peekProgress)
-
-        switch direction {
-        case .next:
-            // Next video slides up from below current
-            return CGSize(width: 0, height: progressOffset)
-        case .previous:
-            // Previous video slides down from above current
-            return CGSize(width: 0, height: -progressOffset)
+        if index == currentRallyIndex {
+            // Current video: follows horizontal drag for action feedback (left/right like/delete)
+            return dragOffset.width
+        } else {
+            // Stacked videos: slight horizontal offset to show depth
+            return CGFloat(indexFromCurrent) * 3.0 // 3px offset per layer
         }
     }
 
-    private func calculateStickyNoteOpacity() -> Double {
-        // Fade in as progress increases, but not fully opaque to show layering
-        return Double(peekProgress) * 0.85
+    private func calculateDeckOffsetY(for index: Int) -> CGFloat {
+        let indexFromCurrent = index - currentRallyIndex
+
+        if index == currentRallyIndex {
+            // Current video: follows vertical drag for navigation (up to next rally)
+            return dragOffset.height
+        } else {
+            // Stacked videos: slight vertical offset to show depth
+            return CGFloat(indexFromCurrent) * 2.0 // 2px offset per layer
+        }
+    }
+
+    private func calculateDeckScale(for index: Int) -> CGFloat {
+        let indexFromCurrent = index - currentRallyIndex
+
+        if index == currentRallyIndex {
+            // Current video: normal scale, slight shrink during drag
+            let dragProgress = abs(dragOffset.width) / 300.0 // Scale based on drag distance
+            return 1.0 - (dragProgress * 0.05) // Slight shrink when being dragged off
+        } else {
+            // Stacked videos: slightly smaller to show they're underneath
+            return 1.0 - (CGFloat(indexFromCurrent) * 0.02) // 2% smaller per layer
+        }
+    }
+
+    private func calculateDeckRotation(for index: Int) -> Double {
+        let indexFromCurrent = index - currentRallyIndex
+
+        if index == currentRallyIndex {
+            // Current video: rotates based on horizontal drag (like/delete feedback)
+            return Double(dragOffset.width) * 0.05 // Subtle rotation during horizontal swipe
+        } else {
+            // Stacked videos: slight random rotation to show they're separate cards
+            return Double(indexFromCurrent) * 0.5 // 0.5° rotation per layer
+        }
+    }
+
+    private func calculateDeckOpacity(for index: Int) -> Double {
+        let indexFromCurrent = index - currentRallyIndex
+
+        if index == currentRallyIndex {
+            // Current video: full opacity, fades slightly when being swiped
+            let horizontalDragProgress = abs(dragOffset.width) / 300.0
+            let verticalDragProgress = abs(dragOffset.height) / 300.0
+            // Fade for navigation feedback
+            return 1.0 - (horizontalDragProgress * 0.2) - (verticalDragProgress * 0.1)
+        } else if abs(indexFromCurrent) == 1 {
+            // Adjacent videos (next/previous): high opacity to show they're ready
+            return 0.95
+        } else {
+            // Other videos: more transparent
+            return max(0.3, 1.0 - (Double(abs(indexFromCurrent)) * 0.2))
+        }
+    }
+
+    private func calculateDeckZIndex(for index: Int) -> Double {
+        let indexFromCurrent = index - currentRallyIndex
+
+        if index == currentRallyIndex {
+            // Current video: highest z-index
+            return 100.0
+        } else if indexFromCurrent > 0 {
+            // Next videos: lower z-index as they go further
+            return 50.0 - Double(indexFromCurrent)
+        } else {
+            // Previous videos: even lower z-index
+            return 25.0 + Double(indexFromCurrent) // indexFromCurrent is negative, so this decreases
+        }
     }
 
 
@@ -408,26 +335,30 @@ struct TikTokRallyPlayerView: View {
                 // Calculate peek progress and direction
                 updatePeekProgress(translation: value.translation, geometry: geometry)
 
-                // Tinder-style horizontal swipe effects
+                // Smooth feedback for both horizontal and vertical gestures
                 let horizontalProgress = abs(dragOffset.width) / geometry.size.width
-                swipeRotation = Double(dragOffset.width / geometry.size.width) * 20 // Max 20 degrees rotation
+                let verticalProgress = abs(dragOffset.height) / geometry.size.height
 
-                // Add some visual feedback for potential actions
-                if abs(dragOffset.width) > 50 {
-                    let scaleFactor = min(1.0, horizontalProgress * 2)
-                    videoScale = max(0.95, 1.0 - scaleFactor * 0.05)
+                // Rotation follows horizontal movement with smooth interpolation
+                swipeRotation = Double(dragOffset.width / geometry.size.width) * 15 // Reduced from 20 for smoother feel
+
+                // Scale feedback based on gesture strength
+                if abs(dragOffset.width) > 30 || abs(dragOffset.height) > 30 {
+                    let combinedProgress = max(horizontalProgress, verticalProgress)
+                    let scaleFactor = min(1.0, combinedProgress * 1.5)
+                    videoScale = max(0.96, 1.0 - scaleFactor * 0.04) // Smoother scaling
                 } else {
-                    // Subtle scale effect during vertical drag
-                    let verticalProgress = abs(dragOffset.height) / 100.0
-                    videoScale = max(0.98, 1.0 - verticalProgress * 0.02)
+                    // Minimal feedback for small movements
+                    videoScale = max(0.99, 1.0 - (horizontalProgress + verticalProgress) * 0.01)
                 }
 
-                // Resistance at boundaries for vertical navigation (both orientations)
-                if !canGoNext && dragOffset.height < 0 {
-                    dragOffset.height *= 0.3
+                // Resistance at navigation boundaries
+                if !canGoNext && (dragOffset.height < -50 || abs(dragOffset.width) > 50) {
+                    dragOffset.height *= 0.5 // Resistance when trying to swipe up on last card
+                    dragOffset.width *= 0.5 // Resistance when trying to swipe left/right on last card
                 }
-                if !canGoPrevious && dragOffset.height > 0 {
-                    dragOffset.height *= 0.3
+                if !canGoPrevious && dragOffset.height > 50 {
+                    dragOffset.height *= 0.5 // Resistance when trying to swipe down on first card
                 }
             }
             .onEnded { value in
@@ -449,51 +380,50 @@ struct TikTokRallyPlayerView: View {
                 print("   CanGoNext: \(canGoNext), CanGoPrevious: \(canGoPrevious)")
                 print("   Portrait: \(isPortrait)")
 
-                // Determine the dominant direction based on which has higher magnitude
-                let isVerticalDominant = abs(verticalVelocity) > abs(horizontalVelocity) || abs(verticalOffset) > abs(horizontalOffset)
-
+                // Analyze gesture direction and take appropriate action
                 print("🧭 Gesture Analysis:")
-                print("   Vertical dominant: \(isVerticalDominant)")
-                print("   Vertical magnitude: velocity=\(abs(verticalVelocity)), offset=\(abs(verticalOffset))")
-                print("   Horizontal magnitude: velocity=\(abs(horizontalVelocity)), offset=\(abs(horizontalOffset))")
+                print("   Horizontal: velocity=\(horizontalVelocity), offset=\(horizontalOffset)")
+                print("   Vertical: velocity=\(verticalVelocity), offset=\(verticalOffset)")
 
-                if isVerticalDominant {
-                    // Vertical navigation (up/down swipes)
-                    if abs(verticalVelocity) > 500 || abs(verticalOffset) > threshold {
-                        print("📱 Vertical navigation detected - Offset: \(verticalOffset)")
-                        if verticalOffset > 0 && canGoPrevious {
-                            print("👇 Swipe DOWN (positive offset) -> Previous rally")
-                            navigateToPrevious()
-                        } else if verticalOffset < 0 && canGoNext {
-                            print("👆 Swipe UP (negative offset) -> Next rally")
-                            navigateToNext()
-                        } else if verticalOffset < 0 && !canGoNext && currentRallyIndex == rallyVideoURLs.count - 1 {
-                            print("🏁 Reached end of rallies - showing export options")
-                            showExportOptions = true
-                        } else {
-                            print("⚠️ Navigation blocked - offset: \(verticalOffset), canNext: \(canGoNext), canPrev: \(canGoPrevious)")
-                        }
+                // Determine the dominant direction with smoother transitions
+                let horizontalMagnitude = max(abs(horizontalVelocity) / 10, abs(horizontalOffset))
+                let verticalMagnitude = max(abs(verticalVelocity) / 10, abs(verticalOffset))
+                let isHorizontalDominant = horizontalMagnitude > verticalMagnitude * 1.2 // Give horizontal slight preference
+
+                // Check for horizontal swipes (left/right = peel off to next rally)
+                if isHorizontalDominant && (abs(horizontalVelocity) > 250 || abs(horizontalOffset) > actionThreshold) {
+                    print("🃏 Horizontal navigation detected")
+                    if (horizontalOffset < -actionThreshold || horizontalOffset > actionThreshold) && canGoNext {
+                        print("👈👉 Swipe LEFT/RIGHT - Peel off card to next rally")
+                        navigateToNext()
+                    } else if !canGoNext && currentRallyIndex == rallyVideoURLs.count - 1 {
+                        print("🏁 Reached end of deck - showing export options")
+                        showExportOptions = true
                     } else {
-                        print("❌ Vertical gesture too weak")
-                    }
-                } else {
-                    // Horizontal actions (left/right swipes)
-                    if abs(horizontalVelocity) > 300 || abs(horizontalOffset) > actionThreshold {
-                        print("🔄 Horizontal action detected")
-                        if horizontalOffset < -actionThreshold {
-                            print("⬅️ Swipe left - remove rally")
-                            performTinderStyleAction(.remove, direction: .left)
-                        } else if horizontalOffset > actionThreshold {
-                            print("➡️ Swipe right - save rally")
-                            performTinderStyleAction(.save, direction: .right)
-                        }
-                    } else {
-                        print("❌ Horizontal gesture too weak")
+                        print("❌ Horizontal gesture blocked - no more cards in deck")
                     }
                 }
+                // Check for vertical swipes (up = next, down = previous) with better sensitivity
+                else if abs(verticalVelocity) > 300 || abs(verticalOffset) > threshold {
+                    print("📱 Vertical navigation detected")
+                    if verticalOffset < -threshold && canGoNext {
+                        print("⬆️ Swipe UP - Next rally")
+                        navigateToNext()
+                    } else if verticalOffset > threshold && canGoPrevious {
+                        print("⬇️ Swipe DOWN - Previous rally")
+                        navigateToPrevious()
+                    } else if verticalOffset < -threshold && !canGoNext && currentRallyIndex == rallyVideoURLs.count - 1 {
+                        print("🏁 Reached end of deck - showing export options")
+                        showExportOptions = true
+                    } else {
+                        print("❌ Vertical gesture blocked - at boundary")
+                    }
+                } else {
+                    print("❌ Gesture too weak for any action")
+                }
 
-                // Coordinate all animation resets with single spring timing
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
+                // Coordinate all animation resets with snappier spring timing
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85, blendDuration: 0.05)) {
                     dragOffset = .zero
                     swipeRotation = 0.0 // Reset rotation when drag ends
                     videoScale = 1.0 // Reset scale when drag ends
@@ -663,18 +593,15 @@ struct TikTokRallyPlayerView: View {
         isLoadingPeekFrame = false
     }
 
-    private func cleanupThumbnails() {
-        thumbnailPreloadTask?.cancel()
-        thumbnailPreloadTask = nil
-        preloadedThumbnails.removeAll()
-        print("🧹 Cleaned up preloaded thumbnails")
-    }
 
     // MARK: - Navigation
 
     private func navigateToNext() {
         guard canGoNext else { return }
         print("🔄 Navigating to NEXT rally: \(currentRallyIndex) -> \(currentRallyIndex + 1)")
+
+        // Stop current video audio immediately
+        pauseCurrentVideo()
 
         // Coordinate peek progress reset with navigation transition
         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
@@ -705,6 +632,9 @@ struct TikTokRallyPlayerView: View {
     private func navigateToPrevious() {
         guard canGoPrevious else { return }
         print("🔄 Navigating to PREVIOUS rally: \(currentRallyIndex) -> \(currentRallyIndex - 1)")
+
+        // Stop current video audio immediately
+        pauseCurrentVideo()
 
         // Coordinate peek progress reset with navigation transition
         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
@@ -1002,7 +932,8 @@ struct TikTokRallyPlayerView: View {
                 .scaleEffect(savedRallies.contains(currentRallyIndex) ? 1.2 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.6), value: savedRallies.contains(currentRallyIndex))
             }
-            .padding(.bottom, 100) // Position above bottom edge
+            .padding(.bottom, isPortrait ? 100 : 20) // Lower position in landscape mode
+            .animation(.easeInOut(duration: 0.3), value: isPortrait)
         }
     }
 
@@ -1122,6 +1053,12 @@ struct TikTokRallyPlayerView: View {
     // MARK: - Data Loading
 
     private func loadRallyVideos() async {
+        // Show loading state immediately
+        await MainActor.run {
+            isLoading = true
+            hasError = false
+        }
+
         guard let metadata = await loadProcessingMetadata() else { return }
 
         if metadata.rallySegments.isEmpty {
@@ -1132,31 +1069,42 @@ struct TikTokRallyPlayerView: View {
             return
         }
 
-        await MainActor.run {
-            isExportingRallies = true
-        }
+        // Move heavy operations to background queue to prevent UI blocking
+        await Task.detached(priority: .userInitiated) {
+            do {
+                let asset = AVURLAsset(url: videoMetadata.originalURL)
+                let exporter = VideoExporter()
 
-        do {
-            let asset = AVURLAsset(url: videoMetadata.originalURL)
-            let exporter = VideoExporter()
-            let urls = try await exporter.exportRallySegments(asset: asset, rallies: metadata.rallySegments)
+                // Clean up old cache files before creating new ones
+                exporter.cleanupRallyCache()
 
-            await MainActor.run {
-                self.rallyVideoURLs = urls
-                self.processingMetadata = metadata
-                self.isLoading = false
-                self.isExportingRallies = false
-                self.hasError = false
+                // Log cache info for debugging
+                let cacheInfo = exporter.getCacheInfo()
+                print("📊 Rally cache: \(cacheInfo.count) files, \(cacheInfo.totalSize / 1024 / 1024) MB")
+
+                await MainActor.run {
+                    isExportingRallies = true
+                }
+
+                let urls = try await exporter.exportRallySegments(asset: asset, rallies: metadata.rallySegments)
+
+                await MainActor.run {
+                    self.rallyVideoURLs = urls
+                    self.processingMetadata = metadata
+                    self.isLoading = false
+                    self.isExportingRallies = false
+                    self.hasError = false
+                }
+
+            } catch {
+                await MainActor.run {
+                    self.hasError = true
+                    self.isLoading = false
+                    self.isExportingRallies = false
+                    self.errorMessage = "Failed to create rally videos: \(error.localizedDescription)"
+                }
             }
-
-        } catch {
-            await MainActor.run {
-                self.hasError = true
-                self.isLoading = false
-                self.isExportingRallies = false
-                self.errorMessage = "Failed to create rally videos: \(error.localizedDescription)"
-            }
-        }
+        }.value
     }
 
     private func loadProcessingMetadata() async -> ProcessingMetadata? {
@@ -1209,6 +1157,15 @@ struct TikTokRallyPlayerView: View {
 
     // MARK: - Cleanup
 
+    private func pauseCurrentVideo() {
+        // Force immediate pause of all audio to prevent overlap
+        // This ensures clean audio transition between rallies
+        print("🔇 Pausing current video audio for navigation")
+
+        // Post notification to pause all active video players
+        NotificationCenter.default.post(name: .pauseAllVideos, object: nil)
+    }
+
     private func cleanupPlayers() {
         // Cleanup will be handled by TikTokVideoPlayer components
     }
@@ -1234,9 +1191,10 @@ struct TikTokVideoPlayer: View {
 
             if let player = playerManager.player {
                 VideoPlayer(player: player)
-                    .aspectRatio(contentMode: isPortrait ? .fit : .fill)
+                    .aspectRatio(contentMode: .fit)
                     .disabled(true) // Remove all video player controls
                     .clipped() // Clip video content to bounds
+                    .animation(.easeInOut(duration: 0.3), value: verticalSizeClass)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -1251,7 +1209,7 @@ struct TikTokVideoPlayer: View {
                 playerManager.playFromBeginning()
             }
         }
-        .onChange(of: isActive) { active in
+        .onChange(of: isActive) { _, active in
             if active {
                 playerManager.playFromBeginning()
             } else {
@@ -1260,6 +1218,10 @@ struct TikTokVideoPlayer: View {
         }
         .onDisappear {
             playerManager.cleanup()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pauseAllVideos)) { _ in
+            // Immediately pause this player to prevent audio overlap
+            playerManager.pause()
         }
     }
 }
@@ -1747,3 +1709,4 @@ extension PeekDirection: CustomStringConvertible {
         }
     }
 }
+

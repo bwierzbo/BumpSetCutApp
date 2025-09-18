@@ -240,7 +240,24 @@ final class FrameExtractor {
                     return
                 }
 
-                // Memory pressure check will be handled by timeout mechanism
+                // Use a flag to prevent multiple continuation resumes
+                var hasResumed = false
+                let resumeLock = NSLock()
+
+                func safeResume(with result: Result<UIImage, Error>) {
+                    resumeLock.lock()
+                    defer { resumeLock.unlock() }
+
+                    guard !hasResumed else { return }
+                    hasResumed = true
+
+                    switch result {
+                    case .success(let image):
+                        continuation.resume(returning: image)
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
 
                 let asset = AVURLAsset(url: videoURL)
                 let imageGenerator = AVAssetImageGenerator(asset: asset)
@@ -264,7 +281,7 @@ final class FrameExtractor {
                         updatedTelemetry.timeoutEvents += 1
                         self.logger.error("⏰ Frame extraction timeout for: \(videoURL.lastPathComponent)")
                     }
-                    continuation.resume(throwing: FrameExtractionError.timeoutExceeded)
+                    safeResume(with: .failure(FrameExtractionError.timeoutExceeded))
                 }
 
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutTask)
@@ -280,7 +297,7 @@ final class FrameExtractor {
                             updatedTelemetry.errorEvents += 1
                             self.logger.error("❌ AVFoundation error: \(error.localizedDescription)")
                         }
-                        continuation.resume(throwing: FrameExtractionError.avFoundationError(error))
+                        safeResume(with: .failure(FrameExtractionError.avFoundationError(error)))
                         return
                     }
 
@@ -290,12 +307,12 @@ final class FrameExtractor {
                             updatedTelemetry.errorEvents += 1
                             self.logger.error("❌ Image generation failed for: \(videoURL.lastPathComponent)")
                         }
-                        continuation.resume(throwing: FrameExtractionError.imageGenerationFailed)
+                        safeResume(with: .failure(FrameExtractionError.imageGenerationFailed))
                         return
                     }
 
                     let uiImage = UIImage(cgImage: cgImage)
-                    continuation.resume(returning: uiImage)
+                    safeResume(with: .success(uiImage))
                 }
             }
         }

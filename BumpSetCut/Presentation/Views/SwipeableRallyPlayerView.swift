@@ -217,8 +217,7 @@ private extension SwipeableRallyPlayerView {
 
     func createVideoPlayerStack() -> some View {
         Group {
-            if let metadata = processingMetadata,
-               let currentCard = playerCache.getCurrentCard(for: currentRallyIndex) {
+            if let metadata = processingMetadata {
                 RallyCardView(
                     rallyMetadata: metadata.rallySegments[currentRallyIndex],
                     videoURL: videoMetadata.originalURL,

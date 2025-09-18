@@ -37,20 +37,53 @@ struct RallyPlayerView: View {
     @State private var showRallyBoundaries = true
     @State private var showConfidenceIndicators = true
 
+    // Rally action state
+    @State private var likedRallies: Set<Int> = []
+    @State private var deletedRallies: Set<Int> = []
+    @State private var lastAction: (action: RallyAction, rallyIndex: Int)?
+
     // Video player observation
     @State private var playbackObserver: Any?
     @State private var observerPlayer: AVPlayer? // Track which player has the observer
 
+    // Orientation tracking
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var isLandscape: Bool {
+        verticalSizeClass == .compact
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
+            ZStack {
+                // Full-screen video player
                 createVideoPlayer()
-                createRallyControls()
+
+                // Overlaid controls (only in landscape)
+                if isLandscape {
+                    createLandscapeOverlay()
+                        .transition(.opacity.combined(with: .scale))
+                        .animation(.easeInOut(duration: 0.3), value: isLandscape)
+                } else {
+                    // Portrait mode with traditional layout
+                    VStack(spacing: 0) {
+                        Spacer()
+                        createRallyControls()
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .animation(.easeInOut(duration: 0.3), value: isLandscape)
+                }
             }
-            .background(Color.black.ignoresSafeArea())
+            .background(Color.black)
+            .ignoresSafeArea(isLandscape ? .all : [])
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(content: createToolbar)
+            .navigationBarHidden(isLandscape)
+            .toolbar {
+                if !isLandscape {
+                    createToolbar()
+                }
+            }
         }
         .onAppear(perform: setupView)
         .onDisappear(perform: cleanupPlayer)
@@ -80,7 +113,8 @@ private extension RallyPlayerView {
     func createVideoPlayerWithOverlay(player: AVPlayer) -> some View {
         ZStack {
             VideoPlayer(player: player)
-                .aspectRatio(16/9, contentMode: .fit)
+                .aspectRatio(contentMode: isLandscape ? .fill : .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Metadata overlay
             if showOverlay,
@@ -96,9 +130,16 @@ private extension RallyPlayerView {
                         showConfidenceIndicators: showConfidenceIndicators
                     )
                 }
-                .aspectRatio(16/9, contentMode: .fit)
+                .aspectRatio(contentMode: isLandscape ? .fill : .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .gesture(
+            DragGesture()
+                .onEnded { gesture in
+                    handleSwipeGesture(translation: gesture.translation)
+                }
+        )
     }
 
     func createLoadingView() -> some View {
@@ -247,12 +288,6 @@ private extension RallyPlayerView {
             .disabled(currentRallyIndex >= metadata.rallySegments.count - 1)
             .foregroundColor(currentRallyIndex >= metadata.rallySegments.count - 1 ? .gray : .white)
         }
-        .gesture(
-            DragGesture()
-                .onEnded { gesture in
-                    handleSwipeGesture(translation: gesture.translation)
-                }
-        )
     }
 
     func createPerformanceIndicator() -> some View {
@@ -307,6 +342,128 @@ private extension RallyPlayerView {
                 )
             }
         }
+    }
+
+    // MARK: - Landscape Overlay
+
+    func createLandscapeOverlay() -> some View {
+        VStack {
+            // Top overlay with rally info and close button
+            HStack {
+                if let metadata = processingMetadata, !metadata.rallySegments.isEmpty {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Rally \(currentRallyIndex + 1) of \(metadata.rallySegments.count)")
+                                .font(.headline)
+                                .foregroundColor(.white)
+
+                            let currentRally = metadata.rallySegments[currentRallyIndex]
+                            Text("\(String(format: "%.1fs", currentRally.duration)) • Quality: \(String(format: "%.0f%%", currentRally.quality * 100))")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+
+                        // Rally status indicators
+                        HStack(spacing: 8) {
+                            if likedRallies.contains(currentRallyIndex) {
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.pink)
+                            }
+                            if deletedRallies.contains(currentRallyIndex) {
+                                Image(systemName: "trash.fill")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.black.opacity(0.6))
+                    .cornerRadius(8)
+                }
+
+                Spacer()
+
+                Button("Done") {
+                    dismiss()
+                }
+                .foregroundColor(.white)
+                .fontWeight(.medium)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.6))
+                .cornerRadius(8)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
+
+            Spacer()
+
+            // Bottom action buttons
+            createLandscapeActionButtons()
+        }
+    }
+
+    func createLandscapeActionButtons() -> some View {
+        let isCurrentRallyLiked = likedRallies.contains(currentRallyIndex)
+        let isCurrentRallyDeleted = deletedRallies.contains(currentRallyIndex)
+
+        return HStack(spacing: 40) {
+            // Delete button
+            Button(action: {
+                performRallyAction(.delete)
+            }) {
+                Image(systemName: isCurrentRallyDeleted ? "trash.fill" : "trash")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 60, height: 60)
+                    .background(
+                        Circle()
+                            .fill(isCurrentRallyDeleted ? Color.red : Color.red.opacity(0.6))
+                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                    )
+            }
+            .scaleEffect(isCurrentRallyDeleted ? 1.2 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isCurrentRallyDeleted)
+
+            // Undo button
+            Button(action: {
+                performRallyAction(.undo)
+            }) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 50, height: 50)
+                    .background(
+                        Circle()
+                            .fill(Color.gray.opacity(0.8))
+                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                    )
+            }
+            .opacity(lastAction != nil ? 1.0 : 0.4)
+            .disabled(lastAction == nil)
+            .animation(.easeInOut(duration: 0.2), value: lastAction != nil)
+
+            // Like button
+            Button(action: {
+                performRallyAction(.like)
+            }) {
+                Image(systemName: isCurrentRallyLiked ? "heart.fill" : "heart")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 60, height: 60)
+                    .background(
+                        Circle()
+                            .fill(isCurrentRallyLiked ? Color.pink : Color.green.opacity(0.6))
+                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                    )
+            }
+            .scaleEffect(isCurrentRallyLiked ? 1.2 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isCurrentRallyLiked)
+        }
+        .padding(.bottom, 30) // Safe area padding for bottom
+        .padding(.horizontal, 20)
     }
 }
 
@@ -513,7 +670,11 @@ private extension RallyPlayerView {
     func previousRally() {
         guard currentRallyIndex > 0 else { return }
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        // Haptic feedback for smoother UX
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
             currentRallyIndex -= 1
         }
     }
@@ -522,21 +683,95 @@ private extension RallyPlayerView {
         guard let metadata = processingMetadata,
               currentRallyIndex < metadata.rallySegments.count - 1 else { return }
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        // Haptic feedback for smoother UX
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
             currentRallyIndex += 1
         }
     }
 
     func handleSwipeGesture(translation: CGSize) {
-        let swipeThreshold: CGFloat = 50
+        let horizontalThreshold: CGFloat = 80
+        let verticalThreshold: CGFloat = 60
 
-        if translation.width > swipeThreshold {
-            // Swipe right -> previous rally
-            previousRally()
-        } else if translation.width < -swipeThreshold {
-            // Swipe left -> next rally
-            nextRally()
+        // Determine if this is primarily a horizontal or vertical swipe
+        let isHorizontalSwipe = abs(translation.width) > abs(translation.height)
+
+        if isHorizontalSwipe && abs(translation.width) > horizontalThreshold {
+            // Horizontal swipes for like/delete actions
+            if translation.width > horizontalThreshold {
+                // Swipe right -> like rally
+                performRallyAction(.like)
+            } else if translation.width < -horizontalThreshold {
+                // Swipe left -> delete rally
+                performRallyAction(.delete)
+            }
+        } else if !isHorizontalSwipe && abs(translation.height) > verticalThreshold {
+            // Vertical swipes for rally navigation
+            if translation.height < -verticalThreshold {
+                // Swipe up -> next rally
+                nextRally()
+            } else if translation.height > verticalThreshold {
+                // Swipe down -> previous rally
+                previousRally()
+            }
         }
+    }
+
+    func performRallyAction(_ action: RallyAction) {
+        let rallyIndex = currentRallyIndex
+
+        // Store the action for undo functionality
+        lastAction = (action: action, rallyIndex: rallyIndex)
+
+        // Haptic feedback
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+            switch action {
+            case .like:
+                if likedRallies.contains(rallyIndex) {
+                    likedRallies.remove(rallyIndex)
+                } else {
+                    likedRallies.insert(rallyIndex)
+                    // Remove from deleted if it was deleted
+                    deletedRallies.remove(rallyIndex)
+                }
+            case .delete:
+                if deletedRallies.contains(rallyIndex) {
+                    deletedRallies.remove(rallyIndex)
+                } else {
+                    deletedRallies.insert(rallyIndex)
+                    // Remove from liked if it was liked
+                    likedRallies.remove(rallyIndex)
+                }
+            case .undo:
+                performUndoAction()
+            }
+        }
+
+        print("Rally \(rallyIndex + 1) \(action.rawValue)")
+    }
+
+    func performUndoAction() {
+        guard let lastAction = lastAction else { return }
+
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+            switch lastAction.action {
+            case .like:
+                likedRallies.remove(lastAction.rallyIndex)
+            case .delete:
+                deletedRallies.remove(lastAction.rallyIndex)
+            case .undo:
+                break // Can't undo an undo
+            }
+        }
+
+        self.lastAction = nil
+        print("Undid action for rally \(lastAction.rallyIndex + 1)")
     }
 }
 
@@ -555,6 +790,14 @@ private extension RallyPlayerView {
         player = nil
         isPlayerReady = false
     }
+}
+
+// MARK: - Rally Action Types
+
+enum RallyAction: String {
+    case like = "liked"
+    case delete = "deleted"
+    case undo = "undone"
 }
 
 // MARK: - Error Types
