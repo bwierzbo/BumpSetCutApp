@@ -2,7 +2,7 @@
 //  RallyPlayerFactory.swift
 //  BumpSetCut
 //
-//  Factory for creating the appropriate rally player view based on app settings
+//  Factory for creating rally player views
 //
 
 import SwiftUI
@@ -10,63 +10,26 @@ import AVKit
 
 @MainActor
 struct RallyPlayerFactory {
-    /// Creates the appropriate rally player view based on app settings and metadata availability
+    /// Creates the rally player view
     static func createRallyPlayer(
         for videoMetadata: VideoMetadata,
         appSettings: AppSettings
     ) -> AnyView {
-        // Determine which view to use
-        let shouldUseSwipeable = appSettings.shouldUseSwipeableRallyPlayer(for: videoMetadata)
-
-        if shouldUseSwipeable {
-            // Log analytics for new view usage
-            if appSettings.enableAnalytics {
-                appSettings.logRallyViewUsage(
-                    viewType: .swipeable,
-                    duration: 0, // Will be updated when view appears
-                    rallyCount: 0 // Will be updated when metadata loads
-                )
-            }
-
-            return AnyView(
-                TikTokRallyPlayerView(videoMetadata: videoMetadata)
-                    .onAppear {
-                        print("🎯 Using TikTokRallyPlayerView for \(videoMetadata.displayName)")
-                    }
-            )
-        } else if videoMetadata.hasMetadata {
-            // Use legacy rally player for videos with metadata
-            if appSettings.enableAnalytics {
-                appSettings.logRallyViewUsage(
-                    viewType: .legacy,
-                    duration: 0,
-                    rallyCount: 0
-                )
-            }
-
-            return AnyView(
-                RallyPlayerView(videoMetadata: videoMetadata)
-                    .onAppear {
-                        print("🎯 Using RallyPlayerView (legacy) for \(videoMetadata.displayName)")
-                    }
-            )
-        } else {
-            // Fallback to basic video player for videos without rally metadata
-            if appSettings.enableAnalytics {
-                appSettings.logRallyViewUsage(
-                    viewType: .fallback,
-                    duration: 0,
-                    rallyCount: 0
-                )
-            }
-
-            return AnyView(
-                VideoPlayerView(videoURL: videoMetadata.originalURL)
-                    .onAppear {
-                        print("🎯 Using VideoPlayerView (fallback) for \(videoMetadata.displayName)")
-                    }
+        // Log analytics
+        if appSettings.enableAnalytics {
+            appSettings.logRallyViewUsage(
+                viewType: .swipeable,
+                duration: 0, // Will be updated when view appears
+                rallyCount: 0 // Will be updated when metadata loads
             )
         }
+
+        return AnyView(
+            RallyPlayerView(videoMetadata: videoMetadata)
+                .onAppear {
+                    print("🎯 Using RallyPlayerView for \(videoMetadata.displayName)")
+                }
+        )
     }
 
     /// Creates a rally player with enhanced analytics tracking
@@ -97,17 +60,16 @@ struct AnalyticsWrappedRallyPlayer: View {
             .onDisappear {
                 // Log session duration when view disappears
                 let sessionDuration = Date().timeIntervalSince(startTime)
-                let viewType: RallyViewType = appSettings.shouldUseSwipeableRallyPlayer(for: videoMetadata) ? .swipeable : .legacy
 
                 if appSettings.enableAnalytics {
                     appSettings.logRallyViewUsage(
-                        viewType: viewType,
+                        viewType: .swipeable,
                         duration: sessionDuration,
                         rallyCount: 0 // TODO: Get actual rally count from metadata
                     )
                 }
 
-                print("📊 Rally view session ended - Type: \(viewType.rawValue), Duration: \(String(format: "%.1f", sessionDuration))s")
+                print("📊 Rally view session ended - Duration: \(String(format: "%.1f", sessionDuration))s")
             }
     }
 }
@@ -119,7 +81,7 @@ struct AnalyticsSwipeableRallyPlayerView: View {
     @EnvironmentObject private var appSettings: AppSettings
 
     var body: some View {
-        TikTokRallyPlayerView(videoMetadata: videoMetadata)
+        RallyPlayerView(videoMetadata: videoMetadata)
             .overlay(
                 // Invisible gesture overlay for analytics
                 AnalyticsGestureOverlay(appSettings: appSettings)

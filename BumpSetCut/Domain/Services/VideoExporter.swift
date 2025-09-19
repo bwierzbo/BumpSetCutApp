@@ -37,10 +37,32 @@ final class VideoExporter {
         let outURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("\(cacheKey).mp4")
 
-        // Check if cached rally already exists
+        // Check if cached rally already exists and is valid
         if FileManager.default.fileExists(atPath: outURL.path) {
-            print("📁 Using cached rally: \(outURL.lastPathComponent)")
-            return outURL
+            // Validate cache file integrity
+            do {
+                let attributes = try FileManager.default.attributesOfItem(atPath: outURL.path)
+                let fileSize = attributes[.size] as? Int ?? 0
+
+                // Basic validation - file should be larger than 1KB for a valid video
+                if fileSize > 1024 {
+                    // Additional validation - ensure it's a valid video file
+                    let asset = AVURLAsset(url: outURL)
+                    if await isValidVideoAsset(asset) {
+                        print("📁 Using cached rally: \(outURL.lastPathComponent) (\(String(format: "%.1f", Double(fileSize) / 1024 / 1024)) MB)")
+                        return outURL
+                    } else {
+                        print("⚠️ Corrupted cache file detected: \(outURL.lastPathComponent)")
+                        try? FileManager.default.removeItem(at: outURL)
+                    }
+                } else {
+                    print("⚠️ Invalid cache file size: \(outURL.lastPathComponent) (\(fileSize) bytes)")
+                    try? FileManager.default.removeItem(at: outURL)
+                }
+            } catch {
+                print("⚠️ Cannot validate cache file: \(outURL.lastPathComponent) - \(error)")
+                try? FileManager.default.removeItem(at: outURL)
+            }
         }
 
         print("🎬 Creating new rally: \(outURL.lastPathComponent)")
@@ -323,6 +345,34 @@ final class VideoExporter {
         } catch {
             print("⚠️ Failed to get cache info: \(error)")
             return (count: 0, totalSize: 0)
+        }
+    }
+
+    /// Validate if an asset is a playable video file
+    private func isValidVideoAsset(_ asset: AVURLAsset) async -> Bool {
+        do {
+            // Check if asset is playable
+            let isPlayable = try await asset.load(.isPlayable)
+            if !isPlayable {
+                return false
+            }
+
+            // Check if it has video tracks
+            let videoTracks = try await asset.loadTracks(withMediaType: .video)
+            if videoTracks.isEmpty {
+                return false
+            }
+
+            // Check duration - should be greater than 0
+            let duration = try await asset.load(.duration)
+            if duration == .zero || duration == .indefinite {
+                return false
+            }
+
+            return true
+        } catch {
+            print("⚠️ Video validation failed: \(error)")
+            return false
         }
     }
 }

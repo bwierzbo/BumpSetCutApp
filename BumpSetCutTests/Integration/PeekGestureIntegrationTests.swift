@@ -76,7 +76,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
         workflowEvents.append(("create_player", Date(), nil))
 
         let videoMetadata = createSampleVideoMetadata(url: testVideoURLs[0])
-        let rallyPlayerView = TikTokRallyPlayerView(
+        let rallyPlayerView = RallyPlayerView(
             videoMetadata: videoMetadata,
             onPeekProgress: peekCallback
         )

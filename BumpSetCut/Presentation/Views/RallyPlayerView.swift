@@ -2,836 +2,1137 @@
 //  RallyPlayerView.swift
 //  BumpSetCut
 //
-//  Created for Metadata Video Processing - Task 005
+//  Modern swipeable rally player with Tinder-style gestures
 //
 
 import SwiftUI
 import AVKit
 import AVFoundation
 
-struct RallyPlayerView: View {
-    // MARK: - Properties
+extension Notification.Name {
+    static let pauseAllVideos = Notification.Name("pauseAllVideos")
+}
 
-    let videoMetadata: VideoMetadata
-    @Environment(\.dismiss) private var dismiss
-    @StateObject private var metadataStore = MetadataStore()
+enum PeelDirection {
+    case left
+    case right
+    case up
+}
 
-    // Video player state
-    @State private var player: AVPlayer?
-    @State private var isPlayerReady = false
+enum PeekDirection {
+    case next
+    case previous
+}
 
-    // Metadata and rally state
-    @State private var processingMetadata: ProcessingMetadata?
-    @State private var currentRallyIndex = 0
-    @State private var isLoading = true
-    @State private var errorMessage: String?
+enum SwipeDirection {
+    case left
+    case right
+    case up
+}
 
-    // Performance tracking
-    @State private var lastSeekTime = Date()
-    @State private var seekPerformanceMs: Int = 0
+// MARK: - Tinder-Style Action System
+struct RallyActionRecord {
+    let actionType: ActionPersistenceManager.RallyActionType
+    let rallyIndex: Int
+    let timestamp: Date
 
-    // Overlay state for MetadataOverlayView
-    @State private var currentPlaybackTime: Double = 0.0
-    @State private var showOverlay = true
-    @State private var showTrajectories = true
-    @State private var showRallyBoundaries = true
-    @State private var showConfidenceIndicators = true
-
-    // Rally action state
-    @State private var likedRallies: Set<Int> = []
-    @State private var deletedRallies: Set<Int> = []
-    @State private var lastAction: (action: RallyAction, rallyIndex: Int)?
-
-    // Video player observation
-    @State private var playbackObserver: Any?
-    @State private var observerPlayer: AVPlayer? // Track which player has the observer
-
-    // Orientation tracking
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-
-    private var isLandscape: Bool {
-        verticalSizeClass == .compact
-    }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                // Full-screen video player
-                createVideoPlayer()
-
-                // Overlaid controls (only in landscape)
-                if isLandscape {
-                    createLandscapeOverlay()
-                        .transition(.opacity.combined(with: .scale))
-                        .animation(.easeInOut(duration: 0.3), value: isLandscape)
-                } else {
-                    // Portrait mode with traditional layout
-                    VStack(spacing: 0) {
-                        Spacer()
-                        createRallyControls()
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    .animation(.easeInOut(duration: 0.3), value: isLandscape)
-                }
-            }
-            .background(Color.black)
-            .ignoresSafeArea(isLandscape ? .all : [])
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarHidden(isLandscape)
-            .toolbar {
-                if !isLandscape {
-                    createToolbar()
-                }
-            }
-        }
-        .onAppear(perform: setupView)
-        .onDisappear(perform: cleanupPlayer)
-        .onChange(of: currentRallyIndex) { _, newIndex in
-            seekToRally(at: newIndex)
-        }
+    init(_ actionType: ActionPersistenceManager.RallyActionType, on rallyIndex: Int) {
+        self.actionType = actionType
+        self.rallyIndex = rallyIndex
+        self.timestamp = Date()
     }
 }
 
-// MARK: - Video Player
+struct RallyPlayerView: View {
+    // MARK: - Properties
+    let videoMetadata: VideoMetadata
+    let onPeekProgress: ((Double, PeekDirection?) -> Void)?
 
-private extension RallyPlayerView {
-    func createVideoPlayer() -> some View {
-        Group {
-            if isLoading {
-                createLoadingView()
-            } else if let errorMessage = errorMessage {
-                createErrorView(message: errorMessage)
-            } else if let player = player {
-                createVideoPlayerWithOverlay(player: player)
-            } else {
-                createLoadingView()
-            }
-        }
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @EnvironmentObject private var appSettings: AppSettings
+
+    // MARK: - Unified Coordinator System
+    @StateObject private var navigationState: RallyNavigationState
+    @StateObject internal var gestureCoordinator: GestureCoordinator
+    @StateObject private var animationCoordinator: AnimationCoordinator
+    @StateObject private var orientationManager = OrientationManager()
+    @StateObject private var actionPersistence = ActionPersistenceManager()
+    @StateObject private var metricsCollector = MetricsCollector(config: .default)
+    @StateObject private var cacheManager = RallyCacheManager()
+
+    // MARK: - Remaining State (Minimized)
+    @State private var rallyVideoURLs: [URL] = []
+    @State private var players: [AVPlayer] = []
+    @State private var playerLayers: [AVPlayerLayer] = []
+    @State private var notificationObservers: [NSObjectProtocol] = []
+
+
+    // Tinder-style state
+    @State private var lastRallyAction: RallyActionRecord?
+    @State private var isPlaying = true
+    @State private var peelOffset: CGSize = .zero
+    @State private var peelRotation: Double = 0.0
+    @State private var peelOpacity: Double = 1.0
+
+    // Action icon states
+    @State private var showHeartIcon: Bool = false
+    @State private var showTrashIcon: Bool = false
+    @State private var heartScale: CGFloat = 0.8
+    @State private var trashScale: CGFloat = 0.8
+    @State private var dragDirection: SwipeDirection? = nil
+    @State private var currentDragOffset: CGSize = .zero
+
+    // MARK: - Computed Properties
+    internal var isPortrait: Bool {
+        orientationManager.isPortrait
     }
 
-    func createVideoPlayerWithOverlay(player: AVPlayer) -> some View {
-        ZStack {
-            VideoPlayer(player: player)
-                .aspectRatio(contentMode: isLandscape ? .fill : .fit)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            // Metadata overlay
-            if showOverlay,
-               let metadata = processingMetadata,
-               metadata.hasEnhancedData {
-                GeometryReader { geometry in
-                    MetadataOverlayView(
-                        processingMetadata: metadata,
-                        currentTime: currentPlaybackTime,
-                        videoSize: geometry.size,
-                        showTrajectories: showTrajectories,
-                        showRallyBoundaries: showRallyBoundaries,
-                        showConfidenceIndicators: showConfidenceIndicators
-                    )
-                }
-                .aspectRatio(contentMode: isLandscape ? .fill : .fit)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .gesture(
-            DragGesture()
-                .onEnded { gesture in
-                    handleSwipeGesture(translation: gesture.translation)
-                }
-        )
+    private var currentRally: RallySegment? {
+        navigationState.currentRally
     }
 
-    func createLoadingView() -> some View {
-        VStack(spacing: 16) {
+    // MARK: - Initialization
+    init(videoMetadata: VideoMetadata, onPeekProgress: ((Double, PeekDirection?) -> Void)? = nil) {
+        self.videoMetadata = videoMetadata
+        self.onPeekProgress = onPeekProgress
+
+        // Initialize coordinators with dependencies
+        let navState = RallyNavigationState(videoMetadata: videoMetadata)
+        self._navigationState = StateObject(wrappedValue: navState)
+        self._gestureCoordinator = StateObject(wrappedValue: GestureCoordinator(navigationState: navState))
+        self._animationCoordinator = StateObject(wrappedValue: AnimationCoordinator(navigationState: navState))
+    }
+
+    // MARK: - Body
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                // Background
+                Color.black.ignoresSafeArea()
+
+                // Main content based on state
+                if navigationState.isLoading {
+                    loadingView
+                } else if navigationState.hasError {
+                    errorView
+                } else {
+                    rallyPlayerContent(geometry: geometry)
+                }
+
+                // Video buffering overlay
+                BufferingView.forVideoLoading(
+                    isBuffering: navigationState.isVideoBuffering,
+                    progress: navigationState.videoLoadingProgress
+                )
+
+                // Timeout overlay if buffering times out
+                if navigationState.bufferingTimeout {
+                    BufferingView.forVideoTimeout(isBuffering: true)
+                }
+
+            }
+        }
+        .rallyOrientation(orientationManager)
+        .onAppear {
+            setupRallyPlayer()
+        }
+        .onDisappear {
+            cleanupRallyPlayer()
+        }
+        .gesture(tinderStyleGesture)
+        .animation(OrientationManager.OrientationConfiguration.gestureAnimation, value: peelOffset)
+        .animation(OrientationManager.OrientationConfiguration.gestureAnimation, value: peelRotation)
+        .animation(OrientationManager.OrientationConfiguration.gestureAnimation, value: peelOpacity)
+    }
+
+    // MARK: - Content Views
+    private var loadingView: some View {
+        VStack(spacing: 20) {
             ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                .scaleEffect(1.5)
+                .tint(.white)
 
-            if isLoading {
-                Text("Loading rally data...")
-                    .foregroundColor(.white)
-                    .font(.caption)
-            }
+            Text("Loading rallies...")
+                .foregroundColor(.white)
+                .font(.headline)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    func createErrorView(message: String) -> some View {
-        VStack(spacing: 16) {
+    private var errorView: some View {
+        VStack(spacing: 20) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.title)
-                .foregroundColor(.orange)
+                .font(.system(size: 50))
+                .foregroundColor(.red)
 
-            Text("Rally Data Unavailable")
+            Text("Error")
                 .font(.headline)
                 .foregroundColor(.white)
 
-            Text(message)
-                .font(.caption)
-                .foregroundColor(.secondary)
+            Text(navigationState.errorMessage)
                 .multilineTextAlignment(.center)
+                .foregroundColor(.gray)
                 .padding(.horizontal)
 
-            Button("Watch Full Video") {
-                // Fallback to normal video playback
-                setupNormalVideoPlayback()
+            Button("Dismiss") {
+                dismiss()
             }
-            .foregroundColor(.blue)
-            .font(.footnote)
+            .padding()
+            .background(Color.blue)
+            .foregroundColor(.white)
+            .cornerRadius(10)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-}
 
-// MARK: - Rally Controls
-
-private extension RallyPlayerView {
-    func createRallyControls() -> some View {
-        Group {
-            if let metadata = processingMetadata, !metadata.rallySegments.isEmpty {
-                VStack(spacing: 12) {
-                    createRallyProgressIndicator(metadata: metadata)
-                    createRallyNavigationButtons(metadata: metadata)
-                    createOverlayControls()
-                    createPerformanceIndicator()
+    private func rallyPlayerContent(geometry: GeometryProxy) -> some View {
+        ZStack {
+            // Cache geometry for performance
+            Color.clear
+                .onAppear {
+                    orientationManager.cacheGeometry(geometry)
                 }
-                .padding()
-                .background(Color.black.opacity(0.8))
-            }
-        }
-    }
-
-    func createRallyProgressIndicator(metadata: ProcessingMetadata) -> some View {
-        VStack(spacing: 8) {
-            // Rally indicator
-            HStack {
-                Text("Rally")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Text("\(currentRallyIndex + 1) of \(metadata.rallySegments.count)")
-                    .font(.headline)
-                    .foregroundColor(.white)
-
-                Spacer()
-
-                if seekPerformanceMs > 0 {
-                    Text("\(seekPerformanceMs)ms")
-                        .font(.caption2)
-                        .foregroundColor(seekPerformanceMs < 200 ? .green : .orange)
+                .onChange(of: geometry.size) { _, _ in
+                    orientationManager.cacheGeometry(geometry)
                 }
-            }
 
-            // Progress bar showing rally positions
-            createRallyProgressBar(metadata: metadata)
-        }
-    }
+            // Stack visualization: Show 2-3 videos stacked with depth effect
+            if !rallyVideoURLs.isEmpty && navigationState.currentRallyIndex < players.count && navigationState.playersReady {
+                // Background cards (show next 2 videos if available)
+                ForEach(0..<min(3, players.count - navigationState.currentRallyIndex), id: \.self) { stackIndex in
+                    let playerIndex = navigationState.currentRallyIndex + stackIndex
+                    let isTopCard = stackIndex == 0
 
-    func createRallyProgressBar(metadata: ProcessingMetadata) -> some View {
-        GeometryReader { geometry in
-            HStack(spacing: 2) {
-                ForEach(Array(metadata.rallySegments.enumerated()), id: \.offset) { index, rally in
-                    let isCurrentRally = index == currentRallyIndex
-                    let width = max(4, geometry.size.width / CGFloat(metadata.rallySegments.count) - 2)
+                    // Calculate depth-based transforms
+                    let cardScale: CGFloat = 1.0 - (CGFloat(stackIndex) * 0.05) // 1.0, 0.95, 0.9
+                    let verticalOffset: CGFloat = CGFloat(stackIndex) * 8 // 0px, 8px, 16px
+                    let horizontalOffset: CGFloat = CGFloat(stackIndex) * 4 // 0px, 4px, 8px
 
-                    Rectangle()
-                        .fill(isCurrentRally ? Color.white : Color.gray.opacity(0.6))
-                        .frame(width: width, height: 4)
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                currentRallyIndex = index
-                            }
+                    RallyVideoPlayerView(
+                        player: players[playerIndex],
+                        geometry: geometry,
+                        orientationManager: orientationManager
+                    )
+                    .id("rally-\(playerIndex)-stack-\(stackIndex)")
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity
+                    )
+                    .if(orientationManager.isLandscape) { view in
+                        view.ignoresSafeArea(.all)
+                    }
+                    // Apply stack transforms
+                    .scaleEffect(cardScale)
+                    .offset(
+                        x: isTopCard ? (peelOffset.width + currentDragOffset.width) : horizontalOffset,
+                        y: isTopCard ? (peelOffset.height + currentDragOffset.height) : verticalOffset
+                    )
+                    .rotationEffect(.degrees(isTopCard ? peelRotation : 0))
+                    .opacity(isTopCard ? peelOpacity : 0.8) // Slightly dimmed background cards
+                    .zIndex(Double(3 - stackIndex)) // Ensure proper layering (top card has highest z-index)
+                    .shadow(
+                        color: Color.black.opacity(0.2),
+                        radius: stackIndex > 0 ? 5 : 0,
+                        x: 0,
+                        y: stackIndex > 0 ? 2 : 0
+                    )
+                    .allowsHitTesting(isTopCard) // Only top card responds to touches
+                    .onTapGesture {
+                        if isTopCard {
+                            togglePlayPause()
                         }
-                }
-            }
-        }
-        .frame(height: 8)
-    }
-
-    func createRallyNavigationButtons(metadata: ProcessingMetadata) -> some View {
-        HStack(spacing: 32) {
-            // Previous rally button
-            Button(action: previousRally) {
-                HStack(spacing: 8) {
-                    Image(systemName: "chevron.left")
-                    Text("Previous")
-                        .font(.caption)
-                }
-            }
-            .disabled(currentRallyIndex == 0)
-            .foregroundColor(currentRallyIndex == 0 ? .gray : .white)
-
-            Spacer()
-
-            // Rally info
-            VStack(spacing: 4) {
-                let currentRally = metadata.rallySegments[currentRallyIndex]
-                Text(String(format: "%.1fs", currentRally.duration))
-                    .font(.headline)
-                    .foregroundColor(.white)
-
-                Text("Quality: \(String(format: "%.0f%%", currentRally.quality * 100))")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            // Next rally button
-            Button(action: nextRally) {
-                HStack(spacing: 8) {
-                    Text("Next")
-                        .font(.caption)
-                    Image(systemName: "chevron.right")
-                }
-            }
-            .disabled(currentRallyIndex >= metadata.rallySegments.count - 1)
-            .foregroundColor(currentRallyIndex >= metadata.rallySegments.count - 1 ? .gray : .white)
-        }
-    }
-
-    func createPerformanceIndicator() -> some View {
-        HStack {
-            if seekPerformanceMs > 0 {
-                let performanceColor: Color = seekPerformanceMs < 100 ? .green :
-                                            seekPerformanceMs < 200 ? .orange : .red
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(performanceColor)
-                        .frame(width: 6, height: 6)
-
-                    Text("Seek: \(seekPerformanceMs)ms")
-                        .font(.caption2)
-                        .foregroundColor(performanceColor)
-                }
-            }
-
-            Spacer()
-        }
-    }
-
-    func createOverlayControls() -> some View {
-        VStack(spacing: 8) {
-            // Main overlay toggle
-            HStack {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showOverlay.toggle()
                     }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: showOverlay ? "eye.fill" : "eye.slash.fill")
-                        Text("Overlay")
-                        Text(showOverlay ? "On" : "Off")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    .font(.caption)
-                    .foregroundColor(.white)
                 }
-
-                Spacer()
+            } else {
+                // Debug: Show what's missing
+                Text("Debug: URLs=\(rallyVideoURLs.count), Players=\(players.count), Index=\(navigationState.currentRallyIndex), Ready=\(navigationState.playersReady)")
+                    .foregroundColor(.white)
+                    .padding()
             }
 
-            // Detailed overlay controls (only shown when overlay is enabled)
-            if showOverlay {
-                MetadataOverlayView.createOverlayControls(
-                    showTrajectories: $showTrajectories,
-                    showRallyBoundaries: $showRallyBoundaries,
-                    showConfidenceIndicators: $showConfidenceIndicators
-                )
-            }
+            // Back button (top left)
+            backButton
+
+            // Rally counter indicator (top center)
+            rallyCounterView
+
+            // Bottom action bar with orientation-aware layout
+            bottomActionBar
         }
     }
 
-    // MARK: - Landscape Overlay
-
-    func createLandscapeOverlay() -> some View {
+    // MARK: - Minimal UI: Single Undo Button
+    private var undoButton: some View {
         VStack {
-            // Top overlay with rally info and close button
-            HStack {
-                if let metadata = processingMetadata, !metadata.rallySegments.isEmpty {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Rally \(currentRallyIndex + 1) of \(metadata.rallySegments.count)")
-                                .font(.headline)
-                                .foregroundColor(.white)
+            Spacer()
 
-                            let currentRally = metadata.rallySegments[currentRallyIndex]
-                            Text("\(String(format: "%.1fs", currentRally.duration)) • Quality: \(String(format: "%.0f%%", currentRally.quality * 100))")
-                                .font(.caption)
-                                .foregroundColor(.white.opacity(0.8))
-                        }
-
-                        // Rally status indicators
-                        HStack(spacing: 8) {
-                            if likedRallies.contains(currentRallyIndex) {
-                                Image(systemName: "heart.fill")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.pink)
-                            }
-                            if deletedRallies.contains(currentRallyIndex) {
-                                Image(systemName: "trash.fill")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.red)
-                            }
-                        }
+            if let lastAction = lastRallyAction {
+                Button(action: { undoLastAction() }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.uturn.backward")
+                        Text("Undo \(lastAction.actionType.displayName)")
                     }
+                    .font(.headline)
+                    .foregroundColor(.white)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
-                    .background(Color.black.opacity(0.6))
-                    .cornerRadius(8)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 25))
+                }
+                .padding(.bottom, 50)
+            }
+        }
+    }
+
+    // MARK: - Adaptive Bottom Action Bar
+    private var bottomActionBar: some View {
+        GeometryReader { geometry in
+            VStack {
+                Spacer()
+
+                HStack {
+                    Spacer()
+
+                    // Trash Icon (Left) - Close to undo button
+                    trashIconButton
+
+                    Spacer()
+                        .frame(maxWidth: 60) // Fixed spacing to keep icons close to center
+
+                    // Undo Button (Center)
+                    undoButtonCompact
+
+                    Spacer()
+                        .frame(maxWidth: 60) // Fixed spacing to keep icons close to center
+
+                    // Heart Icon (Right) - Close to undo button
+                    heartIconButton
+
+                    Spacer()
+                }
+                .padding(.horizontal, 20) // Minimal edge padding
+                .padding(.bottom, isPortrait ? 50 : 30)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isPortrait)
+            }
+        }
+    }
+
+    // MARK: - Action Icon Components
+    private var trashIconButton: some View {
+        Button(action: {
+            // Manual delete action
+            performPeelAnimation(.left) {
+                deleteCurrentRally()
+            }
+        }) {
+            Image(systemName: "trash.fill")
+                .font(.title) // Bigger size
+                .foregroundColor(showTrashIcon ? .red : .white.opacity(0.8)) // Higher opacity when inactive
+                .scaleEffect(trashScale)
+                .opacity(showTrashIcon ? 1.0 : 0.8) // Higher base opacity
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showTrashIcon)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: trashScale)
+    }
+
+    private var heartIconButton: some View {
+        Button(action: {
+            // Manual like action
+            performPeelAnimation(.right) {
+                likeCurrentRally()
+            }
+        }) {
+            Image(systemName: "heart.fill")
+                .font(.title) // Bigger size
+                .foregroundColor(showHeartIcon ? .red : .white.opacity(0.8)) // Higher opacity when inactive
+                .scaleEffect(heartScale)
+                .opacity(showHeartIcon ? 1.0 : 0.8) // Higher base opacity
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showHeartIcon)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: heartScale)
+    }
+
+    private var undoButtonCompact: some View {
+        Group {
+            if lastRallyAction != nil {
+                Button(action: { undoLastAction() }) {
+                    VStack(spacing: 4) {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.title3)
+                        Text("Undo")
+                            .font(.caption2)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                }
+            }
+        }
+    }
+
+    // MARK: - Back Button (Top Left)
+    private var backButton: some View {
+        VStack {
+            HStack {
+                Button(action: {
+                    dismiss()
+                }) {
+                    Image(systemName: "arrow.left")
+                        .font(.title2)
+                        .foregroundColor(.white)
+                        .padding(12)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .padding(.top, 50) // Safe area padding
+                .padding(.leading, 20)
+
+                Spacer()
+            }
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Rally Counter (Top Center)
+    private var rallyCounterView: some View {
+        VStack {
+            HStack {
+                Spacer()
+
+                if let metadata = navigationState.processingMetadata {
+                    Text("Rally \(navigationState.currentRallyIndex + 1) of \(metadata.rallySegments.count)")
+                        .font(.headline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                        .animation(.easeInOut(duration: 0.3), value: navigationState.currentRallyIndex)
                 }
 
                 Spacer()
-
-                Button("Done") {
-                    dismiss()
-                }
-                .foregroundColor(.white)
-                .fontWeight(.medium)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color.black.opacity(0.6))
-                .cornerRadius(8)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 10)
+            .padding(.top, 50) // Same safe area padding as back button
 
             Spacer()
-
-            // Bottom action buttons
-            createLandscapeActionButtons()
         }
     }
 
-    func createLandscapeActionButtons() -> some View {
-        let isCurrentRallyLiked = likedRallies.contains(currentRallyIndex)
-        let isCurrentRallyDeleted = deletedRallies.contains(currentRallyIndex)
+    // MARK: - Tinder-Style Gesture System
+    private var tinderStyleGesture: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onChanged { value in
+                // Only process gestures when video is ready, we can interact, and not transitioning orientation
+                guard navigationState.canInteract && !orientationManager.isTransitioning else { return }
 
-        return HStack(spacing: 40) {
-            // Delete button
-            Button(action: {
-                performRallyAction(.delete)
-            }) {
-                Image(systemName: isCurrentRallyDeleted ? "trash.fill" : "trash")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(width: 60, height: 60)
-                    .background(
-                        Circle()
-                            .fill(isCurrentRallyDeleted ? Color.red : Color.red.opacity(0.6))
-                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-                    )
+                let translation = value.translation
+
+                // Apply drag offset with resistance for visual feedback
+                let resistance: CGFloat = 0.5
+                currentDragOffset = CGSize(
+                    width: translation.width * resistance,
+                    height: translation.height * resistance
+                )
+
+                updateIconsBasedOnDrag(translation: translation)
             }
-            .scaleEffect(isCurrentRallyDeleted ? 1.2 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isCurrentRallyDeleted)
+            .onEnded { value in
+                // Only process gestures when video is ready, we can interact, and not transitioning orientation
+                guard navigationState.canInteract && !orientationManager.isTransitioning else {
+                    resetAllGestureStates()
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        currentDragOffset = .zero
+                    }
+                    return
+                }
 
-            // Undo button
-            Button(action: {
-                performRallyAction(.undo)
-            }) {
-                Image(systemName: "arrow.uturn.backward")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(width: 50, height: 50)
-                    .background(
-                        Circle()
-                            .fill(Color.gray.opacity(0.8))
-                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-                    )
+                let translation = value.translation
+                let velocity = value.velocity
+
+                // Reset icons
+                resetIconStates()
+
+                // Calculate dominant axis using both distance and velocity
+                let horizontalMagnitude = abs(translation.width)
+                let verticalMagnitude = abs(translation.height)
+                let horizontalVelocity = abs(velocity.width)
+                let verticalVelocity = abs(velocity.height)
+
+                let threshold: CGFloat = 50
+                let velocityThreshold: CGFloat = 500
+
+                // Determine if gesture meets minimum thresholds
+                let horizontalExceedsThreshold = horizontalMagnitude > threshold || horizontalVelocity > velocityThreshold
+                let verticalExceedsThreshold = verticalMagnitude > threshold || verticalVelocity > velocityThreshold
+
+                // Prioritize the dominant axis when both exceed thresholds
+                if verticalExceedsThreshold && (verticalMagnitude > horizontalMagnitude || !horizontalExceedsThreshold) {
+                    // Vertical gesture dominates
+                    if translation.height < 0 {
+                        // Up swipe = Next rally
+                        performPeelAnimation(.up) {
+                            nextRally()
+                        }
+                    } else {
+                        // Down swipe = Previous rally
+                        performPeelAnimation(.up) { // Use same animation for consistency
+                            previousRally()
+                        }
+                    }
+                }
+                else if horizontalExceedsThreshold {
+                    // Horizontal gesture dominates
+                    if translation.width > 0 {
+                        // Right swipe = Like
+                        triggerIconFlare(.right)
+                        performPeelAnimation(.right) {
+                            likeCurrentRally()
+                        }
+                    } else {
+                        // Left swipe = Delete
+                        triggerIconFlare(.left)
+                        performPeelAnimation(.left) {
+                            deleteCurrentRally()
+                        }
+                    }
+                } else {
+                    // Sub-threshold gesture - animate back to center
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        peelOffset = .zero
+                        peelRotation = 0
+                        peelOpacity = 1
+                    }
+                    resetIconStates()
+                }
+
+                // Always reset drag offset on gesture end
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                    currentDragOffset = .zero
+                }
             }
-            .opacity(lastAction != nil ? 1.0 : 0.4)
-            .disabled(lastAction == nil)
-            .animation(.easeInOut(duration: 0.2), value: lastAction != nil)
-
-            // Like button
-            Button(action: {
-                performRallyAction(.like)
-            }) {
-                Image(systemName: isCurrentRallyLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(width: 60, height: 60)
-                    .background(
-                        Circle()
-                            .fill(isCurrentRallyLiked ? Color.pink : Color.green.opacity(0.6))
-                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-                    )
-            }
-            .scaleEffect(isCurrentRallyLiked ? 1.2 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isCurrentRallyLiked)
-        }
-        .padding(.bottom, 30) // Safe area padding for bottom
-        .padding(.horizontal, 20)
-    }
-}
-
-// MARK: - Toolbar
-
-private extension RallyPlayerView {
-    func createToolbar() -> some ToolbarContent {
-        Group {
-            ToolbarItem(placement: .navigationBarLeading) {
-                createVideoInfoButton()
-            }
-
-            ToolbarItem(placement: .navigationBarTrailing) {
-                createCloseButton()
-            }
-        }
-    }
-
-    func createVideoInfoButton() -> some View {
-        Button {
-            // Could show video and rally info
-        } label: {
-            Image(systemName: "info.circle")
-                .foregroundColor(.white)
-        }
-    }
-
-    func createCloseButton() -> some View {
-        Button("Done") {
-            dismiss()
-        }
-        .foregroundColor(.white)
-        .fontWeight(.medium)
-    }
-}
-
-// MARK: - Setup and Initialization
-
-private extension RallyPlayerView {
-    func setupView() {
-        Task { @MainActor in
-            await loadMetadataAndSetupPlayer()
-        }
     }
 
-    @MainActor
-    func loadMetadataAndSetupPlayer() async {
-        isLoading = true
-        errorMessage = nil
+    // MARK: - Icon Feedback System
+    private func updateIconsBasedOnDrag(translation: CGSize) {
+        let feedbackThreshold: CGFloat = 30
 
-        do {
-            // Check if metadata exists
-            guard videoMetadata.hasMetadata else {
-                throw RallyPlayerError.noMetadataAvailable
+        // Calculate dominant axis to provide appropriate feedback
+        let horizontalMagnitude = abs(translation.width)
+        let verticalMagnitude = abs(translation.height)
+
+        // Only show horizontal feedback if horizontal is dominant or significant
+        if horizontalMagnitude > feedbackThreshold && horizontalMagnitude >= verticalMagnitude {
+            if translation.width > 0 {
+                // Dragging right - show heart
+                dragDirection = .right
+                showHeartIcon = true
+                showTrashIcon = false
+
+                let progress = min(horizontalMagnitude / 100, 1.0)
+                heartScale = 0.8 + (0.4 * progress) // Scale from 0.8 to 1.2
+            } else {
+                // Dragging left - show trash
+                dragDirection = .left
+                showTrashIcon = true
+                showHeartIcon = false
+
+                let progress = min(horizontalMagnitude / 100, 1.0)
+                trashScale = 0.8 + (0.4 * progress) // Scale from 0.8 to 1.2
             }
-
-            // Load processing metadata
-            let metadata = try metadataStore.loadMetadata(for: videoMetadata.id)
-
-            // Validate rally segments
-            guard !metadata.rallySegments.isEmpty else {
-                throw RallyPlayerError.noRalliesFound
+        } else if verticalMagnitude > feedbackThreshold && verticalMagnitude > horizontalMagnitude {
+            // Vertical gesture dominant - don't show left/right icons, prepare for up/down swipe
+            if translation.height < 0 {
+                dragDirection = .up // Up swipe for next
+            } else {
+                dragDirection = .up // Down swipe for previous (use same direction enum)
             }
-
-            processingMetadata = metadata
-            currentRallyIndex = 0
-
-            // Setup video player
-            await setupVideoPlayer()
-
-            print("RallyPlayerView: Successfully loaded \(metadata.rallySegments.count) rallies")
-
-        } catch {
-            print("RallyPlayerView: Failed to load rally data: \(error)")
-            handleMetadataLoadError(error)
-        }
-
-        isLoading = false
-    }
-
-    func setupVideoPlayer() async {
-        // Don't create a new player if one already exists and is ready
-        guard player == nil || !isPlayerReady else { return }
-
-        // Ensure audio session is active
-        do {
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            print("⚠️ Warning: Could not activate audio session: \(error)")
-        }
-
-        let videoURL = videoMetadata.originalURL
-        let avPlayer = AVPlayer(url: videoURL)
-
-        // Configure player for optimal seeking
-        avPlayer.volume = 1.0
-        avPlayer.isMuted = false
-        avPlayer.automaticallyWaitsToMinimizeStalling = false
-
-        player = avPlayer
-        isPlayerReady = true
-
-        // Setup playback time observation for overlay synchronization
-        setupPlaybackTimeObserver(for: avPlayer)
-
-        // Seek to first rally
-        if let metadata = processingMetadata, !metadata.rallySegments.isEmpty {
-            let firstRally = metadata.rallySegments[0]
-            let seekTime = firstRally.startCMTime
-
-            await avPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
-            currentPlaybackTime = CMTimeGetSeconds(seekTime)
-            avPlayer.play()
-        }
-    }
-
-    func setupNormalVideoPlayback() {
-        // Fallback to normal video playback when metadata is unavailable
-        Task { @MainActor in
-            await setupVideoPlayer()
-            errorMessage = nil
-        }
-    }
-
-    func setupPlaybackTimeObserver(for player: AVPlayer) {
-        // Remove existing observer from the correct player
-        if let observer = playbackObserver, let oldPlayer = observerPlayer {
-            oldPlayer.removeTimeObserver(observer)
-        }
-
-        // Add new observer for real-time overlay synchronization
-        let interval = CMTime(seconds: 0.033, preferredTimescale: 600) // ~30fps updates
-        playbackObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
-
-            let timeInSeconds = CMTimeGetSeconds(time)
-            if timeInSeconds.isFinite {
-                self.currentPlaybackTime = timeInSeconds
-            }
-        }
-
-        // Track which player has the observer
-        observerPlayer = player
-    }
-
-    func handleMetadataLoadError(_ error: Error) {
-        if let metadataError = error as? MetadataStoreError {
-            switch metadataError {
-            case .metadataNotFound:
-                errorMessage = "No rally analysis available for this video. Process the video first to enable rally navigation."
-            case .invalidJSON, .corruptedMetadata:
-                errorMessage = "Rally data is corrupted. Try reprocessing the video."
-            default:
-                errorMessage = "Failed to load rally data: \(metadataError.localizedDescription)"
-            }
-        } else if let rallyError = error as? RallyPlayerError {
-            switch rallyError {
-            case .noMetadataAvailable:
-                errorMessage = "No rally analysis available. Process this video to enable rally navigation."
-            case .noRalliesFound:
-                errorMessage = "No rallies were detected in this video. The video may not contain volleyball activity."
-            }
+            showHeartIcon = false
+            showTrashIcon = false
+            heartScale = 0.8
+            trashScale = 0.8
         } else {
-            errorMessage = "Unable to load rally data: \(error.localizedDescription)"
+            // Reset when not exceeding threshold or unclear direction
+            resetIconStates()
         }
     }
-}
 
-// MARK: - Rally Navigation
+    private func resetIconStates() {
+        dragDirection = nil
+        showHeartIcon = false
+        showTrashIcon = false
+        heartScale = 0.8
+        trashScale = 0.8
+    }
 
-private extension RallyPlayerView {
-    func seekToRally(at index: Int) {
-        guard let metadata = processingMetadata,
-              let player = player,
-              index >= 0 && index < metadata.rallySegments.count else {
+    private func resetAllGestureStates() {
+        resetIconStates()
+        resetPeelAnimation()
+    }
+
+    private func triggerIconFlare(_ direction: SwipeDirection) {
+        switch direction {
+        case .right:
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
+                heartScale = 1.3
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    self.heartScale = 0.8
+                    self.showHeartIcon = false
+                }
+            }
+        case .left:
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
+                trashScale = 1.3
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    self.trashScale = 0.8
+                    self.showTrashIcon = false
+                }
+            }
+        case .up:
+            break // No icon for up swipe
+        }
+    }
+
+    // MARK: - Peel Animations
+    private func performPeelAnimation(_ direction: PeelDirection, completion: @escaping () -> Void) {
+        let screenWidth = UIScreen.main.bounds.width
+        let screenHeight = UIScreen.main.bounds.height
+
+        withAnimation(.easeInOut(duration: 0.3)) {
+            switch direction {
+            case .right:
+                peelOffset = CGSize(width: screenWidth, height: -100)
+                peelRotation = 15
+            case .left:
+                peelOffset = CGSize(width: -screenWidth, height: -100)
+                peelRotation = -15
+            case .up:
+                peelOffset = CGSize(width: 0, height: -screenHeight)
+                peelRotation = 0
+            }
+            peelOpacity = 0
+        }
+
+        // Execute action and reset after animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            completion()
+            resetPeelAnimation()
+        }
+    }
+
+    private func resetPeelAnimation() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            peelOffset = .zero
+            peelRotation = 0
+            peelOpacity = 1
+        }
+    }
+
+    // MARK: - Rally Actions
+    private func likeCurrentRally() {
+        let currentIndex = navigationState.currentRallyIndex
+        lastRallyAction = RallyActionRecord(.like, on: currentIndex)
+
+        Task {
+            let _ = await actionPersistence.performAction(.like, on: currentIndex)
+            await navigateToNextRally()
+        }
+    }
+
+    private func deleteCurrentRally() {
+        let currentIndex = navigationState.currentRallyIndex
+        lastRallyAction = RallyActionRecord(.delete, on: currentIndex)
+
+        Task {
+            let _ = await actionPersistence.performAction(.delete, on: currentIndex)
+            await navigateToNextRally()
+        }
+    }
+
+    private func nextRally() {
+        Task {
+            await navigateToNextRally()
+        }
+    }
+
+    private func previousRally() {
+        Task {
+            await navigateToPreviousRally()
+        }
+    }
+
+    private func navigateToNextRally() async {
+        guard navigationState.canGoNext else { return }
+
+        await MainActor.run {
+            // Pause current player
+            if navigationState.currentRallyIndex < players.count {
+                players[navigationState.currentRallyIndex].pause()
+            }
+
+            // Move to next rally
+            navigationState.currentRallyIndex += 1
+
+            // Play new rally
+            if navigationState.currentRallyIndex < players.count && isPlaying {
+                players[navigationState.currentRallyIndex].play()
+                print("🎬 Playing rally \(navigationState.currentRallyIndex)")
+            }
+        }
+    }
+
+    private func navigateToPreviousRally() async {
+        guard navigationState.canGoPrevious else { return }
+
+        await MainActor.run {
+            // Pause current player
+            if navigationState.currentRallyIndex < players.count {
+                players[navigationState.currentRallyIndex].pause()
+            }
+
+            // Move to previous rally
+            navigationState.currentRallyIndex -= 1
+
+            // Play new rally
+            if navigationState.currentRallyIndex >= 0 && navigationState.currentRallyIndex < players.count && isPlaying {
+                players[navigationState.currentRallyIndex].play()
+                print("🎬 Playing rally \(navigationState.currentRallyIndex)")
+            }
+        }
+    }
+
+    // MARK: - Playback Controls
+    private func togglePlayPause() {
+        let currentIndex = navigationState.currentRallyIndex
+        guard currentIndex < players.count else { return }
+
+        let player = players[currentIndex]
+
+        if isPlaying {
+            player.pause()
+        } else {
+            player.play()
+        }
+
+        isPlaying.toggle()
+    }
+
+    // MARK: - Undo System
+    private func undoLastAction() {
+        guard let lastAction = lastRallyAction else { return }
+
+        Task {
+            // Revert the action in persistence
+            switch lastAction.actionType {
+            case .like:
+                let _ = await actionPersistence.performAction(.like, on: lastAction.rallyIndex) // Toggle off
+            case .delete:
+                let _ = await actionPersistence.performAction(.delete, on: lastAction.rallyIndex) // Toggle off
+            default:
+                break
+            }
+
+            // Navigate back to the previous rally
+            await MainActor.run {
+                if navigationState.currentRallyIndex > lastAction.rallyIndex {
+                    // Pause current player
+                    if navigationState.currentRallyIndex < players.count {
+                        players[navigationState.currentRallyIndex].pause()
+                    }
+
+                    // Return to previous rally
+                    navigationState.currentRallyIndex = lastAction.rallyIndex
+
+                    // Restart the restored rally from the beginning
+                    if navigationState.currentRallyIndex < players.count && isPlaying {
+                        let player = players[navigationState.currentRallyIndex]
+                        player.seek(to: .zero) // Restart from beginning
+                        player.play()
+                        print("🔄 Restarted rally \(navigationState.currentRallyIndex) from beginning")
+                    }
+                }
+
+                // Clear the last action
+                self.lastRallyAction = nil
+            }
+        }
+    }
+
+    // MARK: - Lifecycle
+    private func setupRallyPlayer() {
+        Task {
+            let initTimer = metricsCollector.startInitializationTimer(component: "rally_player")
+
+            // Initialize navigation state
+            await navigationState.initialize()
+
+            // Start action persistence session
+            await actionPersistence.startSession(for: videoMetadata.id)
+
+            // Load rally videos (this will also setup players when complete)
+            await loadRallyVideos()
+
+            metricsCollector.recordInitializationComplete(timer: initTimer)
+        }
+    }
+
+    private func cleanupRallyPlayer() {
+        Task {
+            await actionPersistence.endSession()
+        }
+
+        // Cleanup video players
+        cleanupVideoPlayers()
+    }
+
+    private func loadRallyVideos() async {
+        guard let metadata = await loadProcessingMetadata() else { return }
+
+        if metadata.rallySegments.isEmpty {
+            await MainActor.run {
+                navigationState.hasError = false
+                navigationState.isLoading = false
+            }
             return
         }
 
-        let rally = metadata.rallySegments[index]
-        let seekTime = rally.startCMTime
+        // Check cache first for instant loading
+        if let cachedURLs = await cacheManager.getCachedRallyURLs(for: videoMetadata.id) {
+            await MainActor.run {
+                self.rallyVideoURLs = cachedURLs
+                self.navigationState.processingMetadata = metadata
+                self.navigationState.isLoading = false
+                self.navigationState.hasError = false
 
-        // Track performance
-        let startTime = Date()
-        lastSeekTime = startTime
-
-        Task { @MainActor in
-            await player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
-
-            // Update current playback time for overlay synchronization
-            currentPlaybackTime = CMTimeGetSeconds(seekTime)
-
-            // Calculate seek performance
-            let seekDuration = Date().timeIntervalSince(startTime) * 1000
-            seekPerformanceMs = Int(seekDuration)
-
-            print("RallyPlayerView: Seeked to rally \(index + 1) at \(CMTimeGetSeconds(seekTime))s in \(seekPerformanceMs)ms")
-
-            // Auto-hide performance indicator after 2 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                seekPerformanceMs = 0
+                // Setup video players with cached URLs
+                self.setupVideoPlayers()
             }
+            print("⚡ Loaded \(cachedURLs.count) rallies from cache instantly!")
+            return
         }
-    }
 
-    func previousRally() {
-        guard currentRallyIndex > 0 else { return }
+        // Cache miss - need to export rally segments
+        print("📊 Cache miss - exporting rally segments...")
+        await Task.detached(priority: .userInitiated) {
+            do {
+                let asset = AVURLAsset(url: videoMetadata.originalURL)
+                let exporter = VideoExporter()
 
-        // Haptic feedback for smoother UX
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
+                // Note: No longer calling cleanupRallyCache() here to preserve cache
+                let urls = try await exporter.exportRallySegments(asset: asset, rallies: metadata.rallySegments)
 
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
-            currentRallyIndex -= 1
-        }
-    }
+                // Store in cache for future launches
+                await self.cacheManager.storeCachedRallies(videoMetadata.id, urls)
 
-    func nextRally() {
-        guard let metadata = processingMetadata,
-              currentRallyIndex < metadata.rallySegments.count - 1 else { return }
+                await MainActor.run {
+                    self.rallyVideoURLs = urls
+                    self.navigationState.processingMetadata = metadata
+                    self.navigationState.isLoading = false
+                    self.navigationState.hasError = false
 
-        // Haptic feedback for smoother UX
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
-
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
-            currentRallyIndex += 1
-        }
-    }
-
-    func handleSwipeGesture(translation: CGSize) {
-        let horizontalThreshold: CGFloat = 80
-        let verticalThreshold: CGFloat = 60
-
-        // Determine if this is primarily a horizontal or vertical swipe
-        let isHorizontalSwipe = abs(translation.width) > abs(translation.height)
-
-        if isHorizontalSwipe && abs(translation.width) > horizontalThreshold {
-            // Horizontal swipes for like/delete actions
-            if translation.width > horizontalThreshold {
-                // Swipe right -> like rally
-                performRallyAction(.like)
-            } else if translation.width < -horizontalThreshold {
-                // Swipe left -> delete rally
-                performRallyAction(.delete)
-            }
-        } else if !isHorizontalSwipe && abs(translation.height) > verticalThreshold {
-            // Vertical swipes for rally navigation
-            if translation.height < -verticalThreshold {
-                // Swipe up -> next rally
-                nextRally()
-            } else if translation.height > verticalThreshold {
-                // Swipe down -> previous rally
-                previousRally()
-            }
-        }
-    }
-
-    func performRallyAction(_ action: RallyAction) {
-        let rallyIndex = currentRallyIndex
-
-        // Store the action for undo functionality
-        lastAction = (action: action, rallyIndex: rallyIndex)
-
-        // Haptic feedback
-        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-        impactFeedback.impactOccurred()
-
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-            switch action {
-            case .like:
-                if likedRallies.contains(rallyIndex) {
-                    likedRallies.remove(rallyIndex)
-                } else {
-                    likedRallies.insert(rallyIndex)
-                    // Remove from deleted if it was deleted
-                    deletedRallies.remove(rallyIndex)
+                    // Setup video players once URLs are loaded
+                    self.setupVideoPlayers()
                 }
-            case .delete:
-                if deletedRallies.contains(rallyIndex) {
-                    deletedRallies.remove(rallyIndex)
-                } else {
-                    deletedRallies.insert(rallyIndex)
-                    // Remove from liked if it was liked
-                    likedRallies.remove(rallyIndex)
+
+            } catch {
+                await MainActor.run {
+                    self.navigationState.hasError = true
+                    self.navigationState.isLoading = false
+                    self.navigationState.errorMessage = "Failed to create rally videos: \(error.localizedDescription)"
                 }
-            case .undo:
-                performUndoAction()
+                print("❌ Rally loading error: \(error)")
+            }
+        }.value
+    }
+
+    private func loadProcessingMetadata() async -> ProcessingMetadata? {
+        do {
+            // Get metadataStore from navigationState (since it's created there now)
+            guard let metadataStore = navigationState.metadataStore else {
+                throw NSError(domain: "RallyPlayer", code: 1, userInfo: [NSLocalizedDescriptionKey: "MetadataStore not available"])
+            }
+            let metadata = try metadataStore.loadMetadata(for: videoMetadata.id)
+            return metadata
+        } catch {
+            await MainActor.run {
+                self.navigationState.hasError = true
+                self.navigationState.isLoading = false
+                self.navigationState.errorMessage = "Failed to load video metadata: \(error.localizedDescription)"
+            }
+            print("❌ Metadata loading error: \(error)")
+            return nil
+        }
+    }
+
+    private func setupVideoPlayers() {
+        // Clear existing players
+        cleanupVideoPlayers()
+
+        // Start video buffering state
+        navigationState.startVideoBuffering()
+
+        // Create players for each rally video with looping
+        players = rallyVideoURLs.map { url in
+            let player = AVPlayer(url: url)
+            player.isMuted = false
+
+            // Optimize for immediate visual readiness
+            player.automaticallyWaitsToMinimizeStalling = false
+            player.preventsDisplaySleepDuringVideoPlayback = true
+
+            // Setup looping for rally videos
+            NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime,
+                object: player.currentItem,
+                queue: .main
+            ) { _ in
+                player.seek(to: .zero)
+                if self.isPlaying {
+                    player.play()
+                }
+            }
+
+            return player
+        }
+
+        // Setup status monitoring for the first player (critical for preventing black screen)
+        if !players.isEmpty {
+            observePlayerReadiness(player: players[0], isFirstPlayer: true)
+        }
+
+        print("🎬 Setup \(players.count) video players for rallies")
+    }
+
+    private func observePlayerReadiness(player: AVPlayer, isFirstPlayer: Bool) {
+        guard let playerItem = player.currentItem else {
+            navigationState.completeVideoBuffering(success: false)
+            return
+        }
+
+        // Add player item status observer
+        let observer = playerItem.observe(\.status, options: [.new, .initial]) { item, _ in
+            DispatchQueue.main.async {
+
+                switch item.status {
+                case .readyToPlay:
+                    // Only start playback when video is truly ready
+                    if isFirstPlayer && isPlaying {
+                        player.play()
+                        print("🎬 Started playing rally 0 - video frames ready")
+                    }
+
+                    // Complete buffering on first player readiness
+                    if isFirstPlayer {
+                        navigationState.completeVideoBuffering(success: true)
+                    }
+
+                case .failed:
+                    if let error = item.error {
+                        print("❌ Player item failed: \(error.localizedDescription)")
+                    }
+                    if isFirstPlayer {
+                        navigationState.completeVideoBuffering(success: false)
+                    }
+
+                case .unknown:
+                    // Update loading progress for better UX
+                    if isFirstPlayer {
+                        navigationState.updateVideoLoadingProgress(0.3)
+                    }
+
+                @unknown default:
+                    break
+                }
             }
         }
 
-        print("Rally \(rallyIndex + 1) \(action.rawValue)")
-    }
+        // Store observer to clean up later
+        notificationObservers.append(observer)
 
-    func performUndoAction() {
-        guard let lastAction = lastAction else { return }
+        // Also observe loaded time ranges for progress indication
+        let timeRangeObserver = playerItem.observe(\.loadedTimeRanges, options: [.new]) { item, _ in
+            DispatchQueue.main.async {
+                guard isFirstPlayer else { return }
 
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-            switch lastAction.action {
-            case .like:
-                likedRallies.remove(lastAction.rallyIndex)
-            case .delete:
-                deletedRallies.remove(lastAction.rallyIndex)
-            case .undo:
-                break // Can't undo an undo
+                if let timeRange = item.loadedTimeRanges.first?.timeRangeValue {
+                    let duration = item.duration.seconds
+                    let loadedDuration = timeRange.duration.seconds
+
+                    if duration > 0 && !duration.isNaN {
+                        let progress = min(1.0, loadedDuration / duration)
+                        navigationState.updateVideoLoadingProgress(progress * 0.7 + 0.3) // Start from 30%
+                    }
+                }
             }
         }
 
-        self.lastAction = nil
-        print("Undid action for rally \(lastAction.rallyIndex + 1)")
+        notificationObservers.append(timeRangeObserver)
+    }
+
+    private func cleanupVideoPlayers() {
+        // Pause and release all players
+        for player in players {
+            player.pause()
+            player.replaceCurrentItem(with: nil)
+        }
+        players.removeAll()
+
+        // Remove notification observers
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
+
+        print("🧹 Cleaned up video players")
     }
 }
 
-// MARK: - Cleanup
 
-private extension RallyPlayerView {
-    func cleanupPlayer() {
-        // Remove playback time observer from the correct player
-        if let observer = playbackObserver, let currentPlayer = observerPlayer {
-            currentPlayer.removeTimeObserver(observer)
-            playbackObserver = nil
-            observerPlayer = nil
+// MARK: - Clean Fullscreen Video Player (No Overlay Controls)
+private struct RallyVideoPlayerView: UIViewRepresentable {
+    let player: AVPlayer
+    let geometry: GeometryProxy
+    let orientationManager: OrientationManager
+
+    private var isLandscape: Bool {
+        orientationManager.isLandscape
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .black
+        view.clipsToBounds = true
+
+        let playerLayer = AVPlayerLayer(player: player)
+
+        // Disable implicit animations for initial layout
+        playerLayer.actions = [
+            "bounds": NSNull(),
+            "position": NSNull(),
+            "frame": NSNull(),
+            "transform": NSNull()
+        ]
+
+        let initialFrame = CGRect(x: 0, y: 0, width: geometry.size.width, height: geometry.size.height)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // Use resizeAspect (fit) in portrait, resizeAspectFill (fill) in landscape
+        playerLayer.videoGravity = isLandscape ? .resizeAspectFill : .resizeAspect
+        playerLayer.frame = CGRect(x: 0, y: 0, width: geometry.size.width, height: geometry.size.height)
+        playerLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        playerLayer.position = CGPoint(x: initialFrame.midX, y: initialFrame.midY)
+        CATransaction.commit()
+
+        // Ensure the layer is ready for display
+        playerLayer.needsDisplayOnBoundsChange = true
+        playerLayer.masksToBounds = true
+
+        view.layer.addSublayer(playerLayer)
+
+        // Store reference for updates
+        context.coordinator.playerLayer = playerLayer
+
+        print("🎬 Created player layer with frame: \(playerLayer.frame)")
+
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        if let playerLayer = context.coordinator.playerLayer {
+            let bounds = uiView.bounds
+            guard bounds.width > 0 && bounds.height > 0 else { return }
+
+            // Determine layout mode from actual bounds to avoid timing issues during rotation
+            let computedLandscape = bounds.width > bounds.height
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            // Use resizeAspect (fit) in portrait, resizeAspectFill (fill) in landscape
+            playerLayer.videoGravity = computedLandscape ? .resizeAspectFill : .resizeAspect
+            playerLayer.frame = bounds
+            playerLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+            CATransaction.commit()
+
+            // Update coordinator state
+            let coordinator = context.coordinator
+            coordinator.lastFrameUpdate = Date()
+            coordinator.lastKnownLandscape = computedLandscape
+
+            print("🎬 Updated player frame: \(bounds), landscape(fromBounds): \(computedLandscape)")
+        }
+    }
+
+    // Helper functions inside struct:
+    /// Compute video rect fitting contentSize inside bounds.
+    /// isLandscape is computed from bounds dimensions (not external orientation state).
+    private func computeVideoRect(for bounds: CGRect, isLandscape: Bool, asset: AVAsset?) -> CGRect {
+        guard let asset = asset, let track = asset.tracks(withMediaType: .video).first else {
+            return bounds
+        }
+        let natural = normalizedSize(for: track)
+        if natural.width <= 0 || natural.height <= 0 {
+            return bounds
         }
 
-        player?.pause()
-        player = nil
-        isPlayerReady = false
-    }
-}
-
-// MARK: - Rally Action Types
-
-enum RallyAction: String {
-    case like = "liked"
-    case delete = "deleted"
-    case undo = "undone"
-}
-
-// MARK: - Error Types
-
-enum RallyPlayerError: Error, LocalizedError {
-    case noMetadataAvailable
-    case noRalliesFound
-
-    var errorDescription: String? {
-        switch self {
-        case .noMetadataAvailable:
-            return "No rally analysis data available for this video"
-        case .noRalliesFound:
-            return "No rally segments found in the metadata"
+        // Aspect Fit in portrait, Stretch to fill in landscape
+        if isLandscape {
+            // Stretch to fill entire screen in landscape
+            return bounds
+        } else {
+            return AVMakeRect(aspectRatio: natural, insideRect: bounds) // aspect fit
         }
     }
-}
 
-// MARK: - Preview
-
-#if DEBUG
-struct RallyPlayerView_Previews: PreviewProvider {
-    static var previews: some View {
-        // Create a sample video metadata for preview
-        let sampleVideo = VideoMetadata(
-            fileName: "sample.mp4",
-            customName: "Sample Rally Video",
-            folderPath: "test",
-            createdDate: Date(),
-            fileSize: 1024000,
-            duration: 120.0
+    private func normalizedSize(for track: AVAssetTrack) -> CGSize {
+        // Apply preferredTransform to get the display-corrected size
+        let transformed = CGSize(
+            width: abs(track.naturalSize.applying(track.preferredTransform).width),
+            height: abs(track.naturalSize.applying(track.preferredTransform).height)
         )
+        if transformed.width > 0 && transformed.height > 0 {
+            return transformed
+        }
+        return track.naturalSize
+    }
 
-        RallyPlayerView(videoMetadata: sampleVideo)
+    private func aspectFillRect(contentSize: CGSize, in bounds: CGRect) -> CGRect {
+        let scale = max(bounds.width / contentSize.width, bounds.height / contentSize.height)
+        let width = contentSize.width * scale
+        let height = contentSize.height * scale
+        let x = bounds.midX - width / 2
+        let y = bounds.midY - height / 2
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    class Coordinator: NSObject {
+        var playerLayer: AVPlayerLayer?
+        var lastFrameUpdate: Date = Date()
+        var lastKnownLandscape: Bool = false
     }
 }
-#endif
+
+// Helper extension for conditional modifiers
+extension View {
+    @ViewBuilder func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
+    }
+}
+
+// MARK: - RallyNavigationCapable Conformance
+extension RallyPlayerView: RallyNavigationCapable {
+    var integratedRallyDragGesture: some Gesture {
+        gestureCoordinator.createDragGesture(isPortrait: isPortrait)
+    }
+}
+

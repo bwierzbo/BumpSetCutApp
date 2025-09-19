@@ -1,7 +1,7 @@
 ---
 created: 2025-09-15T17:59:47Z
-last_updated: 2025-09-16T05:23:42Z
-version: 1.2
+last_updated: 2025-09-18T23:09:29Z
+version: 1.3
 author: Claude Code PM System
 ---
 
@@ -42,8 +42,9 @@ BumpSetCut/Presentation/
 │   ├── Folder/                       # Folder organization components
 │   ├── Search/                       # Search and filtering components
 │   ├── Shared/                       # Common UI elements
+│   │   └── AnimationCoordinator.swift # Cross-component animation coordination
 │   ├── Upload/                       # Upload and drag-drop components
-│   ├── Video/                        # Video management components
+│   ├── Video/                        # Video management components (bulk ops removed)
 │   ├── Stored Video/
 │   │   └── StoredVideo.swift         # Video thumbnail/preview component
 │   └── MetadataOverlayView.swift     # Metadata visualization overlay
@@ -55,10 +56,14 @@ BumpSetCut/Presentation/
 BumpSetCut/Domain/
 ├── Services/                         # Core application services
 │   ├── VideoProcessor.swift         # Main processing orchestrator (@Observable)
-│   ├── VideoExporter.swift          # Production video creation
+│   ├── VideoExporter.swift          # Production video creation and rally export
 │   ├── UploadCoordinator.swift      # File upload management
 │   ├── UploadManager.swift          # Upload process handling
-│   └── MetricsCollector.swift       # Performance and analytics
+│   ├── MetricsCollector.swift       # Performance and analytics
+│   ├── ActionPersistenceManager.swift # Action persistence and replay
+│   ├── GestureCoordinator.swift     # Cross-component gesture coordination
+│   ├── RallyCacheManager.swift      # Rally data caching and optimization
+│   └── RallyNavigationState.swift   # Rally navigation state management
 ├── Logic/                           # Core algorithmic components
 │   ├── BallisticsGate.swift         # Physics-based trajectory validation
 │   ├── RallyDecider.swift           # Hysteresis-based rally state machine
@@ -108,15 +113,15 @@ BumpSetCut/Infrastructure/
 │   └── QuadraticFit.swift           # Curve fitting algorithms
 └── System/                          # System-level utilities
     ├── CMTime+Helpers.swift         # Time manipulation utilities
-    └── AVURLAsset++.swift           # Video asset extensions
+    ├── AVURLAsset++.swift           # Video asset extensions
+    └── OrientationManager.swift     # Device orientation management
 ```
 
 ### Resources and Assets
 ```
 BumpSetCut/Resources/
 └── ML/                              # CoreML model files
-    ├── best.mlpackage               # Original YOLO volleyball model
-    └── bestv2.mlpackage             # Enhanced volleyball detection model
+    └── bestv2.mlpackage             # Primary YOLO volleyball detection model
 ```
 
 ## Test Suite Structure (`BumpSetCutTests/`)

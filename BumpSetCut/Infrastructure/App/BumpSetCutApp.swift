@@ -10,12 +10,20 @@ import AVFoundation
 
 @main struct BumpSetCutApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var rallyCacheManager = RallyCacheManager()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .registerPopups()
                 .withAppSettings()
+                .environmentObject(rallyCacheManager)
+                .onAppear {
+                    // Perform cache maintenance on app launch
+                    Task {
+                        rallyCacheManager.performAppLaunchMaintenance()
+                    }
+                }
         }
     }
 }
@@ -33,8 +41,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         } catch {
             print("❌ Failed to configure audio session: \(error)")
         }
-        
+
         return true
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // Perform lightweight cache maintenance in background
+        Task {
+            let cacheManager = RallyCacheManager()
+            cacheManager.performBackgroundMaintenance()
+        }
     }
 
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask { AppDelegate.orientationLock }
