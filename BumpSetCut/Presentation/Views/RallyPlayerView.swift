@@ -18,6 +18,7 @@ struct RallyPlayerView: View {
     @StateObject private var metadataStore = MetadataStore()
     @StateObject private var orientationManager = OrientationManager()
     @StateObject private var gestureCoordinator: GestureCoordinator
+    @StateObject private var animationCoordinator = AnimationCoordinator()
 
     // Smart dual-player state
     @State private var primaryPlayer: AVPlayer?
@@ -48,11 +49,10 @@ struct RallyPlayerView: View {
     @State private var playbackObserver: Any?
     @State private var observerPlayer: AVPlayer? // Track which player has the observer
 
-    // Gesture visual feedback
-    @State private var gestureTranslation: CGSize = .zero
-    @State private var gestureResistance: CGFloat = 1.0
-    @State private var showElasticBounce = false
-    @State private var peekDirection: GestureCoordinator.PeekDirection?
+    // Animation coordinator values (computed from animationCoordinator)
+    private var animationValues: AnimationCoordinator.AnimationValues {
+        animationCoordinator.animationValues
+    }
 
     private var isLandscape: Bool {
         orientationManager.isLandscape
@@ -173,9 +173,9 @@ private extension RallyPlayerView {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .gestureCoordinated(gestureCoordinator)
-        .offset(gestureTranslation)
-        .scaleEffect(gestureResistance)
+        .gestureCoordinated(gestureCoordinator, animationCoordinator: animationCoordinator)
+        .offset(animationValues.translation)
+        .scaleEffect(animationValues.resistance)
     }
 
     func createLoadingView() -> some View {
@@ -548,8 +548,9 @@ private extension RallyPlayerView {
                             .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
                     )
             }
-            .scaleEffect(isCurrentRallyDeleted ? 1.2 : 1.0)
+            .scaleEffect((isCurrentRallyDeleted ? 1.2 : 1.0) * animationValues.deleteScale)
             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isCurrentRallyDeleted)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: animationValues.deleteScale)
 
             // Undo button
             Button(action: {
@@ -583,8 +584,9 @@ private extension RallyPlayerView {
                             .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
                     )
             }
-            .scaleEffect(isCurrentRallyLiked ? 1.2 : 1.0)
+            .scaleEffect((isCurrentRallyLiked ? 1.2 : 1.0) * animationValues.likeScale)
             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isCurrentRallyLiked)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: animationValues.likeScale)
         }
         .padding(.bottom, 30) // Safe area padding for bottom
         .padding(.horizontal, 20)
@@ -636,15 +638,18 @@ private extension RallyPlayerView {
     }
 
     func setupGestureCoordinator() {
+        // Configure animation coordinator haptic feedback
+        animationCoordinator.onHapticFeedback = { [weak self] hapticType in
+            self?.triggerHapticFeedback(for: hapticType)
+        }
+
         // Configure gesture coordinator callbacks
         gestureCoordinator.onGestureAction = { [weak self] action in
             self?.handleGestureAction(action)
         }
 
         gestureCoordinator.onPeekStateChanged = { [weak self] peekDirection in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                self?.peekDirection = peekDirection
-            }
+            self?.updateAnimationCoordinator(peekDirection: peekDirection)
         }
 
         gestureCoordinator.onElasticBounce = { [weak self] direction in
@@ -663,6 +668,33 @@ private extension RallyPlayerView {
         )
 
         gestureCoordinator.updateStackBounds(bounds)
+    }
+
+    func updateAnimationCoordinator(peekDirection: GestureCoordinator.PeekDirection?) {
+        // Update animation coordinator with current gesture state
+        animationCoordinator.updateGestureBasedAnimation(
+            translation: gestureCoordinator.currentTranslation,
+            gestureType: nil, // Will be set during gesture action
+            resistance: gestureCoordinator.resistanceFactor,
+            peekDirection: peekDirection
+        )
+    }
+
+    func triggerHapticFeedback(for hapticType: AnimationCoordinator.HapticType) {
+        switch hapticType {
+        case .boundary:
+            let impactFeedback = UIImpactFeedbackGenerator(style: .heavy)
+            impactFeedback.impactOccurred()
+        case .peek:
+            let selectionFeedback = UISelectionFeedbackGenerator()
+            selectionFeedback.selectionChanged()
+        case .action:
+            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+            impactFeedback.impactOccurred()
+        case .cancel:
+            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+            impactFeedback.impactOccurred()
+        }
     }
 
     @MainActor
@@ -897,6 +929,9 @@ private extension RallyPlayerView {
     }
 
     func handleGestureAction(_ action: GestureCoordinator.GestureAction) {
+        // Animate gesture completion through animation coordinator
+        animationCoordinator.animateGestureCompletion(action: action)
+
         switch action {
         case .navigationPrevious:
             previousRally()
@@ -906,25 +941,17 @@ private extension RallyPlayerView {
             performRallyAction(.like)
         case .actionDelete:
             performRallyAction(.delete)
-        case .peek, .cancel:
+        case .cancel:
+            // Animate cancellation through animation coordinator
+            animationCoordinator.animateGestureCancellation()
+        case .peek:
             break // Handled by peek state changes
         }
     }
 
     func handleElasticBounce(_ direction: GestureCoordinator.OverscrollDirection) {
-        // Show elastic bounce visual feedback
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
-            showElasticBounce = true
-            gestureResistance = 0.95 // Slight scale down for bounce effect
-        }
-
-        // Reset bounce effect
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                self.showElasticBounce = false
-                self.gestureResistance = 1.0
-            }
-        }
+        // Handle elastic bounce through animation coordinator
+        animationCoordinator.animateElasticBounce(direction: direction)
     }
 
     func performRallyAction(_ action: RallyAction) {
