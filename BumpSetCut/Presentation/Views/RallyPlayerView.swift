@@ -16,6 +16,8 @@ struct RallyPlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var navigationState: RallyNavigationState
     @StateObject private var metadataStore = MetadataStore()
+    @StateObject private var orientationManager = OrientationManager()
+    @StateObject private var gestureCoordinator: GestureCoordinator
 
     // Smart dual-player state
     @State private var primaryPlayer: AVPlayer?
@@ -46,17 +48,36 @@ struct RallyPlayerView: View {
     @State private var playbackObserver: Any?
     @State private var observerPlayer: AVPlayer? // Track which player has the observer
 
-    // Orientation tracking
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    // Gesture visual feedback
+    @State private var gestureTranslation: CGSize = .zero
+    @State private var gestureResistance: CGFloat = 1.0
+    @State private var showElasticBounce = false
+    @State private var peekDirection: GestureCoordinator.PeekDirection?
 
     private var isLandscape: Bool {
-        verticalSizeClass == .compact
+        orientationManager.isLandscape
     }
 
     // MARK: - Initialization
     init(videoMetadata: VideoMetadata) {
         self.videoMetadata = videoMetadata
         self._navigationState = StateObject(wrappedValue: RallyNavigationState(videoMetadata: videoMetadata))
+
+        // Create orientation manager first
+        let orientationManager = OrientationManager()
+        self._orientationManager = StateObject(wrappedValue: orientationManager)
+
+        // Initialize gesture coordinator with initial stack bounds
+        let initialBounds = GestureCoordinator.StackBounds(
+            currentIndex: 0,
+            totalCount: 0,
+            canGoPrevious: false,
+            canGoNext: false
+        )
+        self._gestureCoordinator = StateObject(wrappedValue: GestureCoordinator(
+            orientationManager: orientationManager,
+            stackBounds: initialBounds
+        ))
     }
 
     var body: some View {
@@ -94,6 +115,7 @@ struct RallyPlayerView: View {
         .onAppear(perform: setupView)
         .onDisappear(perform: cleanupPlayers)
         .onChange(of: navigationState.currentRallyIndex) { _, newIndex in
+            updateGestureCoordinatorBounds()
             Task {
                 await seekToRally(at: newIndex)
             }
@@ -151,12 +173,9 @@ private extension RallyPlayerView {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .gesture(
-            DragGesture()
-                .onEnded { gesture in
-                    handleSwipeGesture(translation: gesture.translation)
-                }
-        )
+        .gestureCoordinated(gestureCoordinator)
+        .offset(gestureTranslation)
+        .scaleEffect(gestureResistance)
     }
 
     func createLoadingView() -> some View {
@@ -609,16 +628,50 @@ private extension RallyPlayerView {
 
 private extension RallyPlayerView {
     func setupView() {
+        setupGestureCoordinator()
         Task { @MainActor in
             await initializeNavigationState()
             await setupDualPlayerSystem()
         }
     }
 
+    func setupGestureCoordinator() {
+        // Configure gesture coordinator callbacks
+        gestureCoordinator.onGestureAction = { [weak self] action in
+            self?.handleGestureAction(action)
+        }
+
+        gestureCoordinator.onPeekStateChanged = { [weak self] peekDirection in
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                self?.peekDirection = peekDirection
+            }
+        }
+
+        gestureCoordinator.onElasticBounce = { [weak self] direction in
+            self?.handleElasticBounce(direction)
+        }
+    }
+
+    func updateGestureCoordinatorBounds() {
+        guard let metadata = navigationState.processingMetadata else { return }
+
+        let bounds = GestureCoordinator.StackBounds(
+            currentIndex: navigationState.currentRallyIndex,
+            totalCount: metadata.rallySegments.count,
+            canGoPrevious: navigationState.canGoPrevious,
+            canGoNext: navigationState.canGoNext
+        )
+
+        gestureCoordinator.updateStackBounds(bounds)
+    }
+
     @MainActor
     func initializeNavigationState() async {
         navigationState.metadataStore = metadataStore
         await navigationState.initialize()
+
+        // Update gesture coordinator once metadata is loaded
+        updateGestureCoordinatorBounds()
     }
 
     @MainActor
@@ -843,30 +896,33 @@ private extension RallyPlayerView {
         }
     }
 
-    func handleSwipeGesture(translation: CGSize) {
-        let horizontalThreshold: CGFloat = 80
-        let verticalThreshold: CGFloat = 60
+    func handleGestureAction(_ action: GestureCoordinator.GestureAction) {
+        switch action {
+        case .navigationPrevious:
+            previousRally()
+        case .navigationNext:
+            nextRally()
+        case .actionLike:
+            performRallyAction(.like)
+        case .actionDelete:
+            performRallyAction(.delete)
+        case .peek, .cancel:
+            break // Handled by peek state changes
+        }
+    }
 
-        // Determine if this is primarily a horizontal or vertical swipe
-        let isHorizontalSwipe = abs(translation.width) > abs(translation.height)
+    func handleElasticBounce(_ direction: GestureCoordinator.OverscrollDirection) {
+        // Show elastic bounce visual feedback
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+            showElasticBounce = true
+            gestureResistance = 0.95 // Slight scale down for bounce effect
+        }
 
-        if isHorizontalSwipe && abs(translation.width) > horizontalThreshold {
-            // Horizontal swipes for like/delete actions
-            if translation.width > horizontalThreshold {
-                // Swipe right -> like rally
-                performRallyAction(.like)
-            } else if translation.width < -horizontalThreshold {
-                // Swipe left -> delete rally
-                performRallyAction(.delete)
-            }
-        } else if !isHorizontalSwipe && abs(translation.height) > verticalThreshold {
-            // Vertical swipes for rally navigation
-            if translation.height < -verticalThreshold {
-                // Swipe up -> next rally
-                nextRally()
-            } else if translation.height > verticalThreshold {
-                // Swipe down -> previous rally
-                previousRally()
+        // Reset bounce effect
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                self.showElasticBounce = false
+                self.gestureResistance = 1.0
             }
         }
     }
