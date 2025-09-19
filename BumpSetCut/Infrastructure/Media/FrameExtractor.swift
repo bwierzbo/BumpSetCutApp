@@ -20,7 +20,7 @@ final class FrameExtractor {
     /// Shared instance for app-wide frame extraction
     static let shared = FrameExtractor()
 
-    /// Performance telemetry tracking
+    /// Performance telemetry tracking with enhanced prefetch metrics
     private struct PerformanceTelemetry {
         var totalExtractions: Int = 0
         var totalExtractionTime: TimeInterval = 0
@@ -28,6 +28,13 @@ final class FrameExtractor {
         var memoryPressureEvents: Int = 0
         var timeoutEvents: Int = 0
         var errorEvents: Int = 0
+
+        // Enhanced prefetch tracking
+        var immediatePrefetches: Int = 0
+        var extendedPrefetches: Int = 0
+        var prefetchSkippedMemory: Int = 0
+        var prefetchSkippedCache: Int = 0
+        var prefetchErrors: Int = 0
 
         var averageExtractionTime: TimeInterval {
             guard totalExtractions > 0 else { return 0 }
@@ -38,6 +45,12 @@ final class FrameExtractor {
             guard totalExtractions > 0 else { return 0 }
             return Double(cacheHits) / Double(totalExtractions)
         }
+
+        var prefetchSuccessRate: Double {
+            let totalPrefetchAttempts = immediatePrefetches + extendedPrefetches + prefetchErrors
+            guard totalPrefetchAttempts > 0 else { return 0 }
+            return Double(immediatePrefetches + extendedPrefetches) / Double(totalPrefetchAttempts)
+        }
     }
 
     /// Memory pressure monitoring
@@ -46,6 +59,47 @@ final class FrameExtractor {
         var isUnderMemoryPressure: Bool = false
         var lastPressureDetected: Date?
         var gracefulDegradationActive: Bool = false
+    }
+
+    /// Prefetch queue management for background processing
+    private struct PrefetchQueueManager {
+        private var immediatePrefetchQueue: [(URL, CMTime)] = []
+        private var extendedPrefetchQueue: [(URL, CMTime)] = []
+        private let maxQueueSize: Int = 20
+        private let maxExtendedQueueSize: Int = 50
+
+        mutating func addImmediatePrefetch(videoURL: URL, timestamp: CMTime) {
+            guard immediatePrefetchQueue.count < maxQueueSize else { return }
+            immediatePrefetchQueue.append((videoURL, timestamp))
+        }
+
+        mutating func addExtendedPrefetch(videoURL: URL, timestamp: CMTime) {
+            guard extendedPrefetchQueue.count < maxExtendedQueueSize else { return }
+            extendedPrefetchQueue.append((videoURL, timestamp))
+        }
+
+        mutating func getNextImmediatePrefetch() -> (URL, CMTime)? {
+            guard !immediatePrefetchQueue.isEmpty else { return nil }
+            return immediatePrefetchQueue.removeFirst()
+        }
+
+        mutating func getNextExtendedPrefetch() -> (URL, CMTime)? {
+            guard !extendedPrefetchQueue.isEmpty else { return nil }
+            return extendedPrefetchQueue.removeFirst()
+        }
+
+        mutating func clearQueues() {
+            immediatePrefetchQueue.removeAll()
+            extendedPrefetchQueue.removeAll()
+        }
+
+        var queueSizes: (immediate: Int, extended: Int) {
+            return (immediatePrefetchQueue.count, extendedPrefetchQueue.count)
+        }
+
+        var hasWork: Bool {
+            return !immediatePrefetchQueue.isEmpty || !extendedPrefetchQueue.isEmpty
+        }
     }
 
     /// Configuration for frame extraction
@@ -187,15 +241,21 @@ final class FrameExtractor {
     private let config: ExtractionConfig
     private let extractionQueue = DispatchQueue(label: "com.bumpsetcut.frameextractor", qos: .userInitiated, attributes: .concurrent)
     private let highPriorityQueue = DispatchQueue(label: "com.bumpsetcut.frameextractor.priority", qos: .userInteractive)
-    private let telemetry = PerformanceTelemetry()
+    private let prefetchQueue = DispatchQueue(label: "com.bumpsetcut.frameextractor.prefetch", qos: .utility, attributes: .concurrent)
+    private var telemetry = PerformanceTelemetry()
     private var memoryMonitor = MemoryPressureMonitor()
+    private var prefetchQueueManager = PrefetchQueueManager()
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     private let logger = Logger(subsystem: "com.bumpsetcut", category: "FrameExtractor")
+
+    // Background prefetch processing
+    private var prefetchTimer: Timer?
 
     init(config: ExtractionConfig = .defaultConfig) {
         self.config = config
         setupEnhancedMemoryPressureMonitoring()
         setupApplicationLifecycleObservers()
+        startBackgroundPrefetchProcessing()
     }
 
     /// Extract a frame from the video at a specific timestamp
@@ -351,72 +411,54 @@ final class FrameExtractor {
     /// Uses optimized background processing and respects memory constraints
     func prefetchFramesExtended(videoURLs: [(URL, CMTime)], priority: ExtractionPriority = .low) {
         guard !memoryMonitor.isUnderMemoryPressure else {
+            telemetry.prefetchSkippedMemory += videoURLs.count
             logger.warning("⚠️ Skipping extended prefetching due to memory pressure")
             return
         }
 
-        logger.debug("🔮 Starting extended prefetch for \(videoURLs.count) frames (positions 4-6 ahead)")
+        logger.debug("🔮 Queuing \(videoURLs.count) frames for extended prefetch (positions 4-6 ahead)")
 
-        // Use low-priority background queue for extended prefetching
-        let prefetchQueue = DispatchQueue(label: "com.bumpsetcut.frameextractor.extended-prefetch", qos: .utility, attributes: .concurrent)
-
+        // Add to queue for background processing
         for (videoURL, timestamp) in videoURLs {
-            prefetchQueue.async { [weak self] in
-                guard let self = self else { return }
-
-                // Check if frame is already cached
-                let timestampKey = URL(string: "\(videoURL.absoluteString)_\(timestamp.seconds)")!
-
-                Task { @MainActor in
-                    if self.cache.get(timestampKey) != nil {
-                        self.logger.debug("⚡ Extended prefetch skipped (already cached): \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
-                        return
-                    }
-
-                    // Extract frame with low priority
-                    do {
-                        let _ = try await self.extractFrame(from: videoURL, at: timestamp, priority: priority)
-                        self.logger.debug("🎯 Extended prefetch completed: \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
-                    } catch {
-                        // Log error but don't throw - prefetching is optional
-                        self.logger.warning("⚠️ Extended prefetch failed for \(videoURL.lastPathComponent): \(error.localizedDescription)")
-                    }
-                }
+            // Check if frame is already cached before queuing
+            let timestampKey = URL(string: "\(videoURL.absoluteString)_\(timestamp.seconds)")!
+            if cache.get(timestampKey) != nil {
+                telemetry.prefetchSkippedCache += 1
+                logger.debug("⚡ Extended prefetch skipped (already cached): \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
+                continue
             }
+
+            prefetchQueueManager.addExtendedPrefetch(videoURL: videoURL, timestamp: timestamp)
         }
+
+        logger.debug("📊 Extended prefetch queue size: \(prefetchQueueManager.queueSizes.extended)")
     }
 
     /// Enhanced prefetch for immediate upcoming frames (positions 1-3 ahead)
     /// Higher priority than extended prefetching
     func prefetchFramesImmediate(videoURLs: [(URL, CMTime)]) {
         guard !memoryMonitor.currentMemoryPressure.contains(.critical) else {
+            telemetry.prefetchSkippedMemory += videoURLs.count
             logger.warning("⚠️ Skipping immediate prefetching due to critical memory pressure")
             return
         }
 
-        logger.debug("⚡ Starting immediate prefetch for \(videoURLs.count) frames (positions 1-3 ahead)")
+        logger.debug("⚡ Queuing \(videoURLs.count) frames for immediate prefetch (positions 1-3 ahead)")
 
-        // Use normal priority for immediate prefetching
+        // Add to immediate prefetch queue for priority processing
         for (videoURL, timestamp) in videoURLs {
-            Task {
-                // Check if frame is already cached
-                let timestampKey = URL(string: "\(videoURL.absoluteString)_\(timestamp.seconds)")!
-
-                if cache.get(timestampKey) != nil {
-                    logger.debug("⚡ Immediate prefetch skipped (already cached): \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
-                    return
-                }
-
-                // Extract frame with normal priority
-                do {
-                    let _ = try await extractFrame(from: videoURL, at: timestamp, priority: .normal)
-                    logger.debug("🎯 Immediate prefetch completed: \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
-                } catch {
-                    // Log error but don't throw - prefetching is optional
-                    logger.warning("⚠️ Immediate prefetch failed for \(videoURL.lastPathComponent): \(error.localizedDescription)")
-                }
+            // Check if frame is already cached before queuing
+            let timestampKey = URL(string: "\(videoURL.absoluteString)_\(timestamp.seconds)")!
+            if cache.get(timestampKey) != nil {
+                telemetry.prefetchSkippedCache += 1
+                logger.debug("⚡ Immediate prefetch skipped (already cached): \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
+                continue
             }
+
+            prefetchQueueManager.addImmediatePrefetch(videoURL: videoURL, timestamp: timestamp)
         }
+
+        logger.debug("📊 Immediate prefetch queue size: \(prefetchQueueManager.queueSizes.immediate)")
     }
 
     /// Check if a frame is already cached at a specific timestamp
@@ -426,14 +468,13 @@ final class FrameExtractor {
     }
 
     /// Get current prefetch performance metrics
-    var prefetchMetrics: (queuedExtractions: Int, completedPrefetches: Int, memoryPressureSkips: Int) {
-        // For now, we'll track these in telemetry in a future iteration
-        // Return basic metrics based on current state
-        let queuedExtractions = memoryMonitor.gracefulDegradationActive ? 0 : 1
+    var prefetchMetrics: (queuedExtractions: Int, completedPrefetches: Int, memoryPressureSkips: Int, successRate: Double) {
+        let queueSizes = prefetchQueueManager.queueSizes
         return (
-            queuedExtractions: queuedExtractions,
-            completedPrefetches: telemetry.totalExtractions,
-            memoryPressureSkips: telemetry.memoryPressureEvents
+            queuedExtractions: queueSizes.immediate + queueSizes.extended,
+            completedPrefetches: telemetry.immediatePrefetches + telemetry.extendedPrefetches,
+            memoryPressureSkips: telemetry.prefetchSkippedMemory,
+            successRate: telemetry.prefetchSuccessRate
         )
     }
 
@@ -478,6 +519,65 @@ final class FrameExtractor {
         logger.info("🔺 Graceful degradation disabled")
     }
 
+    // MARK: - Background Prefetch Processing
+
+    private func startBackgroundPrefetchProcessing() {
+        prefetchTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.processBackgroundPrefetchQueue()
+            }
+        }
+    }
+
+    private func processBackgroundPrefetchQueue() {
+        guard prefetchQueueManager.hasWork && !memoryMonitor.isUnderMemoryPressure else {
+            return
+        }
+
+        // Process immediate prefetches first (higher priority)
+        if let (videoURL, timestamp) = prefetchQueueManager.getNextImmediatePrefetch() {
+            processImmediatePrefetch(videoURL: videoURL, timestamp: timestamp)
+        }
+        // Then process extended prefetches
+        else if let (videoURL, timestamp) = prefetchQueueManager.getNextExtendedPrefetch() {
+            processExtendedPrefetch(videoURL: videoURL, timestamp: timestamp)
+        }
+    }
+
+    private func processImmediatePrefetch(videoURL: URL, timestamp: CMTime) {
+        Task {
+            do {
+                let _ = try await extractFrame(from: videoURL, at: timestamp, priority: .normal)
+                telemetry.immediatePrefetches += 1
+                logger.debug("🎯 Immediate prefetch completed: \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
+            } catch {
+                telemetry.prefetchErrors += 1
+                logger.warning("⚠️ Immediate prefetch failed for \(videoURL.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func processExtendedPrefetch(videoURL: URL, timestamp: CMTime) {
+        prefetchQueue.async { [weak self] in
+            guard let self = self else { return }
+
+            Task {
+                do {
+                    let _ = try await self.extractFrame(from: videoURL, at: timestamp, priority: .low)
+                    await MainActor.run {
+                        self.telemetry.extendedPrefetches += 1
+                    }
+                    self.logger.debug("🎯 Extended prefetch completed: \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
+                } catch {
+                    await MainActor.run {
+                        self.telemetry.prefetchErrors += 1
+                    }
+                    self.logger.warning("⚠️ Extended prefetch failed for \(videoURL.lastPathComponent): \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
     // MARK: - Performance Helper Methods
 
     private func determineExtractionQueue(priority: ExtractionPriority) -> DispatchQueue {
@@ -514,16 +614,20 @@ final class FrameExtractor {
         memoryMonitor.isUnderMemoryPressure = true
         memoryMonitor.lastPressureDetected = Date()
 
-        var currentTelemetry = telemetry
-        currentTelemetry.memoryPressureEvents += 1
+        telemetry.memoryPressureEvents += 1
 
         if event.contains(.critical) {
-            logger.error("🎆 Critical memory pressure - immediate cache clearing")
+            logger.error("🎆 Critical memory pressure - immediate cache clearing and prefetch queue clearing")
             cache.clearAll()
+            prefetchQueueManager.clearQueues()
             memoryMonitor.gracefulDegradationActive = true
         } else if event.contains(.warning) {
-            logger.warning("🟠 Memory pressure warning - moderate cache reduction")
+            logger.warning("🟠 Memory pressure warning - moderate cache reduction and extended prefetch queue clearing")
             cache.clearOldest(ratio: 0.3)
+            // Clear only extended prefetch queue, keep immediate prefetches
+            while prefetchQueueManager.queueSizes.extended > 0 {
+                _ = prefetchQueueManager.getNextExtendedPrefetch()
+            }
         }
 
         // Schedule memory pressure reset check
@@ -586,6 +690,7 @@ final class FrameExtractor {
 
     deinit {
         memoryPressureSource?.cancel()
+        prefetchTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
     }
 }
