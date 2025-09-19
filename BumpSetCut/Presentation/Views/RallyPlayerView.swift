@@ -83,6 +83,10 @@ struct RallyPlayerView: View {
     @State private var dragDirection: SwipeDirection? = nil
     @State private var currentDragOffset: CGSize = .zero
 
+    // Thumbnail state for card stack
+    @State private var thumbnails: [Int: UIImage] = [:]  // Rally index to thumbnail
+    @State private var isLoadingThumbnails = false
+
     // MARK: - Computed Properties
     internal var isPortrait: Bool {
         orientationManager.isPortrait
@@ -141,9 +145,11 @@ struct RallyPlayerView: View {
             cleanupRallyPlayer()
         }
         .gesture(tinderStyleGesture)
-        .animation(OrientationManager.OrientationConfiguration.gestureAnimation, value: peelOffset)
-        .animation(OrientationManager.OrientationConfiguration.gestureAnimation, value: peelRotation)
-        .animation(OrientationManager.OrientationConfiguration.gestureAnimation, value: peelOpacity)
+        .animation(AnimationCoordinator.AnimationConfiguration.peelAnimation, value: peelOffset)
+        .animation(AnimationCoordinator.AnimationConfiguration.peelAnimation, value: peelRotation)
+        .animation(AnimationCoordinator.AnimationConfiguration.peelAnimation, value: peelOpacity)
+        .animation(AnimationCoordinator.AnimationConfiguration.stackRevealAnimation, value: animationCoordinator.stackRevealProgress)
+        .animation(AnimationCoordinator.AnimationConfiguration.cardRepositionAnimation, value: currentDragOffset)
     }
 
     // MARK: - Content Views
@@ -202,17 +208,51 @@ struct RallyPlayerView: View {
                     let playerIndex = navigationState.currentRallyIndex + stackIndex
                     let isTopCard = stackIndex == 0
 
-                    // Calculate depth-based transforms
-                    let cardScale: CGFloat = 1.0 - (CGFloat(stackIndex) * 0.05) // 1.0, 0.95, 0.9
-                    let verticalOffset: CGFloat = CGFloat(stackIndex) * 8 // 0px, 8px, 16px
-                    let horizontalOffset: CGFloat = CGFloat(stackIndex) * 4 // 0px, 4px, 8px
+                    // Calculate coordinated depth-based transforms
+                    let baseScale: CGFloat = 1.0 - (CGFloat(stackIndex) * 0.05) // 1.0, 0.95, 0.9
+                    let baseVerticalOffset: CGFloat = CGFloat(stackIndex) * 8 // 0px, 8px, 16px
+                    let baseHorizontalOffset: CGFloat = CGFloat(stackIndex) * 4 // 0px, 4px, 8px
 
-                    RallyVideoPlayerView(
-                        player: players[playerIndex],
-                        geometry: geometry,
-                        orientationManager: orientationManager
-                    )
-                    .id("rally-\(playerIndex)-stack-\(stackIndex)")
+                    // Apply coordinated animation adjustments
+                    let stackRevealMultiplier = isTopCard ? 0.0 : (1.0 + animationCoordinator.stackRevealProgress * 0.5)
+                    let peelInfluence = isTopCard ? animationCoordinator.peelProgress : 0.0
+
+                    let cardScale = baseScale * stackRevealMultiplier
+                    let verticalOffset = baseVerticalOffset * stackRevealMultiplier - (peelInfluence * 20)
+                    let horizontalOffset = baseHorizontalOffset * stackRevealMultiplier
+
+                    Group {
+                        if isTopCard {
+                            // Top card: Full video player
+                            RallyVideoPlayerView(
+                                player: players[playerIndex],
+                                geometry: geometry,
+                                orientationManager: orientationManager
+                            )
+                            .id("rally-\(playerIndex)-stack-\(stackIndex)")
+                        } else {
+                            // Background cards: Show thumbnail for performance
+                            if let thumbnail = thumbnails[playerIndex] {
+                                Image(uiImage: thumbnail)
+                                    .resizable()
+                                    .aspectRatio(contentMode: orientationManager.isLandscape ? .fill : .fit)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .background(Color.black)
+                                    .clipped()
+                                    .id("rally-thumbnail-\(playerIndex)-stack-\(stackIndex)")
+                            } else {
+                                // Placeholder while loading thumbnail
+                                Rectangle()
+                                    .fill(Color.black.opacity(0.3))
+                                    .overlay(
+                                        ProgressView()
+                                            .tint(.white)
+                                            .scaleEffect(0.8)
+                                    )
+                                    .id("rally-placeholder-\(playerIndex)-stack-\(stackIndex)")
+                            }
+                        }
+                    }
                     .frame(
                         maxWidth: .infinity,
                         maxHeight: .infinity
@@ -220,14 +260,14 @@ struct RallyPlayerView: View {
                     .if(orientationManager.isLandscape) { view in
                         view.ignoresSafeArea(.all)
                     }
-                    // Apply stack transforms
+                    // Apply coordinated stack transforms
                     .scaleEffect(cardScale)
                     .offset(
                         x: isTopCard ? (peelOffset.width + currentDragOffset.width) : horizontalOffset,
                         y: isTopCard ? (peelOffset.height + currentDragOffset.height) : verticalOffset
                     )
                     .rotationEffect(.degrees(isTopCard ? peelRotation : 0))
-                    .opacity(isTopCard ? peelOpacity : 0.8) // Slightly dimmed background cards
+                    .opacity(isTopCard ? peelOpacity : min(0.8, 0.4 + animationCoordinator.stackRevealProgress * 0.4)) // Dynamic opacity for stack reveal
                     .zIndex(Double(3 - stackIndex)) // Ensure proper layering (top card has highest z-index)
                     .shadow(
                         color: Color.black.opacity(0.2),
@@ -433,13 +473,13 @@ struct RallyPlayerView: View {
                     height: translation.height * resistance
                 )
 
-                updateIconsBasedOnDrag(translation: translation)
+                updateIconsBasedOnDrag(translation: translation, velocity: value.velocity)
             }
             .onEnded { value in
                 // Only process gestures when video is ready, we can interact, and not transitioning orientation
                 guard navigationState.canInteract && !orientationManager.isTransitioning else {
                     resetAllGestureStates()
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                    withAnimation(AnimationCoordinator.AnimationConfiguration.cardRepositionAnimation) {
                         currentDragOffset = .zero
                     }
                     return
@@ -495,8 +535,9 @@ struct RallyPlayerView: View {
                         }
                     }
                 } else {
-                    // Sub-threshold gesture - animate back to center
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    // Sub-threshold gesture - use coordinated reset animation
+                    animationCoordinator.resetGestureAnimation()
+                    withAnimation(AnimationCoordinator.AnimationConfiguration.cardRepositionAnimation) {
                         peelOffset = .zero
                         peelRotation = 0
                         peelOpacity = 1
@@ -504,16 +545,25 @@ struct RallyPlayerView: View {
                     resetIconStates()
                 }
 
-                // Always reset drag offset on gesture end
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                // Always reset drag offset on gesture end using coordinated animation
+                withAnimation(AnimationCoordinator.AnimationConfiguration.cardRepositionAnimation) {
                     currentDragOffset = .zero
                 }
             }
     }
 
-    // MARK: - Icon Feedback System
-    private func updateIconsBasedOnDrag(translation: CGSize) {
+    // MARK: - Enhanced Icon Feedback System with Animation Coordination
+    private func updateIconsBasedOnDrag(translation: CGSize, velocity: CGSize = .zero) {
         let feedbackThreshold: CGFloat = 30
+
+        // Update coordinated animation progress
+        let screenSize = UIScreen.main.bounds.size
+        let bounds = CGRect(origin: .zero, size: screenSize)
+        animationCoordinator.updateGestureBasedAnimation(
+            translation: translation,
+            velocity: velocity,
+            screenBounds: bounds
+        )
 
         // Calculate dominant axis to provide appropriate feedback
         let horizontalMagnitude = abs(translation.width)
@@ -522,21 +572,23 @@ struct RallyPlayerView: View {
         // Only show horizontal feedback if horizontal is dominant or significant
         if horizontalMagnitude > feedbackThreshold && horizontalMagnitude >= verticalMagnitude {
             if translation.width > 0 {
-                // Dragging right - show heart
+                // Dragging right - show heart with coordinated scaling
                 dragDirection = .right
                 showHeartIcon = true
                 showTrashIcon = false
 
                 let progress = min(horizontalMagnitude / 100, 1.0)
-                heartScale = 0.8 + (0.4 * progress) // Scale from 0.8 to 1.2
+                let animationProgress = animationCoordinator.peelProgress
+                heartScale = 0.8 + (0.4 * progress) + (0.2 * animationProgress) // Enhanced scaling
             } else {
-                // Dragging left - show trash
+                // Dragging left - show trash with coordinated scaling
                 dragDirection = .left
                 showTrashIcon = true
                 showHeartIcon = false
 
                 let progress = min(horizontalMagnitude / 100, 1.0)
-                trashScale = 0.8 + (0.4 * progress) // Scale from 0.8 to 1.2
+                let animationProgress = animationCoordinator.peelProgress
+                trashScale = 0.8 + (0.4 * progress) + (0.2 * animationProgress) // Enhanced scaling
             }
         } else if verticalMagnitude > feedbackThreshold && verticalMagnitude > horizontalMagnitude {
             // Vertical gesture dominant - don't show left/right icons, prepare for up/down swipe
@@ -595,35 +647,19 @@ struct RallyPlayerView: View {
         }
     }
 
-    // MARK: - Peel Animations
+    // MARK: - Coordinated Peel Animations
     private func performPeelAnimation(_ direction: PeelDirection, completion: @escaping () -> Void) {
-        let screenWidth = UIScreen.main.bounds.width
-        let screenHeight = UIScreen.main.bounds.height
-
-        withAnimation(.easeInOut(duration: 0.3)) {
-            switch direction {
-            case .right:
-                peelOffset = CGSize(width: screenWidth, height: -100)
-                peelRotation = 15
-            case .left:
-                peelOffset = CGSize(width: -screenWidth, height: -100)
-                peelRotation = -15
-            case .up:
-                peelOffset = CGSize(width: 0, height: -screenHeight)
-                peelRotation = 0
-            }
-            peelOpacity = 0
-        }
-
-        // Execute action and reset after animation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        // Use coordinated animation system for smooth stack coordination
+        animationCoordinator.performCoordinatedPeelAnimation(direction: direction) {
             completion()
-            resetPeelAnimation()
+            self.resetPeelAnimation()
         }
     }
 
     private func resetPeelAnimation() {
-        withAnimation(.easeOut(duration: 0.2)) {
+        animationCoordinator.resetGestureAnimation()
+
+        withAnimation(AnimationCoordinator.AnimationConfiguration.cardRepositionAnimation) {
             peelOffset = .zero
             peelRotation = 0
             peelOpacity = 1
@@ -679,6 +715,11 @@ struct RallyPlayerView: View {
             if navigationState.currentRallyIndex < players.count && isPlaying {
                 players[navigationState.currentRallyIndex].play()
                 print("🎬 Playing rally \(navigationState.currentRallyIndex)")
+            }
+
+            // Prefetch upcoming thumbnails
+            Task {
+                await self.prefetchUpcomingThumbnails()
             }
         }
     }
@@ -760,6 +801,82 @@ struct RallyPlayerView: View {
         }
     }
 
+    // MARK: - Thumbnail Management
+    private func loadThumbnailsForStack() async {
+        guard !rallyVideoURLs.isEmpty else { return }
+
+        await MainActor.run {
+            isLoadingThumbnails = true
+        }
+
+        // Load thumbnails for current and next 2 rallies
+        let startIndex = navigationState.currentRallyIndex
+        let endIndex = min(startIndex + 3, rallyVideoURLs.count)
+
+        for index in startIndex..<endIndex {
+            await loadThumbnail(for: index)
+        }
+
+        await MainActor.run {
+            isLoadingThumbnails = false
+        }
+    }
+
+    private func loadThumbnail(for rallyIndex: Int) async {
+        guard rallyIndex < rallyVideoURLs.count else { return }
+
+        let videoURL = rallyVideoURLs[rallyIndex]
+        let timestamp = 0.5  // Get thumbnail from 0.5 seconds into the rally
+
+        // Check disk cache first
+        if let cachedData = await cacheManager.getCachedThumbnail(for: videoMetadata.id, at: Double(rallyIndex) + timestamp),
+           let image = UIImage(data: cachedData) {
+            await MainActor.run {
+                self.thumbnails[rallyIndex] = image
+            }
+            return
+        }
+
+        // Generate thumbnail using FrameExtractor
+        do {
+            let cmTime = CMTime(seconds: timestamp, preferredTimescale: 600)
+            let thumbnail = try await FrameExtractor.shared.generateThumbnail(from: videoURL, at: cmTime)
+
+            await MainActor.run {
+                self.thumbnails[rallyIndex] = thumbnail
+            }
+
+            // Cache to disk for future use
+            if let jpegData = thumbnail.jpegData(compressionQuality: 0.7) {
+                await cacheManager.storeThumbnail(jpegData, for: videoMetadata.id, at: Double(rallyIndex) + timestamp)
+            }
+        } catch {
+            print("❌ Failed to generate thumbnail for rally \(rallyIndex): \(error)")
+        }
+    }
+
+    private func prefetchUpcomingThumbnails() async {
+        // Prefetch thumbnails for the next 3 rallies beyond current view
+        let startIndex = navigationState.currentRallyIndex + 3
+        let endIndex = min(startIndex + 3, rallyVideoURLs.count)
+
+        guard startIndex < endIndex else { return }
+
+        // Use low priority prefetching
+        var requests: [(URL, CMTime)] = []
+        for index in startIndex..<endIndex {
+            if thumbnails[index] == nil {
+                let url = rallyVideoURLs[index]
+                let time = CMTime(seconds: 0.5, preferredTimescale: 600)
+                requests.append((url, time))
+            }
+        }
+
+        if !requests.isEmpty {
+            FrameExtractor.shared.prefetchThumbnails(for: requests, priority: .low)
+        }
+    }
+
     // MARK: - Lifecycle
     private func setupRallyPlayer() {
         Task {
@@ -808,6 +925,11 @@ struct RallyPlayerView: View {
 
                 // Setup video players with cached URLs
                 self.setupVideoPlayers()
+
+                // Load thumbnails for card stack preview
+                Task {
+                    await self.loadThumbnailsForStack()
+                }
             }
             print("⚡ Loaded \(cachedURLs.count) rallies from cache instantly!")
             return
@@ -834,6 +956,11 @@ struct RallyPlayerView: View {
 
                     // Setup video players once URLs are loaded
                     self.setupVideoPlayers()
+
+                    // Load thumbnails for card stack preview
+                    Task {
+                        await self.loadThumbnailsForStack()
+                    }
                 }
 
             } catch {
