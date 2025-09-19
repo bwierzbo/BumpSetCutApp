@@ -198,9 +198,9 @@ final class FrameExtractor {
         setupApplicationLifecycleObservers()
     }
 
-    /// Extract a frame from the video at the configured time (0.1 seconds)
+    /// Extract a frame from the video at a specific timestamp
     /// Enhanced with performance monitoring, memory pressure detection, and graceful degradation
-    func extractFrame(from videoURL: URL, priority: ExtractionPriority = .normal) async throws -> UIImage {
+    func extractFrame(from videoURL: URL, at timestamp: CMTime, priority: ExtractionPriority = .normal) async throws -> UIImage {
         let extractionStartTime = Date()
 
         // Update telemetry
@@ -222,10 +222,13 @@ final class FrameExtractor {
             }
         }
 
+        // Create cache key with timestamp for more specific caching
+        let timestampKey = URL(string: "\(videoURL.absoluteString)_\(timestamp.seconds)")!
+
         // Check cache first
-        if let cachedImage = cache.get(videoURL) {
+        if let cachedImage = cache.get(timestampKey) {
             currentTelemetry.cacheHits += 1
-            logger.debug("✅ Cache hit for frame extraction: \(videoURL.lastPathComponent)")
+            logger.debug("✅ Cache hit for frame extraction: \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
             return cachedImage
         }
 
@@ -287,7 +290,7 @@ final class FrameExtractor {
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutTask)
 
                 // Extract frame
-                let requestedTime = self.config.frameTime
+                let requestedTime = timestamp
                 imageGenerator.generateCGImagesAsynchronously(forTimes: [NSValue(time: requestedTime)]) { (requestedTime, cgImage, actualTime, result, error) in
                     timeoutTask.cancel()
 
@@ -321,12 +324,12 @@ final class FrameExtractor {
         let extractionTime = Date().timeIntervalSince(extractionStartTime)
         currentTelemetry.totalExtractionTime += extractionTime
 
-        logger.debug("⏱️ Frame extraction completed in \(Int(extractionTime * 1000))ms for: \(videoURL.lastPathComponent)")
+        logger.debug("⏱️ Frame extraction completed in \(Int(extractionTime * 1000))ms for: \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
 
         // Cache the extracted image if not under severe memory pressure
         if !memoryMonitor.currentMemoryPressure.contains(.critical) {
             await MainActor.run {
-                cache.set(videoURL, image: image)
+                cache.set(timestampKey, image: image)
             }
         }
 
@@ -336,6 +339,102 @@ final class FrameExtractor {
         }
 
         return image
+    }
+
+    /// Extract a frame from the video at the configured time (0.1 seconds)
+    /// Enhanced with performance monitoring, memory pressure detection, and graceful degradation
+    func extractFrame(from videoURL: URL, priority: ExtractionPriority = .normal) async throws -> UIImage {
+        return try await extractFrame(from: videoURL, at: config.frameTime, priority: priority)
+    }
+
+    /// Batch prefetch frames for extended lookahead (positions 4-6 ahead)
+    /// Uses optimized background processing and respects memory constraints
+    func prefetchFramesExtended(videoURLs: [(URL, CMTime)], priority: ExtractionPriority = .low) {
+        guard !memoryMonitor.isUnderMemoryPressure else {
+            logger.warning("⚠️ Skipping extended prefetching due to memory pressure")
+            return
+        }
+
+        logger.debug("🔮 Starting extended prefetch for \(videoURLs.count) frames (positions 4-6 ahead)")
+
+        // Use low-priority background queue for extended prefetching
+        let prefetchQueue = DispatchQueue(label: "com.bumpsetcut.frameextractor.extended-prefetch", qos: .utility, attributes: .concurrent)
+
+        for (videoURL, timestamp) in videoURLs {
+            prefetchQueue.async { [weak self] in
+                guard let self = self else { return }
+
+                // Check if frame is already cached
+                let timestampKey = URL(string: "\(videoURL.absoluteString)_\(timestamp.seconds)")!
+
+                Task { @MainActor in
+                    if self.cache.get(timestampKey) != nil {
+                        self.logger.debug("⚡ Extended prefetch skipped (already cached): \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
+                        return
+                    }
+
+                    // Extract frame with low priority
+                    do {
+                        let _ = try await self.extractFrame(from: videoURL, at: timestamp, priority: priority)
+                        self.logger.debug("🎯 Extended prefetch completed: \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
+                    } catch {
+                        // Log error but don't throw - prefetching is optional
+                        self.logger.warning("⚠️ Extended prefetch failed for \(videoURL.lastPathComponent): \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Enhanced prefetch for immediate upcoming frames (positions 1-3 ahead)
+    /// Higher priority than extended prefetching
+    func prefetchFramesImmediate(videoURLs: [(URL, CMTime)]) {
+        guard !memoryMonitor.currentMemoryPressure.contains(.critical) else {
+            logger.warning("⚠️ Skipping immediate prefetching due to critical memory pressure")
+            return
+        }
+
+        logger.debug("⚡ Starting immediate prefetch for \(videoURLs.count) frames (positions 1-3 ahead)")
+
+        // Use normal priority for immediate prefetching
+        for (videoURL, timestamp) in videoURLs {
+            Task {
+                // Check if frame is already cached
+                let timestampKey = URL(string: "\(videoURL.absoluteString)_\(timestamp.seconds)")!
+
+                if cache.get(timestampKey) != nil {
+                    logger.debug("⚡ Immediate prefetch skipped (already cached): \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
+                    return
+                }
+
+                // Extract frame with normal priority
+                do {
+                    let _ = try await extractFrame(from: videoURL, at: timestamp, priority: .normal)
+                    logger.debug("🎯 Immediate prefetch completed: \(videoURL.lastPathComponent) at \(timestamp.seconds)s")
+                } catch {
+                    // Log error but don't throw - prefetching is optional
+                    logger.warning("⚠️ Immediate prefetch failed for \(videoURL.lastPathComponent): \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// Check if a frame is already cached at a specific timestamp
+    func isFrameCached(videoURL: URL, at timestamp: CMTime) -> Bool {
+        let timestampKey = URL(string: "\(videoURL.absoluteString)_\(timestamp.seconds)")!
+        return cache.get(timestampKey) != nil
+    }
+
+    /// Get current prefetch performance metrics
+    var prefetchMetrics: (queuedExtractions: Int, completedPrefetches: Int, memoryPressureSkips: Int) {
+        // For now, we'll track these in telemetry in a future iteration
+        // Return basic metrics based on current state
+        let queuedExtractions = memoryMonitor.gracefulDegradationActive ? 0 : 1
+        return (
+            queuedExtractions: queuedExtractions,
+            completedPrefetches: telemetry.totalExtractions,
+            memoryPressureSkips: telemetry.memoryPressureEvents
+        )
     }
 
     /// Clear all cached frames
