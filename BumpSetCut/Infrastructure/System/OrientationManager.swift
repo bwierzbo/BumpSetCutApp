@@ -51,31 +51,55 @@ final class OrientationManager: ObservableObject {
             blendDuration: 0.0
         )
 
-        // Gesture thresholds by orientation
-        struct GestureThresholds {
-            let navigation: CGFloat
-            let action: CGFloat
-            let peek: CGFloat
-            let resistance: CGFloat
-        }
-
-        static let portraitThresholds = GestureThresholds(
-            navigation: 100,
-            action: 120,
-            peek: 20,
-            resistance: 100
-        )
-
-        static let landscapeThresholds = GestureThresholds(
-            navigation: 120,
-            action: 140,
-            peek: 25,
-            resistance: 120
-        )
-
         // Debouncing
         static let orientationChangeDebounce: TimeInterval = 0.1
     }
+
+    // MARK: - Device-Optimized Gesture Thresholds
+    struct GestureThresholds {
+        let navigation: CGFloat
+        let action: CGFloat
+        let peek: CGFloat
+        let resistance: CGFloat
+        let velocity: CGFloat
+    }
+
+    struct DeviceCharacteristics {
+        let screenSize: CGSize
+        let deviceType: DeviceType
+        let screenDensity: CGFloat
+
+        enum DeviceType {
+            case iPhone
+            case iPad
+            case mac
+
+            static var current: DeviceType {
+                #if targetEnvironment(macCatalyst)
+                return .mac
+                #else
+                if UIDevice.current.userInterfaceIdiom == .pad {
+                    return .iPad
+                } else {
+                    return .iPhone
+                }
+                #endif
+            }
+        }
+
+        static var current: DeviceCharacteristics {
+            let screen = UIScreen.main
+            return DeviceCharacteristics(
+                screenSize: screen.bounds.size,
+                deviceType: DeviceType.current,
+                screenDensity: screen.scale
+            )
+        }
+    }
+
+    // MARK: - Device State
+    private var deviceCharacteristics: DeviceCharacteristics
+    private var cachedThresholds: [String: GestureThresholds] = [:]
 
     // MARK: - Private Properties
     private var orientationCancellable: AnyCancellable?
@@ -83,6 +107,9 @@ final class OrientationManager: ObservableObject {
 
     // MARK: - Initialization
     init() {
+        // Initialize device characteristics
+        self.deviceCharacteristics = DeviceCharacteristics.current
+
         // Start device orientation monitoring
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()
 
@@ -137,6 +164,9 @@ final class OrientationManager: ObservableObject {
         // Clear geometry cache on orientation change
         invalidateGeometryCache()
 
+        // Clear threshold cache on orientation change
+        invalidateThresholdCache()
+
         // Perform transition animation
         performOrientationTransition(from: oldOrientation, to: newOrientation)
     }
@@ -189,11 +219,80 @@ final class OrientationManager: ObservableObject {
         geometryCacheTime = nil
     }
 
+    private func invalidateThresholdCache() {
+        cachedThresholds.removeAll()
+    }
+
     // MARK: - Gesture Configuration
-    func getGestureThresholds() -> OrientationConfiguration.GestureThresholds {
-        return isPortrait ?
-            OrientationConfiguration.portraitThresholds :
-            OrientationConfiguration.landscapeThresholds
+    func getGestureThresholds() -> GestureThresholds {
+        let cacheKey = "\(isPortrait ? "portrait" : "landscape")_\(deviceCharacteristics.deviceType)_\(Int(deviceCharacteristics.screenSize.width))x\(Int(deviceCharacteristics.screenSize.height))"
+
+        if let cached = cachedThresholds[cacheKey] {
+            return cached
+        }
+
+        let thresholds = calculateDeviceOptimizedThresholds()
+        cachedThresholds[cacheKey] = thresholds
+        return thresholds
+    }
+
+    private func calculateDeviceOptimizedThresholds() -> GestureThresholds {
+        // Base thresholds (optimized for iPhone)
+        let baseNavigation: CGFloat = 50
+        let baseAction: CGFloat = 80
+        let basePeek: CGFloat = 20
+        let baseResistance: CGFloat = 100
+        let baseVelocity: CGFloat = 400
+
+        // Device-specific scaling factors
+        let deviceScaleFactor = calculateDeviceScaleFactor()
+        let orientationScaleFactor = calculateOrientationScaleFactor()
+        let screenSizeScaleFactor = calculateScreenSizeScaleFactor()
+
+        // Combined scaling
+        let combinedScale = deviceScaleFactor * orientationScaleFactor * screenSizeScaleFactor
+
+        return GestureThresholds(
+            navigation: baseNavigation * combinedScale,
+            action: baseAction * combinedScale,
+            peek: basePeek * min(combinedScale, 1.5), // Cap peek scaling
+            resistance: baseResistance * combinedScale,
+            velocity: baseVelocity * combinedScale
+        )
+    }
+
+    private func calculateDeviceScaleFactor() -> CGFloat {
+        switch deviceCharacteristics.deviceType {
+        case .iPhone:
+            return 1.0 // Base reference
+        case .iPad:
+            return 1.4 // Larger device, need larger thresholds
+        case .mac:
+            return 1.6 // Largest device, largest thresholds
+        }
+    }
+
+    private func calculateOrientationScaleFactor() -> CGFloat {
+        if isLandscape {
+            return 1.2 // Slightly larger thresholds in landscape
+        } else {
+            return 1.0 // Portrait is the base
+        }
+    }
+
+    private func calculateScreenSizeScaleFactor() -> CGFloat {
+        let screenSize = deviceCharacteristics.screenSize
+        let screenArea = screenSize.width * screenSize.height
+
+        // Normalize against iPhone 12 Pro (390x844 = 329,160)
+        let referenceArea: CGFloat = 329_160
+        let areaRatio = screenArea / referenceArea
+
+        // Use square root to prevent extreme scaling
+        let areaScaleFactor = sqrt(areaRatio)
+
+        // Clamp between 0.8 and 2.0 to prevent extreme values
+        return max(0.8, min(2.0, areaScaleFactor))
     }
 
     // MARK: - Animation Helpers

@@ -575,11 +575,21 @@ struct RallyPlayerView: View {
 
                 let translation = value.translation
 
-                // Apply drag offset with resistance for visual feedback
-                let resistance: CGFloat = 0.5
+                // Get device-optimized thresholds for resistance calculation
+                let thresholds = orientationManager.getGestureThresholds()
+
+                // Apply drag offset with device-optimized resistance
+                let baseResistance: CGFloat = 0.5
+                let resistanceThreshold = thresholds.resistance
+
+                // Calculate dynamic resistance based on distance
+                let distance = sqrt(translation.width * translation.width + translation.height * translation.height)
+                let resistanceFactor = distance > resistanceThreshold ?
+                    baseResistance * (resistanceThreshold / distance) : baseResistance
+
                 currentDragOffset = CGSize(
-                    width: translation.width * resistance,
-                    height: translation.height * resistance
+                    width: translation.width * resistanceFactor,
+                    height: translation.height * resistanceFactor
                 )
 
                 updateIconsBasedOnDrag(translation: translation, velocity: value.velocity)
@@ -600,14 +610,17 @@ struct RallyPlayerView: View {
                 // Reset icons
                 resetIconStates()
 
+                // Get device-optimized thresholds from OrientationManager
+                let thresholds = orientationManager.getGestureThresholds()
+
                 // Calculate dominant axis using both distance and velocity
                 let horizontalMagnitude = abs(translation.width)
                 let verticalMagnitude = abs(translation.height)
                 let horizontalVelocity = abs(velocity.width)
                 let verticalVelocity = abs(velocity.height)
 
-                let threshold: CGFloat = 50
-                let velocityThreshold: CGFloat = 500
+                let threshold = thresholds.navigation
+                let velocityThreshold = thresholds.velocity
 
                 // Determine if gesture meets minimum thresholds
                 let horizontalExceedsThreshold = horizontalMagnitude > threshold || horizontalVelocity > velocityThreshold
@@ -663,7 +676,9 @@ struct RallyPlayerView: View {
 
     // MARK: - Enhanced Icon Feedback System with Animation Coordination
     private func updateIconsBasedOnDrag(translation: CGSize, velocity: CGSize = .zero) {
-        let feedbackThreshold: CGFloat = 30
+        // Use device-optimized peek threshold for feedback
+        let thresholds = orientationManager.getGestureThresholds()
+        let feedbackThreshold = thresholds.peek
 
         // Update coordinated animation progress
         let screenSize = UIScreen.main.bounds.size
