@@ -155,7 +155,7 @@ final class GestureCoordinator {
 
     // MARK: - Gesture Processing
 
-    private func handleGestureChanged(_ value: DragGesture.Value) {
+    func handleGestureChanged(_ value: DragGesture.Value) {
         let now = Date()
 
         // Debouncing: Skip processing if too frequent
@@ -183,7 +183,7 @@ final class GestureCoordinator {
         }
     }
 
-    private func handleGestureEnded(_ value: DragGesture.Value) {
+    func handleGestureEnded(_ value: DragGesture.Value) {
         defer { resetGestureState() }
 
         guard let startTime = gestureStartTime else { return }
@@ -409,6 +409,14 @@ extension GestureCoordinator {
     func gestureModifier() -> some ViewModifier {
         GestureCoordinatorModifier(coordinator: self)
     }
+
+    /// Create a view modifier with animation coordinator integration
+    func gestureModifier(animationCoordinator: AnimationCoordinator) -> some ViewModifier {
+        GestureCoordinatorWithAnimationModifier(
+            gestureCoordinator: self,
+            animationCoordinator: animationCoordinator
+        )
+    }
 }
 
 struct GestureCoordinatorModifier: ViewModifier {
@@ -427,11 +435,48 @@ struct GestureCoordinatorModifier: ViewModifier {
     }
 }
 
+struct GestureCoordinatorWithAnimationModifier: ViewModifier {
+    let gestureCoordinator: GestureCoordinator
+    let animationCoordinator: AnimationCoordinator
+
+    func body(content: Content) -> some View {
+        content
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        gestureCoordinator.handleGestureChanged(value)
+                        // Update animation coordinator with current gesture state
+                        animationCoordinator.updateGestureBasedAnimation(
+                            translation: value.translation,
+                            gestureType: nil,
+                            resistance: gestureCoordinator.resistanceFactor,
+                            peekDirection: gestureCoordinator.peekState
+                        )
+                    }
+                    .onEnded { value in
+                        gestureCoordinator.handleGestureEnded(value)
+                    }
+            )
+            .animation(
+                .spring(
+                    response: GestureCoordinator.GestureConfiguration.bounceBackSpringResponse,
+                    dampingFraction: GestureCoordinator.GestureConfiguration.bounceBackSpringDamping
+                ),
+                value: animationCoordinator.animationValues.translation
+            )
+    }
+}
+
 // MARK: - View Extensions
 
 extension View {
     /// Apply gesture coordination to a view
     func gestureCoordinated(_ coordinator: GestureCoordinator) -> some View {
         self.modifier(coordinator.gestureModifier())
+    }
+
+    /// Apply gesture coordination with animation coordinator integration
+    func gestureCoordinated(_ gestureCoordinator: GestureCoordinator, animationCoordinator: AnimationCoordinator) -> some View {
+        self.modifier(gestureCoordinator.gestureModifier(animationCoordinator: animationCoordinator))
     }
 }
