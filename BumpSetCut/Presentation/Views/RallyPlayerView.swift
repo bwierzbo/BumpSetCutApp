@@ -14,17 +14,17 @@ struct RallyPlayerView: View {
 
     let videoMetadata: VideoMetadata
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var navigationState: RallyNavigationState
     @StateObject private var metadataStore = MetadataStore()
 
-    // Video player state
-    @State private var player: AVPlayer?
-    @State private var isPlayerReady = false
+    // Smart dual-player state
+    @State private var primaryPlayer: AVPlayer?
+    @State private var secondaryPlayer: AVPlayer?
+    @State private var isPrimaryPlayerReady = false
+    @State private var isSecondaryPlayerReady = false
 
-    // Metadata and rally state
-    @State private var processingMetadata: ProcessingMetadata?
-    @State private var currentRallyIndex = 0
-    @State private var isLoading = true
-    @State private var errorMessage: String?
+    // Player management
+    @State private var playersInitialized = false
 
     // Performance tracking
     @State private var lastSeekTime = Date()
@@ -51,6 +51,12 @@ struct RallyPlayerView: View {
 
     private var isLandscape: Bool {
         verticalSizeClass == .compact
+    }
+
+    // MARK: - Initialization
+    init(videoMetadata: VideoMetadata) {
+        self.videoMetadata = videoMetadata
+        self._navigationState = StateObject(wrappedValue: RallyNavigationState(videoMetadata: videoMetadata))
     }
 
     var body: some View {
@@ -86,9 +92,11 @@ struct RallyPlayerView: View {
             }
         }
         .onAppear(perform: setupView)
-        .onDisappear(perform: cleanupPlayer)
-        .onChange(of: currentRallyIndex) { _, newIndex in
-            seekToRally(at: newIndex)
+        .onDisappear(perform: cleanupPlayers)
+        .onChange(of: navigationState.currentRallyIndex) { _, newIndex in
+            Task {
+                await seekToRally(at: newIndex)
+            }
         }
     }
 }
@@ -98,15 +106,24 @@ struct RallyPlayerView: View {
 private extension RallyPlayerView {
     func createVideoPlayer() -> some View {
         Group {
-            if isLoading {
+            if navigationState.shouldShowLoading {
                 createLoadingView()
-            } else if let errorMessage = errorMessage {
-                createErrorView(message: errorMessage)
-            } else if let player = player {
-                createVideoPlayerWithOverlay(player: player)
+            } else if navigationState.hasError {
+                createErrorView(message: navigationState.errorMessage)
+            } else if let currentPlayer = getCurrentPlayer() {
+                createVideoPlayerWithOverlay(player: currentPlayer)
             } else {
                 createLoadingView()
             }
+        }
+    }
+
+    func getCurrentPlayer() -> AVPlayer? {
+        switch navigationState.currentPlayerSlot {
+        case .primary:
+            return primaryPlayer
+        case .secondary:
+            return secondaryPlayer
         }
     }
 
@@ -118,7 +135,7 @@ private extension RallyPlayerView {
 
             // Metadata overlay
             if showOverlay,
-               let metadata = processingMetadata,
+               let metadata = navigationState.processingMetadata,
                metadata.hasEnhancedData {
                 GeometryReader { geometry in
                     MetadataOverlayView(
@@ -147,10 +164,41 @@ private extension RallyPlayerView {
             ProgressView()
                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
 
-            if isLoading {
+            if navigationState.isLoading {
                 Text("Loading rally data...")
                     .foregroundColor(.white)
                     .font(.caption)
+            } else if navigationState.isVideoBuffering {
+                VStack(spacing: 8) {
+                    Text("Buffering video...")
+                        .foregroundColor(.white)
+                        .font(.caption)
+
+                    if navigationState.videoLoadingProgress > 0 {
+                        ProgressView(value: navigationState.videoLoadingProgress)
+                            .progressViewStyle(LinearProgressViewStyle(tint: .white))
+                            .frame(width: 200)
+                    }
+                }
+            }
+
+            // Show preloading status if applicable
+            if navigationState.preloadingStatus == .loading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .green))
+                        .scaleEffect(0.7)
+
+                    Text("Preloading next rally...")
+                        .foregroundColor(.green)
+                        .font(.caption2)
+
+                    if navigationState.preloadingProgress > 0 {
+                        Text("\(Int(navigationState.preloadingProgress * 100))%")
+                            .foregroundColor(.green)
+                            .font(.caption2)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -188,12 +236,13 @@ private extension RallyPlayerView {
 private extension RallyPlayerView {
     func createRallyControls() -> some View {
         Group {
-            if let metadata = processingMetadata, !metadata.rallySegments.isEmpty {
+            if let metadata = navigationState.processingMetadata, !metadata.rallySegments.isEmpty {
                 VStack(spacing: 12) {
                     createRallyProgressIndicator(metadata: metadata)
                     createRallyNavigationButtons(metadata: metadata)
                     createOverlayControls()
                     createPerformanceIndicator()
+                    createPreloadingIndicator()
                 }
                 .padding()
                 .background(Color.black.opacity(0.8))
@@ -209,7 +258,7 @@ private extension RallyPlayerView {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                Text("\(currentRallyIndex + 1) of \(metadata.rallySegments.count)")
+                Text("\(navigationState.currentRallyIndex + 1) of \(metadata.rallySegments.count)")
                     .font(.headline)
                     .foregroundColor(.white)
 
@@ -231,15 +280,20 @@ private extension RallyPlayerView {
         GeometryReader { geometry in
             HStack(spacing: 2) {
                 ForEach(Array(metadata.rallySegments.enumerated()), id: \.offset) { index, rally in
-                    let isCurrentRally = index == currentRallyIndex
+                    let isCurrentRally = index == navigationState.currentRallyIndex
+                    let isPreloaded = index == navigationState.preloadedPlayerIndex
                     let width = max(4, geometry.size.width / CGFloat(metadata.rallySegments.count) - 2)
 
                     Rectangle()
-                        .fill(isCurrentRally ? Color.white : Color.gray.opacity(0.6))
+                        .fill(isCurrentRally ? Color.white :
+                              isPreloaded ? Color.green.opacity(0.8) :
+                              Color.gray.opacity(0.6))
                         .frame(width: width, height: 4)
                         .onTapGesture {
                             withAnimation(.easeInOut(duration: 0.2)) {
-                                currentRallyIndex = index
+                                Task {
+                                    await navigateToRally(index)
+                                }
                             }
                         }
                 }
@@ -258,14 +312,14 @@ private extension RallyPlayerView {
                         .font(.caption)
                 }
             }
-            .disabled(currentRallyIndex == 0)
-            .foregroundColor(currentRallyIndex == 0 ? .gray : .white)
+            .disabled(!navigationState.canGoPrevious)
+            .foregroundColor(!navigationState.canGoPrevious ? .gray : .white)
 
             Spacer()
 
             // Rally info
             VStack(spacing: 4) {
-                let currentRally = metadata.rallySegments[currentRallyIndex]
+                let currentRally = metadata.rallySegments[navigationState.currentRallyIndex]
                 Text(String(format: "%.1fs", currentRally.duration))
                     .font(.headline)
                     .foregroundColor(.white)
@@ -285,8 +339,8 @@ private extension RallyPlayerView {
                     Image(systemName: "chevron.right")
                 }
             }
-            .disabled(currentRallyIndex >= metadata.rallySegments.count - 1)
-            .foregroundColor(currentRallyIndex >= metadata.rallySegments.count - 1 ? .gray : .white)
+            .disabled(!navigationState.canGoNext)
+            .foregroundColor(!navigationState.canGoNext ? .gray : .white)
         }
     }
 
@@ -307,6 +361,57 @@ private extension RallyPlayerView {
             }
 
             Spacer()
+        }
+    }
+
+    func createPreloadingIndicator() -> some View {
+        Group {
+            if navigationState.preloadingStatus != .idle {
+                HStack {
+                    switch navigationState.preloadingStatus {
+                    case .loading:
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .green))
+                                .scaleEffect(0.6)
+
+                            Text("Preloading rally \(navigationState.preloadedPlayerIndex?.advanced(by: 1) ?? 0)...")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+
+                            if navigationState.preloadingProgress > 0 {
+                                Text("\(Int(navigationState.preloadingProgress * 100))%")
+                                    .font(.caption2)
+                                    .foregroundColor(.green)
+                            }
+                        }
+                    case .ready:
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+
+                            Text("Rally \(navigationState.preloadedPlayerIndex?.advanced(by: 1) ?? 0) ready")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                        }
+                    case .failed:
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundColor(.orange)
+                                .font(.caption)
+
+                            Text("Preload failed")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
+                    case .idle:
+                        EmptyView()
+                    }
+
+                    Spacer()
+                }
+            }
         }
     }
 
@@ -350,14 +455,14 @@ private extension RallyPlayerView {
         VStack {
             // Top overlay with rally info and close button
             HStack {
-                if let metadata = processingMetadata, !metadata.rallySegments.isEmpty {
+                if let metadata = navigationState.processingMetadata, !metadata.rallySegments.isEmpty {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Rally \(currentRallyIndex + 1) of \(metadata.rallySegments.count)")
+                            Text("Rally \(navigationState.currentRallyIndex + 1) of \(metadata.rallySegments.count)")
                                 .font(.headline)
                                 .foregroundColor(.white)
 
-                            let currentRally = metadata.rallySegments[currentRallyIndex]
+                            let currentRally = metadata.rallySegments[navigationState.currentRallyIndex]
                             Text("\(String(format: "%.1fs", currentRally.duration)) • Quality: \(String(format: "%.0f%%", currentRally.quality * 100))")
                                 .font(.caption)
                                 .foregroundColor(.white.opacity(0.8))
@@ -365,12 +470,12 @@ private extension RallyPlayerView {
 
                         // Rally status indicators
                         HStack(spacing: 8) {
-                            if likedRallies.contains(currentRallyIndex) {
+                            if likedRallies.contains(navigationState.currentRallyIndex) {
                                 Image(systemName: "heart.fill")
                                     .font(.system(size: 16, weight: .bold))
                                     .foregroundColor(.pink)
                             }
-                            if deletedRallies.contains(currentRallyIndex) {
+                            if deletedRallies.contains(navigationState.currentRallyIndex) {
                                 Image(systemName: "trash.fill")
                                     .font(.system(size: 16, weight: .bold))
                                     .foregroundColor(.red)
@@ -406,8 +511,8 @@ private extension RallyPlayerView {
     }
 
     func createLandscapeActionButtons() -> some View {
-        let isCurrentRallyLiked = likedRallies.contains(currentRallyIndex)
-        let isCurrentRallyDeleted = deletedRallies.contains(currentRallyIndex)
+        let isCurrentRallyLiked = likedRallies.contains(navigationState.currentRallyIndex)
+        let isCurrentRallyDeleted = deletedRallies.contains(navigationState.currentRallyIndex)
 
         return HStack(spacing: 40) {
             // Delete button
@@ -505,48 +610,46 @@ private extension RallyPlayerView {
 private extension RallyPlayerView {
     func setupView() {
         Task { @MainActor in
-            await loadMetadataAndSetupPlayer()
+            await initializeNavigationState()
+            await setupDualPlayerSystem()
         }
     }
 
     @MainActor
-    func loadMetadataAndSetupPlayer() async {
-        isLoading = true
-        errorMessage = nil
-
-        do {
-            // Check if metadata exists
-            guard videoMetadata.hasMetadata else {
-                throw RallyPlayerError.noMetadataAvailable
-            }
-
-            // Load processing metadata
-            let metadata = try metadataStore.loadMetadata(for: videoMetadata.id)
-
-            // Validate rally segments
-            guard !metadata.rallySegments.isEmpty else {
-                throw RallyPlayerError.noRalliesFound
-            }
-
-            processingMetadata = metadata
-            currentRallyIndex = 0
-
-            // Setup video player
-            await setupVideoPlayer()
-
-            print("RallyPlayerView: Successfully loaded \(metadata.rallySegments.count) rallies")
-
-        } catch {
-            print("RallyPlayerView: Failed to load rally data: \(error)")
-            handleMetadataLoadError(error)
-        }
-
-        isLoading = false
+    func initializeNavigationState() async {
+        navigationState.metadataStore = metadataStore
+        await navigationState.initialize()
     }
 
-    func setupVideoPlayer() async {
-        // Don't create a new player if one already exists and is ready
-        guard player == nil || !isPlayerReady else { return }
+    @MainActor
+    func setupDualPlayerSystem() async {
+        guard let metadata = navigationState.processingMetadata,
+              !metadata.rallySegments.isEmpty else {
+            return
+        }
+
+        navigationState.startVideoBuffering()
+
+        // Setup primary player
+        await setupPlayer(slot: .primary, rallyIndex: navigationState.currentRallyIndex)
+
+        // Start preloading next rally if available
+        if let nextIndex = navigationState.getNextPreloadTarget() {
+            await triggerPreloading(targetIndex: nextIndex)
+        }
+
+        navigationState.completeVideoBuffering(success: true)
+        playersInitialized = true
+
+        print("RallyPlayerView: Dual player system initialized")
+    }
+
+    @MainActor
+    func setupPlayer(slot: PlayerSlot, rallyIndex: Int) async {
+        guard let metadata = navigationState.processingMetadata,
+              rallyIndex >= 0 && rallyIndex < metadata.rallySegments.count else {
+            return
+        }
 
         // Ensure audio session is active
         do {
@@ -563,28 +666,95 @@ private extension RallyPlayerView {
         avPlayer.isMuted = false
         avPlayer.automaticallyWaitsToMinimizeStalling = false
 
-        player = avPlayer
-        isPlayerReady = true
+        // Assign to appropriate slot
+        switch slot {
+        case .primary:
+            primaryPlayer = avPlayer
+            isPrimaryPlayerReady = true
+        case .secondary:
+            secondaryPlayer = avPlayer
+            isSecondaryPlayerReady = true
+        }
 
-        // Setup playback time observation for overlay synchronization
-        setupPlaybackTimeObserver(for: avPlayer)
+        // Setup playback time observation only for current player
+        if slot == navigationState.currentPlayerSlot {
+            setupPlaybackTimeObserver(for: avPlayer)
+        }
 
-        // Seek to first rally
-        if let metadata = processingMetadata, !metadata.rallySegments.isEmpty {
-            let firstRally = metadata.rallySegments[0]
-            let seekTime = firstRally.startCMTime
+        // Seek to target rally
+        let rally = metadata.rallySegments[rallyIndex]
+        let seekTime = rally.startCMTime
 
-            await avPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        await avPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+
+        if slot == navigationState.currentPlayerSlot {
             currentPlaybackTime = CMTimeGetSeconds(seekTime)
             avPlayer.play()
+        } else {
+            // Preloaded player - pause at the seek position
+            avPlayer.pause()
         }
+
+        print("RallyPlayerView: Setup \(slot) player for rally \(rallyIndex + 1)")
     }
 
-    func setupNormalVideoPlayback() {
-        // Fallback to normal video playback when metadata is unavailable
-        Task { @MainActor in
-            await setupVideoPlayer()
-            errorMessage = nil
+    @MainActor
+    func triggerPreloading(targetIndex: Int) async {
+        guard navigationState.shouldPreload(targetIndex: targetIndex) else {
+            return
+        }
+
+        navigationState.triggerPreloading(for: targetIndex)
+
+        // Use the opposite slot for preloading
+        let preloadSlot: PlayerSlot = navigationState.currentPlayerSlot == .primary ? .secondary : .primary
+
+        // Setup preloaded player
+        await setupPlayer(slot: preloadSlot, rallyIndex: targetIndex)
+
+        navigationState.completePreloading(success: true)
+    }
+
+    @MainActor
+    func navigateToRally(_ targetIndex: Int) async {
+        guard let metadata = navigationState.processingMetadata,
+              targetIndex >= 0 && targetIndex < metadata.rallySegments.count else {
+            return
+        }
+
+        let startTime = Date()
+
+        // Check if we can use preloaded player
+        if navigationState.preloadedPlayerIndex == targetIndex && navigationState.preloadingStatus == .ready {
+            // Use preloaded player - instant transition
+            if navigationState.swapToPreloadedPlayer() {
+                // Update observer to new current player
+                if let currentPlayer = getCurrentPlayer() {
+                    setupPlaybackTimeObserver(for: currentPlayer)
+                    currentPlayer.play()
+
+                    let rally = metadata.rallySegments[targetIndex]
+                    currentPlaybackTime = CMTimeGetSeconds(rally.startCMTime)
+                }
+
+                // Start preloading next rally
+                if let nextIndex = navigationState.getNextPreloadTarget() {
+                    await triggerPreloading(targetIndex: nextIndex)
+                }
+
+                // Calculate performance
+                let seekDuration = Date().timeIntervalSince(startTime) * 1000
+                seekPerformanceMs = Int(seekDuration)
+                print("RallyPlayerView: Instant navigation to rally \(targetIndex + 1) in \(seekPerformanceMs)ms")
+            }
+        } else {
+            // Fallback to traditional seeking
+            await seekToRally(at: targetIndex)
+        }
+
+        // Auto-hide performance indicator
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.seekPerformanceMs = 0
         }
     }
 
@@ -608,35 +778,15 @@ private extension RallyPlayerView {
         observerPlayer = player
     }
 
-    func handleMetadataLoadError(_ error: Error) {
-        if let metadataError = error as? MetadataStoreError {
-            switch metadataError {
-            case .metadataNotFound:
-                errorMessage = "No rally analysis available for this video. Process the video first to enable rally navigation."
-            case .invalidJSON, .corruptedMetadata:
-                errorMessage = "Rally data is corrupted. Try reprocessing the video."
-            default:
-                errorMessage = "Failed to load rally data: \(metadataError.localizedDescription)"
-            }
-        } else if let rallyError = error as? RallyPlayerError {
-            switch rallyError {
-            case .noMetadataAvailable:
-                errorMessage = "No rally analysis available. Process this video to enable rally navigation."
-            case .noRalliesFound:
-                errorMessage = "No rallies were detected in this video. The video may not contain volleyball activity."
-            }
-        } else {
-            errorMessage = "Unable to load rally data: \(error.localizedDescription)"
-        }
-    }
 }
 
 // MARK: - Rally Navigation
 
 private extension RallyPlayerView {
-    func seekToRally(at index: Int) {
-        guard let metadata = processingMetadata,
-              let player = player,
+    @MainActor
+    func seekToRally(at index: Int) async {
+        guard let metadata = navigationState.processingMetadata,
+              let currentPlayer = getCurrentPlayer(),
               index >= 0 && index < metadata.rallySegments.count else {
             return
         }
@@ -648,47 +798,48 @@ private extension RallyPlayerView {
         let startTime = Date()
         lastSeekTime = startTime
 
-        Task { @MainActor in
-            await player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        await currentPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
 
-            // Update current playback time for overlay synchronization
-            currentPlaybackTime = CMTimeGetSeconds(seekTime)
+        // Update current playback time for overlay synchronization
+        currentPlaybackTime = CMTimeGetSeconds(seekTime)
 
-            // Calculate seek performance
-            let seekDuration = Date().timeIntervalSince(startTime) * 1000
-            seekPerformanceMs = Int(seekDuration)
+        // Calculate seek performance
+        let seekDuration = Date().timeIntervalSince(startTime) * 1000
+        seekPerformanceMs = Int(seekDuration)
 
-            print("RallyPlayerView: Seeked to rally \(index + 1) at \(CMTimeGetSeconds(seekTime))s in \(seekPerformanceMs)ms")
+        print("RallyPlayerView: Seeked to rally \(index + 1) at \(CMTimeGetSeconds(seekTime))s in \(seekPerformanceMs)ms")
 
-            // Auto-hide performance indicator after 2 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                seekPerformanceMs = 0
-            }
+        // Start preloading next rally if it's not already preloaded
+        if let nextIndex = navigationState.getNextPreloadTarget() {
+            await triggerPreloading(targetIndex: nextIndex)
         }
     }
 
     func previousRally() {
-        guard currentRallyIndex > 0 else { return }
+        guard navigationState.canGoPrevious else { return }
 
         // Haptic feedback for smoother UX
         let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
 
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
-            currentRallyIndex -= 1
+            Task {
+                await navigationState.navigateToPrevious()
+            }
         }
     }
 
     func nextRally() {
-        guard let metadata = processingMetadata,
-              currentRallyIndex < metadata.rallySegments.count - 1 else { return }
+        guard navigationState.canGoNext else { return }
 
         // Haptic feedback for smoother UX
         let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
 
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
-            currentRallyIndex += 1
+            Task {
+                await navigationState.navigateToNext()
+            }
         }
     }
 
@@ -721,7 +872,7 @@ private extension RallyPlayerView {
     }
 
     func performRallyAction(_ action: RallyAction) {
-        let rallyIndex = currentRallyIndex
+        let rallyIndex = navigationState.currentRallyIndex
 
         // Store the action for undo functionality
         lastAction = (action: action, rallyIndex: rallyIndex)
@@ -778,17 +929,27 @@ private extension RallyPlayerView {
 // MARK: - Cleanup
 
 private extension RallyPlayerView {
-    func cleanupPlayer() {
-        // Remove playback time observer from the correct player
+    func cleanupPlayers() {
+        // Remove playback time observer
         if let observer = playbackObserver, let currentPlayer = observerPlayer {
             currentPlayer.removeTimeObserver(observer)
             playbackObserver = nil
             observerPlayer = nil
         }
 
-        player?.pause()
-        player = nil
-        isPlayerReady = false
+        // Cleanup both players
+        primaryPlayer?.pause()
+        secondaryPlayer?.pause()
+        primaryPlayer = nil
+        secondaryPlayer = nil
+        isPrimaryPlayerReady = false
+        isSecondaryPlayerReady = false
+        playersInitialized = false
+
+        // Reset navigation state
+        navigationState.reset()
+
+        print("RallyPlayerView: Players cleaned up")
     }
 }
 
