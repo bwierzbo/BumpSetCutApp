@@ -240,6 +240,55 @@ final class RallyCacheManager {
         }
     }
 
+    // MARK: - Rally Navigation Integration
+
+    /// Integration method for RallyNavigationState preloading
+    func integrateWithNavigationState(navigationState: RallyNavigationState, asset: AVAsset) async {
+        guard let metadata = navigationState.processingMetadata else { return }
+
+        let videoId = metadata.videoId
+        let currentIndex = navigationState.currentRallyIndex
+        let rallies = metadata.rallySegments
+
+        // Start preloading for current navigation context
+        await preloadRallySegments(
+            videoId: videoId,
+            currentRallyIndex: currentIndex,
+            rallies: rallies,
+            asset: asset
+        )
+
+        // Update navigation state with preloading progress if needed
+        if let nextTarget = navigationState.getNextPreloadTarget(),
+           navigationState.shouldPreload(targetIndex: nextTarget) {
+
+            // Check if we have the next rally cached
+            if let cachedEntry = getCachedEntry(videoId: videoId, rallyIndex: nextTarget),
+               validateCacheEntry(cachedEntry) {
+
+                await MainActor.run {
+                    navigationState.triggerPreloading(for: nextTarget)
+                    navigationState.updatePreloadingProgress(1.0)
+                    navigationState.completePreloading(success: true)
+                }
+                print("🎯 Rally \(nextTarget) already cached and ready for navigation")
+            }
+        }
+    }
+
+    /// Get preloaded rally URL for immediate playback
+    func getPreloadedRallyURL(videoId: UUID, rallyIndex: Int) -> URL? {
+        if let cachedEntry = getCachedEntry(videoId: videoId, rallyIndex: rallyIndex),
+           validateCacheEntry(cachedEntry) {
+            cacheHits += 1
+            Task {
+                await updateCacheAccess(entryId: cachedEntry.id)
+            }
+            return cachedEntry.url
+        }
+        return nil
+    }
+
     // MARK: - Private Methods
 
     private func getCachedEntry(videoId: UUID, rallyIndex: Int) -> RallyCacheEntry? {
