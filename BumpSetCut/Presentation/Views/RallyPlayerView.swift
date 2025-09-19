@@ -96,6 +96,120 @@ struct RallyPlayerView: View {
         navigationState.currentRally
     }
 
+    // MARK: - Enhanced Shadow System (Performance Optimized)
+    private func calculateShadowOpacity(stackIndex: Int) -> Double {
+        guard stackIndex > 0 else { return 0.0 } // No shadow for top card
+
+        // Cache base values for performance
+        let baseOpacity = 0.15 + (Double(stackIndex - 1) * 0.1)
+
+        // Only calculate animation influence if animations are active
+        guard animationCoordinator.isCoordinatedAnimationActive else {
+            return min(0.4, baseOpacity)
+        }
+
+        // Coordinate with animation system for smooth transitions
+        let animationMultiplier = 1.0 + (animationCoordinator.stackRevealProgress * 0.3)
+        let peelInfluence = animationCoordinator.peelProgress * 0.2
+
+        return min(0.4, baseOpacity * animationMultiplier + peelInfluence)
+    }
+
+    private func calculateShadowRadius(stackIndex: Int) -> CGFloat {
+        guard stackIndex > 0 else { return 0.0 } // No shadow for top card
+
+        // Cache base values for performance
+        let baseRadius: CGFloat = 4 + (CGFloat(stackIndex - 1) * 3)
+
+        // Only calculate animation influence if animations are active
+        guard animationCoordinator.isCoordinatedAnimationActive else {
+            return min(15, baseRadius)
+        }
+
+        // Coordinate with animation system for depth enhancement
+        let animationMultiplier: CGFloat = 1.0 + (animationCoordinator.stackRevealProgress * 0.5)
+        let peelInfluence: CGFloat = animationCoordinator.peelProgress * 2.0
+
+        return min(15, baseRadius * animationMultiplier + peelInfluence)
+    }
+
+    private func calculateShadowOffset(stackIndex: Int) -> CGSize {
+        guard stackIndex > 0 else { return .zero } // No shadow for top card
+
+        // Cache base values for performance
+        let baseY: CGFloat = 3 + (CGFloat(stackIndex - 1) * 2)
+
+        // Only calculate animation influence if animations are active
+        guard animationCoordinator.isCoordinatedAnimationActive else {
+            return CGSize(x: 0, y: min(10, baseY))
+        }
+
+        // Coordinate with animation system for dynamic shadow positioning
+        let animationMultiplier: CGFloat = 1.0 + (animationCoordinator.stackRevealProgress * 0.4)
+        let peelInfluence: CGFloat = animationCoordinator.peelProgress * 3.0
+
+        return CGSize(
+            x: 0,
+            y: min(10, baseY * animationMultiplier + peelInfluence)
+        )
+    }
+
+    private func calculateCardScale(stackIndex: Int, isTopCard: Bool) -> CGFloat {
+        // Enhanced depth-based scaling with stronger perspective
+        let baseScale: CGFloat = 1.0 - (CGFloat(stackIndex) * 0.06) // 1.0, 0.94, 0.88 for stronger depth
+
+        guard !isTopCard else { return baseScale }
+
+        // Background cards get additional depth enhancement during animations
+        let stackRevealMultiplier = 1.0 + (animationCoordinator.stackRevealProgress * 0.5)
+        let depthEnhancement = animationCoordinator.stackRevealProgress * 0.02 // Additional scale reduction during reveal
+
+        return max(0.8, (baseScale - depthEnhancement) * stackRevealMultiplier)
+    }
+
+    private func calculateCardOffsets(stackIndex: Int, isTopCard: Bool) -> (vertical: CGFloat, horizontal: CGFloat) {
+        // Enhanced offset calculation with perspective depth
+        let baseVerticalOffset: CGFloat = CGFloat(stackIndex) * 10 // Increased from 8 for stronger depth
+        let baseHorizontalOffset: CGFloat = CGFloat(stackIndex) * 5 // Increased from 4 for perspective
+
+        guard !isTopCard else {
+            // Top card uses gesture-based offsets
+            let peelInfluence = animationCoordinator.peelProgress
+            return (
+                vertical: -peelInfluence * 20,
+                horizontal: 0
+            )
+        }
+
+        // Background cards use coordinated animation offsets
+        let stackRevealMultiplier = 1.0 + (animationCoordinator.stackRevealProgress * 0.6)
+        let perspectiveEnhancement = animationCoordinator.stackRevealProgress * CGFloat(stackIndex) * 3
+
+        return (
+            vertical: baseVerticalOffset * stackRevealMultiplier + perspectiveEnhancement,
+            horizontal: baseHorizontalOffset * stackRevealMultiplier
+        )
+    }
+
+    private func calculateCardOpacity(stackIndex: Int, isTopCard: Bool) -> Double {
+        if isTopCard {
+            // Top card uses peel opacity for gesture feedback
+            return peelOpacity
+        }
+
+        // Enhanced opacity gradient for background cards based on depth
+        let baseOpacity = 0.85 - (Double(stackIndex - 1) * 0.15) // 0.85, 0.7, 0.55...
+
+        // Coordinate with animation system for smooth depth transitions
+        let stackRevealBoost = animationCoordinator.stackRevealProgress * 0.2
+        let peelInteraction = animationCoordinator.peelProgress * 0.1
+
+        // Dynamic opacity that enhances during interactions
+        let dynamicOpacity = baseOpacity + stackRevealBoost + peelInteraction
+
+        return max(0.3, min(0.9, dynamicOpacity))
+    }
+
     // MARK: - Initialization
     init(videoMetadata: VideoMetadata, onPeekProgress: ((Double, PeekDirection?) -> Void)? = nil) {
         self.videoMetadata = videoMetadata
@@ -209,17 +323,10 @@ struct RallyPlayerView: View {
                     let isTopCard = stackIndex == 0
 
                     // Calculate coordinated depth-based transforms
-                    let baseScale: CGFloat = 1.0 - (CGFloat(stackIndex) * 0.05) // 1.0, 0.95, 0.9
-                    let baseVerticalOffset: CGFloat = CGFloat(stackIndex) * 8 // 0px, 8px, 16px
-                    let baseHorizontalOffset: CGFloat = CGFloat(stackIndex) * 4 // 0px, 4px, 8px
-
-                    // Apply coordinated animation adjustments
-                    let stackRevealMultiplier = isTopCard ? 0.0 : (1.0 + animationCoordinator.stackRevealProgress * 0.5)
-                    let peelInfluence = isTopCard ? animationCoordinator.peelProgress : 0.0
-
-                    let cardScale = baseScale * stackRevealMultiplier
-                    let verticalOffset = baseVerticalOffset * stackRevealMultiplier - (peelInfluence * 20)
-                    let horizontalOffset = baseHorizontalOffset * stackRevealMultiplier
+                    let cardScale = calculateCardScale(stackIndex: stackIndex, isTopCard: isTopCard)
+                    let offsets = calculateCardOffsets(stackIndex: stackIndex, isTopCard: isTopCard)
+                    let verticalOffset = offsets.vertical
+                    let horizontalOffset = offsets.horizontal
 
                     Group {
                         if isTopCard {
@@ -267,14 +374,16 @@ struct RallyPlayerView: View {
                         y: isTopCard ? (peelOffset.height + currentDragOffset.height) : verticalOffset
                     )
                     .rotationEffect(.degrees(isTopCard ? peelRotation : 0))
-                    .opacity(isTopCard ? peelOpacity : min(0.8, 0.4 + animationCoordinator.stackRevealProgress * 0.4)) // Dynamic opacity for stack reveal
+                    .opacity(calculateCardOpacity(stackIndex: stackIndex, isTopCard: isTopCard))
                     .zIndex(Double(3 - stackIndex)) // Ensure proper layering (top card has highest z-index)
                     .shadow(
-                        color: Color.black.opacity(0.2),
-                        radius: stackIndex > 0 ? 5 : 0,
-                        x: 0,
-                        y: stackIndex > 0 ? 2 : 0
+                        color: Color.black.opacity(calculateShadowOpacity(stackIndex: stackIndex)),
+                        radius: calculateShadowRadius(stackIndex: stackIndex),
+                        x: calculateShadowOffset(stackIndex: stackIndex).x,
+                        y: calculateShadowOffset(stackIndex: stackIndex).y
                     )
+                    .animation(AnimationCoordinator.AnimationConfiguration.stackRevealAnimation, value: animationCoordinator.stackRevealProgress)
+                    .animation(AnimationCoordinator.AnimationConfiguration.peelAnimation, value: animationCoordinator.peelProgress)
                     .allowsHitTesting(isTopCard) // Only top card responds to touches
                     .onTapGesture {
                         if isTopCard {
