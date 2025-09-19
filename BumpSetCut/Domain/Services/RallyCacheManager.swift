@@ -6,6 +6,13 @@
 //
 
 import Foundation
+import CoreMedia
+
+/// Priority modes for thumbnail prefetching coordination
+enum PrefetchPriority {
+    case immediate  // Positions 1-3 ahead - higher priority
+    case extended   // Positions 4-6 ahead - lower priority
+}
 
 struct CacheStats {
     let totalFiles: Int
@@ -31,15 +38,38 @@ struct RallyCacheEntry: Codable {
     }
 }
 
+struct ThumbnailCacheEntry: Codable {
+    let videoId: UUID
+    let timestamp: Double  // CMTime seconds
+    let fileName: String
+    let fileSize: Int
+    let createdDate: Date
+    let lastAccessed: Date
+
+    var url: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(".thumbnails")
+            .appendingPathComponent(fileName)
+    }
+}
+
 struct RallyCacheManifest: Codable {
     var entries: [UUID: [RallyCacheEntry]] = [:]
+    var thumbnails: [String: ThumbnailCacheEntry] = [:]  // Key: "\(videoId)_\(timestamp)"
     var lastValidated: Date = Date()
     var cacheHits: Int = 0
     var cacheMisses: Int = 0
+    var thumbnailHits: Int = 0
+    var thumbnailMisses: Int = 0
 
     var hitRate: Double {
         let total = cacheHits + cacheMisses
         return total > 0 ? Double(cacheHits) / Double(total) : 0.0
+    }
+
+    var thumbnailHitRate: Double {
+        let total = thumbnailHits + thumbnailMisses
+        return total > 0 ? Double(thumbnailHits) / Double(total) : 0.0
     }
 }
 
@@ -55,11 +85,17 @@ final class RallyCacheManager: ObservableObject {
         self.documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         self.manifestURL = documentsURL.appendingPathComponent("rally_cache_manifest.json")
 
+        // Create thumbnails directory if needed
+        let thumbnailsDir = documentsURL.appendingPathComponent(".thumbnails")
+        if !FileManager.default.fileExists(atPath: thumbnailsDir.path) {
+            try? FileManager.default.createDirectory(at: thumbnailsDir, withIntermediateDirectories: true)
+        }
+
         // Load existing manifest or create new one
         if let data = try? Data(contentsOf: manifestURL),
            let loadedManifest = try? JSONDecoder().decode(RallyCacheManifest.self, from: data) {
             self.manifest = loadedManifest
-            print("📁 Loaded rally cache manifest: \(manifest.entries.keys.count) videos cached")
+            print("📁 Loaded rally cache manifest: \(manifest.entries.keys.count) videos, \(manifest.thumbnails.count) thumbnails cached")
         } else {
             self.manifest = RallyCacheManifest()
             print("📁 Created new rally cache manifest")
@@ -190,45 +226,292 @@ final class RallyCacheManager: ObservableObject {
 
     /// Get cache statistics
     func getCacheStats() -> CacheStats {
-        let totalFiles = manifest.entries.values.flatMap { $0 }.count
-        let totalSizeBytes = manifest.entries.values.flatMap { $0 }.reduce(0) { $0 + $1.fileSize }
+        let rallyFiles = manifest.entries.values.flatMap { $0 }.count
+        let thumbnailFiles = manifest.thumbnails.count
+        let totalFiles = rallyFiles + thumbnailFiles
+
+        let rallySizeBytes = manifest.entries.values.flatMap { $0 }.reduce(0) { $0 + $1.fileSize }
+        let thumbnailSizeBytes = manifest.thumbnails.values.reduce(0) { $0 + $1.fileSize }
+        let totalSizeBytes = rallySizeBytes + thumbnailSizeBytes
+
+        // Combined hit rate
+        let totalHits = manifest.cacheHits + manifest.thumbnailHits
+        let totalMisses = manifest.cacheMisses + manifest.thumbnailMisses
+        let combinedHitRate = (totalHits + totalMisses) > 0 ? Double(totalHits) / Double(totalHits + totalMisses) : 0.0
 
         return CacheStats(
             totalFiles: totalFiles,
             totalSizeBytes: totalSizeBytes,
-            hitRate: manifest.hitRate,
+            hitRate: combinedHitRate,
             lastCleanup: manifest.lastValidated
         )
     }
 
     /// Clear all cache
     func clearAllCache() {
+        // Clear rally segments
         for entries in manifest.entries.values {
             for entry in entries {
                 try? FileManager.default.removeItem(at: entry.url)
             }
         }
 
+        // Clear thumbnails
+        for entry in manifest.thumbnails.values {
+            try? FileManager.default.removeItem(at: entry.url)
+        }
+
         manifest.entries.removeAll()
+        manifest.thumbnails.removeAll()
         manifest.cacheHits = 0
         manifest.cacheMisses = 0
+        manifest.thumbnailHits = 0
+        manifest.thumbnailMisses = 0
         saveManifest()
 
-        print("📁 Cleared all rally cache")
+        print("📁 Cleared all rally cache and thumbnails")
     }
 
     /// Remove cache for specific video
     func removeCacheForVideo(_ videoId: UUID) {
-        guard let entries = manifest.entries[videoId] else { return }
+        // Remove rally segments
+        if let entries = manifest.entries[videoId] {
+            for entry in entries {
+                try? FileManager.default.removeItem(at: entry.url)
+            }
+            manifest.entries.removeValue(forKey: videoId)
+        }
 
-        for entry in entries {
+        // Remove thumbnails
+        let thumbnailKeysToRemove = manifest.thumbnails.keys.filter { key in
+            key.hasPrefix(videoId.uuidString)
+        }
+        for key in thumbnailKeysToRemove {
+            if let entry = manifest.thumbnails[key] {
+                try? FileManager.default.removeItem(at: entry.url)
+            }
+            manifest.thumbnails.removeValue(forKey: key)
+        }
+
+        saveManifest()
+        print("📁 Removed cache and thumbnails for video \(videoId)")
+    }
+
+    // MARK: - Thumbnail Cache Operations
+    /// Get cached thumbnail data for a video at a specific timestamp
+    func getCachedThumbnail(for videoId: UUID, at timestamp: Double) -> Data? {
+        let key = "\(videoId.uuidString)_\(timestamp)"
+        guard let entry = manifest.thumbnails[key] else {
+            manifest.thumbnailMisses += 1
+            return nil
+        }
+
+        // Validate file exists
+        if !FileManager.default.fileExists(atPath: entry.url.path) {
+            manifest.thumbnails.removeValue(forKey: key)
+            manifest.thumbnailMisses += 1
+            saveManifest()
+            return nil
+        }
+
+        // Update access time
+        updateThumbnailAccessTime(for: key)
+        manifest.thumbnailHits += 1
+        saveManifest()
+
+        do {
+            return try Data(contentsOf: entry.url)
+        } catch {
+            print("❌ Failed to read thumbnail: \(error)")
+            return nil
+        }
+    }
+
+    /// Store thumbnail data for a video at a specific timestamp
+    func storeThumbnail(_ data: Data, for videoId: UUID, at timestamp: Double) {
+        let key = "\(videoId.uuidString)_\(timestamp)"
+        let fileName = "\(key).jpg"
+        let thumbnailsDir = documentsURL.appendingPathComponent(".thumbnails")
+        let fileURL = thumbnailsDir.appendingPathComponent(fileName)
+
+        do {
+            try data.write(to: fileURL)
+
+            let entry = ThumbnailCacheEntry(
+                videoId: videoId,
+                timestamp: timestamp,
+                fileName: fileName,
+                fileSize: data.count,
+                createdDate: Date(),
+                lastAccessed: Date()
+            )
+
+            manifest.thumbnails[key] = entry
+            saveManifest()
+
+            print("📸 Cached thumbnail for \(videoId) at \(timestamp)s: \(data.count / 1024) KB")
+        } catch {
+            print("❌ Failed to save thumbnail: \(error)")
+        }
+    }
+
+    /// Enhanced prefetch thumbnails for upcoming rallies with intelligent prioritization
+    func prefetchThumbnails(for videoId: UUID, timestamps: [Double], videoURL: URL, priorityMode: PrefetchPriority = .extended) {
+        guard !timestamps.isEmpty else { return }
+
+        var framesToPrefetch: [(URL, CMTime)] = []
+
+        for timestamp in timestamps {
+            let key = "\(videoId.uuidString)_\(timestamp)"
+            // Skip if already cached
+            if manifest.thumbnails[key] != nil {
+                continue
+            }
+
+            let cmTime = CMTime(seconds: timestamp, preferredTimescale: 600)
+            framesToPrefetch.append((videoURL, cmTime))
+        }
+
+        guard !framesToPrefetch.isEmpty else {
+            print("📸 All thumbnails already cached for \(videoId)")
+            return
+        }
+
+        print("📸 Prefetching \(framesToPrefetch.count) thumbnails for \(videoId) with \(priorityMode) priority")
+
+        // Coordinate with FrameExtractor based on priority
+        switch priorityMode {
+        case .immediate:
+            FrameExtractor.shared.prefetchFramesImmediate(videoURLs: framesToPrefetch)
+        case .extended:
+            FrameExtractor.shared.prefetchFramesExtended(videoURLs: framesToPrefetch)
+        }
+    }
+
+    /// Batch prefetch for multiple videos with optimized scheduling
+    func batchPrefetchThumbnails(requests: [(videoId: UUID, timestamps: [Double], videoURL: URL, priority: PrefetchPriority)]) {
+        print("📸 Starting batch prefetch for \(requests.count) video sets")
+
+        // Sort by priority: immediate first, then extended
+        let sortedRequests = requests.sorted { lhs, rhs in
+            switch (lhs.priority, rhs.priority) {
+            case (.immediate, .extended):
+                return true
+            case (.extended, .immediate):
+                return false
+            default:
+                return false
+            }
+        }
+
+        for request in sortedRequests {
+            prefetchThumbnails(
+                for: request.videoId,
+                timestamps: request.timestamps,
+                videoURL: request.videoURL,
+                priorityMode: request.priority
+            )
+        }
+    }
+
+    /// Smart prefetch based on navigation position and video stack context
+    func smartPrefetch(currentVideoId: UUID, upcomingVideos: [(videoId: UUID, videoURL: URL, timestamps: [Double])]) {
+        guard !upcomingVideos.isEmpty else { return }
+
+        var prefetchRequests: [(videoId: UUID, timestamps: [Double], videoURL: URL, priority: PrefetchPriority)] = []
+
+        for (index, video) in upcomingVideos.enumerated() {
+            let priority: PrefetchPriority = index < 3 ? .immediate : .extended
+            prefetchRequests.append((
+                videoId: video.videoId,
+                timestamps: video.timestamps,
+                videoURL: video.videoURL,
+                priority: priority
+            ))
+        }
+
+        batchPrefetchThumbnails(requests: prefetchRequests)
+    }
+
+    /// Get prefetch coordination metrics from FrameExtractor
+    func getPrefetchStatus() -> (queuedFrames: Int, completedPrefetches: Int, successRate: Double, memoryPressureSkips: Int) {
+        let metrics = FrameExtractor.shared.prefetchMetrics
+        return (
+            queuedFrames: metrics.queuedExtractions,
+            completedPrefetches: metrics.completedPrefetches,
+            successRate: metrics.successRate,
+            memoryPressureSkips: metrics.memoryPressureSkips
+        )
+    }
+
+    /// Check if FrameExtractor is under memory pressure
+    var isUnderMemoryPressure: Bool {
+        return FrameExtractor.shared.isUnderMemoryPressure
+    }
+
+    /// Force cache synchronization with FrameExtractor when thumbnails are extracted
+    func syncThumbnailFromFrameExtractor(videoId: UUID, timestamp: Double, imageData: Data) {
+        // Store the extracted thumbnail in our cache system
+        storeThumbnail(imageData, for: videoId, at: timestamp)
+        print("📸 Synced thumbnail from FrameExtractor: \(videoId) at \(timestamp)s")
+    }
+
+    /// Clear prefetch queues in FrameExtractor when cache is cleared
+    func clearAllCacheWithCoordination() {
+        // Clear our own cache first
+        for entries in manifest.entries.values {
+            for entry in entries {
+                try? FileManager.default.removeItem(at: entry.url)
+            }
+        }
+
+        for entry in manifest.thumbnails.values {
             try? FileManager.default.removeItem(at: entry.url)
         }
 
-        manifest.entries.removeValue(forKey: videoId)
+        manifest.entries.removeAll()
+        manifest.thumbnails.removeAll()
+        manifest.cacheHits = 0
+        manifest.cacheMisses = 0
+        manifest.thumbnailHits = 0
+        manifest.thumbnailMisses = 0
         saveManifest()
 
-        print("📁 Removed cache for video \(videoId)")
+        // Clear FrameExtractor cache as well for coordination
+        FrameExtractor.shared.clearCache()
+
+        print("📁 Cleared all rally cache, thumbnails, and FrameExtractor cache")
+    }
+
+    /// Clean up old thumbnails based on LRU policy
+    func cleanupThumbnails(maxCount: Int = 100) {
+        guard manifest.thumbnails.count > maxCount else { return }
+
+        // Sort thumbnails by last access time
+        let sortedThumbnails = manifest.thumbnails.sorted { $0.value.lastAccessed < $1.value.lastAccessed }
+
+        // Remove oldest thumbnails
+        let countToRemove = manifest.thumbnails.count - maxCount
+        for (key, entry) in sortedThumbnails.prefix(countToRemove) {
+            try? FileManager.default.removeItem(at: entry.url)
+            manifest.thumbnails.removeValue(forKey: key)
+        }
+
+        saveManifest()
+        print("📸 Cleaned up \(countToRemove) old thumbnails")
+    }
+
+    private func updateThumbnailAccessTime(for key: String) {
+        guard let entry = manifest.thumbnails[key] else { return }
+
+        manifest.thumbnails[key] = ThumbnailCacheEntry(
+            videoId: entry.videoId,
+            timestamp: entry.timestamp,
+            fileName: entry.fileName,
+            fileSize: entry.fileSize,
+            createdDate: entry.createdDate,
+            lastAccessed: Date()
+        )
     }
 
     // MARK: - Private Methods
@@ -270,8 +553,11 @@ extension RallyCacheManager {
         // Clean up very old cache (more aggressive on launch)
         cleanupOldCache(maxAge: 14 * 24 * 60 * 60) // 14 days
 
+        // Clean up excess thumbnails
+        cleanupThumbnails(maxCount: 100)
+
         let stats = getCacheStats()
-        print("📊 Rally cache stats: \(stats.totalFiles) files, \(String(format: "%.1f", stats.totalSizeMB)) MB, \(String(format: "%.1f", stats.hitRate * 100))% hit rate")
+        print("📊 Cache stats: \(stats.totalFiles) files, \(String(format: "%.1f", stats.totalSizeMB)) MB, \(String(format: "%.1f", stats.hitRate * 100))% hit rate")
     }
 
     /// Perform lighter cache maintenance in background
