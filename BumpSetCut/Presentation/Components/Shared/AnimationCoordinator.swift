@@ -2,407 +2,368 @@
 //  AnimationCoordinator.swift
 //  BumpSetCut
 //
-//  Created for Rally Swiping Fixes Epic - Issue #50
-//  Unified animation system for 60fps performance
+//  Created for Issue #61 Stream C - Animation Enhancement & Coordination
+//  Coordinates smooth animations between gesture system and UI feedback
 //
 
-import Foundation
 import SwiftUI
+import UIKit
 
-final class AnimationCoordinator: ObservableObject {
-    // MARK: - Animation Configuration
+/// Coordinates animations between gesture system and UI elements for smooth user experience
+@Observable
+final class AnimationCoordinator {
+    // MARK: - Configuration
+
     struct AnimationConfiguration {
-        // Standard animation curves
-        static let gestureAnimation = Animation.spring(response: 0.3, dampingFraction: 0.75, blendDuration: 0.0)
-        static let transitionAnimation = Animation.spring(response: 0.4, dampingFraction: 0.7, blendDuration: 0.0)
-        static let orientationAnimation = Animation.spring(response: 0.35, dampingFraction: 0.85, blendDuration: 0.0)
+        // Core animation timings
+        static let standardDuration: TimeInterval = 0.3
+        static let quickDuration: TimeInterval = 0.2
+        static let slowDuration: TimeInterval = 0.5
 
-        // Stack coordination animations
-        static let peelAnimation = Animation.spring(response: 0.35, dampingFraction: 0.6, blendDuration: 0.0)
-        static let stackRevealAnimation = Animation.spring(response: 0.4, dampingFraction: 0.75, blendDuration: 0.1)
-        static let cardRepositionAnimation = Animation.spring(response: 0.25, dampingFraction: 0.8, blendDuration: 0.0)
+        // Spring parameters for different animation types
+        static let gestureSpringResponse: Double = 0.4
+        static let gestureSpringDamping: Double = 0.7
+        static let cancelSpringResponse: Double = 0.5
+        static let cancelSpringDamping: Double = 0.8
+        static let bounceSpringResponse: Double = 0.3
+        static let bounceSpringDamping: Double = 0.6
 
-        // Performance settings
-        static let targetFPS: Double = 60.0
-        static let frameTimeTarget: Double = 1.0 / targetFPS // ~16.67ms per frame
+        // Visual feedback parameters
+        static let iconScaleMin: CGFloat = 0.8
+        static let iconScaleMax: CGFloat = 1.2
+        static let resistanceScaleMin: CGFloat = 0.95
+        static let backgroundOpacityMin: CGFloat = 0.0
+        static let backgroundOpacityMax: CGFloat = 0.3
+
+        // Animation thresholds
+        static let peekThreshold: CGFloat = 30.0
+        static let actionThreshold: CGFloat = 80.0
     }
 
     // MARK: - Animation State
-    private let navigationState: RallyNavigationState
-    private var currentAnimations: Set<AnimationType> = []
-    private var animationPhases: Set<AnimationPhase> = []
 
-    // Performance tracking
-    private var frameStartTime: Date?
-    private var frameCount: Int = 0
-    private var lastFPSCheck: Date = Date()
-
-    // Stack animation coordination
-    @Published var stackAnimationState: StackAnimationState = .idle
-    @Published var peelProgress: Double = 0.0
-    @Published var stackRevealProgress: Double = 0.0
-
-    // MARK: - Initialization
-    init(navigationState: RallyNavigationState) {
-        self.navigationState = navigationState
+    /// Current animation state for coordination
+    enum AnimationState {
+        case idle
+        case gesture(type: GestureAnimationType)
+        case transitioning
+        case bouncing
+        case cancelling
     }
 
-    // MARK: - Animation Management
-    func startAnimation(_ type: AnimationType) {
-        currentAnimations.insert(type)
-        trackAnimationStart(type)
+    /// Different types of gesture animations
+    enum GestureAnimationType {
+        case navigation(direction: NavigationDirection)
+        case action(type: ActionType)
+        case peek(direction: PeekDirection)
     }
 
-    func endAnimation(_ type: AnimationType) {
-        currentAnimations.remove(type)
-        trackAnimationEnd(type)
+    enum NavigationDirection {
+        case previous
+        case next
     }
 
-    // MARK: - Animation Helpers
-    func gestureAnimation<Value: VectorArithmetic>(
-        _ value: Value,
-        target: Value,
-        onComplete: (() -> Void)? = nil
-    ) -> Animation {
-        startAnimation(.gesture)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.endAnimation(.gesture)
-            onComplete?()
-        }
-
-        return AnimationConfiguration.gestureAnimation
+    enum ActionType {
+        case like
+        case delete
     }
 
-    func transitionAnimation<Value: VectorArithmetic>(
-        _ value: Value,
-        target: Value,
-        onComplete: (() -> Void)? = nil
-    ) -> Animation {
-        startAnimation(.transition)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            self?.endAnimation(.transition)
-            onComplete?()
-        }
-
-        return AnimationConfiguration.transitionAnimation
+    enum PeekDirection {
+        case previous
+        case next
+        case like
+        case delete
     }
 
-    func orientationAnimation<Value: VectorArithmetic>(
-        _ value: Value,
-        target: Value,
-        onComplete: (() -> Void)? = nil
-    ) -> Animation {
-        startAnimation(.orientation)
+    // MARK: - Properties
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            self?.endAnimation(.orientation)
-            onComplete?()
-        }
+    /// Current animation state
+    private(set) var animationState: AnimationState = .idle
 
-        return AnimationConfiguration.orientationAnimation
+    /// Current gesture translation for smooth animation
+    private(set) var gestureTranslation: CGSize = .zero
+
+    /// Resistance factor for elastic effects
+    private(set) var resistanceFactor: CGFloat = 1.0
+
+    /// Icon scales for visual feedback
+    private(set) var likeIconScale: CGFloat = 1.0
+    private(set) var deleteIconScale: CGFloat = 1.0
+    private(set) var navigationIconScale: CGFloat = 1.0
+
+    /// Background opacity for feedback overlays
+    private(set) var backgroundOpacity: Double = 0.0
+
+    /// Current peek direction for icon updates
+    private(set) var currentPeekDirection: PeekDirection?
+
+    /// Animation tracking
+    private var animationStartTime: Date?
+    private var lastUpdateTime: Date = .distantPast
+
+    // MARK: - Callbacks
+
+    var onAnimationStateChanged: ((AnimationState) -> Void)?
+    var onHapticFeedback: ((HapticType) -> Void)?
+
+    enum HapticType {
+        case boundary
+        case peek
+        case action
+        case cancel
     }
 
-    // MARK: - Performance Tracking
-    private func trackAnimationStart(_ type: AnimationType) {
-        frameStartTime = Date()
-        frameCount = 0
+    // MARK: - Public Interface
 
-        #if DEBUG
-        print("AnimationCoordinator: Starting \(type) animation")
-        #endif
-    }
-
-    private func trackAnimationEnd(_ type: AnimationType) {
-        guard let startTime = frameStartTime else { return }
-
-        let duration = Date().timeIntervalSince(startTime)
-        let fps = duration > 0 ? Double(frameCount) / duration : 0
-
-        #if DEBUG
-        let fpsStatus = fps >= 55.0 ? "✓" : "⚠️"
-        print("AnimationCoordinator: \(type) completed - \(String(format: "%.1f", fps)) FPS over \(String(format: "%.1f", duration * 1000))ms \(fpsStatus)")
-
-        if fps < 55.0 {
-            print("⚠️ Animation FPS below target: \(String(format: "%.1f", fps)) < 60.0")
-        }
-        #endif
-
-        frameStartTime = nil
-    }
-
-    func recordFrame() {
-        frameCount += 1
-
-        // Check FPS periodically
-        let now = Date()
-        if now.timeIntervalSince(lastFPSCheck) >= 1.0 {
-            let currentFPS = Double(frameCount)
-
-            #if DEBUG
-            if currentFPS < 55.0 {
-                print("⚠️ FPS Warning: \(String(format: "%.1f", currentFPS)) FPS")
-            }
-            #endif
-
-            lastFPSCheck = now
-            frameCount = 0
-        }
-    }
-
-    // MARK: - Coordinated Animation Interface
-    func performCoordinatedPeelAnimation(
-        direction: PeelDirection,
-        gestureProgress: Double = 0.0,
-        completion: @escaping () -> Void
-    ) {
-        guard stackAnimationState == .idle else {
-            print("⚠️ Animation already in progress, skipping coordinated peel")
-            return
-        }
-
-        startAnimationPhase(.peelStart)
-        stackAnimationState = .peeling
-
-        // Phase 1: Begin peel with coordinated stack positioning
-        withAnimation(AnimationConfiguration.peelAnimation) {
-            self.peelProgress = 0.3
-            self.stackRevealProgress = 0.2
-        }
-
-        // Phase 2: Full peel with stack reveal
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.startAnimationPhase(.stackRevealStart)
-            self.stackAnimationState = .revealing
-
-            withAnimation(AnimationConfiguration.stackRevealAnimation) {
-                self.peelProgress = 1.0
-                self.stackRevealProgress = 1.0
-            }
-
-            // Phase 3: Card repositioning after peel completes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                self.startAnimationPhase(.repositionStart)
-                self.stackAnimationState = .repositioning
-
-                withAnimation(AnimationConfiguration.cardRepositionAnimation) {
-                    self.peelProgress = 0.0
-                    self.stackRevealProgress = 0.0
-                }
-
-                // Complete coordination
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                    self.completeCoordinatedAnimation()
-                    completion()
-                }
-            }
-        }
-    }
-
+    /// Update animations based on gesture state
     func updateGestureBasedAnimation(
         translation: CGSize,
-        velocity: CGSize,
-        screenBounds: CGRect
+        gestureType: GestureCoordinator.GestureAction?,
+        resistance: CGFloat,
+        peekDirection: GestureCoordinator.PeekDirection?
     ) {
-        guard stackAnimationState == .idle || stackAnimationState == .peeling else { return }
+        let now = Date()
 
-        // Calculate gesture progress (0.0 to 1.0)
-        let horizontalProgress = min(1.0, abs(translation.width) / (screenBounds.width * 0.3))
-        let verticalProgress = min(1.0, abs(translation.height) / (screenBounds.height * 0.3))
-        let dominantProgress = max(horizontalProgress, verticalProgress)
+        // Throttle updates for performance
+        guard now.timeIntervalSince(lastUpdateTime) >= 0.016 else { return } // ~60fps
+        lastUpdateTime = now
+
+        // Update core gesture properties
+        gestureTranslation = translation
+        resistanceFactor = resistance
+
+        // Convert peek direction
+        let mappedPeekDirection = mapPeekDirection(peekDirection)
 
         // Update animation state based on gesture
-        if dominantProgress > 0.1 && stackAnimationState == .idle {
-            stackAnimationState = .peeling
-            startAnimationPhase(.peelInProgress)
+        updateAnimationState(gestureType: gestureType, peekDirection: mappedPeekDirection)
+
+        // Apply visual feedback
+        updateIconsBasedOnDrag(translation: translation, peekDirection: mappedPeekDirection)
+        updateBackgroundFeedback(translation: translation)
+
+        // Trigger haptic feedback if needed
+        checkForHapticTriggers(peekDirection: mappedPeekDirection)
+    }
+
+    /// Animate gesture completion
+    func animateGestureCompletion(action: GestureCoordinator.GestureAction) {
+        animationState = .transitioning
+        animationStartTime = Date()
+
+        withAnimation(.spring(
+            response: AnimationConfiguration.gestureSpringResponse,
+            dampingFraction: AnimationConfiguration.gestureSpringDamping
+        )) {
+            completeGestureAnimation(for: action)
         }
 
-        // Smoothly update progress values
-        let smoothedProgress = easeInOutQuad(dominantProgress)
-        peelProgress = smoothedProgress * 0.6 // Partial peel during gesture
-        stackRevealProgress = smoothedProgress * 0.4 // Subtle stack movement
-    }
-
-    func resetGestureAnimation() {
-        guard stackAnimationState != .idle else { return }
-
-        stackAnimationState = .repositioning
-        startAnimationPhase(.repositionStart)
-
-        withAnimation(AnimationConfiguration.cardRepositionAnimation) {
-            peelProgress = 0.0
-            stackRevealProgress = 0.0
+        // Reset to idle after animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + AnimationConfiguration.standardDuration) {
+            self.resetToIdle()
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            self.completeCoordinatedAnimation()
+        onHapticFeedback?(.action)
+    }
+
+    /// Animate gesture cancellation with smooth return to idle
+    func animateGestureCancellation() {
+        animationState = .cancelling
+
+        withAnimation(.spring(
+            response: AnimationConfiguration.cancelSpringResponse,
+            dampingFraction: AnimationConfiguration.cancelSpringDamping
+        )) {
+            resetVisualFeedback()
         }
+
+        // Reset to idle after cancel animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + AnimationConfiguration.quickDuration) {
+            self.resetToIdle()
+        }
+
+        onHapticFeedback?(.cancel)
     }
 
-    private func startAnimationPhase(_ phase: AnimationPhase) {
-        animationPhases.insert(phase)
+    /// Animate elastic bounce when hitting boundaries
+    func animateElasticBounce(direction: GestureCoordinator.OverscrollDirection) {
+        animationState = .bouncing
 
-        #if DEBUG
-        print("AnimationCoordinator: Starting phase \(phase)")
-        #endif
-    }
+        withAnimation(.spring(
+            response: AnimationConfiguration.bounceSpringResponse,
+            dampingFraction: AnimationConfiguration.bounceSpringDamping
+        )) {
+            // Slightly scale down and then back up for bounce effect
+            resistanceFactor = AnimationConfiguration.resistanceScaleMin
+        }
 
-    private func completeCoordinatedAnimation() {
-        stackAnimationState = .idle
-        animationPhases.removeAll()
-        currentAnimations.remove(.peel)
-        currentAnimations.remove(.stackReveal)
-        currentAnimations.remove(.cardReposition)
-
-        #if DEBUG
-        print("AnimationCoordinator: Coordinated animation complete")
-        #endif
-    }
-
-    private func easeInOutQuad(_ t: Double) -> Double {
-        return t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
-    }
-
-    // MARK: - Animation Coordination State
-    var isCoordinatedAnimationActive: Bool {
-        stackAnimationState != .idle
-    }
-
-    var currentPhases: Set<AnimationPhase> {
-        animationPhases
-    }
-
-    // MARK: - Unified Animation Interface
-    func animateValue<Value: VectorArithmetic>(
-        _ keyPath: WritableKeyPath<RallyNavigationState, Value>,
-        to newValue: Value,
-        type: AnimationType = .gesture
-    ) {
-        startAnimation(type)
-
-        let animation: Animation = {
-            switch type {
-            case .gesture:
-                return AnimationConfiguration.gestureAnimation
-            case .transition:
-                return AnimationConfiguration.transitionAnimation
-            case .orientation:
-                return AnimationConfiguration.orientationAnimation
-            case .peel:
-                return AnimationConfiguration.peelAnimation
-            case .stackReveal:
-                return AnimationConfiguration.stackRevealAnimation
-            case .cardReposition:
-                return AnimationConfiguration.cardRepositionAnimation
+        // Return to normal after bounce
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation(.spring(
+                response: AnimationConfiguration.bounceSpringResponse,
+                dampingFraction: AnimationConfiguration.bounceSpringDamping
+            )) {
+                self.resistanceFactor = 1.0
             }
-        }()
-
-        // Note: Direct keyPath assignment not supported with @Observable
-        // This method would need to be customized for specific properties
-        // withAnimation(animation) {
-        //     navigationState[keyPath: keyPath] = newValue
-        // }
-
-        // Schedule animation end tracking
-        let duration: TimeInterval
-        switch type {
-        case .gesture: duration = 0.3
-        case .transition: duration = 0.4
-        case .orientation: duration = 0.35
-        case .peel: duration = 0.35
-        case .stackReveal: duration = 0.4
-        case .cardReposition: duration = 0.25
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
-            self?.endAnimation(type)
+        onHapticFeedback?(.boundary)
+    }
+
+    /// Reset all animations to idle state
+    func resetToIdle() {
+        animationState = .idle
+        currentPeekDirection = nil
+        animationStartTime = nil
+        resetVisualFeedback()
+        onAnimationStateChanged?(.idle)
+    }
+
+    // MARK: - Private Animation Logic
+
+    private func updateAnimationState(
+        gestureType: GestureCoordinator.GestureAction?,
+        peekDirection: PeekDirection?
+    ) {
+        let newState: AnimationState
+
+        if let peek = peekDirection {
+            newState = .gesture(type: .peek(direction: peek))
+        } else if let gesture = gestureType {
+            switch gesture {
+            case .navigationPrevious:
+                newState = .gesture(type: .navigation(direction: .previous))
+            case .navigationNext:
+                newState = .gesture(type: .navigation(direction: .next))
+            case .actionLike:
+                newState = .gesture(type: .action(type: .like))
+            case .actionDelete:
+                newState = .gesture(type: .action(type: .delete))
+            case .peek, .cancel:
+                newState = .idle
+            }
+        } else {
+            newState = .idle
+        }
+
+        if case .gesture = animationState, case .gesture = newState {
+            // Smooth transition between gesture types
+            animationState = newState
+        } else if animationState != newState {
+            animationState = newState
+            onAnimationStateChanged?(newState)
         }
     }
 
-    // MARK: - State Queries
-    var isAnimating: Bool {
-        !currentAnimations.isEmpty
-    }
+    private func updateIconsBasedOnDrag(translation: CGSize, peekDirection: PeekDirection?) {
+        let absTranslationX = abs(translation.width)
+        let absTranslationY = abs(translation.height)
 
-    var currentAnimationTypes: Set<AnimationType> {
-        currentAnimations
-    }
-}
+        // Reset all scales first
+        let baseScale: CGFloat = 1.0
+        likeIconScale = baseScale
+        deleteIconScale = baseScale
+        navigationIconScale = baseScale
 
-// MARK: - Supporting Types
-enum AnimationType: Hashable, CustomStringConvertible {
-    case gesture
-    case transition
-    case orientation
-    case peel
-    case stackReveal
-    case cardReposition
+        // Apply scaling based on current peek direction
+        if let peek = peekDirection {
+            currentPeekDirection = peek
 
-    var description: String {
-        switch self {
-        case .gesture: return "gesture"
-        case .transition: return "transition"
-        case .orientation: return "orientation"
-        case .peel: return "peel"
-        case .stackReveal: return "stackReveal"
-        case .cardReposition: return "cardReposition"
+            let progress = min(max(absTranslationX, absTranslationY) / AnimationConfiguration.actionThreshold, 1.0)
+            let scale = baseScale + (AnimationConfiguration.iconScaleMax - baseScale) * progress
+
+            switch peek {
+            case .like:
+                likeIconScale = scale
+            case .delete:
+                deleteIconScale = scale
+            case .previous, .next:
+                navigationIconScale = scale
+            }
+        } else {
+            currentPeekDirection = nil
         }
     }
-}
 
-enum AnimationPhase: Hashable, CustomStringConvertible {
-    case peelStart
-    case peelInProgress
-    case stackRevealStart
-    case stackRevealInProgress
-    case repositionStart
-    case repositionInProgress
-    case coordinatedComplete
+    private func updateBackgroundFeedback(translation: CGSize) {
+        let maxTranslation = max(abs(translation.width), abs(translation.height))
+        let progress = min(maxTranslation / AnimationConfiguration.actionThreshold, 1.0)
 
-    var description: String {
-        switch self {
-        case .peelStart: return "peelStart"
-        case .peelInProgress: return "peelInProgress"
-        case .stackRevealStart: return "stackRevealStart"
-        case .stackRevealInProgress: return "stackRevealInProgress"
-        case .repositionStart: return "repositionStart"
-        case .repositionInProgress: return "repositionInProgress"
-        case .coordinatedComplete: return "coordinatedComplete"
+        backgroundOpacity = AnimationConfiguration.backgroundOpacityMin +
+                          (AnimationConfiguration.backgroundOpacityMax - AnimationConfiguration.backgroundOpacityMin) * progress
+    }
+
+    private func completeGestureAnimation(for action: GestureCoordinator.GestureAction) {
+        // Animate completion based on action type
+        switch action {
+        case .actionLike:
+            likeIconScale = AnimationConfiguration.iconScaleMax
+        case .actionDelete:
+            deleteIconScale = AnimationConfiguration.iconScaleMax
+        case .navigationPrevious, .navigationNext:
+            navigationIconScale = AnimationConfiguration.iconScaleMax
+        case .peek, .cancel:
+            break
+        }
+
+        // Reset translation
+        gestureTranslation = .zero
+    }
+
+    private func resetVisualFeedback() {
+        gestureTranslation = .zero
+        resistanceFactor = 1.0
+        likeIconScale = 1.0
+        deleteIconScale = 1.0
+        navigationIconScale = 1.0
+        backgroundOpacity = AnimationConfiguration.backgroundOpacityMin
+        currentPeekDirection = nil
+    }
+
+    private func checkForHapticTriggers(peekDirection: PeekDirection?) {
+        // Trigger haptic feedback when entering peek state
+        if let peek = peekDirection, currentPeekDirection != peek {
+            onHapticFeedback?(.peek)
         }
     }
-}
 
-enum StackAnimationState: Hashable {
-    case idle
-    case peeling
-    case revealing
-    case repositioning
-    case transitioning
+    private func mapPeekDirection(_ gestureDirection: GestureCoordinator.PeekDirection?) -> PeekDirection? {
+        guard let gestureDirection = gestureDirection else { return nil }
+
+        switch gestureDirection {
+        case .previous:
+            return .previous
+        case .next:
+            return .next
+        case .like:
+            return .like
+        case .delete:
+            return .delete
+        }
+    }
 }
 
 // MARK: - SwiftUI Integration
+
 extension AnimationCoordinator {
-    func modifier(for type: AnimationType) -> some ViewModifier {
-        AnimationModifier(coordinator: self, type: type)
+    /// Create animation values for SwiftUI views
+    var animationValues: AnimationValues {
+        AnimationValues(
+            translation: gestureTranslation,
+            resistance: resistanceFactor,
+            likeScale: likeIconScale,
+            deleteScale: deleteIconScale,
+            navigationScale: navigationIconScale,
+            backgroundOpacity: backgroundOpacity
+        )
     }
-}
 
-struct AnimationModifier: ViewModifier {
-    let coordinator: AnimationCoordinator
-    let type: AnimationType
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear {
-                coordinator.recordFrame()
-            }
-    }
-}
-
-// MARK: - View Extensions
-extension View {
-    func rallyAnimation(_ coordinator: AnimationCoordinator, type: AnimationType) -> some View {
-        self.modifier(coordinator.modifier(for: type))
+    struct AnimationValues {
+        let translation: CGSize
+        let resistance: CGFloat
+        let likeScale: CGFloat
+        let deleteScale: CGFloat
+        let navigationScale: CGFloat
+        let backgroundOpacity: Double
     }
 }

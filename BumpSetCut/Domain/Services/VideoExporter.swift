@@ -27,7 +27,7 @@ final class VideoExporter {
     }
 
     /// Exports a single rally segment as an individual video file
-    private func exportSingleRally(asset: AVAsset, timeRange: CMTimeRange, rallyIndex: Int) async throws -> URL {
+    func exportSingleRally(asset: AVAsset, timeRange: CMTimeRange, rallyIndex: Int) async throws -> URL {
         // Create deterministic filename based on source video and time range for caching
         let sourceURL = (asset as? AVURLAsset)?.url
         let sourceHash = sourceURL?.lastPathComponent.hashValue ?? 0
@@ -281,6 +281,91 @@ final class VideoExporter {
                 throw ProcessingError.exportFailed
             }
         }
+    }
+
+    // MARK: - Background Rally Export Support
+
+    /// Export a rally segment with custom output URL for cache management
+    func exportRallySegmentToURL(asset: AVAsset, rallySegment: RallySegment, outputURL: URL) async throws -> URL {
+        let timeRange = CMTimeRange(
+            start: CMTime(seconds: rallySegment.startTime, preferredTimescale: 600),
+            end: CMTime(seconds: rallySegment.endTime, preferredTimescale: 600)
+        )
+
+        return try await exportRallyToCustomURL(asset: asset, timeRange: timeRange, outputURL: outputURL)
+    }
+
+    /// Export rally segment to custom URL with composition
+    private func exportRallyToCustomURL(asset: AVAsset, timeRange: CMTimeRange, outputURL: URL) async throws -> URL {
+        // Remove existing file if it exists
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            try FileManager.default.removeItem(at: outputURL)
+        }
+
+        let comp = AVMutableComposition()
+        guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
+            throw ProcessingError.exportFailed
+        }
+        let aTrack = try? await asset.loadTracks(withMediaType: .audio).first
+
+        let compV = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        let compA = aTrack != nil ? comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
+
+        // Insert the single rally time range
+        try compV.insertTimeRange(timeRange, of: vTrack, at: .zero)
+        if let srcA = aTrack, let dstA = compA {
+            try dstA.insertTimeRange(timeRange, of: srcA, at: .zero)
+        }
+
+        // Keep orientation
+        if let pref = try? await vTrack.load(.preferredTransform) {
+            compV.preferredTransform = pref
+        }
+
+        guard let exporter = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetHighestQuality) else {
+            throw ProcessingError.exportFailed
+        }
+
+        if #available(iOS 18.0, *) {
+            try await exporter.export(to: outputURL, as: .mp4)
+            return outputURL
+        } else {
+            exporter.outputURL = outputURL
+            exporter.outputFileType = .mp4
+            exporter.shouldOptimizeForNetworkUse = true
+
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                exporter.exportAsynchronously {
+                    cont.resume()
+                }
+            }
+
+            if exporter.status == .failed {
+                throw exporter.error ?? ProcessingError.exportFailed
+            }
+            return outputURL
+        }
+    }
+
+    /// Generate a deterministic cache key for a rally segment
+    func generateRallyCacheKey(asset: AVAsset, rallyIndex: Int, rallySegment: RallySegment) -> String {
+        let sourceURL = (asset as? AVURLAsset)?.url
+        let sourceHash = sourceURL?.lastPathComponent.hashValue ?? 0
+        let timeHash = "\(rallySegment.startTime)_\(rallySegment.endTime)".hashValue
+        return "rally_\(sourceHash)_\(rallyIndex)_\(abs(timeHash))"
+    }
+
+    /// Check if a rally segment is already cached
+    func isRallyCached(cacheKey: String) -> Bool {
+        let outURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("\(cacheKey).mp4")
+        return FileManager.default.fileExists(atPath: outURL.path)
+    }
+
+    /// Get cached rally URL
+    func getCachedRallyURL(cacheKey: String) -> URL {
+        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("\(cacheKey).mp4")
     }
 
     // MARK: - Rally Cache Management

@@ -2,577 +2,612 @@
 //  RallyCacheManager.swift
 //  BumpSetCut
 //
-//  Persistent rally caching system for instant loading across app launches
+//  Created for Issue #60 Stream C - Rally Segment Preloading
 //
 
+import AVFoundation
 import Foundation
-import CoreMedia
 
-/// Priority modes for thumbnail prefetching coordination
-enum PrefetchPriority {
-    case immediate  // Positions 1-3 ahead - higher priority
-    case extended   // Positions 4-6 ahead - lower priority
-}
+/// Priority levels for rally segment preloading
+enum RallyPreloadPriority: Int, CaseIterable {
+    case high = 0      // Current rally being played
+    case normal = 1    // Next 1-2 rallies
+    case low = 2       // Future rallies beyond next 2
 
-struct CacheStats {
-    let totalFiles: Int
-    let totalSizeBytes: Int
-    let hitRate: Double
-    let lastCleanup: Date?
-
-    var totalSizeMB: Double {
-        Double(totalSizeBytes) / 1024 / 1024
+    var description: String {
+        switch self {
+        case .high: return "High (Current)"
+        case .normal: return "Normal (Next 1-2)"
+        case .low: return "Low (Future)"
+        }
     }
 }
 
-struct RallyCacheEntry: Codable {
-    let rallyIndex: Int
-    let fileName: String
-    let fileSize: Int
-    let createdDate: Date
-    let lastAccessed: Date
-
-    var url: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(fileName)
-    }
-}
-
-struct ThumbnailCacheEntry: Codable {
+/// Cache entry for a rally segment
+struct RallyCacheEntry {
+    let id: UUID
     let videoId: UUID
-    let timestamp: Double  // CMTime seconds
-    let fileName: String
-    let fileSize: Int
-    let createdDate: Date
-    let lastAccessed: Date
+    let rallyIndex: Int
+    let url: URL
+    let creationDate: Date
+    let lastAccessDate: Date
+    let fileSize: Int64
+    let priority: RallyPreloadPriority
+    let isValidated: Bool
 
-    var url: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(".thumbnails")
-            .appendingPathComponent(fileName)
+    /// Update last access date for LRU cache management
+    func accessed() -> RallyCacheEntry {
+        return RallyCacheEntry(
+            id: id,
+            videoId: videoId,
+            rallyIndex: rallyIndex,
+            url: url,
+            creationDate: creationDate,
+            lastAccessDate: Date(),
+            fileSize: fileSize,
+            priority: priority,
+            isValidated: isValidated
+        )
     }
 }
 
-struct RallyCacheManifest: Codable {
-    var entries: [UUID: [RallyCacheEntry]] = [:]
-    var thumbnails: [String: ThumbnailCacheEntry] = [:]  // Key: "\(videoId)_\(timestamp)"
-    var lastValidated: Date = Date()
-    var cacheHits: Int = 0
-    var cacheMisses: Int = 0
-    var thumbnailHits: Int = 0
-    var thumbnailMisses: Int = 0
+/// Rally cache performance metrics
+struct RallyCacheMetrics {
+    let totalEntries: Int
+    let totalSize: Int64
+    let hitRate: Double
+    let averageExportTime: TimeInterval
+    let backgroundExportCount: Int
+    let validationSuccessRate: Double
+    let lastCleanupDate: Date?
 
-    var hitRate: Double {
-        let total = cacheHits + cacheMisses
-        return total > 0 ? Double(cacheHits) / Double(total) : 0.0
-    }
-
-    var thumbnailHitRate: Double {
-        let total = thumbnailHits + thumbnailMisses
-        return total > 0 ? Double(thumbnailHits) / Double(total) : 0.0
+    /// Get cache size in MB
+    var totalSizeMB: Double {
+        return Double(totalSize) / (1024 * 1024)
     }
 }
 
-@MainActor
-final class RallyCacheManager: ObservableObject {
+/// Background task information for rally exports
+struct RallyExportTask {
+    let id: UUID
+    let videoId: UUID
+    let rallyIndex: Int
+    let priority: RallyPreloadPriority
+    let asset: AVAsset
+    let rallySegment: RallySegment
+    let creationDate: Date
+    let completionHandler: ((Result<URL, Error>) -> Void)?
+}
+
+/// Manages caching and preloading of rally segments for optimal playback performance
+@Observable
+final class RallyCacheManager {
+
     // MARK: - Properties
-    private var manifest: RallyCacheManifest
-    private let manifestURL: URL
-    private let documentsURL: URL
+
+    private let videoExporter: VideoExporter
+    private let maxCacheSize: Int64 = 500 * 1024 * 1024  // 500MB default
+    private let maxCacheAge: TimeInterval = 7 * 24 * 60 * 60  // 7 days
+    private let maxEntriesPerVideo: Int = 10  // Limit entries per video
+
+    // Cache storage
+    private var cache: [UUID: RallyCacheEntry] = [:]
+    private let cacheQueue = DispatchQueue(label: "com.bumpsetcut.rallycache", qos: .utility)
+
+    // Background export queue
+    private var exportQueue: [RallyExportTask] = []
+    private var activeExports: Set<UUID> = []
+    private let exportQueue_queue = DispatchQueue(label: "com.bumpsetcut.rallycache.export", qos: .background)
+
+    // Performance tracking
+    private var cacheHits: Int = 0
+    private var cacheMisses: Int = 0
+    private var exportTimes: [TimeInterval] = []
+    private var validationSuccesses: Int = 0
+    private var validationAttempts: Int = 0
+    private var lastCleanupDate: Date?
 
     // MARK: - Initialization
-    init() {
-        self.documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        self.manifestURL = documentsURL.appendingPathComponent("rally_cache_manifest.json")
 
-        // Create thumbnails directory if needed
-        let thumbnailsDir = documentsURL.appendingPathComponent(".thumbnails")
-        if !FileManager.default.fileExists(atPath: thumbnailsDir.path) {
-            try? FileManager.default.createDirectory(at: thumbnailsDir, withIntermediateDirectories: true)
-        }
-
-        // Load existing manifest or create new one
-        if let data = try? Data(contentsOf: manifestURL),
-           let loadedManifest = try? JSONDecoder().decode(RallyCacheManifest.self, from: data) {
-            self.manifest = loadedManifest
-            print("📁 Loaded rally cache manifest: \(manifest.entries.keys.count) videos, \(manifest.thumbnails.count) thumbnails cached")
-        } else {
-            self.manifest = RallyCacheManifest()
-            print("📁 Created new rally cache manifest")
-        }
+    init(videoExporter: VideoExporter = VideoExporter()) {
+        self.videoExporter = videoExporter
+        loadExistingCache()
+        schedulePeriodicCleanup()
     }
 
-    // MARK: - Cache Operations
-    /// Get cached rally URLs for a video, returns nil if not fully cached
-    func getCachedRallyURLs(for videoId: UUID) -> [URL]? {
-        guard let cacheEntries = manifest.entries[videoId] else {
-            manifest.cacheMisses += 1
+    // MARK: - Public Interface
+
+    /// Get a cached rally segment if available, otherwise queue for background export
+    func getRallySegment(videoId: UUID, rallyIndex: Int, asset: AVAsset, rallySegment: RallySegment, priority: RallyPreloadPriority = .normal) async -> URL? {
+
+        // Check cache first
+        if let cachedEntry = getCachedEntry(videoId: videoId, rallyIndex: rallyIndex) {
+            if validateCacheEntry(cachedEntry) {
+                await updateCacheAccess(entryId: cachedEntry.id)
+                cacheHits += 1
+                print("📁 Cache hit for rally \(rallyIndex) of video \(videoId)")
+                return cachedEntry.url
+            } else {
+                // Invalid cache entry, remove it
+                await removeCacheEntry(cachedEntry.id)
+            }
+        }
+
+        cacheMisses += 1
+
+        // Check if export is already in progress
+        if isExportInProgress(videoId: videoId, rallyIndex: rallyIndex) {
+            print("🔄 Export already in progress for rally \(rallyIndex) of video \(videoId)")
             return nil
         }
 
-        // Validate all cache files exist
-        let urls = cacheEntries.sorted { $0.rallyIndex < $1.rallyIndex }.map { $0.url }
-        for url in urls {
-            if !FileManager.default.fileExists(atPath: url.path) {
-                print("📁 Cache miss: Missing file \(url.lastPathComponent)")
-                manifest.cacheMisses += 1
-                // Remove invalid entry
-                manifest.entries.removeValue(forKey: videoId)
-                saveManifest()
-                return nil
-            }
-        }
-
-        // Update access time
-        updateAccessTime(for: videoId)
-        manifest.cacheHits += 1
-        saveManifest()
-
-        print("📁 Cache hit: \(urls.count) rallies for \(videoId)")
-        return urls
-    }
-
-    /// Store cached rally URLs for a video
-    func storeCachedRallies(_ videoId: UUID, _ urls: [URL]) {
-        var cacheEntries: [RallyCacheEntry] = []
-
-        for (index, url) in urls.enumerated() {
-            do {
-                let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-                let fileSize = attributes[.size] as? Int ?? 0
-
-                let entry = RallyCacheEntry(
-                    rallyIndex: index,
-                    fileName: url.lastPathComponent,
-                    fileSize: fileSize,
-                    createdDate: Date(),
-                    lastAccessed: Date()
-                )
-                cacheEntries.append(entry)
-            } catch {
-                print("❌ Failed to get file attributes for \(url.lastPathComponent): \(error)")
-            }
-        }
-
-        manifest.entries[videoId] = cacheEntries
-        saveManifest()
-
-        let totalSize = cacheEntries.reduce(0) { $0 + $1.fileSize }
-        print("📁 Cached \(cacheEntries.count) rallies for \(videoId): \(String(format: "%.1f", Double(totalSize) / 1024 / 1024)) MB")
-    }
-
-    /// Validate entire cache, removing invalid entries
-    func validateCache() {
-        var invalidVideoIds: Set<UUID> = []
-
-        for (videoId, entries) in manifest.entries {
-            for entry in entries {
-                if !FileManager.default.fileExists(atPath: entry.url.path) {
-                    print("📁 Invalid cache entry: \(entry.fileName)")
-                    invalidVideoIds.insert(videoId)
-                    break
-                }
-            }
-        }
-
-        // Remove invalid entries
-        for videoId in invalidVideoIds {
-            manifest.entries.removeValue(forKey: videoId)
-        }
-
-        manifest.lastValidated = Date()
-        saveManifest()
-
-        if !invalidVideoIds.isEmpty {
-            print("📁 Removed \(invalidVideoIds.count) invalid cache entries")
-        }
-    }
-
-    /// Clean up old cache files based on age and access time
-    func cleanupOldCache(maxAge: TimeInterval = 30 * 24 * 60 * 60) { // 30 days default
-        let cutoffDate = Date().addingTimeInterval(-maxAge)
-        var removedVideoIds: Set<UUID> = []
-
-        for (videoId, entries) in manifest.entries {
-            // Check if any entry is old
-            let hasOldEntries = entries.contains { entry in
-                entry.lastAccessed < cutoffDate || entry.createdDate < cutoffDate
-            }
-
-            if hasOldEntries {
-                // Remove all files for this video
-                for entry in entries {
-                    do {
-                        try FileManager.default.removeItem(at: entry.url)
-                        print("📁 Removed old cache file: \(entry.fileName)")
-                    } catch {
-                        print("❌ Failed to remove cache file \(entry.fileName): \(error)")
-                    }
-                }
-                removedVideoIds.insert(videoId)
-            }
-        }
-
-        // Update manifest
-        for videoId in removedVideoIds {
-            manifest.entries.removeValue(forKey: videoId)
-        }
-
-        if !removedVideoIds.isEmpty {
-            saveManifest()
-            print("📁 Cleaned up cache for \(removedVideoIds.count) videos")
-        }
-    }
-
-    /// Get cache statistics
-    func getCacheStats() -> CacheStats {
-        let rallyFiles = manifest.entries.values.flatMap { $0 }.count
-        let thumbnailFiles = manifest.thumbnails.count
-        let totalFiles = rallyFiles + thumbnailFiles
-
-        let rallySizeBytes = manifest.entries.values.flatMap { $0 }.reduce(0) { $0 + $1.fileSize }
-        let thumbnailSizeBytes = manifest.thumbnails.values.reduce(0) { $0 + $1.fileSize }
-        let totalSizeBytes = rallySizeBytes + thumbnailSizeBytes
-
-        // Combined hit rate
-        let totalHits = manifest.cacheHits + manifest.thumbnailHits
-        let totalMisses = manifest.cacheMisses + manifest.thumbnailMisses
-        let combinedHitRate = (totalHits + totalMisses) > 0 ? Double(totalHits) / Double(totalHits + totalMisses) : 0.0
-
-        return CacheStats(
-            totalFiles: totalFiles,
-            totalSizeBytes: totalSizeBytes,
-            hitRate: combinedHitRate,
-            lastCleanup: manifest.lastValidated
-        )
-    }
-
-    /// Clear all cache
-    func clearAllCache() {
-        // Clear rally segments
-        for entries in manifest.entries.values {
-            for entry in entries {
-                try? FileManager.default.removeItem(at: entry.url)
-            }
-        }
-
-        // Clear thumbnails
-        for entry in manifest.thumbnails.values {
-            try? FileManager.default.removeItem(at: entry.url)
-        }
-
-        manifest.entries.removeAll()
-        manifest.thumbnails.removeAll()
-        manifest.cacheHits = 0
-        manifest.cacheMisses = 0
-        manifest.thumbnailHits = 0
-        manifest.thumbnailMisses = 0
-        saveManifest()
-
-        print("📁 Cleared all rally cache and thumbnails")
-    }
-
-    /// Remove cache for specific video
-    func removeCacheForVideo(_ videoId: UUID) {
-        // Remove rally segments
-        if let entries = manifest.entries[videoId] {
-            for entry in entries {
-                try? FileManager.default.removeItem(at: entry.url)
-            }
-            manifest.entries.removeValue(forKey: videoId)
-        }
-
-        // Remove thumbnails
-        let thumbnailKeysToRemove = manifest.thumbnails.keys.filter { key in
-            key.hasPrefix(videoId.uuidString)
-        }
-        for key in thumbnailKeysToRemove {
-            if let entry = manifest.thumbnails[key] {
-                try? FileManager.default.removeItem(at: entry.url)
-            }
-            manifest.thumbnails.removeValue(forKey: key)
-        }
-
-        saveManifest()
-        print("📁 Removed cache and thumbnails for video \(videoId)")
-    }
-
-    // MARK: - Thumbnail Cache Operations
-    /// Get cached thumbnail data for a video at a specific timestamp
-    func getCachedThumbnail(for videoId: UUID, at timestamp: Double) -> Data? {
-        let key = "\(videoId.uuidString)_\(timestamp)"
-        guard let entry = manifest.thumbnails[key] else {
-            manifest.thumbnailMisses += 1
+        // Queue for background export if low priority
+        if priority == .low {
+            await queueBackgroundExport(videoId: videoId, rallyIndex: rallyIndex, asset: asset, rallySegment: rallySegment, priority: priority)
             return nil
         }
 
-        // Validate file exists
-        if !FileManager.default.fileExists(atPath: entry.url.path) {
-            manifest.thumbnails.removeValue(forKey: key)
-            manifest.thumbnailMisses += 1
-            saveManifest()
-            return nil
-        }
-
-        // Update access time
-        updateThumbnailAccessTime(for: key)
-        manifest.thumbnailHits += 1
-        saveManifest()
-
-        do {
-            return try Data(contentsOf: entry.url)
-        } catch {
-            print("❌ Failed to read thumbnail: \(error)")
-            return nil
-        }
+        // Export immediately for high/normal priority
+        return await exportRallySegment(videoId: videoId, rallyIndex: rallyIndex, asset: asset, rallySegment: rallySegment, priority: priority)
     }
 
-    /// Store thumbnail data for a video at a specific timestamp
-    func storeThumbnail(_ data: Data, for videoId: UUID, at timestamp: Double) {
-        let key = "\(videoId.uuidString)_\(timestamp)"
-        let fileName = "\(key).jpg"
-        let thumbnailsDir = documentsURL.appendingPathComponent(".thumbnails")
-        let fileURL = thumbnailsDir.appendingPathComponent(fileName)
+    /// Preload rally segments for smoother navigation
+    func preloadRallySegments(videoId: UUID, currentRallyIndex: Int, rallies: [RallySegment], asset: AVAsset) async {
+        print("🚀 Starting preload for video \(videoId), current rally: \(currentRallyIndex)")
 
-        do {
-            try data.write(to: fileURL)
-
-            let entry = ThumbnailCacheEntry(
+        // Preload current rally with high priority
+        if currentRallyIndex < rallies.count {
+            await getRallySegment(
                 videoId: videoId,
-                timestamp: timestamp,
-                fileName: fileName,
-                fileSize: data.count,
-                createdDate: Date(),
-                lastAccessed: Date()
+                rallyIndex: currentRallyIndex,
+                asset: asset,
+                rallySegment: rallies[currentRallyIndex],
+                priority: .high
             )
-
-            manifest.thumbnails[key] = entry
-            saveManifest()
-
-            print("📸 Cached thumbnail for \(videoId) at \(timestamp)s: \(data.count / 1024) KB")
-        } catch {
-            print("❌ Failed to save thumbnail: \(error)")
-        }
-    }
-
-    /// Enhanced prefetch thumbnails for upcoming rallies with intelligent prioritization
-    func prefetchThumbnails(for videoId: UUID, timestamps: [Double], videoURL: URL, priorityMode: PrefetchPriority = .extended) {
-        guard !timestamps.isEmpty else { return }
-
-        var framesToPrefetch: [(URL, CMTime)] = []
-
-        for timestamp in timestamps {
-            let key = "\(videoId.uuidString)_\(timestamp)"
-            // Skip if already cached
-            if manifest.thumbnails[key] != nil {
-                continue
-            }
-
-            let cmTime = CMTime(seconds: timestamp, preferredTimescale: 600)
-            framesToPrefetch.append((videoURL, cmTime))
         }
 
-        guard !framesToPrefetch.isEmpty else {
-            print("📸 All thumbnails already cached for \(videoId)")
-            return
-        }
-
-        print("📸 Prefetching \(framesToPrefetch.count) thumbnails for \(videoId) with \(priorityMode) priority")
-
-        // Coordinate with FrameExtractor based on priority
-        let requests: [(URL, CMTime)] = framesToPrefetch
-
-        switch priorityMode {
-        case .immediate:
-            FrameExtractor.shared.prefetchThumbnails(for: requests, priority: .high)
-        case .extended:
-            FrameExtractor.shared.prefetchThumbnails(for: requests, priority: .low)
-        }
-    }
-
-    /// Batch prefetch for multiple videos with optimized scheduling
-    func batchPrefetchThumbnails(requests: [(videoId: UUID, timestamps: [Double], videoURL: URL, priority: PrefetchPriority)]) {
-        print("📸 Starting batch prefetch for \(requests.count) video sets")
-
-        // Sort by priority: immediate first, then extended
-        let sortedRequests = requests.sorted { lhs, rhs in
-            switch (lhs.priority, rhs.priority) {
-            case (.immediate, .extended):
-                return true
-            case (.extended, .immediate):
-                return false
-            default:
-                return false
+        // Preload next 1-2 rallies with normal priority
+        for i in 1...2 {
+            let nextIndex = currentRallyIndex + i
+            if nextIndex < rallies.count {
+                await getRallySegment(
+                    videoId: videoId,
+                    rallyIndex: nextIndex,
+                    asset: asset,
+                    rallySegment: rallies[nextIndex],
+                    priority: .normal
+                )
             }
         }
 
-        for request in sortedRequests {
-            prefetchThumbnails(
-                for: request.videoId,
-                timestamps: request.timestamps,
-                videoURL: request.videoURL,
-                priorityMode: request.priority
-            )
+        // Queue future rallies for background export with low priority
+        for i in 3..<min(rallies.count, currentRallyIndex + 6) {
+            let futureIndex = currentRallyIndex + i
+            if futureIndex < rallies.count {
+                await queueBackgroundExport(
+                    videoId: videoId,
+                    rallyIndex: futureIndex,
+                    asset: asset,
+                    rallySegment: rallies[futureIndex],
+                    priority: .low
+                )
+            }
         }
     }
 
-    /// Smart prefetch based on navigation position and video stack context
-    func smartPrefetch(currentVideoId: UUID, upcomingVideos: [(videoId: UUID, videoURL: URL, timestamps: [Double])]) {
-        guard !upcomingVideos.isEmpty else { return }
+    /// Get cache performance metrics
+    func getMetrics() -> RallyCacheMetrics {
+        let totalRequests = cacheHits + cacheMisses
+        let hitRate = totalRequests > 0 ? Double(cacheHits) / Double(totalRequests) : 0.0
+        let avgExportTime = exportTimes.isEmpty ? 0.0 : exportTimes.reduce(0, +) / Double(exportTimes.count)
+        let validationRate = validationAttempts > 0 ? Double(validationSuccesses) / Double(validationAttempts) : 0.0
 
-        var prefetchRequests: [(videoId: UUID, timestamps: [Double], videoURL: URL, priority: PrefetchPriority)] = []
+        let totalSize = cache.values.reduce(0) { $0 + $1.fileSize }
 
-        for (index, video) in upcomingVideos.enumerated() {
-            let priority: PrefetchPriority = index < 3 ? .immediate : .extended
-            prefetchRequests.append((
-                videoId: video.videoId,
-                timestamps: video.timestamps,
-                videoURL: video.videoURL,
-                priority: priority
-            ))
-        }
-
-        batchPrefetchThumbnails(requests: prefetchRequests)
-    }
-
-    /// Get prefetch coordination metrics from FrameExtractor
-    func getPrefetchStatus() -> (queuedFrames: Int, completedPrefetches: Int, successRate: Double, memoryPressureSkips: Int) {
-        let metrics = FrameExtractor.shared.performanceMetrics
-        return (
-            queuedFrames: 0, // Not available in current API
-            completedPrefetches: 0, // Not available in current API
-            successRate: 1.0 - metrics.errorRate,
-            memoryPressureSkips: metrics.memoryPressureEvents
+        return RallyCacheMetrics(
+            totalEntries: cache.count,
+            totalSize: totalSize,
+            hitRate: hitRate,
+            averageExportTime: avgExportTime,
+            backgroundExportCount: exportQueue.count,
+            validationSuccessRate: validationRate,
+            lastCleanupDate: lastCleanupDate
         )
     }
 
-    /// Check if FrameExtractor is under memory pressure
-    var isUnderMemoryPressure: Bool {
-        return FrameExtractor.shared.isUnderMemoryPressure
-    }
-
-    /// Extract timestamp from video URL for prefetch coordination
-    private func extractTimestampFromURL(_ url: URL) -> Double? {
-        // For prefetch coordination, we'll use a default timestamp of 0.5 seconds
-        // This represents the typical thumbnail extraction point
-        return 0.5
-    }
-
-    /// Force cache synchronization with FrameExtractor when thumbnails are extracted
-    func syncThumbnailFromFrameExtractor(videoId: UUID, timestamp: Double, imageData: Data) {
-        // Store the extracted thumbnail in our cache system
-        storeThumbnail(imageData, for: videoId, at: timestamp)
-        print("📸 Synced thumbnail from FrameExtractor: \(videoId) at \(timestamp)s")
-    }
-
-    /// Clear prefetch queues in FrameExtractor when cache is cleared
-    func clearAllCacheWithCoordination() {
-        // Clear our own cache first
-        for entries in manifest.entries.values {
-            for entry in entries {
+    /// Clear cache for a specific video
+    func clearVideoCache(videoId: UUID) async {
+        await cacheQueue.run {
+            let entriesToRemove = cache.values.filter { $0.videoId == videoId }
+            for entry in entriesToRemove {
+                cache.removeValue(forKey: entry.id)
                 try? FileManager.default.removeItem(at: entry.url)
             }
+            print("🗑️ Cleared cache for video \(videoId): \(entriesToRemove.count) entries removed")
         }
-
-        for entry in manifest.thumbnails.values {
-            try? FileManager.default.removeItem(at: entry.url)
-        }
-
-        manifest.entries.removeAll()
-        manifest.thumbnails.removeAll()
-        manifest.cacheHits = 0
-        manifest.cacheMisses = 0
-        manifest.thumbnailHits = 0
-        manifest.thumbnailMisses = 0
-        saveManifest()
-
-        // Clear FrameExtractor cache as well for coordination
-        FrameExtractor.shared.clearCache()
-
-        print("📁 Cleared all rally cache, thumbnails, and FrameExtractor cache")
     }
 
-    /// Clean up old thumbnails based on LRU policy
-    func cleanupThumbnails(maxCount: Int = 100) {
-        guard manifest.thumbnails.count > maxCount else { return }
-
-        // Sort thumbnails by last access time
-        let sortedThumbnails = manifest.thumbnails.sorted { $0.value.lastAccessed < $1.value.lastAccessed }
-
-        // Remove oldest thumbnails
-        let countToRemove = manifest.thumbnails.count - maxCount
-        for (key, entry) in sortedThumbnails.prefix(countToRemove) {
-            try? FileManager.default.removeItem(at: entry.url)
-            manifest.thumbnails.removeValue(forKey: key)
+    /// Clear entire cache
+    func clearAllCache() async {
+        await cacheQueue.run {
+            for entry in cache.values {
+                try? FileManager.default.removeItem(at: entry.url)
+            }
+            cache.removeAll()
+            exportQueue.removeAll()
+            activeExports.removeAll()
+            print("🗑️ Cleared entire rally cache")
         }
-
-        saveManifest()
-        print("📸 Cleaned up \(countToRemove) old thumbnails")
     }
 
-    private func updateThumbnailAccessTime(for key: String) {
-        guard let entry = manifest.thumbnails[key] else { return }
+    // MARK: - Rally Navigation Integration
 
-        manifest.thumbnails[key] = ThumbnailCacheEntry(
-            videoId: entry.videoId,
-            timestamp: entry.timestamp,
-            fileName: entry.fileName,
-            fileSize: entry.fileSize,
-            createdDate: entry.createdDate,
-            lastAccessed: Date()
+    /// Integration method for RallyNavigationState preloading
+    func integrateWithNavigationState(navigationState: RallyNavigationState, asset: AVAsset) async {
+        guard let metadata = navigationState.processingMetadata else { return }
+
+        let videoId = metadata.videoId
+        let currentIndex = navigationState.currentRallyIndex
+        let rallies = metadata.rallySegments
+
+        // Start preloading for current navigation context
+        await preloadRallySegments(
+            videoId: videoId,
+            currentRallyIndex: currentIndex,
+            rallies: rallies,
+            asset: asset
         )
+
+        // Update navigation state with preloading progress if needed
+        if let nextTarget = navigationState.getNextPreloadTarget(),
+           navigationState.shouldPreload(targetIndex: nextTarget) {
+
+            // Check if we have the next rally cached
+            if let cachedEntry = getCachedEntry(videoId: videoId, rallyIndex: nextTarget),
+               validateCacheEntry(cachedEntry) {
+
+                await MainActor.run {
+                    navigationState.triggerPreloading(for: nextTarget)
+                    navigationState.updatePreloadingProgress(1.0)
+                    navigationState.completePreloading(success: true)
+                }
+                print("🎯 Rally \(nextTarget) already cached and ready for navigation")
+            }
+        }
+    }
+
+    /// Get preloaded rally URL for immediate playback
+    func getPreloadedRallyURL(videoId: UUID, rallyIndex: Int) -> URL? {
+        if let cachedEntry = getCachedEntry(videoId: videoId, rallyIndex: rallyIndex),
+           validateCacheEntry(cachedEntry) {
+            cacheHits += 1
+            Task {
+                await updateCacheAccess(entryId: cachedEntry.id)
+            }
+            return cachedEntry.url
+        }
+        return nil
     }
 
     // MARK: - Private Methods
-    private func updateAccessTime(for videoId: UUID) {
-        guard var entries = manifest.entries[videoId] else { return }
 
-        for i in entries.indices {
-            entries[i] = RallyCacheEntry(
-                rallyIndex: entries[i].rallyIndex,
-                fileName: entries[i].fileName,
-                fileSize: entries[i].fileSize,
-                createdDate: entries[i].createdDate,
-                lastAccessed: Date()
-            )
-        }
-
-        manifest.entries[videoId] = entries
+    private func getCachedEntry(videoId: UUID, rallyIndex: Int) -> RallyCacheEntry? {
+        return cache.values.first { $0.videoId == videoId && $0.rallyIndex == rallyIndex }
     }
 
-    private func saveManifest() {
+    private func isExportInProgress(videoId: UUID, rallyIndex: Int) -> Bool {
+        return exportQueue.contains { $0.videoId == videoId && $0.rallyIndex == rallyIndex } ||
+               activeExports.contains { exportId in
+                   exportQueue.first { $0.id == exportId }?.videoId == videoId &&
+                   exportQueue.first { $0.id == exportId }?.rallyIndex == rallyIndex
+               }
+    }
+
+    private func exportRallySegment(videoId: UUID, rallyIndex: Int, asset: AVAsset, rallySegment: RallySegment, priority: RallyPreloadPriority) async -> URL? {
+        let startTime = Date()
+
         do {
-            let data = try JSONEncoder().encode(manifest)
-            try data.write(to: manifestURL)
+            print("🎬 Exporting rally \(rallyIndex) for video \(videoId) with \(priority.description) priority")
+
+            // Generate cache key and URL
+            let cacheKey = videoExporter.generateRallyCacheKey(asset: asset, rallyIndex: rallyIndex, rallySegment: rallySegment)
+            let outputURL = videoExporter.getCachedRallyURL(cacheKey: cacheKey)
+
+            // Check if already cached
+            if videoExporter.isRallyCached(cacheKey: cacheKey) {
+                print("📁 Rally already cached: \(outputURL.lastPathComponent)")
+
+                // Create cache entry for existing file
+                let fileSize = getFileSize(url: outputURL)
+                let entry = RallyCacheEntry(
+                    id: UUID(),
+                    videoId: videoId,
+                    rallyIndex: rallyIndex,
+                    url: outputURL,
+                    creationDate: Date(),
+                    lastAccessDate: Date(),
+                    fileSize: fileSize,
+                    priority: priority,
+                    isValidated: true
+                )
+
+                await addCacheEntry(entry)
+                return outputURL
+            }
+
+            // Export to cache URL
+            let url = try await videoExporter.exportRallySegmentToURL(
+                asset: asset,
+                rallySegment: rallySegment,
+                outputURL: outputURL
+            )
+
+            // Create cache entry
+            let fileSize = getFileSize(url: url)
+            let entry = RallyCacheEntry(
+                id: UUID(),
+                videoId: videoId,
+                rallyIndex: rallyIndex,
+                url: url,
+                creationDate: Date(),
+                lastAccessDate: Date(),
+                fileSize: fileSize,
+                priority: priority,
+                isValidated: true
+            )
+
+            await addCacheEntry(entry)
+
+            let exportTime = Date().timeIntervalSince(startTime)
+            exportTimes.append(exportTime)
+
+            print("✅ Successfully exported rally \(rallyIndex) in \(String(format: "%.2f", exportTime))s")
+            return url
+
         } catch {
-            print("❌ Failed to save rally cache manifest: \(error)")
+            print("❌ Failed to export rally \(rallyIndex): \(error)")
+            return nil
+        }
+    }
+
+    private func queueBackgroundExport(videoId: UUID, rallyIndex: Int, asset: AVAsset, rallySegment: RallySegment, priority: RallyPreloadPriority) async {
+        let task = RallyExportTask(
+            id: UUID(),
+            videoId: videoId,
+            rallyIndex: rallyIndex,
+            priority: priority,
+            asset: asset,
+            rallySegment: rallySegment,
+            creationDate: Date(),
+            completionHandler: nil
+        )
+
+        await exportQueue_queue.run {
+            // Insert based on priority (high priority first)
+            let insertIndex = exportQueue.firstIndex { $0.priority.rawValue > priority.rawValue } ?? exportQueue.count
+            exportQueue.insert(task, at: insertIndex)
+        }
+
+        print("📋 Queued background export for rally \(rallyIndex) with \(priority.description) priority")
+        processNextExportTask()
+    }
+
+    private func processNextExportTask() {
+        Task {
+            await exportQueue_queue.run {
+                guard !exportQueue.isEmpty,
+                      activeExports.count < 2,  // Limit concurrent exports
+                      let nextTask = exportQueue.first else { return }
+
+                exportQueue.removeFirst()
+                activeExports.insert(nextTask.id)
+
+                Task {
+                    let url = await exportRallySegment(
+                        videoId: nextTask.videoId,
+                        rallyIndex: nextTask.rallyIndex,
+                        asset: nextTask.asset,
+                        rallySegment: nextTask.rallySegment,
+                        priority: nextTask.priority
+                    )
+
+                    await exportQueue_queue.run {
+                        activeExports.remove(nextTask.id)
+                    }
+
+                    nextTask.completionHandler?(url != nil ? .success(url!) : .failure(ProcessingError.exportFailed))
+
+                    // Process next task if available
+                    processNextExportTask()
+                }
+            }
+        }
+    }
+
+    private func validateCacheEntry(_ entry: RallyCacheEntry) -> Bool {
+        validationAttempts += 1
+
+        // Check if file exists
+        guard FileManager.default.fileExists(atPath: entry.url.path) else {
+            print("⚠️ Cache validation failed: File missing for rally \(entry.rallyIndex)")
+            return false
+        }
+
+        // Check if file size matches
+        let currentSize = getFileSize(url: entry.url)
+        guard currentSize == entry.fileSize else {
+            print("⚠️ Cache validation failed: File size mismatch for rally \(entry.rallyIndex)")
+            return false
+        }
+
+        // Check if file is too old
+        let age = Date().timeIntervalSince(entry.creationDate)
+        guard age < maxCacheAge else {
+            print("⚠️ Cache validation failed: File too old for rally \(entry.rallyIndex)")
+            return false
+        }
+
+        validationSuccesses += 1
+        return true
+    }
+
+    private func getFileSize(url: URL) -> Int64 {
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            return attributes[.size] as? Int64 ?? 0
+        } catch {
+            return 0
+        }
+    }
+
+    @MainActor
+    private func addCacheEntry(_ entry: RallyCacheEntry) async {
+        await cacheQueue.run {
+            cache[entry.id] = entry
+        }
+
+        // Trigger cleanup if needed
+        await performCacheCleanup()
+    }
+
+    @MainActor
+    private func removeCacheEntry(_ entryId: UUID) async {
+        await cacheQueue.run {
+            if let entry = cache.removeValue(forKey: entryId) {
+                try? FileManager.default.removeItem(at: entry.url)
+                print("🗑️ Removed invalid cache entry for rally \(entry.rallyIndex)")
+            }
+        }
+    }
+
+    @MainActor
+    private func updateCacheAccess(entryId: UUID) async {
+        await cacheQueue.run {
+            if let entry = cache[entryId] {
+                cache[entryId] = entry.accessed()
+            }
+        }
+    }
+
+    private func loadExistingCache() {
+        // Load existing rally files and populate cache
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+
+        do {
+            let files = try FileManager.default.contentsOfDirectory(
+                at: documentsURL,
+                includingPropertiesForKeys: [.creationDateKey, .fileSizeKey],
+                options: []
+            )
+
+            let rallyFiles = files.filter { $0.lastPathComponent.hasPrefix("rally_") }
+
+            for file in rallyFiles {
+                if let entry = createCacheEntryFromFile(url: file) {
+                    cache[entry.id] = entry
+                }
+            }
+
+            print("📁 Loaded \(cache.count) existing rally cache entries")
+
+        } catch {
+            print("⚠️ Failed to load existing cache: \(error)")
+        }
+    }
+
+    private func createCacheEntryFromFile(url: URL) -> RallyCacheEntry? {
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard let creationDate = attributes[.creationDate] as? Date,
+                  let fileSize = attributes[.size] as? Int64 else {
+                return nil
+            }
+
+            // Parse filename to extract video and rally info
+            // Format: rally_{sourceHash}_{rallyIndex}_{timeHash}.mp4
+            let filename = url.lastPathComponent
+            let components = filename.replacingOccurrences(of: ".mp4", with: "").components(separatedBy: "_")
+            guard components.count >= 3,
+                  let rallyIndex = Int(components[2]) else {
+                return nil
+            }
+
+            // Generate a deterministic video ID from the source hash (this is a simplification)
+            let videoId = UUID() // In a real implementation, you'd map this properly
+
+            return RallyCacheEntry(
+                id: UUID(),
+                videoId: videoId,
+                rallyIndex: rallyIndex,
+                url: url,
+                creationDate: creationDate,
+                lastAccessDate: creationDate,
+                fileSize: fileSize,
+                priority: .normal,
+                isValidated: false  // Will be validated on first access
+            )
+
+        } catch {
+            print("⚠️ Failed to create cache entry for file \(url.lastPathComponent): \(error)")
+            return nil
+        }
+    }
+
+    private func performCacheCleanup() async {
+        let currentSize = cache.values.reduce(0) { $0 + $1.fileSize }
+
+        // Only cleanup if we exceed size limit
+        guard currentSize > maxCacheSize else { return }
+
+        await cacheQueue.run {
+            print("🧹 Starting cache cleanup - current size: \(currentSize / (1024 * 1024))MB")
+
+            // Sort by priority (low first) and then by last access date (oldest first)
+            let sortedEntries = cache.values.sorted { entry1, entry2 in
+                if entry1.priority != entry2.priority {
+                    return entry1.priority.rawValue > entry2.priority.rawValue
+                }
+                return entry1.lastAccessDate < entry2.lastAccessDate
+            }
+
+            var removedSize: Int64 = 0
+            let targetRemovalSize = currentSize - (maxCacheSize * 3 / 4)  // Remove to 75% of max
+
+            for entry in sortedEntries {
+                if removedSize >= targetRemovalSize { break }
+
+                cache.removeValue(forKey: entry.id)
+                try? FileManager.default.removeItem(at: entry.url)
+                removedSize += entry.fileSize
+
+                print("🗑️ Removed cache entry for rally \(entry.rallyIndex): \(entry.fileSize / (1024 * 1024))MB")
+            }
+
+            lastCleanupDate = Date()
+            print("✅ Cache cleanup completed - removed \(removedSize / (1024 * 1024))MB")
+        }
+    }
+
+    private func schedulePeriodicCleanup() {
+        Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { _ in  // Every hour
+            Task {
+                await self.performCacheCleanup()
+            }
         }
     }
 }
 
-// MARK: - App Lifecycle Integration
-extension RallyCacheManager {
-    /// Perform cache maintenance on app launch
-    func performAppLaunchMaintenance() {
-        print("📁 Starting rally cache maintenance...")
+// MARK: - Extensions
 
-        // Validate cache integrity
-        validateCache()
-
-        // Clean up very old cache (more aggressive on launch)
-        cleanupOldCache(maxAge: 14 * 24 * 60 * 60) // 14 days
-
-        // Clean up excess thumbnails
-        cleanupThumbnails(maxCount: 100)
-
-        let stats = getCacheStats()
-        print("📊 Cache stats: \(stats.totalFiles) files, \(String(format: "%.1f", stats.totalSizeMB)) MB, \(String(format: "%.1f", stats.hitRate * 100))% hit rate")
-    }
-
-    /// Perform lighter cache maintenance in background
-    func performBackgroundMaintenance() {
-        validateCache()
-        // Less aggressive cleanup in background
-        cleanupOldCache(maxAge: 30 * 24 * 60 * 60) // 30 days
+extension DispatchQueue {
+    func run<T>(@Sendable operation: @escaping () async -> T) async -> T {
+        return await withUnsafeContinuation { continuation in
+            self.async {
+                Task {
+                    let result = await operation()
+                    continuation.resume(returning: result)
+                }
+            }
+        }
     }
 }
