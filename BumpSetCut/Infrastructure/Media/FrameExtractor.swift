@@ -72,19 +72,30 @@ final class FrameExtractor {
 
     /// LRU cache implementation with automatic eviction
     private final class FrameCache {
-        private var cache: [URL: CacheEntry] = [:]
-        private var accessOrder: [URL] = []
+        private struct CacheKey: Hashable {
+            let url: URL
+            let time: CMTime
+
+            init(url: URL, time: CMTime? = nil) {
+                self.url = url
+                self.time = time ?? CMTime(seconds: 0.1, preferredTimescale: 600)
+            }
+        }
+
+        private var cache: [CacheKey: CacheEntry] = [:]
+        private var accessOrder: [CacheKey] = []
         private let maxEntries: Int
         private let maxMemoryBytes: Int
 
         private var currentMemoryUsage: Int = 0
 
-        init(maxEntries: Int = 5, maxMemoryMB: Int = 10) {
+        init(maxEntries: Int = 30, maxMemoryMB: Int = 50) {
             self.maxEntries = maxEntries
             self.maxMemoryBytes = maxMemoryMB * 1024 * 1024
         }
 
-        func get(_ key: URL) -> UIImage? {
+        func get(_ url: URL, time: CMTime? = nil) -> UIImage? {
+            let key = CacheKey(url: url, time: time)
             guard let entry = cache[key] else { return nil }
 
             // Move to front of access order
@@ -92,7 +103,8 @@ final class FrameExtractor {
             return entry.image
         }
 
-        func set(_ key: URL, image: UIImage) {
+        func set(_ url: URL, time: CMTime? = nil, image: UIImage) {
+            let key = CacheKey(url: url, time: time)
             let memoryUsage = estimateMemoryUsage(for: image)
             let entry = CacheEntry(
                 image: image,
@@ -143,7 +155,7 @@ final class FrameExtractor {
             // Capacity is controlled by maxEntries, no action needed
         }
 
-        private func moveToFront(_ key: URL) {
+        private func moveToFront(_ key: CacheKey) {
             if let index = accessOrder.firstIndex(of: key) {
                 accessOrder.remove(at: index)
             }
@@ -198,9 +210,100 @@ final class FrameExtractor {
         setupApplicationLifecycleObservers()
     }
 
-    /// Extract a frame from the video at the configured time (0.1 seconds)
-    /// Enhanced with performance monitoring, memory pressure detection, and graceful degradation
-    func extractFrame(from videoURL: URL, priority: ExtractionPriority = .normal) async throws -> UIImage {
+    /// Generate a thumbnail at a specific timestamp with reduced quality for performance
+    /// - Parameters:
+    ///   - videoURL: The video file URL
+    ///   - time: The timestamp to extract thumbnail at
+    ///   - size: Maximum thumbnail size (default 200x200)
+    /// - Returns: The thumbnail UIImage
+    func generateThumbnail(from videoURL: URL, at time: CMTime, size: CGSize = CGSize(width: 200, height: 200)) async throws -> UIImage {
+        // Check cache first
+        if let cachedImage = cache.get(videoURL, time: time) {
+            logger.debug("✅ Thumbnail cache hit: \(videoURL.lastPathComponent)")
+            return cachedImage
+        }
+
+        // Extract with lower priority for thumbnails
+        // TODO: In future, could add size parameter to extractFrame for optimization
+        return try await extractFrame(from: videoURL, at: time, priority: .low)
+    }
+
+    /// Extract multiple frames from a video in batch for efficiency
+    /// - Parameters:
+    ///   - videoURL: The video file URL
+    ///   - times: Array of CMTime values to extract frames at
+    ///   - priority: Extraction priority
+    /// - Returns: Dictionary mapping CMTime to UIImage
+    func extractFrames(from videoURL: URL, at times: [CMTime], priority: ExtractionPriority = .normal) async throws -> [CMTime: UIImage] {
+        var results: [CMTime: UIImage] = [:]
+
+        // Check cache for existing frames
+        for time in times {
+            if let cachedImage = cache.get(videoURL, time: time) {
+                results[time] = cachedImage
+            }
+        }
+
+        // Extract missing frames
+        let missingTimes = times.filter { results[$0] == nil }
+
+        if !missingTimes.isEmpty {
+            // Use concurrent extraction for efficiency
+            try await withThrowingTaskGroup(of: (CMTime, UIImage).self) { group in
+                for time in missingTimes {
+                    group.addTask { [weak self] in
+                        guard let self = self else {
+                            throw FrameExtractionError.extractorReleased
+                        }
+                        let image = try await self.extractFrame(from: videoURL, at: time, priority: priority)
+                        return (time, image)
+                    }
+                }
+
+                for try await (time, image) in group {
+                    results[time] = image
+                }
+            }
+        }
+
+        return results
+    }
+
+    /// Prefetch thumbnails for upcoming rallies to improve performance
+    /// - Parameters:
+    ///   - requests: Array of tuples containing video URL and timestamp
+    ///   - priority: Extraction priority (default .low for background prefetching)
+    func prefetchThumbnails(for requests: [(URL, CMTime)], priority: ExtractionPriority = .low) {
+        Task {
+            for (url, time) in requests {
+                // Skip if already cached
+                if cache.get(url, time: time) != nil {
+                    continue
+                }
+
+                // Skip if under memory pressure
+                if memoryMonitor.isUnderMemoryPressure {
+                    logger.debug("⏸️ Prefetch paused due to memory pressure")
+                    break
+                }
+
+                do {
+                    _ = try await generateThumbnail(from: url, at: time)
+                    logger.debug("📥 Prefetched thumbnail for: \(url.lastPathComponent)")
+                } catch {
+                    logger.debug("⚠️ Prefetch failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// Extract a frame from the video at a specific time
+    /// - Parameters:
+    ///   - videoURL: The video file URL
+    ///   - time: The timestamp to extract frame at (nil uses config.frameTime)
+    ///   - priority: Extraction priority for queue selection
+    /// - Returns: The extracted UIImage
+    func extractFrame(from videoURL: URL, at time: CMTime? = nil, priority: ExtractionPriority = .normal) async throws -> UIImage {
         let extractionStartTime = Date()
 
         // Update telemetry
@@ -223,7 +326,7 @@ final class FrameExtractor {
         }
 
         // Check cache first
-        if let cachedImage = cache.get(videoURL) {
+        if let cachedImage = cache.get(videoURL, time: time) {
             currentTelemetry.cacheHits += 1
             logger.debug("✅ Cache hit for frame extraction: \(videoURL.lastPathComponent)")
             return cachedImage
@@ -287,7 +390,7 @@ final class FrameExtractor {
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutTask)
 
                 // Extract frame
-                let requestedTime = self.config.frameTime
+                let requestedTime = time ?? self.config.frameTime
                 imageGenerator.generateCGImagesAsynchronously(forTimes: [NSValue(time: requestedTime)]) { (requestedTime, cgImage, actualTime, result, error) in
                     timeoutTask.cancel()
 
@@ -326,7 +429,7 @@ final class FrameExtractor {
         // Cache the extracted image if not under severe memory pressure
         if !memoryMonitor.currentMemoryPressure.contains(.critical) {
             await MainActor.run {
-                cache.set(videoURL, image: image)
+                cache.set(videoURL, time: time, image: image)
             }
         }
 

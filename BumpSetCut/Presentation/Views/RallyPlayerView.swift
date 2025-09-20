@@ -402,7 +402,10 @@ struct RallyPlayerView: View {
             backButton
 
             // Rally counter indicator (top center)
-            rallyCounterView
+            progressIndicatorView
+
+            // Stack depth visual cues (left side)
+            stackDepthIndicator
 
             // Bottom action bar with orientation-aware layout
             bottomActionBar
@@ -541,26 +544,138 @@ struct RallyPlayerView: View {
         }
     }
 
-    // MARK: - Rally Counter (Top Center)
-    private var rallyCounterView: some View {
-        VStack {
+    // MARK: - Progress Indicator UI (Top Center)
+    private var progressIndicatorView: some View {
+        VStack(spacing: 8) {
             HStack {
                 Spacer()
 
                 if let metadata = navigationState.processingMetadata {
-                    Text("Rally \(navigationState.currentRallyIndex + 1) of \(metadata.rallySegments.count)")
-                        .font(.headline)
-                        .fontWeight(.medium)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
-                        .animation(.easeInOut(duration: 0.3), value: navigationState.currentRallyIndex)
+                    VStack(spacing: 6) {
+                        // Main progress indicator with rally count
+                        HStack(spacing: 12) {
+                            // Current rally number
+                            Text("\(navigationState.currentRallyIndex + 1)")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .frame(minWidth: 24)
+
+                            // Progress bar
+                            progressBarView(current: navigationState.currentRallyIndex + 1,
+                                          total: metadata.rallySegments.count)
+
+                            // Total rally count
+                            Text("\(metadata.rallySegments.count)")
+                                .font(.title2)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white.opacity(0.8))
+                                .frame(minWidth: 24)
+                        }
+
+                        // Remaining rallies indicator
+                        let remaining = metadata.rallySegments.count - (navigationState.currentRallyIndex + 1)
+                        if remaining > 0 {
+                            Text("\(remaining) remaining")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white.opacity(0.7))
+                                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                    .animation(.easeInOut(duration: 0.4), value: navigationState.currentRallyIndex)
                 }
 
                 Spacer()
             }
             .padding(.top, 50) // Same safe area padding as back button
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Progress Bar Component
+    private func progressBarView(current: Int, total: Int) -> some View {
+        GeometryReader { geometry in
+            let progress = Double(current) / Double(total)
+            let barWidth = isPortrait ? 120.0 : 80.0 // Adaptive width for orientation
+
+            ZStack(alignment: .leading) {
+                // Background track
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(.white.opacity(0.3))
+                    .frame(width: barWidth, height: 6)
+
+                // Progress fill
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(.white)
+                    .frame(width: barWidth * progress, height: 6)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.8), value: progress)
+
+                // Stack depth indicators (dots)
+                HStack(spacing: max(2, (barWidth - 20) / Double(total - 1))) {
+                    ForEach(0..<total, id: \.self) { index in
+                        Circle()
+                            .fill(index <= current - 1 ? .white : .white.opacity(0.4))
+                            .frame(width: index == current - 1 ? 8 : 6,
+                                   height: index == current - 1 ? 8 : 6)
+                            .scaleEffect(index == current - 1 ? 1.2 : 1.0)
+                            .animation(.spring(response: 0.4, dampingFraction: 0.7),
+                                     value: current)
+                    }
+                }
+                .frame(width: barWidth, height: 6)
+            }
+        }
+        .frame(height: 6)
+    }
+
+    // MARK: - Stack Depth Visual Cues
+    private var stackDepthIndicator: some View {
+        VStack {
+            Spacer()
+
+            HStack {
+                // Left side stack depth indicator
+                if let metadata = navigationState.processingMetadata {
+                    let totalRallies = metadata.rallySegments.count
+                    let currentIndex = navigationState.currentRallyIndex
+                    let stackSize = min(3, totalRallies - currentIndex) // Show up to 3 cards in stack
+
+                    VStack(spacing: 4) {
+                        ForEach(0..<stackSize, id: \.self) { index in
+                            let isTopCard = index == 0
+                            let cardOpacity = isTopCard ? 1.0 : max(0.3, 1.0 - Double(index) * 0.3)
+                            let cardWidth: CGFloat = isTopCard ? 4 : 3
+
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(.white.opacity(cardOpacity))
+                                .frame(width: cardWidth, height: 20)
+                                .scaleEffect(isTopCard ? 1.0 : 0.9 - Double(index) * 0.1)
+                                .animation(.spring(response: 0.5, dampingFraction: 0.8),
+                                         value: currentIndex)
+                        }
+
+                        // Remaining count dot indicator for many rallies
+                        if totalRallies - currentIndex > 3 {
+                            Text("•••")
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.4))
+                                .padding(.top, 2)
+                        }
+                    }
+                    .padding(.leading, 16)
+                    .padding(.vertical, 20)
+                    .background(.ultraThinMaterial.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
+                    .opacity(navigationState.canInteract ? 1.0 : 0.0) // Hide during loading
+                    .animation(.easeInOut(duration: 0.3), value: navigationState.canInteract)
+                }
+
+                Spacer()
+            }
 
             Spacer()
         }

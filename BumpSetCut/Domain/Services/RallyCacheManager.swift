@@ -380,11 +380,13 @@ final class RallyCacheManager: ObservableObject {
         print("📸 Prefetching \(framesToPrefetch.count) thumbnails for \(videoId) with \(priorityMode) priority")
 
         // Coordinate with FrameExtractor based on priority
+        let requests: [(URL, CMTime)] = framesToPrefetch
+
         switch priorityMode {
         case .immediate:
-            FrameExtractor.shared.prefetchFramesImmediate(videoURLs: framesToPrefetch)
+            FrameExtractor.shared.prefetchThumbnails(for: requests, priority: .high)
         case .extended:
-            FrameExtractor.shared.prefetchFramesExtended(videoURLs: framesToPrefetch)
+            FrameExtractor.shared.prefetchThumbnails(for: requests, priority: .low)
         }
     }
 
@@ -435,18 +437,25 @@ final class RallyCacheManager: ObservableObject {
 
     /// Get prefetch coordination metrics from FrameExtractor
     func getPrefetchStatus() -> (queuedFrames: Int, completedPrefetches: Int, successRate: Double, memoryPressureSkips: Int) {
-        let metrics = FrameExtractor.shared.prefetchMetrics
+        let metrics = FrameExtractor.shared.performanceMetrics
         return (
-            queuedFrames: metrics.queuedExtractions,
-            completedPrefetches: metrics.completedPrefetches,
-            successRate: metrics.successRate,
-            memoryPressureSkips: metrics.memoryPressureSkips
+            queuedFrames: 0, // Not available in current API
+            completedPrefetches: 0, // Not available in current API
+            successRate: 1.0 - metrics.errorRate,
+            memoryPressureSkips: metrics.memoryPressureEvents
         )
     }
 
     /// Check if FrameExtractor is under memory pressure
     var isUnderMemoryPressure: Bool {
         return FrameExtractor.shared.isUnderMemoryPressure
+    }
+
+    /// Extract timestamp from video URL for prefetch coordination
+    private func extractTimestampFromURL(_ url: URL) -> Double? {
+        // For prefetch coordination, we'll use a default timestamp of 0.5 seconds
+        // This represents the typical thumbnail extraction point
+        return 0.5
     }
 
     /// Force cache synchronization with FrameExtractor when thumbnails are extracted
