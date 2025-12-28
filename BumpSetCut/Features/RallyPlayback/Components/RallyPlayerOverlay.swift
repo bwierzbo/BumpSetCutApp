@@ -1,0 +1,120 @@
+import SwiftUI
+
+// MARK: - Rally Player Overlay
+struct RallyPlayerOverlay: View {
+    let currentIndex: Int
+    let totalCount: Int
+    let isSaved: Bool
+    let isRemoved: Bool
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack {
+            HStack(alignment: .top) {
+                // Back button
+                backButton
+
+                Spacer()
+
+                // Rally counter with status
+                rallyCounter
+            }
+            .padding(.horizontal, BSCSpacing.lg)
+            .padding(.top, BSCSpacing.md)
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Back Button
+    private var backButton: some View {
+        Button(action: onDismiss) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .background(
+                    Circle()
+                        .fill(Color.bscSurfaceGlass)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
+                )
+        }
+        .accessibilityLabel("Back")
+        .accessibilityHint("Return to library")
+    }
+
+    // MARK: - Rally Counter
+    private var rallyCounter: some View {
+        HStack(spacing: BSCSpacing.sm) {
+            // Rally status indicator with animation
+            if isSaved {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.bscSuccess)
+                    .transition(.scale.combined(with: .opacity))
+            } else if isRemoved {
+                Image(systemName: "trash.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.bscError)
+                    .transition(.scale.combined(with: .opacity))
+            }
+
+            // Counter
+            HStack(spacing: BSCSpacing.xxs) {
+                Text("\(currentIndex + 1)")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+
+                Text("/")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.6))
+
+                Text("\(totalCount)")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white.opacity(0.8))
+            }
+        }
+        .padding(.horizontal, BSCSpacing.lg)
+        .padding(.vertical, BSCSpacing.sm)
+        .background(
+            Capsule()
+                .fill(Color.bscSurfaceGlass)
+                .overlay(
+                    Capsule()
+                        .stroke(
+                            statusBorderColor,
+                            lineWidth: isSaved || isRemoved ? 2 : 1
+                        )
+                )
+        )
+        .animation(.bscBounce, value: isSaved)
+        .animation(.bscBounce, value: isRemoved)
+    }
+
+    private var statusBorderColor: Color {
+        if isSaved {
+            return .bscSuccess.opacity(0.6)
+        } else if isRemoved {
+            return .bscError.opacity(0.6)
+        } else {
+            return .white.opacity(0.2)
+        }
+    }
+}
+
+// MARK: - Preview
+#Preview("RallyPlayerOverlay") {
+    ZStack {
+        Color.black
+        RallyPlayerOverlay(
+            currentIndex: 2,
+            totalCount: 10,
+            isSaved: true,
+            isRemoved: false,
+            onDismiss: {}
+        )
+    }
+}

@@ -1,7 +1,7 @@
 ---
 created: 2025-09-15T17:59:47Z
-last_updated: 2025-09-16T05:23:42Z
-version: 1.2
+last_updated: 2025-09-20T14:39:21Z
+version: 1.3
 author: Claude Code PM System
 ---
 
@@ -33,11 +33,8 @@ BumpSetCut/Presentation/
 │   ├── LibraryView.swift             # Video library with folder management
 │   ├── ProcessVideoView.swift        # Video processing interface
 │   ├── VideoPlayerView.swift         # Video playback component
-│   ├── RallyPlayerView.swift         # Legacy rally-by-rally navigation
-│   ├── TikTokRallyPlayerView.swift   # TikTok-style rally player with swipe navigation
-│   ├── SwipeableRallyPlayerView.swift # Alternative swipeable rally player
-│   ├── SettingsView.swift            # App settings and configuration
-│   └── RallyPlayerFactory.swift     # Factory for creating appropriate rally player
+│   ├── RallyPlayerView.swift         # Simple rally-by-rally navigation (post-revert)
+│   └── VideoPlayerView.swift         # Standard video playback component
 ├── Components/                       # Reusable UI components
 │   ├── Folder/                       # Folder organization components
 │   ├── Search/                       # Search and filtering components

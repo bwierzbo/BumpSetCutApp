@@ -1,7 +1,7 @@
 ---
 created: 2025-09-15T17:59:47Z
-last_updated: 2025-09-16T05:23:42Z
-version: 1.2
+last_updated: 2025-09-20T14:39:21Z
+version: 1.3
 author: Claude Code PM System
 ---
 
@@ -12,82 +12,74 @@ author: Claude Code PM System
 **Repository**: BumpSetCut iOS App for Volleyball Rally Detection
 **Branch**: main
 **Repository URL**: https://github.com/bwierzbo/BumpSetCutApp.git
-**Last Major Epic**: metadatavideoprocessing (completed)
-**Current Focus**: Enhanced Rally Player with Export Features & Gesture Controls
+**Behind Origin**: 26 commits
+**Last Commit**: 49fa5c0 "Fix peek on swipe: sticky note effect with thumbnail preloading"
+**Current Focus**: Post-epic revert - simplified rally player interface
 
 ## Recent Work Completed
 
-### Major Development Session: TikTok-Style Rally Player
-- **Duration**: Current development session
-- **Scope**: Complete TikTok-style rally viewing experience with individual video files
-- **Key Achievements**:
-  - ✅ **TikTok Rally Player**: Implemented `TikTokRallyPlayerView` with individual rally video export
-  - ✅ **Auto-play/Loop**: Videos automatically start from beginning and loop seamlessly
-  - ✅ **Swipe Navigation**: Vertical (portrait) and horizontal (landscape) swipe between videos
-  - ✅ **Tap Controls**: Tap-to-pause/play functionality with state tracking
-  - ✅ **Clean Interface**: No visible video controls, TikTok-style user experience
-  - ✅ **Swift 6 Migration**: Resolved all main actor isolation issues and concurrency warnings
-  - ✅ **Memory Leak Fixes**: Implemented sliding window limits to prevent crashes on large videos
-  - ✅ **App Responsiveness**: Reverted complex nonisolated patterns to restore UI functionality
+### Epic Revert (September 20, 2025)
+- **Action**: Complete revert of Rally Player View Interface Upgrades Epic
+- **Rationale**: User requested removal of complex Tinder-style interface
+- **Reverted Features**:
+  - ❌ **Complex Gesture System**: Removed GestureCoordinator and AnimationCoordinator
+  - ❌ **Dual-Player Architecture**: Removed preloading and advanced video management
+  - ❌ **Advanced Progress Indicators**: Removed stack visualization and complex UI
+  - ❌ **All Epic Issues**: Issues #56-#63 completely removed
+- **Current State**: Back to simple rally navigation with basic swipe gestures
 
-### Critical Technical Resolutions
-- **Memory Management**: Fixed unbounded array growth in VideoProcessor, KalmanBallTracker, and DebugAnnotator
-- **Concurrency Compliance**: Full Swift 6 compatibility with proper actor isolation
-- **Video Export**: Individual rally segments exported as separate MP4 files for seamless playback
-- **State Management**: Simplified AppSettings architecture for reliable UI responsiveness
+### Previously Completed: Peek on Swipe Epic
+- **Status**: Completed and preserved
+- **Key Features**:
+  - ✅ **Sticky Note Effect**: Thumbnail preloading with peek functionality
+  - ✅ **Performance Optimization**: Memory management and concurrency fixes
+  - ✅ **Animation Coordination**: Smooth peek animations
+  - ✅ **Comprehensive Testing**: Full test coverage for peek functionality
 
-### Latest Development Session: Export Features & Gesture Control
-- **Duration**: September 15, 2025 development session
-- **Scope**: Enhanced rally player with photo library export and Tinder-style gestures
+### Previously Completed: Performance Optimization
+- **Status**: Completed (Issue #44)
 - **Key Achievements**:
-  - ✅ **Export Options**: End-of-rallies export screen with individual/stitched video options
-  - ✅ **Photo Library Integration**: Videos save directly to device photo library using Photos framework
-  - ✅ **Tinder-Style Animations**: Horizontal swipe gestures with rotation and slide-off effects
-  - ✅ **Gesture Bug Fixes**: Fixed rotation reset issue when incomplete swipes occurred
-  - ✅ **Video Exporter Enhancements**: Added rally export methods with proper error handling
+  - ✅ **Memory Management**: Fixed unbounded array growth issues
+  - ✅ **Concurrency Warnings**: Resolved Swift 6 compatibility issues
+  - ✅ **Performance Monitoring**: Added performance tracking and optimization
 
 ### Recent Commits (Last 10)
-1. `fa5f61b` - Implement TikTok-style rally player with gesture controls and memory fixes
-2. `19db53a` - Archive completed metadatavideoprocessing epic
-3. `4b7cc5e` - Merge epic: metadatavideoprocessing
-4. `568b5b4` - Final epic documentation update
-5. `1c56759` - Epic Complete: metadatavideoprocessing - All 7 tasks implemented
-6. `b6ca9f7` - 🎉 Epic Complete: metadatavideoprocessing - All 7 tasks implemented
-7. `b36b252` - Task 006: Implement MetadataOverlayView with SwiftUI Canvas
-8. `dba4a2f` - Task 005: Implement RallyPlayerView with rally-by-rally navigation
-9. `111af74` - Task 004: Implement metadata generation in VideoProcessor
-10. `55e71f4` - Task 003: Extend VideoMetadata model with metadata support fields and computed properties
+1. `49fa5c0` - Fix peek on swipe: sticky note effect with thumbnail preloading
+2. `2c8f7b4` - Merge epic: peakingonswipe
+3. `029c580` - Update epic documentation with completion status
+4. `009f59e` - Epic completion: Final execution status for peakingonswipe
+5. `6d9ce2e` - Issue #45: Comprehensive testing coverage for peek functionality
+6. `a43c338` - Issue #44: Add completion summary for performance optimization
+7. `0010b6d` - Issue #44: Fix compilation errors and concurrency warnings
+8. `7a5c19b` - Issue #44: Implement comprehensive performance optimization
+9. `e43789c` - Issue #43: Add comprehensive animation coordination documentation
+10. `0004c79` - Issue #43: Integrate peek animations with Tinder-style transitions
 
 ## Current Working State
 
 ### Modified Files (Unstaged)
-- `.DS_Store` - System file changes
-- `BumpSetCut/Domain/Services/DebugVideoExporter.swift` - Debug video export enhancements
-- `BumpSetCut/Domain/Services/VideoExporter.swift` - Export functionality with photo library integration
-- `BumpSetCut/Presentation/Components/MetadataOverlayView.swift` - Metadata visualization
-- `BumpSetCut/Presentation/Components/Stored Video/StoredVideo.swift` - Storage component updates
-- `BumpSetCut/Presentation/Views/TikTokRallyPlayerView.swift` - Rally player with export features and Tinder-style gestures
+- `BumpSetCut.xcodeproj/project.xcworkspace/xcuserdata/benjaminwierzbanowski.xcuserdatad/UserInterfaceState.xcuserstate` - Xcode user interface state
 
-### New Files (Untracked)
-- `.claude/prds/rallyplayerview.md` - PRD documentation for rally player functionality
-- `BumpSetCut/Presentation/Views/SettingsView.swift` - New settings interface
-- `BumpSetCut/Presentation/Views/SwipeableRallyPlayerView.swift` - Alternative swipeable player implementation
-- `SWIPEABLE_RALLY_INTEGRATION.md` - Integration documentation
+### Project State After Revert
+- **RallyPlayerView.swift**: ~593 lines (simplified from ~1000+ with epic)
+- **Removed Files**: All epic-related coordinators and complex UI components
+- **Clean Build**: Project builds successfully after revert
+- **Sync Status**: 26 commits behind origin (may include reverted epic commits)
 
 ## Immediate Next Steps
 
 ### Development Priorities
-1. **Code Stabilization**: Review and commit current unstaged changes
-2. **Feature Integration**: Ensure all metadata processing features are fully integrated
-3. **Testing Validation**: Validate new rally player and metadata overlay functionality
-4. **Performance Optimization**: Review video processing pipeline efficiency
-5. **Documentation Updates**: Update technical documentation to reflect new capabilities
+1. **Requirements Clarification**: Define specific rally navigation improvements needed
+2. **Sync Consideration**: Evaluate whether to pull latest changes from origin
+3. **Simple Enhancements**: Implement targeted improvements without over-engineering
+4. **Build Verification**: Ensure clean build state after revert
+5. **User Feedback**: Gather requirements for actual needed functionality
 
 ### Technical Debt
-- Clean up debug output and logging statements
-- Optimize memory usage in video processing pipeline
-- Enhance error handling for edge cases in rally detection
-- Improve UI responsiveness during long processing operations
+- Minimal technical debt after revert to simpler codebase
+- Consider what specific improvements are actually needed
+- Avoid re-implementing complex features unless truly required
+- Focus on user-requested functionality over complex interfaces
 
 ## Key Metrics
 
