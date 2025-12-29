@@ -30,23 +30,29 @@ struct SettingsView: View {
                             .animation(.bscSpring.delay(0.1), value: hasAppeared)
                         #endif
 
+                        // Processing section
+                        processingSection
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.15), value: hasAppeared)
+
                         // Privacy section
                         privacySection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.15), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.2), value: hasAppeared)
 
                         // Status section
                         statusSection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.2), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.25), value: hasAppeared)
 
                         // App info section
                         appInfoSection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.25), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.3), value: hasAppeared)
 
                         Spacer(minLength: BSCSpacing.huge)
                     }
@@ -102,6 +108,20 @@ private extension SettingsView {
 }
 #endif
 
+// MARK: - Processing Section
+private extension SettingsView {
+    var processingSection: some View {
+        BSCSettingsSection(title: "Processing", icon: "brain.head.profile", iconColor: .purple) {
+            BSCSettingsToggle(
+                title: "Thorough Analysis",
+                subtitle: "Slower but more detailed rally detection with trajectory tracking",
+                icon: "waveform.path.ecg",
+                isOn: $appSettings.useThoroughAnalysis
+            )
+        }
+    }
+}
+
 // MARK: - Privacy Section
 private extension SettingsView {
     var privacySection: some View {
@@ -121,6 +141,14 @@ private extension SettingsView {
     var statusSection: some View {
         BSCSettingsSection(title: "Current Status", icon: "checkmark.circle.fill", iconColor: .bscSuccess) {
             VStack(spacing: BSCSpacing.md) {
+                BSCStatusRow(
+                    title: "Thorough Analysis",
+                    isEnabled: appSettings.useThoroughAnalysis
+                )
+
+                Divider()
+                    .background(Color.bscSurfaceBorder)
+
                 BSCStatusRow(
                     title: "Analytics",
                     isEnabled: appSettings.enableAnalytics

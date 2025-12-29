@@ -81,11 +81,11 @@ final class TrajectoryDebugger {
     
     func stopDebugSession() {
         guard isRecording, var currentSession = debugHistory.last else { return }
-        
+
         currentSession.endTime = Date()
         currentSession.trajectoryCount = trajectoryPoints.count
-        currentSession.averageQualityScore = qualityScores.map(\.overall).reduce(0, +) / Double(qualityScores.count)
-        
+        currentSession.averageQualityScore = qualityScores.isEmpty ? 0.0 : qualityScores.map(\.overall).reduce(0, +) / Double(qualityScores.count)
+
         debugHistory[debugHistory.count - 1] = currentSession
         isRecording = false
     }

@@ -247,8 +247,41 @@ final class KalmanBallTracker {
     private(set) var tracks: [TrackedBall] = []
     private let config: ProcessorConfig
 
+    /// Timestamp of the most recent detection update
+    private(set) var lastDetectionTime: CMTime?
+
     init(config: ProcessorConfig = ProcessorConfig()) {
         self.config = config
+    }
+
+    // MARK: - Dynamic Stride Support
+
+    /// Whether there's at least one active track being updated
+    var hasActiveTrack: Bool {
+        tracks.contains { $0.age >= 3 }  // At least 3 detections
+    }
+
+    /// Time in seconds since the last detection was processed
+    func timeSinceLastDetection(currentTime: CMTime) -> Double {
+        guard let lastTime = lastDetectionTime else { return .greatestFiniteMagnitude }
+        return CMTimeGetSeconds(CMTimeSubtract(currentTime, lastTime))
+    }
+
+    /// Recommended frame stride based on current tracking state
+    func recommendedStride(currentTime: CMTime) -> Int {
+        // If actively tracking, process every frame
+        if hasActiveTrack {
+            return 1
+        }
+
+        // If recently lost track, use moderate stride
+        let timeSinceLost = timeSinceLastDetection(currentTime: currentTime)
+        if timeSinceLost < 1.0 {
+            return 2
+        }
+
+        // No recent detections, can skip more frames
+        return 3
     }
 
     /// Update tracker with detections for the current frame timestamp.
@@ -257,6 +290,11 @@ final class KalmanBallTracker {
         guard let frameTime = detections.first?.timestamp else {
             // No detections: predict all tracks forward
             return
+        }
+
+        // Update last detection time for dynamic stride
+        if !detections.isEmpty {
+            lastDetectionTime = frameTime
         }
 
         // Predict all tracks to current frame time

@@ -163,9 +163,10 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
     var isOriginalVideo: Bool {
         return originalVideoId == nil && !isProcessed
     }
-    
+
     var canBeProcessed: Bool {
-        return isOriginalVideo
+        // Can only process original videos that don't already have processed versions
+        return isOriginalVideo && processedVideoIds.isEmpty
     }
     
     var originalURL: URL {

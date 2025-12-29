@@ -320,6 +320,10 @@ final class VideoProcessor {
     func processVideoMetadata(_ url: URL, videoId: UUID) async throws -> ProcessingMetadata {
         await MainActor.run { isProcessing = true; progress = 0; processedMetadata = nil }
 
+        // Check analysis mode from settings
+        let useThoroughAnalysis = await MainActor.run { AppSettings.shared.useThoroughAnalysis }
+        print("📊 Analysis mode: \(useThoroughAnalysis ? "Thorough" : "Quick")")
+
         let startTime = Date()
 
         // Initialize metadata store on main actor
@@ -375,6 +379,10 @@ final class VideoProcessor {
         reader.startReading()
         let tracker = KalmanBallTracker(config: config)
 
+        // Dynamic stride tracking
+        var rawFrameIndex = 0
+        var skippedFrames = 0
+
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
 
@@ -382,6 +390,23 @@ final class VideoProcessor {
             try Task.checkCancellation()
 
             let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
+            rawFrameIndex += 1
+
+            // Dynamic stride: only in thorough mode
+            let shouldProcess: Bool
+            if useThoroughAnalysis {
+                let recommendedStride = tracker.recommendedStride(currentTime: pts)
+                shouldProcess = (rawFrameIndex == 1) || (rawFrameIndex % recommendedStride == 0)
+            } else {
+                shouldProcess = true  // Quick mode: process every frame
+            }
+
+            // Skip detection/tracking on non-processed frames
+            guard shouldProcess else {
+                skippedFrames += 1
+                CMSampleBufferInvalidate(sbuf)
+                continue
+            }
 
             // Detect → track
             let dets = detector.detect(in: pix, at: pts)
@@ -415,8 +440,8 @@ final class VideoProcessor {
                 physicsValidFrameCount += 1
             }
 
-            // Collect trajectory data if we have an active track
-            if let track = activeTrack {
+            // Collect trajectory data only in thorough mode
+            if useThoroughAnalysis, let track = activeTrack {
                 // Calculate metrics for this track segment
                 let (rSquared, velocity, acceleration) = calculateTrackMetrics(track)
                 if rSquared > 0 {
@@ -524,6 +549,18 @@ final class VideoProcessor {
 
         let keep = segments.finalize(until: duration)
 
+        // Log processing statistics
+        let processedFrames = rawFrameIndex - skippedFrames
+        let skipRate = rawFrameIndex > 0 ? (Double(skippedFrames) / Double(rawFrameIndex)) * 100 : 0
+        if useThoroughAnalysis {
+            print("⚡ Thorough mode - Dynamic stride statistics:")
+            print("   - Total frames: \(rawFrameIndex)")
+            print("   - Processed frames: \(processedFrames)")
+            print("   - Skipped frames: \(skippedFrames) (\(String(format: "%.1f", skipRate))%)")
+        } else {
+            print("🚀 Quick mode - Processed all \(rawFrameIndex) frames")
+        }
+
         print("🔍 Metadata: Segment finalization results:")
         print("   - Total keep ranges: \(keep.count)")
         print("   - Video duration: \(CMTimeGetSeconds(duration))s")
@@ -558,15 +595,15 @@ final class VideoProcessor {
 
         // Generate processing statistics
         let processingStats = ProcessingStats(
-            totalFrames: frameCount,
-            processedFrames: frameCount,
+            totalFrames: rawFrameIndex,
+            processedFrames: processedFrames,
             detectionFrames: detectionFrameCount,
             trackingFrames: trackingFrameCount,
             rallyFrames: rallyFrameCount,
             physicsValidFrames: physicsValidFrameCount,
             totalDetections: totalDetections,
             validTrajectories: trajectoryDataCollection.count,
-            averageDetectionsPerFrame: frameCount > 0 ? Double(totalDetections) / Double(frameCount) : 0,
+            averageDetectionsPerFrame: processedFrames > 0 ? Double(totalDetections) / Double(processedFrames) : 0,
             averageConfidence: detectionFrameCount > 0 ? confidenceSum / Double(detectionFrameCount) : 0,
             processingDuration: Date().timeIntervalSince(startTime),
             framesPerSecond: Double(fps)

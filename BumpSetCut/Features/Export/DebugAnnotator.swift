@@ -147,6 +147,16 @@ final class DebugAnnotator {
     /// Finish and return the file URL.
     func finish() async throws -> URL {
         videoInput.markAsFinished()
+
+        // Check if writer is already in a terminal state
+        guard writer.status == .writing else {
+            if writer.status == .failed {
+                throw writer.error ?? ProcessingError.exportFailed
+            }
+            // Already completed or cancelled
+            return outURL
+        }
+
         if #available(iOS 18.0, *) {
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 writer.finishWriting {
