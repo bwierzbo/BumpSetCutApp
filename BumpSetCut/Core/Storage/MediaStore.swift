@@ -7,6 +7,27 @@
 
 import Foundation
 
+// MARK: - Library Type
+
+enum LibraryType: String, Codable, CaseIterable {
+    case saved = "saved"
+    case processed = "processed"
+
+    var rootPath: String {
+        switch self {
+        case .saved: return "SavedGames"
+        case .processed: return "ProcessedGames"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .saved: return "Saved Games"
+        case .processed: return "Processed Games"
+        }
+    }
+}
+
 // MARK: - Storage Utilities
 
 struct StorageManager {
@@ -330,7 +351,11 @@ struct FolderManifest: Codable {
         
         // Verify storage integrity
         StorageManager.verifyStorageIntegrity()
-        
+
+        // Ensure library roots exist and run migration if needed
+        ensureLibraryRootsExist()
+        migrateToSeparateLibraries()
+
         // Clean up stale entries
         cleanupStaleEntries()
     }
@@ -1136,6 +1161,274 @@ extension MediaStore {
         let debugDir = baseDirectory.appendingPathComponent(".debug_data")
         let filename = "\(videoId.uuidString)_\(sessionId.uuidString).json"
         return debugDir.appendingPathComponent(filename).path
+    }
+}
+
+// MARK: - Library-Specific Operations
+
+extension MediaStore {
+    /// Get full path including library prefix
+    func fullPath(for relativePath: String, in library: LibraryType) -> String {
+        return relativePath.isEmpty ? library.rootPath : "\(library.rootPath)/\(relativePath)"
+    }
+
+    /// Get relative path without library prefix
+    func relativePath(from fullPath: String, in library: LibraryType) -> String {
+        let prefix = library.rootPath + "/"
+        if fullPath.hasPrefix(prefix) {
+            return String(fullPath.dropFirst(prefix.count))
+        } else if fullPath == library.rootPath {
+            return ""
+        }
+        return fullPath
+    }
+
+    /// Check if a path belongs to a specific library
+    func isPath(_ path: String, in library: LibraryType) -> Bool {
+        return path == library.rootPath || path.hasPrefix(library.rootPath + "/")
+    }
+
+    /// Get folders in a specific library (relative path)
+    func getFolders(inRelativePath relativePath: String, library: LibraryType) -> [FolderMetadata] {
+        let fullPath = self.fullPath(for: relativePath, in: library)
+        return getFolders(in: fullPath)
+    }
+
+    /// Get videos in a specific library (relative path)
+    func getVideos(inRelativePath relativePath: String, library: LibraryType) -> [VideoMetadata] {
+        let fullPath = self.fullPath(for: relativePath, in: library)
+        return getVideos(in: fullPath)
+    }
+
+    /// Create folder in a specific library
+    func createFolder(name: String, parentRelativePath: String, in library: LibraryType) -> Bool {
+        let fullParentPath = self.fullPath(for: parentRelativePath, in: library)
+        return createFolder(name: name, parentPath: fullParentPath)
+    }
+
+    /// Add video to a specific library
+    func addVideo(at url: URL, toRelativeFolder relativePath: String, in library: LibraryType, customName: String? = nil) -> Bool {
+        let fullPath = self.fullPath(for: relativePath, in: library)
+        return addVideo(at: url, toFolder: fullPath, customName: customName)
+    }
+
+    /// Search videos within a specific library
+    func searchVideos(query: String, in library: LibraryType) -> [VideoMetadata] {
+        let prefix = library.rootPath
+        return searchVideos(query: query).filter {
+            $0.folderPath == prefix || $0.folderPath.hasPrefix(prefix + "/")
+        }
+    }
+
+    /// Search folders within a specific library
+    func searchFolders(query: String, in library: LibraryType) -> [FolderMetadata] {
+        let prefix = library.rootPath
+        return searchFolders(query: query).filter {
+            $0.path == prefix || $0.path.hasPrefix(prefix + "/")
+        }
+    }
+
+    /// Get all videos in a library (for stats)
+    func getAllVideos(in library: LibraryType) -> [VideoMetadata] {
+        let prefix = library.rootPath
+        return getAllVideos().filter {
+            $0.folderPath == prefix || $0.folderPath.hasPrefix(prefix + "/")
+        }
+    }
+
+    /// Get all folders in a library
+    func getAllFolders(in library: LibraryType) -> [FolderMetadata] {
+        let prefix = library.rootPath
+        return getAllFolders().filter {
+            $0.path == prefix || $0.path.hasPrefix(prefix + "/")
+        }
+    }
+
+    /// Ensure library root folders exist
+    private func ensureLibraryRootsExist() {
+        for libraryType in LibraryType.allCases {
+            let rootPath = libraryType.rootPath
+
+            // Create physical directory
+            let physicalURL = baseDirectory.appendingPathComponent(rootPath, isDirectory: true)
+            try? FileManager.default.createDirectory(at: physicalURL, withIntermediateDirectories: true, attributes: nil)
+
+            // Create folder metadata if not exists
+            if manifest.folders[rootPath] == nil {
+                let folderMetadata = FolderMetadata(
+                    name: libraryType.displayName,
+                    path: rootPath,
+                    parentPath: nil,
+                    createdDate: Date(),
+                    modifiedDate: Date(),
+                    videoCount: 0,
+                    subfolderCount: 0
+                )
+                manifest.folders[rootPath] = folderMetadata
+                print("MediaStore: Created library root folder: \(rootPath)")
+            }
+        }
+        saveManifest()
+    }
+}
+
+// MARK: - Library Migration
+
+extension MediaStore {
+    /// Check if migration to separate libraries has been completed
+    private func hasCompletedLibraryMigration() -> Bool {
+        // Migration is complete if both library roots exist AND manifest version >= 2
+        return manifest.version >= 2 &&
+               manifest.folders[LibraryType.saved.rootPath] != nil &&
+               manifest.folders[LibraryType.processed.rootPath] != nil
+    }
+
+    /// Migrate existing videos to separate libraries
+    func migrateToSeparateLibraries() {
+        // Skip if already migrated
+        guard !hasCompletedLibraryMigration() else {
+            print("MediaStore: Library migration already complete")
+            return
+        }
+
+        // Check if there are any videos that need migration (not already in a library root)
+        let videosNeedingMigration = manifest.videos.values.filter { video in
+            !isPath(video.folderPath, in: .saved) && !isPath(video.folderPath, in: .processed)
+        }
+
+        let foldersNeedingMigration = manifest.folders.values.filter { folder in
+            !isPath(folder.path, in: .saved) && !isPath(folder.path, in: .processed)
+        }
+
+        guard !videosNeedingMigration.isEmpty || !foldersNeedingMigration.isEmpty else {
+            // No migration needed, just mark as complete
+            manifest.version = 2
+            saveManifest()
+            print("MediaStore: No content to migrate, marking migration complete")
+            return
+        }
+
+        print("MediaStore: Starting library migration...")
+        print("MediaStore: Videos to migrate: \(videosNeedingMigration.count)")
+        print("MediaStore: Folders to migrate: \(foldersNeedingMigration.count)")
+
+        let fileManager = FileManager.default
+
+        // 1. Migrate folders first (create structure in both libraries if needed)
+        for folder in foldersNeedingMigration {
+            let oldPath = folder.path
+
+            // Check what videos exist in this folder
+            let videosInFolder = manifest.videos.values.filter { $0.folderPath == oldPath }
+            let hasOriginals = videosInFolder.contains { !$0.isProcessed }
+            let hasProcessed = videosInFolder.contains { $0.isProcessed }
+
+            // Create folder in SavedGames if it has original videos
+            if hasOriginals {
+                let savedPath = fullPath(for: oldPath, in: .saved)
+                let savedPhysicalURL = baseDirectory.appendingPathComponent(savedPath, isDirectory: true)
+                try? fileManager.createDirectory(at: savedPhysicalURL, withIntermediateDirectories: true, attributes: nil)
+
+                let parentPath = oldPath.contains("/")
+                    ? fullPath(for: String(oldPath.dropLast(oldPath.split(separator: "/").last?.count ?? 0).dropLast()), in: .saved)
+                    : LibraryType.saved.rootPath
+
+                let savedFolder = FolderMetadata(
+                    name: folder.name,
+                    path: savedPath,
+                    parentPath: parentPath,
+                    createdDate: folder.createdDate,
+                    modifiedDate: folder.modifiedDate,
+                    videoCount: videosInFolder.filter { !$0.isProcessed }.count,
+                    subfolderCount: 0
+                )
+                manifest.folders[savedPath] = savedFolder
+                print("MediaStore: Created folder in SavedGames: \(savedPath)")
+            }
+
+            // Create folder in ProcessedGames if it has processed videos
+            if hasProcessed {
+                let processedPath = fullPath(for: oldPath, in: .processed)
+                let processedPhysicalURL = baseDirectory.appendingPathComponent(processedPath, isDirectory: true)
+                try? fileManager.createDirectory(at: processedPhysicalURL, withIntermediateDirectories: true, attributes: nil)
+
+                let parentPath = oldPath.contains("/")
+                    ? fullPath(for: String(oldPath.dropLast(oldPath.split(separator: "/").last?.count ?? 0).dropLast()), in: .processed)
+                    : LibraryType.processed.rootPath
+
+                let processedFolder = FolderMetadata(
+                    name: folder.name,
+                    path: processedPath,
+                    parentPath: parentPath,
+                    createdDate: folder.createdDate,
+                    modifiedDate: folder.modifiedDate,
+                    videoCount: videosInFolder.filter { $0.isProcessed }.count,
+                    subfolderCount: 0
+                )
+                manifest.folders[processedPath] = processedFolder
+                print("MediaStore: Created folder in ProcessedGames: \(processedPath)")
+            }
+
+            // Remove old folder entry
+            manifest.folders.removeValue(forKey: oldPath)
+        }
+
+        // 2. Migrate videos
+        for video in videosNeedingMigration {
+            let oldFolderPath = video.folderPath
+            let targetLibrary: LibraryType = video.isProcessed ? .processed : .saved
+            let newFolderPath = fullPath(for: oldFolderPath, in: targetLibrary)
+
+            // Move physical file
+            let oldURL = oldFolderPath.isEmpty
+                ? baseDirectory.appendingPathComponent(video.fileName)
+                : baseDirectory.appendingPathComponent(oldFolderPath).appendingPathComponent(video.fileName)
+
+            let newURL = baseDirectory.appendingPathComponent(newFolderPath).appendingPathComponent(video.fileName)
+
+            // Ensure destination directory exists
+            try? fileManager.createDirectory(at: newURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
+
+            do {
+                if fileManager.fileExists(atPath: oldURL.path) {
+                    try fileManager.moveItem(at: oldURL, to: newURL)
+                    print("MediaStore: Moved video \(video.fileName) to \(newFolderPath)")
+                }
+            } catch {
+                print("MediaStore: Warning - Could not move video file: \(error)")
+            }
+
+            // Update video metadata
+            var updatedVideo = video
+            updatedVideo.folderPath = newFolderPath
+            manifest.videos[video.fileName] = updatedVideo
+        }
+
+        // 3. Update subfolder counts for library roots
+        for libraryType in LibraryType.allCases {
+            let rootPath = libraryType.rootPath
+            if var rootFolder = manifest.folders[rootPath] {
+                rootFolder.subfolderCount = manifest.folders.values.filter { $0.parentPath == rootPath }.count
+                rootFolder.videoCount = manifest.videos.values.filter { $0.folderPath == rootPath }.count
+                manifest.folders[rootPath] = rootFolder
+            }
+        }
+
+        // 4. Clean up empty old folders
+        for folder in foldersNeedingMigration {
+            let oldPhysicalURL = baseDirectory.appendingPathComponent(folder.path, isDirectory: true)
+            if fileManager.fileExists(atPath: oldPhysicalURL.path) {
+                // Only remove if empty
+                if let contents = try? fileManager.contentsOfDirectory(atPath: oldPhysicalURL.path), contents.isEmpty {
+                    try? fileManager.removeItem(at: oldPhysicalURL)
+                }
+            }
+        }
+
+        // 5. Mark migration complete
+        manifest.version = 2
+        saveManifest()
+        print("MediaStore: Library migration complete!")
     }
 }
 

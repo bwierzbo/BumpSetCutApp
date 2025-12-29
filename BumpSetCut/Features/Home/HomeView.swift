@@ -180,7 +180,7 @@ struct HomeView: View {
 
     // MARK: - Main CTA Button
     private var mainCTAButton: some View {
-        NavigationLink(destination: LibraryView(mediaStore: mediaStore)) {
+        NavigationLink(destination: LibraryView(mediaStore: mediaStore, libraryType: .saved)) {
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "play.circle.fill")
                     .font(.system(size: 24, weight: .semibold))
@@ -207,7 +207,7 @@ struct HomeView: View {
 
     // MARK: - Processed Games CTA Button
     private var processedGamesCTAButton: some View {
-        NavigationLink(destination: LibraryView(mediaStore: mediaStore, filterMode: .processedOnly)) {
+        NavigationLink(destination: LibraryView(mediaStore: mediaStore, libraryType: .processed)) {
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 20, weight: .semibold))
@@ -312,10 +312,18 @@ struct UploadFolderSelectionSheet: View {
     let onFolderSelected: (String) -> Void
     let onCancel: () -> Void
 
-    @State private var selectedFolderPath: String = ""
+    @State private var selectedFolderPath: String
     @State private var folders: [FolderMetadata] = []
     @State private var showingCreateFolder = false
     @State private var newFolderName = ""
+
+    init(mediaStore: MediaStore, onFolderSelected: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        self.mediaStore = mediaStore
+        self.onFolderSelected = onFolderSelected
+        self.onCancel = onCancel
+        // Start with library root selected
+        self._selectedFolderPath = State(initialValue: LibraryType.saved.rootPath)
+    }
 
     var body: some View {
         NavigationStack {
@@ -326,8 +334,8 @@ struct UploadFolderSelectionSheet: View {
                     // Folder list
                     ScrollView {
                         LazyVStack(spacing: BSCSpacing.xs) {
-                            // Library root option
-                            folderRow(name: "Library", path: "", icon: "house.fill", color: .bscBlue)
+                            // Saved Games root option
+                            folderRow(name: "Saved Games", path: LibraryType.saved.rootPath, icon: "house.fill", color: .bscBlue)
 
                             if !folders.isEmpty {
                                 Divider()
@@ -347,7 +355,7 @@ struct UploadFolderSelectionSheet: View {
                         Button {
                             onFolderSelected(selectedFolderPath)
                         } label: {
-                            Text("Upload to \(selectedFolderPath.isEmpty ? "Library" : selectedFolderPath.components(separatedBy: "/").last ?? "Folder")")
+                            Text("Upload to \(selectedFolderPath == LibraryType.saved.rootPath ? "Saved Games" : selectedFolderPath.components(separatedBy: "/").last ?? "Folder")")
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(.bscTextInverse)
                                 .frame(maxWidth: .infinity)
@@ -485,8 +493,9 @@ struct UploadFolderSelectionSheet: View {
     }
 
     private func getAllFoldersRecursively() -> [FolderMetadata] {
+        // Get all folders in the Saved Games library
         var allFolders: [FolderMetadata] = []
-        var foldersToProcess: [String] = [""]
+        var foldersToProcess: [String] = [LibraryType.saved.rootPath]
 
         while !foldersToProcess.isEmpty {
             let currentPath = foldersToProcess.removeFirst()
@@ -503,10 +512,11 @@ struct UploadFolderSelectionSheet: View {
         let sanitizedName = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sanitizedName.isEmpty else { return }
 
-        let success = mediaStore.createFolder(name: sanitizedName, parentPath: "")
+        // Create folder in Saved Games library root
+        let success = mediaStore.createFolder(name: sanitizedName, parentPath: LibraryType.saved.rootPath)
 
         if success {
-            selectedFolderPath = sanitizedName
+            selectedFolderPath = "\(LibraryType.saved.rootPath)/\(sanitizedName)"
             loadFolders()
         }
 
@@ -648,7 +658,8 @@ struct UnprocessedVideoPickerSheet: View {
     }
 
     private func loadUnprocessedVideos() {
-        unprocessedVideos = mediaStore.getAllVideos().filter { !$0.isProcessed }
+        // Get unprocessed videos from Saved Games library
+        unprocessedVideos = mediaStore.getAllVideos(in: .saved).filter { $0.canBeProcessed }
     }
 }
 

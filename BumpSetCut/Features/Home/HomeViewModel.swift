@@ -9,7 +9,7 @@ final class HomeViewModel {
     private let mediaStore: MediaStore
     private let metadataStore: MetadataStore
 
-    var totalVideos: Int = 0
+    var savedVideos: Int = 0
     var totalRallies: Int = 0
     var processedVideos: Int = 0
     var isLoading: Bool = false
@@ -30,14 +30,13 @@ final class HomeViewModel {
     private func loadStats() {
         isLoading = true
 
-        // Count all videos
-        let allVideos = mediaStore.getAllVideos()
-        totalVideos = allVideos.count
+        // Count videos in Saved Games library
+        savedVideos = mediaStore.getAllVideos(in: .saved).count
 
-        // Count processed videos
-        processedVideos = allVideos.filter { $0.isProcessed }.count
+        // Count videos in Processed Games library
+        processedVideos = mediaStore.getAllVideos(in: .processed).count
 
-        // Count rallies from metadata
+        // Count rallies from metadata (from all videos with metadata)
         totalRallies = countTotalRallies()
 
         isLoading = false
@@ -72,8 +71,8 @@ extension HomeViewModel {
         [
             StatItem(
                 icon: "video.fill",
-                value: "\(totalVideos)",
-                label: "Videos",
+                value: "\(savedVideos)",
+                label: "Saved",
                 color: .bscBlue
             ),
             StatItem(

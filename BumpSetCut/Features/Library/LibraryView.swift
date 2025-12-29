@@ -13,10 +13,12 @@ struct LibraryView: View {
     // MARK: - Properties
     @State private var viewModel: LibraryViewModel
     @State private var hasAppeared = false
+    @State private var showingPhotoPicker = false
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @Environment(\.dismiss) private var dismiss
 
-    init(mediaStore: MediaStore, filterMode: LibraryFilterMode = .all) {
-        self._viewModel = State(wrappedValue: LibraryViewModel(mediaStore: mediaStore, filterMode: filterMode))
+    init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
+        self._viewModel = State(wrappedValue: LibraryViewModel(mediaStore: mediaStore, libraryType: libraryType))
     }
 
     // MARK: - Body
@@ -33,8 +35,8 @@ struct LibraryView: View {
                         breadcrumbSection
                     }
 
-                    // Main content - only wrap with DropZoneView in .all mode
-                    if viewModel.filterMode == .all {
+                    // Main content - only wrap with DropZoneView in saved library
+                    if viewModel.libraryType == .saved {
                         DropZoneView(
                             uploadCoordinator: viewModel.uploadCoordinator,
                             destinationFolder: viewModel.currentPath
@@ -70,6 +72,18 @@ struct LibraryView: View {
             .onAppear {
                 withAnimation(.bscSpring.delay(0.1)) {
                     hasAppeared = true
+                }
+            }
+            .photosPicker(
+                isPresented: $showingPhotoPicker,
+                selection: $selectedPhotoItems,
+                maxSelectionCount: 1,
+                matching: .videos
+            )
+            .onChange(of: selectedPhotoItems) { _, items in
+                if !items.isEmpty, let item = items.first {
+                    viewModel.uploadCoordinator.handleMultiplePhotosPickerItems([item], destinationFolder: viewModel.currentPath)
+                    selectedPhotoItems.removeAll()
                 }
             }
         }
@@ -140,16 +154,14 @@ private extension LibraryView {
 // MARK: - Main Content
 private extension LibraryView {
     @ViewBuilder
-    var emptyStateForFilterMode: some View {
-        switch viewModel.filterMode {
-        case .all:
-            BSCEmptyState.emptyFolder(onUpload: {})
-        case .processedOnly:
-            BSCEmptyState.noProcessedVideos(onViewLibrary: {
-                dismiss()
+    var emptyStateForLibraryType: some View {
+        switch viewModel.libraryType {
+        case .saved:
+            BSCEmptyState.emptyFolder(onUpload: {
+                showingPhotoPicker = true
             })
-        case .unprocessedOnly:
-            BSCEmptyState.noUnprocessedVideos(onViewLibrary: {
+        case .processed:
+            BSCEmptyState.noProcessedVideos(onViewLibrary: {
                 dismiss()
             })
         }
@@ -221,7 +233,7 @@ private extension LibraryView {
 
         if viewModel.isEmpty {
             if viewModel.searchText.isEmpty {
-                emptyStateForFilterMode
+                emptyStateForLibraryType
                     .padding(.top, BSCSpacing.xxl)
             } else {
                 BSCEmptyState.noSearchResults(query: viewModel.searchText, onClear: {
@@ -419,13 +431,13 @@ private extension LibraryView {
                         .allowsHitTesting(false)
                 }
 
-                // Create folder - only in .all mode
-                if viewModel.filterMode == .all {
-                    BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact) {
-                        viewModel.showingCreateFolder = true
-                    }
+                // Create folder - available in both libraries
+                BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact) {
+                    viewModel.showingCreateFolder = true
+                }
 
-                    // Upload - only in .all mode
+                // Upload - only in saved library
+                if viewModel.libraryType == .saved {
                     EnhancedUploadButton(
                         uploadCoordinator: viewModel.uploadCoordinator,
                         destinationFolder: viewModel.currentPath
@@ -491,7 +503,12 @@ private extension LibraryView {
 }
 
 // MARK: - Preview
-#Preview("LibraryView") {
-    LibraryView(mediaStore: MediaStore())
+#Preview("Saved Games Library") {
+    LibraryView(mediaStore: MediaStore(), libraryType: .saved)
+        .environmentObject(AppSettings.shared)
+}
+
+#Preview("Processed Games Library") {
+    LibraryView(mediaStore: MediaStore(), libraryType: .processed)
         .environmentObject(AppSettings.shared)
 }

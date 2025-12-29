@@ -19,6 +19,13 @@ final class ProcessVideoViewModel {
     var showError: Bool = false
     var errorMessage: String = ""
 
+    // Pending save state - holds temp URL until user selects destination folder
+    var pendingSaveURL: URL? = nil
+    var pendingIsDebugMode: Bool = false
+    var pendingDebugData: TrajectoryDebugger? = nil
+    var showingFolderPicker: Bool = false
+    var selectedProcessedFolder: String = LibraryType.processed.rootPath
+
     // MARK: - Computed Properties
     var isProcessing: Bool {
         processor.isProcessing
@@ -52,6 +59,8 @@ final class ProcessVideoViewModel {
     var processingState: ProcessingState {
         if isProcessing {
             return .processing
+        } else if pendingSaveURL != nil {
+            return .pendingSave
         } else if isComplete {
             return .complete
         } else if hasMetadata {
@@ -66,6 +75,7 @@ final class ProcessVideoViewModel {
     enum ProcessingState {
         case ready
         case processing
+        case pendingSave  // Processing done, waiting for user to select folder
         case complete
         case hasMetadata
         case alreadyProcessed
@@ -183,8 +193,13 @@ final class ProcessVideoViewModel {
                     return
                 }
 
-                // Move and save processed video
-                try await saveProcessedVideo(tempProcessedURL: tempProcessedURL, isDebugMode: isDebugMode, debugData: debugData)
+                // Store pending save info and show folder picker
+                await MainActor.run {
+                    pendingSaveURL = tempProcessedURL
+                    pendingIsDebugMode = isDebugMode
+                    pendingDebugData = debugData
+                    showingFolderPicker = true
+                }
 
             } catch is CancellationError {
                 await MainActor.run {
@@ -202,14 +217,41 @@ final class ProcessVideoViewModel {
         }
     }
 
-    private func saveProcessedVideo(tempProcessedURL: URL, isDebugMode: Bool, debugData: TrajectoryDebugger?) async throws {
+    /// Called after user selects a folder in the folder picker
+    func confirmSaveToFolder(_ folderPath: String) {
+        guard let tempURL = pendingSaveURL else { return }
+
+        Task {
+            do {
+                try await saveProcessedVideo(
+                    tempProcessedURL: tempURL,
+                    isDebugMode: pendingIsDebugMode,
+                    debugData: pendingDebugData,
+                    destinationFolder: folderPath
+                )
+
+                await MainActor.run {
+                    pendingSaveURL = nil
+                    pendingDebugData = nil
+                    showingFolderPicker = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
+            }
+        }
+    }
+
+    private func saveProcessedVideo(tempProcessedURL: URL, isDebugMode: Bool, debugData: TrajectoryDebugger?, destinationFolder: String) async throws {
         let originalDisplayName = getVideoDisplayName()
         let prefix = isDebugMode ? "Debug" : "Processed"
-        let processedName = getNextProcessedVideoName(originalDisplayName: originalDisplayName, prefix: prefix)
+        let processedName = getNextProcessedVideoName(originalDisplayName: originalDisplayName, prefix: prefix, inFolder: destinationFolder)
         let processedFileName = "\(processedName).mp4"
 
         let mediaStoreBase = mediaStore.baseDirectory
-        let targetDirectory = folderPath.isEmpty ? mediaStoreBase : mediaStoreBase.appendingPathComponent(folderPath)
+        let targetDirectory = mediaStoreBase.appendingPathComponent(destinationFolder)
         let finalURL = targetDirectory.appendingPathComponent(processedFileName)
 
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true, attributes: nil)
@@ -220,10 +262,10 @@ final class ProcessVideoViewModel {
         try FileManager.default.moveItem(at: tempProcessedURL, to: finalURL)
 
         let originalVideoId = currentVideoMetadata?.id ?? UUID()
-        let success = mediaStore.addProcessedVideo(at: finalURL, toFolder: folderPath, customName: processedName, originalVideoId: originalVideoId)
+        let success = mediaStore.addProcessedVideo(at: finalURL, toFolder: destinationFolder, customName: processedName, originalVideoId: originalVideoId)
 
         if isDebugMode, success, let debugger = debugData {
-            if let addedVideo = mediaStore.getVideos(in: folderPath).first(where: { $0.displayName == processedName }) {
+            if let addedVideo = mediaStore.getVideos(in: destinationFolder).first(where: { $0.displayName == processedName }) {
                 if let jsonData = debugger.exportToJSON() {
                     let sessionId = UUID()
                     _ = try mediaStore.saveDebugData(for: addedVideo.id, debugData: jsonData, sessionId: sessionId)
@@ -261,8 +303,8 @@ final class ProcessVideoViewModel {
         return videoURL.deletingPathExtension().lastPathComponent
     }
 
-    private func getNextProcessedVideoName(originalDisplayName: String, prefix: String) -> String {
-        let videosInFolder = mediaStore.getVideos(in: folderPath)
+    private func getNextProcessedVideoName(originalDisplayName: String, prefix: String, inFolder destinationFolder: String) -> String {
+        let videosInFolder = mediaStore.getVideos(in: destinationFolder)
 
         let existingNumbers = videosInFolder.compactMap { video -> Int? in
             let displayName = video.displayName

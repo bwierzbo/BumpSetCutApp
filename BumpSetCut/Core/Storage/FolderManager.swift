@@ -15,13 +15,15 @@ class FolderManager {
     private let mediaStore: MediaStore
     private let logger = Logger(subsystem: "BumpSetCut", category: "FolderManager")
 
+    let libraryType: LibraryType
+
     var folders: [FolderMetadata] = []
     var videos: [VideoMetadata] = []
     var currentPath: String = ""
     var isLoading = false
 
     // MARK: - Navigation History
-    private var historyStack: [String] = [""]  // Start with root
+    private var historyStack: [String] = []
     private var historyIndex: Int = 0
     private var isNavigatingHistory = false
 
@@ -34,13 +36,32 @@ class FolderManager {
     }
 
     var currentDepth: Int {
-        currentPath.isEmpty ? 0 : currentPath.components(separatedBy: "/").count
+        // Depth relative to library root
+        let relativePath = currentRelativePath
+        return relativePath.isEmpty ? 0 : relativePath.components(separatedBy: "/").count
+    }
+
+    /// Path relative to library root (without library prefix)
+    var currentRelativePath: String {
+        mediaStore.relativePath(from: currentPath, in: libraryType)
+    }
+
+    /// Check if currently at library root
+    var isAtLibraryRoot: Bool {
+        currentPath == libraryType.rootPath
     }
 
     static let maxDepth = 10
 
-    init(mediaStore: MediaStore) {
+    init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
         self.mediaStore = mediaStore
+        self.libraryType = libraryType
+
+        // Initialize history with library root
+        let rootPath = libraryType.rootPath
+        self.historyStack = [rootPath]
+        self.currentPath = rootPath
+
         loadContents()
     }
     
@@ -94,14 +115,19 @@ class FolderManager {
     }
 
     func navigateToParent() {
-        guard !currentPath.isEmpty else { return }
+        guard !isAtLibraryRoot else { return }
 
         let parentPath = getParentPath(currentPath)
-        navigateToFolder(parentPath)
+        // Ensure we don't go above library root
+        if mediaStore.isPath(parentPath, in: libraryType) || parentPath == libraryType.rootPath {
+            navigateToFolder(parentPath)
+        } else {
+            navigateToFolder(libraryType.rootPath)
+        }
     }
 
     func canNavigateUp() -> Bool {
-        return !currentPath.isEmpty
+        return !isAtLibraryRoot
     }
 
     // MARK: - History Navigation
@@ -285,7 +311,11 @@ class FolderManager {
     }
     
     func globalSearch(query: String) -> [VideoMetadata] {
-        return mediaStore.searchVideos(query: query)
+        return mediaStore.searchVideos(query: query, in: libraryType)
+    }
+
+    func globalSearchFolders(query: String) -> [FolderMetadata] {
+        return mediaStore.searchFolders(query: query, in: libraryType)
     }
     
     // MARK: - Utility

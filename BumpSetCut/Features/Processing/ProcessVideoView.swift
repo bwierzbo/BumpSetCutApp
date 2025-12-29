@@ -69,6 +69,23 @@ struct ProcessVideoView: View {
             } message: {
                 Text(viewModel.errorMessage)
             }
+            .sheet(isPresented: $viewModel.showingFolderPicker) {
+                ProcessedFolderSelectionSheet(
+                    mediaStore: viewModel.mediaStore,
+                    onFolderSelected: { folderPath in
+                        viewModel.confirmSaveToFolder(folderPath)
+                    },
+                    onCancel: {
+                        // Clean up temp file if cancelled
+                        if let tempURL = viewModel.pendingSaveURL {
+                            try? FileManager.default.removeItem(at: tempURL)
+                        }
+                        viewModel.pendingSaveURL = nil
+                        viewModel.showingFolderPicker = false
+                        dismiss()
+                    }
+                )
+            }
         }
         .preferredColorScheme(.dark)
     }
@@ -139,6 +156,8 @@ private extension ProcessVideoView {
         switch viewModel.processingState {
         case .processing:
             processingContent
+        case .pendingSave:
+            processingContent  // Show processing UI while pending save
         case .complete:
             completeContent
         case .hasMetadata:
@@ -293,6 +312,8 @@ private extension ProcessVideoView {
         switch viewModel.processingState {
         case .processing:
             EmptyView()
+        case .pendingSave:
+            EmptyView()  // No buttons while pending save
         case .complete:
             doneButton
         case .hasMetadata:
@@ -431,6 +452,247 @@ private struct ProcessingIconView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Processed Folder Selection Sheet
+struct ProcessedFolderSelectionSheet: View {
+    let mediaStore: MediaStore
+    let onFolderSelected: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var selectedFolderPath: String
+    @State private var folders: [FolderMetadata] = []
+    @State private var showingCreateFolder = false
+    @State private var newFolderName = ""
+
+    init(mediaStore: MediaStore, onFolderSelected: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        self.mediaStore = mediaStore
+        self.onFolderSelected = onFolderSelected
+        self.onCancel = onCancel
+        self._selectedFolderPath = State(initialValue: LibraryType.processed.rootPath)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.bscBackground.ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    // Header message
+                    VStack(spacing: BSCSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.bscSuccess)
+
+                        Text("Processing Complete!")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.bscTextPrimary)
+
+                        Text("Choose where to save your processed video")
+                            .font(.system(size: 14))
+                            .foregroundColor(.bscTextSecondary)
+                    }
+                    .padding(BSCSpacing.xl)
+
+                    Divider()
+                        .background(Color.bscSurfaceBorder)
+
+                    // Folder list
+                    ScrollView {
+                        LazyVStack(spacing: BSCSpacing.xs) {
+                            // Processed Games root option
+                            folderRow(name: "Processed Games", path: LibraryType.processed.rootPath, icon: "house.fill", color: .bscTeal)
+
+                            if !folders.isEmpty {
+                                Divider()
+                                    .background(Color.bscSurfaceBorder)
+                                    .padding(.vertical, BSCSpacing.sm)
+
+                                ForEach(folders, id: \.id) { folder in
+                                    folderRow(name: folder.name, path: folder.path, icon: "folder.fill", color: .bscOrange)
+                                }
+                            }
+                        }
+                        .padding(BSCSpacing.lg)
+                    }
+
+                    // Action buttons
+                    VStack(spacing: BSCSpacing.sm) {
+                        Button {
+                            onFolderSelected(selectedFolderPath)
+                        } label: {
+                            Text("Save to \(selectedFolderPath == LibraryType.processed.rootPath ? "Processed Games" : selectedFolderPath.components(separatedBy: "/").last ?? "Folder")")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.bscTextInverse)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, BSCSpacing.md)
+                                .background(LinearGradient.bscPrimaryGradient)
+                                .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+                        }
+
+                        Button {
+                            showingCreateFolder = true
+                        } label: {
+                            Text("Create New Folder")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.bscTextSecondary)
+                        }
+                    }
+                    .padding(BSCSpacing.lg)
+                    .background(Color.bscBackgroundElevated)
+                }
+            }
+            .navigationTitle("Choose Destination")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        onCancel()
+                    }
+                    .foregroundColor(.bscTextSecondary)
+                }
+            }
+            .sheet(isPresented: $showingCreateFolder) {
+                createFolderSheet
+            }
+            .onAppear {
+                loadFolders()
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func folderRow(name: String, path: String, icon: String, color: Color) -> some View {
+        Button {
+            selectedFolderPath = path
+        } label: {
+            HStack(spacing: BSCSpacing.md) {
+                ZStack {
+                    Circle()
+                        .fill(color.opacity(0.15))
+                        .frame(width: 40, height: 40)
+
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(color)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.bscTextPrimary)
+
+                    if path != LibraryType.processed.rootPath {
+                        // Show relative path
+                        let relativePath = mediaStore.relativePath(from: path, in: .processed)
+                        if !relativePath.isEmpty {
+                            Text(relativePath)
+                                .font(.system(size: 12))
+                                .foregroundColor(.bscTextTertiary)
+                        }
+                    }
+                }
+
+                Spacer()
+
+                if selectedFolderPath == path {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.bscTeal)
+                }
+            }
+            .padding(BSCSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                    .fill(selectedFolderPath == path ? Color.bscTeal.opacity(0.1) : Color.bscSurfaceGlass)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                    .stroke(selectedFolderPath == path ? Color.bscTeal.opacity(0.3) : Color.bscSurfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var createFolderSheet: some View {
+        NavigationStack {
+            ZStack {
+                Color.bscBackground.ignoresSafeArea()
+
+                VStack(spacing: BSCSpacing.xl) {
+                    VStack(alignment: .leading, spacing: BSCSpacing.sm) {
+                        Text("Folder Name")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.bscTextSecondary)
+                            .textCase(.uppercase)
+
+                        TextField("Enter folder name", text: $newFolderName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    Spacer()
+                }
+                .padding(BSCSpacing.xl)
+            }
+            .navigationTitle("New Folder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        showingCreateFolder = false
+                        newFolderName = ""
+                    }
+                    .foregroundColor(.bscTextSecondary)
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Create") {
+                        createFolder()
+                    }
+                    .fontWeight(.semibold)
+                    .foregroundColor(.bscTeal)
+                    .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func loadFolders() {
+        folders = getAllFoldersRecursively()
+    }
+
+    private func getAllFoldersRecursively() -> [FolderMetadata] {
+        // Get all folders in the Processed Games library
+        var allFolders: [FolderMetadata] = []
+        var foldersToProcess: [String] = [LibraryType.processed.rootPath]
+
+        while !foldersToProcess.isEmpty {
+            let currentPath = foldersToProcess.removeFirst()
+            let foundFolders = mediaStore.getFolders(in: currentPath)
+
+            allFolders.append(contentsOf: foundFolders)
+            foldersToProcess.append(contentsOf: foundFolders.map { $0.path })
+        }
+
+        return allFolders.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func createFolder() {
+        let sanitizedName = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sanitizedName.isEmpty else { return }
+
+        // Create folder in Processed Games library root
+        let success = mediaStore.createFolder(name: sanitizedName, parentPath: LibraryType.processed.rootPath)
+
+        if success {
+            selectedFolderPath = "\(LibraryType.processed.rootPath)/\(sanitizedName)"
+            loadFolders()
+        }
+
+        showingCreateFolder = false
+        newFolderName = ""
     }
 }
 

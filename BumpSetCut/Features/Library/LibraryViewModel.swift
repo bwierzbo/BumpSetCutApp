@@ -2,13 +2,6 @@ import SwiftUI
 import Combine
 import Observation
 
-// MARK: - Library Filter Mode
-enum LibraryFilterMode {
-    case all
-    case processedOnly
-    case unprocessedOnly
-}
-
 // MARK: - LibraryViewModel
 @MainActor
 @Observable
@@ -17,7 +10,7 @@ final class LibraryViewModel {
     let folderManager: FolderManager
     let uploadCoordinator: UploadCoordinator
     let searchViewModel: SearchViewModel
-    let filterMode: LibraryFilterMode
+    let libraryType: LibraryType
 
     // MARK: - State
     var sortOption: ContentSortOption = .name
@@ -45,7 +38,7 @@ final class LibraryViewModel {
     }
 
     var isAtRoot: Bool {
-        currentPath.isEmpty
+        folderManager.isAtLibraryRoot
     }
 
     var canGoBack: Bool {
@@ -67,14 +60,10 @@ final class LibraryViewModel {
     }
 
     var title: String {
-        switch filterMode {
-        case .all:
-            return isAtRoot ? "Your Library" : currentPath.components(separatedBy: "/").last ?? "Contents"
-        case .processedOnly:
-            return "Processed Games"
-        case .unprocessedOnly:
-            return "Unprocessed Videos"
+        if isAtRoot {
+            return libraryType.displayName
         }
+        return currentPath.components(separatedBy: "/").last ?? "Contents"
     }
 
     var subtitle: String {
@@ -97,7 +86,8 @@ final class LibraryViewModel {
         if searchText.isEmpty {
             return folderManager.getSortedFolders(by: sortOption.folderSort)
         } else {
-            return folderManager.store.searchFolders(query: searchText)
+            // Use library-scoped search
+            return folderManager.globalSearchFolders(query: searchText)
                 .sorted { folder1, folder2 in
                     switch sortOption.folderSort {
                     case .name:
@@ -119,7 +109,8 @@ final class LibraryViewModel {
         if searchText.isEmpty {
             videos = folderManager.getSortedVideos(by: sortOption.videoSort)
         } else {
-            videos = folderManager.store.searchVideos(query: searchText)
+            // Use library-scoped search
+            videos = folderManager.globalSearch(query: searchText)
                 .sorted { video1, video2 in
                     switch sortOption.videoSort {
                     case .name:
@@ -132,28 +123,23 @@ final class LibraryViewModel {
                 }
         }
 
-        // Apply filter mode
-        switch filterMode {
-        case .all:
-            return videos
-        case .processedOnly:
-            return videos.filter { $0.isProcessed }
-        case .unprocessedOnly:
-            return videos.filter { !$0.isProcessed }
-        }
+        // No filter needed - library separation handles this
+        return videos
     }
 
     // MARK: - Breadcrumbs
     var breadcrumbs: [BSCBreadcrumb.Crumb] {
-        BSCBreadcrumb.crumbs(from: currentPath, rootName: "Library")
+        // Use relative path for breadcrumbs, with library name as root
+        let relativePath = folderManager.currentRelativePath
+        return BSCBreadcrumb.crumbs(from: relativePath, rootName: libraryType.displayName)
     }
 
     // MARK: - Initialization
-    init(mediaStore: MediaStore, filterMode: LibraryFilterMode = .all) {
-        self.folderManager = FolderManager(mediaStore: mediaStore)
+    init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
+        self.libraryType = libraryType
+        self.folderManager = FolderManager(mediaStore: mediaStore, libraryType: libraryType)
         self.uploadCoordinator = UploadCoordinator(mediaStore: mediaStore)
         self.searchViewModel = SearchViewModel(mediaStore: mediaStore)
-        self.filterMode = filterMode
     }
 
     // MARK: - Actions
