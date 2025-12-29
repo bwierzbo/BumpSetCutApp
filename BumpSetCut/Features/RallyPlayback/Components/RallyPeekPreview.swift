@@ -26,7 +26,7 @@ struct RallyPeekPreview: View {
 
     private func peekStickyNoteView(direction: RallyPeekDirection) -> some View {
         peekFrameContent
-            .frame(width: geometry.size.width * 0.9)
+            .frame(width: min(geometry.size.width * 0.9, geometry.size.width - 40))
             .aspectRatio(16/9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .scaleEffect(calculateStickyNoteScale())

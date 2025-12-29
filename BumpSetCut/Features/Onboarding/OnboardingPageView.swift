@@ -56,7 +56,7 @@ struct OnboardingPageView: View {
                 .foregroundColor(.bscTextSecondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
-                .frame(maxWidth: 300)
+                .frame(maxWidth: UIScreen.main.bounds.width - 80)
 
             Spacer()
             Spacer()

@@ -39,12 +39,12 @@ struct BSCEmptyState: View {
                 VStack(spacing: BSCSpacing.md) {
                     if let actionTitle = actionTitle, let onAction = onAction {
                         BSCButton(title: actionTitle, style: .primary, action: onAction)
-                            .frame(maxWidth: 280)
+                            .frame(maxWidth: UIScreen.main.bounds.width - 64)
                     }
 
                     if let secondaryActionTitle = secondaryActionTitle, let onSecondaryAction = onSecondaryAction {
                         BSCButton(title: secondaryActionTitle, style: .ghost, action: onSecondaryAction)
-                            .frame(maxWidth: 280)
+                            .frame(maxWidth: UIScreen.main.bounds.width - 64)
                     }
                 }
             }
