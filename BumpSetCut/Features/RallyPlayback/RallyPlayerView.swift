@@ -16,8 +16,10 @@ struct RallyPlayerView: View {
     let videoMetadata: VideoMetadata
 
     @State private var viewModel: RallyPlayerViewModel
+    @State private var showingGestureTips = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @EnvironmentObject private var appSettings: AppSettings
 
     private var isPortrait: Bool {
         verticalSizeClass == .regular
@@ -68,6 +70,14 @@ struct RallyPlayerView: View {
         .task {
             await viewModel.loadRallies()
         }
+        .onAppear {
+            // Show gesture tips on first launch
+            if !appSettings.hasSeenRallyTips {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showingGestureTips = true
+                }
+            }
+        }
         .onDisappear {
             viewModel.cleanup()
         }
@@ -111,7 +121,8 @@ struct RallyPlayerView: View {
                 totalCount: viewModel.totalRallies,
                 isSaved: viewModel.currentRallyIsSaved,
                 isRemoved: viewModel.currentRallyIsRemoved,
-                onDismiss: { dismiss() }
+                onDismiss: { dismiss() },
+                onShowTips: { showingGestureTips = true }
             )
             .zIndex(200)
 
@@ -133,6 +144,16 @@ struct RallyPlayerView: View {
                     isShowing: viewModel.showActionFeedback
                 )
                 .zIndex(300)
+            }
+
+            // Gesture tips overlay (highest z-index)
+            if showingGestureTips {
+                GestureTipsOverlay {
+                    showingGestureTips = false
+                    appSettings.hasSeenRallyTips = true
+                }
+                .zIndex(400)
+                .transition(.opacity)
             }
         }
         .gesture(swipeGesture(geometry: geometry))

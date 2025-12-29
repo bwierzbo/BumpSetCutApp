@@ -1,0 +1,181 @@
+//
+//  GestureTipsOverlay.swift
+//  BumpSetCut
+//
+//  Animated overlay showing swipe gesture hints for Rally Player
+//
+
+import SwiftUI
+
+// MARK: - GestureTipsOverlay
+
+struct GestureTipsOverlay: View {
+    let onDismiss: () -> Void
+    @State private var showingContent = false
+
+    var body: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.9)
+                .ignoresSafeArea()
+                .opacity(showingContent ? 1 : 0)
+
+            VStack(spacing: 32) {
+                // Title
+                Text("Swipe to Navigate")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.white)
+                    .opacity(showingContent ? 1 : 0)
+                    .offset(y: showingContent ? 0 : -20)
+
+                // Center gesture diagram with animated arrows
+                ZStack {
+                    // UP arrow - Next
+                    GestureArrow(direction: .up, label: "Next", icon: "chevron.up", color: .bscBlue)
+                        .offset(y: -130)
+                        .opacity(showingContent ? 1 : 0)
+
+                    // DOWN arrow - Previous
+                    GestureArrow(direction: .down, label: "Previous", icon: "chevron.down", color: .bscBlue)
+                        .offset(y: 130)
+                        .opacity(showingContent ? 1 : 0)
+
+                    // LEFT arrow - Remove
+                    GestureArrow(direction: .left, label: "Remove", icon: "xmark", color: .red)
+                        .offset(x: -110)
+                        .opacity(showingContent ? 1 : 0)
+
+                    // RIGHT arrow - Save
+                    GestureArrow(direction: .right, label: "Save", icon: "heart.fill", color: .green)
+                        .offset(x: 110)
+                        .opacity(showingContent ? 1 : 0)
+
+                    // Center card representation
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.bscSurfaceGlass)
+                        .frame(width: 90, height: 130)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
+                        .overlay(
+                            VStack(spacing: 8) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(.bscOrange)
+                                Text("Rally")
+                                    .font(.caption.bold())
+                                    .foregroundColor(.white.opacity(0.7))
+                            }
+                        )
+                        .scaleEffect(showingContent ? 1 : 0.8)
+                        .opacity(showingContent ? 1 : 0)
+                }
+                .frame(height: 320)
+
+                // Dismiss hint
+                Text("Tap anywhere to continue")
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.5))
+                    .opacity(showingContent ? 1 : 0)
+                    .offset(y: showingContent ? 0 : 20)
+            }
+            .padding(.horizontal, 24)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeOut(duration: 0.2)) {
+                showingContent = false
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                onDismiss()
+            }
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.1)) {
+                showingContent = true
+            }
+        }
+    }
+}
+
+// MARK: - GestureArrow
+
+private struct GestureArrow: View {
+    let direction: ArrowDirection
+    let label: String
+    let icon: String
+    let color: Color
+
+    @State private var isAnimating = false
+
+    enum ArrowDirection {
+        case up, down, left, right
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if direction == .down {
+                labelView
+            }
+
+            // Animated arrow
+            Image(systemName: arrowIcon)
+                .font(.system(size: 28, weight: .bold))
+                .foregroundColor(color)
+                .offset(animationOffset)
+
+            if direction != .down {
+                labelView
+            }
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                isAnimating = true
+            }
+        }
+    }
+
+    private var labelView: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+            Text(label)
+                .font(.system(size: 13, weight: .bold))
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(color.opacity(0.25))
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(color.opacity(0.4), lineWidth: 1)
+        )
+    }
+
+    private var arrowIcon: String {
+        switch direction {
+        case .up: return "arrow.up"
+        case .down: return "arrow.down"
+        case .left: return "arrow.left"
+        case .right: return "arrow.right"
+        }
+    }
+
+    private var animationOffset: CGSize {
+        let distance: CGFloat = isAnimating ? 8 : 0
+        switch direction {
+        case .up: return CGSize(width: 0, height: -distance)
+        case .down: return CGSize(width: 0, height: distance)
+        case .left: return CGSize(width: -distance, height: 0)
+        case .right: return CGSize(width: distance, height: 0)
+        }
+    }
+}
+
+// MARK: - Preview
+
+#Preview {
+    GestureTipsOverlay(onDismiss: {})
+}

@@ -23,6 +23,9 @@ struct HomeView: View {
     // Process state
     @State private var showingProcessPicker = false
 
+    // Onboarding state
+    @State private var showingOnboarding = false
+
     // MARK: - Body
     var body: some View {
         NavigationStack {
@@ -116,6 +119,12 @@ struct HomeView: View {
         .sheet(isPresented: $showingProcessPicker) {
             UnprocessedVideoPickerSheet(mediaStore: mediaStore)
         }
+        .fullScreenCover(isPresented: $showingOnboarding) {
+            OnboardingView {
+                showingOnboarding = false
+                appSettings.hasCompletedOnboarding = true
+            }
+        }
         .onAppear {
             if viewModel == nil {
                 viewModel = HomeViewModel(mediaStore: mediaStore, metadataStore: metadataStore)
@@ -125,6 +134,12 @@ struct HomeView: View {
             }
             withAnimation {
                 hasAppeared = true
+            }
+            // Show onboarding on first launch
+            if !appSettings.hasCompletedOnboarding {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showingOnboarding = true
+                }
             }
         }
         .preferredColorScheme(.dark)
@@ -239,9 +254,9 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
 
-            // Help button - will show onboarding (placeholder for now)
+            // Help button - shows onboarding tutorial
             Button {
-                // TODO: Show onboarding tutorial
+                showingOnboarding = true
             } label: {
                 quickActionContent(icon: "questionmark.circle", title: "Help", color: .bscTextSecondary)
             }

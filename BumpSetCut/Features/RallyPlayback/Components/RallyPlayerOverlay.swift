@@ -7,6 +7,7 @@ struct RallyPlayerOverlay: View {
     let isSaved: Bool
     let isRemoved: Bool
     let onDismiss: () -> Void
+    var onShowTips: () -> Void = {}
 
     var body: some View {
         VStack {
@@ -17,13 +18,38 @@ struct RallyPlayerOverlay: View {
                 Spacer()
 
                 // Rally counter with status
-                rallyCounter
+                HStack(spacing: BSCSpacing.sm) {
+                    rallyCounter
+
+                    // Help/Tips button
+                    helpButton
+                }
             }
             .padding(.horizontal, BSCSpacing.lg)
             .padding(.top, BSCSpacing.md)
 
             Spacer()
         }
+    }
+
+    // MARK: - Help Button
+    private var helpButton: some View {
+        Button(action: onShowTips) {
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.white.opacity(0.7))
+                .frame(width: 36, height: 36)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(0.1))
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        )
+                )
+        }
+        .accessibilityLabel("Help")
+        .accessibilityHint("Show gesture tips")
     }
 
     // MARK: - Back Button

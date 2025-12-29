@@ -37,6 +37,22 @@ class AppSettings: ObservableObject {
         }
     }
 
+    // MARK: - Onboarding State
+
+    /// Whether user has completed the app onboarding tutorial
+    @Published var hasCompletedOnboarding: Bool {
+        didSet {
+            UserDefaults.standard.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding")
+        }
+    }
+
+    /// Whether user has seen the rally gesture tips overlay
+    @Published var hasSeenRallyTips: Bool {
+        didSet {
+            UserDefaults.standard.set(hasSeenRallyTips, forKey: "hasSeenRallyTips")
+        }
+    }
+
     private init() {
         // Initialize with defaults based on build configuration
         #if DEBUG
@@ -48,6 +64,10 @@ class AppSettings: ObservableObject {
         #endif
 
         self.enableAnalytics = UserDefaults.standard.object(forKey: "enableAnalytics") as? Bool ?? true
+
+        // Onboarding state
+        self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
+        self.hasSeenRallyTips = UserDefaults.standard.bool(forKey: "hasSeenRallyTips")
 
         print("🎛️ AppSettings initialized")
     }
