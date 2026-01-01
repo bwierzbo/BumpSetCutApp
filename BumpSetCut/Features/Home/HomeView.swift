@@ -207,7 +207,7 @@ struct HomeView: View {
 
     // MARK: - Processed Games CTA Button
     private var processedGamesCTAButton: some View {
-        NavigationLink(destination: LibraryView(mediaStore: mediaStore, libraryType: .processed)) {
+        NavigationLink(destination: ProcessedLibraryView(mediaStore: mediaStore)) {
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 20, weight: .semibold))
