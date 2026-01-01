@@ -43,9 +43,6 @@ struct LibraryView: View {
                         ) {
                             mainContent
                         }
-                        .onReceive(viewModel.uploadCoordinator.uploadCompletedPublisher) { _ in
-                            viewModel.refresh()
-                        }
                     } else {
                         mainContent
                     }
@@ -67,6 +64,9 @@ struct LibraryView: View {
                 viewModel.searchViewModel.searchText = newSearchText
             }
             .onReceive(NotificationCenter.default.publisher(for: .uploadCompleted)) { _ in
+                viewModel.refresh()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .libraryContentChanged)) { _ in
                 viewModel.refresh()
             }
             .onAppear {

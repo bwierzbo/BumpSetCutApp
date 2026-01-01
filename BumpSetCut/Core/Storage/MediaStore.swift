@@ -366,6 +366,9 @@ struct FolderManifest: Codable {
             manifest.updateModifiedDate()
             let data = try JSONEncoder().encode(manifest)
             try data.write(to: manifestURL)
+
+            // Notify observers that library content changed
+            NotificationCenter.default.post(name: .libraryContentChanged, object: nil)
         } catch {
             print("Failed to save manifest: \(error)")
         }
