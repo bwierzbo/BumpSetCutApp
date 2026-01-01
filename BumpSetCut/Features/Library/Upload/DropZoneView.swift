@@ -238,11 +238,11 @@ struct UploadStatusBar: View {
 struct EnhancedUploadButton: View {
     let uploadCoordinator: UploadCoordinator
     let destinationFolder: String
-    
+
     @State private var showingPhotoPicker = false
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var showingNamingDialog = false
-    @State private var pendingVideoData: Data?
+    @State private var pendingVideoURL: URL?  // URL-based: keeps video on disk
     @State private var videoFileName = ""
     @State private var customVideoName = ""
     
@@ -296,45 +296,50 @@ struct EnhancedUploadButton: View {
             VideoNamingSheet(
                 customName: $customVideoName,
                 onSave: {
-                    if let data = pendingVideoData {
+                    if let url = pendingVideoURL {
                         let finalName = customVideoName.isEmpty ? videoFileName : customVideoName
-                        saveVideoWithName(data: data, name: finalName)
+                        saveVideoWithName(url: url, name: finalName)
                     }
                     showingNamingDialog = false
                 },
                 onCancel: {
                     showingNamingDialog = false
-                    pendingVideoData = nil
+                    // Clean up temp file
+                    if let url = pendingVideoURL {
+                        try? FileManager.default.removeItem(at: url)
+                    }
+                    pendingVideoURL = nil
                 }
             )
         }
     }
-    
+
     private func handleVideoSelection(_ item: PhotosPickerItem) {
         Task {
-            guard let data = try? await item.loadTransferable(type: Data.self) else {
-                print("Failed to load video data")
+            // Use file-based transfer - never load entire video into memory
+            guard let movie = try? await item.loadTransferable(type: VideoTransferable.self) else {
+                print("Failed to load video as file")
                 return
             }
-            
+
             await MainActor.run {
-                self.pendingVideoData = data
+                self.pendingVideoURL = movie.url
                 self.videoFileName = "Video_\(DateFormatter.yyyyMMdd_HHmmss.string(from: Date()))"
                 self.customVideoName = ""
                 self.showingNamingDialog = true
             }
         }
     }
-    
-    private func saveVideoWithName(data: Data, name: String) {
+
+    private func saveVideoWithName(url: URL, name: String) {
         Task {
             let fileName = name.hasSuffix(".mp4") ? name : "\(name).mp4"
             await uploadCoordinator.uploadManager.addUpload(
-                data: data,
+                url: url,
                 fileName: fileName,
                 destinationFolderPath: destinationFolder
             )
-            
+
             // Start the upload immediately
             if let uploadItem = uploadCoordinator.uploadManager.uploadItems.last {
                 uploadItem.displayName = name

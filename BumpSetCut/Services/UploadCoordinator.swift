@@ -112,23 +112,24 @@ class UploadCoordinator: ObservableObject {
     
     private func processAllItems() async {
         for (index, item) in pendingUploads.enumerated() {
-            guard let data = try? await item.loadTransferable(type: Data.self) else {
-                logger.warning("Failed to load data for item \(index)")
+            // Use file-based transfer - never load entire video into memory
+            guard let movie = try? await item.loadTransferable(type: VideoTransferable.self) else {
+                logger.warning("Failed to load video for item \(index)")
                 continue
             }
-            
+
             let fileName = "VID_\(Date().timeIntervalSince1970).mp4"
             await uploadManager.addUpload(
-                data: data,
+                url: movie.url,
                 fileName: fileName,
                 destinationFolderPath: currentFolderPath
             )
         }
-        
+
         // Show progress popup
         showingUploadProgress = true
         await UploadProgressPopup(uploadManager: uploadManager).present()
-        
+
         // Start processing each upload item with naming and folder selection
         await processUploadQueue()
     }
@@ -319,18 +320,27 @@ struct DropViewDelegate: DropDelegate {
     }
     
     private func handleDroppedVideo(url: URL) async {
-        guard let data = try? Data(contentsOf: url) else { return }
-        
+        // Copy to temp location instead of loading into memory
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("drop_\(UUID().uuidString).mp4")
+
+        do {
+            try FileManager.default.copyItem(at: url, to: tempURL)
+        } catch {
+            print("❌ Failed to copy dropped video: \(error)")
+            return
+        }
+
         await MainActor.run {
             uploadCoordinator.isUploadInProgress = true
         }
-        
+
         await uploadCoordinator.uploadManager.addUpload(
-            data: data,
+            url: tempURL,
             fileName: url.lastPathComponent,
             destinationFolderPath: destinationFolder
         )
-        
+
         // Start upload immediately for dropped files
         if let uploadItem = uploadCoordinator.uploadManager.uploadItems.last {
             uploadCoordinator.uploadManager.startUpload(item: uploadItem)
@@ -494,20 +504,14 @@ extension UploadCoordinator {
 
     /// Load video from PhotosPickerItem to a temp file (memory efficient for large videos)
     private func loadVideoToTempFile(from item: PhotosPickerItem, index: Int) async throws -> URL? {
-        // Try loading as a Movie file first (more efficient for large files)
+        // Use file-based transfer only - never load entire video into memory
         if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
             return movie.url
         }
 
-        // Fallback to Data-based loading for smaller files
-        guard let data = try? await item.loadTransferable(type: Data.self) else {
-            return nil
-        }
-
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("upload_\(index)_\(UUID().uuidString).mp4")
-        try data.write(to: tempURL)
-        return tempURL
+        // If VideoTransferable fails, log and return nil (don't fall back to Data loading)
+        logger.warning("VideoTransferable failed for item \(index) - skipping to avoid memory issues")
+        return nil
     }
 
     /// Save video from URL to final destination
@@ -556,49 +560,6 @@ extension UploadCoordinator {
         } catch {
             logger.error("Failed to save video: \(error.localizedDescription)")
             print("❌ Save error: \(error)")
-        }
-    }
-    
-    private func saveVideoDirectly(data: Data, destinationFolder: String) async {
-        do {
-            let fileName = "Video_\(DateFormatter.yyyyMMdd_HHmmss.string(from: Date())).mp4"
-            let baseURL = StorageManager.getPersistentStorageDirectory()
-            let destinationURL = baseURL
-                .appendingPathComponent(destinationFolder)
-                .appendingPathComponent(fileName)
-            
-            // Ensure directory exists
-            try FileManager.default.createDirectory(
-                at: destinationURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            
-            // Write file
-            try data.write(to: destinationURL)
-            print("✅ Successfully wrote file to: \(destinationURL.path)")
-            
-            // Create auto-generated name for uploaded video
-            let uploadDate = DateFormatter.shortDate.string(from: Date())
-            let autoName = "Uploaded video \(uploadDate)"
-            
-            // Add to MediaStore with auto-generated name
-            let success = mediaStore.addVideo(
-                at: destinationURL,
-                toFolder: destinationFolder,
-                customName: autoName
-            )
-            
-            if success {
-                print("✅ Video successfully added to MediaStore with name: \(autoName)")
-                logger.info("Video upload completed: \(fileName) -> \(autoName)")
-            } else {
-                print("❌ Failed to add video to MediaStore")
-                logger.error("Failed to add video to MediaStore: \(fileName)")
-            }
-            
-        } catch {
-            logger.error("Failed to save video: \(error.localizedDescription)")
         }
     }
     

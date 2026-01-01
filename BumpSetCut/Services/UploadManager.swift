@@ -25,21 +25,21 @@ enum UploadStatus: Equatable {
 @MainActor
 class UploadItem: ObservableObject, Identifiable {
     let id = UUID()
-    let sourceData: Data
+    let sourceURL: URL  // URL-based: keeps video on disk, not in RAM
     let originalFileName: String
     let fileSize: Int64
-    
+
     @Published var displayName: String
     @Published var finalName: String?
     @Published var destinationFolderPath: String
     @Published var status: UploadStatus = .pending
     @Published var thumbnail: UIImage?
     @Published var canCancel: Bool = true
-    
+
     private var uploadTask: Task<Void, Never>?
-    
-    init(sourceData: Data, originalFileName: String, fileSize: Int64, destinationFolderPath: String = "") {
-        self.sourceData = sourceData
+
+    init(sourceURL: URL, originalFileName: String, fileSize: Int64, destinationFolderPath: String = "") {
+        self.sourceURL = sourceURL
         self.originalFileName = originalFileName
         self.fileSize = fileSize
         self.displayName = originalFileName
@@ -126,21 +126,22 @@ class UploadManager: ObservableObject {
     }
     
     // MARK: - Upload Management
-    
-    func addUpload(data: Data, fileName: String, destinationFolderPath: String = "") async {
-        let fileSize = Int64(data.count)
+
+    func addUpload(url: URL, fileName: String, destinationFolderPath: String = "") async {
+        // Get file size from disk (no memory load)
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
         let uploadItem = UploadItem(
-            sourceData: data,
+            sourceURL: url,
             originalFileName: fileName,
             fileSize: fileSize,
             destinationFolderPath: destinationFolderPath
         )
-        
+
         uploadItems.append(uploadItem)
-        
-        // Generate thumbnail
+
+        // Generate thumbnail directly from URL (no data copy)
         await generateThumbnail(for: uploadItem)
-        
+
         logger.info("Added upload item: \(fileName) (\(fileSize) bytes)")
     }
     
@@ -210,18 +211,18 @@ class UploadManager: ObservableObject {
             let destinationURL = baseURL
                 .appendingPathComponent(item.destinationFolderPath)
                 .appendingPathComponent(fileName)
-            
+
             // Ensure directory exists
             try FileManager.default.createDirectory(
                 at: destinationURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true,
                 attributes: nil
             )
-            
-            // Write file
-            try item.sourceData.write(to: destinationURL)
-            print("UploadManager: Successfully wrote file to: \(destinationURL.path)")
-            print("UploadManager: File size: \(item.sourceData.count) bytes")
+
+            // Copy file from source URL (memory efficient - no Data loading)
+            try FileManager.default.copyItem(at: item.sourceURL, to: destinationURL)
+            print("UploadManager: Successfully copied file to: \(destinationURL.path)")
+            print("UploadManager: File size: \(item.fileSize) bytes")
             
             // Verify file was written
             if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -280,21 +281,9 @@ class UploadManager: ObservableObject {
     }
     
     private func generateThumbnail(for item: UploadItem) async {
-        // Create temporary file to generate thumbnail
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".mp4")
-        
-        do {
-            try item.sourceData.write(to: tempURL)
-            
-            if let thumbnail = await VideoThumbnailGenerator.generateThumbnail(from: tempURL) {
-                item.thumbnail = thumbnail
-            }
-            
-            // Clean up temporary file
-            try? FileManager.default.removeItem(at: tempURL)
-        } catch {
-            logger.error("Failed to generate thumbnail: \(error.localizedDescription)")
+        // Generate thumbnail directly from source URL (no memory copy needed)
+        if let thumbnail = await VideoThumbnailGenerator.generateThumbnail(from: item.sourceURL) {
+            item.thumbnail = thumbnail
         }
     }
     
