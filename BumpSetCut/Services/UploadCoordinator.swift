@@ -66,6 +66,9 @@ class UploadCoordinator: ObservableObject {
     private var pendingUploads: [PhotosPickerItem] = []
     private var currentUploadIndex = 0
     private var currentFolderPath: String = ""
+
+    // Track recently uploaded videos for post-upload naming
+    private var recentlyUploadedFileNames: [String] = []
     
     init(mediaStore: MediaStore) {
         self.mediaStore = mediaStore
@@ -412,6 +415,7 @@ extension UploadCoordinator {
             currentItemIndex = 0
             elapsedTime = 0
             estimatedTimeRemaining = nil
+            recentlyUploadedFileNames.removeAll()
             startElapsedTimer()
         }
 
@@ -552,6 +556,10 @@ extension UploadCoordinator {
             if success {
                 print("✅ Video added to MediaStore: \(autoName)")
                 logger.info("Video upload completed: \(fileName)")
+                // Track for post-upload naming
+                await MainActor.run {
+                    recentlyUploadedFileNames.append(fileName)
+                }
             } else {
                 print("❌ Failed to add video to MediaStore")
                 logger.error("Failed to add video to MediaStore: \(fileName)")
@@ -564,23 +572,79 @@ extension UploadCoordinator {
     }
     
     private func handleUploadCompletion() async {
-        print("🎉 All uploads completed, showing completion state")
-        
+        print("🎉 All uploads completed, showing naming dialog")
+
+        // Show naming dialog for each uploaded video
+        for fileName in recentlyUploadedFileNames {
+            await showPostUploadNamingDialog(for: fileName)
+        }
+
+        print("🎉 Naming complete, showing completion state")
+
         await MainActor.run {
             showCompleted = true
-            
+            recentlyUploadedFileNames.removeAll()
+
             // Notify LibraryView to refresh its contents
             print("📢 Sending upload completion notification")
             uploadCompletedSubject.send()
         }
-        
+
         // Auto-dismiss after 2 seconds to keep it simple
         try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-        
+
         await MainActor.run {
             print("⏰ Auto-dismissing upload completion")
             isUploadInProgress = false
             showCompleted = false
+        }
+    }
+
+    private func showPostUploadNamingDialog(for fileName: String) async {
+        // Get current name from MediaStore
+        let videos = mediaStore.getAllVideos()
+        guard let video = videos.first(where: { $0.fileName == fileName }) else {
+            logger.warning("Could not find video for naming: \(fileName)")
+            return
+        }
+
+        let currentName = video.displayName
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "dd/MM/yyyy"
+        let defaultName = "Uploaded video \(dateFormatter.string(from: Date()))"
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var hasResumed = false
+            let resumeOnce: () -> Void = {
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume()
+            }
+
+            Task { @MainActor in
+                await PostUploadNamingDialog(
+                    currentName: currentName.isEmpty ? defaultName : currentName,
+                    onSave: { newName in
+                        Task { @MainActor in
+                            if newName != currentName && !newName.isEmpty {
+                                let success = self.mediaStore.renameVideo(fileName: fileName, to: newName)
+                                if success {
+                                    self.logger.info("Video renamed to: \(newName)")
+                                } else {
+                                    self.logger.warning("Failed to rename video: \(fileName)")
+                                }
+                            }
+                            resumeOnce()
+                        }
+                    },
+                    onSkip: {
+                        Task { @MainActor in
+                            self.logger.info("Video naming skipped for: \(fileName)")
+                            resumeOnce()
+                        }
+                    }
+                ).present()
+            }
         }
     }
     
