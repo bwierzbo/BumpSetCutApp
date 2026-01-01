@@ -9,18 +9,18 @@ import SwiftUI
 import MijickPopups
 
 struct PostUploadNamingDialog: CenterPopup {
-    let currentName: String
+    let suggestedName: String
     let onSave: (String) -> Void
     let onSkip: () -> Void
 
     @State private var videoName: String
     @FocusState private var isTextFieldFocused: Bool
 
-    init(currentName: String, onSave: @escaping (String) -> Void, onSkip: @escaping () -> Void) {
-        self.currentName = currentName
+    init(suggestedName: String, onSave: @escaping (String) -> Void, onSkip: @escaping () -> Void) {
+        self.suggestedName = suggestedName
         self.onSave = onSave
         self.onSkip = onSkip
-        self._videoName = State(initialValue: currentName)
+        self._videoName = State(initialValue: suggestedName)
     }
 
     func configurePopup(config: CenterPopupConfig) -> CenterPopupConfig {
@@ -66,7 +66,7 @@ struct PostUploadNamingDialog: CenterPopup {
                     let finalName = videoName.trimmingCharacters(in: .whitespacesAndNewlines)
                     Task { @MainActor in
                         await dismissLastPopup()
-                        onSave(finalName.isEmpty ? currentName : finalName)
+                        onSave(finalName.isEmpty ? suggestedName : finalName)
                     }
                 }
                 .frame(maxWidth: .infinity)

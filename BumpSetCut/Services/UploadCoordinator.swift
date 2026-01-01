@@ -542,19 +542,15 @@ extension UploadCoordinator {
             let fileSize = (try? FileManager.default.attributesOfItem(atPath: destinationURL.path)[.size] as? Int64) ?? 0
             print("📦 File size: \(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))")
 
-            // Create auto-generated name
-            let uploadDate = DateFormatter.shortDate.string(from: Date())
-            let autoName = "Uploaded video \(uploadDate)"
-
-            // Add to MediaStore
+            // Add to MediaStore without custom name (will prompt user after upload)
             let success = mediaStore.addVideo(
                 at: destinationURL,
                 toFolder: destinationFolder,
-                customName: autoName
+                customName: nil
             )
 
             if success {
-                print("✅ Video added to MediaStore: \(autoName)")
+                print("✅ Video added to MediaStore: \(fileName)")
                 logger.info("Video upload completed: \(fileName)")
                 // Track for post-upload naming
                 await MainActor.run {
@@ -601,17 +597,10 @@ extension UploadCoordinator {
     }
 
     private func showPostUploadNamingDialog(for fileName: String) async {
-        // Get current name from MediaStore
-        let videos = mediaStore.getAllVideos()
-        guard let video = videos.first(where: { $0.fileName == fileName }) else {
-            logger.warning("Could not find video for naming: \(fileName)")
-            return
-        }
-
-        let currentName = video.displayName
+        // Generate suggested name in dd/MM/yyyy format
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "dd/MM/yyyy"
-        let defaultName = "Uploaded video \(dateFormatter.string(from: Date()))"
+        let suggestedName = "Uploaded video \(dateFormatter.string(from: Date()))"
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             var hasResumed = false
@@ -623,15 +612,15 @@ extension UploadCoordinator {
 
             Task { @MainActor in
                 await PostUploadNamingDialog(
-                    currentName: currentName.isEmpty ? defaultName : currentName,
-                    onSave: { newName in
+                    suggestedName: suggestedName,
+                    onSave: { customName in
                         Task { @MainActor in
-                            if newName != currentName && !newName.isEmpty {
-                                let success = self.mediaStore.renameVideo(fileName: fileName, to: newName)
+                            if !customName.isEmpty {
+                                let success = self.mediaStore.renameVideo(fileName: fileName, to: customName)
                                 if success {
-                                    self.logger.info("Video renamed to: \(newName)")
+                                    self.logger.info("Video named: \(customName)")
                                 } else {
-                                    self.logger.warning("Failed to rename video: \(fileName)")
+                                    self.logger.warning("Failed to name video: \(fileName)")
                                 }
                             }
                             resumeOnce()
@@ -639,7 +628,7 @@ extension UploadCoordinator {
                     },
                     onSkip: {
                         Task { @MainActor in
-                            self.logger.info("Video naming skipped for: \(fileName)")
+                            self.logger.info("Video naming skipped, keeping file name: \(fileName)")
                             resumeOnce()
                         }
                     }
