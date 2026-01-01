@@ -12,18 +12,38 @@ import AVFoundation
 struct VideoPlayerView: View {
     let videoURL: URL
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var player: AVPlayer?
-    
+
+    private var isPortrait: Bool {
+        verticalSizeClass == .regular
+    }
+
     var body: some View {
-        NavigationStack{
-            VStack(spacing: 0) {
-                createVideoPlayer()
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                createVideoPlayer(size: geometry.size)
+
+                // Close button overlay
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 30))
+                                .foregroundStyle(.white.opacity(0.8), .black.opacity(0.3))
+                        }
+                        .padding()
+                    }
+                    Spacer()
+                }
             }
-            .background(Color.black.ignoresSafeArea())
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(content: createToolbar)
         }
+        .ignoresSafeArea()
         .onAppear(perform: setupPlayer)
         .onDisappear(perform: cleanupPlayer)
     }
@@ -31,17 +51,19 @@ struct VideoPlayerView: View {
 
 // MARK: - Video Player
 private extension VideoPlayerView {
-    func createVideoPlayer() -> some View {
+    func createVideoPlayer(size: CGSize) -> some View {
         Group {
             if let player = player {
                 VideoPlayer(player: player)
-                    .aspectRatio(16/9, contentMode: .fit)
+                    .aspectRatio(contentMode: isPortrait ? .fit : .fill)
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
             } else {
                 createLoadingView()
             }
         }
     }
-    
+
     func createLoadingView() -> some View {
         VStack(spacing: 16) {
             ProgressView()
@@ -51,23 +73,6 @@ private extension VideoPlayerView {
                 .font(.caption)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - Toolbar
-private extension VideoPlayerView {
-    func createToolbar() -> some ToolbarContent {
-        ToolbarItem(placement: .navigationBarTrailing) {
-            createCloseButton()
-        }
-    }
-    
-    func createCloseButton() -> some View {
-        Button("Done") {
-            dismiss()
-        }
-        .foregroundColor(.white)
-        .fontWeight(.medium)
     }
 }
 
