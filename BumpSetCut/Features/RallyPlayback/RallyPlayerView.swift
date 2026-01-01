@@ -314,6 +314,11 @@ struct UnifiedRallyCard: View {
     let thumbnailCache: RallyThumbnailCache
 
     @State private var thumbnail: UIImage?
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var isPortrait: Bool {
+        verticalSizeClass == .regular
+    }
 
     var body: some View {
         ZStack {
@@ -323,7 +328,7 @@ struct UnifiedRallyCard: View {
             if let thumbnail = thumbnail {
                 Image(uiImage: thumbnail)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: isPortrait ? .fit : .fill)
                     .frame(width: size.width, height: size.height)
                     .clipped()
             }
@@ -331,7 +336,7 @@ struct UnifiedRallyCard: View {
             // Overlay video player only when current (covers thumbnail)
             if isCurrent {
                 VideoPlayer(player: playerCache.getOrCreatePlayer(for: url))
-                    .scaledToFill()
+                    .aspectRatio(contentMode: isPortrait ? .fit : .fill)
                     .frame(width: size.width, height: size.height)
                     .disabled(true)
                     .clipped()
