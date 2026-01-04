@@ -261,12 +261,6 @@ struct EnhancedUploadButton: View {
                 Label("Browse Files", systemImage: "folder")
             }
             
-            Divider()
-            
-            Text("Or drag and drop videos anywhere")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            
         } label: {
             HStack {
                 Image(systemName: "plus")

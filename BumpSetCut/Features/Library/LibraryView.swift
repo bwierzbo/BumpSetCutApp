@@ -187,7 +187,7 @@ private extension LibraryView {
             .refreshable {
                 viewModel.refresh()
             }
-            .gesture(
+            .simultaneousGesture(
                 DragGesture(minimumDistance: 30)
                     .onEnded { value in
                         // Swipe from left edge to go back (to parent)
