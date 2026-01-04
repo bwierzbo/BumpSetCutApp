@@ -161,7 +161,8 @@ struct BSCButton: View {
 private struct BSCButtonPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .brightness(configuration.isPressed ? -0.05 : 0)
             .animation(.bscQuick, value: configuration.isPressed)
     }
 }

@@ -58,6 +58,7 @@ struct BSCEmptyState: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title). \(message)")
+        .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
 
     // MARK: - Animated Icon

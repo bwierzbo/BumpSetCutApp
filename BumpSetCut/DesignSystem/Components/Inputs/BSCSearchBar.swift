@@ -11,7 +11,6 @@ struct BSCSearchBar: View {
     var showCancelButton: Bool = false
 
     @FocusState private var isFocused: Bool
-    @State private var isAnimating = false
 
     // MARK: - Body
     var body: some View {
@@ -22,7 +21,6 @@ struct BSCSearchBar: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(isFocused ? .bscOrange : .bscTextSecondary)
-                    .scaleEffect(isAnimating ? 1.1 : 1.0)
 
                 // Text field
                 TextField(placeholder, text: $text)
@@ -78,16 +76,6 @@ struct BSCSearchBar: View {
             }
         }
         .animation(.bscSpring, value: showCancelButton && (isFocused || !text.isEmpty))
-        .onChange(of: isFocused) { _, focused in
-            if focused {
-                withAnimation(.bscBounce) {
-                    isAnimating = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    isAnimating = false
-                }
-            }
-        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Search")
         .accessibilityValue(text.isEmpty ? "Empty" : text)

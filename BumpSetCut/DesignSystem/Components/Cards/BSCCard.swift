@@ -26,7 +26,7 @@ struct BSCCard<Content: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(border)
             .bscShadow(shadowStyle)
-            .scaleEffect(isSelected ? 1.02 : 1.0)
+            .scaleEffect(isSelected ? 1.03 : 1.0)
             .animation(.bscSpring, value: isSelected)
     }
 
@@ -178,7 +178,7 @@ extension View {
                     )
             )
             .bscShadow(isSelected ? BSCShadow.glowBlue : BSCShadow.sm)
-            .scaleEffect(isSelected ? 1.02 : 1.0)
+            .scaleEffect(isSelected ? 1.03 : 1.0)
             .animation(.bscSpring, value: isSelected)
     }
 }

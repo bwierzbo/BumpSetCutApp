@@ -14,9 +14,10 @@ struct BSCLoadingOverlay: View {
     // MARK: - Body
     var body: some View {
         ZStack {
-            // Background
+            // Background with blur
             if showBackground {
-                Color.bscBackground.opacity(0.9)
+                Color.bscBackground.opacity(0.85)
+                    .background(.ultraThinMaterial)
                     .ignoresSafeArea()
             }
 
