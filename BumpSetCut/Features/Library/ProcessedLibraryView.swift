@@ -61,8 +61,8 @@ struct ProcessedLibraryView: View {
                     .multilineTextAlignment(.center)
             }
 
-            Button {
-                dismiss()
+            NavigationLink {
+                LibraryView(mediaStore: mediaStore, libraryType: .saved)
             } label: {
                 Text("Go to Saved Games")
                     .font(.system(size: 14, weight: .semibold))
