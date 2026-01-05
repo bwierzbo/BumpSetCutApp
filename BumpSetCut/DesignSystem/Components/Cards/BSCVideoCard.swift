@@ -161,12 +161,8 @@ struct BSCVideoCard: View {
                 .resizable()
                 .scaledToFill()
         } else {
-            ZStack {
-                Color.bscBackgroundElevated
-                Image(systemName: "video.fill")
-                    .font(.title2)
-                    .foregroundColor(.bscTextTertiary)
-            }
+            // Skeleton loader with shimmer effect
+            BSCSkeletonView()
         }
     }
 

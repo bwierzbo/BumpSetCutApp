@@ -2,158 +2,96 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> Think carefully and implement the most concise solution that changes as little code as possible.
-
-## USE SUB-AGENTS FOR CONTEXT OPTIMIZATION
-
-### 1. Always use the file-analyzer sub-agent when asked to read files.
-The file-analyzer agent is an expert in extracting and summarizing critical information from files, particularly log files and verbose outputs. It provides concise, actionable summaries that preserve essential information while dramatically reducing context usage.
-
-### 2. Always use the code-analyzer sub-agent when asked to search code, analyze code, research bugs, or trace logic flow.
-The code-analyzer agent is an expert in code analysis, logic tracing, and vulnerability detection. It provides concise, actionable summaries that preserve essential information while dramatically reducing context usage.
-
-### 3. Always use the test-runner sub-agent to run tests and analyze the test results.
-Using the test-runner agent ensures:
-- Full test output is captured for debugging
-- Main conversation stays clean and focused
-- Context usage is optimized
-- All issues are properly surfaced
-- No approval dialogs interrupt the workflow
-
 ## Project Overview
 
-**BumpSetCut** is a SwiftUI iOS app for automatic volleyball rally detection and video processing. It uses computer vision and machine learning to identify and extract active volleyball rallies from recorded videos.
+**BumpSetCut** is a SwiftUI iOS app for automatic volleyball rally detection and video processing. It uses CoreML and computer vision to identify and extract active volleyball rallies from recorded videos.
 
 ## Development Commands
 
-### Building and Testing
-- **Build**: Use Xcode (`⌘+B`) or `xcodebuild -project BumpSetCut.xcodeproj -scheme BumpSetCut build`
-- **Run**: Use Xcode (`⌘+R`) or iOS Simulator
-- **Tests**: Currently no dedicated test framework - testing is done manually with sample videos
+```bash
+# Build
+xcodebuild -project BumpSetCut.xcodeproj -scheme BumpSetCut build
 
-### Project Structure (Clean Layer Architecture)
+# Build for simulator
+xcodebuild -project BumpSetCut.xcodeproj -scheme BumpSetCut \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' build
+```
+
+No test framework currently - testing is done manually with sample videos.
+
+## Architecture
+
+### Project Structure (Feature-Based)
 ```
 BumpSetCut/
-├── Presentation/           # UI Layer - User interface components
-│   ├── Views/             # Main screens (ContentView, LibraryView, etc.)
-│   ├── Components/        # Reusable UI components (ActionButton, etc.)
-│   ├── Popups/           # Modal presentations (CaptureViewPopup)
-│   └── Extensions/       # UI-specific extensions and modifiers
-├── Domain/                # Business Logic Layer - Core application logic
-│   ├── Services/         # Main processing services (VideoProcessor, VideoExporter)
-│   ├── Logic/            # Rally detection algorithms (RallyDecider, BallisticsGate)
-│   └── Tracking/         # Ball tracking implementation (KalmanBallTracker)
-├── Data/                  # Data Layer - Models and storage management
-│   ├── Models/           # Core data structures (DetectionResult, ProcessorConfig)
-│   ├── Storage/          # Data persistence (MediaStore)
-│   └── Extensions/       # Data-specific extensions (Task++)
-├── Infrastructure/        # Infrastructure Layer - External system integrations
-│   ├── ML/               # Machine learning services (YOLODetector, MLService)
-│   ├── Camera/           # Camera system integration (CameraService)
-│   ├── System/           # System utilities and extensions
-│   ├── Math/             # Mathematical utilities (QuadraticFit)
-│   └── App/              # App configuration and entry point
-├── Resources/            # App bundle resources
-│   └── ML/               # CoreML model files (bestv2.mlpackage, bestv2.mlmodelc)
-└── Assets/               # App resources (images, colors, etc.)
+├── App/                    # App entry point and settings
+├── Core/                   # Shared infrastructure
+│   ├── ML/                 # YOLODetector, MLService (CoreML integration)
+│   ├── Media/              # FrameExtractor (AVFoundation utilities)
+│   ├── Storage/            # MediaStore, FolderManager, MetadataStore
+│   └── Utilities/          # QuadraticFit, CMTime helpers
+├── Features/               # Feature modules
+│   ├── Library/            # Video library, folders, search, upload
+│   ├── Processing/         # Video processing pipeline
+│   │   ├── Logic/          # RallyDecider, BallisticsGate, SegmentBuilder
+│   │   ├── Tracking/       # KalmanBallTracker
+│   │   ├── Classification/ # MovementClassifier
+│   │   └── Physics/        # ParabolicValidator
+│   ├── RallyPlayback/      # TikTok-style rally viewer with swipe navigation
+│   ├── Export/             # VideoExporter, DebugAnnotator
+│   ├── Settings/           # App settings
+│   └── Onboarding/         # First-launch tutorial
+├── DesignSystem/           # Reusable UI components and tokens
+├── Services/               # UploadCoordinator, UploadManager, MetricsCollector
+├── Models/                 # Core data models (Detections, ProcessingMetadata)
+└── Extensions/             # Swift extensions
 ```
 
-## Architecture Overview
+### Video Processing Pipeline
+```
+YOLODetector → KalmanBallTracker → BallisticsGate → RallyDecider → SegmentBuilder → VideoExporter
+     ↓              ↓                    ↓               ↓
+  CoreML       Kalman filter      Physics validation   State machine
+  detection    tracking           (quadratic fit)      (hysteresis)
+```
 
-### Video Processing Pipeline (Core Architecture)
-Multi-stage processing chain:
-1. **Detection**: `YOLODetector` → CoreML volleyball detection with static object suppression  
-2. **Tracking**: `KalmanBallTracker` → Constant-velocity tracking with association gating
-3. **Physics Gating**: `BallisticsGate` → Projectile trajectory validation using quadratic fitting
-4. **Rally Logic**: `RallyDecider` → Hysteresis-based state machine for rally detection
-5. **Segmentation**: `SegmentBuilder` → Time range extraction with padding
-6. **Export**: `VideoExporter`/`DebugAnnotator` → Final video generation
+### Key Patterns
+- **MediaStore**: File-based storage with manifest JSON, posts `.libraryContentChanged` notification on changes
+- **VideoMetadata**: Tracks `isProcessed`, `originalVideoId`, `processedVideoIds` for processing relationships
+- **URL-based uploads**: Videos stay on disk during upload (no Data loading into memory)
+- **Orientation-aware video**: Uses `.fit` in portrait, `.fill` in landscape
 
-### Processing Modes
-- **Production**: Trimmed video with only rally segments
-- **Debug**: Full-length annotated video showing detection overlays (processes every 3rd frame for performance)
+## Code Guidelines
 
-### Key Components by Layer
+### Absolute Rules
+- NO partial implementation or placeholder code
+- NO code duplication - check existing codebase first
+- NO dead code - delete unused code completely
+- NO resource leaks - clean up video processing resources, file handles, observers
 
-**Presentation Layer**:
-- **ContentView**: Main app interface with navigation and camera integration
-- **LibraryView/VideoPlayerView**: Video management and playback interfaces
-- **CaptureViewPopup**: Camera capture modal using MijickCamera integration
-- **ActionButton/StoredVideo**: Reusable UI components
+### Architecture
+- Features are self-contained modules with their own views, view models, and components
+- Core/ contains shared infrastructure used across features
+- Services/ for cross-cutting concerns (uploads, metrics)
+- MediaStore is the single source of truth for video state
 
-**Domain Layer**:
-- **VideoProcessor**: Main processing orchestrator with `@Observable` pattern and async workflow
-- **VideoExporter/DebugAnnotator**: Video generation services for production and debug outputs
-- **RallyDecider/BallisticsGate**: Rally detection logic with physics-based validation
-- **KalmanBallTracker**: Advanced ball tracking with constant-velocity prediction
+### SwiftUI Patterns
+- Use `@Observable` for view models
+- Use `GeometryReader` for responsive layouts
+- Use computed properties for reactive state (not stored state)
+- Use `decodeIfPresent` for backwards-compatible Codable fields
 
-**Data Layer**:
-- **MediaStore**: File-based storage manager for Documents directory with delegate pattern
-- **DetectionResult/ProcessorConfig**: Core data models and configuration structures
-- **Extensions**: Task++ and other data-specific utilities
+### Memory Management
+- Never load entire videos as `Data` - use URL-based file operations
+- Use `VideoTransferable` for PhotosPicker imports
+- Clean up AVPlayer instances in `onDisappear`
 
-**Infrastructure Layer**:
-- **YOLODetector/MLService**: CoreML integration for volleyball detection
-- **CameraService**: MijickCamera framework abstraction
-- **QuadraticFit**: Mathematical utilities for trajectory analysis
+## CoreML Model
+- **File**: `bestv2.mlpackage` in `Resources/ML/`
+- **Type**: YOLO volleyball detection model
+- App functions without model but AI features are disabled
 
-### UI Architecture
-- SwiftUI with `@Observable` pattern following clean architecture
-- NavigationStack-based navigation with modal presentations
-- Protocol-based decoupling between layers (CaptureDelegate pattern)
-- Component composition through private extensions
-- Consistent system colors and SF Symbols
-
-## Development Guidelines
-
-### Error Handling
-- **Fail fast** for critical configuration (missing text model)
-- **Log and continue** for optional features (extraction model)
-- **Graceful degradation** when external services unavailable
-- **User-friendly messages** through resilience layer
-
-### Testing
-- Always use the test-runner agent to execute tests
-- Do not use mock services for anything ever
-- Do not move on to the next test until the current test is complete
-- If the test fails, consider checking if the test is structured correctly before deciding we need to refactor the codebase
-- Tests to be verbose so we can use them for debugging
-
-### Code Style and Architecture
-- **NO PARTIAL IMPLEMENTATION**
-- **NO CODE DUPLICATION**: Check existing codebase to reuse functions and constants. Read files before writing new functions.
-- **NO DEAD CODE**: Either use or delete from codebase completely
-- **IMPLEMENT TEST FOR EVERY FUNCTION**
-- **NO INCONSISTENT NAMING**: Read existing codebase naming patterns
-- **NO OVER-ENGINEERING**: Don't add unnecessary abstractions when simple functions work
-- **CLEAN LAYER SEPARATION**: Follow the 4-layer architecture with proper dependency directions
-- **NO UPWARD DEPENDENCIES**: Layers should only depend on lower layers (Presentation → Domain → Data ← Infrastructure)
-- **NO RESOURCE LEAKS**: Clean up video processing resources, file handles, and observers
-
-### Layer Architecture Guidelines
-- **Presentation Layer**: SwiftUI views, components, and UI-specific logic only
-- **Domain Layer**: Business logic, processing algorithms, and application services
-- **Data Layer**: Models, storage management, and data persistence
-- **Infrastructure Layer**: External system integrations (ML, camera, frameworks)
-
-### Key Architecture Notes
-- Processing pipeline is modular and extensible
-- Configuration system allows easy parameter tuning
-- File-based storage without database overhead
-- Video processing is CPU/GPU intensive but well-optimized
-- Camera integration abstracted through MijickCamera library
-- Uses async/await throughout for responsive UI
-
-### Resource Management Considerations
-- VideoProcessor creates heavy ML objects - ensure proper cleanup
-- Processing can be memory intensive with large videos
-- Debug mode annotation requires significant GPU resources
-- Consider cancellation handling in long-running processing tasks
-
-### CoreML Model Requirements
-- **Required Files**: `bestv2.mlpackage` (preferred) or `bestv2.mlmodelc` (fallback)
-- **Location**: `Resources/ML/` directory in the Xcode project
-- **Type**: YOLO volleyball detection model trained for volleyball object recognition
-- **Bundle Inclusion**: Must be added to Xcode target and included in "Copy Bundle Resources"
-- **Graceful Degradation**: App functions without models but AI features are disabled
-- **Error Handling**: Missing models show helpful console messages with setup instructions
+## Sub-Agent Usage
+- Use **code-analyzer** agent for searching code, analyzing bugs, tracing logic
+- Use **file-analyzer** agent for reading and summarizing large files
+- Use **test-runner** agent to run and analyze tests

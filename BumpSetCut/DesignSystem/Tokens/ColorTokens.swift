@@ -100,8 +100,8 @@ extension Color {
 
 // MARK: - Processing Status Colors
 extension Color {
-    /// Original video - Not yet processed
-    static let bscStatusOriginal = Color.bscTextSecondary
+    /// Original video - Not yet processed (subtle teal for visibility)
+    static let bscStatusOriginal = Color.bscTeal.opacity(0.8)
 
     /// Processed video - Has AI-detected rallies
     static let bscStatusProcessed = Color.bscOrange
