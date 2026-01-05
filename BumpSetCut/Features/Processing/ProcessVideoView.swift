@@ -69,6 +69,11 @@ struct ProcessVideoView: View {
             } message: {
                 Text(viewModel.errorMessage)
             }
+            .alert("Storage Full", isPresented: $viewModel.showStorageWarning) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.storageWarningMessage)
+            }
             .sheet(isPresented: $viewModel.showingFolderPicker) {
                 ProcessedFolderSelectionSheet(
                     mediaStore: viewModel.mediaStore,

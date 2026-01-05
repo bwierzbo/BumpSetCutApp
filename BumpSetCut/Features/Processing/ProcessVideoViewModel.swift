@@ -18,6 +18,8 @@ final class ProcessVideoViewModel {
     var currentVideoMetadata: VideoMetadata? = nil
     var showError: Bool = false
     var errorMessage: String = ""
+    var showStorageWarning: Bool = false
+    var storageWarningMessage: String = ""
 
     // Pending save state - holds temp URL until user selects destination folder
     var pendingSaveURL: URL? = nil
@@ -167,6 +169,18 @@ final class ProcessVideoViewModel {
 
     func startProcessing(isDebugMode: Bool) {
         currentTask?.cancel()
+
+        // Check storage space before starting
+        // Estimate needing ~1.5x video size (original stays, processed output created)
+        let videoSize = StorageChecker.getFileSize(at: videoURL)
+        let requiredSpace = Int64(Double(videoSize) * 1.5)
+        let storageCheck = StorageChecker.checkAvailableSpace(requiredBytes: requiredSpace)
+
+        if !storageCheck.isSufficient {
+            storageWarningMessage = storageCheck.errorMessage ?? "Not enough storage space to process this video"
+            showStorageWarning = true
+            return
+        }
 
         currentTask = Task {
             do {

@@ -68,10 +68,10 @@ struct DropZoneView<Content: View>: View {
 struct UploadStatusBar: View {
     @ObservedObject var uploadCoordinator: UploadCoordinator
     @State private var uploadedVideoURL: URL?
-    
+
     var body: some View {
         let _ = print("🔄 UploadStatusBar.body called - isUploadInProgress=\(uploadCoordinator.isUploadInProgress)")
-        
+
         return Group {
             if uploadCoordinator.isUploadInProgress {
                 let _ = print("✅ Progress bar should be visible!")

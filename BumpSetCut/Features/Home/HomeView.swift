@@ -142,6 +142,14 @@ struct HomeView: View {
                 }
             }
         }
+        .alert("Storage Full", isPresented: Binding(
+            get: { uploadCoordinator?.showStorageWarning ?? false },
+            set: { uploadCoordinator?.showStorageWarning = $0 }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(uploadCoordinator?.storageWarningMessage ?? "Not enough storage space")
+        }
         .preferredColorScheme(.dark)
     }
 

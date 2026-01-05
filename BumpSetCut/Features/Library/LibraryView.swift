@@ -86,6 +86,14 @@ struct LibraryView: View {
                     selectedPhotoItems.removeAll()
                 }
             }
+            .alert("Storage Full", isPresented: Binding(
+                get: { viewModel.uploadCoordinator.showStorageWarning },
+                set: { viewModel.uploadCoordinator.showStorageWarning = $0 }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.uploadCoordinator.storageWarningMessage)
+            }
         }
     }
 }

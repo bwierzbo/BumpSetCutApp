@@ -39,7 +39,7 @@ class UploadCoordinator: ObservableObject {
     private let mediaStore: MediaStore
     let uploadManager: UploadManager
     private let logger = Logger(subsystem: "BumpSetCut", category: "UploadCoordinator")
-    
+
     @Published var isUploadInProgress = false
     @Published var showingUploadProgress = false
     @Published var showCompleted = false
@@ -49,6 +49,10 @@ class UploadCoordinator: ObservableObject {
     @Published var elapsedTime: TimeInterval = 0
     @Published var estimatedTimeRemaining: TimeInterval?
     @Published var currentFileSize: String = ""
+
+    // Storage warning
+    @Published var showStorageWarning = false
+    @Published var storageWarningMessage = ""
 
     // Track import speed for estimates
     private var importStartTime: Date?
@@ -419,18 +423,56 @@ extension UploadCoordinator {
             startElapsedTimer()
         }
 
-        for (index, item) in items.enumerated() {
+        // Check storage space before starting (estimate based on first item)
+        if let firstItem = items.first,
+           let firstVideoURL = try? await loadVideoToTempFile(from: firstItem, index: 0) {
+            let firstFileSize = StorageChecker.getFileSize(at: firstVideoURL)
+            // Estimate total size as firstFileSize * count (conservative estimate)
+            let estimatedTotalSize = firstFileSize * Int64(items.count)
+
+            let storageCheck = StorageChecker.checkAvailableSpace(requiredBytes: estimatedTotalSize)
+            if !storageCheck.isSufficient {
+                await MainActor.run {
+                    stopElapsedTimer()
+                    isUploadInProgress = false
+                    storageWarningMessage = storageCheck.errorMessage ?? "Not enough storage space"
+                    showStorageWarning = true
+                }
+                // Clean up temp file
+                try? FileManager.default.removeItem(at: firstVideoURL)
+                logger.warning("Upload cancelled: insufficient storage space")
+                return
+            }
+
+            // Process the first item we already loaded
+            let fileSize = firstFileSize
+            let fileSizeString = ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
+
+            await MainActor.run {
+                currentItemIndex = 1
+                currentFileSize = fileSizeString
+                uploadProgressText = "Saving \(fileSizeString) video..."
+            }
+
+            await saveVideoFromURL(firstVideoURL, destinationFolder: destinationFolder)
+            try? FileManager.default.removeItem(at: firstVideoURL)
+        }
+
+        // Process remaining items (skip first since we already processed it)
+        let remainingItems = items.count > 1 ? Array(items.dropFirst()) : []
+        for (index, item) in remainingItems.enumerated() {
+            let actualIndex = index + 1  // Offset by 1 since we already processed first item
             let itemStartTime = Date()
 
             await MainActor.run {
-                currentItemIndex = index + 1
+                currentItemIndex = actualIndex + 1  // +1 for display (1-indexed)
                 currentFileSize = ""
-                uploadProgressText = "Preparing video \(index + 1) of \(items.count)..."
+                uploadProgressText = "Preparing video \(actualIndex + 1) of \(items.count)..."
 
                 // Calculate estimate based on previous imports
                 if let lastDuration = lastImportDuration, items.count > 1 {
-                    let remainingItems = items.count - index
-                    estimatedTimeRemaining = lastDuration * Double(remainingItems)
+                    let remainingCount = items.count - actualIndex
+                    estimatedTimeRemaining = lastDuration * Double(remainingCount)
                 }
             }
 
@@ -440,8 +482,8 @@ extension UploadCoordinator {
                     uploadProgressText = "Importing from Photos..."
                 }
 
-                guard let videoURL = try await loadVideoToTempFile(from: item, index: index) else {
-                    logger.warning("Failed to load video for item \(index)")
+                guard let videoURL = try await loadVideoToTempFile(from: item, index: actualIndex) else {
+                    logger.warning("Failed to load video for item \(actualIndex)")
                     continue
                 }
 
@@ -454,7 +496,7 @@ extension UploadCoordinator {
                     uploadProgressText = "Saving \(fileSizeString) video..."
                 }
 
-                print("✅ Loaded video \(index) to temp file: \(videoURL.lastPathComponent) (\(fileSizeString))")
+                print("✅ Loaded video \(actualIndex) to temp file: \(videoURL.lastPathComponent) (\(fileSizeString))")
 
                 // Copy to final destination
                 await saveVideoFromURL(videoURL, destinationFolder: destinationFolder)
@@ -470,9 +512,9 @@ extension UploadCoordinator {
                 try? FileManager.default.removeItem(at: videoURL)
 
             } catch {
-                logger.error("Failed to process item \(index): \(error.localizedDescription)")
+                logger.error("Failed to process item \(actualIndex): \(error.localizedDescription)")
                 await MainActor.run {
-                    uploadProgressText = "Failed to import video \(index + 1)"
+                    uploadProgressText = "Failed to import video \(actualIndex + 1)"
                 }
             }
         }
