@@ -104,13 +104,63 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated during roadmap creation) | | |
+| CARD-01 | Phase 1 | Pending |
+| CARD-02 | Phase 1 | Pending |
+| CARD-03 | Phase 1 | Pending |
+| CARD-04 | Phase 1 | Pending |
+| CARD-05 | Phase 1 | Pending |
+| CARD-06 | Phase 1 | Pending |
+| CARD-07 | Phase 5 | Pending |
+| CARD-08 | Phase 1 | Pending |
+| VIDEO-01 | Phase 2 | Pending |
+| VIDEO-02 | Phase 2 | Pending |
+| VIDEO-03 | Phase 2 | Pending |
+| VIDEO-04 | Phase 2 | Pending |
+| VIDEO-05 | Phase 2 | Pending |
+| VIDEO-06 | Phase 2 | Pending |
+| VIDEO-07 | Phase 2 | Pending |
+| VIDEO-08 | Phase 2 | Pending |
+| ACTION-01 | Phase 3 | Pending |
+| ACTION-02 | Phase 3 | Pending |
+| ACTION-03 | Phase 3 | Pending |
+| ACTION-04 | Phase 3 | Pending |
+| ACTION-05 | Phase 3 | Pending |
+| ACTION-06 | Phase 3 | Pending |
+| ACTION-07 | Phase 3 | Pending |
+| ACTION-08 | Phase 3 | Pending |
+| EXPORT-01 | Phase 4 | Pending |
+| EXPORT-02 | Phase 4 | Pending |
+| EXPORT-03 | Phase 4 | Pending |
+| EXPORT-04 | Phase 4 | Pending |
+| EXPORT-05 | Phase 4 | Pending |
+| EXPORT-06 | Phase 4 | Pending |
+| EXPORT-07 | Phase 4 | Pending |
+| EXPORT-08 | Phase 4 | Pending |
+| EXPORT-09 | Phase 4 | Pending |
+| EXPORT-10 | Phase 4 | Pending |
+| EXPORT-11 | Phase 4 | Pending |
+| EXPORT-12 | Phase 4 | Pending |
+| EMPTY-01 | Phase 4 | Pending |
+| EMPTY-02 | Phase 4 | Pending |
+| EMPTY-03 | Phase 4 | Pending |
+| EMPTY-04 | Phase 4 | Pending |
+| POLISH-01 | Phase 5 | Pending |
+| POLISH-02 | Phase 5 | Pending |
+| POLISH-03 | Phase 5 | Pending |
+| POLISH-04 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 40 total
-- Mapped to phases: (pending roadmap)
-- Unmapped: (pending roadmap)
+- Mapped to phases: 40/40 (100%)
+- Unmapped: 0
+
+**Phase Distribution:**
+- Phase 1 (Core Card Stack): 7 requirements
+- Phase 2 (Video Playback Integration): 8 requirements
+- Phase 3 (State Management & Persistence): 8 requirements
+- Phase 4 (Batch Export & Selection): 16 requirements
+- Phase 5 (Polish & Advanced Features): 4 requirements
 
 ---
 *Requirements defined: 2026-01-24*
-*Last updated: 2026-01-24 after initial definition*
+*Last updated: 2026-01-24 after roadmap creation*
