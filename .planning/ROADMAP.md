@@ -30,10 +30,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Cards animate with spring physics when released (bounce and settle)
   4. Card stack maintains stable layering during all animations (no jumping or z-index glitches)
   5. User can tap heart button or trash button as alternative to swiping
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] TBD
+- [ ] 01-01-PLAN.md — Generic card stack models and state management
+- [ ] 01-02-PLAN.md — Swipeable card component with gestures and action buttons
+- [ ] 01-03-PLAN.md — Card stack view integration with depth effect and demo
 
 ### Phase 2: Video Playback Integration
 **Goal**: Video auto-plays in cards with seamless looping and orientation-aware sizing
@@ -111,7 +113,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core Card Stack | 0/0 | Not started | - |
+| 1. Core Card Stack | 0/3 | Not started | - |
 | 2. Video Playback Integration | 0/0 | Not started | - |
 | 3. State Management & Persistence | 0/0 | Not started | - |
 | 4. Batch Export & Selection | 0/0 | Not started | - |
