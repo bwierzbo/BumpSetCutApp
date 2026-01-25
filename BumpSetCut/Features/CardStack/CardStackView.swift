@@ -43,6 +43,7 @@ struct CardStackView: View {
                         .scaleEffect(scaleForPosition(position))
                         .offset(y: offsetForPosition(position))
                         .opacity(opacityForPosition(position))
+                        .animation(.bscSwipe, value: position)  // Smooth depth effect transitions
                         .zIndex(viewModel.zIndexForPosition(position))  // EXPLICIT ZINDEX
                     }
                 }
@@ -135,10 +136,10 @@ struct CardStackView: View {
     /// Y-offset for card stack depth (peek effect)
     private func offsetForPosition(_ position: Int) -> CGFloat {
         switch position {
-        case -1: return 30    // Previous (pushed down)
+        case -1: return 40    // Previous (pushed down)
         case 0: return 0      // Current (no offset)
-        case 1: return 30     // Next (peek behind)
-        default: return 60    // Further cards (more offset)
+        case 1: return 20     // Next (peek behind, reduced for better centering)
+        default: return 40    // Further cards (more offset)
         }
     }
 
