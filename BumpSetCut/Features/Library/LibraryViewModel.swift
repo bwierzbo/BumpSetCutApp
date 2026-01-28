@@ -14,7 +14,7 @@ final class LibraryViewModel {
 
     // MARK: - State
     var sortOption: ContentSortOption = .name
-    var viewMode: ViewMode = .grid
+    var viewMode: ViewMode = .list
     var searchText: String = ""
     var showingCreateFolder: Bool = false
     var newFolderName: String = ""
