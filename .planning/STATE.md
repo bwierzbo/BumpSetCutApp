@@ -61,7 +61,8 @@ Recent decisions affecting current work:
 
 **From 01-03 (Card Stack Integration):**
 - Apply .bscSwipe animation to depth effect transitions for smooth card advancement
-- Reduce next card Y-offset from 30pt to 20pt for better visual centering
+- ~~Reduce next card Y-offset from 30pt to 20pt for better visual centering~~ - REMOVED: User prefers no depth effect
+- **Depth effect removed** - Cards sit directly behind (no scale/offset), only opacity+zIndex for layering
 - Use position-based conditionals (position == 0) to show buttons only on current card
 - Explicit zIndex calculation prevents SwiftUI automatic reordering glitches
 
@@ -75,6 +76,7 @@ None yet.
 - ~~Phase 1 must address gesture conflicts between card swipe and tap actions (critical - cannot retrofit)~~ - RESOLVED IN 01-02 (highPriorityGesture on buttons)
 - ~~Phase 1 must implement stable zIndex architecture using identifiers not indices~~ - RESOLVED IN 01-01 (zIndexForPosition method)
 - Phase 2 must prevent AVPlayer memory leaks via explicit observer cleanup (iOS 17 regression)
+- **Phase 2 must ensure only active card plays audio** - Pause/mute audio on background cards (user requirement)
 - Phase 5 page-peel animation may need additional research for performance optimization
 
 ## Session Continuity
