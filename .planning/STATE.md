@@ -10,27 +10,27 @@ See: .planning/PROJECT.md (updated 2026-01-24)
 ## Current Position
 
 Phase: 1 of 5 (Core Card Stack)
-Plan: 2 of 3 (Swipeable Cards)
-Status: In progress
-Last activity: 2026-01-24 — Completed 01-02-PLAN.md
+Plan: 3 of 3 (Card Stack Integration)
+Status: Phase complete
+Last activity: 2026-01-28 — Completed 01-03-PLAN.md
 
-Progress: [██░░░░░░░░] 20%
+Progress: [███░░░░░░░] 30%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 5.5 min
-- Total execution time: 0.2 hours
+- Total plans completed: 3
+- Average duration: 5.7 min
+- Total execution time: 0.3 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-core-card-stack | 2 | 11min | 5.5min |
+| 01-core-card-stack | 3 | 17min | 5.7min |
 
 **Recent Trend:**
-- Last 5 plans: 5min, 6min
+- Last 5 plans: 5min, 6min, 6min
 - Trend: Consistent velocity (5-6min per plan)
 
 *Updated after each plan completion*
@@ -59,6 +59,12 @@ Recent decisions affecting current work:
 - Clamp rotation to ±15 degrees during drag for balanced visual feedback
 - Generic content parameter via @ViewBuilder enables flexible card composition
 
+**From 01-03 (Card Stack Integration):**
+- Apply .bscSwipe animation to depth effect transitions for smooth card advancement
+- Reduce next card Y-offset from 30pt to 20pt for better visual centering
+- Use position-based conditionals (position == 0) to show buttons only on current card
+- Explicit zIndex calculation prevents SwiftUI automatic reordering glitches
+
 ### Pending Todos
 
 None yet.
@@ -73,6 +79,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-01-24 22:53:30 UTC
-Stopped at: Completed 01-02-PLAN.md (Swipeable Cards)
+Last session: 2026-01-28
+Stopped at: Completed 01-03-PLAN.md (Card Stack Integration) - Phase 1 complete
 Resume file: None
+
+**Phase 1 Complete:** Core Card Stack foundation ready for Phase 2 video integration
