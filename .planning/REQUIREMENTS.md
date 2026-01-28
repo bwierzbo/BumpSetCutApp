@@ -104,14 +104,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CARD-01 | Phase 1 | Pending |
-| CARD-02 | Phase 1 | Pending |
-| CARD-03 | Phase 1 | Pending |
-| CARD-04 | Phase 1 | Pending |
-| CARD-05 | Phase 1 | Pending |
-| CARD-06 | Phase 1 | Pending |
+| CARD-01 | Phase 1 | Complete |
+| CARD-02 | Phase 1 | Complete |
+| CARD-03 | Phase 1 | Complete |
+| CARD-04 | Phase 1 | Complete |
+| CARD-05 | Phase 1 | Complete |
+| CARD-06 | Phase 1 | Complete |
 | CARD-07 | Phase 5 | Pending |
-| CARD-08 | Phase 1 | Pending |
+| CARD-08 | Phase 1 | Complete |
 | VIDEO-01 | Phase 2 | Pending |
 | VIDEO-02 | Phase 2 | Pending |
 | VIDEO-03 | Phase 2 | Pending |
