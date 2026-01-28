@@ -22,6 +22,7 @@ struct BSCVideoCard: View {
     var isSelectable: Bool = false
     var isSelected: Bool = false
     var onSelectionToggle: (() -> Void)? = nil
+    var libraryType: LibraryType? = nil  // Determines video playback behavior
 
     // MARK: - State
     @State private var thumbnail: UIImage?
@@ -47,7 +48,13 @@ struct BSCVideoCard: View {
         .contextMenu { contextMenuContent }
         .onAppear(perform: generateThumbnail)
         .fullScreenCover(isPresented: $showingVideoPlayer) {
-            RallyPlayerFactory.createRallyPlayer(for: video)
+            // Saved Games: Always play full original video
+            // Other libraries: Use factory to decide based on metadata
+            if libraryType == .saved {
+                VideoPlayerView(videoURL: video.originalURL)
+            } else {
+                RallyPlayerFactory.createRallyPlayer(for: video)
+            }
         }
         .sheet(isPresented: $showingProcessVideo) {
             ProcessVideoView(

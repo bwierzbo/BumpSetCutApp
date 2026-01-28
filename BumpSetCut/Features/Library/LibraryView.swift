@@ -357,7 +357,8 @@ private extension LibraryView {
                     },
                     onMove: { targetFolder in
                         Task { try await viewModel.moveVideo(video, to: targetFolder) }
-                    }
+                    },
+                    libraryType: viewModel.libraryType
                 )
             }
         }
@@ -382,7 +383,8 @@ private extension LibraryView {
                     },
                     onMove: { targetFolder in
                         Task { try await viewModel.moveVideo(video, to: targetFolder) }
-                    }
+                    },
+                    libraryType: viewModel.libraryType
                 )
             }
         }

@@ -36,8 +36,16 @@ struct ProcessedLibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .libraryContentChanged)) { _ in
             loadProcessedVideos()
         }
-        .fullScreenCover(item: $selectedVideo) { video in
-            RallyPlayerView(videoMetadata: video)
+        .fullScreenCover(item: $selectedVideo) { processedVideo in
+            // Processed videos need to load rally segments from their original video
+            if let originalVideoId = processedVideo.originalVideoId,
+               let originalVideo = mediaStore.getVideo(byId: originalVideoId) {
+                // Open rally viewer with original video (has rally metadata)
+                RallyPlayerView(videoMetadata: originalVideo)
+            } else {
+                // Fallback: Play processed video if original not found
+                VideoPlayerView(videoURL: processedVideo.originalURL)
+            }
         }
         .preferredColorScheme(.dark)
     }

@@ -1018,6 +1018,11 @@ extension MediaStore {
     func getVideoMetadata(fileName: String) -> VideoMetadata? {
         return manifest.videos[fileName]
     }
+
+    /// Get video by its UUID
+    func getVideo(byId id: UUID) -> VideoMetadata? {
+        return manifest.videos.values.first(where: { $0.id == id })
+    }
 }
 
 // MARK: - Migration
