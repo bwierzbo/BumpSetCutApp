@@ -123,24 +123,14 @@ struct CardStackView: View {
 
     // MARK: - Depth Effect Calculations
 
-    /// Scale effect for card stack depth
+    /// Scale effect for card stack - no scaling, cards directly behind
     private func scaleForPosition(_ position: Int) -> CGFloat {
-        switch position {
-        case -1: return 0.85  // Previous (behind, smaller)
-        case 0: return 1.0    // Current (full size)
-        case 1: return 0.92   // Next (slightly smaller for peek effect)
-        default: return 0.85  // Further cards (hidden)
-        }
+        return 1.0  // All cards same size (no depth scaling)
     }
 
-    /// Y-offset for card stack depth (peek effect)
+    /// Y-offset for card stack - no offset, cards directly behind
     private func offsetForPosition(_ position: Int) -> CGFloat {
-        switch position {
-        case -1: return 40    // Previous (pushed down)
-        case 0: return 0      // Current (no offset)
-        case 1: return 20     // Next (peek behind, reduced for better centering)
-        default: return 40    // Further cards (more offset)
-        }
+        return 0  // All cards aligned (no depth offset)
     }
 
     /// Opacity for card stack visibility
