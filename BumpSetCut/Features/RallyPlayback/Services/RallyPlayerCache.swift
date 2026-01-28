@@ -54,6 +54,9 @@ final class RallyPlayerCache: ObservableObject {
     }
 
     func setCurrentPlayer(for url: URL) {
+        // Pause all other players before switching (prevents audio bleeding)
+        pauseAllExcept(url: url)
+
         currentPlayer = getOrCreatePlayer(for: url)
     }
 
@@ -122,6 +125,25 @@ final class RallyPlayerCache: ObservableObject {
         }
 
         preloadPlayers(for: urlsToPreload)
+    }
+
+    // MARK: - Audio Management
+
+    /// Pause all players except the specified URL (prevents audio bleeding)
+    private func pauseAllExcept(url: URL) {
+        for (playerURL, player) in players {
+            if playerURL != url {
+                player.pause()
+            }
+        }
+    }
+
+    /// Pause all cached players
+    func pauseAll() {
+        for player in players.values {
+            player.pause()
+        }
+        isPlaying = false
     }
 
     // MARK: - Cleanup

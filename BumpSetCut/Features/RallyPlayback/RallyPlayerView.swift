@@ -161,22 +161,14 @@ struct RallyPlayerView: View {
 
     // MARK: - Stack Position Helpers
 
-    /// Scale for card at given position (-1 = previous, 0 = current, 1 = next)
+    /// Scale for card at given position - all same size (no depth effect)
     private func scaleForPosition(_ position: Int) -> CGFloat {
-        switch position {
-        case 0: return 1.0     // Current - full size
-        case 1: return 0.92    // Next - slightly smaller (peek effect)
-        default: return 1.0    // Others hidden
-        }
+        return 1.0  // All cards same size, directly behind
     }
 
-    /// Y offset for card at given position
+    /// Y offset for card at given position - no offset (cards directly behind)
     private func offsetForPosition(_ position: Int) -> CGFloat {
-        switch position {
-        case 0: return 0       // Current - no offset
-        case 1: return 30      // Next - peek from behind
-        default: return 0      // Others hidden
-        }
+        return 0  // All cards aligned, no depth offset
     }
 
     /// Opacity for card at given position
