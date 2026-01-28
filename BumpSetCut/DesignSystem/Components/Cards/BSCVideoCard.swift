@@ -27,6 +27,7 @@ struct BSCVideoCard: View {
     // MARK: - State
     @State private var thumbnail: UIImage?
     @State private var showingVideoPlayer = false
+    @State private var showingRallyViewer = false  // Explicit rally viewer (bypasses library type check)
     @State private var showingProcessVideo = false
     @State private var showingDeleteConfirmation = false
     @State private var showingRenameDialog = false
@@ -48,6 +49,7 @@ struct BSCVideoCard: View {
         .contextMenu { contextMenuContent }
         .onAppear(perform: generateThumbnail)
         .fullScreenCover(isPresented: $showingVideoPlayer) {
+            // Regular tap: Respect library type
             // Saved Games: Always play full original video
             // Other libraries: Use factory to decide based on metadata
             if libraryType == .saved {
@@ -56,13 +58,17 @@ struct BSCVideoCard: View {
                 RallyPlayerFactory.createRallyPlayer(for: video)
             }
         }
+        .fullScreenCover(isPresented: $showingRallyViewer) {
+            // "View Rallies" button: Always show rally viewer (ignores library type)
+            RallyPlayerView(videoMetadata: video)
+        }
         .sheet(isPresented: $showingProcessVideo) {
             ProcessVideoView(
                 videoURL: video.originalURL,
                 mediaStore: mediaStore,
                 folderPath: video.folderPath,
                 onComplete: onRefresh,
-                onShowPlayer: { showingVideoPlayer = true }
+                onShowPlayer: { showingRallyViewer = true }  // After processing: Always show rally viewer
             )
         }
         .sheet(isPresented: $showingRenameDialog) {
