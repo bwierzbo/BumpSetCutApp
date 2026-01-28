@@ -66,7 +66,7 @@ struct BSCVideoCard: View {
             ProcessVideoView(
                 videoURL: video.originalURL,
                 mediaStore: mediaStore,
-                folderPath: video.folderPath,
+                folderPath: LibraryType.processed.rootPath,  // Always save to ProcessedGames
                 onComplete: onRefresh,
                 onShowPlayer: { showingRallyViewer = true }  // After processing: Always show rally viewer
             )
