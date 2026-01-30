@@ -52,6 +52,39 @@ struct RallyLoadingView: View {
     }
 }
 
+// MARK: - Rally Buffering Overlay
+/// Shows a buffering indicator while waiting for video to be ready
+struct RallyBufferingOverlay: View {
+    @State private var isAnimating = false
+
+    var body: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+
+            // Buffering indicator
+            VStack(spacing: BSCSpacing.md) {
+                // Spinner
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .scaleEffect(1.5)
+
+                Text("Buffering...")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white)
+            }
+            .padding(BSCSpacing.xl)
+            .background(
+                RoundedRectangle(cornerRadius: BSCRadius.lg)
+                    .fill(Color.black.opacity(0.7))
+                    .shadow(color: .black.opacity(0.3), radius: 20)
+            )
+        }
+        .transition(.opacity)
+    }
+}
+
 // MARK: - Rally Error View
 struct RallyErrorView: View {
     let message: String

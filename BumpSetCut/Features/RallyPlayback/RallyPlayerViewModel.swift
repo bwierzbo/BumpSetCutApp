@@ -51,6 +51,10 @@ final class RallyPlayerViewModel {
     private(set) var swipeRotation: Double = 0.0
     private(set) var isPerformingAction: Bool = false
 
+    // MARK: - Buffering State
+
+    private(set) var isBuffering: Bool = false
+
     // MARK: - Action Feedback
 
     private(set) var actionFeedback: RallyActionFeedback?
@@ -194,6 +198,7 @@ final class RallyPlayerViewModel {
         guard !isTransitioning else { return }  // Prevent rapid navigation
 
         isTransitioning = true
+        isBuffering = true  // Show buffering indicator
 
         // Update state
         currentRallyIndex = index
@@ -204,14 +209,21 @@ final class RallyPlayerViewModel {
         // Setup player (should already exist from preload and be seeked to correct position)
         playerCache.setCurrentPlayer(for: url)
 
-        // Start playback (thumbnail visible until video actually plays)
+        // Wait for video to be fully buffered before playing
         Task { @MainActor in
-            // Give player brief moment to check buffer, but don't wait long
-            // Thumbnail will stay visible until video.rate > 0
-            let _ = await playerCache.waitForPlayerReady(for: url, timeout: 0.5)
+            // Wait up to 10 seconds for player to be fully buffered
+            // This ensures smooth playback without black flash
+            let isReady = await playerCache.waitForPlayerReady(for: url, timeout: 10.0)
 
-            // Start playing - custom player keeps thumbnail until actually playing
-            playerCache.play()
+            isBuffering = false  // Hide buffering indicator
+
+            if isReady {
+                // Start playing - video should be smooth now
+                playerCache.play()
+            } else {
+                // Fallback: play anyway if timeout (might have brief buffering)
+                playerCache.play()
+            }
 
             // Preload next batch in background AFTER starting playback
             await preloadAdjacent()

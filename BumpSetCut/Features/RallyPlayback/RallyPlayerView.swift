@@ -154,6 +154,12 @@ struct RallyPlayerView: View {
                 .zIndex(400)
                 .transition(.opacity)
             }
+
+            // Buffering overlay (topmost - shows while waiting for video to buffer)
+            if viewModel.isBuffering {
+                RallyBufferingOverlay()
+                    .zIndex(500)
+            }
         }
         .gesture(swipeGesture(geometry: geometry))
     }
