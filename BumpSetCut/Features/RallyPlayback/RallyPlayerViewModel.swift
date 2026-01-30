@@ -47,7 +47,6 @@ final class RallyPlayerViewModel {
     // MARK: - Transition State
 
     private(set) var isTransitioning: Bool = false
-    private(set) var transitionOpacity: Double = 1.0
     private(set) var swipeOffset: CGFloat = 0.0
     private(set) var swipeRotation: Double = 0.0
     private(set) var isPerformingAction: Bool = false
@@ -144,10 +143,11 @@ final class RallyPlayerViewModel {
                 components.fragment = "rally_\(index)"
                 return components.url ?? videoMetadata.originalURL
             }
-            loadingState = .loaded
 
-            // Configure thumbnail cache with rally segments for time-accurate extraction
+            // Configure thumbnail cache BEFORE setting loaded state to prevent race
             thumbnailCache.setRallySegments(metadata.rallySegments)
+
+            loadingState = .loaded
 
             // Setup initial player and stack
             if !rallyVideoURLs.isEmpty, let url = currentRallyURL {
@@ -188,27 +188,25 @@ final class RallyPlayerViewModel {
 
     func navigateTo(index: Int) {
         guard index >= 0 && index < rallyVideoURLs.count else { return }
+        guard !isTransitioning else { return }  // Prevent rapid navigation
 
         isTransitioning = true
-        transitionOpacity = 0.0
 
+        // Phase 1: Prepare next player (no visual changes yet)
         currentRallyIndex = index
         let url = rallyVideoURLs[index]
 
-        // Update visible stack for new position
         updateVisibleStack()
-
-        // Preload adjacent cards
         preloadAdjacent()
 
-        // Set current player to new rally and play
+        // Setup player while still invisible
         playerCache.setCurrentPlayer(for: url)
         seekToCurrentRallyStart()
-        playerCache.play()
 
-        // Reset transition
-        withAnimation(.easeOut(duration: 0.2)) {
-            transitionOpacity = 1.0
+        // Phase 2: Start playback after stack settles
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms for stack update
+            playerCache.play()
             isTransitioning = false
         }
     }
@@ -230,6 +228,9 @@ final class RallyPlayerViewModel {
         let rallyIndex = currentRallyIndex
         isPerformingAction = true
 
+        // Pause player immediately to prevent audio bleeding
+        playerCache.pause()
+
         // Reset peek
         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
             peekProgress = 0.0
@@ -244,7 +245,6 @@ final class RallyPlayerViewModel {
         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
             swipeOffset = targetOffset
             swipeRotation = targetRotation
-            transitionOpacity = 0.0
         }
 
         // Perform action after animation starts
@@ -316,7 +316,6 @@ final class RallyPlayerViewModel {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             swipeOffset = 0
             swipeRotation = 0
-            transitionOpacity = 1.0
             dragOffset = .zero
         }
     }

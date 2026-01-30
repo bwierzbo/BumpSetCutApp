@@ -110,8 +110,7 @@ struct RallyPlayerView: View {
                     isTopCard: position == 0,
                     dragOffset: viewModel.dragOffset,
                     swipeOffset: viewModel.swipeOffset,
-                    swipeRotation: viewModel.swipeRotation,
-                    transitionOpacity: viewModel.transitionOpacity
+                    swipeRotation: viewModel.swipeRotation
                 ))
             }
 
@@ -194,6 +193,9 @@ struct RallyPlayerView: View {
     private func swipeGesture(geometry: GeometryProxy) -> some Gesture {
         DragGesture()
             .onChanged { value in
+                // Ignore gestures during transitions
+                guard !viewModel.isTransitioning, !viewModel.isPerformingAction else { return }
+
                 viewModel.isDragging = true
                 viewModel.dragOffset = value.translation
 
@@ -213,6 +215,9 @@ struct RallyPlayerView: View {
                 }
             }
             .onEnded { value in
+                // Ignore gestures during transitions
+                guard !viewModel.isTransitioning, !viewModel.isPerformingAction else { return }
+
                 viewModel.isDragging = false
 
                 let threshold: CGFloat = 100
@@ -288,14 +293,12 @@ struct TopCardDragModifier: ViewModifier {
     let dragOffset: CGSize
     let swipeOffset: CGFloat
     let swipeRotation: Double
-    let transitionOpacity: Double
 
     func body(content: Content) -> some View {
         if isTopCard {
             content
                 .offset(x: swipeOffset + dragOffset.width, y: dragOffset.height)
                 .rotationEffect(.degrees(swipeRotation + dragRotation))
-                .opacity(transitionOpacity)
         } else {
             content
         }

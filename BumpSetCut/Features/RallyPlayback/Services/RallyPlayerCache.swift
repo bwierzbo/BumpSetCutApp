@@ -29,10 +29,10 @@ final class RallyPlayerCache: ObservableObject {
         let playerItem = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: playerItem)
 
-        // Setup loop notification - use player.currentItem (not local playerItem)
+        // Setup loop notification - attach to playerItem for stable reference
         let observer = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem,
+            object: playerItem,
             queue: .main
         ) { [weak player] _ in
             Task { @MainActor in
