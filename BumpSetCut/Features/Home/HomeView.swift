@@ -53,7 +53,8 @@ struct HomeView: View {
                             )
                             .frame(maxWidth: contentWidth)
                             .opacity(hasAppeared ? 1 : 0)
-                            .animation(.bscSpring.delay(0.1), value: hasAppeared)
+                            .offset(y: hasAppeared ? 0 : 15)
+                            .animation(.easeOut(duration: 0.5).delay(0.1), value: hasAppeared)
                         }
 
                         // Main CTAs
@@ -63,13 +64,15 @@ struct HomeView: View {
                         }
                         .frame(maxWidth: contentWidth)
                         .opacity(hasAppeared ? 1 : 0)
-                        .animation(.bscSpring.delay(0.2), value: hasAppeared)
+                        .offset(y: hasAppeared ? 0 : 15)
+                        .animation(.easeOut(duration: 0.5).delay(0.2), value: hasAppeared)
 
                         // Quick actions
                         quickActionsSection
                             .frame(maxWidth: contentWidth)
                             .opacity(hasAppeared ? 1 : 0)
-                            .animation(.bscSpring.delay(0.3), value: hasAppeared)
+                            .offset(y: hasAppeared ? 0 : 15)
+                            .animation(.easeOut(duration: 0.5).delay(0.3), value: hasAppeared)
 
                         Spacer(minLength: BSCSpacing.lg)
                     }
@@ -126,15 +129,22 @@ struct HomeView: View {
             }
         }
         .onAppear {
+            // Initialize dependencies asynchronously to avoid blocking
             if viewModel == nil {
                 viewModel = HomeViewModel(mediaStore: mediaStore, metadataStore: metadataStore)
             }
             if uploadCoordinator == nil {
                 uploadCoordinator = UploadCoordinator(mediaStore: mediaStore)
             }
-            withAnimation {
-                hasAppeared = true
+
+            // Delay animation start to let view finish initial layout
+            // This prevents laggy/jumpy intro animation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    hasAppeared = true
+                }
             }
+
             // Show onboarding on first launch
             if !appSettings.hasCompletedOnboarding {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
