@@ -192,26 +192,33 @@ final class RallyPlayerViewModel {
 
         isTransitioning = true
 
-        // Phase 1: Prepare next player (no visual changes yet)
+        // Update state
         currentRallyIndex = index
         let url = rallyVideoURLs[index]
 
         updateVisibleStack()
+
+        // Preload next batch BEFORE switching player (TikTok-style)
         preloadAdjacent()
 
-        // Setup player while still invisible
+        // Setup player (should already exist from preload)
         playerCache.setCurrentPlayer(for: url)
         seekToCurrentRallyStart()
 
-        // Phase 2: Start playback after stack settles
+        // Start playback immediately - player should be buffered
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms for stack update
+            // Optional: wait for ready state for extra reliability
+            let _ = await playerCache.waitForPlayerReady(for: url, timeout: 0.3)
+
             playerCache.play()
             isTransitioning = false
         }
     }
 
     private func preloadAdjacent() {
+        // Preload video players for adjacent rallies (TikTok-style smooth transitions)
+        playerCache.preloadAdjacentRallies(currentIndex: currentRallyIndex, urls: rallyVideoURLs)
+
         // Preload thumbnails for all visible stack cards (background cards use thumbnails)
         let urlsToPreload = visibleCardIndices
             .filter { $0 != currentRallyIndex }  // Exclude current (uses video player)

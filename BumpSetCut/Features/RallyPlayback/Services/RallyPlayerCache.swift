@@ -12,7 +12,7 @@ final class RallyPlayerCache: ObservableObject {
     private var players: [URL: AVPlayer] = [:]
     private var notificationObservers: [URL: NSObjectProtocol] = [:]
     private var playerCreationOrder: [URL] = []
-    private let maxCachedPlayers = 2  // Only current card uses player, keep 1 buffer
+    private let maxCachedPlayers = 3  // Current + next + previous for smooth transitions
 
     // MARK: - Player Management
 
@@ -114,7 +114,7 @@ final class RallyPlayerCache: ObservableObject {
     func preloadAdjacentRallies(currentIndex: Int, urls: [URL]) {
         var urlsToPreload: [URL] = []
 
-        // Preload next rally
+        // Preload next rally (most important - user likely to swipe forward)
         if currentIndex + 1 < urls.count {
             urlsToPreload.append(urls[currentIndex + 1])
         }
@@ -125,6 +125,33 @@ final class RallyPlayerCache: ObservableObject {
         }
 
         preloadPlayers(for: urlsToPreload)
+    }
+
+    // MARK: - Buffer State
+
+    /// Check if player is ready to play without buffering
+    func isPlayerReady(for url: URL) -> Bool {
+        guard let player = players[url],
+              let item = player.currentItem else { return false }
+        return item.status == .readyToPlay
+    }
+
+    /// Wait for player to be ready (with timeout)
+    func waitForPlayerReady(for url: URL, timeout: TimeInterval = 0.5) async -> Bool {
+        guard let player = players[url],
+              let item = player.currentItem else { return false }
+
+        // Already ready?
+        if item.status == .readyToPlay { return true }
+
+        // Wait for status change
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if item.status == .readyToPlay { return true }
+            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        }
+
+        return item.status == .readyToPlay
     }
 
     // MARK: - Audio Management
