@@ -149,18 +149,19 @@ final class RallyPlayerViewModel {
 
             loadingState = .loaded
 
-            // Setup initial player and stack
+            // Setup initial player and stack (non-blocking for fast load)
             if !rallyVideoURLs.isEmpty, let url = currentRallyURL {
                 updateVisibleStack()
                 playerCache.setCurrentPlayer(for: url)
                 seekToCurrentRallyStart()  // Seek initial video to rally start
 
-                // Preload and seek adjacent videos in background
+                // Start playing immediately (might buffer briefly)
+                playerCache.play()
+
+                // Preload adjacent videos in background (non-blocking)
                 Task {
                     await preloadAdjacent()
                 }
-
-                playerCache.play()
             }
 
         } catch {
@@ -203,17 +204,14 @@ final class RallyPlayerViewModel {
         // Setup player (should already exist from preload and be seeked to correct position)
         playerCache.setCurrentPlayer(for: url)
 
-        // Start playback with aggressive buffering check
+        // Start playback (thumbnail visible until video actually plays)
         Task { @MainActor in
-            // Wait for player to be fully buffered (up to 2 seconds)
-            let isReady = await playerCache.waitForPlayerReady(for: url, timeout: 2.0)
+            // Give player brief moment to check buffer, but don't wait long
+            // Thumbnail will stay visible until video.rate > 0
+            let _ = await playerCache.waitForPlayerReady(for: url, timeout: 0.5)
 
-            if isReady {
-                playerCache.play()
-            } else {
-                // Play anyway after timeout, video might start with slight delay
-                playerCache.play()
-            }
+            // Start playing - custom player keeps thumbnail until actually playing
+            playerCache.play()
 
             // Preload next batch in background AFTER starting playback
             await preloadAdjacent()

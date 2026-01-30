@@ -313,8 +313,8 @@ struct TopCardDragModifier: ViewModifier {
 
 // MARK: - Unified Rally Card
 
-/// Single card component that keeps VideoPlayer mounted for smooth transitions
-/// TikTok-style: adjacent players stay mounted but hidden (opacity 0)
+/// Single card component using custom AVPlayerLayer for smooth transitions
+/// TikTok-style: adjacent players stay mounted, thumbnail visible until video playing
 struct UnifiedRallyCard: View {
     let url: URL
     let size: CGSize
@@ -323,6 +323,7 @@ struct UnifiedRallyCard: View {
     let thumbnailCache: RallyThumbnailCache
 
     @State private var thumbnail: UIImage?
+    @State private var isVideoPlaying: Bool = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var isPortrait: Bool {
@@ -336,22 +337,28 @@ struct UnifiedRallyCard: View {
         ZStack {
             Color.black
 
-            // Thumbnail layer (shows for non-current or as fallback)
+            // Thumbnail layer - stays visible until video PROVES it's playing
             if let thumbnail = thumbnail {
                 Image(uiImage: thumbnail)
                     .resizable()
                     .scaledToFit()
-                    .opacity(isCurrent ? 0 : 1)  // Hide when video playing
-                    .animation(.easeOut(duration: 0.15), value: isCurrent)
+                    .opacity(shouldShowThumbnail ? 1 : 0)
+                    .animation(.easeOut(duration: 0.2), value: shouldShowThumbnail)
             }
 
-            // Video player layer (keep mounted for preloaded cards)
-            if isPreloaded {
-                VideoPlayer(player: playerCache.getOrCreatePlayer(for: url))
-                    .disabled(true)
-                    .opacity(isCurrent ? 1 : 0)  // Only visible when current
-                    .animation(.easeIn(duration: 0.15), value: isCurrent)
-                    .allowsHitTesting(isCurrent)
+            // Video player layer (custom AVPlayerLayer for control)
+            if isPreloaded, let player = playerCache.getPlayer(for: url) {
+                CustomVideoPlayerView(
+                    player: player,
+                    gravity: isPortrait ? .resizeAspect : .resizeAspectFill
+                )
+                .opacity(isCurrent && isVideoPlaying ? 1 : 0)
+                .animation(.easeIn(duration: 0.2), value: isCurrent && isVideoPlaying)
+                .allowsHitTesting(isCurrent)
+                .onReceive(player.publisher(for: \.rate)) { rate in
+                    // Video is actually playing when rate > 0
+                    isVideoPlaying = rate > 0
+                }
             }
         }
         .frame(width: size.width, height: size.height)
@@ -365,6 +372,17 @@ struct UnifiedRallyCard: View {
         .task(id: url) {
             thumbnail = await thumbnailCache.getThumbnailAsync(for: url)
         }
+        .onChange(of: isCurrent) { oldValue, newValue in
+            // Reset playing state when card changes position
+            if !newValue {
+                isVideoPlaying = false
+            }
+        }
+    }
+
+    private var shouldShowThumbnail: Bool {
+        // Show thumbnail if: not current OR video not playing yet
+        !isCurrent || !isVideoPlaying
     }
 }
 
