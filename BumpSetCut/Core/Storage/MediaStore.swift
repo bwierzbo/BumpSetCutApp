@@ -357,6 +357,9 @@ struct FolderManifest: Codable {
         ensureLibraryRootsExist()
         migrateToSeparateLibraries()
 
+        // Migrate processed videos to set hasProcessingMetadata flag
+        migrateProcessedVideos()
+
         // Clean up stale entries
         cleanupStaleEntries()
     }
@@ -1303,6 +1306,42 @@ extension MediaStore {
             }
         }
         saveManifest()
+    }
+
+    /// Migrate existing processed videos to set hasProcessingMetadata flag
+    /// This detects videos that have metadata files on disk but weren't flagged
+    func migrateProcessedVideos() {
+        print("MediaStore: Checking for processed videos to migrate...")
+        let metadataDirectory = baseDirectory.appendingPathComponent("ProcessedMetadata", isDirectory: true)
+
+        var migratedCount = 0
+        for (key, var video) in manifest.videos {
+            // Skip if already marked as having metadata
+            guard !video.hasProcessingMetadata else { continue }
+
+            // Check if metadata file exists for this video
+            let metadataPath = metadataDirectory.appendingPathComponent("\(video.id.uuidString).json")
+            guard FileManager.default.fileExists(atPath: metadataPath.path) else { continue }
+
+            // Get metadata file size
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: metadataPath.path),
+                  let fileSize = attributes[.size] as? Int64 else {
+                continue
+            }
+
+            // Update video metadata
+            video.updateMetadataTracking(fileSize: fileSize)
+            manifest.videos[key] = video
+            migratedCount += 1
+            print("MediaStore: Migrated processed video: \(video.displayName)")
+        }
+
+        if migratedCount > 0 {
+            saveManifest()
+            print("MediaStore: ✅ Migrated \(migratedCount) processed video(s)")
+        } else {
+            print("MediaStore: No processed videos to migrate")
+        }
     }
 }
 
