@@ -138,6 +138,7 @@ struct ProcessedVideoCard: View {
 
     @State private var thumbnail: UIImage?
     @State private var showingDeleteConfirmation = false
+    @State private var rallyCount: Int?
 
     var body: some View {
         Button(action: onTap) {
@@ -181,11 +182,11 @@ struct ProcessedVideoCard: View {
 
                     HStack(spacing: BSCSpacing.sm) {
                         // Rally count badge
-                        if video.hasMetadata {
+                        if let count = rallyCount {
                             HStack(spacing: 4) {
                                 Image(systemName: "film.stack.fill")
                                     .font(.system(size: 10))
-                                Text("Rallies")
+                                Text("\(count) \(count == 1 ? "Rally" : "Rallies")")
                                     .font(.system(size: 11, weight: .medium))
                             }
                             .foregroundColor(.bscTeal)
@@ -235,12 +236,27 @@ struct ProcessedVideoCard: View {
         }
         .task {
             await loadThumbnail()
+            await loadRallyCount()
         }
     }
 
     private func loadThumbnail() async {
         let videoURL = mediaStore.getVideoURL(for: video)
         thumbnail = await ThumbnailGenerator.shared.generateThumbnail(for: videoURL)
+    }
+
+    private func loadRallyCount() async {
+        guard video.hasMetadata else { return }
+
+        // Load metadata to get rally count
+        let metadataStore = MetadataStore()
+        do {
+            let metadata = try metadataStore.loadMetadata(for: video.id)
+            rallyCount = metadata.rallySegments.count
+        } catch {
+            // If metadata can't be loaded, don't show badge
+            rallyCount = nil
+        }
     }
 
     private func formatDate(_ date: Date) -> String {
