@@ -12,7 +12,7 @@ final class RallyPlayerCache: ObservableObject {
     private var players: [URL: AVPlayer] = [:]
     private var notificationObservers: [URL: NSObjectProtocol] = [:]
     private var playerCreationOrder: [URL] = []
-    private let maxCachedPlayers = 3  // Current + next + previous for smooth transitions
+    private let maxCachedPlayers = 5  // Aggressive caching: current + 2 ahead + 2 behind
 
     // MARK: - Player Management
 
@@ -95,6 +95,17 @@ final class RallyPlayerCache: ObservableObject {
         players[url]?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
+    /// Seek a specific player and wait for completion
+    func seekAsync(url: URL, to time: CMTime) async {
+        guard let player = players[url] else { return }
+
+        await withCheckedContinuation { continuation in
+            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+                continuation.resume()
+            }
+        }
+    }
+
     func seekAndPlay(to time: CMTime) {
         currentPlayer?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor in
@@ -136,22 +147,32 @@ final class RallyPlayerCache: ObservableObject {
         return item.status == .readyToPlay
     }
 
-    /// Wait for player to be ready (with timeout)
-    func waitForPlayerReady(for url: URL, timeout: TimeInterval = 0.5) async -> Bool {
+    /// Wait for player to be ready with aggressive buffering check (with timeout)
+    func waitForPlayerReady(for url: URL, timeout: TimeInterval = 2.0) async -> Bool {
         guard let player = players[url],
               let item = player.currentItem else { return false }
 
-        // Already ready?
-        if item.status == .readyToPlay { return true }
-
-        // Wait for status change
+        // Wait for status and buffer
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if item.status == .readyToPlay { return true }
-            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+            // Check status is ready
+            guard item.status == .readyToPlay else {
+                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                continue
+            }
+
+            // Check we have buffered data
+            guard item.isPlaybackLikelyToKeepUp else {
+                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                continue
+            }
+
+            // Both conditions met - ready!
+            return true
         }
 
-        return item.status == .readyToPlay
+        // Timeout - return current state
+        return item.status == .readyToPlay && item.isPlaybackLikelyToKeepUp
     }
 
     // MARK: - Audio Management
