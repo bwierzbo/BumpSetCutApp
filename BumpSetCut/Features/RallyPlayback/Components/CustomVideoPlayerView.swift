@@ -42,8 +42,9 @@ final class PlayerUIView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .black
+        backgroundColor = .clear  // Transparent so thumbnail shows through
         playerLayer.videoGravity = .resizeAspect
+        playerLayer.backgroundColor = UIColor.clear.cgColor  // Also clear layer background
     }
 
     required init?(coder: NSCoder) {

@@ -337,27 +337,28 @@ struct UnifiedRallyCard: View {
         ZStack {
             Color.black
 
-            // Thumbnail layer - stays visible until video PROVES it's playing
+            // Thumbnail layer - ALWAYS visible as base layer (no opacity changes)
             if let thumbnail = thumbnail {
                 Image(uiImage: thumbnail)
                     .resizable()
                     .scaledToFit()
-                    .opacity(shouldShowThumbnail ? 1 : 0)
-                    .animation(.easeOut(duration: 0.2), value: shouldShowThumbnail)
             }
 
-            // Video player layer (custom AVPlayerLayer for control)
+            // Video player layer ON TOP - only visible when actually playing
+            // This creates zero-gap layering: thumbnail always visible until video covers it
             if isPreloaded, let player = playerCache.getPlayer(for: url) {
                 CustomVideoPlayerView(
                     player: player,
                     gravity: isPortrait ? .resizeAspect : .resizeAspectFill
                 )
-                .opacity(isCurrent && isVideoPlaying ? 1 : 0)
-                .animation(.easeIn(duration: 0.2), value: isCurrent && isVideoPlaying)
+                .opacity(showVideo ? 1 : 0)
                 .allowsHitTesting(isCurrent)
                 .onReceive(player.publisher(for: \.rate)) { rate in
                     // Video is actually playing when rate > 0
-                    isVideoPlaying = rate > 0
+                    // Update immediately (no animation) for instant appearance
+                    withAnimation(.linear(duration: 0.1)) {
+                        isVideoPlaying = rate > 0
+                    }
                 }
             }
         }
@@ -380,9 +381,10 @@ struct UnifiedRallyCard: View {
         }
     }
 
-    private var shouldShowThumbnail: Bool {
-        // Show thumbnail if: not current OR video not playing yet
-        !isCurrent || !isVideoPlaying
+    private var showVideo: Bool {
+        // Only show video when it's current AND actually playing
+        // Thumbnail stays visible at all other times (zero-gap coverage)
+        isCurrent && isVideoPlaying
     }
 }
 
