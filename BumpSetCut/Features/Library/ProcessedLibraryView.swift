@@ -278,19 +278,26 @@ actor ThumbnailGenerator {
             return cached
         }
 
-        let asset = AVAsset(url: url)
+        let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 200, height: 200)
 
-        do {
-            let cgImage = try generator.copyCGImage(at: .zero, actualTime: nil)
-            let image = UIImage(cgImage: cgImage)
-            cache[url] = image
-            return image
-        } catch {
-            return nil
+        let image: UIImage? = await withCheckedContinuation { continuation in
+            generator.generateCGImageAsynchronously(for: .zero) { cgImage, _, error in
+                if let cgImage = cgImage {
+                    let image = UIImage(cgImage: cgImage)
+                    continuation.resume(returning: image)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
         }
+
+        if let image = image {
+            cache[url] = image
+        }
+        return image
     }
 }
 
