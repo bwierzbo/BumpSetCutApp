@@ -282,7 +282,7 @@ final class RallyPlayerViewModel {
                 actionFeedback = RallyActionFeedback(type: .remove, message: "Rally Removed")
             }
 
-            lastAction = RallyActionResult(action: action, rallyIndex: rallyIndex)
+            lastAction = RallyActionResult(action: action, rallyIndex: rallyIndex, direction: direction)
             showActionFeedback = true
 
             // Auto-dismiss feedback after 2 seconds
@@ -307,7 +307,11 @@ final class RallyPlayerViewModel {
 
     func undoLastAction() {
         guard let action = lastAction else { return }
+        guard !isPerformingAction else { return }
 
+        isPerformingAction = true
+
+        // Clear the action state
         switch action.action {
         case .save:
             savedRallies.remove(action.rallyIndex)
@@ -315,14 +319,42 @@ final class RallyPlayerViewModel {
             removedRallies.remove(action.rallyIndex)
         }
 
+        // Animate reverse swipe (from opposite direction)
+        let slideDistance = UIScreen.main.bounds.width * 1.5
+        let startOffset = action.direction == .right ? -slideDistance : slideDistance  // Opposite direction
+        let startRotation = action.direction == .right ? -30.0 : 30.0
+
+        // Set initial position off-screen (opposite side)
+        swipeOffset = startOffset
+        swipeRotation = startRotation
+
+        // Navigate back to the undone rally
+        currentRallyIndex = action.rallyIndex
+        updateVisibleStack()
+        preloadAdjacent()
+
+        if let url = currentRallyURL {
+            playerCache.setCurrentPlayer(for: url)
+            seekToCurrentRallyStart()
+            playerCache.play()
+        }
+
+        // Animate card sliding back in
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+            swipeOffset = 0
+            swipeRotation = 0
+        }
+
+        // Show feedback
         actionFeedback = RallyActionFeedback(type: .undo, message: "Action Undone")
         showActionFeedback = true
         lastAction = nil
 
-        // Auto-dismiss feedback after 2 seconds
+        // Auto-dismiss feedback and reset state
         let dismissTask = Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             dismissActionFeedback()
+            isPerformingAction = false
         }
         activeTasks.append(dismissTask)
     }

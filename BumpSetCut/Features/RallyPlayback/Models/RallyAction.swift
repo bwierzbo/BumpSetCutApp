@@ -34,4 +34,5 @@ struct RallyActionFeedback {
 struct RallyActionResult {
     let action: RallySwipeAction
     let rallyIndex: Int
+    let direction: RallySwipeDirection
 }
