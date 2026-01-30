@@ -97,7 +97,7 @@ struct RallyPlayerView: View {
                 UnifiedRallyCard(
                     url: url,
                     size: geometry.size,
-                    isCurrent: position == 0,
+                    position: position,
                     playerCache: viewModel.playerCache,
                     thumbnailCache: viewModel.thumbnailCache
                 )
@@ -174,7 +174,7 @@ struct RallyPlayerView: View {
     private func opacityForPosition(_ position: Int) -> Double {
         switch position {
         case 0: return 1.0     // Current - fully visible
-        case 1: return 0.85    // Next - slightly faded (peek)
+        case 1: return 1.0     // Next - fully visible (VideoPlayer hidden via internal opacity)
         default: return 0.0    // Others hidden but preloaded
         }
     }
@@ -313,12 +313,12 @@ struct TopCardDragModifier: ViewModifier {
 
 // MARK: - Unified Rally Card
 
-/// Single card component that shows thumbnail or video based on position
-/// Avoids component swapping for smoother transitions
+/// Single card component that keeps VideoPlayer mounted for smooth transitions
+/// TikTok-style: adjacent players stay mounted but hidden (opacity 0)
 struct UnifiedRallyCard: View {
     let url: URL
     let size: CGSize
-    let isCurrent: Bool
+    let position: Int  // -1 = previous, 0 = current, 1+ = next
     let playerCache: RallyPlayerCache
     let thumbnailCache: RallyThumbnailCache
 
@@ -329,21 +329,29 @@ struct UnifiedRallyCard: View {
         verticalSizeClass == .regular
     }
 
+    private var isCurrent: Bool { position == 0 }
+    private var isPreloaded: Bool { position >= -1 && position <= 1 }
+
     var body: some View {
         ZStack {
             Color.black
 
-            // Always show thumbnail as base layer
+            // Thumbnail layer (shows for non-current or as fallback)
             if let thumbnail = thumbnail {
                 Image(uiImage: thumbnail)
                     .resizable()
                     .scaledToFit()
+                    .opacity(isCurrent ? 0 : 1)  // Hide when video playing
+                    .animation(.easeOut(duration: 0.15), value: isCurrent)
             }
 
-            // Overlay video player only when current (covers thumbnail)
-            if isCurrent {
+            // Video player layer (keep mounted for preloaded cards)
+            if isPreloaded {
                 VideoPlayer(player: playerCache.getOrCreatePlayer(for: url))
                     .disabled(true)
+                    .opacity(isCurrent ? 1 : 0)  // Only visible when current
+                    .animation(.easeIn(duration: 0.15), value: isCurrent)
+                    .allowsHitTesting(isCurrent)
             }
         }
         .frame(width: size.width, height: size.height)
