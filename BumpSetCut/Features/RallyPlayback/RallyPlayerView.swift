@@ -227,13 +227,18 @@ struct RallyPlayerView: View {
                 let isVerticalDominant = abs(verticalVelocity) > abs(horizontalVelocity) ||
                                          abs(verticalOffset) > abs(horizontalOffset)
 
+                var didNavigate = false
+                var didPerformAction = false
+
                 if isVerticalDominant {
                     // Vertical navigation
                     if abs(verticalVelocity) > 500 || abs(verticalOffset) > threshold {
                         if verticalOffset > 0 && viewModel.canGoPrevious {
                             viewModel.navigateToPrevious()
+                            didNavigate = true
                         } else if verticalOffset < 0 && viewModel.canGoNext {
                             viewModel.navigateToNext()
+                            didNavigate = true
                         } else if verticalOffset < 0 && !viewModel.canGoNext {
                             // End of rallies - show export
                             viewModel.showExportOptions = true
@@ -244,16 +249,25 @@ struct RallyPlayerView: View {
                     if abs(horizontalVelocity) > 300 || abs(horizontalOffset) > actionThreshold {
                         if horizontalOffset < -actionThreshold {
                             viewModel.performAction(.remove, direction: .left)
+                            didPerformAction = true
                         } else if horizontalOffset > actionThreshold {
                             viewModel.performAction(.save, direction: .right)
+                            didPerformAction = true
                         }
                     }
                 }
 
                 // Reset gesture state
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                // If we navigated or performed action, reset immediately to prevent jump
+                // Otherwise animate back smoothly
+                if didNavigate || didPerformAction {
                     viewModel.dragOffset = .zero
                     viewModel.resetPeekProgress()
+                } else {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        viewModel.dragOffset = .zero
+                        viewModel.resetPeekProgress()
+                    }
                 }
             }
     }
