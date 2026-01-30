@@ -592,6 +592,31 @@ extension MediaStore {
 // MARK: - Video Operations
 
 extension MediaStore {
+    /// Mark a video as having processing metadata after rally detection completes
+    func markVideoAsProcessed(videoId: UUID, metadataFileSize: Int64) -> Bool {
+        print("📹 MediaStore.markVideoAsProcessed called:")
+        print("   - VideoId: \(videoId)")
+        print("   - MetadataFileSize: \(metadataFileSize) bytes")
+
+        // Find the video
+        guard var video = manifest.videos.values.first(where: { $0.id == videoId }) else {
+            print("❌ Video with ID \(videoId) not found")
+            return false
+        }
+
+        let videoKey = video.fileName
+        print("   - Video: \(video.displayName)")
+        print("   - Folder: \(video.folderPath)")
+
+        // Update metadata tracking
+        video.updateMetadataTracking(fileSize: metadataFileSize)
+        manifest.videos[videoKey] = video
+
+        saveManifest()
+        print("✅ Video marked as processed with metadata")
+        return true
+    }
+
     func addProcessedVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, originalVideoId: UUID) -> Bool {
         let videoKey = url.lastPathComponent
         print("📹 MediaStore.addProcessedVideo called:")
@@ -600,7 +625,7 @@ extension MediaStore {
         print("   - CustomName: '\(customName ?? "nil")'")
         print("   - OriginalVideoId: \(originalVideoId)")
         print("   - VideoKey: '\(videoKey)'")
-        
+
         // Get file attributes
         let fileManager = FileManager.default
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
@@ -609,7 +634,7 @@ extension MediaStore {
             return false
         }
         print("✅ File attributes retrieved, size: \(fileSize) bytes")
-        
+
         var videoMetadata = VideoMetadata(
             originalURL: url,
             customName: customName,
@@ -618,15 +643,15 @@ extension MediaStore {
             fileSize: fileSize,
             duration: nil // Can be populated later if needed
         )
-        
+
         // Mark as processed and link to original
         videoMetadata.isProcessed = true
         videoMetadata.processedDate = Date()
         videoMetadata.originalVideoId = originalVideoId
-        
+
         manifest.videos[videoKey] = videoMetadata
         print("✅ Processed video metadata added to manifest with key: '\(videoKey)'")
-        
+
         // Update the original video to reference this processed version
         if var originalVideo = manifest.videos.values.first(where: { $0.id == originalVideoId }) {
             let originalKey = originalVideo.fileName
@@ -636,7 +661,7 @@ extension MediaStore {
         } else {
             print("⚠️ Original video with ID \(originalVideoId) not found")
         }
-        
+
         // Update folder video count
         if !folderPath.isEmpty {
             if manifest.folders[folderPath] != nil {
@@ -650,7 +675,7 @@ extension MediaStore {
         } else {
             print("📁 Added to root folder")
         }
-        
+
         saveManifest()
         print("✅ Manifest saved successfully")
         return true

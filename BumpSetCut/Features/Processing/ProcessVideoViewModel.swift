@@ -191,9 +191,21 @@ final class ProcessVideoViewModel {
                     tempProcessedURL = try await processor.processVideoDebug(videoURL)
                     debugData = processor.trajectoryDebugger
                 } else {
-                    _ = try await processor.processVideo(videoURL, videoId: currentVideoMetadata?.id ?? UUID())
+                    let videoId = currentVideoMetadata?.id ?? UUID()
+                    _ = try await processor.processVideo(videoURL, videoId: videoId)
                     tempProcessedURL = nil
                     debugData = nil
+
+                    // Mark the video as processed in the manifest
+                    // Get metadata file size from the saved metadata
+                    if let metadataSize = await MainActor.run(body: {
+                        currentVideoMetadata?.getCurrentMetadataSize()
+                    }) {
+                        let success = await MainActor.run {
+                            mediaStore.markVideoAsProcessed(videoId: videoId, metadataFileSize: metadataSize)
+                        }
+                        print(success ? "✅ Video marked as processed in manifest" : "❌ Failed to mark video as processed")
+                    }
                 }
 
                 await MainActor.run {

@@ -123,8 +123,9 @@ struct ProcessedLibraryView: View {
     // MARK: - Data Loading
 
     private func loadProcessedVideos() {
-        // Get all videos marked as processed
-        processedVideos = mediaStore.getAllVideos(in: .processed)
+        // Get all videos that have processing metadata (rally detection completed)
+        processedVideos = mediaStore.getAllVideos()
+            .filter { $0.hasProcessingMetadata }
             .sorted { $0.createdDate > $1.createdDate }
     }
 
