@@ -53,8 +53,11 @@ struct HomeView: View {
                             )
                             .frame(maxWidth: contentWidth)
                             .opacity(hasAppeared ? 1 : 0)
-                            .offset(y: hasAppeared ? 0 : 15)
-                            .animation(.easeOut(duration: 0.5).delay(0.1), value: hasAppeared)
+                            .offset(
+                                x: hasAppeared ? 0 : -30,
+                                y: hasAppeared ? 0 : -30
+                            )
+                            .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.1), value: hasAppeared)
                         }
 
                         // Main CTAs
@@ -64,15 +67,21 @@ struct HomeView: View {
                         }
                         .frame(maxWidth: contentWidth)
                         .opacity(hasAppeared ? 1 : 0)
-                        .offset(y: hasAppeared ? 0 : 15)
-                        .animation(.easeOut(duration: 0.5).delay(0.2), value: hasAppeared)
+                        .offset(
+                            x: hasAppeared ? 0 : -40,
+                            y: hasAppeared ? 0 : -40
+                        )
+                        .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.2), value: hasAppeared)
 
                         // Quick actions
                         quickActionsSection
                             .frame(maxWidth: contentWidth)
                             .opacity(hasAppeared ? 1 : 0)
-                            .offset(y: hasAppeared ? 0 : 15)
-                            .animation(.easeOut(duration: 0.5).delay(0.3), value: hasAppeared)
+                            .offset(
+                                x: hasAppeared ? 0 : -50,
+                                y: hasAppeared ? 0 : -50
+                            )
+                            .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.3), value: hasAppeared)
 
                         Spacer(minLength: BSCSpacing.lg)
                     }
