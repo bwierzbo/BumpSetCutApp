@@ -152,14 +152,11 @@ final class RallyPlayerViewModel {
             // Setup initial player and stack
             if !rallyVideoURLs.isEmpty, let url = currentRallyURL {
                 updateVisibleStack()
-                preloadAdjacent()
                 playerCache.setCurrentPlayer(for: url)
-                seekToCurrentRallyStart()
+                seekToCurrentRallyStart()  // Seek initial video to rally start
+                preloadAdjacent()  // Preload and seek adjacent videos
                 playerCache.play()
             }
-
-            // Preload thumbnails for adjacent rallies
-            preloadAdjacent()
 
         } catch {
             loadingState = .error(error.localizedDescription)
@@ -198,14 +195,13 @@ final class RallyPlayerViewModel {
 
         updateVisibleStack()
 
-        // Preload next batch BEFORE switching player (TikTok-style)
+        // Setup player (should already exist from preload and be seeked to correct position)
+        playerCache.setCurrentPlayer(for: url)
+
+        // Preload next batch AFTER switching player (prepares next/prev)
         preloadAdjacent()
 
-        // Setup player (should already exist from preload)
-        playerCache.setCurrentPlayer(for: url)
-        seekToCurrentRallyStart()
-
-        // Start playback immediately - player should be buffered
+        // Start playback immediately - player should be buffered and seeked
         Task { @MainActor in
             // Optional: wait for ready state for extra reliability
             let _ = await playerCache.waitForPlayerReady(for: url, timeout: 0.3)
@@ -218,6 +214,23 @@ final class RallyPlayerViewModel {
     private func preloadAdjacent() {
         // Preload video players for adjacent rallies (TikTok-style smooth transitions)
         playerCache.preloadAdjacentRallies(currentIndex: currentRallyIndex, urls: rallyVideoURLs)
+
+        // Pre-seek adjacent players to their rally start times
+        guard let metadata = processingMetadata else { return }
+
+        // Seek next rally
+        if currentRallyIndex + 1 < rallyVideoURLs.count && currentRallyIndex + 1 < metadata.rallySegments.count {
+            let nextURL = rallyVideoURLs[currentRallyIndex + 1]
+            let nextSegment = metadata.rallySegments[currentRallyIndex + 1]
+            playerCache.seek(url: nextURL, to: nextSegment.startCMTime)
+        }
+
+        // Seek previous rally
+        if currentRallyIndex > 0 && currentRallyIndex - 1 < metadata.rallySegments.count {
+            let prevURL = rallyVideoURLs[currentRallyIndex - 1]
+            let prevSegment = metadata.rallySegments[currentRallyIndex - 1]
+            playerCache.seek(url: prevURL, to: prevSegment.startCMTime)
+        }
 
         // Preload thumbnails for all visible stack cards (background cards use thumbnails)
         let urlsToPreload = visibleCardIndices
