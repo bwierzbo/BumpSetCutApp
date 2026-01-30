@@ -110,6 +110,7 @@ struct RallyPlayerView: View {
                     isTopCard: position == 0,
                     dragOffset: viewModel.dragOffset,
                     swipeOffset: viewModel.swipeOffset,
+                    swipeOffsetY: viewModel.swipeOffsetY,
                     swipeRotation: viewModel.swipeRotation
                 ))
             }
@@ -269,12 +270,17 @@ struct RallyPlayerView: View {
                 }
 
                 // Reset gesture state
-                // If we navigated or performed action, reset immediately to prevent jump
+                // If we performed action, reset immediately
+                // If we navigated, let navigateTo() handle the animation continuation
                 // Otherwise animate back smoothly
-                if didNavigate || didPerformAction {
+                if didPerformAction {
                     viewModel.dragOffset = .zero
                     viewModel.resetPeekProgress()
+                } else if didNavigate {
+                    // Don't reset - navigateTo() will continue the animation from current position
+                    viewModel.resetPeekProgress()
                 } else {
+                    // No action - animate back to center
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                         viewModel.dragOffset = .zero
                         viewModel.resetPeekProgress()
@@ -297,13 +303,14 @@ struct RallyPlayerView: View {
 struct TopCardDragModifier: ViewModifier {
     let isTopCard: Bool
     let dragOffset: CGSize
-    let swipeOffset: CGFloat
+    let swipeOffset: CGFloat       // Horizontal swipe (actions)
+    let swipeOffsetY: CGFloat      // Vertical swipe (navigation)
     let swipeRotation: Double
 
     func body(content: Content) -> some View {
         if isTopCard {
             content
-                .offset(x: swipeOffset + dragOffset.width, y: dragOffset.height)
+                .offset(x: swipeOffset + dragOffset.width, y: swipeOffsetY + dragOffset.height)
                 .rotationEffect(.degrees(swipeRotation + dragRotation))
         } else {
             content

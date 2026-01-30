@@ -47,7 +47,8 @@ final class RallyPlayerViewModel {
     // MARK: - Transition State
 
     private(set) var isTransitioning: Bool = false
-    private(set) var swipeOffset: CGFloat = 0.0
+    private(set) var swipeOffset: CGFloat = 0.0  // Horizontal swipe (for actions)
+    private(set) var swipeOffsetY: CGFloat = 0.0  // Vertical swipe (for navigation)
     private(set) var swipeRotation: Double = 0.0
     private(set) var isPerformingAction: Bool = false
 
@@ -185,20 +186,29 @@ final class RallyPlayerViewModel {
 
     func navigateToNext() {
         guard canGoNext else { return }
-        navigateTo(index: currentRallyIndex + 1)
+        navigateTo(index: currentRallyIndex + 1, direction: .down)
     }
 
     func navigateToPrevious() {
         guard canGoPrevious else { return }
-        navigateTo(index: currentRallyIndex - 1)
+        navigateTo(index: currentRallyIndex - 1, direction: .up)
     }
 
-    func navigateTo(index: Int) {
+    func navigateTo(index: Int, direction: NavigationDirection) {
         guard index >= 0 && index < rallyVideoURLs.count else { return }
         guard !isTransitioning else { return }  // Prevent rapid navigation
 
         isTransitioning = true
         isBuffering = true  // Show buffering indicator
+
+        // Animate current card sliding out in swipe direction
+        // This continues from the user's drag position smoothly
+        let screenHeight = UIScreen.main.bounds.height
+        let targetOffset: CGFloat = direction == .down ? screenHeight : -screenHeight
+
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+            swipeOffsetY = targetOffset
+        }
 
         // Update state
         currentRallyIndex = index
@@ -225,11 +235,19 @@ final class RallyPlayerViewModel {
                 playerCache.play()
             }
 
+            // Reset offsets now that new card is visible
+            dragOffset = .zero
+            swipeOffsetY = 0
+
             // Preload next batch in background AFTER starting playback
             await preloadAdjacent()
 
             isTransitioning = false
         }
+    }
+
+    enum NavigationDirection {
+        case up, down
     }
 
     private func preloadAdjacent() async {
@@ -393,6 +411,7 @@ final class RallyPlayerViewModel {
     private func resetSwipeState() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             swipeOffset = 0
+            swipeOffsetY = 0
             swipeRotation = 0
             dragOffset = .zero
         }
