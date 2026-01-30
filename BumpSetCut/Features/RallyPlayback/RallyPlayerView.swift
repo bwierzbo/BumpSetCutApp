@@ -353,11 +353,12 @@ struct UnifiedRallyCard: View {
                     gravity: isPortrait ? .resizeAspect : .resizeAspectFill,
                     onReadyForDisplay: { isReady in
                         // Layer is ready when first video frame is ACTUALLY RENDERED
-                        // This is the definitive check - no black flash possible
+                        // Update state immediately
                         isLayerReadyForDisplay = isReady
                     }
                 )
                 .opacity(showVideo ? 1 : 0)
+                .animation(.linear(duration: 0.05), value: showVideo)  // Fast fade-in when ready
                 .allowsHitTesting(isCurrent)
                 .onReceive(player.publisher(for: \.rate)) { rate in
                     // Video is playing when rate > 0

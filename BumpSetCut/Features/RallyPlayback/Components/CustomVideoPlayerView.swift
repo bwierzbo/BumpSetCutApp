@@ -22,6 +22,10 @@ struct CustomVideoPlayerView: UIViewRepresentable {
         view.playerLayer.player = player
         view.playerLayer.videoGravity = gravity
         view.onReadyForDisplay = onReadyForDisplay
+
+        // Immediately report current state (in case already ready)
+        onReadyForDisplay(view.playerLayer.isReadyForDisplay)
+
         return view
     }
 
@@ -29,6 +33,9 @@ struct CustomVideoPlayerView: UIViewRepresentable {
         uiView.playerLayer.player = player
         uiView.playerLayer.videoGravity = gravity
         uiView.onReadyForDisplay = onReadyForDisplay
+
+        // Check current state on update (critical for when player changes)
+        onReadyForDisplay(uiView.playerLayer.isReadyForDisplay)
     }
 }
 
