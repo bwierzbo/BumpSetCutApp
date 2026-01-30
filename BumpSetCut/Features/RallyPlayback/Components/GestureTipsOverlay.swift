@@ -20,9 +20,9 @@ struct GestureTipsOverlay: View {
                 .ignoresSafeArea()
                 .opacity(showingContent ? 1 : 0)
 
-            VStack(spacing: 32) {
+            VStack(spacing: 40) {
                 // Title
-                Text("Swipe to Navigate")
+                Text("Swipe Actions")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.white)
                     .opacity(showingContent ? 1 : 0)
@@ -30,24 +30,14 @@ struct GestureTipsOverlay: View {
 
                 // Center gesture diagram with animated arrows
                 ZStack {
-                    // UP arrow - Next
-                    GestureArrow(direction: .up, label: "Next", icon: "chevron.up", color: .bscBlue)
-                        .offset(y: -130)
-                        .opacity(showingContent ? 1 : 0)
-
-                    // DOWN arrow - Previous
-                    GestureArrow(direction: .down, label: "Previous", icon: "chevron.down", color: .bscBlue)
-                        .offset(y: 130)
-                        .opacity(showingContent ? 1 : 0)
-
                     // LEFT arrow - Remove
                     GestureArrow(direction: .left, label: "Remove", icon: "xmark", color: .red)
-                        .offset(x: -110)
+                        .offset(x: -140)
                         .opacity(showingContent ? 1 : 0)
 
                     // RIGHT arrow - Save
                     GestureArrow(direction: .right, label: "Save", icon: "heart.fill", color: .green)
-                        .offset(x: 110)
+                        .offset(x: 140)
                         .opacity(showingContent ? 1 : 0)
 
                     // Center card representation
@@ -71,7 +61,7 @@ struct GestureTipsOverlay: View {
                         .scaleEffect(showingContent ? 1 : 0.8)
                         .opacity(showingContent ? 1 : 0)
                 }
-                .frame(height: 320)
+                .frame(height: 200)
 
                 // Dismiss hint
                 Text("Tap anywhere to continue")
