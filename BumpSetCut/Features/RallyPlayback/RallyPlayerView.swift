@@ -324,6 +324,7 @@ struct UnifiedRallyCard: View {
 
     @State private var thumbnail: UIImage?
     @State private var isVideoPlaying: Bool = false
+    @State private var isLayerReadyForDisplay: Bool = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var isPortrait: Bool {
@@ -344,21 +345,23 @@ struct UnifiedRallyCard: View {
                     .scaledToFit()
             }
 
-            // Video player layer ON TOP - only visible when actually playing
+            // Video player layer ON TOP - only visible when first frame is actually rendered
             // This creates zero-gap layering: thumbnail always visible until video covers it
             if isPreloaded, let player = playerCache.getPlayer(for: url) {
                 CustomVideoPlayerView(
                     player: player,
-                    gravity: isPortrait ? .resizeAspect : .resizeAspectFill
+                    gravity: isPortrait ? .resizeAspect : .resizeAspectFill,
+                    onReadyForDisplay: { isReady in
+                        // Layer is ready when first video frame is ACTUALLY RENDERED
+                        // This is the definitive check - no black flash possible
+                        isLayerReadyForDisplay = isReady
+                    }
                 )
                 .opacity(showVideo ? 1 : 0)
                 .allowsHitTesting(isCurrent)
                 .onReceive(player.publisher(for: \.rate)) { rate in
-                    // Video is actually playing when rate > 0
-                    // Update immediately (no animation) for instant appearance
-                    withAnimation(.linear(duration: 0.1)) {
-                        isVideoPlaying = rate > 0
-                    }
+                    // Video is playing when rate > 0
+                    isVideoPlaying = rate > 0
                 }
             }
         }
@@ -377,14 +380,18 @@ struct UnifiedRallyCard: View {
             // Reset playing state when card changes position
             if !newValue {
                 isVideoPlaying = false
+                isLayerReadyForDisplay = false
             }
         }
     }
 
     private var showVideo: Bool {
-        // Only show video when it's current AND actually playing
-        // Thumbnail stays visible at all other times (zero-gap coverage)
-        isCurrent && isVideoPlaying
+        // Show video ONLY when ALL conditions met:
+        // 1. Card is current (position 0)
+        // 2. Player is playing (rate > 0)
+        // 3. Layer has rendered first frame (isReadyForDisplay)
+        // This guarantees NO black flash - video only visible when frame is ready
+        isCurrent && isVideoPlaying && isLayerReadyForDisplay
     }
 }
 
