@@ -14,7 +14,7 @@ struct RallyActionButtons: View {
             Spacer()
 
             HStack(spacing: BSCSpacing.xxl) {
-                // Remove button
+                // Remove button - fixed container prevents layout shift
                 RallyActionButton(
                     icon: "xmark",
                     color: .bscError,
@@ -22,9 +22,11 @@ struct RallyActionButtons: View {
                     isActive: isRemoved,
                     action: onRemove
                 )
+                .frame(width: 80, height: 80)  // Fixed frame (70 * 1.15 ≈ 80)
                 .accessibilityLabel("Remove rally")
+                .id("remove-\(isRemoved)")  // Stable identity
 
-                // Undo button
+                // Undo button - fixed container
                 RallyActionButton(
                     icon: "arrow.uturn.backward",
                     color: .bscTextSecondary,
@@ -32,12 +34,14 @@ struct RallyActionButtons: View {
                     isActive: false,
                     action: onUndo
                 )
+                .frame(width: 65, height: 65)  // Fixed frame (56 * 1.15 ≈ 65)
                 .opacity(canUndo ? 1.0 : 0.4)
                 .disabled(!canUndo)
                 .accessibilityLabel("Undo")
                 .accessibilityValue(canUndo ? "Available" : "No action to undo")
+                .id("undo-\(canUndo)")  // Stable identity
 
-                // Save button
+                // Save button - fixed container
                 RallyActionButton(
                     icon: isSaved ? "heart.fill" : "heart",
                     color: .bscSuccess,
@@ -45,7 +49,9 @@ struct RallyActionButtons: View {
                     isActive: isSaved,
                     action: onSave
                 )
+                .frame(width: 80, height: 80)  // Fixed frame (70 * 1.15 ≈ 80)
                 .accessibilityLabel(isSaved ? "Unsave rally" : "Save rally")
+                .id("save-\(isSaved)")  // Stable identity
             }
             .padding(.bottom, 100)
         }
@@ -186,7 +192,7 @@ struct RallyActionFeedbackView: View {
             .animation(.bscBounce, value: isShowing)
 
             Spacer()
-                .frame(height: 120)
+                .frame(height: 230)  // Increased spacing to clear buttons (100px + 80px button + 50px margin)
         }
     }
 }
