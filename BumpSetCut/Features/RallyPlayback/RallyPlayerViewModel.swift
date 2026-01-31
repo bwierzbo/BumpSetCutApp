@@ -152,21 +152,25 @@ final class RallyPlayerViewModel {
             // Configure thumbnail cache BEFORE setting loaded state to prevent race
             thumbnailCache.setRallySegments(metadata.rallySegments)
 
-            loadingState = .loaded
+            // Keep loading state while we preload all videos
+            // This shows the buffering screen until everything is ready
 
-            // Setup initial player and stack (non-blocking for fast load)
+            // Setup initial player and stack
             if !rallyVideoURLs.isEmpty, let url = currentRallyURL {
                 updateVisibleStack()
                 playerCache.setCurrentPlayer(for: url)
                 seekToCurrentRallyStart()  // Seek initial video to rally start
 
-                // Start playing immediately (might buffer briefly)
-                playerCache.play()
+                // Preload ALL videos upfront for seamless transitions
+                await preloadAllVideos()
 
-                // Preload adjacent videos in background (non-blocking)
-                Task {
-                    await preloadAdjacent()
-                }
+                // Now everything is ready - show the UI
+                loadingState = .loaded
+
+                // Start playing first video
+                playerCache.play()
+            } else {
+                loadingState = .empty
             }
 
         } catch {
@@ -199,7 +203,7 @@ final class RallyPlayerViewModel {
         guard !isTransitioning else { return }  // Prevent rapid navigation
 
         isTransitioning = true
-        isBuffering = true  // Show buffering indicator
+        // No buffering - all videos already preloaded upfront
 
         // Animate current card sliding out in swipe direction
         // This continues from the user's drag position smoothly
@@ -216,31 +220,19 @@ final class RallyPlayerViewModel {
 
         updateVisibleStack()
 
-        // Setup player (should already exist from preload and be seeked to correct position)
+        // Setup player (already preloaded and seeked from initial load)
         playerCache.setCurrentPlayer(for: url)
 
-        // Wait for video to be fully buffered before playing
+        // Start playing immediately - video is already buffered
         Task { @MainActor in
-            // Wait up to 10 seconds for player to be fully buffered
-            // This ensures smooth playback without black flash
-            let isReady = await playerCache.waitForPlayerReady(for: url, timeout: 10.0)
+            // Brief delay to let animation start, then play
+            try? await Task.sleep(nanoseconds: 100_000_000)  // 0.1s
 
-            isBuffering = false  // Hide buffering indicator
-
-            if isReady {
-                // Start playing - video should be smooth now
-                playerCache.play()
-            } else {
-                // Fallback: play anyway if timeout (might have brief buffering)
-                playerCache.play()
-            }
+            playerCache.play()
 
             // Reset offsets now that new card is visible
             dragOffset = .zero
             swipeOffsetY = 0
-
-            // Preload next batch in background AFTER starting playback
-            await preloadAdjacent()
 
             isTransitioning = false
         }
@@ -248,6 +240,28 @@ final class RallyPlayerViewModel {
 
     enum NavigationDirection {
         case up, down
+    }
+
+    private func preloadAllVideos() async {
+        guard let metadata = processingMetadata else { return }
+
+        // Preload ALL video players upfront
+        playerCache.preloadPlayers(for: rallyVideoURLs)
+
+        // Seek each player to its rally start time and wait for ready
+        for (index, url) in rallyVideoURLs.enumerated() {
+            guard index < metadata.rallySegments.count else { continue }
+            let segment = metadata.rallySegments[index]
+
+            // Seek and wait for completion
+            await playerCache.seekAsync(url: url, to: segment.startCMTime)
+
+            // Wait for player to buffer (with timeout)
+            let _ = await playerCache.waitForPlayerReady(for: url, timeout: 5.0)
+        }
+
+        // Preload all thumbnails for background cards
+        thumbnailCache.preloadThumbnails(for: rallyVideoURLs)
     }
 
     private func preloadAdjacent() async {

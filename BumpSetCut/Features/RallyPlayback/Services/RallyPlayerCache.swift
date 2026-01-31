@@ -12,7 +12,7 @@ final class RallyPlayerCache: ObservableObject {
     private var players: [URL: AVPlayer] = [:]
     private var notificationObservers: [URL: NSObjectProtocol] = [:]
     private var playerCreationOrder: [URL] = []
-    private let maxCachedPlayers = 5  // Aggressive caching: current + 2 ahead + 2 behind
+    // No limit - cache ALL rally videos for instant transitions
 
     // MARK: - Player Management
 
@@ -44,11 +44,6 @@ final class RallyPlayerCache: ObservableObject {
         players[url] = player
         notificationObservers[url] = observer
         playerCreationOrder.append(url)
-
-        // Evict oldest if over limit
-        if players.count > maxCachedPlayers {
-            evictOldestPlayer()
-        }
 
         return player
     }
