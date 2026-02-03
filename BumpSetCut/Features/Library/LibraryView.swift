@@ -408,8 +408,10 @@ private extension LibraryView {
                         }
                     }
                 } label: {
-                    BSCIconButton(icon: "slider.horizontal.3", style: .ghost, size: .compact) {}
-                        .allowsHitTesting(false)
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.bscTextSecondary)
+                        .frame(width: 32, height: 32)
                 }
 
                 // Create folder - only at root (max depth = 1)
