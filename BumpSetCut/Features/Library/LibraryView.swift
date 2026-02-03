@@ -133,16 +133,20 @@ private extension LibraryView {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 20)
                     .onEnded { value in
-                        // Swipe right to go back to parent folder
+                        // Swipe right to go back
                         let horizontalDistance = value.translation.width
                         let verticalDistance = abs(value.translation.height)
 
-                        // Trigger if swiped right and mostly horizontal
-                        if horizontalDistance > 100 && horizontalDistance > verticalDistance * 2 {
+                        // Trigger if swiped right and mostly horizontal (reduced threshold for easier swipe)
+                        if horizontalDistance > 60 && horizontalDistance > verticalDistance * 1.5 {
                             if !viewModel.isAtRoot {
+                                // In folder: go to parent folder
                                 withAnimation(.bscSpring) {
                                     viewModel.navigateToParent()
                                 }
+                            } else {
+                                // At root: dismiss to main screen
+                                dismiss()
                             }
                         }
                     }
