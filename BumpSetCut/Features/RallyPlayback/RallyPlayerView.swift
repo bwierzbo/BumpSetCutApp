@@ -366,8 +366,10 @@ struct UnifiedRallyCard: View {
                     gravity: isPortrait ? .resizeAspect : .resizeAspectFill,
                     onReadyForDisplay: { isReady in
                         // Layer is ready when first video frame is ACTUALLY RENDERED
-                        // Update state immediately
-                        isLayerReadyForDisplay = isReady
+                        // Use Task to avoid state modification during view update
+                        Task { @MainActor in
+                            isLayerReadyForDisplay = isReady
+                        }
                     }
                 )
                 .opacity(showVideo ? 1 : 0)
@@ -375,7 +377,10 @@ struct UnifiedRallyCard: View {
                 .allowsHitTesting(isCurrent)
                 .onReceive(player.publisher(for: \.rate)) { rate in
                     // Video is playing when rate > 0
-                    isVideoPlaying = rate > 0
+                    // Use Task to avoid state modification during view update
+                    Task { @MainActor in
+                        isVideoPlaying = rate > 0
+                    }
                 }
             }
         }
