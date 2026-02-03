@@ -30,11 +30,6 @@ struct LibraryView: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // Breadcrumb navigation
-                    if !viewModel.isAtRoot {
-                        breadcrumbSection
-                    }
-
                     // Main content - only wrap with DropZoneView in saved library
                     if viewModel.libraryType == .saved {
                         DropZoneView(
@@ -98,67 +93,6 @@ struct LibraryView: View {
     }
 }
 
-// MARK: - Breadcrumb Section
-private extension LibraryView {
-    var breadcrumbSection: some View {
-        HStack(spacing: BSCSpacing.sm) {
-            // Back/Forward buttons
-            if viewModel.canGoBack || viewModel.canGoForward {
-                HStack(spacing: BSCSpacing.xs) {
-                    Button {
-                        viewModel.navigateBack()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(viewModel.canGoBack ? .bscBlue : .bscTextTertiary)
-                            .frame(width: 32, height: 32)
-                            .background(Color.bscSurfaceGlass)
-                            .clipShape(Circle())
-                    }
-                    .disabled(!viewModel.canGoBack)
-
-                    Button {
-                        viewModel.navigateForward()
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(viewModel.canGoForward ? .bscBlue : .bscTextTertiary)
-                            .frame(width: 32, height: 32)
-                            .background(Color.bscSurfaceGlass)
-                            .clipShape(Circle())
-                    }
-                    .disabled(!viewModel.canGoForward)
-                }
-            }
-
-            // Breadcrumb
-            BSCBreadcrumb(
-                crumbs: viewModel.breadcrumbs,
-                currentPath: viewModel.currentPath,
-                onNavigate: { path in
-                    viewModel.navigateToFolder(path)
-                }
-            )
-
-            Spacer(minLength: 0)
-
-            // Depth indicator
-            if let depthIndicator = viewModel.depthIndicator {
-                Text(depthIndicator)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.bscTextTertiary)
-                    .padding(.horizontal, BSCSpacing.sm)
-                    .padding(.vertical, BSCSpacing.xs)
-                    .background(Color.bscSurfaceGlass)
-                    .clipShape(Capsule())
-            }
-        }
-        .padding(.horizontal, BSCSpacing.lg)
-        .padding(.vertical, BSCSpacing.md)
-        .background(Color.bscBackgroundElevated)
-    }
-}
-
 // MARK: - Main Content
 private extension LibraryView {
     @ViewBuilder
@@ -192,19 +126,19 @@ private extension LibraryView {
             }
             .background(Color.bscBackground)
             .toolbar { toolbarContent }
+            .navigationBarBackButtonHidden(!viewModel.isAtRoot)  // Hide default back when in folder
             .refreshable {
                 viewModel.refresh()
             }
             .simultaneousGesture(
-                DragGesture(minimumDistance: 30)
+                DragGesture(minimumDistance: 20)
                     .onEnded { value in
-                        // Swipe from left edge to go back (to parent)
-                        let startX = value.startLocation.x
+                        // Swipe right to go back to parent folder
                         let horizontalDistance = value.translation.width
                         let verticalDistance = abs(value.translation.height)
 
-                        // Only trigger if started near left edge, moved right, and mostly horizontal
-                        if startX < 50 && horizontalDistance > 80 && verticalDistance < 50 {
+                        // Trigger if swiped right and mostly horizontal
+                        if horizontalDistance > 100 && horizontalDistance > verticalDistance * 2 {
                             if !viewModel.isAtRoot {
                                 withAnimation(.bscSpring) {
                                     viewModel.navigateToParent()
@@ -435,6 +369,25 @@ private extension LibraryView {
 private extension LibraryView {
     @ToolbarContentBuilder
     var toolbarContent: some ToolbarContent {
+        // Custom back button when inside a folder
+        if !viewModel.isAtRoot {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    withAnimation(.bscSpring) {
+                        viewModel.navigateToParent()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text(viewModel.libraryType.displayName)
+                            .font(.system(size: 16))
+                    }
+                    .foregroundColor(.bscOrange)
+                }
+            }
+        }
+
         ToolbarItem(placement: .navigationBarTrailing) {
             HStack(spacing: BSCSpacing.md) {
                 // Sort/View menu
