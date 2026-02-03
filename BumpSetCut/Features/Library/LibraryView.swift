@@ -297,6 +297,14 @@ private extension LibraryView {
                         Task { try await viewModel.deleteFolder(folder) }
                     }
                 )
+                .dropDestination(for: VideoMetadata.self) { videos, _ in
+                    // Move dragged video to this folder
+                    guard let video = videos.first else { return false }
+                    Task {
+                        try await viewModel.moveVideo(video, to: folder.path)
+                    }
+                    return true
+                }
             }
         }
     }
@@ -318,6 +326,14 @@ private extension LibraryView {
                         Task { try await viewModel.deleteFolder(folder) }
                     }
                 )
+                .dropDestination(for: VideoMetadata.self) { videos, _ in
+                    // Move dragged video to this folder
+                    guard let video = videos.first else { return false }
+                    Task {
+                        try await viewModel.moveVideo(video, to: folder.path)
+                    }
+                    return true
+                }
             }
         }
     }
@@ -360,6 +376,7 @@ private extension LibraryView {
                     },
                     libraryType: viewModel.libraryType
                 )
+                .draggable(video)  // Make videos draggable
             }
         }
     }
@@ -386,6 +403,7 @@ private extension LibraryView {
                     },
                     libraryType: viewModel.libraryType
                 )
+                .draggable(video)  // Make videos draggable
             }
         }
     }
@@ -441,9 +459,11 @@ private extension LibraryView {
                         .allowsHitTesting(false)
                 }
 
-                // Create folder - available in both libraries
-                BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact) {
-                    viewModel.showingCreateFolder = true
+                // Create folder - only at root (max depth = 1)
+                if viewModel.isAtRoot {
+                    BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact) {
+                        viewModel.showingCreateFolder = true
+                    }
                 }
 
                 // Upload - only in saved library

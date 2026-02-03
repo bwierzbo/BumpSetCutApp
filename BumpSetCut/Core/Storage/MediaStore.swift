@@ -280,6 +280,23 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
     }
 }
 
+// MARK: - VideoMetadata + Transferable
+
+import CoreTransferable
+import UniformTypeIdentifiers
+
+extension VideoMetadata: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .videoMetadata)
+    }
+}
+
+extension UTType {
+    static var videoMetadata: UTType {
+        UTType(exportedAs: "com.bumpsetcut.video-metadata")
+    }
+}
+
 struct FolderMetadata: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String

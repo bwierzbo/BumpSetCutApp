@@ -51,7 +51,7 @@ class FolderManager {
         currentPath == libraryType.rootPath
     }
 
-    static let maxDepth = 10
+    static let maxDepth = 1  // Simplified: only root-level folders, no nesting
 
     init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
         self.mediaStore = mediaStore
@@ -172,14 +172,19 @@ class FolderManager {
         guard FolderValidationRules.isValidName(sanitizedName) else {
             throw FolderOperationError.invalidName(name)
         }
-        
+
+        // Enforce max depth: only allow folder creation at root
+        guard currentDepth < Self.maxDepth else {
+            throw FolderOperationError.maxDepthReached
+        }
+
         // Check for conflicts
         if folders.contains(where: { $0.name.lowercased() == sanitizedName.lowercased() }) {
             throw FolderOperationError.nameConflict(sanitizedName)
         }
-        
+
         let success = mediaStore.createFolder(name: sanitizedName, parentPath: currentPath)
-        
+
         if success {
             refreshContents()
             logger.info("Created folder: \(sanitizedName)")

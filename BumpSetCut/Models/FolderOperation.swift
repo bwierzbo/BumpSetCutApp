@@ -58,7 +58,8 @@ enum FolderOperationError: Error, LocalizedError {
     case permissionDenied(String)
     case systemError(String)
     case operationCancelled
-    
+    case maxDepthReached
+
     var errorDescription: String? {
         switch self {
         case .invalidName(let name):
@@ -77,6 +78,8 @@ enum FolderOperationError: Error, LocalizedError {
             return "System error: \(message)"
         case .operationCancelled:
             return "Operation was cancelled"
+        case .maxDepthReached:
+            return "Cannot create folder: Folders can only be created at the root level."
         }
     }
 }
@@ -146,7 +149,7 @@ struct BulkOperationProgress {
 struct FolderValidationRules {
     static let maxNameLength = 255
     static let minNameLength = 1
-    static let maxDepth = 10
+    static let maxDepth = 1  // Simplified: only root-level folders
     static let reservedNames = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"]
     static let invalidCharacters = CharacterSet(charactersIn: "<>:\"/\\|?*")
     
