@@ -191,9 +191,9 @@ struct RallyPlayerView: View {
     /// Z-index for card at given position
     private func zIndexForPosition(_ position: Int) -> Double {
         switch position {
-        case -1: return -1     // Previous - behind current
+        case -1: return 10     // Previous - behind current but above next
         case 0: return 100     // Current - on top
-        default: return Double(-position)  // Next cards below
+        default: return Double(-position)  // Next cards below (position 1 = -1, position 2 = -2, etc)
         }
     }
 
