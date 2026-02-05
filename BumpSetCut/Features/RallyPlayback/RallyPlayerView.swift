@@ -364,7 +364,7 @@ struct UnifiedRallyCard: View {
             if let thumbnail = thumbnail, showThumbnail {
                 Image(uiImage: thumbnail)
                     .resizable()
-                    .scaledToFit()
+                    .scaledToFill()  // Fill like TikTok - no black bars
             }
 
             // Video player layer ON TOP - only visible when first frame is actually rendered
@@ -372,7 +372,7 @@ struct UnifiedRallyCard: View {
             if isPreloaded, let player = playerCache.getPlayer(for: url) {
                 CustomVideoPlayerView(
                     player: player,
-                    gravity: isPortrait ? .resizeAspect : .resizeAspectFill,
+                    gravity: .resizeAspectFill,  // Always fill like TikTok - no black bars
                     onReadyForDisplay: { isReady in
                         // Layer is ready when first video frame is ACTUALLY RENDERED
                         // Use Task to avoid state modification during view update
