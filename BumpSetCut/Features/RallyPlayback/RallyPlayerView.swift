@@ -367,12 +367,6 @@ struct UnifiedRallyCard: View {
                     .scaledToFit()
             }
 
-            // Opaque blocker for current card during transitions
-            // Prevents next card's thumbnail from showing through before video plays
-            if isCurrent && !showVideo && previousRallyIndex != nil {
-                Color.black
-            }
-
             // Video player layer ON TOP - only visible when first frame is actually rendered
             // This creates zero-gap layering: thumbnail always visible until video covers it
             if isPreloaded, let player = playerCache.getPlayer(for: url) {
