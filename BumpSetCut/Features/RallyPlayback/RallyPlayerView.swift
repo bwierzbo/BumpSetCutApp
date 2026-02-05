@@ -407,9 +407,19 @@ struct UnifiedRallyCard: View {
     }
 
     private var showThumbnail: Bool {
-        // Only show thumbnail for current card or previous card during transition
-        // This prevents next card's thumbnail from showing through
-        isCurrent || isPreviousRally
+        // Show thumbnail when:
+        // 1. Current card - but only if we're NOT transitioning from another rally
+        //    (during transition, keep old video showing, not new thumbnail)
+        // 2. Previous card during transition - keeps thumbnail visible while video slides out
+        // 3. Next card when position is 1 (for peek preview during drag)
+
+        if isCurrent {
+            // If we're the current card during a transition (previousRallyIndex exists),
+            // hide thumbnail and rely on the previous card's video showing
+            return previousRallyIndex == nil || isVideoPlaying
+        }
+
+        return isPreviousRally || position == 1
     }
 
     private var showVideo: Bool {
