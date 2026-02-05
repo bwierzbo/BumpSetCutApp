@@ -359,8 +359,9 @@ struct UnifiedRallyCard: View {
         ZStack {
             Color.black
 
-            // Thumbnail layer - ALWAYS visible as base layer (no opacity changes)
-            if let thumbnail = thumbnail {
+            // Thumbnail layer - only show for current or transitioning-out cards
+            // This prevents next card's thumbnail from peeking through during transitions
+            if let thumbnail = thumbnail, showThumbnail {
                 Image(uiImage: thumbnail)
                     .resizable()
                     .scaledToFit()
@@ -403,6 +404,12 @@ struct UnifiedRallyCard: View {
         .task(id: url) {
             thumbnail = await thumbnailCache.getThumbnailAsync(for: url)
         }
+    }
+
+    private var showThumbnail: Bool {
+        // Only show thumbnail for current card or previous card during transition
+        // This prevents next card's thumbnail from showing through
+        isCurrent || isPreviousRally
     }
 
     private var showVideo: Bool {
