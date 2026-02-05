@@ -96,8 +96,10 @@ struct RallyPlayerView: View {
                 // Unified card - no component swapping for smooth transitions
                 UnifiedRallyCard(
                     url: url,
+                    rallyIndex: rallyIndex,
                     size: geometry.size,
                     position: position,
+                    previousRallyIndex: viewModel.previousRallyIndex,
                     playerCache: viewModel.playerCache,
                     thumbnailCache: viewModel.thumbnailCache
                 )
@@ -330,15 +332,16 @@ struct TopCardDragModifier: ViewModifier {
 /// TikTok-style: adjacent players stay mounted, thumbnail visible until video playing
 struct UnifiedRallyCard: View {
     let url: URL
+    let rallyIndex: Int
     let size: CGSize
     let position: Int  // -1 = previous, 0 = current, 1+ = next
+    let previousRallyIndex: Int?  // Track which rally was just current (for seamless transitions)
     let playerCache: RallyPlayerCache
     let thumbnailCache: RallyThumbnailCache
 
     @State private var thumbnail: UIImage?
     @State private var isVideoPlaying: Bool = false
     @State private var isLayerReadyForDisplay: Bool = false
-    @State private var wasRecentlyCurrent: Bool = false  // Track if card was recently current (for transitions)
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var isPortrait: Bool {
@@ -346,6 +349,10 @@ struct UnifiedRallyCard: View {
     }
 
     private var isCurrent: Bool { position == 0 }
+    private var isPreviousRally: Bool {
+        guard let prevIndex = previousRallyIndex else { return false }
+        return rallyIndex == prevIndex
+    }
     private var isPreloaded: Bool { position >= -1 && position <= 1 }
 
     var body: some View {
@@ -396,31 +403,14 @@ struct UnifiedRallyCard: View {
         .task(id: url) {
             thumbnail = await thumbnailCache.getThumbnailAsync(for: url)
         }
-        .onChange(of: isCurrent) { oldValue, newValue in
-            // When card becomes current, reset the transition flag
-            if newValue {
-                wasRecentlyCurrent = false
-            }
-            // When card stops being current, delay hiding to allow transition animation
-            else {
-                wasRecentlyCurrent = true
-                // Keep video visible during transition (0.5s animation)
-                Task {
-                    try? await Task.sleep(nanoseconds: 600_000_000)  // 0.6s (slightly longer than animation)
-                    isVideoPlaying = false
-                    isLayerReadyForDisplay = false
-                    wasRecentlyCurrent = false
-                }
-            }
-        }
     }
 
     private var showVideo: Bool {
         // Show video when:
         // 1. Card is current AND video is playing AND first frame rendered (normal case)
-        // 2. Card was recently current (keeps old video visible during slide-out transition)
+        // 2. Card is the previous rally during transition (keeps old video visible until new one plays)
         let isCurrentAndReady = isCurrent && isVideoPlaying && isLayerReadyForDisplay
-        let isDuringTransition = wasRecentlyCurrent && isVideoPlaying && isLayerReadyForDisplay
+        let isDuringTransition = isPreviousRally && isVideoPlaying && isLayerReadyForDisplay
 
         return isCurrentAndReady || isDuringTransition
     }

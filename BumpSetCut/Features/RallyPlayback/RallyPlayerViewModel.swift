@@ -19,6 +19,7 @@ final class RallyPlayerViewModel {
     // MARK: - Navigation State
 
     private(set) var currentRallyIndex: Int = 0
+    private(set) var previousRallyIndex: Int? = nil  // Track previous rally during transitions
 
     // MARK: - Stack State (Tinder-style card stack)
 
@@ -205,6 +206,9 @@ final class RallyPlayerViewModel {
         isTransitioning = true
         // No buffering - all videos already preloaded upfront
 
+        // Track previous rally to keep it visible during transition
+        previousRallyIndex = currentRallyIndex
+
         // Animate current card sliding out in swipe direction
         // This continues from the user's drag position smoothly
         let screenHeight = UIScreen.main.bounds.height
@@ -230,10 +234,14 @@ final class RallyPlayerViewModel {
 
             playerCache.play()
 
+            // Wait for new video to actually start playing before clearing previous
+            try? await Task.sleep(nanoseconds: 200_000_000)  // 0.2s more for video to start
+
             // Reset offsets now that new card is visible
             dragOffset = .zero
             swipeOffsetY = 0
 
+            previousRallyIndex = nil  // Clear previous rally - transition complete
             isTransitioning = false
         }
     }
