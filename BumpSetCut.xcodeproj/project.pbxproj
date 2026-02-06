@@ -12,8 +12,19 @@
 		3674FF662E4672F200A9C4CB /* MijickTimer in Frameworks */ = {isa = PBXBuildFile; productRef = 3674FF652E4672F200A9C4CB /* MijickTimer */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		F1D4D31D2E750001000TE5TS /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 36F390182E1C86F40020C100 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 36F3901F2E1C86F40020C100;
+			remoteInfo = BumpSetCut;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		36F390202E1C86F40020C100 /* BumpSetCut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BumpSetCut.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BDB98D452E750001000TE5TS /* BumpSetCutTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BumpSetCutTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -35,9 +46,21 @@
 			path = BumpSetCut;
 			sourceTree = "<group>";
 		};
+		87FCF3062E750001000TE5TS /* BumpSetCutTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BumpSetCutTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		0E3AF8F32E750001000TE5TS /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		36F3901D2E1C86F40020C100 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -55,6 +78,7 @@
 			isa = PBXGroup;
 			children = (
 				36F390222E1C86F40020C100 /* BumpSetCut */,
+				87FCF3062E750001000TE5TS /* BumpSetCutTests */,
 				36F390212E1C86F40020C100 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -63,6 +87,7 @@
 			isa = PBXGroup;
 			children = (
 				36F390202E1C86F40020C100 /* BumpSetCut.app */,
+				BDB98D452E750001000TE5TS /* BumpSetCutTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -95,6 +120,27 @@
 			productReference = 36F390202E1C86F40020C100 /* BumpSetCut.app */;
 			productType = "com.apple.product-type.application";
 		};
+		429E9BCB2E750001000TE5TS /* BumpSetCutTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8258BDAC2E750001000TE5TS /* Build configuration list for PBXNativeTarget "BumpSetCutTests" */;
+			buildPhases = (
+				2E49B3112E750001000TE5TS /* Sources */,
+				0E3AF8F32E750001000TE5TS /* Frameworks */,
+				20D2C5D62E750001000TE5TS /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8B9927142E750001000TE5TS /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				87FCF3062E750001000TE5TS /* BumpSetCutTests */,
+			);
+			name = BumpSetCutTests;
+			productName = BumpSetCutTests;
+			productReference = BDB98D452E750001000TE5TS /* BumpSetCutTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -107,6 +153,10 @@
 				TargetAttributes = {
 					36F3901F2E1C86F40020C100 = {
 						CreatedOnToolsVersion = 16.0;
+					};
+					429E9BCB2E750001000TE5TS = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 36F3901F2E1C86F40020C100;
 					};
 				};
 			};
@@ -130,11 +180,19 @@
 			projectRoot = "";
 			targets = (
 				36F3901F2E1C86F40020C100 /* BumpSetCut */,
+				429E9BCB2E750001000TE5TS /* BumpSetCutTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		20D2C5D62E750001000TE5TS /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		36F3901E2E1C86F40020C100 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -145,6 +203,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		2E49B3112E750001000TE5TS /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		36F3901C2E1C86F40020C100 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -154,7 +219,34 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		8B9927142E750001000TE5TS /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 36F3901F2E1C86F40020C100 /* BumpSetCut */;
+			targetProxy = F1D4D31D2E750001000TE5TS /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		307C82BF2E750001000TE5TS /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2J4SZTDKKP;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = wplus12.BumpSetCutTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BumpSetCut.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BumpSetCut";
+			};
+			name = Debug;
+		};
 		36F390422E1C86F50020C100 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -344,6 +436,25 @@
 			};
 			name = Release;
 		};
+		5C2E85602E750001000TE5TS /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2J4SZTDKKP;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = wplus12.BumpSetCutTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BumpSetCut.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BumpSetCut";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -361,6 +472,15 @@
 			buildConfigurations = (
 				36F390452E1C86F50020C100 /* Debug */,
 				36F390462E1C86F50020C100 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8258BDAC2E750001000TE5TS /* Build configuration list for PBXNativeTarget "BumpSetCutTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				307C82BF2E750001000TE5TS /* Debug */,
+				5C2E85602E750001000TE5TS /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
