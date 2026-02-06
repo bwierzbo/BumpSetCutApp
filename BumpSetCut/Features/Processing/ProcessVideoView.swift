@@ -24,6 +24,9 @@ struct ProcessVideoView: View {
         ))
     }
 
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var isLandscape: Bool { verticalSizeClass == .compact }
+
     // MARK: - Body
     var body: some View {
         NavigationStack {
@@ -31,28 +34,30 @@ struct ProcessVideoView: View {
                 // Background
                 backgroundGradient
 
-                VStack(spacing: BSCSpacing.xxl) {
-                    // Animated header
-                    headerSection
-                        .opacity(hasAppeared ? 1 : 0)
-                        .offset(y: hasAppeared ? 0 : 20)
-                        .animation(.bscSpring.delay(0.1), value: hasAppeared)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: isLandscape ? BSCSpacing.lg : BSCSpacing.xxl) {
+                        // Animated header
+                        headerSection
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.1), value: hasAppeared)
 
-                    // Processing state content
-                    stateContent
-                        .opacity(hasAppeared ? 1 : 0)
-                        .offset(y: hasAppeared ? 0 : 20)
-                        .animation(.bscSpring.delay(0.2), value: hasAppeared)
+                        // Processing state content
+                        stateContent
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.2), value: hasAppeared)
 
-                    Spacer()
-
-                    // Action buttons
-                    actionButtons
-                        .opacity(hasAppeared ? 1 : 0)
-                        .offset(y: hasAppeared ? 0 : 20)
-                        .animation(.bscSpring.delay(0.3), value: hasAppeared)
+                        // Action buttons
+                        actionButtons
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.3), value: hasAppeared)
+                    }
+                    .padding(BSCSpacing.xl)
+                    .frame(maxWidth: isLandscape ? 500 : .infinity)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(BSCSpacing.xl)
             }
             .navigationTitle("AI Processing")
             .navigationBarTitleDisplayMode(.inline)

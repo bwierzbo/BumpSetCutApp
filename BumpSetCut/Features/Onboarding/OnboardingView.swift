@@ -81,33 +81,36 @@ struct OnboardingView: View {
     // MARK: - Background
 
     private var backgroundGradient: some View {
-        ZStack {
-            // Top gradient orb
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [pages[currentPage].color.opacity(0.12), Color.clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 300
+        GeometryReader { geo in
+            ZStack {
+                // Top gradient orb
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [pages[currentPage].color.opacity(0.12), Color.clear],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 300
+                        )
                     )
-                )
-                .frame(width: 600, height: 600)
-                .offset(x: -50, y: -250)
-                .animation(.easeInOut(duration: 0.5), value: currentPage)
+                    .frame(width: 600, height: 600)
+                    .offset(x: -geo.size.width * 0.1, y: -geo.size.height * 0.3)
+                    .animation(.easeInOut(duration: 0.5), value: currentPage)
 
-            // Bottom gradient orb
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.bscBlue.opacity(0.06), Color.clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 200
+                // Bottom gradient orb
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Color.bscBlue.opacity(0.06), Color.clear],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 200
+                        )
                     )
-                )
-                .frame(width: 400, height: 400)
-                .offset(x: 100, y: 350)
+                    .frame(width: 400, height: 400)
+                    .offset(x: geo.size.width * 0.2, y: geo.size.height * 0.35)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
     }
 }

@@ -218,26 +218,26 @@ struct RallyTrimOverlay: View {
         let url = videoURL
         let start = windowStart
         let duration = windowDuration
+        let count = 12
 
-        let images = await Task.detached(priority: .userInitiated) { () -> [UIImage] in
-            let asset = AVURLAsset(url: url)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 200, height: 200)
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 200, height: 200)
 
-            var result: [UIImage] = []
-            let count = 12
-            for i in 0..<count {
-                let t = start + (duration * Double(i) / Double(count - 1))
-                let cmTime = CMTimeMakeWithSeconds(t, preferredTimescale: 600)
-                if let cgImage = try? generator.copyCGImage(at: cmTime, actualTime: nil) {
-                    result.append(UIImage(cgImage: cgImage))
-                }
+        let times: [CMTime] = (0..<count).map { i in
+            let t = start + (duration * Double(i) / Double(count - 1))
+            return CMTimeMakeWithSeconds(t, preferredTimescale: 600)
+        }
+
+        var result: [UIImage] = []
+        for await imageResult in generator.images(for: times) {
+            if let cgImage = try? imageResult.image {
+                result.append(UIImage(cgImage: cgImage))
             }
-            return result
-        }.value
+        }
 
-        thumbnails = images
+        thumbnails = result
     }
 
     // MARK: - Formatting

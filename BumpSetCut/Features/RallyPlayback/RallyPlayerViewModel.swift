@@ -461,6 +461,10 @@ final class RallyPlayerViewModel {
                 seekToCurrentRallyStart()
                 setupRallyLooping()
                 playerCache.play()
+            } else {
+                // Last rally reviewed — show export options
+                playerCache.pause()
+                showExportOptions = true
             }
 
             isPerformingAction = false

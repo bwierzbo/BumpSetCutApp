@@ -26,66 +26,26 @@ struct HomeView: View {
     // Onboarding state
     @State private var showingOnboarding = false
 
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var isLandscape: Bool { verticalSizeClass == .compact }
+
     // MARK: - Body
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
-                let contentWidth = min(geometry.size.width * 0.85, 400)
+                let contentWidth = isLandscape
+                    ? min(geometry.size.width * 0.45, 500)
+                    : min(geometry.size.width * 0.85, 400)
 
                 ZStack {
                     // Background
                     backgroundGradient
 
-                    // Content
-                    VStack(spacing: BSCSpacing.lg) {
-                        Spacer()
-
-                        // Hero section
-                        HeroSection()
-
-                        Spacer()
-
-                        // Stats card
-                        if let viewModel = viewModel {
-                            StatsCard(
-                                stats: viewModel.stats,
-                                isLoading: viewModel.isLoading
-                            )
-                            .frame(maxWidth: contentWidth)
-                            .opacity(hasAppeared ? 1 : 0)
-                            .offset(
-                                x: hasAppeared ? 0 : -30,
-                                y: hasAppeared ? 0 : -30
-                            )
-                            .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.1), value: hasAppeared)
-                        }
-
-                        // Main CTAs
-                        VStack(spacing: BSCSpacing.sm) {
-                            mainCTAButton
-                            processedGamesCTAButton
-                        }
-                        .frame(maxWidth: contentWidth)
-                        .opacity(hasAppeared ? 1 : 0)
-                        .offset(
-                            x: hasAppeared ? 0 : -40,
-                            y: hasAppeared ? 0 : -40
-                        )
-                        .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.2), value: hasAppeared)
-
-                        // Quick actions
-                        quickActionsSection
-                            .frame(maxWidth: contentWidth)
-                            .opacity(hasAppeared ? 1 : 0)
-                            .offset(
-                                x: hasAppeared ? 0 : -50,
-                                y: hasAppeared ? 0 : -50
-                            )
-                            .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.3), value: hasAppeared)
-
-                        Spacer(minLength: BSCSpacing.lg)
+                    if isLandscape {
+                        landscapeContent(contentWidth: contentWidth, geometry: geometry)
+                    } else {
+                        portraitContent(contentWidth: contentWidth)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
             }
@@ -170,6 +130,81 @@ struct HomeView: View {
             Text(uploadCoordinator?.storageWarningMessage ?? "Not enough storage space")
         }
         .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Portrait Layout
+    private func portraitContent(contentWidth: CGFloat) -> some View {
+        VStack(spacing: BSCSpacing.lg) {
+            Spacer()
+
+            HeroSection()
+
+            Spacer()
+
+            animatedContent(contentWidth: contentWidth)
+
+            Spacer(minLength: BSCSpacing.lg)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Landscape Layout
+    private func landscapeContent(contentWidth: CGFloat, geometry: GeometryProxy) -> some View {
+        HStack(spacing: BSCSpacing.xl) {
+            // Left side: Hero
+            HeroSection()
+                .frame(maxWidth: geometry.size.width * 0.35, maxHeight: .infinity)
+
+            // Right side: Stats + CTAs (scrollable)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: BSCSpacing.md) {
+                    Spacer(minLength: BSCSpacing.md)
+                    animatedContent(contentWidth: contentWidth)
+                    Spacer(minLength: BSCSpacing.md)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(.horizontal, BSCSpacing.lg)
+    }
+
+    // MARK: - Animated Content (shared between layouts)
+    @ViewBuilder
+    private func animatedContent(contentWidth: CGFloat) -> some View {
+        if let viewModel = viewModel {
+            StatsCard(
+                stats: viewModel.stats,
+                isLoading: viewModel.isLoading
+            )
+            .frame(maxWidth: contentWidth)
+            .opacity(hasAppeared ? 1 : 0)
+            .offset(
+                x: hasAppeared ? 0 : -30,
+                y: hasAppeared ? 0 : -30
+            )
+            .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.1), value: hasAppeared)
+        }
+
+        VStack(spacing: BSCSpacing.sm) {
+            mainCTAButton
+            processedGamesCTAButton
+        }
+        .frame(maxWidth: contentWidth)
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(
+            x: hasAppeared ? 0 : -40,
+            y: hasAppeared ? 0 : -40
+        )
+        .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.2), value: hasAppeared)
+
+        quickActionsSection
+            .frame(maxWidth: contentWidth)
+            .opacity(hasAppeared ? 1 : 0)
+            .offset(
+                x: hasAppeared ? 0 : -50,
+                y: hasAppeared ? 0 : -50
+            )
+            .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.3), value: hasAppeared)
     }
 
     // MARK: - Background
