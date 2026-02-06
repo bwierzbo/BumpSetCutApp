@@ -346,7 +346,7 @@ final class ProcessingMetadataTests: XCTestCase {
         let timestamp = CMTimeMakeWithSeconds(42.7, preferredTimescale: 600)
         let position = CGPoint(x: 0.5, y: 0.3)
 
-        let point = TrajectoryPoint(
+        let point = ProcessingTrajectoryPoint(
             timestamp: timestamp,
             position: position,
             velocity: 15.2,
@@ -483,7 +483,7 @@ final class ProcessingMetadataTests: XCTestCase {
             rallySegments: sampleRallySegments,
             stats: sampleProcessingStats,
             quality: sampleQualityMetrics,
-            trajectories: createLargeTrajectoryDataset(),
+            trajectories: createLargeProcessingTrajectoryDataset(),
             classifications: createSampleClassifications(),
             physics: createSamplePhysicsValidation(),
             performance: samplePerformanceData
@@ -506,7 +506,7 @@ final class ProcessingMetadataTests: XCTestCase {
             rallySegments: sampleRallySegments,
             stats: sampleProcessingStats,
             quality: sampleQualityMetrics,
-            trajectories: createLargeTrajectoryDataset(),
+            trajectories: createLargeProcessingTrajectoryDataset(),
             classifications: createSampleClassifications(),
             physics: createSamplePhysicsValidation(),
             performance: samplePerformanceData
@@ -528,9 +528,9 @@ final class ProcessingMetadataTests: XCTestCase {
 
     // MARK: - Helper Methods
 
-    private func createSampleTrajectories() -> [TrajectoryData] {
+    private func createSampleTrajectories() -> [ProcessingTrajectoryData] {
         return [
-            TrajectoryData(
+            ProcessingTrajectoryData(
                 id: UUID(),
                 startTime: 10.0,
                 endTime: 12.5,
@@ -540,7 +540,7 @@ final class ProcessingMetadataTests: XCTestCase {
                 confidence: 0.85,
                 quality: 0.88
             ),
-            TrajectoryData(
+            ProcessingTrajectoryData(
                 id: UUID(),
                 startTime: 20.0,
                 endTime: 21.8,
@@ -550,7 +550,7 @@ final class ProcessingMetadataTests: XCTestCase {
                 confidence: 0.72,
                 quality: 0.75
             ),
-            TrajectoryData(
+            ProcessingTrajectoryData(
                 id: UUID(),
                 startTime: 55.0,
                 endTime: 57.2,
@@ -563,9 +563,9 @@ final class ProcessingMetadataTests: XCTestCase {
         ]
     }
 
-    private func createLargeTrajectoryDataset() -> [TrajectoryData] {
+    private func createLargeProcessingTrajectoryDataset() -> [ProcessingTrajectoryData] {
         return (0..<50).map { _ in
-            TrajectoryData(
+            ProcessingTrajectoryData(
                 id: UUID(),
                 startTime: Double.random(in: 0...300),
                 endTime: Double.random(in: 301...600),
@@ -578,10 +578,10 @@ final class ProcessingMetadataTests: XCTestCase {
         }
     }
 
-    private func createSampleTrajectoryPoints(count: Int) -> [TrajectoryPoint] {
-        return (0..<count).map { i in
-            TrajectoryPoint(
-                timestamp: CMTimeMakeWithSeconds(Double(i) * 0.1, preferredTimescale: 600),
+    private func createSampleTrajectoryPoints(count: Int) -> [ProcessingTrajectoryPoint] {
+        return (0..<count).map { _ in
+            ProcessingTrajectoryPoint(
+                timestamp: CMTimeMakeWithSeconds(Double.random(in: 0...10), preferredTimescale: 600),
                 position: CGPoint(x: Double.random(in: 0...1), y: Double.random(in: 0...1)),
                 velocity: Double.random(in: 5...25),
                 acceleration: Double.random(in: -5...5),
@@ -590,10 +590,10 @@ final class ProcessingMetadataTests: XCTestCase {
         }
     }
 
-    private func createSampleClassifications() -> [ClassificationResult] {
+    private func createSampleClassifications() -> [ProcessingClassificationResult] {
         let trajectoryId = UUID()
         return [
-            ClassificationResult(
+            ProcessingClassificationResult(
                 trajectoryId: trajectoryId,
                 timestamp: CMTimeMakeWithSeconds(10.5, preferredTimescale: 600),
                 movementType: .airborne,
@@ -606,7 +606,7 @@ final class ProcessingMetadataTests: XCTestCase {
                     timeSpan: 2.5
                 )
             ),
-            ClassificationResult(
+            ProcessingClassificationResult(
                 trajectoryId: UUID(),
                 timestamp: CMTimeMakeWithSeconds(25.3, preferredTimescale: 600),
                 movementType: .rolling,

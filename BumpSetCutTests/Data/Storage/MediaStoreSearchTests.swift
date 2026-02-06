@@ -61,7 +61,7 @@ final class MediaStoreSearchTests: XCTestCase {
         ]
         
         for (fileName, folderPath, customName, fileSize) in testVideos {
-            let testURL = createTestVideoURL(fileName: fileName, fileSize: fileSize)
+            let testURL = createTestVideoURL(fileName: fileName, fileSize: Int64(fileSize))
             _ = mediaStore.addVideo(at: testURL, toFolder: folderPath, customName: customName)
         }
     }

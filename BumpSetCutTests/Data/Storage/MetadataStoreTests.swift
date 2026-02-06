@@ -6,9 +6,11 @@
 //
 
 import XCTest
+import CoreMedia
 @testable import BumpSetCut
 import Foundation
 
+@MainActor
 final class MetadataStoreTests: XCTestCase {
 
     // MARK: - Test Properties
@@ -221,10 +223,10 @@ final class MetadataStoreTests: XCTestCase {
         // We can't modify the let properties, so we'll create a new one with a different processing date
         let updatedTestMetadata = ProcessingMetadata(
             videoId: testMetadata.videoId,
-            processingConfig: testMetadata.processingConfig,
+            processingConfig: ProcessorConfig(),
             rallySegments: testMetadata.rallySegments + [RallySegment(
-                startTime: CMTime(seconds: 20.0, preferredTimescale: 600),
-                endTime: CMTime(seconds: 25.0, preferredTimescale: 600),
+                startTime: CMTimeMakeWithSeconds(20.0, preferredTimescale: 600),
+                endTime: CMTimeMakeWithSeconds(25.0, preferredTimescale: 600),
                 confidence: 0.90,
                 quality: 0.85,
                 detectionCount: 120,
@@ -257,11 +259,9 @@ final class MetadataStoreTests: XCTestCase {
         let initialSize = try FileManager.default.attributesOfItem(atPath: metadataURL.path)[.size] as! Int64
 
         // Create and save updated metadata (this should create a backup)
-        let config = ProcessorConfig() // Create a new config for the updated metadata
-
         let updatedTestMetadata = ProcessingMetadata(
             videoId: testMetadata.videoId,
-            processingConfig: config,
+            processingConfig: ProcessorConfig(),
             rallySegments: testMetadata.rallySegments,
             processingStats: testMetadata.processingStats,
             qualityMetrics: testMetadata.qualityMetrics,

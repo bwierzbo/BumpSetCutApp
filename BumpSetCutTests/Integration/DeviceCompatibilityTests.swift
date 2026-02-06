@@ -93,7 +93,7 @@ final class DeviceCompatibilityTests: XCTestCase {
             for i in 1...concurrentCount {
                 group.addTask {
                     let taskStart = Date()
-                    _ = try await compatibilityExtractor.extractFrame(from: testVideoURL, priority: .normal)
+                    _ = try await compatibilityExtractor.extractFrame(from: self.testVideoURL, priority: .normal)
                     return Date().timeIntervalSince(taskStart)
                 }
             }
@@ -195,15 +195,15 @@ final class DeviceCompatibilityTests: XCTestCase {
     func testOrientationCompatibility() throws {
         print("🧪 Testing orientation compatibility")
 
-        var orientationCallbacks: [(UIDeviceOrientation, Double, PeekDirection?)] = []
+        var orientationCallbacks: [(UIDeviceOrientation, Double, RallyPeekDirection?)] = []
 
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             let currentOrientation = UIDevice.current.orientation
             orientationCallbacks.append((currentOrientation, progress, direction))
         }
 
         // Test different orientation scenarios
-        let orientationTests: [(String, Double, PeekDirection?)] = [
+        let orientationTests: [(String, Double, RallyPeekDirection?)] = [
             ("portrait_peek", 0.4, .next),
             ("landscape_peek", 0.6, .previous),
             ("orientation_reset", 0.0, nil),
@@ -328,7 +328,8 @@ final class DeviceCompatibilityTests: XCTestCase {
 
         print("📊 Memory Pressure Cycle Results:")
         for (cycle, success, message) in pressureCycleResults {
-            print("   Cycle \(cycle): \(success ? "✅" : "❌"} \(message)")
+            let status = success ? "pass" : "FAIL"
+            print("   Cycle \(cycle): \(status) \(message)")
         }
 
         // Verify system remains stable across pressure cycles

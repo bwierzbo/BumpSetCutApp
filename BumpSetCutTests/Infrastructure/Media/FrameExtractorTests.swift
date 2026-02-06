@@ -656,7 +656,7 @@ final class FrameExtractorTests: XCTestCase {
             for i in 1...loadTestIterations {
                 group.addTask {
                     let taskStart = Date()
-                    _ = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
+                    _ = try await self.frameExtractor.extractFrame(from: self.testVideoURL, priority: .normal)
                     return Date().timeIntervalSince(taskStart)
                 }
             }

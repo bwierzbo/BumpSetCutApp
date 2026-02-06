@@ -64,9 +64,9 @@ final class PeekGestureIntegrationTests: XCTestCase {
         workflowEvents.append(("setup_callback", Date(), nil))
 
         var peekProgressValues: [Double] = []
-        var peekDirections: [PeekDirection?] = []
+        var peekDirections: [RallyPeekDirection?] = []
 
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             peekProgressValues.append(progress)
             peekDirections.append(direction)
             workflowEvents.append(("peek_callback", Date(), (progress, direction)))
@@ -76,17 +76,14 @@ final class PeekGestureIntegrationTests: XCTestCase {
         workflowEvents.append(("create_player", Date(), nil))
 
         let videoMetadata = createSampleVideoMetadata(url: testVideoURLs[0])
-        let rallyPlayerView = TikTokRallyPlayerView(
-            videoMetadata: videoMetadata,
-            onPeekProgress: peekCallback
-        )
+        let rallyPlayerView = RallyPlayerView(videoMetadata: videoMetadata)
 
         XCTAssertNotNil(rallyPlayerView, "Rally player should initialize successfully")
 
         // Step 3: Simulate gesture sequence with frame extraction
         workflowEvents.append(("gesture_start", Date(), nil))
 
-        let gestureSequence: [(Double, PeekDirection?, URL?)] = [
+        let gestureSequence: [(Double, RallyPeekDirection?, URL?)] = [
             (0.0, nil, nil),                    // Initial state
             (0.2, .next, testVideoURLs[1]),     // Start peek next
             (0.5, .next, testVideoURLs[1]),     // Continue peek next
@@ -150,10 +147,10 @@ final class PeekGestureIntegrationTests: XCTestCase {
     func testMultiDirectionalPeekFlow() async throws {
         print("🧪 Testing multi-directional peek flow")
 
-        var peekEvents: [(Double, PeekDirection?, String)] = []
+        var peekEvents: [(Double, RallyPeekDirection?, String)] = []
         var extractedFrames: [String: UIImage] = [:]
 
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             let eventDescription = "progress=\(String(format: "%.2f", progress)), direction=\(String(describing: direction))"
             peekEvents.append((progress, direction, eventDescription))
         }
@@ -162,7 +159,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
         let videoMetadata = createSampleVideoMetadata(url: testVideoURLs[0])
 
         // Test complex multi-directional sequence
-        let multiDirectionalSequence: [(Double, PeekDirection?, String)] = [
+        let multiDirectionalSequence: [(Double, RallyPeekDirection?, String)] = [
             (0.0, nil, "initial"),
             (0.3, .next, "peek_next_start"),
             (0.6, .next, "peek_next_continue"),
@@ -222,13 +219,13 @@ final class PeekGestureIntegrationTests: XCTestCase {
     func testPeekCancellationAndRecovery() async throws {
         print("🧪 Testing peek cancellation and recovery patterns")
 
-        var cancellationEvents: [(String, Double, PeekDirection?)] = []
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        var cancellationEvents: [(String, Double, RallyPeekDirection?)] = []
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             cancellationEvents.append(("callback", progress, direction))
         }
 
         // Test various cancellation scenarios
-        let cancellationScenarios: [(String, [(Double, PeekDirection?)])] = [
+        let cancellationScenarios: [(String, [(Double, RallyPeekDirection?)])] = [
             ("quick_cancel", [(0.0, nil), (0.2, .next), (0.0, nil)]),
             ("mid_cancel", [(0.0, nil), (0.5, .previous), (0.0, nil)]),
             ("peak_cancel", [(0.0, nil), (0.8, .next), (0.0, nil)]),
@@ -292,7 +289,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
         var performanceMetrics: [(String, TimeInterval)] = []
         let loadTestIterations = 10
 
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             // Minimal callback processing for performance test
         }
 
@@ -302,7 +299,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
             let iterationStart = Date()
 
             // Simulate intensive peek sequence
-            let intensiveSequence: [(Double, PeekDirection?)] = [
+            let intensiveSequence: [(Double, RallyPeekDirection?)] = [
                 (0.1, .next), (0.3, .next), (0.5, .next), (0.7, .next), (0.9, .next),
                 (0.7, .next), (0.5, .next), (0.3, .next), (0.1, .next), (0.0, nil)
             ]
@@ -362,7 +359,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
         frameExtractor.clearCache()
 
         var cacheMetrics: [(String, TimeInterval, Bool)] = []
-        let peekCallback: (Double, PeekDirection?) -> Void = { _, _ in }
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { _, _ in }
 
         // First pass: Cache misses
         for i in 0..<testVideoURLs.count {
@@ -428,7 +425,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
         print("🧪 Testing error recovery in integrated workflow")
 
         var errorRecoveryEvents: [(String, Date)] = []
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             errorRecoveryEvents.append(("peek_callback", Date()))
         }
 
@@ -436,7 +433,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
         let invalidURL = URL(fileURLWithPath: "/nonexistent/error_test.mp4")
 
         // Test error recovery sequence
-        let recoverySequence: [(String, URL?, Double, PeekDirection?)] = [
+        let recoverySequence: [(String, URL?, Double, RallyPeekDirection?)] = [
             ("valid_start", testVideoURLs[0], 0.3, .next),
             ("error_case", invalidURL, 0.5, .next),
             ("recovery_1", testVideoURLs[1], 0.4, .previous),
@@ -496,16 +493,12 @@ final class PeekGestureIntegrationTests: XCTestCase {
 
     private func createSampleVideoMetadata(url: URL) -> VideoMetadata {
         return VideoMetadata(
-            id: UUID(),
-            filename: url.lastPathComponent,
-            url: url,
-            createdAt: Date(),
-            fileSize: 1024 * 1024,
-            duration: 30.0,
-            thumbnail: nil,
-            isProcessed: false,
-            originalVideoId: nil,
-            processedVideoIds: []
+            fileName: url.lastPathComponent,
+            customName: "Test Video",
+            folderPath: "",
+            createdDate: Date(),
+            fileSize: Int64(1024 * 1024),
+            duration: 30.0
         )
     }
 

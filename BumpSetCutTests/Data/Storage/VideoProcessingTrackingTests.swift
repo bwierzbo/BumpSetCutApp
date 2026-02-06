@@ -8,22 +8,23 @@
 import XCTest
 @testable import BumpSetCut
 
+@MainActor
 final class VideoProcessingTrackingTests: XCTestCase {
-    
+
     var mediaStore: MediaStore!
     var tempDirectory: URL!
-    
+
     override func setUp() {
         super.setUp()
-        
-        // Create a temporary directory for testing
+
+        // Create a temporary directory for test files
         tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try! FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-        
-        // Initialize MediaStore with temp directory
-        mediaStore = MediaStore(baseDirectory: tempDirectory)
+
+        // Initialize MediaStore (uses its own persistent storage)
+        mediaStore = MediaStore()
     }
-    
+
     override func tearDown() {
         // Clean up temp directory
         try? FileManager.default.removeItem(at: tempDirectory)

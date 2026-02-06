@@ -10,6 +10,7 @@ import SwiftUI
 import AVFoundation
 @testable import BumpSetCut
 
+@MainActor
 final class RallyPlayerViewTests: XCTestCase {
 
     var metadataStore: MetadataStore!

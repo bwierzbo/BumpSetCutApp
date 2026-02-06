@@ -1,5 +1,5 @@
 //
-//  TikTokRallyPlayerViewTests.swift
+//  RallyPlayerViewTests.swift
 //  BumpSetCutTests
 //
 //  Created for Issue #45 - Testing and Quality Assurance
@@ -12,7 +12,7 @@ import AVFoundation
 @testable import BumpSetCut
 
 @MainActor
-final class TikTokRallyPlayerViewTests: XCTestCase {
+final class RallyPlayerGestureTests: XCTestCase {
 
     var metadataStore: MetadataStore!
     var frameExtractor: FrameExtractor!
@@ -33,7 +33,7 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
         // Create test video URL
         testVideoURL = try createTestVideoFile()
 
-        print("TikTokRallyPlayerViewTests: Setup completed")
+        print("RallyPlayerViewTests: Setup completed")
     }
 
     override func tearDownWithError() throws {
@@ -58,10 +58,10 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
         print("🧪 Testing peek progress callback invocation")
 
         var receivedProgress: Double?
-        var receivedDirection: PeekDirection?
+        var receivedDirection: RallyPeekDirection?
         var callbackCount = 0
 
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             receivedProgress = progress
             receivedDirection = direction
             callbackCount += 1
@@ -71,13 +71,9 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
         // Create video metadata for testing
         let videoMetadata = createSampleVideoMetadata()
 
-        // Verify callback initialization
-        let rallyPlayerView = TikTokRallyPlayerView(
-            videoMetadata: videoMetadata,
-            onPeekProgress: peekCallback
-        )
-
-        XCTAssertNotNil(rallyPlayerView, "TikTokRallyPlayerView should initialize with peek callback")
+        // Verify view initialization
+        let rallyPlayerView = RallyPlayerView(videoMetadata: videoMetadata)
+        XCTAssertNotNil(rallyPlayerView, "RallyPlayerView should initialize")
 
         // Simulate callback invocation (since we can't easily test SwiftUI gestures directly)
         peekCallback(0.5, .next)
@@ -104,15 +100,15 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
         print("🧪 Testing peek progress value validation")
 
         var progressValues: [Double] = []
-        var directionValues: [PeekDirection?] = []
+        var directionValues: [RallyPeekDirection?] = []
 
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             progressValues.append(progress)
             directionValues.append(direction)
         }
 
         // Test boundary values
-        let testCases: [(Double, PeekDirection?)] = [
+        let testCases: [(Double, RallyPeekDirection?)] = [
             (0.0, nil),           // Reset
             (0.1, .next),         // Low progress
             (0.5, .previous),     // Mid progress
@@ -142,7 +138,7 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
         print("🧪 Testing callback invocation frequency patterns")
 
         var invocationTimes: [Date] = []
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             invocationTimes.append(Date())
         }
 
@@ -175,13 +171,13 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
     func testGestureStateTransitions() throws {
         print("🧪 Testing gesture state transitions")
 
-        var stateTransitions: [(Double, PeekDirection?)] = []
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        var stateTransitions: [(Double, RallyPeekDirection?)] = []
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             stateTransitions.append((progress, direction))
         }
 
         // Simulate gesture state machine
-        let gestureStates: [(Double, PeekDirection?, String)] = [
+        let gestureStates: [(Double, RallyPeekDirection?, String)] = [
             (0.0, nil, "Initial state"),
             (0.2, .next, "Gesture start"),
             (0.4, .next, "Gesture progress"),
@@ -206,18 +202,18 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
         print("✅ Gesture state transitions validated")
     }
 
-    func testPeekDirectionHandling() throws {
+    func testRallyPeekDirectionHandling() throws {
         print("🧪 Testing peek direction handling")
 
-        var directionCounts: [PeekDirection: Int] = [:]
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        var directionCounts: [RallyPeekDirection: Int] = [:]
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             if let direction = direction {
                 directionCounts[direction, default: 0] += 1
             }
         }
 
         // Test both directions with various progress values
-        let directionalTests: [(Double, PeekDirection)] = [
+        let directionalTests: [(Double, RallyPeekDirection)] = [
             (0.1, .next), (0.3, .next), (0.5, .next),
             (0.2, .previous), (0.4, .previous), (0.6, .previous),
             (0.8, .next), (0.9, .previous)
@@ -242,29 +238,27 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
         var extractionRequests: [URL] = []
         var callbackProgress: [Double] = []
 
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             callbackProgress.append(progress)
             print("📞 Peek progress: \(progress) for \(String(describing: direction))")
         }
 
         // Simulate frame extraction triggered by peek progress
         let videoMetadata = createSampleVideoMetadata()
-        let rallyPlayerView = TikTokRallyPlayerView(
-            videoMetadata: videoMetadata,
-            onPeekProgress: peekCallback
-        )
+        let rallyPlayerView = RallyPlayerView(videoMetadata: videoMetadata)
+        XCTAssertNotNil(rallyPlayerView)
 
         // Test frame extraction for different videos
-        let testURLs = [testVideoURL, testVideoURL] // Same URL for cache testing
+        let testURLs = [testVideoURL!, testVideoURL!] // Same URL for cache testing
 
         for url in testURLs {
             do {
                 let frame = try await frameExtractor.extractFrame(from: url, priority: .high)
                 extractionRequests.append(url)
                 XCTAssertNotNil(frame, "Frame extraction should succeed")
-                print("✅ Frame extracted: \(frame.size)")
+                print("Frame extracted: \(frame.size)")
             } catch {
-                print("⚠️ Frame extraction failed: \(error)")
+                print("Frame extraction failed: \(error)")
             }
         }
 
@@ -385,13 +379,13 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
     func testGestureCancellationHandling() throws {
         print("🧪 Testing gesture cancellation handling")
 
-        var gestureEvents: [(String, Double, PeekDirection?)] = []
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        var gestureEvents: [(String, Double, RallyPeekDirection?)] = []
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             gestureEvents.append(("callback", progress, direction))
         }
 
         // Simulate gesture cancellation sequence
-        let gestureSequence: [(String, Double, PeekDirection?)] = [
+        let gestureSequence: [(String, Double, RallyPeekDirection?)] = [
             ("start", 0.0, nil),
             ("progress", 0.3, .next),
             ("continue", 0.6, .next),
@@ -417,7 +411,7 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
         let invalidURL = URL(fileURLWithPath: "/nonexistent/invalid.mp4")
         var callbackInvoked = false
 
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             callbackInvoked = true
             print("📞 Callback during invalid video test: \(progress)")
         }
@@ -442,16 +436,12 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
 
     private func createSampleVideoMetadata() -> VideoMetadata {
         return VideoMetadata(
-            id: UUID(),
-            filename: "test_video.mp4",
-            url: testVideoURL,
-            createdAt: Date(),
-            fileSize: 1024 * 1024,
-            duration: 30.0,
-            thumbnail: nil,
-            isProcessed: false,
-            originalVideoId: nil,
-            processedVideoIds: []
+            fileName: "test_video.mp4",
+            customName: "Test Video",
+            folderPath: "",
+            createdDate: Date(),
+            fileSize: Int64(1024 * 1024),
+            duration: 30.0
         )
     }
 
@@ -466,10 +456,10 @@ final class TikTokRallyPlayerViewTests: XCTestCase {
     }
 }
 
-// MARK: - PeekDirection Extension for Testing
+// MARK: - RallyPeekDirection Extension for Testing
 
-extension PeekDirection: Equatable {
-    public static func == (lhs: PeekDirection, rhs: PeekDirection) -> Bool {
+extension RallyPeekDirection: Equatable {
+    public static func == (lhs: RallyPeekDirection, rhs: RallyPeekDirection) -> Bool {
         switch (lhs, rhs) {
         case (.next, .next), (.previous, .previous):
             return true

@@ -239,8 +239,8 @@ final class PeekEdgeCaseTests: XCTestCase {
         }
 
         // Test delayed cancellation
+        let cancellationStart = Date()
         do {
-            let cancellationStart = Date()
             let extractionTask = Task {
                 try await frameExtractor.extractFrame(from: testVideoURL, priority: .low)
             }
@@ -308,13 +308,13 @@ final class PeekEdgeCaseTests: XCTestCase {
     func testPeekGestureCancellationPatterns() throws {
         print("🧪 Testing peek gesture cancellation patterns")
 
-        var gestureEvents: [(String, Double, PeekDirection?)] = []
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        var gestureEvents: [(String, Double, RallyPeekDirection?)] = []
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             gestureEvents.append(("callback", progress, direction))
         }
 
         // Test various cancellation patterns
-        let cancellationPatterns: [(String, [(Double, PeekDirection?)])] = [
+        let cancellationPatterns: [(String, [(Double, RallyPeekDirection?)])] = [
             ("abrupt_cancel", [
                 (0.0, nil), (0.3, .next), (0.0, nil)
             ]),
@@ -361,7 +361,9 @@ final class PeekEdgeCaseTests: XCTestCase {
         print("   Total gesture events: \(gestureEvents.count)")
 
         // Verify all patterns ended properly
-        let resetEvents = gestureEvents.filter { $0.1 == 0.0 && $0.2 == nil }
+        let resetEvents = gestureEvents.filter { (event: (String, Double, RallyPeekDirection?)) -> Bool in
+            event.1 == 0.0 && event.2 == nil
+        }
         XCTAssertGreaterThanOrEqual(resetEvents.count, cancellationPatterns.count, "Each pattern should have reset events")
 
         print("✅ Peek gesture cancellation patterns validated")

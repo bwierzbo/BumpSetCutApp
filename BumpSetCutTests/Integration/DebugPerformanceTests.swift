@@ -10,6 +10,7 @@ import AVFoundation
 import CoreMedia
 @testable import BumpSetCut
 
+@MainActor
 final class DebugPerformanceTests: XCTestCase {
     
     var videoProcessor: VideoProcessor!
@@ -37,7 +38,7 @@ final class DebugPerformanceTests: XCTestCase {
         
         // Measure normal processing time
         let normalStartTime = CFAbsoluteTimeGetCurrent()
-        let normalResult = try await videoProcessor.processVideo(testVideoURL)
+        let normalResult = try await videoProcessor.processVideo(testVideoURL, videoId: UUID())
         let normalProcessingTime = CFAbsoluteTimeGetCurrent() - normalStartTime
         
         // Measure debug mode processing time  
@@ -66,9 +67,8 @@ final class DebugPerformanceTests: XCTestCase {
         print("  Overhead: \(String(format: "%.2f", overhead * 100))%")
         
         // Clean up
-        try FileManager.default.removeItem(at: normalResult)
-        try FileManager.default.removeItem(at: debugResult)
-        try FileManager.default.removeItem(at: testVideoURL)
+        try? FileManager.default.removeItem(at: debugResult)
+        try? FileManager.default.removeItem(at: testVideoURL)
     }
     
     func testMemoryUsageDuringDebugCollection() async throws {
@@ -87,7 +87,7 @@ final class DebugPerformanceTests: XCTestCase {
             let memoryIncrease = currentMemory - initialMemory
             
             // Memory increase should be reasonable (allow for some accumulation)
-            let maxAllowedIncrease = 50 * 1024 * 1024 * (i + 1) // 50MB per video
+            let maxAllowedIncrease = Int64(50 * 1024 * 1024) * Int64(i + 1) // 50MB per video
             XCTAssertLessThan(memoryIncrease, maxAllowedIncrease,
                              "Memory increase too high after video \(i + 1): \(memoryIncrease) bytes")
         }
@@ -342,7 +342,7 @@ final class DebugPerformanceTests: XCTestCase {
     }
     
     private func createTestClassificationResult() -> MovementClassification {
-        let details = MovementClassification.ClassificationDetails(
+        let details = ClassificationDetails(
             velocityConsistency: Double.random(in: 0.0...1.0),
             accelerationPattern: Double.random(in: 0.0...1.0),
             smoothnessScore: Double.random(in: 0.0...1.0),
@@ -350,7 +350,7 @@ final class DebugPerformanceTests: XCTestCase {
             timeSpan: Double.random(in: 0.1...2.0)
         )
         
-        let movements: [MovementClassification.MovementType] = [.airborne, .ground, .served]
+        let movements: [MovementType] = [.airborne, .carried, .rolling]
         
         return MovementClassification(
             movementType: movements.randomElement() ?? .airborne,

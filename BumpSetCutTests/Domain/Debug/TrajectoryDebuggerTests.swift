@@ -10,6 +10,7 @@ import CoreGraphics
 import CoreMedia
 @testable import BumpSetCut
 
+@MainActor
 final class TrajectoryDebuggerTests: XCTestCase {
     
     var debugger: TrajectoryDebugger!
@@ -302,7 +303,7 @@ final class TrajectoryDebuggerTests: XCTestCase {
     }
     
     private func createTestClassificationResult() -> MovementClassification {
-        let details = MovementClassification.ClassificationDetails(
+        let details = ClassificationDetails(
             velocityConsistency: 0.3,
             accelerationPattern: 0.8,
             smoothnessScore: 0.9,

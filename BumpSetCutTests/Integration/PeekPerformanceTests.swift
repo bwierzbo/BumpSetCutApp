@@ -146,7 +146,7 @@ final class PeekPerformanceTests: XCTestCase {
             for i in 1...concurrentCount {
                 group.addTask {
                     let taskStart = Date()
-                    let frame = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
+                    let frame = try await self.frameExtractor.extractFrame(from: self.testVideoURL, priority: .normal)
                     let taskTime = Date().timeIntervalSince(taskStart)
                     return (i, taskTime, frame.size)
                 }
@@ -315,7 +315,7 @@ final class PeekPerformanceTests: XCTestCase {
 
             // Simulate peek progress calculation (lightweight operation)
             let progress = Double(frame) / Double(testFrames)
-            let direction: PeekDirection = frame % 2 == 0 ? .next : .previous
+            let direction: RallyPeekDirection = frame % 2 == 0 ? .next : .previous
 
             // Simulate UI update work
             let scale = 0.85 + (progress * 0.15)
@@ -349,7 +349,7 @@ final class PeekPerformanceTests: XCTestCase {
         var callbackTimes: [TimeInterval] = []
         let gestureCount = 20
 
-        let peekCallback: (Double, PeekDirection?) -> Void = { progress, direction in
+        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             // Simulate callback processing time
             let callbackStart = Date()
 
@@ -365,7 +365,7 @@ final class PeekPerformanceTests: XCTestCase {
         let gestureStart = Date()
         for i in 0..<gestureCount {
             let progress = Double(i) / Double(gestureCount - 1)
-            let direction: PeekDirection = i % 3 == 0 ? .next : .previous
+            let direction: RallyPeekDirection = i % 3 == 0 ? .next : .previous
 
             peekCallback(progress, direction)
         }
@@ -408,7 +408,7 @@ final class PeekPerformanceTests: XCTestCase {
             for i in 1...3 {
                 group.addTask {
                     let start = Date()
-                    _ = try await lowEndExtractor.extractFrame(from: testVideoURL, priority: .low)
+                    _ = try await lowEndExtractor.extractFrame(from: self.testVideoURL, priority: .low)
                     return Date().timeIntervalSince(start)
                 }
             }
@@ -448,7 +448,7 @@ final class PeekPerformanceTests: XCTestCase {
             for i in 1...5 {
                 group.addTask {
                     let start = Date()
-                    _ = try await highEndExtractor.extractFrame(from: testVideoURL, priority: .high)
+                    _ = try await highEndExtractor.extractFrame(from: self.testVideoURL, priority: .high)
                     return Date().timeIntervalSince(start)
                 }
             }

@@ -52,9 +52,9 @@ final class LibraryIntegrationTests: XCTestCase {
         
         // 1. Create folder structure
         print("1. Creating folder structure...")
-        let rootFolder = folderManager.createFolder(name: "Volleyball", parentPath: "")
-        let practiceFolder = folderManager.createFolder(name: "Practice", parentPath: "Volleyball")
-        let gamesFolder = folderManager.createFolder(name: "Games", parentPath: "Volleyball")
+        let rootFolder = mediaStore.createFolder(name: "Volleyball", parentPath: "")
+        let practiceFolder = mediaStore.createFolder(name: "Practice", parentPath: "Volleyball")
+        let gamesFolder = mediaStore.createFolder(name: "Games", parentPath: "Volleyball")
         
         XCTAssertNotNil(rootFolder)
         XCTAssertNotNil(practiceFolder)
@@ -141,7 +141,7 @@ final class LibraryIntegrationTests: XCTestCase {
         ]
         
         for (name, parentPath) in folders {
-            let folder = folderManager.createFolder(name: name, parentPath: parentPath)
+            let folder = mediaStore.createFolder(name: name, parentPath: parentPath)
             XCTAssertNotNil(folder, "Failed to create folder: \(name) at \(parentPath)")
         }
         print("✅ Complex folder structure created")
@@ -204,7 +204,7 @@ final class LibraryIntegrationTests: XCTestCase {
         
         // Create initial data
         print("1. Setting up initial data...")
-        let folder = folderManager.createFolder(name: "DataTest", parentPath: "")
+        let folder = mediaStore.createFolder(name: "DataTest", parentPath: "")
         XCTAssertNotNil(folder)
         
         let testURLs = createTestVideoURLs(count: 3)
@@ -221,7 +221,7 @@ final class LibraryIntegrationTests: XCTestCase {
         
         // Test operations maintain consistency
         print("2. Testing move operation consistency...")
-        let subfolder = folderManager.createFolder(name: "Moved", parentPath: "DataTest")
+        let subfolder = mediaStore.createFolder(name: "Moved", parentPath: "DataTest")
         XCTAssertNotNil(subfolder)
         
         let videoToMove = folderManager.videos.first!
@@ -292,11 +292,11 @@ final class LibraryIntegrationTests: XCTestCase {
         for folderPath in folderStructure {
             let pathComponents = folderPath.split(separator: "/")
             if pathComponents.count == 1 {
-                folderManager.createFolder(name: String(pathComponents[0]), parentPath: "")
+                mediaStore.createFolder(name: String(pathComponents[0]), parentPath: "")
             } else {
                 let parentPath = pathComponents.dropLast().joined(separator: "/")
                 let folderName = String(pathComponents.last!)
-                folderManager.createFolder(name: folderName, parentPath: parentPath)
+                mediaStore.createFolder(name: folderName, parentPath: parentPath)
             }
         }
         
@@ -374,11 +374,11 @@ final class LibraryIntegrationTests: XCTestCase {
         print("1. Testing invalid folder operations...")
         
         // Try to create folder with empty name
-        let emptyNameFolder = folderManager.createFolder(name: "", parentPath: "")
+        let emptyNameFolder = mediaStore.createFolder(name: "", parentPath: "")
         XCTAssertNil(emptyNameFolder, "Should not create folder with empty name")
         
         // Try to create folder with invalid characters
-        let invalidCharFolder = folderManager.createFolder(name: "Test/Folder", parentPath: "")
+        let invalidCharFolder = mediaStore.createFolder(name: "Test/Folder", parentPath: "")
         XCTAssertNil(invalidCharFolder, "Should not create folder with invalid characters")
         
         // Try to navigate to non-existent folder
@@ -391,7 +391,7 @@ final class LibraryIntegrationTests: XCTestCase {
         print("2. Testing video operations with edge cases...")
         
         // Create a valid folder first
-        let testFolder = folderManager.createFolder(name: "ErrorTest", parentPath: "")
+        let testFolder = mediaStore.createFolder(name: "ErrorTest", parentPath: "")
         XCTAssertNotNil(testFolder)
         
         // Test with non-existent file

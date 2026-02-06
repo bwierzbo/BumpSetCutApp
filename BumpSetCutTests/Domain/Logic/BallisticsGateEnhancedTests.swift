@@ -542,7 +542,8 @@ final class BallisticsGateEnhancedTests: XCTestCase {
         )
         
         // Introduce non-parabolic distortion
-        return basePositions.enumerated().map { index, (position, time) in
+        return basePositions.enumerated().map { index, element in
+            let (position, time) = element
             let t = Double(index) * timeStep
             let distortion = sin(t * 5.0) * Double(distortionFactor) // Sinusoidal distortion
             let distortedY = position.y + CGFloat(distortion)
