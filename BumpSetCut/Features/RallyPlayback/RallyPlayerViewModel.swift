@@ -159,6 +159,9 @@ final class RallyPlayerViewModel {
             let metadata = try metadataStore.loadMetadata(for: videoMetadata.id)
             processingMetadata = metadata
 
+            // Restore any previously saved trim adjustments
+            trimAdjustments = metadataStore.loadTrimAdjustments(for: videoMetadata.id)
+
             // Load actual video duration from the asset
             let asset = AVURLAsset(url: videoMetadata.originalURL)
             actualVideoDuration = try await CMTimeGetSeconds(asset.load(.duration))
@@ -191,8 +194,8 @@ final class RallyPlayerViewModel {
                 playerCache.setCurrentPlayer(for: url)
                 seekToCurrentRallyStart()  // Seek initial video to rally start
 
-                // Preload ALL videos upfront for seamless transitions
-                await preloadAllVideos()
+                // Preload initial window (current +/- 2) for seamless transitions
+                await preloadWindowedVideos()
 
                 // Now everything is ready - show the UI
                 loadingState = .loaded
@@ -309,7 +312,7 @@ final class RallyPlayerViewModel {
 
         updateVisibleStack()
 
-        // Setup player (already preloaded and seeked from initial load)
+        // Setup player (preloaded from sliding window)
         playerCache.setCurrentPlayer(for: url)
         seekToCurrentRallyStart()
         setupRallyLooping()
@@ -320,6 +323,9 @@ final class RallyPlayerViewModel {
             try? await Task.sleep(nanoseconds: 100_000_000)  // 0.1s
 
             playerCache.play()
+
+            // Preload adjacent players and evict distant ones
+            await preloadAdjacent()
 
             // Wait for slide animation to complete (spring response 0.4 + settling)
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s more (0.6s total)
@@ -340,52 +346,70 @@ final class RallyPlayerViewModel {
         case up, down
     }
 
-    private func preloadAllVideos() async {
+    /// Indices for the sliding player window: current +/- 2 (max 5 players)
+    private func playerWindowIndices() -> [Int] {
+        let windowRadius = 2
+        let lo = max(0, currentRallyIndex - windowRadius)
+        let hi = min(rallyVideoURLs.count - 1, currentRallyIndex + windowRadius)
+        guard lo <= hi else { return [] }
+        return Array(lo...hi)
+    }
+
+    /// URLs that should be kept in the player cache right now
+    private func playerWindowURLs() -> Set<URL> {
+        var urls = Set(playerWindowIndices().map { rallyVideoURLs[$0] })
+        if let prev = previousRallyIndex, prev < rallyVideoURLs.count {
+            urls.insert(rallyVideoURLs[prev])
+        }
+        return urls
+    }
+
+    private func preloadWindowedVideos() async {
         guard let metadata = processingMetadata else { return }
 
-        // Preload ALL video players upfront
-        playerCache.preloadPlayers(for: rallyVideoURLs)
+        let windowIndices = playerWindowIndices()
+        let windowURLs = windowIndices.map { rallyVideoURLs[$0] }
+
+        // Create players for the initial window only
+        playerCache.preloadPlayers(for: windowURLs)
 
         // Seek each player to its rally start time and wait for ready
-        for (index, url) in rallyVideoURLs.enumerated() {
+        for index in windowIndices {
             guard index < metadata.rallySegments.count else { continue }
+            let url = rallyVideoURLs[index]
             let segment = metadata.rallySegments[index]
 
-            // Seek and wait for completion
             await playerCache.seekAsync(url: url, to: segment.startCMTime)
-
-            // Wait for player to buffer (with timeout)
             let _ = await playerCache.waitForPlayerReady(for: url, timeout: 5.0)
         }
 
-        // Preload all thumbnails for background cards
+        // Preload thumbnails for all rallies (thumbnails are cheap)
         thumbnailCache.preloadThumbnails(for: rallyVideoURLs)
     }
 
     private func preloadAdjacent() async {
-        // Preload video players for adjacent rallies (TikTok-style smooth transitions)
-        playerCache.preloadAdjacentRallies(currentIndex: currentRallyIndex, urls: rallyVideoURLs)
-
-        // Pre-seek adjacent players to their rally start times and WAIT for completion
         guard let metadata = processingMetadata else { return }
 
-        // Seek next rally and wait
-        if currentRallyIndex + 1 < rallyVideoURLs.count && currentRallyIndex + 1 < metadata.rallySegments.count {
-            let nextURL = rallyVideoURLs[currentRallyIndex + 1]
-            let nextSegment = metadata.rallySegments[currentRallyIndex + 1]
-            await playerCache.seekAsync(url: nextURL, to: nextSegment.startCMTime)
+        let windowIndices = playerWindowIndices()
+        let windowURLs = windowIndices.map { rallyVideoURLs[$0] }
+
+        // Preload players for the current window
+        playerCache.preloadPlayers(for: windowURLs)
+
+        // Evict players outside the window to cap memory
+        playerCache.enforceCacheLimit(keeping: playerWindowURLs())
+
+        // Pre-seek adjacent players to their rally start times
+        for index in windowIndices where index != currentRallyIndex {
+            guard index < metadata.rallySegments.count else { continue }
+            let url = rallyVideoURLs[index]
+            let segment = metadata.rallySegments[index]
+            await playerCache.seekAsync(url: url, to: segment.startCMTime)
         }
 
-        // Seek previous rally and wait
-        if currentRallyIndex > 0 && currentRallyIndex - 1 < metadata.rallySegments.count {
-            let prevURL = rallyVideoURLs[currentRallyIndex - 1]
-            let prevSegment = metadata.rallySegments[currentRallyIndex - 1]
-            await playerCache.seekAsync(url: prevURL, to: prevSegment.startCMTime)
-        }
-
-        // Preload thumbnails for all visible stack cards (background cards use thumbnails)
+        // Preload thumbnails for visible stack cards
         let urlsToPreload = visibleCardIndices
-            .filter { $0 != currentRallyIndex }  // Exclude current (uses video player)
+            .filter { $0 != currentRallyIndex }
             .compactMap { index -> URL? in
                 guard index < rallyVideoURLs.count else { return nil }
                 return rallyVideoURLs[index]
@@ -461,6 +485,9 @@ final class RallyPlayerViewModel {
                 seekToCurrentRallyStart()
                 setupRallyLooping()
                 playerCache.play()
+
+                // Preload adjacent players and evict distant ones
+                await preloadAdjacent()
             } else {
                 // Last rally reviewed — show export options
                 playerCache.pause()
@@ -612,6 +639,10 @@ final class RallyPlayerViewModel {
         trimAdjustments[currentRallyIndex] = RallyTrimAdjustment(
             before: currentTrimBefore, after: currentTrimAfter
         )
+
+        // Persist to disk so trims survive dismissal / app relaunch
+        try? metadataStore.saveTrimAdjustments(trimAdjustments, for: videoMetadata.id)
+
         isTrimmingMode = false
         seekToCurrentRallyStart()
         setupRallyLooping()

@@ -12,7 +12,7 @@ final class RallyPlayerCache: ObservableObject {
     private var players: [URL: AVPlayer] = [:]
     private var notificationObservers: [URL: NSObjectProtocol] = [:]
     private var playerCreationOrder: [URL] = []
-    // No limit - cache ALL rally videos for instant transitions
+    private let maxCachedPlayers = 5  // Sliding window: current +/- 2
 
     // MARK: - Player Management
 
@@ -133,6 +133,20 @@ final class RallyPlayerCache: ObservableObject {
         preloadPlayers(for: urlsToPreload)
     }
 
+    // MARK: - Cache Window Management
+
+    /// Evict players outside the keep set to stay within maxCachedPlayers.
+    /// `urlsToKeep` should include current +/- 2 rally URLs.
+    func enforceCacheLimit(keeping urlsToKeep: Set<URL>) {
+        let keepSet = urlsToKeep
+        // Evict players not in the keep set, oldest first
+        let urlsToEvict = playerCreationOrder.filter { !keepSet.contains($0) }
+        for url in urlsToEvict {
+            guard players.count > maxCachedPlayers else { break }
+            removePlayer(for: url)
+        }
+    }
+
     // MARK: - Buffer State
 
     /// Check if player is ready to play without buffering
@@ -226,8 +240,4 @@ final class RallyPlayerCache: ObservableObject {
         isPlaying = false
     }
 
-    private func evictOldestPlayer() {
-        guard let oldestURL = playerCreationOrder.first else { return }
-        removePlayer(for: oldestURL)
-    }
 }
