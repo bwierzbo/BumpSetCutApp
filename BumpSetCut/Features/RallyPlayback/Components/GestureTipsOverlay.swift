@@ -63,6 +63,25 @@ struct GestureTipsOverlay: View {
                 }
                 .frame(height: 200)
 
+                // Hold to trim hint
+                HStack(spacing: 8) {
+                    Image(systemName: "hand.tap.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Hold to Trim")
+                        .font(.system(size: 13, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.bscOrange.opacity(0.25))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color.bscOrange.opacity(0.4), lineWidth: 1)
+                )
+                .opacity(showingContent ? 1 : 0)
+                .offset(y: showingContent ? 0 : 10)
+
                 // Dismiss hint
                 Text("Tap anywhere to continue")
                     .font(.system(size: 15))

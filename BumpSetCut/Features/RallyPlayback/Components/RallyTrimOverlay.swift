@@ -36,10 +36,9 @@ struct RallyTrimOverlay: View {
 
     var body: some View {
         ZStack {
-            // Dim backdrop
+            // Dim backdrop (no tap-to-cancel — use Cancel button)
             Color.black.opacity(0.6)
                 .ignoresSafeArea()
-                .onTapGesture { onCancel() }
 
             VStack(spacing: 0) {
                 Spacer()
@@ -108,14 +107,14 @@ struct RallyTrimOverlay: View {
             .offset(x: leftX + handleWidth)
             .allowsHitTesting(false)
 
-            // 5. Left handle
+            // 5. Left handle (offset accounts for hit padding)
             trimHandle(isLeft: true)
-                .offset(x: leftX)
+                .offset(x: leftX - handleHitPadding)
                 .gesture(leftHandleDrag(totalWidth: totalWidth))
 
-            // 6. Right handle
+            // 6. Right handle (offset accounts for hit padding)
             trimHandle(isLeft: false)
-                .offset(x: rightX - handleWidth)
+                .offset(x: rightX - handleWidth - handleHitPadding)
                 .gesture(rightHandleDrag(totalWidth: totalWidth))
         }
         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm))
@@ -145,27 +144,38 @@ struct RallyTrimOverlay: View {
 
     // MARK: - Handle
 
+    private let handleHitPadding: CGFloat = 12  // Extra hit area on each side
+
     @ViewBuilder
     private func trimHandle(isLeft: Bool) -> some View {
-        UnevenRoundedRectangle(
-            topLeadingRadius: isLeft ? BSCRadius.sm : 0,
-            bottomLeadingRadius: isLeft ? BSCRadius.sm : 0,
-            bottomTrailingRadius: isLeft ? 0 : BSCRadius.sm,
-            topTrailingRadius: isLeft ? 0 : BSCRadius.sm
-        )
-        .fill(Color.bscOrange)
-        .frame(width: handleWidth, height: barHeight)
-        .overlay(
-            Image(systemName: isLeft ? "chevron.compact.left" : "chevron.compact.right")
-                .font(.system(size: 15, weight: .heavy))
-                .foregroundColor(.white)
-        )
+        ZStack {
+            // Invisible wider hit area
+            Color.clear
+                .frame(width: handleWidth + handleHitPadding * 2, height: barHeight)
+                .contentShape(Rectangle())
+
+            // Visible handle
+            UnevenRoundedRectangle(
+                topLeadingRadius: isLeft ? BSCRadius.sm : 0,
+                bottomLeadingRadius: isLeft ? BSCRadius.sm : 0,
+                bottomTrailingRadius: isLeft ? 0 : BSCRadius.sm,
+                topTrailingRadius: isLeft ? 0 : BSCRadius.sm
+            )
+            .fill(Color.bscOrange)
+            .frame(width: handleWidth, height: barHeight)
+            .overlay(
+                Image(systemName: isLeft ? "chevron.compact.left" : "chevron.compact.right")
+                    .font(.system(size: 15, weight: .heavy))
+                    .foregroundColor(.white)
+            )
+            .allowsHitTesting(false)
+        }
     }
 
     // MARK: - Gestures
 
     private func leftHandleDrag(totalWidth: CGFloat) -> some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 1)
             .onChanged { value in
                 if leftDragBase == nil { leftDragBase = trimBefore }
                 let baseX = xForTime(rallyStartTime - (leftDragBase ?? 0), in: totalWidth)
@@ -178,7 +188,7 @@ struct RallyTrimOverlay: View {
     }
 
     private func rightHandleDrag(totalWidth: CGFloat) -> some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 1)
             .onChanged { value in
                 if rightDragBase == nil { rightDragBase = trimAfter }
                 let baseX = xForTime(rallyEndTime + (rightDragBase ?? 0), in: totalWidth)

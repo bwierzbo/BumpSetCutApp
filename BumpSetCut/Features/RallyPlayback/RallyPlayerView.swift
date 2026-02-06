@@ -280,25 +280,27 @@ struct RallyPlayerView: View {
                     return
                 }
 
-                let actionThreshold: CGFloat = 120
+                let actionThreshold: CGFloat = 100
                 let horizontalOffset = viewModel.dragOffset.width
                 let horizontalVelocity = value.velocity.width
+                let dragWidth = viewModel.dragOffset.width
 
-                // Horizontal actions only
-                if abs(horizontalVelocity) > 300 || abs(horizontalOffset) > actionThreshold {
-                    if horizontalOffset < -actionThreshold {
-                        viewModel.performAction(.remove, direction: .left)
-                        viewModel.dragOffset = .zero
+                // Velocity-based or distance-based trigger
+                let triggeredByVelocity = abs(horizontalVelocity) > 200
+                let triggeredByDistance = abs(horizontalOffset) > actionThreshold
+
+                if triggeredByVelocity || triggeredByDistance {
+                    if horizontalOffset < 0 || (triggeredByVelocity && horizontalVelocity < -200) {
+                        viewModel.performAction(.remove, direction: .left, fromDragOffset: dragWidth)
                         return
-                    } else if horizontalOffset > actionThreshold {
-                        viewModel.performAction(.save, direction: .right)
-                        viewModel.dragOffset = .zero
+                    } else if horizontalOffset > 0 || (triggeredByVelocity && horizontalVelocity > 200) {
+                        viewModel.performAction(.save, direction: .right, fromDragOffset: dragWidth)
                         return
                     }
                 }
 
                 // No action - animate back to center
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                withAnimation(.interpolatingSpring(stiffness: 300, damping: 25)) {
                     viewModel.dragOffset = .zero
                 }
             }
@@ -404,8 +406,8 @@ struct TopCardDragModifier: ViewModifier {
     }
 
     private var dragRotation: Double {
-        let rotation = Double(dragOffset.width) / 20.0
-        return max(-15, min(15, rotation))
+        let rotation = Double(dragOffset.width) / 30.0
+        return max(-10, min(10, rotation))
     }
 }
 

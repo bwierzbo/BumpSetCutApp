@@ -395,7 +395,7 @@ final class RallyPlayerViewModel {
 
     // MARK: - Actions
 
-    func performAction(_ action: RallySwipeAction, direction: RallySwipeDirection) {
+    func performAction(_ action: RallySwipeAction, direction: RallySwipeDirection, fromDragOffset: CGFloat = 0) {
         let rallyIndex = currentRallyIndex
         isPerformingAction = true
 
@@ -404,51 +404,50 @@ final class RallyPlayerViewModel {
         // Pause player immediately to prevent audio bleeding
         playerCache.pause()
 
-        // Reset peek
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-            peekProgress = 0.0
-            currentPeekDirection = nil
-        }
+        // Transfer drag position to swipe offset seamlessly (total visual offset unchanged)
+        swipeOffset = fromDragOffset
+        swipeRotation = Double(fromDragOffset) / 30.0
+        dragOffset = .zero
+        peekProgress = 0.0
+        currentPeekDirection = nil
 
-        // Animate swipe off
-        let slideDistance = UIScreen.main.bounds.width * 1.5
+        // Animate from current position to off-screen
+        let slideDistance = UIScreen.main.bounds.width * 1.2
         let targetOffset = direction == .right ? slideDistance : -slideDistance
-        let targetRotation = direction == .right ? 30.0 : -30.0
+        let targetRotation = direction == .right ? 10.0 : -10.0
 
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+        withAnimation(.interpolatingSpring(stiffness: 200, damping: 28)) {
             swipeOffset = targetOffset
             swipeRotation = targetRotation
         }
 
-        // Perform action after animation starts
+        // Register action immediately
+        switch action {
+        case .save:
+            savedRallies.insert(rallyIndex)
+            removedRallies.remove(rallyIndex)
+            actionFeedback = RallyActionFeedback(type: .save, message: "Rally Saved")
+        case .remove:
+            removedRallies.insert(rallyIndex)
+            savedRallies.remove(rallyIndex)
+            actionFeedback = RallyActionFeedback(type: .remove, message: "Rally Removed")
+        }
+
+        lastAction = RallyActionResult(action: action, rallyIndex: rallyIndex, direction: direction)
+        showActionFeedback = true
+
+        // Auto-dismiss feedback after 2 seconds
+        let dismissTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            dismissActionFeedback()
+        }
+        activeTasks.append(dismissTask)
+
+        // After card slides off-screen, swap to next
         let actionTask = Task {
-            try? await Task.sleep(nanoseconds: 200_000_000)
+            try? await Task.sleep(nanoseconds: 350_000_000)
 
-            switch action {
-            case .save:
-                savedRallies.insert(rallyIndex)
-                removedRallies.remove(rallyIndex)
-                actionFeedback = RallyActionFeedback(type: .save, message: "Rally Saved")
-            case .remove:
-                removedRallies.insert(rallyIndex)
-                savedRallies.remove(rallyIndex)
-                actionFeedback = RallyActionFeedback(type: .remove, message: "Rally Removed")
-            }
-
-            lastAction = RallyActionResult(action: action, rallyIndex: rallyIndex, direction: direction)
-            showActionFeedback = true
-
-            // Auto-dismiss feedback after 2 seconds
-            let dismissTask = Task {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                dismissActionFeedback()
-            }
-            activeTasks.append(dismissTask)
-
-            // After horizontal slide completes, swap to next card (no vertical animation)
-            try? await Task.sleep(nanoseconds: 600_000_000)
-
-            // Reset all offsets instantly (old card is off-screen, invisible at position -1)
+            // Reset all offsets instantly (old card is off-screen)
             swipeOffset = 0
             swipeOffsetY = 0
             swipeRotation = 0
@@ -483,14 +482,10 @@ final class RallyPlayerViewModel {
             removedRallies.remove(action.rallyIndex)
         }
 
-        // Animate slide back from the same direction it was swiped out to
-        let slideDistance = UIScreen.main.bounds.width * 1.5
-        let startOffset = action.direction == .right ? slideDistance : -slideDistance
-        let startRotation = action.direction == .right ? 30.0 : -30.0
-
         // Set initial position off-screen (same side it was swiped to)
-        swipeOffset = startOffset
-        swipeRotation = startRotation
+        let slideDistance = UIScreen.main.bounds.width * 1.2
+        swipeOffset = action.direction == .right ? slideDistance : -slideDistance
+        swipeRotation = action.direction == .right ? 10.0 : -10.0
 
         // Navigate back to the undone rally
         currentRallyIndex = action.rallyIndex
@@ -501,7 +496,6 @@ final class RallyPlayerViewModel {
             seekToCurrentRallyStart()
             setupRallyLooping()
 
-            // Preload adjacent in background
             Task {
                 await preloadAdjacent()
             }
@@ -510,7 +504,7 @@ final class RallyPlayerViewModel {
         }
 
         // Animate card sliding back in
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+        withAnimation(.interpolatingSpring(stiffness: 200, damping: 28)) {
             swipeOffset = 0
             swipeRotation = 0
         }
@@ -610,13 +604,10 @@ final class RallyPlayerViewModel {
     }
 
     func confirmTrim() {
-        if currentTrimBefore != 0 || currentTrimAfter != 0 {
-            trimAdjustments[currentRallyIndex] = RallyTrimAdjustment(
-                before: currentTrimBefore, after: currentTrimAfter
-            )
-        } else {
-            trimAdjustments.removeValue(forKey: currentRallyIndex)
-        }
+        // Always save the adjustment so re-entering trim shows the same positions
+        trimAdjustments[currentRallyIndex] = RallyTrimAdjustment(
+            before: currentTrimBefore, after: currentTrimAfter
+        )
         isTrimmingMode = false
         seekToCurrentRallyStart()
         setupRallyLooping()
@@ -624,6 +615,10 @@ final class RallyPlayerViewModel {
     }
 
     func cancelTrim() {
+        // Restore the values from before entering trim mode
+        let existing = trimAdjustments[currentRallyIndex]
+        currentTrimBefore = existing?.before ?? 0.0
+        currentTrimAfter = existing?.after ?? 0.0
         isTrimmingMode = false
         seekToCurrentRallyStart()
         setupRallyLooping()
