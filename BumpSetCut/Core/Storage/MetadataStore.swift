@@ -392,3 +392,38 @@ extension MetadataStore {
         return corruptedFiles
     }
 }
+
+// MARK: - Trim Adjustment Persistence
+
+extension MetadataStore {
+
+    private func trimURL(for videoId: UUID) -> URL {
+        metadataDirectory.appendingPathComponent("\(videoId.uuidString)_trims.json")
+    }
+
+    /// Save per-rally trim adjustments for a video.
+    /// Keys are rally index strings ("0", "1", ...) mapping to RallyTrimAdjustment.
+    func saveTrimAdjustments(_ adjustments: [Int: RallyTrimAdjustment], for videoId: UUID) throws {
+        let url = trimURL(for: videoId)
+        try createMetadataDirectoryIfNeeded()
+
+        // Convert Int keys to String keys for JSON encoding
+        let stringKeyed = Dictionary(uniqueKeysWithValues: adjustments.map { (String($0.key), $0.value) })
+        let data = try jsonEncoder.encode(stringKeyed)
+        try data.write(to: url, options: .atomic)
+    }
+
+    /// Load previously saved trim adjustments for a video. Returns empty dict if none saved.
+    func loadTrimAdjustments(for videoId: UUID) -> [Int: RallyTrimAdjustment] {
+        let url = trimURL(for: videoId)
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let stringKeyed = try? jsonDecoder.decode([String: RallyTrimAdjustment].self, from: data) else {
+            return [:]
+        }
+        return Dictionary(uniqueKeysWithValues: stringKeyed.compactMap { key, value in
+            guard let intKey = Int(key) else { return nil }
+            return (intKey, value)
+        })
+    }
+}

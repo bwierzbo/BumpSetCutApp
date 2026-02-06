@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Trim Adjustment
 
-struct RallyTrimAdjustment {
+struct RallyTrimAdjustment: Codable {
     var before: Double  // seconds to add before rally (negative = trim into rally)
     var after: Double   // seconds to add after rally (negative = trim into rally)
 }
