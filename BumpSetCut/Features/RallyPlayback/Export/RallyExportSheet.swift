@@ -7,6 +7,7 @@ struct RallyExportSheet: View {
     let totalRallies: Int
     let processingMetadata: ProcessingMetadata?
     let videoMetadata: VideoMetadata
+    let trimAdjustments: [Int: RallyTrimAdjustment]
     let onDismiss: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -45,6 +46,7 @@ struct RallyExportSheet: View {
                 savedRallies: savedRallies,
                 processingMetadata: processingMetadata,
                 videoMetadata: videoMetadata,
+                trimAdjustments: trimAdjustments,
                 isExporting: $isExporting,
                 exportProgress: $exportProgress
             )
@@ -184,6 +186,7 @@ struct RallyExportOptionCard: View {
             fileSize: 0,
             duration: 60.0
         ),
+        trimAdjustments: [:],
         onDismiss: {}
     )
 }

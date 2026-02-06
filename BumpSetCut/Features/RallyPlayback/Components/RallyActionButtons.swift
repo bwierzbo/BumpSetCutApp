@@ -9,6 +9,10 @@ struct RallyActionButtons: View {
     let onUndo: () -> Void
     let onSave: () -> Void
 
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var isPortrait: Bool { verticalSizeClass == .regular }
+
     var body: some View {
         VStack {
             Spacer()
@@ -53,7 +57,7 @@ struct RallyActionButtons: View {
                 .accessibilityLabel(isSaved ? "Unsave rally" : "Save rally")
                 .id("save-\(isSaved)")  // Stable identity
             }
-            .padding(.bottom, 100)
+            .padding(.bottom, isPortrait ? 60 : 20)
         }
     }
 }
@@ -155,9 +159,17 @@ struct RallyActionFeedbackView: View {
     let feedback: RallyActionFeedback
     let isShowing: Bool
 
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var isPortrait: Bool { verticalSizeClass == .regular }
+
     var body: some View {
         VStack {
-            Spacer()
+            if isPortrait {
+                Spacer()
+            } else {
+                Spacer().frame(height: 60)
+            }
 
             // Feedback toast
             HStack(spacing: BSCSpacing.md) {
@@ -191,8 +203,12 @@ struct RallyActionFeedbackView: View {
             .opacity(isShowing ? 1.0 : 0.0)
             .animation(.bscBounce, value: isShowing)
 
-            Spacer()
-                .frame(height: 230)  // Increased spacing to clear buttons (100px + 80px button + 50px margin)
+            if isPortrait {
+                Spacer()
+                    .frame(height: 190)  // Spacing to clear buttons
+            } else {
+                Spacer()
+            }
         }
     }
 }

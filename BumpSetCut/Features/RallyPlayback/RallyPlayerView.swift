@@ -25,6 +25,12 @@ struct RallyPlayerView: View {
         verticalSizeClass == .regular
     }
 
+    private var currentRallySegment: RallySegment? {
+        guard let metadata = viewModel.processingMetadata,
+              viewModel.currentRallyIndex < metadata.rallySegments.count else { return nil }
+        return metadata.rallySegments[viewModel.currentRallyIndex]
+    }
+
     // MARK: - Initialization
 
     init(videoMetadata: VideoMetadata) {
@@ -63,6 +69,7 @@ struct RallyPlayerView: View {
                     totalRallies: viewModel.totalRallies,
                     processingMetadata: viewModel.processingMetadata,
                     videoMetadata: videoMetadata,
+                    trimAdjustments: viewModel.trimAdjustments,
                     onDismiss: { viewModel.showExportOptions = false }
                 )
             }
@@ -101,19 +108,26 @@ struct RallyPlayerView: View {
                     position: position,
                     previousRallyIndex: viewModel.previousRallyIndex,
                     playerCache: viewModel.playerCache,
-                    thumbnailCache: viewModel.thumbnailCache
+                    thumbnailCache: viewModel.thumbnailCache,
+                    zoomScale: position == 0 ? viewModel.zoomScale : 1.0,
+                    zoomOffset: position == 0 ? viewModel.zoomOffset : .zero,
+                    onDoubleTap: position == 0 ? { toggleZoom(cardSize: geometry.size) } : nil
                 )
                 .scaleEffect(scaleForPosition(position))
                 .offset(y: offsetForPosition(position))
-                .opacity(opacityForPosition(position))
-                .zIndex(zIndexForPosition(position))
-                // Apply drag transforms only to current card
+                .opacity(opacityForPosition(position, rallyIndex: rallyIndex))
+                .zIndex(zIndexForPosition(position, rallyIndex: rallyIndex))
+                // Apply drag/swipe transforms (TikTok-style scroll)
                 .modifier(TopCardDragModifier(
-                    isTopCard: position == 0,
+                    isTopCard: position == 0 && viewModel.previousRallyIndex == nil,
+                    isSlidingOut: rallyIndex == viewModel.previousRallyIndex,
+                    isSlidingIn: position == 0 && viewModel.previousRallyIndex != nil,
                     dragOffset: viewModel.dragOffset,
                     swipeOffset: viewModel.swipeOffset,
                     swipeOffsetY: viewModel.swipeOffsetY,
-                    swipeRotation: viewModel.swipeRotation
+                    swipeRotation: viewModel.swipeRotation,
+                    slideInOffset: viewModel.transitionDirection == .down
+                        ? geometry.size.height : -geometry.size.height
                 ))
             }
 
@@ -138,6 +152,23 @@ struct RallyPlayerView: View {
                 onSave: { performAction(.save) }
             )
             .zIndex(200)
+
+            // Trim overlay
+            if viewModel.isTrimmingMode, let segment = currentRallySegment {
+                RallyTrimOverlay(
+                    trimBefore: $viewModel.currentTrimBefore,
+                    trimAfter: $viewModel.currentTrimAfter,
+                    rallyStartTime: segment.startTime,
+                    rallyEndTime: segment.endTime,
+                    videoURL: videoMetadata.originalURL,
+                    videoDuration: viewModel.actualVideoDuration,
+                    onScrub: { time in viewModel.scrubTo(time: time) },
+                    onConfirm: { viewModel.confirmTrim() },
+                    onCancel: { viewModel.cancelTrim() }
+                )
+                .zIndex(250)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
 
             // Action feedback (topmost)
             if let feedback = viewModel.actionFeedback {
@@ -164,7 +195,16 @@ struct RallyPlayerView: View {
                     .zIndex(500)
             }
         }
-        .gesture(swipeGesture(geometry: geometry))
+        .gesture(viewModel.isTrimmingMode ? nil : swipeGesture(geometry: geometry))
+        .simultaneousGesture(pinchGesture())
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5)
+                .onEnded { _ in
+                    guard !viewModel.isTransitioning, !viewModel.isPerformingAction,
+                          !viewModel.isTrimmingMode else { return }
+                    viewModel.enterTrimMode()
+                }
+        )
     }
 
     // MARK: - Stack Position Helpers
@@ -180,7 +220,12 @@ struct RallyPlayerView: View {
     }
 
     /// Opacity for card at given position
-    private func opacityForPosition(_ position: Int) -> Double {
+    private func opacityForPosition(_ position: Int, rallyIndex: Int) -> Double {
+        // Previous rally must be visible during transition (it's sliding out)
+        if rallyIndex == viewModel.previousRallyIndex {
+            return 1.0
+        }
+
         switch position {
         case 0: return 1.0     // Current - fully visible
         case 1: return 1.0     // Next - fully visible (VideoPlayer hidden via internal opacity)
@@ -189,10 +234,14 @@ struct RallyPlayerView: View {
     }
 
     /// Z-index for card at given position
-    private func zIndexForPosition(_ position: Int) -> Double {
+    private func zIndexForPosition(_ position: Int, rallyIndex: Int) -> Double {
+        // Previous rally slides out ON TOP of everything except overlay
+        if rallyIndex == viewModel.previousRallyIndex {
+            return 150
+        }
+
         switch position {
-        case -1: return -1     // Previous - behind current
-        case 0: return 100     // Current - on top
+        case 0: return 100     // Current - below sliding-out card
         default: return Double(-position)  // Next cards below
         }
     }
@@ -206,21 +255,17 @@ struct RallyPlayerView: View {
                 guard !viewModel.isTransitioning, !viewModel.isPerformingAction else { return }
 
                 viewModel.isDragging = true
-                viewModel.dragOffset = value.translation
 
-                // Update peek progress
-                viewModel.updatePeekProgress(
-                    translation: value.translation,
-                    geometry: geometry,
-                    isPortrait: isPortrait
-                )
-
-                // Apply boundary resistance
-                if !viewModel.canGoNext && viewModel.dragOffset.height < 0 {
-                    viewModel.dragOffset.height *= 0.3
-                }
-                if !viewModel.canGoPrevious && viewModel.dragOffset.height > 0 {
-                    viewModel.dragOffset.height *= 0.3
+                if viewModel.isZoomed {
+                    // Pan within zoomed content
+                    let newOffset = CGSize(
+                        width: viewModel.baseZoomOffset.width + value.translation.width,
+                        height: viewModel.baseZoomOffset.height + value.translation.height
+                    )
+                    viewModel.zoomOffset = clampedOffset(newOffset, scale: viewModel.zoomScale, cardSize: geometry.size)
+                } else {
+                    // Horizontal-only drag (no vertical navigation)
+                    viewModel.dragOffset = CGSize(width: value.translation.width, height: 0)
                 }
             }
             .onEnded { value in
@@ -229,66 +274,76 @@ struct RallyPlayerView: View {
 
                 viewModel.isDragging = false
 
-                let threshold: CGFloat = 100
-                let actionThreshold: CGFloat = 120
+                if viewModel.isZoomed {
+                    // Snap offset to bounds
+                    viewModel.baseZoomOffset = viewModel.zoomOffset
+                    return
+                }
 
-                let verticalOffset = viewModel.dragOffset.height
+                let actionThreshold: CGFloat = 120
                 let horizontalOffset = viewModel.dragOffset.width
-                let verticalVelocity = value.velocity.height
                 let horizontalVelocity = value.velocity.width
 
-                // Determine dominant direction
-                let isVerticalDominant = abs(verticalVelocity) > abs(horizontalVelocity) ||
-                                         abs(verticalOffset) > abs(horizontalOffset)
-
-                var didNavigate = false
-                var didPerformAction = false
-
-                if isVerticalDominant {
-                    // Vertical navigation
-                    if abs(verticalVelocity) > 500 || abs(verticalOffset) > threshold {
-                        if verticalOffset > 0 && viewModel.canGoPrevious {
-                            viewModel.navigateToPrevious()
-                            didNavigate = true
-                        } else if verticalOffset < 0 && viewModel.canGoNext {
-                            viewModel.navigateToNext()
-                            didNavigate = true
-                        } else if verticalOffset < 0 && !viewModel.canGoNext {
-                            // End of rallies - show export
-                            viewModel.showExportOptions = true
-                        }
-                    }
-                } else {
-                    // Horizontal actions
-                    if abs(horizontalVelocity) > 300 || abs(horizontalOffset) > actionThreshold {
-                        if horizontalOffset < -actionThreshold {
-                            viewModel.performAction(.remove, direction: .left)
-                            didPerformAction = true
-                        } else if horizontalOffset > actionThreshold {
-                            viewModel.performAction(.save, direction: .right)
-                            didPerformAction = true
-                        }
+                // Horizontal actions only
+                if abs(horizontalVelocity) > 300 || abs(horizontalOffset) > actionThreshold {
+                    if horizontalOffset < -actionThreshold {
+                        viewModel.performAction(.remove, direction: .left)
+                        viewModel.dragOffset = .zero
+                        return
+                    } else if horizontalOffset > actionThreshold {
+                        viewModel.performAction(.save, direction: .right)
+                        viewModel.dragOffset = .zero
+                        return
                     }
                 }
 
-                // Reset gesture state
-                // If we performed action, reset immediately
-                // If we navigated, let navigateTo() handle the animation continuation
-                // Otherwise animate back smoothly
-                if didPerformAction {
+                // No action - animate back to center
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                     viewModel.dragOffset = .zero
-                    viewModel.resetPeekProgress()
-                } else if didNavigate {
-                    // Don't reset - navigateTo() will continue the animation from current position
-                    viewModel.resetPeekProgress()
-                } else {
-                    // No action - animate back to center
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                        viewModel.dragOffset = .zero
-                        viewModel.resetPeekProgress()
-                    }
                 }
             }
+    }
+
+    // MARK: - Pinch-to-Zoom
+
+    private func pinchGesture() -> some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                let newScale = viewModel.baseZoomScale * value
+                viewModel.zoomScale = min(max(newScale, 1.0), 5.0)
+            }
+            .onEnded { value in
+                let newScale = viewModel.baseZoomScale * value
+                viewModel.zoomScale = min(max(newScale, 1.0), 5.0)
+                viewModel.baseZoomScale = viewModel.zoomScale
+
+                if viewModel.zoomScale <= 1.01 {
+                    viewModel.resetZoom()
+                }
+            }
+    }
+
+    private func toggleZoom(cardSize: CGSize) {
+        if viewModel.isZoomed {
+            viewModel.resetZoom()
+        } else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                viewModel.zoomScale = 2.5
+                viewModel.zoomOffset = .zero
+            }
+            viewModel.baseZoomScale = 2.5
+            viewModel.baseZoomOffset = .zero
+        }
+    }
+
+    /// Clamp pan offset so zoomed content stays visible
+    private func clampedOffset(_ offset: CGSize, scale: CGFloat, cardSize: CGSize) -> CGSize {
+        let maxX = max(0, (cardSize.width * scale - cardSize.width) / 2)
+        let maxY = max(0, (cardSize.height * scale - cardSize.height) / 2)
+        return CGSize(
+            width: min(max(offset.width, -maxX), maxX),
+            height: min(max(offset.height, -maxY), maxY)
+        )
     }
 
     // MARK: - Helpers
@@ -301,26 +356,54 @@ struct RallyPlayerView: View {
 
 // MARK: - Top Card Drag Modifier
 
-/// Applies drag transforms only to the top card
+/// Applies drag/transition transforms for TikTok-style scroll navigation.
+/// During transitions, old and new cards move together (connected edge-to-edge) like a continuous scroll.
+///
+/// IMPORTANT: Uses a single modifier chain (offset + rotation) for ALL states to preserve
+/// SwiftUI structural identity. Using if/else branches causes view tree destruction/recreation,
+/// which tears down AVPlayerLayer and causes black flash artifacts.
 struct TopCardDragModifier: ViewModifier {
-    let isTopCard: Bool
+    let isTopCard: Bool        // Current card during normal drag (not during transition)
+    let isSlidingOut: Bool     // Previous card sliding off-screen during transition
+    let isSlidingIn: Bool      // New current card sliding in from off-screen during transition
     let dragOffset: CGSize
     let swipeOffset: CGFloat       // Horizontal swipe (actions)
     let swipeOffsetY: CGFloat      // Vertical swipe (navigation)
     let swipeRotation: Double
+    let slideInOffset: CGFloat     // Card height offset for sliding-in card (+height or -height)
 
     func body(content: Content) -> some View {
+        content
+            .offset(x: computedOffsetX, y: computedOffsetY)
+            .rotationEffect(.degrees(computedRotation))
+    }
+
+    private var computedOffsetX: CGFloat {
         if isTopCard {
-            content
-                .offset(x: swipeOffset + dragOffset.width, y: swipeOffsetY + dragOffset.height)
-                .rotationEffect(.degrees(swipeRotation + dragRotation))
-        } else {
-            content
+            return swipeOffset + dragOffset.width
         }
+        return 0
+    }
+
+    private var computedOffsetY: CGFloat {
+        if isTopCard {
+            return dragOffset.height
+        } else if isSlidingOut {
+            return swipeOffsetY
+        } else if isSlidingIn {
+            return swipeOffsetY + slideInOffset
+        }
+        return 0
+    }
+
+    private var computedRotation: Double {
+        if isTopCard {
+            return swipeRotation + dragRotation
+        }
+        return 0
     }
 
     private var dragRotation: Double {
-        // Slight rotation based on horizontal drag
         let rotation = Double(dragOffset.width) / 20.0
         return max(-15, min(15, rotation))
     }
@@ -338,10 +421,11 @@ struct UnifiedRallyCard: View {
     let previousRallyIndex: Int?  // Track which rally was just current (for seamless transitions)
     let playerCache: RallyPlayerCache
     let thumbnailCache: RallyThumbnailCache
+    var zoomScale: CGFloat = 1.0
+    var zoomOffset: CGSize = .zero
+    var onDoubleTap: (() -> Void)?
 
     @State private var thumbnail: UIImage?
-    @State private var isVideoPlaying: Bool = false
-    @State private var isLayerReadyForDisplay: Bool = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var isPortrait: Bool {
@@ -359,44 +443,38 @@ struct UnifiedRallyCard: View {
         ZStack {
             Color.black
 
-            // Thumbnail layer - only show for current or transitioning-out cards
-            // This prevents next card's thumbnail from peeking through during transitions
+            // Thumbnail layer - fallback behind the video layer
+            // Match video gravity: .fit in portrait, .fill in landscape
             if let thumbnail = thumbnail, showThumbnail {
                 Image(uiImage: thumbnail)
                     .resizable()
-                    .scaledToFit()
+                    .aspectRatio(contentMode: isPortrait ? .fit : .fill)
             }
 
-            // Video player layer ON TOP - only visible when first frame is actually rendered
-            // This creates zero-gap layering: thumbnail always visible until video covers it
+            // Video player layer - always at full opacity for preloaded cards.
+            // AVPlayerLayer has clear background, so it's transparent when no content
+            // and shows the video frame when content is rendered. No opacity toggling
+            // eliminates any flash from layer compositing delays.
             if isPreloaded, let player = playerCache.getPlayer(for: url) {
                 CustomVideoPlayerView(
                     player: player,
                     gravity: isPortrait ? .resizeAspect : .resizeAspectFill,
-                    onReadyForDisplay: { isReady in
-                        // Layer is ready when first video frame is ACTUALLY RENDERED
-                        // Use Task to avoid state modification during view update
-                        Task { @MainActor in
-                            isLayerReadyForDisplay = isReady
-                        }
-                    }
+                    onReadyForDisplay: { _ in }
                 )
-                .opacity(showVideo ? 1 : 0)
-                .animation(.linear(duration: 0.05), value: showVideo)  // Fast fade-in when ready
                 .allowsHitTesting(isCurrent)
-                .onReceive(player.publisher(for: \.rate)) { rate in
-                    // Video is playing when rate > 0
-                    // Use Task to avoid state modification during view update
-                    Task { @MainActor in
-                        isVideoPlaying = rate > 0
-                    }
-                }
             }
         }
+        .scaleEffect(zoomScale)
+        .offset(zoomOffset)
         .frame(width: size.width, height: size.height)
         .clipped()
         .contentShape(Rectangle())
-        .onTapGesture {
+        .onTapGesture(count: 2) {
+            if isCurrent {
+                onDoubleTap?()
+            }
+        }
+        .onTapGesture(count: 1) {
             if isCurrent {
                 playerCache.togglePlayPause()
             }
@@ -407,29 +485,8 @@ struct UnifiedRallyCard: View {
     }
 
     private var showThumbnail: Bool {
-        // Show thumbnail when:
-        // 1. Current card - but only if we're NOT transitioning from another rally
-        //    (during transition, keep old video showing, not new thumbnail)
-        // 2. Previous card during transition - keeps thumbnail visible while video slides out
-        // 3. Next card when position is 1 (for peek preview during drag)
-
-        if isCurrent {
-            // If we're the current card during a transition (previousRallyIndex exists),
-            // hide thumbnail and rely on the previous card's video showing
-            return previousRallyIndex == nil || isVideoPlaying
-        }
-
+        if isCurrent { return true }
         return isPreviousRally || position == 1
-    }
-
-    private var showVideo: Bool {
-        // Show video when:
-        // 1. Card is current AND video is playing AND first frame rendered (normal case)
-        // 2. Card is the previous rally during transition (keeps old video visible until new one plays)
-        let isCurrentAndReady = isCurrent && isVideoPlaying && isLayerReadyForDisplay
-        let isDuringTransition = isPreviousRally && isVideoPlaying && isLayerReadyForDisplay
-
-        return isCurrentAndReady || isDuringTransition
     }
 }
 

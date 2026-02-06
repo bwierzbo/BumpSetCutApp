@@ -16,6 +16,10 @@ final class RallyPlayerViewModel {
     private(set) var processingMetadata: ProcessingMetadata?
     private(set) var rallyVideoURLs: [URL] = []
 
+    // MARK: - Video Duration
+
+    private(set) var actualVideoDuration: Double = 0
+
     // MARK: - Navigation State
 
     private(set) var currentRallyIndex: Int = 0
@@ -45,9 +49,18 @@ final class RallyPlayerViewModel {
     var isDragging: Bool = false
     private(set) var bounceOffset: CGFloat = 0.0
 
+    // MARK: - Zoom State
+
+    var zoomScale: CGFloat = 1.0
+    var zoomOffset: CGSize = .zero
+    var baseZoomScale: CGFloat = 1.0
+    var baseZoomOffset: CGSize = .zero
+    var isZoomed: Bool { zoomScale > 1.01 }
+
     // MARK: - Transition State
 
     private(set) var isTransitioning: Bool = false
+    private(set) var transitionDirection: NavigationDirection? = nil
     private(set) var swipeOffset: CGFloat = 0.0  // Horizontal swipe (for actions)
     private(set) var swipeOffsetY: CGFloat = 0.0  // Vertical swipe (for navigation)
     private(set) var swipeRotation: Double = 0.0
@@ -61,6 +74,13 @@ final class RallyPlayerViewModel {
 
     private(set) var actionFeedback: RallyActionFeedback?
     private(set) var showActionFeedback: Bool = false
+
+    // MARK: - Trim State
+
+    private(set) var isTrimmingMode: Bool = false
+    var trimAdjustments: [Int: RallyTrimAdjustment] = [:]  // rallyIndex → adjustment
+    var currentTrimBefore: Double = 0.0  // temp working value during trim
+    var currentTrimAfter: Double = 0.0   // temp working value during trim
 
     // MARK: - Export State
 
@@ -77,6 +97,11 @@ final class RallyPlayerViewModel {
     // MARK: - Task Management
 
     private var activeTasks: [Task<Void, Never>] = []
+
+    // MARK: - Rally Looping
+
+    private var timeObserver: Any?
+    private weak var timeObserverPlayer: AVPlayer?
 
     // MARK: - Computed Properties
 
@@ -134,6 +159,10 @@ final class RallyPlayerViewModel {
             let metadata = try metadataStore.loadMetadata(for: videoMetadata.id)
             processingMetadata = metadata
 
+            // Load actual video duration from the asset
+            let asset = AVURLAsset(url: videoMetadata.originalURL)
+            actualVideoDuration = try await CMTimeGetSeconds(asset.load(.duration))
+
             // Use original video URL - rally segments are time ranges within this video
             guard !metadata.rallySegments.isEmpty else {
                 loadingState = .empty
@@ -168,7 +197,8 @@ final class RallyPlayerViewModel {
                 // Now everything is ready - show the UI
                 loadingState = .loaded
 
-                // Start playing first video
+                // Start playing first video with looping
+                setupRallyLooping()
                 playerCache.play()
             } else {
                 loadingState = .empty
@@ -179,12 +209,59 @@ final class RallyPlayerViewModel {
         }
     }
 
-    private func seekToCurrentRallyStart() {
+    // MARK: - Effective Rally Times (original + trim adjustments)
+
+    func effectiveStartTime(for rallyIndex: Int) -> Double {
         guard let metadata = processingMetadata,
-              let url = currentRallyURL,
-              currentRallyIndex < metadata.rallySegments.count else { return }
-        let segment = metadata.rallySegments[currentRallyIndex]
-        playerCache.seek(url: url, to: segment.startCMTime)
+              rallyIndex < metadata.rallySegments.count else { return 0 }
+        let segment = metadata.rallySegments[rallyIndex]
+        let adj = trimAdjustments[rallyIndex]
+        return max(0, segment.startTime - (adj?.before ?? 0))
+    }
+
+    func effectiveEndTime(for rallyIndex: Int) -> Double {
+        guard let metadata = processingMetadata,
+              rallyIndex < metadata.rallySegments.count else { return 0 }
+        let segment = metadata.rallySegments[rallyIndex]
+        let adj = trimAdjustments[rallyIndex]
+        let maxEnd = actualVideoDuration > 0 ? actualVideoDuration : segment.endTime
+        return min(maxEnd, segment.endTime + (adj?.after ?? 0))
+    }
+
+    private func seekToCurrentRallyStart() {
+        guard let url = currentRallyURL else { return }
+        let startTime = effectiveStartTime(for: currentRallyIndex)
+        let cmTime = CMTimeMakeWithSeconds(startTime, preferredTimescale: 600)
+        playerCache.seek(url: url, to: cmTime)
+    }
+
+    func setupRallyLooping() {
+        removeRallyLooping()
+        guard let player = playerCache.currentPlayer else { return }
+
+        let endTime = effectiveEndTime(for: currentRallyIndex)
+        let startTime = effectiveStartTime(for: currentRallyIndex)
+        let endCMTime = CMTimeMakeWithSeconds(endTime, preferredTimescale: 600)
+        let startCMTime = CMTimeMakeWithSeconds(startTime, preferredTimescale: 600)
+
+        let interval = CMTimeMakeWithSeconds(0.05, preferredTimescale: 600)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            Task { @MainActor in
+                guard let self, !self.isTrimmingMode else { return }
+                if CMTimeCompare(time, endCMTime) >= 0 {
+                    self.playerCache.currentPlayer?.seek(to: startCMTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                }
+            }
+        }
+        timeObserverPlayer = player
+    }
+
+    private func removeRallyLooping() {
+        if let observer = timeObserver, let player = timeObserverPlayer {
+            player.removeTimeObserver(observer)
+        }
+        timeObserver = nil
+        timeObserverPlayer = nil
     }
 
     // MARK: - Navigation
@@ -203,18 +280,26 @@ final class RallyPlayerViewModel {
         guard index >= 0 && index < rallyVideoURLs.count else { return }
         guard !isTransitioning else { return }  // Prevent rapid navigation
 
+        resetZoom()
         isTransitioning = true
-        // No buffering - all videos already preloaded upfront
+        transitionDirection = direction
 
         // Track previous rally to keep it visible during transition
         previousRallyIndex = currentRallyIndex
 
-        // Animate current card sliding out in swipe direction
-        // This continues from the user's drag position smoothly
-        let screenHeight = UIScreen.main.bounds.height
-        let targetOffset: CGFloat = direction == .down ? screenHeight : -screenHeight
+        // Continue from current drag position for seamless animation
+        // The old card was being dragged via dragOffset; now it becomes isSlidingOut
+        // which uses swipeOffsetY, so transfer the drag position
+        swipeOffsetY = dragOffset.height
+        dragOffset = .zero
 
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+        // Animate old card sliding out in the swipe direction
+        // Next (swipe up) → old card continues UP (-screenHeight)
+        // Previous (swipe down) → old card continues DOWN (+screenHeight)
+        let screenHeight = UIScreen.main.bounds.height
+        let targetOffset: CGFloat = direction == .down ? -screenHeight : screenHeight
+
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
             swipeOffsetY = targetOffset
         }
 
@@ -226,6 +311,8 @@ final class RallyPlayerViewModel {
 
         // Setup player (already preloaded and seeked from initial load)
         playerCache.setCurrentPlayer(for: url)
+        seekToCurrentRallyStart()
+        setupRallyLooping()
 
         // Start playing immediately - video is already buffered
         Task { @MainActor in
@@ -234,15 +321,18 @@ final class RallyPlayerViewModel {
 
             playerCache.play()
 
-            // Wait for new video to actually start playing before clearing previous
-            try? await Task.sleep(nanoseconds: 200_000_000)  // 0.2s more for video to start
+            // Wait for slide animation to complete (spring response 0.4 + settling)
+            try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s more (0.6s total)
 
-            // Reset offsets now that new card is visible
-            dragOffset = .zero
-            swipeOffsetY = 0
-
-            previousRallyIndex = nil  // Clear previous rally - transition complete
+            // Clear roles first - old card becomes invisible (opacity 0 at position -1),
+            // new card becomes isTopCard (offset 0). swipeOffsetY no longer affects any card.
+            previousRallyIndex = nil
+            transitionDirection = nil
             isTransitioning = false
+
+            // Reset offset on next frame (no card uses it anymore, so invisible)
+            try? await Task.sleep(nanoseconds: 16_000_000)  // ~1 frame
+            swipeOffsetY = 0
         }
     }
 
@@ -309,6 +399,8 @@ final class RallyPlayerViewModel {
         let rallyIndex = currentRallyIndex
         isPerformingAction = true
 
+        resetZoom()
+
         // Pause player immediately to prevent audio bleeding
         playerCache.pause()
 
@@ -353,12 +445,23 @@ final class RallyPlayerViewModel {
             }
             activeTasks.append(dismissTask)
 
-            // Navigate to next after animation
+            // After horizontal slide completes, swap to next card (no vertical animation)
             try? await Task.sleep(nanoseconds: 600_000_000)
-            resetSwipeState()
+
+            // Reset all offsets instantly (old card is off-screen, invisible at position -1)
+            swipeOffset = 0
+            swipeOffsetY = 0
+            swipeRotation = 0
+            dragOffset = .zero
 
             if canGoNext {
-                navigateToNext()
+                currentRallyIndex += 1
+                let url = rallyVideoURLs[currentRallyIndex]
+                updateVisibleStack()
+                playerCache.setCurrentPlayer(for: url)
+                seekToCurrentRallyStart()
+                setupRallyLooping()
+                playerCache.play()
             }
 
             isPerformingAction = false
@@ -380,12 +483,12 @@ final class RallyPlayerViewModel {
             removedRallies.remove(action.rallyIndex)
         }
 
-        // Animate reverse swipe (from opposite direction)
+        // Animate slide back from the same direction it was swiped out to
         let slideDistance = UIScreen.main.bounds.width * 1.5
-        let startOffset = action.direction == .right ? -slideDistance : slideDistance  // Opposite direction
-        let startRotation = action.direction == .right ? -30.0 : 30.0
+        let startOffset = action.direction == .right ? slideDistance : -slideDistance
+        let startRotation = action.direction == .right ? 30.0 : -30.0
 
-        // Set initial position off-screen (opposite side)
+        // Set initial position off-screen (same side it was swiped to)
         swipeOffset = startOffset
         swipeRotation = startRotation
 
@@ -396,6 +499,7 @@ final class RallyPlayerViewModel {
         if let url = currentRallyURL {
             playerCache.setCurrentPlayer(for: url)
             seekToCurrentRallyStart()
+            setupRallyLooping()
 
             // Preload adjacent in background
             Task {
@@ -428,6 +532,15 @@ final class RallyPlayerViewModel {
     func dismissActionFeedback() {
         showActionFeedback = false
         actionFeedback = nil
+    }
+
+    func resetZoom() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            zoomScale = 1.0
+            zoomOffset = .zero
+        }
+        baseZoomScale = 1.0
+        baseZoomOffset = .zero
     }
 
     private func resetSwipeState() {
@@ -478,6 +591,45 @@ final class RallyPlayerViewModel {
         peekThumbnail = thumbnailCache.getThumbnail(for: url)
     }
 
+    // MARK: - Trim Mode
+
+    func enterTrimMode() {
+        let existing = trimAdjustments[currentRallyIndex]
+        currentTrimBefore = existing?.before ?? 0.0
+        currentTrimAfter = existing?.after ?? 0.0
+        isTrimmingMode = true
+        playerCache.pause()
+        // Seek to rally start so the user sees the starting frame
+        seekToCurrentRallyStart()
+    }
+
+    func scrubTo(time: Double) {
+        guard let url = currentRallyURL else { return }
+        let cmTime = CMTimeMakeWithSeconds(time, preferredTimescale: 600)
+        playerCache.seek(url: url, to: cmTime)
+    }
+
+    func confirmTrim() {
+        if currentTrimBefore != 0 || currentTrimAfter != 0 {
+            trimAdjustments[currentRallyIndex] = RallyTrimAdjustment(
+                before: currentTrimBefore, after: currentTrimAfter
+            )
+        } else {
+            trimAdjustments.removeValue(forKey: currentRallyIndex)
+        }
+        isTrimmingMode = false
+        seekToCurrentRallyStart()
+        setupRallyLooping()
+        playerCache.play()
+    }
+
+    func cancelTrim() {
+        isTrimmingMode = false
+        seekToCurrentRallyStart()
+        setupRallyLooping()
+        playerCache.play()
+    }
+
     // MARK: - Export
 
     func startExport(type: RallyExportType) {
@@ -505,6 +657,7 @@ final class RallyPlayerViewModel {
         }
         activeTasks.removeAll()
 
+        removeRallyLooping()
         playerCache.cleanup()
         thumbnailCache.cleanup()
     }

@@ -232,6 +232,28 @@ struct RallySegment: Codable, Identifiable {
     var timeRange: CMTimeRange {
         return CMTimeRangeMake(start: startCMTime, duration: CMTimeMakeWithSeconds(duration, preferredTimescale: 600))
     }
+
+    func withAdjustedTimes(startSeconds: Double, endSeconds: Double) -> RallySegment {
+        return RallySegment(
+            startTimeSeconds: startSeconds,
+            endTimeSeconds: endSeconds,
+            confidence: confidence,
+            quality: quality,
+            detectionCount: detectionCount,
+            averageTrajectoryLength: averageTrajectoryLength
+        )
+    }
+
+    /// Initializer accepting raw seconds (for adjusted times)
+    init(startTimeSeconds: Double, endTimeSeconds: Double, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double) {
+        self.id = UUID()
+        self.startTime = startTimeSeconds
+        self.endTime = endTimeSeconds
+        self.confidence = confidence
+        self.quality = quality
+        self.detectionCount = detectionCount
+        self.averageTrajectoryLength = averageTrajectoryLength
+    }
 }
 
 // MARK: - Processing Statistics

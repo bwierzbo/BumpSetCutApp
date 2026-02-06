@@ -8,6 +8,7 @@ struct RallyExportProgress: View {
     let savedRallies: [Int]
     let processingMetadata: ProcessingMetadata?
     let videoMetadata: VideoMetadata
+    let trimAdjustments: [Int: RallyTrimAdjustment]
     @Binding var isExporting: Bool
     @Binding var exportProgress: Double
 
@@ -115,9 +116,19 @@ struct RallyExportProgress: View {
             }
 
             let asset = AVURLAsset(url: videoMetadata.originalURL)
+            let videoDuration = try await CMTimeGetSeconds(asset.load(.duration))
             let exporter = VideoExporter()
-            let selectedSegments = savedRallies.compactMap { index in
-                index < metadata.rallySegments.count ? metadata.rallySegments[index] : nil
+            let rawSegments = savedRallies.compactMap { index in
+                index < metadata.rallySegments.count ? (index, metadata.rallySegments[index]) : nil
+            }
+
+            // Apply per-rally trim adjustments
+            let selectedSegments = rawSegments.map { (rallyIndex, segment) -> RallySegment in
+                guard let adj = trimAdjustments[rallyIndex] else { return segment }
+                return segment.withAdjustedTimes(
+                    startSeconds: max(0, segment.startTime - adj.before),
+                    endSeconds: min(videoDuration, segment.endTime + adj.after)
+                )
             }
 
             if exportType == .individual {
@@ -188,6 +199,7 @@ enum RallyExportStatus: Equatable {
             fileSize: 0,
             duration: 60.0
         ),
+        trimAdjustments: [:],
         isExporting: .constant(true),
         exportProgress: .constant(0.5)
     )

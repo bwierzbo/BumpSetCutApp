@@ -30,8 +30,15 @@ struct CustomVideoPlayerView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PlayerUIView, context: Context) {
-        uiView.playerLayer.player = player
-        uiView.playerLayer.videoGravity = gravity
+        // Only reassign player when it actually changes - reassigning the same
+        // AVPlayer instance causes AVPlayerLayer to briefly clear its rendered
+        // frame (black flash) before re-rendering
+        if uiView.playerLayer.player !== player {
+            uiView.playerLayer.player = player
+        }
+        if uiView.playerLayer.videoGravity != gravity {
+            uiView.playerLayer.videoGravity = gravity
+        }
         uiView.onReadyForDisplay = onReadyForDisplay
 
         // Check current state on update (critical for when player changes)
