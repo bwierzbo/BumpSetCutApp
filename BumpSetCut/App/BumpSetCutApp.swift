@@ -10,12 +10,25 @@ import AVFoundation
 
 @main struct BumpSetCutApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @State private var authService = AuthenticationService()
+    @State private var networkMonitor = NetworkMonitor()
+    @State private var offlineQueue = OfflineQueue()
 
     var body: some Scene {
         WindowGroup {
             HomeView()
-                .registerPopups()
                 .withAppSettings()
+                .environment(authService)
+                .task {
+                    await authService.restoreSession()
+                }
+                .onChange(of: networkMonitor.isConnected) { _, isConnected in
+                    if isConnected {
+                        Task {
+                            await offlineQueue.drain(using: SupabaseAPIClient.shared)
+                        }
+                    }
+                }
         }
     }
 }
@@ -33,7 +46,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         } catch {
             print("❌ Failed to configure audio session: \(error)")
         }
-        
+
         return true
     }
 

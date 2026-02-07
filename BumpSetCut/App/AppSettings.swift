@@ -64,6 +64,7 @@ class AppSettings: ObservableObject {
         }
     }
 
+
     private init() {
         // Initialize with defaults based on build configuration
         #if DEBUG

@@ -25,7 +25,7 @@ final class ProcessorConfigTests: XCTestCase {
     // MARK: - Default Configuration Tests
     
     func testDefaultConfiguration() {
-        XCTAssertTrue(config.enableEnhancedPhysics, "Enhanced physics should be enabled by default")
+        XCTAssertFalse(config.enableEnhancedPhysics, "Enhanced physics should be disabled by default (temporarily disabled)")
         XCTAssertEqual(config.enhancedMinR2, 0.85, accuracy: 0.001, "Default enhanced R² threshold should be 0.85")
         XCTAssertTrue(config.movementClassifierEnabled, "Movement classifier should be enabled by default")
         XCTAssertEqual(config.minClassificationConfidence, 0.7, accuracy: 0.001, "Default classification confidence should be 0.7")
@@ -114,21 +114,21 @@ final class ProcessorConfigTests: XCTestCase {
         let modifications: [String: Any] = [
             "enhancedMinR2": 0.9,
             "minClassificationConfidence": 0.8,
-            "enableEnhancedPhysics": false,
+            "enableEnhancedPhysics": true,
             "enableMetricsCollection": true,
             "unknownParameter": "ignored"  // Should be ignored
         ]
-        
+
         let modifiedConfig = config.withModifications(modifications)
-        
+
         XCTAssertEqual(modifiedConfig.enhancedMinR2, 0.9, accuracy: 0.001, "R² threshold should be modified")
         XCTAssertEqual(modifiedConfig.minClassificationConfidence, 0.8, accuracy: 0.001, "Classification confidence should be modified")
-        XCTAssertFalse(modifiedConfig.enableEnhancedPhysics, "Enhanced physics should be disabled")
+        XCTAssertTrue(modifiedConfig.enableEnhancedPhysics, "Enhanced physics should be enabled")
         XCTAssertTrue(modifiedConfig.enableMetricsCollection, "Metrics collection should be enabled")
-        
+
         // Original config should remain unchanged
         XCTAssertEqual(config.enhancedMinR2, 0.85, accuracy: 0.001, "Original config should be unchanged")
-        XCTAssertTrue(config.enableEnhancedPhysics, "Original config should be unchanged")
+        XCTAssertFalse(config.enableEnhancedPhysics, "Original config should be unchanged")
     }
     
     func testWithModificationsInvalidTypes() {
@@ -147,17 +147,17 @@ final class ProcessorConfigTests: XCTestCase {
     // MARK: - Reset to Defaults Tests
     
     func testResetToDefaults() {
-        // Modify config
+        // Modify config away from defaults
         config.enhancedMinR2 = 0.9
-        config.enableEnhancedPhysics = false
+        config.enableEnhancedPhysics = true
         config.enableMetricsCollection = true
-        
+
         // Reset to defaults
         config.resetToDefaults()
-        
+
         // Verify reset
         XCTAssertEqual(config.enhancedMinR2, 0.85, accuracy: 0.001, "Should reset to default R² threshold")
-        XCTAssertTrue(config.enableEnhancedPhysics, "Should reset to default enhanced physics setting")
+        XCTAssertFalse(config.enableEnhancedPhysics, "Should reset to default enhanced physics setting")
         XCTAssertFalse(config.enableMetricsCollection, "Should reset to default metrics setting")
     }
     

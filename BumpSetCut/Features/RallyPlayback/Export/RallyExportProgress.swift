@@ -15,28 +15,35 @@ struct RallyExportProgress: View {
     @Environment(\.dismiss) private var dismiss
     @State private var exportStatus: RallyExportStatus = .preparing
     @State private var exportedCount = 0
+    @State private var exportTask: Task<Void, Never>?
 
     var body: some View {
         NavigationView {
             VStack(spacing: 32) {
                 Spacer()
 
-                progressIndicator
-
-                statusText
-
-                if exportStatus == .completed {
-                    successView
-                }
-
-                Spacer()
-
-                if exportStatus != .completed {
+                switch exportStatus {
+                case .preparing, .exporting:
+                    progressIndicator
+                    statusText
+                    Spacer()
                     Button("Cancel") {
+                        exportTask?.cancel()
+                        isExporting = false
                         dismiss()
                     }
                     .font(.headline)
                     .foregroundColor(.red)
+
+                case .completed:
+                    progressIndicator
+                    statusText
+                    successView
+                    Spacer()
+
+                case .failed(let errorMessage):
+                    failedView(errorMessage: errorMessage)
+                    Spacer()
                 }
             }
             .padding(24)
@@ -45,6 +52,9 @@ struct RallyExportProgress: View {
         }
         .onAppear {
             startExport()
+        }
+        .onDisappear {
+            exportTask?.cancel()
         }
     }
 
@@ -95,8 +105,46 @@ struct RallyExportProgress: View {
         }
     }
 
+    private func failedView(errorMessage: String) -> some View {
+        VStack(spacing: 24) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.red)
+
+            VStack(spacing: 8) {
+                Text("Export Failed")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+
+                Text(errorMessage)
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: 12) {
+                Button("Retry") {
+                    startExport()
+                }
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 12)
+                .background(Color.blue)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                Button("Dismiss") {
+                    dismiss()
+                }
+                .font(.headline)
+                .foregroundColor(.red)
+            }
+        }
+    }
+
     private func startExport() {
-        Task {
+        exportTask?.cancel()
+        exportTask = Task {
             await performExport()
         }
     }
@@ -134,6 +182,8 @@ struct RallyExportProgress: View {
             if exportType == .individual {
                 // Export individual videos
                 for (index, segment) in selectedSegments.enumerated() {
+                    try Task.checkCancellation()
+
                     let progress = Double(index) / Double(selectedSegments.count)
                     await MainActor.run {
                         exportProgress = progress
@@ -153,6 +203,11 @@ struct RallyExportProgress: View {
                 isExporting = false
             }
 
+        } catch is CancellationError {
+            // User cancelled -- don't show error state
+            await MainActor.run {
+                isExporting = false
+            }
         } catch {
             await MainActor.run {
                 exportStatus = .failed(error.localizedDescription)

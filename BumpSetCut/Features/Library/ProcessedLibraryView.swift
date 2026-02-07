@@ -33,7 +33,7 @@ struct ProcessedLibraryView: View {
                 hasAppeared = true
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .libraryContentChanged)) { _ in
+        .onChange(of: mediaStore.contentVersion) { _, _ in
             loadProcessedVideos()
         }
         .fullScreenCover(item: $selectedVideo) { processedVideo in

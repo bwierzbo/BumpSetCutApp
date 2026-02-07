@@ -66,7 +66,7 @@ struct DropZoneView<Content: View>: View {
 // MARK: - Upload Status Bar
 
 struct UploadStatusBar: View {
-    @ObservedObject var uploadCoordinator: UploadCoordinator
+    var uploadCoordinator: UploadCoordinator
     @State private var uploadedVideoURL: URL?
 
     var body: some View {

@@ -10,6 +10,7 @@ import SwiftUI
 // MARK: - SettingsView
 struct SettingsView: View {
     @EnvironmentObject private var appSettings: AppSettings
+    @Environment(AuthenticationService.self) private var authService
     @Environment(\.dismiss) private var dismiss
     @State private var hasAppeared = false
 
@@ -42,17 +43,23 @@ struct SettingsView: View {
                             .offset(y: hasAppeared ? 0 : 20)
                             .animation(.bscSpring.delay(0.2), value: hasAppeared)
 
+                        // Social & Privacy section
+                        socialPrivacySection
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.25), value: hasAppeared)
+
                         // Status section
                         statusSection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.25), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.3), value: hasAppeared)
 
                         // App info section
                         appInfoSection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.3), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.35), value: hasAppeared)
 
                         Spacer(minLength: BSCSpacing.huge)
                     }
@@ -132,6 +139,103 @@ private extension SettingsView {
                 icon: "chart.bar.fill",
                 isOn: $appSettings.enableAnalytics
             )
+        }
+    }
+}
+
+// MARK: - Social & Privacy Section
+private extension SettingsView {
+    var socialPrivacySection: some View {
+        BSCSettingsSection(title: "Social & Privacy", icon: "person.2.circle.fill", iconColor: .bscOrange) {
+            VStack(spacing: BSCSpacing.md) {
+                if authService.authState == .authenticated {
+                    // Account row
+                    HStack(spacing: BSCSpacing.md) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.bscOrange.opacity(0.15))
+                                .frame(width: 36, height: 36)
+
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.bscOrange)
+                        }
+
+                        VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
+                            Text(authService.currentUser?.displayName ?? "Account")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.bscTextPrimary)
+
+                            Text("Signed in")
+                                .font(.system(size: 12))
+                                .foregroundColor(.bscTextSecondary)
+                        }
+
+                        Spacer()
+                    }
+
+                    Divider()
+                        .background(Color.bscSurfaceBorder)
+
+                    // Sign out button
+                    Button {
+                        authService.signOut()
+                    } label: {
+                        HStack {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .foregroundColor(.bscTextSecondary)
+                            Text("Sign Out")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.bscTextSecondary)
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider()
+                        .background(Color.bscSurfaceBorder)
+
+                    // Delete account button
+                    Button {
+                        // Confirmation alert added in future iteration
+                    } label: {
+                        HStack {
+                            Image(systemName: "trash")
+                                .foregroundColor(.red.opacity(0.8))
+                            Text("Delete Account")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.red.opacity(0.8))
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    // Not signed in state
+                    HStack(spacing: BSCSpacing.md) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.bscOrange.opacity(0.15))
+                                .frame(width: 36, height: 36)
+
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.bscOrange)
+                        }
+
+                        VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
+                            Text("Not signed in")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.bscTextPrimary)
+
+                            Text("Sign in to access community features")
+                                .font(.system(size: 12))
+                                .foregroundColor(.bscTextSecondary)
+                        }
+
+                        Spacer()
+                    }
+                }
+            }
         }
     }
 }
@@ -353,4 +457,5 @@ private struct BSCStatusRow: View {
 #Preview("SettingsView") {
     SettingsView()
         .environmentObject(AppSettings.shared)
+        .environment(AuthenticationService())
 }

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Observation
 
 // MARK: - Library Type
 
@@ -339,10 +340,11 @@ struct FolderManifest: Codable {
     }
 }
 
-@MainActor class MediaStore: ObservableObject {
+@MainActor @Observable class MediaStore {
     private var manifest: FolderManifest
     private let manifestURL: URL
     let baseDirectory: URL
+    private(set) var contentVersion: Int = 0
     
     init() {
         let fileManager = FileManager.default
@@ -387,8 +389,8 @@ struct FolderManifest: Codable {
             let data = try JSONEncoder().encode(manifest)
             try data.write(to: manifestURL)
 
-            // Notify observers that library content changed
-            NotificationCenter.default.post(name: .libraryContentChanged, object: nil)
+            // Increment version so @Observable consumers detect the change
+            contentVersion += 1
         } catch {
             print("Failed to save manifest: \(error)")
         }

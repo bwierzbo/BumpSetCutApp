@@ -31,6 +31,9 @@ final class VideoProcessor {
     private let exporter = VideoExporter()
     private var metadataStore: MetadataStore?
 
+    // Background execution protection
+    private let backgroundGuard = BackgroundProcessingGuard()
+
     // Debug data collection
     var trajectoryDebugger: TrajectoryDebugger?
     private var metricsCollector: MetricsCollector?
@@ -43,7 +46,12 @@ final class VideoProcessor {
 
     // MARK: - Legacy video export method (for backward compatibility if needed)
     func processVideoLegacy(_ url: URL) async throws -> URL {
-        await MainActor.run { isProcessing = true; progress = 0 }
+        await MainActor.run {
+            isProcessing = true; progress = 0
+            backgroundGuard.begin {
+                print("⚠️ BackgroundProcessingGuard: background time expiring during legacy processing")
+            }
+        }
 
         // Recreate stage objects with current config (no lazy)
         self.gate = BallisticsGate(config: config)
@@ -93,8 +101,9 @@ final class VideoProcessor {
                 .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
                 .first
 
-            // Gate by physics + fallback to raw detection presence (debug-friendly)
-            let isProjectile = activeTrack.map { gate.isValidProjectile($0) } ?? false
+            // Gate by physics + fallback to raw detection presence
+            let gateResult = activeTrack.map { gate.validateProjectile($0) }
+            let isProjectile = gateResult?.isValid ?? false
             let hasBall = !dets.isEmpty
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
             segments.observe(isActive: isActive, at: pts)
@@ -146,7 +155,7 @@ final class VideoProcessor {
             print("   - No ball detections found")
             print("   - Rally detection thresholds too high")
             print("   - Processing configuration issues")
-            await MainActor.run { isProcessing = false }
+            await MainActor.run { isProcessing = false; backgroundGuard.end() }
             throw ProcessingError.exportFailed
         }
 
@@ -158,13 +167,19 @@ final class VideoProcessor {
             processedURL = out
             isProcessing = false
             progress = 1
+            backgroundGuard.end()
         }
         return out
     }
 
     // MARK: - Debug path (no cutting, full-length annotated video)
     func processVideoDebug(_ url: URL) async throws -> URL {
-        await MainActor.run { isProcessing = true; progress = 0 }
+        await MainActor.run {
+            isProcessing = true; progress = 0
+            backgroundGuard.begin {
+                print("⚠️ BackgroundProcessingGuard: background time expiring during debug processing")
+            }
+        }
 
         // Initialize debug session
         await MainActor.run {
@@ -182,7 +197,7 @@ final class VideoProcessor {
 
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
-            await MainActor.run { isProcessing = false }
+            await MainActor.run { isProcessing = false; backgroundGuard.end() }
             throw ProcessingError.exportFailed
         }
 
@@ -239,31 +254,32 @@ final class VideoProcessor {
                     .first
 
                 // Gate by physics + raw detection presence (debug-friendly)
-                let isProjectile = activeTrack.map { gate.isValidProjectile($0) } ?? false
+                let gateResult = activeTrack.map { gate.validateProjectile($0) }
+                let isProjectile = gateResult?.isValid ?? false
                 let hasBall = !dets.isEmpty
                 let inRally = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
 
                 // Capture debug data if available
                 if let debugger = trajectoryDebugger, let track = activeTrack {
-                    // Create physics validation result with proper parameters
+                    let gr = gateResult ?? BallisticsGate.ValidationResult(
+                        isValid: false, rSquared: 0, curvatureDirectionValid: false,
+                        hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
                     let physicsResult = PhysicsValidationResult(
-                        isValid: isProjectile,
-                        rSquared: 0.95, // Default value, could be extracted from gate
-                        curvatureDirectionValid: true,
-                        accelerationMagnitudeValid: true,
+                        isValid: gr.isValid,
+                        rSquared: gr.rSquared,
+                        curvatureDirectionValid: gr.curvatureDirectionValid,
+                        accelerationMagnitudeValid: gr.hasMotionEvidence,
                         velocityConsistencyValid: true,
-                        positionJumpsValid: true,
-                        confidenceLevel: 0.9
+                        positionJumpsValid: gr.positionJumpsValid,
+                        confidenceLevel: gr.confidenceLevel
                     )
-                    
-                    // Create movement classification
+
                     let movementClassifier = MovementClassifier()
                     let movementClassification = movementClassifier.classifyMovement(track)
-                    
-                    // Calculate quality metrics
+
                     let trajectoryQualityScore = TrajectoryQualityScore()
                     let qualityMetrics = trajectoryQualityScore.calculateQuality(for: track)
-                    
+
                     debugger.analyzeTrajectory(
                         track,
                         physicsResult: physicsResult,
@@ -312,13 +328,19 @@ final class VideoProcessor {
             processedURL = out
             isProcessing = false
             progress = 1
+            backgroundGuard.end()
         }
         return out
     }
 
     // MARK: - Metadata path (production mode with metadata generation)
     func processVideoMetadata(_ url: URL, videoId: UUID) async throws -> ProcessingMetadata {
-        await MainActor.run { isProcessing = true; progress = 0; processedMetadata = nil }
+        await MainActor.run {
+            isProcessing = true; progress = 0; processedMetadata = nil
+            backgroundGuard.begin {
+                print("⚠️ BackgroundProcessingGuard: background time expiring during metadata processing")
+            }
+        }
 
         // Check analysis mode from settings
         let useThoroughAnalysis = await MainActor.run { AppSettings.shared.useThoroughAnalysis }
@@ -336,6 +358,7 @@ final class VideoProcessor {
 
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            await MainActor.run { isProcessing = false; backgroundGuard.end() }
             throw ProcessingError.exportFailed
         }
 
@@ -423,8 +446,9 @@ final class VideoProcessor {
                 .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
                 .first
 
-            // Gate by physics + fallback to raw detection presence (debug-friendly)
-            let isProjectile = activeTrack.map { gate.isValidProjectile($0) } ?? false
+            // Gate by physics + fallback to raw detection presence
+            let gateResult = activeTrack.map { gate.validateProjectile($0) }
+            let isProjectile = gateResult?.isValid ?? false
             let hasBall = !dets.isEmpty
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
             segments.observe(isActive: isActive, at: pts)
@@ -501,17 +525,20 @@ final class VideoProcessor {
                     confidenceSum += calculateTrackConfidence(track)
                 }
 
-                // Store physics validation data
+                // Store physics validation data from real gate results
+                let gr = gateResult ?? BallisticsGate.ValidationResult(
+                    isValid: false, rSquared: 0, curvatureDirectionValid: false,
+                    hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
                 let physicsData = PhysicsValidationData(
                     trajectoryId: trajectoryDataCollection.last?.id ?? UUID(),
                     timestamp: pts,
-                    isValid: isProjectile,
-                    rSquared: calculateTrackMetrics(track).0,
-                    curvatureValid: true, // Could extract from gate validation
-                    accelerationValid: true,
+                    isValid: gr.isValid,
+                    rSquared: gr.rSquared,
+                    curvatureValid: gr.curvatureDirectionValid,
+                    accelerationValid: gr.hasMotionEvidence,
                     velocityConsistent: true,
-                    positionJumpsValid: true,
-                    confidenceLevel: calculateTrackConfidence(track)
+                    positionJumpsValid: gr.positionJumpsValid,
+                    confidenceLevel: gr.confidenceLevel
                 )
                 physicsValidationData.append(physicsData)
 
@@ -574,22 +601,54 @@ final class VideoProcessor {
 
         guard !keep.isEmpty else {
             print("❌ No rally segments found for metadata generation")
-            await MainActor.run { isProcessing = false }
+            await MainActor.run { isProcessing = false; backgroundGuard.end() }
             throw ProcessingError.exportFailed
         }
 
         // Check for cancellation before metadata generation
         try Task.checkCancellation()
 
-        // Generate rally segments from keep ranges
+        // Generate rally segments from keep ranges with real per-segment metrics
         let rallySegments = keep.enumerated().map { index, range in
-            RallySegment(
+            let rangeStart = CMTimeGetSeconds(range.start)
+            let rangeEnd = CMTimeGetSeconds(CMTimeRangeGetEnd(range))
+
+            // Filter physics validation data within this segment's time range
+            let segmentPhysics = physicsValidationData.filter {
+                $0.timestamp >= rangeStart && $0.timestamp <= rangeEnd
+            }
+
+            // Compute real confidence: average confidenceLevel of physics entries in range
+            let segmentConfidence: Double
+            if segmentPhysics.isEmpty {
+                segmentConfidence = 0.0
+            } else {
+                segmentConfidence = segmentPhysics.reduce(0.0) { $0 + $1.confidenceLevel } / Double(segmentPhysics.count)
+            }
+
+            // Compute real quality: average R-squared of valid physics entries in range
+            let validPhysics = segmentPhysics.filter { $0.isValid && $0.rSquared > 0 }
+            let segmentQuality: Double
+            if validPhysics.isEmpty {
+                segmentQuality = 0.0
+            } else {
+                segmentQuality = validPhysics.reduce(0.0) { $0 + $1.rSquared } / Double(validPhysics.count)
+            }
+
+            // Filter trajectories within this segment's time range
+            let segmentTrajectories = trajectoryDataCollection.filter {
+                $0.startTime < rangeEnd && $0.endTime > rangeStart
+            }
+            let avgTrajLen = segmentTrajectories.isEmpty ? 0.0 :
+                segmentTrajectories.reduce(0.0) { $0 + $1.duration } / Double(segmentTrajectories.count)
+
+            return RallySegment(
                 startTime: range.start,
                 endTime: CMTimeRangeGetEnd(range),
-                confidence: 0.9, // Could be calculated from track confidence in range
-                quality: 0.8, // Could be calculated from physics validation
-                detectionCount: totalDetections / max(keep.count, 1),
-                averageTrajectoryLength: trajectoryDataCollection.reduce(0) { $0 + $1.duration } / Double(max(trajectoryDataCollection.count, 1))
+                confidence: segmentConfidence,
+                quality: segmentQuality,
+                detectionCount: segmentPhysics.count,
+                averageTrajectoryLength: avgTrajLen
             )
         }
 
@@ -655,6 +714,7 @@ final class VideoProcessor {
             print("✅ Successfully saved metadata for video \(videoId)")
         } catch {
             print("❌ Failed to save metadata: \(error)")
+            await MainActor.run { backgroundGuard.end() }
             throw error
         }
 
@@ -662,6 +722,7 @@ final class VideoProcessor {
             processedMetadata = metadata
             isProcessing = false
             progress = 1
+            backgroundGuard.end()
         }
 
         return metadata

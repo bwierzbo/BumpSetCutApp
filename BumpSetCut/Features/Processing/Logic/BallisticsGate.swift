@@ -9,6 +9,17 @@ import CoreGraphics
 import CoreMedia
 
 final class BallisticsGate {
+
+    /// Result of projectile validation with real physics metrics.
+    struct ValidationResult {
+        let isValid: Bool
+        let rSquared: Double
+        let curvatureDirectionValid: Bool
+        let hasMotionEvidence: Bool
+        let positionJumpsValid: Bool
+        let confidenceLevel: Double
+    }
+
     private let config: ProcessorConfig
     private let parabolicValidator: ParabolicValidator
     private let movementClassifier: MovementClassifier
@@ -27,7 +38,7 @@ final class BallisticsGate {
         )
         self.parabolicValidator = ParabolicValidator(config: validatorConfig)
         
-        let classifierConfig = ClassificationConfig()
+        let classifierConfig = ClassificationConfig(from: config)
         self.movementClassifier = MovementClassifier(config: classifierConfig)
         
         let qualityConfig = TrajectoryQualityScore.QualityConfig(
@@ -39,69 +50,74 @@ final class BallisticsGate {
     }
     
     func isValidProjectile(_ track: KalmanBallTracker.TrackedBall) -> Bool {
-        // Use enhanced physics validation if enabled
+        return validateProjectile(track).isValid
+    }
+
+    /// Validate projectile and return detailed metrics for downstream consumers.
+    func validateProjectile(_ track: KalmanBallTracker.TrackedBall) -> ValidationResult {
         if config.enableEnhancedPhysics {
-            return isValidProjectileEnhanced(track)
+            return validateProjectileEnhanced(track)
         }
-        
-        // Fall back to legacy validation
-        return isValidProjectileLegacy(track)
+        return validateProjectileLegacy(track)
     }
     
     /// Enhanced projectile validation using ParabolicValidator, MovementClassifier, and TrajectoryQualityScore
-    private func isValidProjectileEnhanced(_ track: KalmanBallTracker.TrackedBall) -> Bool {
-        // Must have enough samples to say anything meaningful
-        let allSamples = track.positions
-        guard allSamples.count >= config.parabolaMinPoints else { return false }
+    private func validateProjectileEnhanced(_ track: KalmanBallTracker.TrackedBall) -> ValidationResult {
+        let insufficient = ValidationResult(isValid: false, rSquared: 0, curvatureDirectionValid: false,
+                                            hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
 
-        // Time-windowed samples: use only the last `projectileWindowSec` seconds
+        let allSamples = track.positions
+        guard allSamples.count >= config.parabolaMinPoints else { return insufficient }
+
         let windowSec = max(0.1, config.projectileWindowSec)
         let endT = allSamples.last!.1
         let cutoff = CMTimeSubtract(endT, CMTimeMakeWithSeconds(windowSec, preferredTimescale: 600))
         let samples = allSamples.filter { CMTimeCompare($0.1, cutoff) >= 0 }
-        guard samples.count >= config.parabolaMinPoints else { return false }
-        
-        // Step 1: Movement Classification - reject non-airborne movements
+        guard samples.count >= config.parabolaMinPoints else { return insufficient }
+
         let classification = movementClassifier.classifyMovement(track)
-        guard classification.isValidProjectile else { return false }
-        
-        // Step 2: Trajectory Quality Assessment
         let qualityMetrics = qualityScorer.calculateQuality(for: track)
-        guard qualityMetrics.overall >= config.minQualityScore else { return false }
-        
-        // Step 3: Parabolic Validation - comprehensive physics check
         let parabolicResult = parabolicValidator.validateTrajectory(samples)
-        guard parabolicResult.isValid else { return false }
-        
-        // Step 4: Basic coherence checks (preserve existing spatial jump detection)
+
+        var jumpsValid = true
         if samples.count >= 2 {
             let lastPt = samples.last!.0
             let prevPt = samples[samples.count - 2].0
             let jump = hypot(lastPt.x - prevPt.x, lastPt.y - prevPt.y)
-            if jump > config.maxJumpPerFrame {
-                return false
-            }
+            if jump > config.maxJumpPerFrame { jumpsValid = false }
         }
-        
-        // Step 5: Confidence-based final decision
+
         let combinedConfidence = (classification.confidence + qualityMetrics.overall + parabolicResult.r2Correlation) / 3.0
-        return combinedConfidence >= config.minClassificationConfidence
+        let isValid = classification.isValidProjectile
+            && qualityMetrics.overall >= config.minQualityScore
+            && parabolicResult.isValid
+            && jumpsValid
+            && combinedConfidence >= config.minClassificationConfidence
+
+        return ValidationResult(
+            isValid: isValid,
+            rSquared: parabolicResult.r2Correlation,
+            curvatureDirectionValid: parabolicResult.isValid,
+            hasMotionEvidence: classification.isValidProjectile,
+            positionJumpsValid: jumpsValid,
+            confidenceLevel: combinedConfidence
+        )
     }
     
     /// Legacy projectile validation method (original implementation)
-    private func isValidProjectileLegacy(_ track: KalmanBallTracker.TrackedBall) -> Bool {
-        // Must have enough samples to say anything meaningful
-        let allSamples = track.positions
-        guard allSamples.count >= config.parabolaMinPoints else { return false }
+    private func validateProjectileLegacy(_ track: KalmanBallTracker.TrackedBall) -> ValidationResult {
+        let insufficient = ValidationResult(isValid: false, rSquared: 0, curvatureDirectionValid: false,
+                                            hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
 
-        // Time-windowed samples: use only the last `projectileWindowSec` seconds
+        let allSamples = track.positions
+        guard allSamples.count >= config.parabolaMinPoints else { return insufficient }
+
         let windowSec = max(0.1, config.projectileWindowSec)
         let endT = allSamples.last!.1
         let cutoff = CMTimeSubtract(endT, CMTimeMakeWithSeconds(windowSec, preferredTimescale: 600))
         let samples = allSamples.filter { CMTimeCompare($0.1, cutoff) >= 0 }
-        guard samples.count >= config.parabolaMinPoints else { return false }
-  
-        // Build time-based arrays (use real timestamps; fallback to ~30fps indices if degenerate)
+        guard samples.count >= config.parabolaMinPoints else { return insufficient }
+
         let t0 = samples.first!.1
         var ts: [Double] = []
         var ys: [CGFloat] = []
@@ -113,24 +129,23 @@ final class BallisticsGate {
             ys.append(pt.y)
         }
         if (ts.last ?? 0) <= 0 {
-            // Fallback if timestamps are identical: assume ~30fps spacing
             ts = (0..<samples.count).map { Double($0) * (1.0 / 30.0) }
         }
 
-        // --- ROI / coherence checks (reject sudden jumps and off-trajectory last point) ---
-        // Use tunable thresholds from ProcessorConfig (normalized units)
-
-        // 1) Reject large per-frame spatial jumps (uses normalized XY positions)
+        // 1) Reject large per-frame spatial jumps
+        var jumpsValid = true
         if samples.count >= 2 {
             let lastPt = samples.last!.0
             let prevPt = samples[samples.count - 2].0
             let jump = hypot(lastPt.x - prevPt.x, lastPt.y - prevPt.y)
-            if jump > config.maxJumpPerFrame {
-                return false
-            }
+            if jump > config.maxJumpPerFrame { jumpsValid = false }
+        }
+        if !jumpsValid {
+            return ValidationResult(isValid: false, rSquared: 0, curvatureDirectionValid: false,
+                                    hasMotionEvidence: false, positionJumpsValid: false, confidenceLevel: 0)
         }
 
-        // 2) Predict last Y from prior trajectory (fit on all but the last point) and gate by ROI
+        // 2) Predict last Y from prior trajectory and gate by ROI
         if samples.count >= 5 {
             let t0p = samples.first!.1
             var tsPrev: [Double] = []
@@ -151,28 +166,23 @@ final class BallisticsGate {
                 let yPred = fitPrev.a * CGFloat(tLast * tLast) + fitPrev.b * CGFloat(tLast) + fitPrev.c
                 let yErr = abs(yPred - (ys.last ?? yPred))
                 if yErr > config.roiYRadius {
-                    return false
+                    return ValidationResult(isValid: false, rSquared: 0, curvatureDirectionValid: false,
+                                            hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
                 }
             }
         }
-  
-        // Points for quadratic fit: x = time (s), y = normalized y
-        // NOTE: Vision bounding boxes are bottom-left origin by default (y increases upward).
-        //       Use config.yIncreasingDown to pick the correct curvature sign.
+
         let points = zip(ts, ys).map { CGPoint(x: CGFloat($0.0), y: $0.1) }
-  
-        // Quadratic fit & acceptance
-        guard let fit = fitQuadratic(points: points) else { return false }
+        guard let fit = fitQuadratic(points: points) else { return insufficient }
+
         let minR2 = max(0.0, config.parabolaMinR2)
         let r2OK = fit.r2 >= minR2
 
-        // Vertical span must be non-trivial to avoid flat noise (normalized coords)
         let yMin = ys.min() ?? 0
         let yMax = ys.max() ?? 0
         let spanY = yMax - yMin
-        let minSpan: CGFloat = 0.02 // ~2% of height
+        let minSpan: CGFloat = 0.02
 
-        // Velocity & apex evidence (sign change in vertical velocity indicates a peak)
         var vels: [Double] = []
         vels.reserveCapacity(max(0, ts.count - 1))
         for i in 1..<ts.count {
@@ -185,25 +195,23 @@ final class BallisticsGate {
         }
         let hasApex = signChanges >= 1
         let maxSpeed = vels.map { abs($0) }.max() ?? 0
-        let minSpeed = Double(config.minVelocityToConsiderActive) // normalized / s
+        let minSpeed = Double(config.minVelocityToConsiderActive)
 
-        // Curvature sign depends on Y axis direction:
-        // - If y increases downward (top-left), real projectile opens downward => a > 0
-        // - If y increases upward (Vision default bottom-left), real projectile opens downward in world => a < 0
         let curvatureOK = config.yIncreasingDown ? (fit.a > 0) : (fit.a < 0)
-
-        // Gravity band: compare by magnitude due to different pixel/time scales; keep tunable range
         let aMag = abs(fit.a)
         let gravityOK = (!config.useGravityBand) || (aMag >= config.gravityMinA && aMag <= config.gravityMaxA)
+        let motionEvidence = hasApex || maxSpeed >= minSpeed
 
-        // Tight acceptance: good fit, correct curvature, enough span, and some motion evidence
-        let accept = r2OK
-            && curvatureOK
-            && gravityOK
-            && (spanY >= minSpan)
-            && (hasApex || maxSpeed >= minSpeed)
+        let accept = r2OK && curvatureOK && gravityOK && (spanY >= minSpan) && motionEvidence
 
-        return accept
+        return ValidationResult(
+            isValid: accept,
+            rSquared: fit.r2,
+            curvatureDirectionValid: curvatureOK,
+            hasMotionEvidence: motionEvidence,
+            positionJumpsValid: true,
+            confidenceLevel: accept ? min(1.0, fit.r2) : 0
+        )
     }
     
     private func computeAccelerations(points: [CGPoint], a: CGFloat, b: CGFloat) -> [CGFloat] {

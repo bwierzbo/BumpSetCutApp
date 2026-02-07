@@ -73,6 +73,22 @@ struct RallyPlayerView: View {
                     onDismiss: { viewModel.showExportOptions = false }
                 )
             }
+            .sheet(isPresented: $viewModel.showOverviewSheet) {
+                RallyOverviewSheet(
+                    rallyVideoURLs: viewModel.rallyVideoURLs,
+                    savedRallies: viewModel.savedRallies,
+                    removedRallies: viewModel.removedRallies,
+                    currentIndex: viewModel.currentRallyIndex,
+                    thumbnailCache: viewModel.thumbnailCache,
+                    onSelectRally: { index in
+                        viewModel.jumpToRally(index)
+                    },
+                    onExport: {
+                        viewModel.showExportFromOverview()
+                    },
+                    onDismiss: { viewModel.showOverviewSheet = false }
+                )
+            }
         }
         .task {
             await viewModel.loadRallies()
@@ -138,6 +154,7 @@ struct RallyPlayerView: View {
                 isSaved: viewModel.currentRallyIsSaved,
                 isRemoved: viewModel.currentRallyIsRemoved,
                 onDismiss: { dismiss() },
+                onShowOverview: { viewModel.showOverviewSheet = true },
                 onShowTips: { showingGestureTips = true }
             )
             .zIndex(200)
@@ -146,7 +163,7 @@ struct RallyPlayerView: View {
             RallyActionButtons(
                 isSaved: viewModel.currentRallyIsSaved,
                 isRemoved: viewModel.currentRallyIsRemoved,
-                canUndo: viewModel.lastAction != nil,
+                canUndo: viewModel.canUndo,
                 onRemove: { performAction(.remove) },
                 onUndo: { viewModel.undoLastAction() },
                 onSave: { performAction(.save) }

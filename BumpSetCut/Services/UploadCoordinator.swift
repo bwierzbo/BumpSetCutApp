@@ -8,9 +8,9 @@
 import Foundation
 import SwiftUI
 import PhotosUI
-import MijickPopups
 import Combine
 import UniformTypeIdentifiers
+import Observation
 import os
 
 // MARK: - Video Transferable (for efficient large file transfer)
@@ -35,37 +35,38 @@ struct VideoTransferable: Transferable {
 // MARK: - Enhanced Upload Coordinator
 
 @MainActor
-class UploadCoordinator: ObservableObject {
+@Observable
+final class UploadCoordinator {
     private let mediaStore: MediaStore
     let uploadManager: UploadManager
     private let logger = Logger(subsystem: "BumpSetCut", category: "UploadCoordinator")
 
-    @Published var isUploadInProgress = false
-    @Published var showingUploadProgress = false
-    @Published var showCompleted = false
-    @Published var uploadProgressText = ""
-    @Published var currentItemIndex = 0
-    @Published var totalItemCount = 0
-    @Published var elapsedTime: TimeInterval = 0
-    @Published var estimatedTimeRemaining: TimeInterval?
-    @Published var currentFileSize: String = ""
+    var isUploadInProgress = false
+    var showingUploadProgress = false
+    var showCompleted = false
+    var uploadProgressText = ""
+    var currentItemIndex = 0
+    var totalItemCount = 0
+    var elapsedTime: TimeInterval = 0
+    var estimatedTimeRemaining: TimeInterval?
+    var currentFileSize: String = ""
 
     // Storage warning
-    @Published var showStorageWarning = false
-    @Published var storageWarningMessage = ""
+    var showStorageWarning = false
+    var storageWarningMessage = ""
 
     // Track import speed for estimates
     private var importStartTime: Date?
     private var lastImportDuration: TimeInterval?
     private var lastImportSize: Int64?
-    private var elapsedTimer: Timer?
-    
+    @ObservationIgnored private var elapsedTimer: Timer?
+
     // Publisher for notifying when upload is completed
-    private let uploadCompletedSubject = PassthroughSubject<Void, Never>()
+    @ObservationIgnored private let uploadCompletedSubject = PassthroughSubject<Void, Never>()
     var uploadCompletedPublisher: AnyPublisher<Void, Never> {
         uploadCompletedSubject.eraseToAnyPublisher()
     }
-    
+
     // Upload flow state
     private var pendingUploads: [PhotosPickerItem] = []
     private var currentUploadIndex = 0
@@ -73,6 +74,12 @@ class UploadCoordinator: ObservableObject {
 
     // Track recently uploaded videos for post-upload naming
     private var recentlyUploadedFileNames: [String] = []
+
+    // Naming dialog state
+    var showNamingDialog = false
+    var namingDialogFileName = ""
+    var namingDialogSuggestedName = ""
+    @ObservationIgnored private var namingContinuation: CheckedContinuation<Void, Never>?
     
     init(mediaStore: MediaStore) {
         self.mediaStore = mediaStore
@@ -80,208 +87,18 @@ class UploadCoordinator: ObservableObject {
     }
     
     // MARK: - Public Interface
-    
-    func startUploadFlow(from items: [PhotosPickerItem], destinationFolder: String = "") {
-        guard !items.isEmpty else { return }
-        
-        pendingUploads = items
-        currentUploadIndex = 0
-        currentFolderPath = destinationFolder
-        isUploadInProgress = true
-        
-        logger.info("Starting upload flow with \(items.count) items")
-        
-        // Reset upload manager
-        uploadManager.reset()
-        
-        // Process all items to create upload items
-        Task {
-            await processAllItems()
-        }
-    }
-    
-    func startSingleUpload(from item: PhotosPickerItem, destinationFolder: String = "") {
-        startUploadFlow(from: [item], destinationFolder: destinationFolder)
-    }
-    
+
     func cancelUploadFlow() {
         uploadManager.cancelAllUploads()
         isUploadInProgress = false
         showCompleted = false
-        resetUploadFlow()
+        pendingUploads.removeAll()
+        currentUploadIndex = 0
+        currentFolderPath = ""
     }
-    
+
     var uploadProgress: UploadManager {
         return uploadManager
-    }
-    
-    // MARK: - Upload Processing
-    
-    private func processAllItems() async {
-        for (index, item) in pendingUploads.enumerated() {
-            // Use file-based transfer - never load entire video into memory
-            guard let movie = try? await item.loadTransferable(type: VideoTransferable.self) else {
-                logger.warning("Failed to load video for item \(index)")
-                continue
-            }
-
-            let fileName = "VID_\(Date().timeIntervalSince1970).mp4"
-            await uploadManager.addUpload(
-                url: movie.url,
-                fileName: fileName,
-                destinationFolderPath: currentFolderPath
-            )
-        }
-
-        // Show progress popup
-        showingUploadProgress = true
-        await UploadProgressPopup(uploadManager: uploadManager).present()
-
-        // Start processing each upload item with naming and folder selection
-        await processUploadQueue()
-    }
-    
-    private func processUploadQueue() async {
-        for uploadItem in uploadManager.uploadItems {
-            guard case .pending = uploadItem.status else { continue }
-            
-            // Step 1: Video Naming
-            await handleVideoNaming(for: uploadItem)
-            
-            // Step 2: Folder Selection (if not already set)
-            if uploadItem.destinationFolderPath.isEmpty {
-                await handleFolderSelection(for: uploadItem)
-            }
-            
-            // Step 3: Start actual upload
-            uploadManager.startUpload(item: uploadItem)
-            
-            // Wait for this upload to complete before processing next
-            await waitForUploadCompletion(uploadItem)
-        }
-        
-        // All uploads processed
-        await finishUploadFlow()
-    }
-    
-    private func handleVideoNaming(for uploadItem: UploadItem) async {
-        await MainActor.run {
-            uploadItem.status = .naming
-        }
-
-        logger.info("Starting video naming dialog for: \(uploadItem.originalFileName)")
-
-        return await withCheckedContinuation { continuation in
-            var hasResumed = false
-            let resumeOnce: () -> Void = {
-                guard !hasResumed else { return }
-                hasResumed = true
-                continuation.resume()
-            }
-
-            Task { @MainActor in
-                logger.info("About to present VideoUploadNamingDialog")
-
-                await VideoUploadNamingDialog(
-                    uploadItem: uploadItem,
-                    onName: { customName in
-                        Task { @MainActor in
-                            uploadItem.displayName = customName
-                            uploadItem.finalName = customName
-                            self.logger.info("Video named: \(customName)")
-                            resumeOnce()
-                        }
-                    },
-                    onSkip: {
-                        Task { @MainActor in
-                            self.logger.info("Video naming skipped")
-                            resumeOnce()
-                        }
-                    },
-                    onCancel: {
-                        Task { @MainActor in
-                            uploadItem.cancel()
-                            self.logger.info("Video naming cancelled")
-                            resumeOnce()
-                        }
-                    }
-                ).present()
-
-                self.logger.info("VideoUploadNamingDialog present() called")
-            }
-        }
-    }
-    
-    private func handleFolderSelection(for uploadItem: UploadItem) async {
-        await MainActor.run {
-            uploadItem.status = .selectingFolder
-        }
-
-        return await withCheckedContinuation { continuation in
-            var hasResumed = false
-            let resumeOnce: () -> Void = {
-                guard !hasResumed else { return }
-                hasResumed = true
-                continuation.resume()
-            }
-
-            Task {
-                await FolderSelectionPopup(
-                    mediaStore: mediaStore,
-                    currentFolderPath: currentFolderPath,
-                    onFolderSelected: { selectedPath in
-                        Task {
-                            uploadItem.destinationFolderPath = selectedPath
-                            resumeOnce()
-                        }
-                    },
-                    onCancel: {
-                        Task {
-                            uploadItem.cancel()
-                            resumeOnce()
-                        }
-                    }
-                ).present()
-            }
-        }
-    }
-    
-    private func waitForUploadCompletion(_ uploadItem: UploadItem) async {
-        let maxWaitTime: UInt64 = 5 * 60 * 1_000_000_000 // 5 minutes in nanoseconds
-        let pollInterval: UInt64 = 100_000_000 // 100ms
-        var elapsedTime: UInt64 = 0
-
-        while elapsedTime < maxWaitTime {
-            switch uploadItem.status {
-            case .complete, .cancelled, .failed:
-                return
-            default:
-                try? await Task.sleep(nanoseconds: pollInterval)
-                elapsedTime += pollInterval
-            }
-        }
-
-        // Timeout reached - mark as failed
-        logger.warning("Upload timed out for: \(uploadItem.originalFileName)")
-        uploadItem.status = .failed(error: "Upload timed out")
-    }
-    
-    private func finishUploadFlow() async {
-        logger.info("Upload flow completed")
-        // Don't immediately reset - let checkAndResetUploadProgress handle the delayed reset
-        // Just clear the upload queue but keep isUploadInProgress true for the completion display
-        showingUploadProgress = false
-        pendingUploads.removeAll()
-        currentUploadIndex = 0
-        currentFolderPath = ""
-    }
-    
-    private func resetUploadFlow() {
-        isUploadInProgress = false
-        showingUploadProgress = false
-        pendingUploads.removeAll()
-        currentUploadIndex = 0
-        currentFolderPath = ""
     }
 }
 
@@ -400,7 +217,6 @@ extension UploadCoordinator {
         // Force UI update on main thread
         Task { @MainActor in
             isUploadInProgress = true
-            objectWillChange.send()
             print("📱 UI Update: isUploadInProgress = true sent to UI")
         }
         
@@ -639,44 +455,34 @@ extension UploadCoordinator {
     }
 
     private func showPostUploadNamingDialog(for fileName: String) async {
-        // Generate suggested name in dd/MM/yyyy format
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "dd/MM/yyyy"
         let suggestedName = "Uploaded video \(dateFormatter.string(from: Date()))"
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            var hasResumed = false
-            let resumeOnce: () -> Void = {
-                guard !hasResumed else { return }
-                hasResumed = true
-                continuation.resume()
-            }
-
-            Task { @MainActor in
-                await PostUploadNamingDialog(
-                    suggestedName: suggestedName,
-                    onSave: { customName in
-                        Task { @MainActor in
-                            if !customName.isEmpty {
-                                let success = self.mediaStore.renameVideo(fileName: fileName, to: customName)
-                                if success {
-                                    self.logger.info("Video named: \(customName)")
-                                } else {
-                                    self.logger.warning("Failed to name video: \(fileName)")
-                                }
-                            }
-                            resumeOnce()
-                        }
-                    },
-                    onSkip: {
-                        Task { @MainActor in
-                            self.logger.info("Video naming skipped, keeping file name: \(fileName)")
-                            resumeOnce()
-                        }
-                    }
-                ).present()
-            }
+            namingContinuation = continuation
+            namingDialogFileName = fileName
+            namingDialogSuggestedName = suggestedName
+            showNamingDialog = true
         }
+    }
+
+    /// Called from the SwiftUI naming alert when user saves or skips
+    func completeNaming(customName: String?) {
+        let fileName = namingDialogFileName
+        if let name = customName, !name.isEmpty {
+            let success = mediaStore.renameVideo(fileName: fileName, to: name)
+            if success {
+                logger.info("Video named: \(name)")
+            } else {
+                logger.warning("Failed to name video: \(fileName)")
+            }
+        } else {
+            logger.info("Video naming skipped for: \(fileName)")
+        }
+        showNamingDialog = false
+        namingContinuation?.resume()
+        namingContinuation = nil
     }
     
     func completeUploadFlow() {

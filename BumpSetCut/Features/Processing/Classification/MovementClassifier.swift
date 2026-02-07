@@ -254,20 +254,33 @@ final class MovementClassifier {
 // MARK: - Configuration
 
 struct ClassificationConfig {
-    let minPointsRequired: Int = 5
-    let optimalTimeSpan: TimeInterval = 1.0
-    
+    var minPointsRequired: Int = 5
+    var optimalTimeSpan: TimeInterval = 1.0
+
     // Airborne thresholds
-    let airborneThreshold: Double = 0.7
-    let minAccelerationPattern: Double = 0.6
-    let minSmoothness: Double = 0.6
-    
+    var airborneThreshold: Double = 0.7
+    var minAccelerationPattern: Double = 0.6
+    var minSmoothness: Double = 0.6
+
     // Rolling thresholds
-    let maxVerticalForRolling: Double = 0.3
-    let minSmoothnessForRolling: Double = 0.7
-    let maxAccelerationForRolling: Double = 0.4
-    
+    var maxVerticalForRolling: Double = 0.3
+    var minSmoothnessForRolling: Double = 0.7
+    var maxAccelerationForRolling: Double = 0.4
+
     // Carried thresholds
-    let minInconsistencyForCarried: Double = 0.6
-    let maxSmoothnessForCarried: Double = 0.4
+    var minInconsistencyForCarried: Double = 0.6
+    var maxSmoothnessForCarried: Double = 0.4
+
+    init() {}
+
+    init(from config: ProcessorConfig) {
+        self.airborneThreshold = config.airbornePhysicsThreshold
+        self.minAccelerationPattern = config.minAccelerationPattern
+        self.minSmoothness = config.minSmoothnessForAirborne
+        self.maxVerticalForRolling = config.maxVerticalMotionForRolling
+        self.minSmoothnessForRolling = config.minSmoothnessForRolling
+        self.maxAccelerationForRolling = config.maxAccelerationForRolling
+        self.minInconsistencyForCarried = config.minInconsistencyForCarried
+        self.maxSmoothnessForCarried = config.maxSmoothnessForCarried
+    }
 }

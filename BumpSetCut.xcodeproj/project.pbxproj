@@ -8,8 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 3620E8B02E230C5C00BD0036 /* MijickCamera */; };
-		3634673D2E367FC900B10ECC /* MijickPopups in Frameworks */ = {isa = PBXBuildFile; productRef = 3634673C2E367FC900B10ECC /* MijickPopups */; };
 		3674FF662E4672F200A9C4CB /* MijickTimer in Frameworks */ = {isa = PBXBuildFile; productRef = 3674FF652E4672F200A9C4CB /* MijickTimer */; };
+		36A1B0012E7500010SUPABASE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 36A1B0002E7500010SUPABASE /* Supabase */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -65,9 +65,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3634673D2E367FC900B10ECC /* MijickPopups in Frameworks */,
 				3674FF662E4672F200A9C4CB /* MijickTimer in Frameworks */,
 				3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */,
+				36A1B0012E7500010SUPABASE /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -113,8 +113,8 @@
 			name = BumpSetCut;
 			packageProductDependencies = (
 				3620E8B02E230C5C00BD0036 /* MijickCamera */,
-				3634673C2E367FC900B10ECC /* MijickPopups */,
 				3674FF652E4672F200A9C4CB /* MijickTimer */,
+				36A1B0002E7500010SUPABASE /* Supabase */,
 			);
 			productName = BumpSetCut;
 			productReference = 36F390202E1C86F40020C100 /* BumpSetCut.app */;
@@ -171,8 +171,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				3620E8AF2E230C5C00BD0036 /* XCRemoteSwiftPackageReference "Camera" */,
-				3634673B2E367FC900B10ECC /* XCRemoteSwiftPackageReference "Popups" */,
 				3674FF642E4672F200A9C4CB /* XCRemoteSwiftPackageReference "Timer" */,
+				36A1AFFF2E7500010SUPABASE /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 36F390212E1C86F40020C100 /* Products */;
@@ -378,12 +378,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = 8UHLPBQL7Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BumpSetCut/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Record Volleyball Footage";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "For video Audio";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Access Volleyball Footage";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -395,7 +394,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = wplus12.BumpSetCut;
+				PRODUCT_BUNDLE_IDENTIFIER = app.BumpSetCut;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -411,12 +410,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = 8UHLPBQL7Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BumpSetCut/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Record Volleyball Footage";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "For video Audio";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Access Volleyball Footage";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -428,7 +426,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = wplus12.BumpSetCut;
+				PRODUCT_BUNDLE_IDENTIFIER = app.BumpSetCut;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -496,17 +494,17 @@
 				minimumVersion = 3.0.2;
 			};
 		};
-		3634673B2E367FC900B10ECC /* XCRemoteSwiftPackageReference "Popups" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Mijick/Popups";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 4.0.1;
-			};
-		};
 		3674FF642E4672F200A9C4CB /* XCRemoteSwiftPackageReference "Timer" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/Mijick/Timer";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+		36A1AFFF2E7500010SUPABASE /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 2.0.0;
@@ -520,15 +518,15 @@
 			package = 3620E8AF2E230C5C00BD0036 /* XCRemoteSwiftPackageReference "Camera" */;
 			productName = MijickCamera;
 		};
-		3634673C2E367FC900B10ECC /* MijickPopups */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3634673B2E367FC900B10ECC /* XCRemoteSwiftPackageReference "Popups" */;
-			productName = MijickPopups;
-		};
 		3674FF652E4672F200A9C4CB /* MijickTimer */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3674FF642E4672F200A9C4CB /* XCRemoteSwiftPackageReference "Timer" */;
 			productName = MijickTimer;
+		};
+		36A1B0002E7500010SUPABASE /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 36A1AFFF2E7500010SUPABASE /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

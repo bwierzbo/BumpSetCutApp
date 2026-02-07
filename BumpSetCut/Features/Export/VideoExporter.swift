@@ -26,10 +26,56 @@ final class VideoExporter {
         return exportedURLs
     }
 
-    /// Exports a single rally segment as an individual video file
+    /// Exports a single rally segment as an individual video file.
+    /// Uses passthrough (no re-encoding) when possible, falls back to re-encoding if needed.
     private func exportSingleRally(asset: AVAsset, timeRange: CMTimeRange, rallyIndex: Int) async throws -> URL {
         let outURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("rally_\(rallyIndex)_\(UUID().uuidString).mp4")
+
+        // Try passthrough first: extract the time range directly from the source asset
+        // without re-encoding. This preserves original quality and is dramatically faster.
+        if let passthroughResult = try? await exportPassthrough(asset: asset, timeRange: timeRange, to: outURL) {
+            return passthroughResult
+        }
+
+        // Fallback: use composition + re-encoding if passthrough failed
+        return try await exportWithReencoding(asset: asset, timeRange: timeRange, to: outURL, rallyIndex: rallyIndex)
+    }
+
+    /// Export a time range using passthrough (no re-encoding).
+    /// Returns the output URL on success, or throws on failure.
+    private func exportPassthrough(asset: AVAsset, timeRange: CMTimeRange, to outURL: URL) async throws -> URL {
+        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+            throw ProcessingError.exportFailed
+        }
+
+        exporter.timeRange = timeRange
+
+        if #available(iOS 18.0, *) {
+            try await exporter.export(to: outURL, as: .mp4)
+            return outURL
+        } else {
+            exporter.outputURL = outURL
+            exporter.outputFileType = .mp4
+
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                exporter.exportAsynchronously {
+                    cont.resume()
+                }
+            }
+
+            if exporter.status == .failed {
+                throw exporter.error ?? ProcessingError.exportFailed
+            }
+            return outURL
+        }
+    }
+
+    /// Export a time range using composition + re-encoding (HighestQuality).
+    /// Used as fallback when passthrough is not supported for the source codec.
+    private func exportWithReencoding(asset: AVAsset, timeRange: CMTimeRange, to outURL: URL, rallyIndex: Int) async throws -> URL {
+        // Clean up any partial file from failed passthrough attempt
+        try? FileManager.default.removeItem(at: outURL)
 
         let comp = AVMutableComposition()
         guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
@@ -40,13 +86,11 @@ final class VideoExporter {
         let compV = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
         let compA = aTrack != nil ? comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
 
-        // Insert the single rally time range
         try compV.insertTimeRange(timeRange, of: vTrack, at: .zero)
         if let srcA = aTrack, let dstA = compA {
             try dstA.insertTimeRange(timeRange, of: srcA, at: .zero)
         }
 
-        // Keep orientation
         if let pref = try? await vTrack.load(.preferredTransform) {
             compV.preferredTransform = pref
         }

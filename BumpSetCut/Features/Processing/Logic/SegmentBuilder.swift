@@ -25,8 +25,8 @@ final class SegmentBuilder {
         ranges.removeAll()
     }
 
-    /// Append a segment that is **already padded** (e.g., from RallyDecider.popEndedSegment()).
-    /// This will not apply additional pre/post roll; padding/merging/filtering happens in `finalize`.
+    /// Append a segment that is **already padded**.
+    /// This will not apply additional pre/post roll; merging/filtering happens in `finalize`.
     func appendPadded(start: CMTime, end: CMTime) {
         ranges.append(CMTimeRange(start: start, end: end))
     }

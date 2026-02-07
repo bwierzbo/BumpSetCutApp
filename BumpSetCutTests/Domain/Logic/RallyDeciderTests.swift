@@ -194,41 +194,44 @@ final class RallyDeciderTests: XCTestCase {
         XCTAssertTrue(state, "Rally should stay alive when projectile returns within 1.0s window")
     }
 
-    // MARK: - 7. Multiple rally detection in one session
+    // MARK: - 7. Multiple rally detection in one session (via SegmentBuilder)
 
     func testMultipleRalliesInOneSession() {
         let decider = RallyDecider(config: config, minRallySec: 1.0)
+        let segments = SegmentBuilder(config: config)
 
         // Rally 1: 0-2s
         for i in 0...60 {
             let t = Double(i) * (1.0 / 30.0)
-            decider.update(hasBall: true, isProjectile: true, timestamp: time(t))
+            let isActive = decider.update(hasBall: true, isProjectile: true, timestamp: time(t))
+            segments.observe(isActive: isActive, at: time(t))
         }
-        // Check segment from rally 1 exit
-        // Gap: 2s-5s (no evidence)
-        for i in 1...90 {
+        // Gap: 2s-10s (long gap so segments don't merge after pre/post-roll padding)
+        for i in 1...240 {
             let t = 2.0 + Double(i) * (1.0 / 30.0)
-            decider.update(hasBall: false, isProjectile: false, timestamp: time(t))
+            let isActive = decider.update(hasBall: false, isProjectile: false, timestamp: time(t))
+            segments.observe(isActive: isActive, at: time(t))
         }
-        let seg1 = decider.popEndedSegment()
-        XCTAssertNotNil(seg1, "First rally should produce a segment")
 
-        // Rally 2: 5s-7s
+        // Rally 2: 10s-12s
         for i in 0...60 {
-            let t = 5.0 + Double(i) * (1.0 / 30.0)
-            decider.update(hasBall: true, isProjectile: true, timestamp: time(t))
+            let t = 10.0 + Double(i) * (1.0 / 30.0)
+            let isActive = decider.update(hasBall: true, isProjectile: true, timestamp: time(t))
+            segments.observe(isActive: isActive, at: time(t))
         }
         // End rally 2
         for i in 1...90 {
-            let t = 7.0 + Double(i) * (1.0 / 30.0)
-            decider.update(hasBall: false, isProjectile: false, timestamp: time(t))
+            let t = 12.0 + Double(i) * (1.0 / 30.0)
+            let isActive = decider.update(hasBall: false, isProjectile: false, timestamp: time(t))
+            segments.observe(isActive: isActive, at: time(t))
         }
-        let seg2 = decider.popEndedSegment()
-        XCTAssertNotNil(seg2, "Second rally should produce a segment")
 
-        // Segments should be distinct
-        if let s1 = seg1, let s2 = seg2 {
-            XCTAssertTrue(CMTimeCompare(s1.end, s2.start) <= 0,
+        let result = segments.finalize(until: time(20.0))
+        XCTAssertEqual(result.count, 2, "Should produce exactly 2 rally segments")
+
+        // Segments should be distinct (non-overlapping)
+        if result.count == 2 {
+            XCTAssertTrue(CMTimeCompare(result[0].end, result[1].start) <= 0,
                           "Rally segments should not overlap")
         }
     }
@@ -252,28 +255,27 @@ final class RallyDeciderTests: XCTestCase {
 
     func testRapidStartStopCycling() {
         let decider = RallyDecider(config: config, minRallySec: 1.0)
-        var segments: [(start: CMTime, end: CMTime)] = []
+        var everEnteredRally = false
 
         var t = 0.0
         // 5 cycles of: 0.2s projectile (below startBuffer), 0.5s gap
         for _ in 0..<5 {
             // Short burst -- should NOT trigger rally entry
             for _ in 0..<6 {
-                decider.update(hasBall: true, isProjectile: true, timestamp: time(t))
+                let state = decider.update(hasBall: true, isProjectile: true, timestamp: time(t))
+                if state { everEnteredRally = true }
                 t += 1.0 / 30.0
             }
             // Gap
             for _ in 0..<15 {
-                decider.update(hasBall: false, isProjectile: false, timestamp: time(t))
+                let state = decider.update(hasBall: false, isProjectile: false, timestamp: time(t))
+                if state { everEnteredRally = true }
                 t += 1.0 / 30.0
-            }
-            if let seg = decider.popEndedSegment() {
-                segments.append(seg)
             }
         }
 
-        XCTAssertEqual(segments.count, 0,
-                       "Rapid short bursts below startBuffer should not produce rally segments")
+        XCTAssertFalse(everEnteredRally,
+                       "Rapid short bursts below startBuffer should never enter rally state")
     }
 
     // MARK: - 10. Reset clears state completely
@@ -293,43 +295,45 @@ final class RallyDeciderTests: XCTestCase {
         // After reset, same short evidence should NOT produce a rally
         let state = decider.update(hasBall: true, isProjectile: true, timestamp: time(0.0))
         XCTAssertFalse(state, "After reset, decider should be in idle state")
-        XCTAssertNil(decider.popEndedSegment(), "After reset, no pending segments should exist")
     }
 
-    // MARK: - 11. Segment padding (pre/post roll applied by RallyDecider)
+    // MARK: - 11. Segment padding applied by SegmentBuilder (production path)
 
     func testSegmentPadding() {
-        let prePad = 1.5
-        let postPad = 1.5
-        let decider = RallyDecider(config: config, minRallySec: 1.0, prePadSec: prePad, postPadSec: postPad)
+        let decider = RallyDecider(config: config, minRallySec: 1.0)
+        let segBuilder = SegmentBuilder(config: config)
 
         // Rally from ~0.5s to ~3.5s
         let rallyStart = 0.5
         for i in 0...90 {
             let t = rallyStart + Double(i) * (1.0 / 30.0)
-            decider.update(hasBall: true, isProjectile: true, timestamp: time(t))
+            let isActive = decider.update(hasBall: true, isProjectile: true, timestamp: time(t))
+            segBuilder.observe(isActive: isActive, at: time(t))
         }
 
         // End rally
         let rallyEnd = 3.5
         for i in 1...40 {
             let t = rallyEnd + Double(i) * (1.0 / 30.0)
-            decider.update(hasBall: false, isProjectile: false, timestamp: time(t))
+            let isActive = decider.update(hasBall: false, isProjectile: false, timestamp: time(t))
+            segBuilder.observe(isActive: isActive, at: time(t))
         }
 
-        if let seg = decider.popEndedSegment() {
+        let result = segBuilder.finalize(until: time(10.0))
+        XCTAssertEqual(result.count, 1, "Should produce exactly 1 segment")
+
+        if let seg = result.first {
             let segStart = CMTimeGetSeconds(seg.start)
             let segEnd = CMTimeGetSeconds(seg.end)
 
-            // Segment start should be approximately rallyStartTime - prePad (clamped to 0)
-            // Rally enters after startBuffer (~0.3s) from first projectile
-            XCTAssertLessThanOrEqual(segStart, rallyStart + 0.5,
-                                     "Segment start should include pre-padding")
-            // Segment end should be approximately endTime + postPad
+            // SegmentBuilder applies config.preroll (2.0s) before rally start
+            // Rally enters after startBuffer (~0.3s), so rallyStartTime ~ 0.8s
+            // Pre-rolled start should be < rallyStart
+            XCTAssertLessThan(segStart, rallyStart + 0.5,
+                              "Segment start should include pre-roll from SegmentBuilder")
+            // SegmentBuilder applies config.postroll (0.5s) after rally end
             XCTAssertGreaterThan(segEnd, rallyEnd,
-                                  "Segment end should include post-padding")
-        } else {
-            XCTFail("Expected a segment to be produced")
+                                 "Segment end should include post-roll from SegmentBuilder")
         }
     }
 

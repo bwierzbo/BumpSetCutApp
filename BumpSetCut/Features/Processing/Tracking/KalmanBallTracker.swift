@@ -307,36 +307,43 @@ final class KalmanBallTracker {
             (pt: rectCenter(det.bbox), ts: det.timestamp)
         }
 
-        // Associate using Mahalanobis gating
-        var claimedTracks = Set<Int>()
-        for det in centers {
-            var bestIdx: Int? = nil
-            var bestMahal: CGFloat = .greatestFiniteMagnitude
-
-            for (idx, track) in tracks.enumerated() where !claimedTracks.contains(idx) {
+        // Associate using sorted Mahalanobis distance (globally optimal greedy).
+        // Build all valid (track, detection) candidate pairs, sort by ascending
+        // distance, then assign greedily. This eliminates ordering bias that
+        // causes ID switches when multiple balls are visible.
+        var candidates: [(trackIdx: Int, detIdx: Int, mahal: CGFloat)] = []
+        for (detIdx, det) in centers.enumerated() {
+            for (trackIdx, track) in tracks.enumerated() {
                 let mahal = track.kalmanState.mahalanobisDistance(to: det.pt, config: config)
-                if mahal <= config.kalmanGateThresholdSigma, mahal < bestMahal {
-                    bestMahal = mahal
-                    bestIdx = idx
+                if mahal <= config.kalmanGateThresholdSigma {
+                    candidates.append((trackIdx: trackIdx, detIdx: detIdx, mahal: mahal))
                 }
             }
+        }
+        candidates.sort { $0.mahal < $1.mahal }
 
-            if let idx = bestIdx {
-                // Update existing track with measurement
-                tracks[idx].update(measurement: det.pt, timestamp: det.ts, config: config)
-                claimedTracks.insert(idx)
-            } else {
-                // Start a new track only if there isn't an older, stronger track nearby
-                if !existsStrongerNeighbor(near: det.pt) {
-                    let maxPositions = config.enableMemoryLimits ? config.maxTrackPositions : 1000
-                    let newTrack = TrackedBall(
-                        position: det.pt,
-                        timestamp: det.ts,
-                        config: config,
-                        maxPositions: maxPositions
-                    )
-                    tracks.append(newTrack)
-                }
+        var claimedTracks = Set<Int>()
+        var claimedDets = Set<Int>()
+        for c in candidates {
+            guard !claimedTracks.contains(c.trackIdx), !claimedDets.contains(c.detIdx) else { continue }
+            tracks[c.trackIdx].update(measurement: centers[c.detIdx].pt,
+                                      timestamp: centers[c.detIdx].ts,
+                                      config: config)
+            claimedTracks.insert(c.trackIdx)
+            claimedDets.insert(c.detIdx)
+        }
+
+        // Unclaimed detections start new tracks (if no stronger neighbor exists)
+        for (detIdx, det) in centers.enumerated() where !claimedDets.contains(detIdx) {
+            if !existsStrongerNeighbor(near: det.pt) {
+                let maxPositions = config.enableMemoryLimits ? config.maxTrackPositions : 1000
+                let newTrack = TrackedBall(
+                    position: det.pt,
+                    timestamp: det.ts,
+                    config: config,
+                    maxPositions: maxPositions
+                )
+                tracks.append(newTrack)
             }
         }
 

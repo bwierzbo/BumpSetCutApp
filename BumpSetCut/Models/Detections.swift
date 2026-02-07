@@ -74,6 +74,9 @@ struct ProcessorConfig {
     // Rally detection
     var startBuffer: Double = 0.3
     var endTimeout: Double = 1.0
+    /// Number of consecutive non-projectile frames allowed before resetting projRunStart.
+    /// Prevents a single dropped detection from restarting the start-buffer clock.
+    var projDropGracePeriod: Int = 2
     
     // Export trimming
     var preroll: Double = 2.0

@@ -10,13 +10,14 @@ import CoreGraphics
 
 /// Hysteresis-based rally state machine with sliding-window evidence.
 /// Starts when we see sustained ball evidence or any projectile; ends quickly when evidence disappears.
+///
+/// Padding is applied by `SegmentBuilder`, not here. This class only decides when rallies
+/// start and end, returning a Bool from `update()`.
 final class RallyDecider {
     private let config: ProcessorConfig
 
     // Tunables (can be overridden via init with defaults below)
     private let minRallySec: Double
-    private let prePadSec: Double
-    private let postPadSec: Double
 
     // State
     private var inRally: Bool = false
@@ -24,6 +25,7 @@ final class RallyDecider {
     private var lastAnyBall: CMTime?
     private var lastProjectile: CMTime?
     private var projRunStart: CMTime?
+    private var projDropCount: Int = 0
 
     // Sliding window buffers (timestamps)
     private var ballTimes: [CMTime] = []
@@ -31,13 +33,10 @@ final class RallyDecider {
 
     // Segmenting state
     private var rallyStartTime: CMTime?
-    private var pendingSegment: (start: CMTime, end: CMTime)?
 
-    init(config: ProcessorConfig, minRallySec: Double = 3.0, prePadSec: Double = 1.5, postPadSec: Double = 1.5) {
+    init(config: ProcessorConfig, minRallySec: Double = 3.0) {
         self.config = config
         self.minRallySec = minRallySec
-        self.prePadSec = prePadSec
-        self.postPadSec = postPadSec
     }
 
     func reset() {
@@ -46,9 +45,9 @@ final class RallyDecider {
         lastAnyBall = nil
         lastProjectile = nil
         projRunStart = nil
+        projDropCount = 0
         ballTimes.removeAll()
         rallyStartTime = nil
-        pendingSegment = nil
     }
 
     /// Update with latest signals.
@@ -66,10 +65,16 @@ final class RallyDecider {
         }
         if isProjectile {
             lastProjectile = now
+            projDropCount = 0
             if projRunStart == nil { projRunStart = now }
         } else {
-            // Require continuous projectile evidence; reset run when it drops
-            projRunStart = nil
+            // Allow a short grace period before resetting the projectile run,
+            // so a single dropped frame doesn't restart the start-buffer clock.
+            projDropCount += 1
+            if projDropCount > config.projDropGracePeriod {
+                projRunStart = nil
+                projDropCount = 0
+            }
         }
         // Drop old evidence
         pruneOldEvidence(now: now)
@@ -77,18 +82,6 @@ final class RallyDecider {
         if inRally {
             if shouldEnd(now: now) {
                 inRally = false
-                // Only emit a segment if we actually had a recorded start time
-                if let start = rallyStartTime {
-                    let elapsed = CMTimeGetSeconds(CMTimeSubtract(now, start))
-                    if elapsed >= minRallySec {
-                        // Build padded segment
-                        let prePad = CMTimeMakeWithSeconds(prePadSec, preferredTimescale: 600)
-                        let postPad = CMTimeMakeWithSeconds(postPadSec, preferredTimescale: 600)
-                        let paddedStart = CMTimeMaximum(.zero, CMTimeSubtract(start, prePad))
-                        let paddedEnd = CMTimeAdd(now, postPad)
-                        pendingSegment = (paddedStart, paddedEnd)
-                    }
-                }
                 rallyStartTime = nil
             }
         } else {
@@ -147,9 +140,4 @@ final class RallyDecider {
         return noBallFor >= config.endTimeout
     }
 
-    /// Returns the most recently ended rally segment with pre/post padding, if any, and clears it.
-    func popEndedSegment() -> (start: CMTime, end: CMTime)? {
-        defer { pendingSegment = nil }
-        return pendingSegment
-    }
 }

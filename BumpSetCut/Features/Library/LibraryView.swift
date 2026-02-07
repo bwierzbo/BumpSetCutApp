@@ -15,6 +15,7 @@ struct LibraryView: View {
     @State private var hasAppeared = false
     @State private var showingPhotoPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var videoNameInput = ""
     @Environment(\.dismiss) private var dismiss
 
     init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
@@ -61,7 +62,7 @@ struct LibraryView: View {
             .onReceive(NotificationCenter.default.publisher(for: .uploadCompleted)) { _ in
                 viewModel.refresh()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .libraryContentChanged)) { _ in
+            .onChange(of: viewModel.folderManager.store.contentVersion) { _, _ in
                 viewModel.refresh()
             }
             .onAppear {
@@ -88,6 +89,27 @@ struct LibraryView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.uploadCoordinator.storageWarningMessage)
+            }
+            .alert("Name Your Video", isPresented: Binding(
+                get: { viewModel.uploadCoordinator.showNamingDialog },
+                set: { if !$0 { viewModel.uploadCoordinator.completeNaming(customName: nil) } }
+            )) {
+                TextField("Video name", text: $videoNameInput)
+                Button("Save") {
+                    viewModel.uploadCoordinator.completeNaming(customName: videoNameInput)
+                    videoNameInput = ""
+                }
+                Button("Skip", role: .cancel) {
+                    viewModel.uploadCoordinator.completeNaming(customName: nil)
+                    videoNameInput = ""
+                }
+            } message: {
+                Text("Give your video a custom name")
+            }
+            .onChange(of: viewModel.uploadCoordinator.showNamingDialog) { _, show in
+                if show {
+                    videoNameInput = viewModel.uploadCoordinator.namingDialogSuggestedName
+                }
             }
         }
     }

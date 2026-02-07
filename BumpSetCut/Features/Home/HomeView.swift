@@ -19,12 +19,19 @@ struct HomeView: View {
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var pendingUploadItems: [PhotosPickerItem] = []
     @State private var showingFolderSelection = false
+    @State private var videoNameInput = ""
 
     // Process state
     @State private var showingProcessPicker = false
 
     // Onboarding state
     @State private var showingOnboarding = false
+
+    // Community state
+    @State private var showingAuthGate = false
+    @State private var showingSocialFeed = false
+
+    @Environment(AuthenticationService.self) private var authService
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
@@ -97,6 +104,27 @@ struct HomeView: View {
                 appSettings.hasCompletedOnboarding = true
             }
         }
+        .sheet(isPresented: $showingAuthGate, onDismiss: {
+            showingSocialFeed = true
+        }) {
+            AuthGateView()
+        }
+        .fullScreenCover(isPresented: $showingSocialFeed) {
+            NavigationStack {
+                SocialFeedView()
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button {
+                                showingSocialFeed = false
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.bscTextSecondary)
+                            }
+                        }
+                    }
+            }
+        }
         .onAppear {
             // Initialize dependencies asynchronously to avoid blocking
             if viewModel == nil {
@@ -128,6 +156,27 @@ struct HomeView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(uploadCoordinator?.storageWarningMessage ?? "Not enough storage space")
+        }
+        .alert("Name Your Video", isPresented: Binding(
+            get: { uploadCoordinator?.showNamingDialog ?? false },
+            set: { if !$0 { uploadCoordinator?.completeNaming(customName: nil) } }
+        )) {
+            TextField("Video name", text: $videoNameInput)
+            Button("Save") {
+                uploadCoordinator?.completeNaming(customName: videoNameInput)
+                videoNameInput = ""
+            }
+            Button("Skip", role: .cancel) {
+                uploadCoordinator?.completeNaming(customName: nil)
+                videoNameInput = ""
+            }
+        } message: {
+            Text("Give your video a custom name")
+        }
+        .onChange(of: uploadCoordinator?.showNamingDialog) { _, show in
+            if show == true {
+                videoNameInput = uploadCoordinator?.namingDialogSuggestedName ?? ""
+            }
         }
         .preferredColorScheme(.dark)
     }
@@ -321,6 +370,18 @@ struct HomeView: View {
                 showingOnboarding = true
             } label: {
                 quickActionContent(icon: "questionmark.circle", title: "Help", color: .bscTextSecondary)
+            }
+            .buttonStyle(.plain)
+
+            // Community button - shows social feed
+            Button {
+                if authService.isAuthenticated {
+                    showingSocialFeed = true
+                } else {
+                    showingAuthGate = true
+                }
+            } label: {
+                quickActionContent(icon: "person.2.fill", title: "Community", color: .bscOrange)
             }
             .buttonStyle(.plain)
         }
