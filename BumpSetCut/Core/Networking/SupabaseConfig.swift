@@ -5,10 +5,10 @@ import Supabase
 
 enum SupabaseConfig {
 
-    // MARK: - Project Credentials
-    // Replace with your Supabase project URL and anon key
-    static let projectURL = URL(string: "https://nodxhfrdefmaksisuylb.supabase.co")!
-    static let anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vZHhoZnJkZWZtYWtzaXN1eWxiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0MTUzMTksImV4cCI6MjA4NTk5MTMxOX0.mDkABYzOV3NJzgCeFbicUEkG7JTPGr2h_DvGfV8Fi9c"
+    // MARK: - Project Credentials (loaded from gitignored Secrets.swift)
+
+    static let projectURL = URL(string: Secrets.supabaseURL)!
+    static let anonKey = Secrets.supabaseAnonKey
 
     // MARK: - Shared Client
 

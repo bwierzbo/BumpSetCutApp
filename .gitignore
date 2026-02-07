@@ -1,0 +1,31 @@
+# Xcode
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+DerivedData/
+build/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Secrets
+BumpSetCut/Core/Networking/Secrets.swift
+
+# SPM
+.build/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Claude plans
+.claude/plans/
+.claude/plan.md
+.claude/plan-*.md
