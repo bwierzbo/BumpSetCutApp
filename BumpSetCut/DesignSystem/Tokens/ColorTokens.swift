@@ -23,6 +23,13 @@ extension Color {
             opacity: Double(a) / 255
         )
     }
+
+    /// Create an adaptive color with separate light and dark values.
+    init(light: Color, dark: Color) {
+        self.init(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
+        })
+    }
 }
 
 // MARK: - Brand Colors
@@ -43,40 +50,43 @@ extension Color {
     static let bscTealDark = Color(hex: "#0D9488")
 }
 
-// MARK: - Surface Colors (Dark Theme Foundation)
+// MARK: - Surface Colors (Adaptive)
 extension Color {
-    /// Primary background - Rich dark
-    static let bscBackground = Color(hex: "#0D0D0E")
+    /// Primary background
+    static let bscBackground = Color(light: Color(hex: "#F8F8FA"), dark: Color(hex: "#0D0D0E"))
 
     /// Elevated surfaces - Cards, modals
-    static let bscBackgroundElevated = Color(hex: "#1A1A1C")
+    static let bscBackgroundElevated = Color(light: .white, dark: Color(hex: "#1A1A1C"))
 
     /// Muted background - Subtle differentiation
-    static let bscBackgroundMuted = Color(hex: "#141416")
+    static let bscBackgroundMuted = Color(light: Color(hex: "#F0F0F3"), dark: Color(hex: "#141416"))
 
     /// Glass effect base - For frosted glass panels
-    static let bscSurfaceGlass = Color.white.opacity(0.05)
+    static let bscSurfaceGlass = Color(light: Color.black.opacity(0.04), dark: Color.white.opacity(0.05))
 
     /// Glass border - Subtle definition
-    static let bscSurfaceBorder = Color.white.opacity(0.08)
+    static let bscSurfaceBorder = Color(light: Color.black.opacity(0.08), dark: Color.white.opacity(0.08))
 
     /// Glass highlight - Top edge shine
-    static let bscSurfaceHighlight = Color.white.opacity(0.12)
+    static let bscSurfaceHighlight = Color(light: Color.black.opacity(0.06), dark: Color.white.opacity(0.12))
+
+    /// Media background - Full-bleed behind video players (white in light, black in dark)
+    static let bscMediaBackground = Color(light: .white, dark: .black)
 }
 
-// MARK: - Text Colors
+// MARK: - Text Colors (Adaptive)
 extension Color {
     /// Primary text - High contrast
-    static let bscTextPrimary = Color(hex: "#F1EFEF")
+    static let bscTextPrimary = Color(light: Color(hex: "#1A1A1C"), dark: Color(hex: "#F1EFEF"))
 
     /// Secondary text - Medium emphasis
-    static let bscTextSecondary = Color(hex: "#A1A1AA")
+    static let bscTextSecondary = Color(light: Color(hex: "#6B6B76"), dark: Color(hex: "#A1A1AA"))
 
     /// Tertiary text - Low emphasis, hints
-    static let bscTextTertiary = Color(hex: "#71717A")
+    static let bscTextTertiary = Color(light: Color(hex: "#9E9EA8"), dark: Color(hex: "#71717A"))
 
     /// Inverse text - For use on light/colored backgrounds
-    static let bscTextInverse = Color(hex: "#0D0D0E")
+    static let bscTextInverse = Color(light: Color(hex: "#F1EFEF"), dark: Color(hex: "#0D0D0E"))
 }
 
 // MARK: - Status Colors

@@ -5,8 +5,9 @@ import PhotosUI
 /// Main home screen with hero section, stats, and navigation
 struct HomeView: View {
     // MARK: - Properties
-    @State private var mediaStore = MediaStore()
-    @State private var metadataStore = MetadataStore()
+    let mediaStore: MediaStore
+    let metadataStore: MetadataStore
+
     @State private var viewModel: HomeViewModel?
     @State private var showingSettings = false
     @EnvironmentObject private var appSettings: AppSettings
@@ -27,39 +28,31 @@ struct HomeView: View {
     // Onboarding state
     @State private var showingOnboarding = false
 
-    // Community state
-    @State private var showingAuthGate = false
-    @State private var showingSocialFeed = false
-
-    @Environment(AuthenticationService.self) private var authService
-
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
     // MARK: - Body
     var body: some View {
-        NavigationStack {
-            GeometryReader { geometry in
-                let contentWidth = isLandscape
-                    ? min(geometry.size.width * 0.45, 500)
-                    : min(geometry.size.width * 0.85, 400)
+        GeometryReader { geometry in
+            let contentWidth = isLandscape
+                ? min(geometry.size.width * 0.45, 500)
+                : min(geometry.size.width * 0.85, 400)
 
-                ZStack {
-                    // Background
-                    backgroundGradient
+            ZStack {
+                // Background
+                backgroundGradient
 
-                    if isLandscape {
-                        landscapeContent(contentWidth: contentWidth, geometry: geometry)
-                    } else {
-                        portraitContent(contentWidth: contentWidth)
-                    }
+                if isLandscape {
+                    landscapeContent(contentWidth: contentWidth, geometry: geometry)
+                } else {
+                    portraitContent(contentWidth: contentWidth)
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    settingsButton
-                }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                settingsButton
             }
         }
         .sheet(isPresented: $showingSettings) {
@@ -102,27 +95,6 @@ struct HomeView: View {
             OnboardingView {
                 showingOnboarding = false
                 appSettings.hasCompletedOnboarding = true
-            }
-        }
-        .sheet(isPresented: $showingAuthGate, onDismiss: {
-            showingSocialFeed = true
-        }) {
-            AuthGateView()
-        }
-        .fullScreenCover(isPresented: $showingSocialFeed) {
-            NavigationStack {
-                SocialFeedView()
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button {
-                                showingSocialFeed = false
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.bscTextSecondary)
-                            }
-                        }
-                    }
             }
         }
         .onAppear {
@@ -178,7 +150,6 @@ struct HomeView: View {
                 videoNameInput = uploadCoordinator?.namingDialogSuggestedName ?? ""
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     // MARK: - Portrait Layout
@@ -372,18 +343,6 @@ struct HomeView: View {
                 quickActionContent(icon: "questionmark.circle", title: "Help", color: .bscTextSecondary)
             }
             .buttonStyle(.plain)
-
-            // Community button - shows social feed
-            Button {
-                if authService.isAuthenticated {
-                    showingSocialFeed = true
-                } else {
-                    showingAuthGate = true
-                }
-            } label: {
-                quickActionContent(icon: "person.2.fill", title: "Community", color: .bscOrange)
-            }
-            .buttonStyle(.plain)
         }
     }
 
@@ -516,7 +475,6 @@ struct UploadFolderSelectionSheet: View {
                 loadFolders()
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private func folderRow(name: String, path: String, icon: String, color: Color) -> some View {
@@ -608,7 +566,6 @@ struct UploadFolderSelectionSheet: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private func loadFolders() {
@@ -704,7 +661,6 @@ struct UnprocessedVideoPickerSheet: View {
                 loadUnprocessedVideos()
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private func processVideoDestination(for video: VideoMetadata) -> some View {
@@ -788,6 +744,8 @@ struct UnprocessedVideoPickerSheet: View {
 
 // MARK: - Preview
 #Preview("HomeView") {
-    HomeView()
-        .environmentObject(AppSettings.shared)
+    NavigationStack {
+        HomeView(mediaStore: MediaStore(), metadataStore: MetadataStore())
+    }
+    .environmentObject(AppSettings.shared)
 }

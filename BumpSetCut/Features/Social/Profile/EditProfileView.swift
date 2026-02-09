@@ -68,7 +68,6 @@ struct EditProfileView: View {
                 privacyLevel = user.privacyLevel
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private func saveProfile() {

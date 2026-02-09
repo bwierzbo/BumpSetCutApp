@@ -40,7 +40,6 @@ struct ProcessedLibraryView: View {
             // Videos in this library have processing metadata - show rally viewer
             RallyPlayerView(videoMetadata: processedVideo)
         }
-        .preferredColorScheme(.dark)
     }
 
     // MARK: - Empty State

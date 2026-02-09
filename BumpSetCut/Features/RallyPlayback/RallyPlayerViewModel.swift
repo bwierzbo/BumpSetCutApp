@@ -264,9 +264,24 @@ final class RallyPlayerViewModel {
         navigateTo(index: index, direction: direction)
     }
 
-    func showExportFromOverview() {
-        showOverviewSheet = false
-        showExportOptions = true
+    var savedRallyShareInfo: [Int: RallyShareInfo] {
+        guard let metadata = processingMetadata else { return [:] }
+        var dict: [Int: RallyShareInfo] = [:]
+        for index in savedRalliesArray {
+            guard index < metadata.rallySegments.count else { continue }
+            let segment = metadata.rallySegments[index]
+            dict[index] = RallyShareInfo(
+                startTime: segment.startTime,
+                endTime: segment.endTime,
+                metadata: RallyHighlightMetadata(
+                    duration: segment.duration,
+                    confidence: segment.confidence,
+                    quality: segment.quality,
+                    detectionCount: segment.detectionCount
+                )
+            )
+        }
+        return dict
     }
 
     func navigateTo(index: Int, direction: NavigationDirection) {
@@ -353,7 +368,7 @@ final class RallyPlayerViewModel {
                 await preloadAdjacent()
             } else {
                 playerCache.pause()
-                showExportOptions = true
+                showOverviewSheet = true
             }
 
             actions.setPerformingAction(false)

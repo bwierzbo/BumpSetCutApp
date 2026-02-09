@@ -10,6 +10,7 @@ import SwiftUI
 struct CommentsSheet: View {
     let highlight: Highlight
     @State private var viewModel: CommentsViewModel
+    @FocusState private var isCommentFocused: Bool
 
     init(highlight: Highlight) {
         self.highlight = highlight
@@ -57,7 +58,6 @@ struct CommentsSheet: View {
         .task {
             await viewModel.loadComments()
         }
-        .preferredColorScheme(.dark)
     }
 
     // MARK: - Comment Row
@@ -76,7 +76,7 @@ struct CommentsSheet: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: BSCSpacing.xs) {
-                    Text(comment.author?.username ?? "unknown")
+                    Text(comment.author?.displayName ?? "Unknown")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.bscTextPrimary)
 
@@ -124,6 +124,8 @@ struct CommentsSheet: View {
                 .padding(.horizontal, BSCSpacing.md)
                 .background(Color.bscSurfaceGlass)
                 .clipShape(Capsule())
+                .focused($isCommentFocused)
+                .onAppear { isCommentFocused = true }
 
             Button {
                 Task { await viewModel.sendComment() }

@@ -6,7 +6,11 @@
 //
 
 import Foundation
+import AVFoundation
 import Observation
+import Supabase
+
+// MARK: - Share State
 
 enum ShareState: Equatable {
     case idle
@@ -27,32 +31,97 @@ enum ShareState: Equatable {
     }
 }
 
+// MARK: - Rally Share Info
+
+struct RallyShareInfo {
+    let startTime: Double
+    let endTime: Double
+    let metadata: RallyHighlightMetadata
+}
+
+// MARK: - View Model
+
 @MainActor
 @Observable
 final class ShareRallyViewModel {
     var caption: String = ""
-    var tags: [String] = ["volleyball"]
+    var hideLikes: Bool = false
+    var selectedPage: Int
     private(set) var state: ShareState = .idle
 
-    let videoURL: URL
-    let rallyIndex: Int
+    let originalVideoURL: URL
+    let rallyVideoURLs: [URL]
+    let savedRallyIndices: [Int]
+    let thumbnailCache: RallyThumbnailCache
     let videoId: UUID
-    let metadata: RallyHighlightMetadata
+    let rallyInfo: [Int: RallyShareInfo]
 
     private let apiClient: any APIClient
     private var uploadTask: Task<Void, Never>?
 
-    init(videoURL: URL, rallyIndex: Int, videoId: UUID, metadata: RallyHighlightMetadata,
-         apiClient: (any APIClient)? = nil) {
-        self.videoURL = videoURL
-        self.rallyIndex = rallyIndex
+    // MARK: - Current Selection
+
+    var currentRallyIndex: Int {
+        guard selectedPage < savedRallyIndices.count else { return 0 }
+        return savedRallyIndices[selectedPage]
+    }
+
+    var currentShareInfo: RallyShareInfo? {
+        rallyInfo[currentRallyIndex]
+    }
+
+    var currentMetadata: RallyHighlightMetadata {
+        rallyInfo[currentRallyIndex]?.metadata
+            ?? RallyHighlightMetadata(duration: 0, confidence: 0, quality: 0, detectionCount: 0)
+    }
+
+    // MARK: - Hashtag Extraction
+
+    var extractedTags: [String] {
+        let pattern = #"#(\w+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(caption.startIndex..., in: caption)
+        return regex.matches(in: caption, range: range).compactMap { match in
+            guard let tagRange = Range(match.range(at: 1), in: caption) else { return nil }
+            return String(caption[tagRange]).lowercased()
+        }
+    }
+
+    // MARK: - Init
+
+    init(originalVideoURL: URL, rallyVideoURLs: [URL], savedRallyIndices: [Int],
+         initialPage: Int, thumbnailCache: RallyThumbnailCache, videoId: UUID,
+         rallyInfo: [Int: RallyShareInfo], apiClient: (any APIClient)? = nil) {
+        self.originalVideoURL = originalVideoURL
+        self.rallyVideoURLs = rallyVideoURLs
+        self.savedRallyIndices = savedRallyIndices
+        self.selectedPage = initialPage
+        self.thumbnailCache = thumbnailCache
         self.videoId = videoId
-        self.metadata = metadata
+        self.rallyInfo = rallyInfo
         self.apiClient = apiClient ?? SupabaseAPIClient.shared
+    }
+
+    // MARK: - Actions
+
+    private let maxDurationSeconds: Double = 60
+
+    var currentDuration: Double? {
+        guard let info = currentShareInfo else { return nil }
+        return info.endTime - info.startTime
+    }
+
+    var isTooLong: Bool {
+        guard let duration = currentDuration else { return false }
+        return duration > maxDurationSeconds
     }
 
     func upload() {
         guard state == .idle else { return }
+        if isTooLong {
+            state = .failed("Rally must be under 1 minute to share")
+            return
+        }
         startUpload()
     }
 
@@ -72,9 +141,30 @@ final class ShareRallyViewModel {
             state = .uploading(progress: 0)
 
             do {
-                // Step 1: Upload video to Mux via signed URL
+                let rallyIndex = currentRallyIndex
+                let metadata = currentMetadata
+
+                guard let shareInfo = currentShareInfo else {
+                    state = .failed("Rally info not available")
+                    return
+                }
+
+                // Step 1: Export just the rally segment (a few seconds, not the whole video)
+                let asset = AVURLAsset(url: originalVideoURL)
+                let startCM = CMTime(seconds: shareInfo.startTime, preferredTimescale: 600)
+                let endCM = CMTime(seconds: shareInfo.endTime, preferredTimescale: 600)
+                let clipURL = try await exportRallyClip(
+                    asset: asset,
+                    startTime: startCM,
+                    endTime: endCM,
+                    rallyIndex: rallyIndex
+                )
+
+                try Task.checkCancellation()
+
+                // Step 2: Upload the small clip (real byte-level progress via URLSession delegate)
                 let uploadURL = try await apiClient.upload(
-                    fileURL: videoURL,
+                    fileURL: clipURL,
                     to: .createUploadURL
                 ) { [weak self] progress in
                     Task { @MainActor in
@@ -82,15 +172,20 @@ final class ShareRallyViewModel {
                     }
                 }
 
+                // Clean up temp clip
+                try? FileManager.default.removeItem(at: clipURL)
+
                 try Task.checkCancellation()
                 state = .processing
 
-                // Step 2: Create highlight record with Mux asset info
+                // Step 3: Create highlight record
+                let userId = try await SupabaseConfig.client.auth.session.user.id.uuidString.lowercased()
                 let upload = HighlightUpload(
-                    muxAssetId: uploadURL.lastPathComponent,
-                    muxPlaybackId: uploadURL.lastPathComponent,
+                    authorId: userId,
+                    muxPlaybackId: uploadURL.absoluteString,
                     caption: caption.isEmpty ? nil : caption,
-                    tags: tags,
+                    tags: extractedTags,
+                    hideLikes: hideLikes,
                     localVideoId: videoId,
                     localRallyIndex: rallyIndex,
                     rallyMetadata: metadata
@@ -106,4 +201,33 @@ final class ShareRallyViewModel {
         }
     }
 
+    /// Export just the rally time range from the source video using passthrough (no re-encoding).
+    private func exportRallyClip(asset: AVAsset, startTime: CMTime, endTime: CMTime, rallyIndex: Int) async throws -> URL {
+        let outURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("share_rally_\(rallyIndex)_\(UUID().uuidString).mp4")
+
+        let timeRange = CMTimeRange(start: startTime, end: endTime)
+
+        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+            throw NSError(domain: "ShareRally", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot create export session"])
+        }
+
+        exporter.timeRange = timeRange
+        exporter.outputURL = outURL
+        exporter.outputFileType = .mp4
+        exporter.shouldOptimizeForNetworkUse = true
+
+        if #available(iOS 18.0, *) {
+            try await exporter.export(to: outURL, as: .mp4)
+        } else {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                exporter.exportAsynchronously { cont.resume() }
+            }
+            if exporter.status == .failed {
+                throw exporter.error ?? NSError(domain: "ShareRally", code: 2, userInfo: [NSLocalizedDescriptionKey: "Export failed"])
+            }
+        }
+
+        return outURL
+    }
 }

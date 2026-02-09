@@ -17,8 +17,10 @@ struct RallyPlayerView: View {
 
     @State private var viewModel: RallyPlayerViewModel
     @State private var showingGestureTips = false
+    @State private var rallyIndexToShare: ShareableRallyIndex?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(AppNavigationState.self) private var navigationState
     @EnvironmentObject private var appSettings: AppSettings
 
     private var isPortrait: Bool {
@@ -43,7 +45,7 @@ struct RallyPlayerView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                Color.black.ignoresSafeArea()
+                Color.bscMediaBackground.ignoresSafeArea()
 
                 switch viewModel.loadingState {
                 case .loading:
@@ -84,9 +86,25 @@ struct RallyPlayerView: View {
                         viewModel.jumpToRally(index)
                     },
                     onExport: {
-                        viewModel.showExportFromOverview()
+                        viewModel.showOverviewSheet = false
+                        viewModel.showExportOptions = true
+                    },
+                    onPostToCommunity: { index in
+                        viewModel.showOverviewSheet = false
+                        rallyIndexToShare = ShareableRallyIndex(index: index)
                     },
                     onDismiss: { viewModel.showOverviewSheet = false }
+                )
+            }
+            .sheet(item: $rallyIndexToShare) { item in
+                ShareRallySheet(
+                    originalVideoURL: viewModel.videoMetadata.originalURL,
+                    rallyVideoURLs: viewModel.rallyVideoURLs,
+                    savedRallyIndices: viewModel.savedRalliesArray,
+                    initialRallyIndex: item.index,
+                    thumbnailCache: viewModel.thumbnailCache,
+                    videoId: viewModel.videoMetadata.id,
+                    rallyInfo: viewModel.savedRallyShareInfo
                 )
             }
         }
@@ -103,6 +121,12 @@ struct RallyPlayerView: View {
         }
         .onDisappear {
             viewModel.cleanup()
+        }
+        .onChange(of: navigationState.postedHighlight) { _, highlight in
+            if highlight != nil {
+                rallyIndexToShare = nil
+                dismiss()
+            }
         }
     }
 
@@ -154,7 +178,6 @@ struct RallyPlayerView: View {
                 isSaved: viewModel.currentRallyIsSaved,
                 isRemoved: viewModel.currentRallyIsRemoved,
                 onDismiss: { dismiss() },
-                onShowOverview: { viewModel.showOverviewSheet = true },
                 onShowTips: { showingGestureTips = true }
             )
             .zIndex(200)
@@ -460,7 +483,7 @@ struct UnifiedRallyCard: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            Color.bscMediaBackground
 
             // Thumbnail layer - fallback behind the video layer
             // Match video gravity: .fit in portrait, .fill in landscape
@@ -507,6 +530,14 @@ struct UnifiedRallyCard: View {
         if isCurrent { return true }
         return isPreviousRally || position == 1
     }
+}
+
+// MARK: - Shareable Rally Index
+
+/// Identifiable wrapper so `.sheet(item:)` works with an Int index.
+struct ShareableRallyIndex: Identifiable {
+    let id = UUID()
+    let index: Int
 }
 
 // MARK: - Preview

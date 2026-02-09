@@ -9,6 +9,9 @@ import SwiftUI
 
 struct ProfileView: View {
     @State private var viewModel: ProfileViewModel
+    @State private var selectedHighlight: Highlight?
+    @State private var selectedHighlightForComments: Highlight?
+    @State private var highlightToDelete: Highlight?
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.dismiss) private var dismiss
 
@@ -44,7 +47,69 @@ struct ProfileView: View {
         .task {
             await viewModel.loadProfile()
         }
-        .preferredColorScheme(.dark)
+        .fullScreenCover(item: $selectedHighlight) { highlight in
+            highlightDetail(highlight)
+        }
+        .sheet(item: $selectedHighlightForComments) { highlight in
+            CommentsSheet(highlight: highlight)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .alert("Delete Post?", isPresented: Binding(
+            get: { highlightToDelete != nil },
+            set: { if !$0 { highlightToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { highlightToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let highlight = highlightToDelete {
+                    Task { await viewModel.deleteHighlight(highlight) }
+                    highlightToDelete = nil
+                }
+            }
+        } message: {
+            Text("This post will be permanently removed.")
+        }
+    }
+
+    // MARK: - Highlight Detail
+
+    private func highlightDetail(_ highlight: Highlight) -> some View {
+        ZStack {
+            HighlightCardView(
+                highlight: highlight,
+                onLike: {
+                    Task { await viewModel.toggleLike(for: highlight) }
+                },
+                onComment: {
+                    selectedHighlight = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        selectedHighlightForComments = highlight
+                    }
+                },
+                onProfile: { _ in },
+                onDelete: isOwnProfile ? {
+                    selectedHighlight = nil
+                    Task { await viewModel.deleteHighlight(highlight) }
+                } : nil
+            )
+
+            // Close button
+            VStack {
+                HStack {
+                    Spacer()
+                    Button {
+                        selectedHighlight = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(.white.opacity(0.8))
+                            .shadow(radius: 4)
+                    }
+                    .padding(BSCSpacing.md)
+                }
+                Spacer()
+            }
+        }
     }
 
     // MARK: - Header
@@ -147,30 +212,85 @@ struct ProfileView: View {
     // MARK: - Highlights Grid
 
     private var highlightsGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: BSCSpacing.xs), count: 3), spacing: BSCSpacing.xs) {
             ForEach(viewModel.highlights) { highlight in
-                AsyncImage(url: highlight.thumbnailImageURL) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Color.bscSurfaceGlass
+                Button {
+                    selectedHighlight = highlight
+                } label: {
+                    profileGridCell(highlight)
                 }
-                .frame(minHeight: 120)
-                .clipped()
-                .overlay(alignment: .bottomLeading) {
-                    HStack(spacing: 2) {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 10))
-                        Text("\(highlight.likesCount)")
-                            .font(.system(size: 10, weight: .medium))
+                .buttonStyle(.plain)
+                .contextMenu {
+                    if isOwnProfile {
+                        Button(role: .destructive) {
+                            highlightToDelete = highlight
+                        } label: {
+                            Label("Delete Post", systemImage: "trash")
+                        }
                     }
-                    .foregroundColor(.white)
-                    .padding(4)
-                    .background(Color.black.opacity(0.5))
-                    .clipShape(Capsule())
-                    .padding(4)
                 }
             }
         }
-        .padding(.horizontal, 2)
+        .padding(.horizontal, BSCSpacing.xs)
+    }
+
+    private func profileGridCell(_ highlight: Highlight) -> some View {
+        let isMulti = highlight.allVideoURLs.count > 1
+
+        return GeometryReader { geo in
+            ZStack(alignment: .bottomLeading) {
+                // Always show first video thumbnail
+                VideoThumbnailView(
+                    thumbnailURL: highlight.thumbnailImageURL,
+                    videoURL: highlight.allVideoURLs.first ?? highlight.videoURL
+                )
+                .frame(width: geo.size.width, height: geo.size.width)
+                .clipped()
+
+                // Bottom-left: stats overlay
+                HStack(spacing: 4) {
+                    if isMulti {
+                        Image(systemName: "square.stack.fill")
+                            .font(.system(size: 9))
+                    }
+                    HStack(spacing: 2) {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 9))
+                        Text("\(highlight.likesCount)")
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                    HStack(spacing: 2) {
+                        Image(systemName: "bubble.right.fill")
+                            .font(.system(size: 9))
+                        Text("\(highlight.commentsCount)")
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 3)
+                .background(Color.black.opacity(0.55))
+                .clipShape(Capsule())
+                .padding(4)
+
+                // Top-right: multi-rally badge
+                if isMulti {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "square.stack.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white)
+                                .shadow(color: .black.opacity(0.5), radius: 2)
+                                .padding(6)
+                        }
+                        Spacer()
+                    }
+                }
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
+        .contentShape(Rectangle())
     }
 }

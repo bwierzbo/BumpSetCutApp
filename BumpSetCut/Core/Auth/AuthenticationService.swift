@@ -55,7 +55,7 @@ final class AuthenticationService {
                 }
             }
 
-            let profile = try await fetchProfile(userId: session.user.id.uuidString)
+            let profile = try await fetchProfile(userId: session.user.id.uuidString.lowercased())
             currentUser = profile
             authState = .authenticated
             try KeychainHelper.save(profile, for: Self.userKey)
@@ -88,7 +88,7 @@ final class AuthenticationService {
 
             // Fetch or create profile from DB
             let profile = try await fetchOrCreateProfile(
-                userId: session.user.id.uuidString,
+                userId: session.user.id.uuidString.lowercased(),
                 fullName: result.fullName,
                 email: result.email
             )
@@ -106,6 +106,119 @@ final class AuthenticationService {
             authState = .authenticated
         } catch let error as AppleSignInError where error == .cancelled {
             authState = .unauthenticated
+        } catch {
+            authState = .unauthenticated
+            throw error
+        }
+    }
+
+    // MARK: - Email Sign Up
+
+    func signUpWithEmail(email: String, password: String, displayName: String) async throws {
+        authState = .authenticating
+
+        do {
+            let session = try await supabase.auth.signUp(
+                email: email,
+                password: password
+            )
+
+            guard let session = session.session else {
+                authState = .unauthenticated
+                throw APIError.serverError(statusCode: 400, message: "Sign up failed — no session returned.")
+            }
+
+            let profile = try await fetchOrCreateProfile(
+                userId: session.user.id.uuidString.lowercased(),
+                fullName: nil,
+                email: email,
+                displayName: displayName
+            )
+
+            let token = AuthToken(
+                accessToken: session.accessToken,
+                refreshToken: session.refreshToken,
+                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
+            )
+
+            try KeychainHelper.save(token, for: Self.tokenKey)
+            try KeychainHelper.save(profile, for: Self.userKey)
+
+            currentUser = profile
+            authState = .authenticated
+        } catch let error where !(error is APIError) {
+            authState = .unauthenticated
+            throw error
+        }
+    }
+
+    // MARK: - Email Sign In
+
+    func signInWithEmail(email: String, password: String) async throws {
+        authState = .authenticating
+
+        do {
+            let session = try await supabase.auth.signIn(
+                email: email,
+                password: password
+            )
+
+            let profile = try await fetchOrCreateProfile(
+                userId: session.user.id.uuidString.lowercased(),
+                fullName: nil,
+                email: email
+            )
+
+            let token = AuthToken(
+                accessToken: session.accessToken,
+                refreshToken: session.refreshToken,
+                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
+            )
+
+            try KeychainHelper.save(token, for: Self.tokenKey)
+            try KeychainHelper.save(profile, for: Self.userKey)
+
+            currentUser = profile
+            authState = .authenticated
+        } catch {
+            authState = .unauthenticated
+            throw error
+        }
+    }
+
+    // MARK: - Google Sign In
+
+    func signInWithGoogle() async throws {
+        authState = .authenticating
+
+        do {
+            let result = try await GoogleSignInCoordinator().signIn()
+
+            let session = try await supabase.auth.signInWithIdToken(
+                credentials: .init(
+                    provider: .google,
+                    idToken: result.idToken
+                )
+            )
+
+            let profile = try await fetchOrCreateProfile(
+                userId: session.user.id.uuidString.lowercased(),
+                fullName: nil,
+                email: result.email,
+                displayName: result.fullName
+            )
+
+            let token = AuthToken(
+                accessToken: session.accessToken,
+                refreshToken: session.refreshToken,
+                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
+            )
+
+            try KeychainHelper.save(token, for: Self.tokenKey)
+            try KeychainHelper.save(profile, for: Self.userKey)
+
+            currentUser = profile
+            authState = .authenticated
         } catch {
             authState = .unauthenticated
             throw error
@@ -167,22 +280,23 @@ final class AuthenticationService {
             .value
     }
 
-    private func fetchOrCreateProfile(userId: String, fullName: PersonNameComponents?, email: String?) async throws -> UserProfile {
-        // Try to fetch existing profile
-        if let existing: UserProfile = try? await fetchProfile(userId: userId) {
+    private func fetchOrCreateProfile(userId: String, fullName: PersonNameComponents?, email: String?, displayName: String? = nil) async throws -> UserProfile {
+        // Try to fetch existing profile first
+        do {
+            let existing: UserProfile = try await fetchProfile(userId: userId)
             return existing
+        } catch {
+            // Profile doesn't exist — create one
         }
 
-        // Profile doesn't exist yet (first sign-in) — the DB trigger should have created it,
-        // but if not, create one explicitly
-        let displayName = fullName?.formatted() ?? "Volleyball Player"
+        let name = displayName ?? fullName?.formatted() ?? "Volleyball Player"
         let username = "user_\(userId.prefix(8))"
 
         let profile: UserProfile = try await SupabaseConfig.client
             .from("profiles")
-            .upsert([
+            .insert([
                 "id": userId,
-                "display_name": displayName,
+                "display_name": name,
                 "username": username,
             ])
             .select()

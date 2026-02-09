@@ -21,7 +21,7 @@ struct CardStackView: View {
         GeometryReader { geometry in
             ZStack {
                 // Background
-                Color.black.ignoresSafeArea()
+                Color.bscMediaBackground.ignoresSafeArea()
 
                 // Card stack with depth effect
                 ZStack {

@@ -8,6 +8,11 @@
 import Foundation
 import Observation
 
+enum FeedType {
+    case forYou
+    case following
+}
+
 @MainActor
 @Observable
 final class SocialFeedViewModel {
@@ -16,6 +21,7 @@ final class SocialFeedViewModel {
     private(set) var isLoadingMore = false
     private(set) var error: Error?
     private(set) var hasMorePages = true
+    var feedType: FeedType = .forYou
 
     private var currentPage = 0
     private let pageSize = 20
@@ -23,6 +29,15 @@ final class SocialFeedViewModel {
 
     init(apiClient: (any APIClient)? = nil) {
         self.apiClient = apiClient ?? SupabaseAPIClient.shared
+    }
+
+    // MARK: - Feed Switching
+
+    func switchFeed(_ type: FeedType) {
+        guard feedType != type else { return }
+        feedType = type
+        highlights = []
+        Task { await loadFeed() }
     }
 
     // MARK: - Loading
@@ -34,14 +49,18 @@ final class SocialFeedViewModel {
         currentPage = 0
 
         do {
-            let page: [Highlight] = try await apiClient.request(.getFeed(page: 0, pageSize: pageSize))
+            let endpoint: APIEndpoint = feedType == .following
+                ? .getFollowingFeed(page: 0, pageSize: pageSize)
+                : .getFeed(page: 0, pageSize: pageSize)
+            let page: [Highlight] = try await apiClient.request(endpoint)
             highlights = page
             hasMorePages = page.count >= pageSize
             currentPage = 1
         } catch {
             self.error = error
-            // Load stub data for development
-            highlights = Self.stubHighlights
+            if feedType == .forYou {
+                highlights = Self.stubHighlights
+            }
             hasMorePages = false
         }
 
@@ -58,12 +77,33 @@ final class SocialFeedViewModel {
         defer { isLoadingMore = false }
 
         do {
-            let page: [Highlight] = try await apiClient.request(.getFeed(page: currentPage, pageSize: pageSize))
+            let endpoint: APIEndpoint = feedType == .following
+                ? .getFollowingFeed(page: currentPage, pageSize: pageSize)
+                : .getFeed(page: currentPage, pageSize: pageSize)
+            let page: [Highlight] = try await apiClient.request(endpoint)
             highlights.append(contentsOf: page)
             hasMorePages = page.count >= pageSize
             currentPage += 1
         } catch {
             // Silently fail pagination — user can retry by scrolling
+        }
+    }
+
+    // MARK: - Insert
+
+    func prependHighlight(_ highlight: Highlight) {
+        highlights.insert(highlight, at: 0)
+    }
+
+    // MARK: - Delete
+
+    func deleteHighlight(_ highlight: Highlight) async -> Bool {
+        do {
+            let _: EmptyResponse = try await apiClient.request(.deleteHighlight(id: highlight.id))
+            highlights.removeAll { $0.id == highlight.id }
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -109,7 +149,8 @@ final class SocialFeedViewModel {
                 rallyMetadata: RallyHighlightMetadata(duration: Double.random(in: 5...20), confidence: 0.92, quality: 0.88, detectionCount: Int.random(in: 30...120)),
                 likesCount: Int.random(in: 0...200),
                 commentsCount: Int.random(in: 0...50),
-                createdAt: Date().addingTimeInterval(TimeInterval(-i * 3600))
+                createdAt: Date().addingTimeInterval(TimeInterval(-i * 3600)),
+                hideLikes: i == 2
             )
         }
     }()

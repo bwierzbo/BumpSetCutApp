@@ -600,7 +600,6 @@ struct MetadataOverlayView_Previews: PreviewProvider {
                 videoSize: CGSize(width: 400, height: 300)
             )
         }
-        .preferredColorScheme(.dark)
     }
 
     static func createSampleMetadata() -> ProcessingMetadata {

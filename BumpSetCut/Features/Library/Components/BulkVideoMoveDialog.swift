@@ -184,7 +184,6 @@ struct BulkVideoMoveDialog: View {
             }
             .background(Color.bscBackground)
         }
-        .preferredColorScheme(.dark)
         .onAppear {
             loadFolders()
             selectedFolderPath = currentFolder

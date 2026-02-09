@@ -10,6 +10,7 @@
 		3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 3620E8B02E230C5C00BD0036 /* MijickCamera */; };
 		3674FF662E4672F200A9C4CB /* MijickTimer in Frameworks */ = {isa = PBXBuildFile; productRef = 3674FF652E4672F200A9C4CB /* MijickTimer */; };
 		36A1B0012E7500010SUPABASE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 36A1B0002E7500010SUPABASE /* Supabase */; };
+		36B2C0012E7800010GSIGNIN /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 36B2C0002E7800010GSIGNIN /* GoogleSignIn */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,6 +69,7 @@
 				3674FF662E4672F200A9C4CB /* MijickTimer in Frameworks */,
 				3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */,
 				36A1B0012E7500010SUPABASE /* Supabase in Frameworks */,
+				36B2C0012E7800010GSIGNIN /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -115,6 +117,7 @@
 				3620E8B02E230C5C00BD0036 /* MijickCamera */,
 				3674FF652E4672F200A9C4CB /* MijickTimer */,
 				36A1B0002E7500010SUPABASE /* Supabase */,
+				36B2C0002E7800010GSIGNIN /* GoogleSignIn */,
 			);
 			productName = BumpSetCut;
 			productReference = 36F390202E1C86F40020C100 /* BumpSetCut.app */;
@@ -173,6 +176,7 @@
 				3620E8AF2E230C5C00BD0036 /* XCRemoteSwiftPackageReference "Camera" */,
 				3674FF642E4672F200A9C4CB /* XCRemoteSwiftPackageReference "Timer" */,
 				36A1AFFF2E7500010SUPABASE /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				36B2BFFF2E7800010GSIGNIN /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 36F390212E1C86F40020C100 /* Products */;
@@ -510,6 +514,14 @@
 				minimumVersion = 2.0.0;
 			};
 		};
+		36B2BFFF2E7800010GSIGNIN /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -527,6 +539,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 36A1AFFF2E7500010SUPABASE /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Supabase;
+		};
+		36B2C0002E7800010GSIGNIN /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 36B2BFFF2E7800010GSIGNIN /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

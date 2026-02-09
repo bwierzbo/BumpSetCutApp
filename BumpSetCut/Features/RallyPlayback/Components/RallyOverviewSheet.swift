@@ -10,7 +10,10 @@ struct RallyOverviewSheet: View {
     let thumbnailCache: RallyThumbnailCache
     let onSelectRally: (Int) -> Void
     let onExport: () -> Void
+    let onPostToCommunity: (Int) -> Void
     let onDismiss: () -> Void
+
+    @State private var appeared = false
 
     private let columns = [
         GridItem(.flexible(), spacing: BSCSpacing.md),
@@ -19,162 +22,215 @@ struct RallyOverviewSheet: View {
     ]
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Summary bar
-                summaryBar
-                    .padding(.horizontal, BSCSpacing.lg)
-                    .padding(.vertical, BSCSpacing.md)
+        VStack(spacing: 0) {
+            // Drag indicator
+            Capsule()
+                .fill(Color.white.opacity(0.3))
+                .frame(width: 36, height: 5)
+                .padding(.top, BSCSpacing.sm)
+                .padding(.bottom, BSCSpacing.md)
 
-                // Thumbnail grid
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: BSCSpacing.md) {
-                        ForEach(0..<rallyVideoURLs.count, id: \.self) { index in
-                            rallyCell(index: index)
-                                .onTapGesture {
-                                    onSelectRally(index)
-                                    onDismiss()
-                                }
-                        }
+            // Header
+            headerSection
+
+            // Thumbnail grid
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: BSCSpacing.md) {
+                    ForEach(0..<rallyVideoURLs.count, id: \.self) { index in
+                        rallyCell(index: index)
+                            .bscStaggered(index: index)
+                            .onTapGesture {
+                                onSelectRally(index)
+                                onDismiss()
+                            }
                     }
-                    .padding(.horizontal, BSCSpacing.lg)
-                    .padding(.bottom, BSCSpacing.xl)
                 }
-
-                // Export button
-                if !savedRallies.isEmpty {
-                    exportButton
-                        .padding(.horizontal, BSCSpacing.lg)
-                        .padding(.bottom, BSCSpacing.lg)
-                }
+                .padding(.horizontal, BSCSpacing.lg)
+                .padding(.bottom, BSCSpacing.xl)
             }
-            .background(Color.black)
-            .navigationTitle("Rally Overview")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", action: onDismiss)
-                        .foregroundColor(.bscOrange)
-                }
+
+            // Bottom action area
+            bottomActions
+        }
+        .background(Color.bscBackground.ignoresSafeArea())
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
+        .onAppear { appeared = true }
+    }
+
+    // MARK: - Header
+
+    private var headerSection: some View {
+        VStack(spacing: BSCSpacing.md) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 48, weight: .medium))
+                .foregroundStyle(Color.bscSuccess)
+                .symbolEffect(.bounce, value: appeared)
+
+            Text("Review Complete")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(.bscTextPrimary)
+
+            // Compact stats pill row
+            HStack(spacing: BSCSpacing.lg) {
+                statPill(count: savedRallies.count, label: "saved", color: .bscSuccess)
+                statPill(count: removedRallies.count, label: "removed", color: .bscError)
             }
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .padding(.horizontal, BSCSpacing.xl)
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .padding(.bottom, BSCSpacing.lg)
     }
 
-    // MARK: - Summary Bar
-
-    private var summaryBar: some View {
-        HStack(spacing: BSCSpacing.lg) {
-            summaryItem(count: savedRallies.count, label: "saved", color: .bscSuccess)
-            summaryItem(count: removedRallies.count, label: "removed", color: .bscError)
-            summaryItem(count: remainingCount, label: "remaining", color: .white.opacity(0.6))
+    private func statPill(count: Int, label: String, color: Color) -> some View {
+        HStack(spacing: BSCSpacing.xs) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text("\(count) \(label)")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.bscTextSecondary)
         }
-        .padding(.horizontal, BSCSpacing.lg)
-        .padding(.vertical, BSCSpacing.sm)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                .fill(Color.bscSurfaceGlass)
-        )
-    }
-
-    private var remainingCount: Int {
-        rallyVideoURLs.count - savedRallies.count - removedRallies.count
-    }
-
-    private func summaryItem(count: Int, label: String, color: Color) -> some View {
-        VStack(spacing: 2) {
-            Text("\(count)")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(color)
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.white.opacity(0.5))
-        }
-        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Rally Cell
 
     private func rallyCell(index: Int) -> some View {
-        let isCurrent = index == currentIndex
         let url = rallyVideoURLs[index]
+        let isSaved = savedRallies.contains(index)
+        let isRemoved = removedRallies.contains(index)
 
-        return ZStack(alignment: .topTrailing) {
+        return RallyOverviewCell(
+            url: url,
+            index: index,
+            isSaved: isSaved,
+            isRemoved: isRemoved,
+            thumbnailCache: thumbnailCache
+        )
+    }
+
+    // MARK: - Bottom Actions
+
+    private var bottomActions: some View {
+        VStack(spacing: BSCSpacing.md) {
+            if !savedRallies.isEmpty {
+                // Export to Camera Roll
+                Button(action: onExport) {
+                    HStack(spacing: BSCSpacing.sm) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("Export to Camera Roll")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, BSCSpacing.md)
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                            .fill(LinearGradient.bscPrimaryGradient)
+                    )
+                }
+
+                // Post to Community
+                Button {
+                    // Post the first saved rally by default
+                    if let firstSaved = savedRallies.sorted().first {
+                        onPostToCommunity(firstSaved)
+                    }
+                } label: {
+                    HStack(spacing: BSCSpacing.sm) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("Post to Community")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, BSCSpacing.md)
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                            .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                            .fill(Color.bscBackgroundElevated)
+                    )
+                }
+            }
+
+            // Done
+            Button(action: onDismiss) {
+                Text("Done")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.bscTextTertiary)
+            }
+            .padding(.bottom, BSCSpacing.xs)
+        }
+        .padding(.horizontal, BSCSpacing.lg)
+        .padding(.top, BSCSpacing.md)
+        .padding(.bottom, BSCSpacing.lg)
+        .background(Color.bscBackground)
+    }
+}
+
+// MARK: - Rally Overview Cell
+
+private struct RallyOverviewCell: View {
+    let url: URL
+    let index: Int
+    let isSaved: Bool
+    let isRemoved: Bool
+    let thumbnailCache: RallyThumbnailCache
+
+    @State private var thumbnail: UIImage?
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
             // Thumbnail
             Group {
-                if let thumbnail = thumbnailCache.getThumbnail(for: url) {
+                if let thumbnail {
                     Image(uiImage: thumbnail)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 } else {
-                    Color.gray.opacity(0.3)
+                    ZStack {
+                        Color.bscSurfaceGlass
+                        ProgressView()
+                            .tint(.white.opacity(0.5))
+                            .scaleEffect(0.8)
+                    }
                 }
             }
-            .frame(minHeight: 100, maxHeight: 140)
+            .aspectRatio(16/9, contentMode: .fit)
             .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
-                    .stroke(isCurrent ? Color.bscOrange : Color.clear, lineWidth: 3)
-            )
-
-            // Status badge
-            if savedRallies.contains(index) {
-                statusBadge(icon: "heart.fill", color: .bscSuccess)
-            } else if removedRallies.contains(index) {
-                statusBadge(icon: "xmark", color: .bscError)
-            }
-
-            // Rally number
-            VStack {
-                Spacer()
-                HStack {
-                    Text("\(index + 1)")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Color.black.opacity(0.6))
-                        )
-                        .padding(BSCSpacing.xs)
-                    Spacer()
-                }
-            }
-        }
-    }
-
-    private func statusBadge(icon: String, color: Color) -> some View {
-        Image(systemName: icon)
-            .font(.system(size: 10, weight: .bold))
-            .foregroundColor(.white)
-            .frame(width: 22, height: 22)
-            .background(Circle().fill(color))
-            .padding(BSCSpacing.xs)
-    }
-
-    // MARK: - Export Button
-
-    private var exportButton: some View {
-        Button(action: onExport) {
-            HStack(spacing: BSCSpacing.sm) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 16, weight: .semibold))
-                Text("Export \(savedRallies.count) Saved")
-                    .font(.system(size: 16, weight: .semibold))
-            }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, BSCSpacing.md)
-            .background(
                 RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                    .fill(Color.bscOrange)
+                    .stroke(borderColor, lineWidth: 2)
             )
+            .shadow(color: .black.opacity(0.2), radius: BSCShadow.sm.radius)
+
+            // Rally number badge
+            Text("\(index + 1)")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.horizontal, BSCSpacing.sm)
+                .padding(.vertical, BSCSpacing.xxs)
+                .background(
+                    Capsule()
+                        .fill(Color.black.opacity(0.7))
+                )
+                .padding(BSCSpacing.xs)
         }
+        .onAppear {
+            thumbnail = thumbnailCache.getThumbnail(for: url)
+        }
+        .task {
+            guard thumbnail == nil else { return }
+            thumbnail = await thumbnailCache.getThumbnailAsync(for: url)
+        }
+    }
+
+    private var borderColor: Color {
+        if isSaved { return .bscSuccess.opacity(0.7) }
+        if isRemoved { return .bscError.opacity(0.7) }
+        return Color.white.opacity(0.1)
     }
 }
 
@@ -189,6 +245,7 @@ struct RallyOverviewSheet: View {
         thumbnailCache: RallyThumbnailCache(),
         onSelectRally: { _ in },
         onExport: {},
+        onPostToCommunity: { _ in },
         onDismiss: {}
     )
 }

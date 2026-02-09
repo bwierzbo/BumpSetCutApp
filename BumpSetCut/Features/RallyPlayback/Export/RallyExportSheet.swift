@@ -18,8 +18,6 @@ struct RallyExportSheet: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 24) {
-                headerView
-
                 if savedRallies.isEmpty {
                     noSavedRalliesView
                 } else {
@@ -53,46 +51,13 @@ struct RallyExportSheet: View {
         }
     }
 
-    private var headerView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.green)
-
-            Text("Rally Review Complete!")
-                .font(.title2)
-                .fontWeight(.bold)
-
-            Text("You've reviewed all \(totalRallies) rallies")
-                .font(.body)
-                .foregroundColor(.secondary)
-
-            if !savedRallies.isEmpty {
-                Text("\(savedRallies.count) rallies saved")
-                    .font(.headline)
-                    .foregroundColor(.green)
-                    .padding(.top, 8)
-            }
-        }
-    }
-
     private var noSavedRalliesView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "heart.slash")
-                .font(.system(size: 48))
-                .foregroundColor(.gray)
-
-            Text("No Rallies Saved")
-                .font(.headline)
-                .foregroundColor(.primary)
-
-            Text("You didn't save any rallies to export. Go back and swipe right on rallies you want to keep!")
-                .font(.body)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-        }
-        .padding(.vertical, 32)
+        Text("No rallies saved — swipe right on rallies to keep them.")
+            .font(.body)
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal)
+            .padding(.vertical, 32)
     }
 
     private var exportOptionsView: some View {

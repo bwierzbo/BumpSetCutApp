@@ -7,20 +7,26 @@
 
 import SwiftUI
 import AVFoundation
+import GoogleSignIn
 
 @main struct BumpSetCutApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var appSettings = AppSettings.shared
     @State private var authService = AuthenticationService()
     @State private var networkMonitor = NetworkMonitor()
     @State private var offlineQueue = OfflineQueue()
 
     var body: some Scene {
         WindowGroup {
-            HomeView()
+            MainTabView()
                 .withAppSettings()
                 .environment(authService)
+                .preferredColorScheme(appSettings.appearanceMode.colorScheme)
                 .task {
                     await authService.restoreSession()
+                }
+                .onOpenURL { url in
+                    GIDSignIn.sharedInstance.handle(url)
                 }
                 .onChange(of: networkMonitor.isConnected) { _, isConnected in
                     if isConnected {

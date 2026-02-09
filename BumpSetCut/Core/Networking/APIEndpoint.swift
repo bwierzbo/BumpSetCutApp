@@ -26,10 +26,12 @@ enum APIEndpoint {
 
     // Highlights
     case getFeed(page: Int, pageSize: Int)
+    case getFollowingFeed(page: Int, pageSize: Int)
     case getUserHighlights(userId: String, page: Int)
     case getHighlight(id: String)
     case createHighlight(HighlightUpload)
     case deleteHighlight(id: String)
+    case searchHighlights(query: String, page: Int)
 
     // Social
     case likeHighlight(id: String)
@@ -55,10 +57,12 @@ enum APIEndpoint {
         case .updateProfile: return "/profiles/me"
         case .searchUsers: return "/profiles/search"
         case .getFeed: return "/highlights/feed"
+        case .getFollowingFeed: return "/highlights/following"
         case .getUserHighlights(let userId, _): return "/profiles/\(userId)/highlights"
         case .getHighlight(let id): return "/highlights/\(id)"
         case .createHighlight: return "/highlights"
         case .deleteHighlight(let id): return "/highlights/\(id)"
+        case .searchHighlights: return "/highlights/search"
         case .likeHighlight(let id): return "/highlights/\(id)/like"
         case .unlikeHighlight(let id): return "/highlights/\(id)/like"
         case .addComment(let highlightId, _): return "/highlights/\(highlightId)/comments"
@@ -95,7 +99,7 @@ enum APIEndpoint {
         case .signInWithApple: return false
         case .refreshToken: return false
         case .getHighlight, .getComments, .getProfile, .getUserHighlights,
-             .getFollowers, .getFollowing, .searchUsers:
+             .getFollowers, .getFollowing, .searchUsers, .searchHighlights:
             return false
         default:
             return true
@@ -114,10 +118,12 @@ struct UserProfileUpdate: Codable {
 }
 
 struct HighlightUpload: Codable {
-    let muxAssetId: String
+    let authorId: String
     let muxPlaybackId: String
     var caption: String?
     var tags: [String]
+    var hideLikes: Bool
+    var videoUrls: [String]?
     var localVideoId: UUID?
     var localRallyIndex: Int?
     let rallyMetadata: RallyHighlightMetadata

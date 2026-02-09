@@ -7,7 +7,6 @@ struct RallyPlayerOverlay: View {
     let isSaved: Bool
     let isRemoved: Bool
     let onDismiss: () -> Void
-    var onShowOverview: () -> Void = {}
     var onShowTips: () -> Void = {}
 
     var body: some View {
@@ -75,57 +74,33 @@ struct RallyPlayerOverlay: View {
 
     // MARK: - Rally Counter
     private var rallyCounter: some View {
-        Button(action: onShowOverview) {
-            HStack(spacing: BSCSpacing.sm) {
-                // Rally status indicator with animation
-                if isSaved {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.bscSuccess)
-                        .transition(.scale.combined(with: .opacity))
-                } else if isRemoved {
-                    Image(systemName: "trash.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.bscError)
-                        .transition(.scale.combined(with: .opacity))
-                }
+        HStack(spacing: BSCSpacing.xxs) {
+            Text("\(currentIndex + 1)")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .contentTransition(.numericText())
 
-                // Counter
-                HStack(spacing: BSCSpacing.xxs) {
-                    Text("\(currentIndex + 1)")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
+            Text("/")
+                .font(.system(size: 14))
+                .foregroundColor(.white.opacity(0.6))
 
-                    Text("/")
-                        .font(.system(size: 14))
-                        .foregroundColor(.white.opacity(0.6))
-
-                    Text("\(totalCount)")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white.opacity(0.8))
-                }
-
-                // Chevron hint
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.5))
-            }
-            .padding(.horizontal, BSCSpacing.lg)
-            .padding(.vertical, BSCSpacing.sm)
-            .background(
-                Capsule()
-                    .fill(Color.bscSurfaceGlass)
-                    .overlay(
-                        Capsule()
-                            .stroke(
-                                statusBorderColor,
-                                lineWidth: isSaved || isRemoved ? 2 : 1
-                            )
-                    )
-            )
-            .animation(.bscBounce, value: isSaved)
-            .animation(.bscBounce, value: isRemoved)
+            Text("\(totalCount)")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
         }
+        .padding(.horizontal, BSCSpacing.lg)
+        .padding(.vertical, BSCSpacing.sm)
+        .background(
+            Capsule()
+                .fill(Color.bscSurfaceGlass)
+                .overlay(
+                    Capsule()
+                        .stroke(statusBorderColor, lineWidth: isSaved || isRemoved ? 2 : 1)
+                )
+        )
+        .animation(.easeInOut(duration: 0.25), value: currentIndex)
+        .animation(.easeInOut(duration: 0.2), value: isSaved)
+        .animation(.easeInOut(duration: 0.2), value: isRemoved)
     }
 
     private var statusBorderColor: Color {

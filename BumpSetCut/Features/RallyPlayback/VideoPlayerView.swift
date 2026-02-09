@@ -22,7 +22,7 @@ struct VideoPlayerView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                Color.black.ignoresSafeArea()
+                Color.bscMediaBackground.ignoresSafeArea()
 
                 createVideoPlayer(size: geometry.size)
 

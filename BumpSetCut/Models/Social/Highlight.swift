@@ -24,25 +24,39 @@ struct Highlight: Codable, Identifiable, Hashable {
     var commentsCount: Int
     var isLikedByMe: Bool
     let createdAt: Date
+    var hideLikes: Bool
+    var videoUrls: [String]?
 
     // Links to local data (nil if not from this device)
     var localVideoId: UUID?
     var localRallyIndex: Int?
 
-    /// HLS streaming URL constructed from Mux playback ID.
-    var videoURL: URL {
-        URL(string: "https://stream.mux.com/\(muxPlaybackId).m3u8")!
+    /// All video URLs for this highlight (supports multi-rally posts).
+    var allVideoURLs: [URL] {
+        if let urls = videoUrls, !urls.isEmpty {
+            return urls.compactMap { URL(string: $0) }
+        }
+        if let url = URL(string: muxPlaybackId) {
+            return [url]
+        }
+        return []
     }
 
-    /// Thumbnail image URL from Mux at 2-second mark.
+    /// Primary video URL (first in list or single).
+    var videoURL: URL {
+        allVideoURLs.first ?? URL(string: "about:blank")!
+    }
+
+    /// Thumbnail image URL (falls back to nil if no dedicated thumbnail).
     var thumbnailImageURL: URL? {
-        thumbnailURL ?? URL(string: "https://image.mux.com/\(muxPlaybackId)/thumbnail.jpg?time=2")
+        thumbnailURL
     }
 
     init(id: String, authorId: String, author: UserProfile? = nil, muxPlaybackId: String,
          thumbnailURL: URL? = nil, caption: String? = nil, tags: [String] = [],
          rallyMetadata: RallyHighlightMetadata, likesCount: Int = 0, commentsCount: Int = 0,
          isLikedByMe: Bool = false, createdAt: Date = Date(),
+         hideLikes: Bool = false, videoUrls: [String]? = nil,
          localVideoId: UUID? = nil, localRallyIndex: Int? = nil) {
         self.id = id
         self.authorId = authorId
@@ -56,6 +70,8 @@ struct Highlight: Codable, Identifiable, Hashable {
         self.commentsCount = commentsCount
         self.isLikedByMe = isLikedByMe
         self.createdAt = createdAt
+        self.hideLikes = hideLikes
+        self.videoUrls = videoUrls
         self.localVideoId = localVideoId
         self.localRallyIndex = localRallyIndex
     }
@@ -74,6 +90,8 @@ struct Highlight: Codable, Identifiable, Hashable {
         commentsCount = try container.decodeIfPresent(Int.self, forKey: .commentsCount) ?? 0
         isLikedByMe = try container.decodeIfPresent(Bool.self, forKey: .isLikedByMe) ?? false
         createdAt = try container.decode(Date.self, forKey: .createdAt)
+        hideLikes = try container.decodeIfPresent(Bool.self, forKey: .hideLikes) ?? false
+        videoUrls = try container.decodeIfPresent([String].self, forKey: .videoUrls)
         localVideoId = try container.decodeIfPresent(UUID.self, forKey: .localVideoId)
         localRallyIndex = try container.decodeIfPresent(Int.self, forKey: .localRallyIndex)
     }
@@ -81,6 +99,6 @@ struct Highlight: Codable, Identifiable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, authorId, author, muxPlaybackId, thumbnailURL, caption, tags
         case rallyMetadata, likesCount, commentsCount, isLikedByMe, createdAt
-        case localVideoId, localRallyIndex
+        case hideLikes, videoUrls, localVideoId, localRallyIndex
     }
 }

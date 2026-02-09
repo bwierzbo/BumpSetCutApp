@@ -47,7 +47,6 @@ struct LibraryView: View {
                     statusBars
                 }
             }
-            .preferredColorScheme(.dark)
             .sheet(isPresented: $viewModel.showingCreateFolder) {
                 createFolderSheet
             }
@@ -503,7 +502,6 @@ private extension LibraryView {
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     func createFolder() {

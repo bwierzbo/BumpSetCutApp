@@ -97,7 +97,6 @@ struct ProcessVideoView: View {
                 )
             }
         }
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -570,7 +569,6 @@ struct ProcessedFolderSelectionSheet: View {
                 loadFolders()
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private func folderRow(name: String, path: String, icon: String, color: Color) -> some View {
@@ -666,7 +664,6 @@ struct ProcessedFolderSelectionSheet: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private func loadFolders() {

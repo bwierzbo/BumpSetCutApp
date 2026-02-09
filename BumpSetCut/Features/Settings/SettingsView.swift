@@ -31,35 +31,41 @@ struct SettingsView: View {
                             .animation(.bscSpring.delay(0.1), value: hasAppeared)
                         #endif
 
+                        // Appearance section
+                        appearanceSection
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.15), value: hasAppeared)
+
                         // Processing section
                         processingSection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.15), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.2), value: hasAppeared)
 
                         // Privacy section
                         privacySection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.2), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.25), value: hasAppeared)
 
                         // Social & Privacy section
                         socialPrivacySection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.25), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.3), value: hasAppeared)
 
                         // Status section
                         statusSection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.3), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.35), value: hasAppeared)
 
                         // App info section
                         appInfoSection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.35), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.4), value: hasAppeared)
 
                         Spacer(minLength: BSCSpacing.huge)
                     }
@@ -83,7 +89,6 @@ struct SettingsView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -114,6 +119,76 @@ private extension SettingsView {
     }
 }
 #endif
+
+// MARK: - Appearance Section
+private extension SettingsView {
+    var appearanceSection: some View {
+        BSCSettingsSection(title: "Appearance", icon: "paintbrush.fill", iconColor: .bscOrange) {
+            VStack(spacing: BSCSpacing.md) {
+                HStack(spacing: BSCSpacing.md) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.bscOrange.opacity(0.15))
+                            .frame(width: 36, height: 36)
+
+                        Image(systemName: appSettings.appearanceMode == .dark ? "moon.fill" :
+                                appSettings.appearanceMode == .light ? "sun.max.fill" : "circle.lefthalf.filled")
+                            .font(.system(size: 16))
+                            .foregroundColor(.bscOrange)
+                    }
+
+                    VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
+                        Text("Theme")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.bscTextPrimary)
+
+                        Text("Choose your preferred appearance")
+                            .font(.system(size: 12))
+                            .foregroundColor(.bscTextSecondary)
+                    }
+
+                    Spacer()
+                }
+
+                // Theme picker
+                HStack(spacing: BSCSpacing.sm) {
+                    ForEach(AppTheme.allCases) { theme in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                appSettings.appearanceMode = theme
+                            }
+                        } label: {
+                            VStack(spacing: BSCSpacing.xs) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                                        .fill(theme == .dark ? Color(hex: "#0D0D0E") :
+                                              theme == .light ? Color(hex: "#F8F8FA") :
+                                              Color(light: Color(hex: "#F8F8FA"), dark: Color(hex: "#0D0D0E")))
+                                        .frame(height: 48)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                                                .stroke(appSettings.appearanceMode == theme ? Color.bscOrange : Color.bscSurfaceBorder, lineWidth: appSettings.appearanceMode == theme ? 2 : 1)
+                                        )
+
+                                    Image(systemName: theme == .dark ? "moon.fill" :
+                                            theme == .light ? "sun.max.fill" : "circle.lefthalf.filled")
+                                        .font(.system(size: 18))
+                                        .foregroundColor(theme == .dark ? .white : theme == .light ? Color(hex: "#1A1A1C") : .bscOrange)
+                                }
+
+                                Text(theme.rawValue)
+                                    .font(.system(size: 12, weight: appSettings.appearanceMode == theme ? .semibold : .regular))
+                                    .foregroundColor(appSettings.appearanceMode == theme ? .bscOrange : .bscTextSecondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+}
 
 // MARK: - Processing Section
 private extension SettingsView {

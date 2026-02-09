@@ -45,6 +45,39 @@ final class ProfileViewModel {
         isLoading = false
     }
 
+    func deleteHighlight(_ highlight: Highlight) async -> Bool {
+        do {
+            let _: EmptyResponse = try await apiClient.request(.deleteHighlight(id: highlight.id))
+            highlights.removeAll { $0.id == highlight.id }
+            if var p = profile {
+                p.highlightsCount = max(0, p.highlightsCount - 1)
+                profile = p
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func toggleLike(for highlight: Highlight) async {
+        guard let index = highlights.firstIndex(where: { $0.id == highlight.id }) else { return }
+
+        let wasLiked = highlights[index].isLikedByMe
+        highlights[index].isLikedByMe = !wasLiked
+        highlights[index].likesCount += wasLiked ? -1 : 1
+
+        do {
+            if wasLiked {
+                let _: EmptyResponse = try await apiClient.request(.unlikeHighlight(id: highlight.id))
+            } else {
+                let _: EmptyResponse = try await apiClient.request(.likeHighlight(id: highlight.id))
+            }
+        } catch {
+            highlights[index].isLikedByMe = wasLiked
+            highlights[index].likesCount += wasLiked ? 1 : -1
+        }
+    }
+
     func toggleFollow() async {
         guard let profile else { return }
 

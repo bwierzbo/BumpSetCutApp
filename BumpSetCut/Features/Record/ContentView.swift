@@ -21,7 +21,6 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20)
             .background(Color(.systemBackground).ignoresSafeArea())
-            .preferredColorScheme(.dark)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {

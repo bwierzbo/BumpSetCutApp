@@ -9,7 +9,7 @@ final class RallyThumbnailCache {
     private var thumbnails: [URL: UIImage] = [:]
     private var preloadTasks: [URL: Task<UIImage?, Never>] = [:]
     private var thumbnailCreationOrder: [URL] = []
-    private let maxCachedThumbnails = 8  // Support visible stack + preloading
+    private let maxCachedThumbnails = 50  // Support overview grid showing all rallies
 
     /// Rally segments for extracting at correct start times
     private var rallySegments: [RallySegment] = []

@@ -8,11 +8,37 @@
 import SwiftUI
 import Foundation
 
+// MARK: - Appearance Mode
+
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system = "System"
+    case light = "Light"
+    case dark = "Dark"
+
+    var id: String { rawValue }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
 // MARK: - App Settings
 
 @MainActor
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
+
+    // MARK: - Appearance
+
+    @Published var appearanceMode: AppTheme {
+        didSet {
+            UserDefaults.standard.set(appearanceMode.rawValue, forKey: "appearanceMode")
+        }
+    }
 
     // MARK: - Feature Toggles
 
@@ -66,6 +92,10 @@ class AppSettings: ObservableObject {
 
 
     private init() {
+        // Appearance
+        let storedTheme = UserDefaults.standard.string(forKey: "appearanceMode") ?? "Dark"
+        self.appearanceMode = AppTheme(rawValue: storedTheme) ?? .dark
+
         // Initialize with defaults based on build configuration
         #if DEBUG
         self.enableDebugFeatures = UserDefaults.standard.object(forKey: "enableDebugFeatures") as? Bool ?? true

@@ -69,7 +69,6 @@ struct OnboardingView: View {
                 .padding(.bottom, BSCSpacing.xl)
             }
         }
-        .preferredColorScheme(.dark)
         .opacity(hasAppeared ? 1 : 0)
         .onAppear {
             withAnimation(.easeOut(duration: 0.3)) {

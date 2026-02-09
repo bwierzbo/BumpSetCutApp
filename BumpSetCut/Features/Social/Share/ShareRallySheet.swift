@@ -6,18 +6,30 @@
 //
 
 import SwiftUI
-import AVKit
+import AVFoundation
 
 struct ShareRallySheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppNavigationState.self) private var navigationState
     @State private var viewModel: ShareRallyViewModel
+    @State private var player = AVPlayer()
+    @State private var loopObserver: Any?
+    @State private var carouselOffset: CGFloat = 0
+    @State private var isSliding = false
+    @FocusState private var isCaptionFocused: Bool
 
-    init(videoURL: URL, rallyIndex: Int, videoId: UUID, metadata: RallyHighlightMetadata) {
+    init(originalVideoURL: URL, rallyVideoURLs: [URL], savedRallyIndices: [Int],
+         initialRallyIndex: Int, thumbnailCache: RallyThumbnailCache,
+         videoId: UUID, rallyInfo: [Int: RallyShareInfo]) {
+        let initialPage = savedRallyIndices.firstIndex(of: initialRallyIndex) ?? 0
         _viewModel = State(initialValue: ShareRallyViewModel(
-            videoURL: videoURL,
-            rallyIndex: rallyIndex,
+            originalVideoURL: originalVideoURL,
+            rallyVideoURLs: rallyVideoURLs,
+            savedRallyIndices: savedRallyIndices,
+            initialPage: initialPage,
+            thumbnailCache: thumbnailCache,
             videoId: videoId,
-            metadata: metadata
+            rallyInfo: rallyInfo
         ))
     }
 
@@ -28,16 +40,16 @@ struct ShareRallySheet: View {
 
                 ScrollView {
                     VStack(spacing: BSCSpacing.lg) {
-                        // Video preview
-                        videoPreview
+                        // Rally video carousel
+                        rallyCarousel
 
-                        // Caption
+                        // Caption with hashtags
                         captionField
 
-                        // Tags
-                        tagSection
+                        // Post options
+                        postOptions
 
-                        // Rally info
+                        // Rally info for selected rally
                         rallyInfo
 
                         // Upload state
@@ -56,19 +68,200 @@ struct ShareRallySheet: View {
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    shareButton
+                    postButton
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        .onAppear { configurePlayer() }
+        .onDisappear { cleanupPlayer() }
+        .onChange(of: viewModel.selectedPage) { _, _ in configurePlayer() }
+        .onChange(of: isCaptionFocused) { _, focused in
+            if focused {
+                player.pause()
+            } else {
+                player.play()
+            }
+        }
+        .onChange(of: viewModel.state) { _, newState in
+            if case .complete(let highlight) = newState {
+                Task {
+                    try? await Task.sleep(for: .seconds(1.2))
+                    navigationState.postedHighlight = highlight
+                    dismiss()
+                }
+            }
+        }
     }
 
-    // MARK: - Video Preview
+    // MARK: - Rally Carousel
 
-    private var videoPreview: some View {
-        VideoPlayer(player: AVPlayer(url: viewModel.videoURL))
-            .frame(height: 280)
+    private var rallyCarousel: some View {
+        VStack(spacing: BSCSpacing.sm) {
+            GeometryReader { geo in
+                ZStack(alignment: .bottomLeading) {
+                    // Thumbnail fallback behind video
+                    Group {
+                        if let url = currentThumbnailURL,
+                           let thumb = viewModel.thumbnailCache.getThumbnail(for: url) {
+                            Image(uiImage: thumb)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            Color.bscSurfaceGlass
+                        }
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+
+                    // Video player on top
+                    CustomVideoPlayerView(
+                        player: player,
+                        gravity: .resizeAspectFill,
+                        onReadyForDisplay: { _ in }
+                    )
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+                    .allowsHitTesting(false)
+
+                    // Rally number badge
+                    Text("Rally \(viewModel.currentRallyIndex + 1)")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, BSCSpacing.sm)
+                        .padding(.vertical, BSCSpacing.xxs)
+                        .background(Capsule().fill(Color.black.opacity(0.7)))
+                        .padding(BSCSpacing.sm)
+                }
+                .offset(x: carouselOffset)
+                .contentShape(Rectangle())
+                .gesture(carouselGesture(width: geo.size.width))
+            }
+            .aspectRatio(16/9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
+
+            // Page dots
+            if viewModel.savedRallyIndices.count > 1 {
+                HStack(spacing: BSCSpacing.xs) {
+                    ForEach(viewModel.savedRallyIndices.indices, id: \.self) { i in
+                        Circle()
+                            .fill(i == viewModel.selectedPage ? Color.bscOrange : Color.white.opacity(0.3))
+                            .frame(width: 6, height: 6)
+                            .animation(.easeInOut(duration: 0.2), value: viewModel.selectedPage)
+                    }
+                }
+            }
+        }
+    }
+
+    private var currentThumbnailURL: URL? {
+        let index = viewModel.currentRallyIndex
+        guard index < viewModel.rallyVideoURLs.count else { return nil }
+        return viewModel.rallyVideoURLs[index]
+    }
+
+    // MARK: - Carousel Gesture
+
+    private func carouselGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onChanged { value in
+                guard !isSliding, viewModel.savedRallyIndices.count > 1 else { return }
+                // Rubber-band at edges
+                let atStart = viewModel.selectedPage == 0 && value.translation.width > 0
+                let atEnd = viewModel.selectedPage == viewModel.savedRallyIndices.count - 1
+                    && value.translation.width < 0
+                carouselOffset = (atStart || atEnd)
+                    ? value.translation.width * 0.25
+                    : value.translation.width
+            }
+            .onEnded { value in
+                guard !isSliding, viewModel.savedRallyIndices.count > 1 else {
+                    snapBack()
+                    return
+                }
+
+                let threshold = width * 0.25
+                let velocity = value.predictedEndTranslation.width
+
+                if (value.translation.width < -threshold || velocity < -threshold),
+                   viewModel.selectedPage < viewModel.savedRallyIndices.count - 1 {
+                    slideTo(page: viewModel.selectedPage + 1, direction: -1, width: width)
+                } else if (value.translation.width > threshold || velocity > threshold),
+                          viewModel.selectedPage > 0 {
+                    slideTo(page: viewModel.selectedPage - 1, direction: 1, width: width)
+                } else {
+                    snapBack()
+                }
+            }
+    }
+
+    private func slideTo(page: Int, direction: CGFloat, width: CGFloat) {
+        isSliding = true
+
+        // Slide current content off-screen
+        withAnimation(.easeIn(duration: 0.18)) {
+            carouselOffset = direction * -width
+        }
+
+        // At midpoint: swap page (player seeks while off-screen), jump to opposite side
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            viewModel.selectedPage = page
+            carouselOffset = direction * width
+
+            // Slide new content in
+            withAnimation(.easeOut(duration: 0.22)) {
+                carouselOffset = 0
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                isSliding = false
+            }
+        }
+    }
+
+    private func snapBack() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            carouselOffset = 0
+        }
+    }
+
+    // MARK: - Player Management
+
+    private func configurePlayer() {
+        // Remove old boundary observer
+        if let observer = loopObserver {
+            player.removeTimeObserver(observer)
+            loopObserver = nil
+        }
+
+        guard let info = viewModel.currentShareInfo else { return }
+        let startTime = CMTimeMakeWithSeconds(info.startTime, preferredTimescale: 600)
+        let endTime = CMTimeMakeWithSeconds(info.endTime, preferredTimescale: 600)
+
+        // Create item only once (all rallies are from the same source video)
+        if player.currentItem == nil {
+            let item = AVPlayerItem(url: viewModel.originalVideoURL)
+            player.replaceCurrentItem(with: item)
+        }
+
+        player.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        player.play()
+
+        // Loop back to start when reaching end of rally segment
+        loopObserver = player.addBoundaryTimeObserver(
+            forTimes: [NSValue(time: endTime)],
+            queue: .main
+        ) { [player] in
+            player.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+    }
+
+    private func cleanupPlayer() {
+        if let observer = loopObserver {
+            player.removeTimeObserver(observer)
+            loopObserver = nil
+        }
+        player.pause()
+        player.replaceCurrentItem(with: nil)
     }
 
     // MARK: - Caption
@@ -79,7 +272,7 @@ struct ShareRallySheet: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.bscTextSecondary)
 
-            TextField("Describe this rally...", text: $viewModel.caption, axis: .vertical)
+            TextField("Describe this rally... use #hashtags", text: $viewModel.caption, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
                 .foregroundColor(.bscTextPrimary)
@@ -87,53 +280,70 @@ struct ShareRallySheet: View {
                 .padding(BSCSpacing.sm)
                 .background(Color.bscSurfaceGlass)
                 .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
-        }
-    }
+                .focused($isCaptionFocused)
 
-    // MARK: - Tags
-
-    private var tagSection: some View {
-        VStack(alignment: .leading, spacing: BSCSpacing.xs) {
-            Text("Tags")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.bscTextSecondary)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: BSCSpacing.xs) {
-                    ForEach(["volleyball", "rally", "beach", "indoor", "spike", "dig", "set"], id: \.self) { tag in
-                        let isSelected = viewModel.tags.contains(tag)
-                        Button {
-                            if isSelected {
-                                viewModel.tags.removeAll { $0 == tag }
-                            } else {
-                                viewModel.tags.append(tag)
-                            }
-                        } label: {
+            if !viewModel.extractedTags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: BSCSpacing.xs) {
+                        ForEach(viewModel.extractedTags, id: \.self) { tag in
                             Text("#\(tag)")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(isSelected ? .white : .bscTextSecondary)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.bscOrange)
                                 .padding(.horizontal, BSCSpacing.sm)
-                                .padding(.vertical, BSCSpacing.xs)
-                                .background(isSelected ? Color.bscOrange : Color.bscSurfaceGlass)
+                                .padding(.vertical, BSCSpacing.xxs)
+                                .background(Color.bscOrange.opacity(0.15))
                                 .clipShape(Capsule())
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
         }
     }
 
+    // MARK: - Post Options
+
+    private var postOptions: some View {
+        VStack(spacing: 0) {
+            Toggle(isOn: $viewModel.hideLikes) {
+                HStack(spacing: BSCSpacing.sm) {
+                    Image(systemName: "heart.slash")
+                        .font(.system(size: 15))
+                        .foregroundColor(.bscTextSecondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Hide like count")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.bscTextPrimary)
+                        Text("Others won't see how many likes this post has")
+                            .font(.system(size: 12))
+                            .foregroundColor(.bscTextTertiary)
+                    }
+                }
+            }
+            .tint(.bscOrange)
+            .padding(BSCSpacing.sm)
+        }
+        .background(Color.bscSurfaceGlass)
+        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+    }
+
     // MARK: - Rally Info
 
     private var rallyInfo: some View {
-        HStack(spacing: BSCSpacing.lg) {
-            Label("\(String(format: "%.1f", viewModel.metadata.duration))s", systemImage: "timer")
-            Label("\(Int(viewModel.metadata.quality * 100))% quality", systemImage: "sparkles")
-            Label("\(viewModel.metadata.detectionCount) detections", systemImage: "eye")
+        let meta = viewModel.currentMetadata
+        return VStack(spacing: BSCSpacing.xs) {
+            HStack(spacing: BSCSpacing.lg) {
+                Label("\(String(format: "%.1f", meta.duration))s", systemImage: "timer")
+                Label("\(meta.detectionCount) detections", systemImage: "eye")
+            }
+            .font(.system(size: 12))
+            .foregroundColor(.bscTextTertiary)
+
+            if viewModel.isTooLong {
+                Label("Rally must be under 1 minute to share", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.bscError)
+            }
         }
-        .font(.system(size: 12))
-        .foregroundColor(.bscTextTertiary)
     }
 
     // MARK: - Upload State
@@ -170,9 +380,9 @@ struct ShareRallySheet: View {
                 Text("Shared successfully!")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.bscTextPrimary)
-                Button("Done") { dismiss() }
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.bscOrange)
+                Text("Opening in feed...")
+                    .font(.system(size: 13))
+                    .foregroundColor(.bscTextSecondary)
             }
 
         case .failed(let message):
@@ -191,13 +401,14 @@ struct ShareRallySheet: View {
         }
     }
 
-    // MARK: - Share Button
+    // MARK: - Post Button
 
-    private var shareButton: some View {
-        Button("Share") {
+    private var postButton: some View {
+        Button("Post") {
             viewModel.upload()
         }
-        .disabled(viewModel.state != .idle)
+        .disabled(viewModel.state != .idle || viewModel.isTooLong)
         .fontWeight(.semibold)
+        .foregroundColor(viewModel.state == .idle && !viewModel.isTooLong ? .bscOrange : .bscTextTertiary)
     }
 }
