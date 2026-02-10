@@ -65,14 +65,7 @@ struct CommentsSheet: View {
     private func commentRow(_ comment: Comment) -> some View {
         HStack(alignment: .top, spacing: BSCSpacing.sm) {
             // Avatar
-            Circle()
-                .fill(Color.bscSurfaceGlass)
-                .frame(width: 32, height: 32)
-                .overlay(
-                    Text(comment.author?.displayName.prefix(1).uppercased() ?? "?")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.bscTextPrimary)
-                )
+            AvatarView(url: comment.author?.avatarURL, name: comment.author?.displayName ?? "?", size: 32)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: BSCSpacing.xs) {

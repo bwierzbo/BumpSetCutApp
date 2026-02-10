@@ -415,6 +415,27 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         writeString("\r\n--\(boundary)--\r\n")
     }
 
+    // MARK: - Avatar Upload
+
+    /// Uploads avatar image data to Supabase Storage and returns the public URL.
+    nonisolated func uploadAvatar(imageData: Data) async throws -> URL {
+        let userId = try await currentUserId()
+        let fileName = "\(userId)/avatar.jpg"
+
+        // Upload to "avatars" storage bucket (upsert so re-uploads replace)
+        try await supabase.storage.from("avatars").upload(
+            fileName,
+            data: imageData,
+            options: .init(contentType: "image/jpeg", upsert: true)
+        )
+
+        let publicURL = try supabase.storage.from("avatars").getPublicURL(path: fileName)
+        // Append cache-buster so AsyncImage re-fetches after update
+        var components = URLComponents(url: publicURL, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "t", value: "\(Int(Date().timeIntervalSince1970))")]
+        return components.url ?? publicURL
+    }
+
     // MARK: - Private
 
     private func currentUserId() async throws -> String {

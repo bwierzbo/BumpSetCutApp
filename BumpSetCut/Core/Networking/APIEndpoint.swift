@@ -119,6 +119,7 @@ struct UserProfileUpdate: Codable {
     var bio: String?
     var teamName: String?
     var privacyLevel: PrivacyLevel?
+    var avatarURL: String?
 }
 
 struct HighlightUpload: Codable {

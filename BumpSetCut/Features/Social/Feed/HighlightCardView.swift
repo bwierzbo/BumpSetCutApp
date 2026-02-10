@@ -112,14 +112,7 @@ struct HighlightCardView: View {
                                 onProfile(highlight.authorId)
                             } label: {
                                 HStack(spacing: BSCSpacing.xs) {
-                                    Circle()
-                                        .fill(Color.bscSurfaceGlass)
-                                        .frame(width: 32, height: 32)
-                                        .overlay(
-                                            Text(highlight.author?.displayName.prefix(1).uppercased() ?? "?")
-                                                .font(.system(size: 14, weight: .bold))
-                                                .foregroundColor(.white)
-                                        )
+                                    AvatarView(url: highlight.author?.avatarURL, name: highlight.author?.displayName ?? "?", size: 32)
 
                                     Text(highlight.author?.displayName ?? "Unknown")
                                         .font(.system(size: 14, weight: .semibold))

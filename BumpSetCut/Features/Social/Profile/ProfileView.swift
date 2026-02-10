@@ -117,14 +117,7 @@ struct ProfileView: View {
     private func profileHeader(_ profile: UserProfile) -> some View {
         VStack(spacing: BSCSpacing.sm) {
             // Avatar
-            Circle()
-                .fill(Color.bscSurfaceGlass)
-                .frame(width: 80, height: 80)
-                .overlay(
-                    Text(profile.displayName.prefix(1).uppercased())
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(.bscOrange)
-                )
+            AvatarView(url: profile.avatarURL, name: profile.displayName, size: 80)
 
             Text(profile.displayName)
                 .font(.system(size: 20, weight: .bold))

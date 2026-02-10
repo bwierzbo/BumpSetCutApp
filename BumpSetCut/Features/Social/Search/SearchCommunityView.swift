@@ -146,14 +146,7 @@ struct SearchCommunityView: View {
 
     private func userRow(_ user: UserProfile) -> some View {
         HStack(spacing: BSCSpacing.md) {
-            Circle()
-                .fill(Color.bscSurfaceGlass)
-                .frame(width: 44, height: 44)
-                .overlay(
-                    Text(user.displayName.prefix(1).uppercased())
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.bscOrange)
-                )
+            AvatarView(url: user.avatarURL, name: user.displayName, size: 44)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.displayName)

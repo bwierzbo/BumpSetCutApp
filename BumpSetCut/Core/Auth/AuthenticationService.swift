@@ -256,6 +256,13 @@ final class AuthenticationService {
         authState = .unauthenticated
     }
 
+    // MARK: - Profile Update
+
+    func updateLocalProfile(_ profile: UserProfile) {
+        currentUser = profile
+        try? KeychainHelper.save(profile, for: Self.userKey)
+    }
+
     // MARK: - Account Deletion
 
     func deleteAccount() async throws {

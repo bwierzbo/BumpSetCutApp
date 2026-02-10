@@ -63,12 +63,14 @@ struct BSCVideoCard: View {
             RallyPlayerView(videoMetadata: video)
         }
         .sheet(isPresented: $showingProcessVideo) {
-            ProcessVideoView(
-                videoURL: video.originalURL,
-                mediaStore: mediaStore,
-                folderPath: LibraryType.processed.rootPath,  // Always save to ProcessedGames
-                onComplete: onRefresh
-            )
+            NavigationStack {
+                ProcessVideoView(
+                    videoURL: video.originalURL,
+                    mediaStore: mediaStore,
+                    folderPath: LibraryType.processed.rootPath,  // Always save to ProcessedGames
+                    onComplete: onRefresh
+                )
+            }
         }
         .sheet(isPresented: $showingRenameDialog) {
             VideoRenameDialog(

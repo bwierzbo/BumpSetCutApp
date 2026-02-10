@@ -28,77 +28,80 @@ struct ProcessVideoView: View {
 
     // MARK: - Body
     var body: some View {
-        NavigationStack {
-            ZStack {
-                // Background
-                backgroundGradient
+        ZStack {
+            // Background
+            backgroundGradient
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: isLandscape ? BSCSpacing.lg : BSCSpacing.xxl) {
-                        // Animated header
-                        headerSection
-                            .opacity(hasAppeared ? 1 : 0)
-                            .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.1), value: hasAppeared)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: isLandscape ? BSCSpacing.lg : BSCSpacing.xxl) {
+                    // Animated header
+                    headerSection
+                        .opacity(hasAppeared ? 1 : 0)
+                        .offset(y: hasAppeared ? 0 : 20)
+                        .animation(.bscSpring.delay(0.1), value: hasAppeared)
 
-                        // Processing state content
-                        stateContent
-                            .opacity(hasAppeared ? 1 : 0)
-                            .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.2), value: hasAppeared)
+                    // Processing state content
+                    stateContent
+                        .opacity(hasAppeared ? 1 : 0)
+                        .offset(y: hasAppeared ? 0 : 20)
+                        .animation(.bscSpring.delay(0.2), value: hasAppeared)
 
-                        // Action buttons
-                        actionButtons
-                            .opacity(hasAppeared ? 1 : 0)
-                            .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.3), value: hasAppeared)
+                    // Action buttons
+                    actionButtons
+                        .opacity(hasAppeared ? 1 : 0)
+                        .offset(y: hasAppeared ? 0 : 20)
+                        .animation(.bscSpring.delay(0.3), value: hasAppeared)
+                }
+                .padding(BSCSpacing.xl)
+                .frame(maxWidth: isLandscape ? 500 : .infinity)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .navigationTitle("AI Processing")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbarContent }
+        .onDisappear { viewModel.cancelProcessing() }
+        .onAppear {
+            viewModel.loadCurrentVideoMetadata()
+            withAnimation {
+                hasAppeared = true
+            }
+        }
+        .alert("Processing Error", isPresented: $viewModel.showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.errorMessage)
+        }
+        .alert("Storage Full", isPresented: $viewModel.showStorageWarning) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.storageWarningMessage)
+        }
+        .sheet(isPresented: $viewModel.showingFolderPicker) {
+            ProcessedFolderSelectionSheet(
+                mediaStore: viewModel.mediaStore,
+                onFolderSelected: { folderPath in
+                    viewModel.confirmSaveToFolder(folderPath)
+                },
+                onCancel: {
+                    // Clean up temp file if cancelled
+                    if let tempURL = viewModel.pendingSaveURL {
+                        try? FileManager.default.removeItem(at: tempURL)
                     }
-                    .padding(BSCSpacing.xl)
-                    .frame(maxWidth: isLandscape ? 500 : .infinity)
-                    .frame(maxWidth: .infinity)
+                    viewModel.pendingSaveURL = nil
+                    viewModel.showingFolderPicker = false
+                    dismiss()
                 }
-            }
-            .navigationTitle("AI Processing")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
-            .onDisappear { viewModel.cancelProcessing() }
-            .onAppear {
-                viewModel.loadCurrentVideoMetadata()
-                withAnimation {
-                    hasAppeared = true
-                }
-            }
-            .alert("Processing Error", isPresented: $viewModel.showError) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(viewModel.errorMessage)
-            }
-            .alert("Storage Full", isPresented: $viewModel.showStorageWarning) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(viewModel.storageWarningMessage)
-            }
-            .sheet(isPresented: $viewModel.showingFolderPicker) {
-                ProcessedFolderSelectionSheet(
-                    mediaStore: viewModel.mediaStore,
-                    onFolderSelected: { folderPath in
-                        viewModel.confirmSaveToFolder(folderPath)
-                    },
-                    onCancel: {
-                        // Clean up temp file if cancelled
-                        if let tempURL = viewModel.pendingSaveURL {
-                            try? FileManager.default.removeItem(at: tempURL)
-                        }
-                        viewModel.pendingSaveURL = nil
-                        viewModel.showingFolderPicker = false
-                        dismiss()
-                    }
-                )
-            }
-            .fullScreenCover(isPresented: $viewModel.showRallyPlayer) {
-                if let videoMetadata = viewModel.currentVideoMetadata {
-                    RallyPlayerView(videoMetadata: videoMetadata)
-                }
+            )
+        }
+        .fullScreenCover(isPresented: $viewModel.showRallyPlayer) {
+            if let videoMetadata = viewModel.currentVideoMetadata {
+                RallyPlayerView(videoMetadata: videoMetadata)
+            } else {
+                // Safety fallback — dismiss if metadata unexpectedly nil
+                Color.bscBackground
+                    .ignoresSafeArea()
+                    .onAppear { viewModel.showRallyPlayer = false }
             }
         }
     }
@@ -757,10 +760,12 @@ struct ProcessedFolderSelectionSheet: View {
 
 // MARK: - Preview
 #Preview("ProcessVideoView - Ready") {
-    ProcessVideoView(
-        videoURL: URL(fileURLWithPath: "/test.mp4"),
-        mediaStore: MediaStore(),
-        folderPath: "",
-        onComplete: {}
-    )
+    NavigationStack {
+        ProcessVideoView(
+            videoURL: URL(fileURLWithPath: "/test.mp4"),
+            mediaStore: MediaStore(),
+            folderPath: "",
+            onComplete: {}
+        )
+    }
 }
