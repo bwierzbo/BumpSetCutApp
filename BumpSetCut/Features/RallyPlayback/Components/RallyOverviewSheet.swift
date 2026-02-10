@@ -11,6 +11,8 @@ struct RallyOverviewSheet: View {
     let onSelectRally: (Int) -> Void
     let onExport: () -> Void
     let onPostToCommunity: (Int) -> Void
+    let onSaveAll: () -> Void
+    let onDeselectAll: () -> Void
     let onDismiss: () -> Void
 
     @State private var appeared = false
@@ -77,6 +79,49 @@ struct RallyOverviewSheet: View {
                 statPill(count: removedRallies.count, label: "removed", color: .bscError)
             }
             .padding(.horizontal, BSCSpacing.xl)
+
+            // Quick select/deselect actions
+            HStack(spacing: BSCSpacing.md) {
+                Button {
+                    onSaveAll()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("Save All")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(.bscSuccess)
+                    .padding(.horizontal, BSCSpacing.md)
+                    .padding(.vertical, BSCSpacing.xs)
+                    .background(Color.bscSuccess.opacity(0.15))
+                    .clipShape(Capsule())
+                }
+                .disabled(savedRallies.count == rallyVideoURLs.count)
+                .opacity(savedRallies.count == rallyVideoURLs.count ? 0.4 : 1.0)
+
+                Button {
+                    onDeselectAll()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("Clear All")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(.bscTextSecondary)
+                    .padding(.horizontal, BSCSpacing.md)
+                    .padding(.vertical, BSCSpacing.xs)
+                    .background(Color.bscSurfaceGlass)
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+                    )
+                }
+                .disabled(savedRallies.isEmpty && removedRallies.isEmpty)
+                .opacity(savedRallies.isEmpty && removedRallies.isEmpty ? 0.4 : 1.0)
+            }
         }
         .padding(.bottom, BSCSpacing.lg)
     }
@@ -118,7 +163,7 @@ struct RallyOverviewSheet: View {
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "square.and.arrow.down")
                             .font(.system(size: 16, weight: .semibold))
-                        Text("Export to Camera Roll")
+                        Text("Export \(savedRallies.count) \(savedRallies.count == 1 ? "Rally" : "Rallies")")
                             .font(.system(size: 16, weight: .semibold))
                     }
                     .foregroundColor(.white)
@@ -246,6 +291,8 @@ private struct RallyOverviewCell: View {
         onSelectRally: { _ in },
         onExport: {},
         onPostToCommunity: { _ in },
+        onSaveAll: {},
+        onDeselectAll: {},
         onDismiss: {}
     )
 }

@@ -35,6 +35,7 @@ struct RallyExportSheet: View {
                         dismiss()
                         onDismiss()
                     }
+                    .disabled(isExporting)
                 }
             }
         }
@@ -60,9 +61,14 @@ struct RallyExportSheet: View {
             .padding(.vertical, 32)
     }
 
+    private var rallyCountLabel: String {
+        let count = savedRallies.count
+        return count == 1 ? "1 Rally" : "\(count) Rallies"
+    }
+
     private var exportOptionsView: some View {
         VStack(spacing: 20) {
-            Text("Choose Export Option")
+            Text("Export \(rallyCountLabel)")
                 .font(.headline)
                 .padding(.bottom, 8)
 
@@ -71,8 +77,10 @@ struct RallyExportSheet: View {
                 title: "Export Individual Videos",
                 subtitle: "Save each rally as a separate video",
                 icon: "square.stack.3d.up",
-                color: .blue
+                color: .blue,
+                isDisabled: isExporting
             ) {
+                guard !isExporting else { return }
                 exportType = .individual
             }
 
@@ -81,8 +89,10 @@ struct RallyExportSheet: View {
                 title: "Export Combined Video",
                 subtitle: "Stitch all saved rallies into one video",
                 icon: "film.stack",
-                color: .purple
+                color: .purple,
+                isDisabled: isExporting
             ) {
+                guard !isExporting else { return }
                 exportType = .stitched
             }
         }
@@ -96,6 +106,7 @@ struct RallyExportOptionCard: View {
     let subtitle: String
     let icon: String
     let color: Color
+    var isDisabled: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -103,15 +114,15 @@ struct RallyExportOptionCard: View {
             HStack(spacing: 16) {
                 Image(systemName: icon)
                     .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(color)
+                    .foregroundColor(isDisabled ? .secondary : color)
                     .frame(width: 50, height: 50)
-                    .background(color.opacity(0.1))
+                    .background((isDisabled ? Color.secondary : color).opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.headline)
-                        .foregroundColor(.primary)
+                        .foregroundColor(isDisabled ? .secondary : .primary)
 
                     Text(subtitle)
                         .font(.body)
@@ -133,6 +144,8 @@ struct RallyExportOptionCard: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.5 : 1.0)
     }
 }
 

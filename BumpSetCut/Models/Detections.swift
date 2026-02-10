@@ -8,6 +8,34 @@
 import CoreGraphics
 import CoreMedia
 
+// MARK: - Volleyball Type
+
+enum VolleyballType: String, Codable, CaseIterable {
+    case beach = "beach"
+    case indoor = "indoor"
+
+    var displayName: String {
+        switch self {
+        case .beach: return "Beach"
+        case .indoor: return "Indoor"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .beach: return "sun.max.fill"
+        case .indoor: return "building.2.fill"
+        }
+    }
+
+    var modelName: String {
+        switch self {
+        case .beach: return "bestv2"
+        case .indoor: return "indoor_v1"
+        }
+    }
+}
+
 struct DetectionResult {
     let bbox: CGRect
     let confidence: Float
@@ -225,6 +253,28 @@ struct ProcessorConfig {
         }
     }
     
+    /// Returns a config preset tuned for the given volleyball type.
+    static func configFor(_ type: VolleyballType) -> ProcessorConfig {
+        var config = ProcessorConfig()
+        switch type {
+        case .indoor:
+            // Indoor: tighter physics, faster rally pacing, stricter confidence (current defaults)
+            break
+        case .beach:
+            // Beach: looser R², wider tracking gates, longer timeouts, higher process noise (wind tolerance)
+            config.parabolaMinR2 = 0.80
+            config.trackGateRadius = 0.07
+            config.endTimeout = 1.5
+            config.kalmanProcessNoisePosition = 0.0003
+            config.kalmanProcessNoiseVelocity = 0.003
+            config.maxJumpPerFrame = 0.10
+            config.roiYRadius = 0.06
+            config.enhancedMinR2 = 0.75
+            config.acceptableR2Threshold = 0.60
+        }
+        return config
+    }
+
     /// Reset to default values (for testing/optimization)
     mutating func resetToDefaults() {
         self = ProcessorConfig()

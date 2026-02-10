@@ -157,9 +157,19 @@ struct ProfileView: View {
         HStack(spacing: 0) {
             statItem(count: profile.highlightsCount, label: "Highlights")
             Divider().frame(height: 30)
-            statItem(count: profile.followersCount, label: "Followers")
+            NavigationLink {
+                FollowListView(userId: viewModel.userId, mode: .followers)
+            } label: {
+                statItem(count: profile.followersCount, label: "Followers")
+            }
+            .buttonStyle(.plain)
             Divider().frame(height: 30)
-            statItem(count: profile.followingCount, label: "Following")
+            NavigationLink {
+                FollowListView(userId: viewModel.userId, mode: .following)
+            } label: {
+                statItem(count: profile.followingCount, label: "Following")
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, BSCSpacing.lg)
     }

@@ -10,16 +10,19 @@ final class ProcessVideoViewModel {
     let mediaStore: MediaStore
     let folderPath: String
     let onComplete: () -> Void
-    let onShowPlayer: (() -> Void)?
 
     // MARK: - State
     var processor = VideoProcessor()
+    var selectedVolleyballType: VolleyballType = .indoor
     var currentTask: Task<Void, Never>? = nil
     var currentVideoMetadata: VideoMetadata? = nil
     var showError: Bool = false
     var errorMessage: String = ""
     var showStorageWarning: Bool = false
     var storageWarningMessage: String = ""
+
+    // Rally player navigation
+    var showRallyPlayer: Bool = false
 
     // Pending save state - holds temp URL until user selects destination folder
     var pendingSaveURL: URL? = nil
@@ -47,6 +50,21 @@ final class ProcessVideoViewModel {
 
     var hasMetadata: Bool {
         currentVideoMetadata?.hasMetadata ?? false
+    }
+
+    var detectedRallyCount: Int {
+        guard let videoId = currentVideoMetadata?.id,
+              let metadata = try? MetadataStore().loadMetadata(for: videoId) else { return 0 }
+        return metadata.rallyCount
+    }
+
+    var detectedRallyDurationFormatted: String {
+        guard let videoId = currentVideoMetadata?.id,
+              let metadata = try? MetadataStore().loadMetadata(for: videoId) else { return "0:00" }
+        let total = metadata.totalRallyDuration
+        let minutes = Int(total) / 60
+        let seconds = Int(total) % 60
+        return String(format: "%d:%02d", minutes, seconds)
     }
 
     var canBeProcessed: Bool {
@@ -124,12 +142,11 @@ final class ProcessVideoViewModel {
     }
 
     // MARK: - Initialization
-    init(videoURL: URL, mediaStore: MediaStore, folderPath: String, onComplete: @escaping () -> Void, onShowPlayer: (() -> Void)?) {
+    init(videoURL: URL, mediaStore: MediaStore, folderPath: String, onComplete: @escaping () -> Void) {
         self.videoURL = videoURL
         self.mediaStore = mediaStore
         self.folderPath = folderPath
         self.onComplete = onComplete
-        self.onShowPlayer = onShowPlayer
     }
 
     // MARK: - Actions
@@ -184,6 +201,9 @@ final class ProcessVideoViewModel {
 
         currentTask = Task {
             do {
+                // Configure processor for the selected volleyball type
+                processor.configure(for: selectedVolleyballType)
+
                 let tempProcessedURL: URL?
                 let debugData: TrajectoryDebugger?
 
@@ -201,8 +221,9 @@ final class ProcessVideoViewModel {
                     if let metadataSize = await MainActor.run(body: {
                         currentVideoMetadata?.getCurrentMetadataSize()
                     }) {
+                        let selectedType = selectedVolleyballType
                         let success = await MainActor.run {
-                            mediaStore.markVideoAsProcessed(videoId: videoId, metadataFileSize: metadataSize)
+                            mediaStore.markVideoAsProcessed(videoId: videoId, metadataFileSize: metadataSize, volleyballType: selectedType)
                         }
                         print(success ? "✅ Video marked as processed in manifest" : "❌ Failed to mark video as processed")
                     }
@@ -288,7 +309,7 @@ final class ProcessVideoViewModel {
         try FileManager.default.moveItem(at: tempProcessedURL, to: finalURL)
 
         let originalVideoId = currentVideoMetadata?.id ?? UUID()
-        let success = mediaStore.addProcessedVideo(at: finalURL, toFolder: destinationFolder, customName: processedName, originalVideoId: originalVideoId)
+        let success = mediaStore.addProcessedVideo(at: finalURL, toFolder: destinationFolder, customName: processedName, originalVideoId: originalVideoId, volleyballType: selectedVolleyballType)
 
         if isDebugMode, success, let debugger = debugData {
             if let addedVideo = mediaStore.getVideos(in: destinationFolder).first(where: { $0.displayName == processedName }) {

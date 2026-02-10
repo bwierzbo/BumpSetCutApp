@@ -93,6 +93,8 @@ struct RallyPlayerView: View {
                         viewModel.showOverviewSheet = false
                         rallyIndexToShare = ShareableRallyIndex(index: index)
                     },
+                    onSaveAll: { viewModel.saveAllRallies() },
+                    onDeselectAll: { viewModel.deselectAllRallies() },
                     onDismiss: { viewModel.showOverviewSheet = false }
                 )
             }
@@ -175,10 +177,13 @@ struct RallyPlayerView: View {
             RallyPlayerOverlay(
                 currentIndex: viewModel.currentRallyIndex,
                 totalCount: viewModel.totalRallies,
+                savedCount: viewModel.savedRallies.count,
+                removedCount: viewModel.removedRallies.count,
                 isSaved: viewModel.currentRallyIsSaved,
                 isRemoved: viewModel.currentRallyIsRemoved,
                 onDismiss: { dismiss() },
-                onShowTips: { showingGestureTips = true }
+                onShowTips: { showingGestureTips = true },
+                onShowOverview: { viewModel.showOverviewSheet = true }
             )
             .zIndex(200)
 
@@ -320,20 +325,20 @@ struct RallyPlayerView: View {
                     return
                 }
 
-                let actionThreshold: CGFloat = 100
+                let actionThreshold: CGFloat = 150
                 let horizontalOffset = viewModel.dragOffset.width
                 let horizontalVelocity = value.velocity.width
                 let dragWidth = viewModel.dragOffset.width
 
                 // Velocity-based or distance-based trigger
-                let triggeredByVelocity = abs(horizontalVelocity) > 200
+                let triggeredByVelocity = abs(horizontalVelocity) > 300
                 let triggeredByDistance = abs(horizontalOffset) > actionThreshold
 
                 if triggeredByVelocity || triggeredByDistance {
-                    if horizontalOffset < 0 || (triggeredByVelocity && horizontalVelocity < -200) {
+                    if horizontalOffset < 0 || (triggeredByVelocity && horizontalVelocity < -300) {
                         viewModel.performAction(.remove, direction: .left, fromDragOffset: dragWidth)
                         return
-                    } else if horizontalOffset > 0 || (triggeredByVelocity && horizontalVelocity > 200) {
+                    } else if horizontalOffset > 0 || (triggeredByVelocity && horizontalVelocity > 300) {
                         viewModel.performAction(.save, direction: .right, fromDragOffset: dragWidth)
                         return
                     }

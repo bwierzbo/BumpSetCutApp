@@ -14,13 +14,12 @@ struct ProcessVideoView: View {
     @State private var hasAppeared = false
     @Environment(\.dismiss) private var dismiss
 
-    init(videoURL: URL, mediaStore: MediaStore, folderPath: String, onComplete: @escaping () -> Void, onShowPlayer: (() -> Void)? = nil) {
+    init(videoURL: URL, mediaStore: MediaStore, folderPath: String, onComplete: @escaping () -> Void) {
         self._viewModel = State(wrappedValue: ProcessVideoViewModel(
             videoURL: videoURL,
             mediaStore: mediaStore,
             folderPath: folderPath,
-            onComplete: onComplete,
-            onShowPlayer: onShowPlayer
+            onComplete: onComplete
         ))
     }
 
@@ -95,6 +94,11 @@ struct ProcessVideoView: View {
                         dismiss()
                     }
                 )
+            }
+            .fullScreenCover(isPresented: $viewModel.showRallyPlayer) {
+                if let videoMetadata = viewModel.currentVideoMetadata {
+                    RallyPlayerView(videoMetadata: videoMetadata)
+                }
             }
         }
     }
@@ -243,6 +247,29 @@ private extension ProcessVideoView {
                     .font(.system(size: 14))
                     .foregroundColor(.bscTextSecondary)
             }
+
+            // Rally summary stats
+            if viewModel.detectedRallyCount > 0 {
+                HStack(spacing: BSCSpacing.xl) {
+                    VStack(spacing: BSCSpacing.xxs) {
+                        Text("\(viewModel.detectedRallyCount)")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.bscOrange)
+                        Text(viewModel.detectedRallyCount == 1 ? "Rally" : "Rallies")
+                            .font(.system(size: 12))
+                            .foregroundColor(.bscTextSecondary)
+                    }
+                    VStack(spacing: BSCSpacing.xxs) {
+                        Text(viewModel.detectedRallyDurationFormatted)
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.bscTeal)
+                        Text("Total Duration")
+                            .font(.system(size: 12))
+                            .foregroundColor(.bscTextSecondary)
+                    }
+                }
+                .padding(.top, BSCSpacing.xs)
+            }
         }
         .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
@@ -268,6 +295,22 @@ private extension ProcessVideoView {
                 Text("Choose a processing mode below")
                     .font(.system(size: 14))
                     .foregroundColor(.bscTextSecondary)
+            }
+
+            // Volleyball type picker
+            VStack(spacing: BSCSpacing.sm) {
+                Text("Volleyball Type")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.bscTextSecondary)
+                    .textCase(.uppercase)
+
+                Picker("Volleyball Type", selection: $viewModel.selectedVolleyballType) {
+                    ForEach(VolleyballType.allCases, id: \.self) { type in
+                        Label(type.displayName, systemImage: type.icon)
+                            .tag(type)
+                    }
+                }
+                .pickerStyle(.segmented)
             }
         }
         .padding(BSCSpacing.xl)
@@ -320,7 +363,7 @@ private extension ProcessVideoView {
     var actionButtons: some View {
         switch viewModel.processingState {
         case .processing:
-            EmptyView()
+            cancelButton
         case .pendingSave:
             EmptyView()  // No buttons while pending save
         case .complete:
@@ -328,7 +371,7 @@ private extension ProcessVideoView {
         case .hasMetadata:
             viewRalliesButton
         case .alreadyProcessed:
-            EmptyView()
+            alreadyProcessedButtons
         case .ready:
             processingButtons
         }
@@ -354,6 +397,19 @@ private extension ProcessVideoView {
         }
     }
 
+    var cancelButton: some View {
+        BSCButton(title: "Cancel Processing", icon: "xmark", style: .ghost, size: .medium) {
+            viewModel.cancelProcessing()
+            dismiss()
+        }
+    }
+
+    var alreadyProcessedButtons: some View {
+        BSCButton(title: "Back to Library", icon: "chevron.left", style: .secondary, size: .large) {
+            dismiss()
+        }
+    }
+
     var doneButton: some View {
         BSCButton(title: "Done", icon: "checkmark", style: .primary, size: .large) {
             dismiss()
@@ -362,11 +418,7 @@ private extension ProcessVideoView {
 
     var viewRalliesButton: some View {
         BSCButton(title: "View Rallies", icon: "play.fill", style: .primary, size: .large) {
-            dismiss()
-            viewModel.onComplete()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                viewModel.onShowPlayer?()
-            }
+            viewModel.showRallyPlayer = true
         }
     }
 }
@@ -709,7 +761,6 @@ struct ProcessedFolderSelectionSheet: View {
         videoURL: URL(fileURLWithPath: "/test.mp4"),
         mediaStore: MediaStore(),
         folderPath: "",
-        onComplete: {},
-        onShowPlayer: nil
+        onComplete: {}
     )
 }

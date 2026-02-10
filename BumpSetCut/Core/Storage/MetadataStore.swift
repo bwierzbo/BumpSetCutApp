@@ -427,3 +427,31 @@ extension MetadataStore {
         })
     }
 }
+
+// MARK: - Review Selections Persistence
+
+extension MetadataStore {
+
+    private func reviewSelectionsURL(for videoId: UUID) -> URL {
+        metadataDirectory.appendingPathComponent("\(videoId.uuidString)_selections.json")
+    }
+
+    /// Save rally review selections (saved/removed sets) for a video.
+    func saveReviewSelections(_ selections: RallyReviewSelections, for videoId: UUID) throws {
+        let url = reviewSelectionsURL(for: videoId)
+        try createMetadataDirectoryIfNeeded()
+        let data = try jsonEncoder.encode(selections)
+        try data.write(to: url, options: .atomic)
+    }
+
+    /// Load previously saved review selections for a video. Returns empty selections if none saved.
+    func loadReviewSelections(for videoId: UUID) -> RallyReviewSelections {
+        let url = reviewSelectionsURL(for: videoId)
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let selections = try? jsonDecoder.decode(RallyReviewSelections.self, from: data) else {
+            return RallyReviewSelections()
+        }
+        return selections
+    }
+}

@@ -22,12 +22,22 @@ final class VideoProcessor {
 
     // MARK: - Config + deps
     var config = ProcessorConfig()
+    private(set) var volleyballType: VolleyballType?
 
-    // After
-    private let detector = YOLODetector()
+    private var detector = YOLODetector()
     private var gate = BallisticsGate(config: ProcessorConfig())
     private var decider = RallyDecider(config: ProcessorConfig())
     private var segments = SegmentBuilder(config: ProcessorConfig())
+
+    /// Reconfigure the processor for a specific volleyball type.
+    func configure(for type: VolleyballType) {
+        volleyballType = type
+        config = ProcessorConfig.configFor(type)
+        detector = YOLODetector(modelName: type.modelName)
+        gate = BallisticsGate(config: config)
+        decider = RallyDecider(config: config)
+        segments = SegmentBuilder(config: config)
+    }
     private let exporter = VideoExporter()
     private var metadataStore: MetadataStore?
 
@@ -702,6 +712,7 @@ final class VideoProcessor {
             trajectories: trajectoryDataCollection,
             classifications: classificationResults,
             physics: physicsValidationData,
+            volleyballType: volleyballType,
             performance: performanceMetrics
         )
 

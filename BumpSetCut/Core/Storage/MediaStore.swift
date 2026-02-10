@@ -84,7 +84,10 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
     var hasProcessingMetadata: Bool = false
     var metadataCreatedDate: Date?
     var metadataFileSize: Int64?
-    
+
+    // Volleyball type (nil for legacy videos)
+    var volleyballType: VolleyballType?
+
     // Custom decoder to handle backwards compatibility
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -113,6 +116,9 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         hasProcessingMetadata = try container.decodeIfPresent(Bool.self, forKey: .hasProcessingMetadata) ?? false
         metadataCreatedDate = try container.decodeIfPresent(Date.self, forKey: .metadataCreatedDate)
         metadataFileSize = try container.decodeIfPresent(Int64.self, forKey: .metadataFileSize)
+
+        // Volleyball type with default for backwards compatibility
+        volleyballType = try container.decodeIfPresent(VolleyballType.self, forKey: .volleyballType)
     }
     
     // Custom encoder
@@ -143,6 +149,9 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         try container.encode(hasProcessingMetadata, forKey: .hasProcessingMetadata)
         try container.encodeIfPresent(metadataCreatedDate, forKey: .metadataCreatedDate)
         try container.encodeIfPresent(metadataFileSize, forKey: .metadataFileSize)
+
+        // Volleyball type
+        try container.encodeIfPresent(volleyballType, forKey: .volleyballType)
     }
     
     // CodingKeys enum for custom coding
@@ -151,6 +160,7 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         case debugSessionId, debugDataPath, debugCollectionDate, debugDataSize
         case isProcessed, processedDate, originalVideoId, processedVideoIds
         case hasProcessingMetadata, metadataCreatedDate, metadataFileSize
+        case volleyballType
     }
     
     var displayName: String {
@@ -213,8 +223,9 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.hasProcessingMetadata = false
         self.metadataCreatedDate = nil
         self.metadataFileSize = nil
+        self.volleyballType = nil
     }
-    
+
     init(fileName: String, customName: String?, folderPath: String, createdDate: Date, fileSize: Int64, duration: TimeInterval?) {
         self.id = UUID()
         self.fileName = fileName
@@ -234,6 +245,7 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.hasProcessingMetadata = false
         self.metadataCreatedDate = nil
         self.metadataFileSize = nil
+        self.volleyballType = nil
     }
     
     // Debug data management methods
@@ -615,7 +627,7 @@ extension MediaStore {
 
 extension MediaStore {
     /// Mark a video as having processing metadata after rally detection completes
-    func markVideoAsProcessed(videoId: UUID, metadataFileSize: Int64) -> Bool {
+    func markVideoAsProcessed(videoId: UUID, metadataFileSize: Int64, volleyballType: VolleyballType? = nil) -> Bool {
         print("📹 MediaStore.markVideoAsProcessed called:")
         print("   - VideoId: \(videoId)")
         print("   - MetadataFileSize: \(metadataFileSize) bytes")
@@ -632,6 +644,9 @@ extension MediaStore {
 
         // Update metadata tracking
         video.updateMetadataTracking(fileSize: metadataFileSize)
+        if let volleyballType {
+            video.volleyballType = volleyballType
+        }
         manifest.videos[videoKey] = video
 
         saveManifest()
@@ -639,7 +654,7 @@ extension MediaStore {
         return true
     }
 
-    func addProcessedVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, originalVideoId: UUID) -> Bool {
+    func addProcessedVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, originalVideoId: UUID, volleyballType: VolleyballType? = nil) -> Bool {
         let videoKey = url.lastPathComponent
         print("📹 MediaStore.addProcessedVideo called:")
         print("   - URL: \(url)")
@@ -670,6 +685,7 @@ extension MediaStore {
         videoMetadata.isProcessed = true
         videoMetadata.processedDate = Date()
         videoMetadata.originalVideoId = originalVideoId
+        videoMetadata.volleyballType = volleyballType
 
         manifest.videos[videoKey] = videoMetadata
         print("✅ Processed video metadata added to manifest with key: '\(videoKey)'")

@@ -83,7 +83,9 @@ final class VideoExporter {
         }
         let aTrack = try? await asset.loadTracks(withMediaType: .audio).first
 
-        let compV = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        guard let compV = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw ProcessingError.exportFailed
+        }
         let compA = aTrack != nil ? comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
 
         try compV.insertTimeRange(timeRange, of: vTrack, at: .zero)
@@ -131,7 +133,9 @@ final class VideoExporter {
         }
         let aTrack = try? await asset.loadTracks(withMediaType: .audio).first
 
-        let compV = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        guard let compV = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw ProcessingError.exportFailed
+        }
         let compA = aTrack != nil ? comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
 
         var cursor: CMTime = .zero
@@ -185,8 +189,10 @@ final class VideoExporter {
 
     // MARK: - Photo Library Export
 
-    /// Export a single rally segment to the photo library
-    func exportRallyToPhotoLibrary(asset: AVAsset, rally: RallySegment, index: Int) async throws {
+    /// Export a single rally segment to the photo library, returning the temp file URL for sharing.
+    /// Caller is responsible for cleaning up the returned URL when done.
+    @discardableResult
+    func exportRallyToPhotoLibrary(asset: AVAsset, rally: RallySegment, index: Int) async throws -> URL {
         // Create time range from rally segment
         let startTime = CMTime(seconds: rally.startTime, preferredTimescale: 600)
         let endTime = CMTime(seconds: rally.endTime, preferredTimescale: 600)
@@ -198,12 +204,13 @@ final class VideoExporter {
         // Save to photo library
         try await saveVideoToPhotoLibrary(url: exportedURL)
 
-        // Cleanup temporary file
-        try? FileManager.default.removeItem(at: exportedURL)
+        return exportedURL
     }
 
-    /// Export multiple rally segments stitched together to the photo library
-    func exportStitchedRalliesToPhotoLibrary(asset: AVAsset, rallies: [RallySegment]) async throws {
+    /// Export multiple rally segments stitched together to the photo library, returning the temp file URL for sharing.
+    /// Caller is responsible for cleaning up the returned URL when done.
+    @discardableResult
+    func exportStitchedRalliesToPhotoLibrary(asset: AVAsset, rallies: [RallySegment], progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("stitched_rallies_\(UUID().uuidString).mp4")
 
@@ -211,14 +218,14 @@ final class VideoExporter {
         let exportedURL = try await createStitchedVideo(
             asset: asset,
             rallies: rallies,
-            outputURL: tempURL
+            outputURL: tempURL,
+            progressHandler: progressHandler
         )
 
         // Save to photo library
         try await saveVideoToPhotoLibrary(url: exportedURL)
 
-        // Cleanup temporary file
-        try? FileManager.default.removeItem(at: exportedURL)
+        return exportedURL
     }
 
     // MARK: - Private Helpers
@@ -229,16 +236,18 @@ final class VideoExporter {
         }
     }
 
-    private func createStitchedVideo(asset: AVAsset, rallies: [RallySegment], outputURL: URL) async throws -> URL {
+    private func createStitchedVideo(asset: AVAsset, rallies: [RallySegment], outputURL: URL, progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
         let composition = AVMutableComposition()
 
-        guard let vTrack = try await asset.loadTracks(withMediaType: .video).first,
-              let aTrack = try await asset.loadTracks(withMediaType: .audio).first else {
+        guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
             throw ProcessingError.exportFailed
         }
+        let aTrack = try? await asset.loadTracks(withMediaType: .audio).first
 
-        let compV = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
-        let compA = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        guard let compV = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw ProcessingError.exportFailed
+        }
+        let compA = aTrack != nil ? composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
 
         var currentTime = CMTime.zero
 
@@ -250,15 +259,17 @@ final class VideoExporter {
 
             let timeRange = CMTimeRange(start: startTime, duration: duration)
 
-            try compV?.insertTimeRange(timeRange, of: vTrack, at: currentTime)
-            try compA?.insertTimeRange(timeRange, of: aTrack, at: currentTime)
+            try compV.insertTimeRange(timeRange, of: vTrack, at: currentTime)
+            if let srcA = aTrack, let dstA = compA {
+                try dstA.insertTimeRange(timeRange, of: srcA, at: currentTime)
+            }
 
             currentTime = CMTimeAdd(currentTime, duration)
         }
 
         // Keep orientation
         if let pref = try? await vTrack.load(.preferredTransform) {
-            compV?.preferredTransform = pref
+            compV.preferredTransform = pref
         }
 
         guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
@@ -266,7 +277,16 @@ final class VideoExporter {
         }
 
         if #available(iOS 18.0, *) {
+            // Poll progress on a background task while awaiting export
+            let pollTask = Task.detached { [weak exporter] in
+                while let exp = exporter, exp.status == .exporting || exp.status == .waiting {
+                    progressHandler?(Double(exp.progress))
+                    try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                }
+            }
             try await exporter.export(to: outputURL, as: .mp4)
+            pollTask.cancel()
+            progressHandler?(1.0)
             return outputURL
         } else {
             exporter.outputURL = outputURL
@@ -275,11 +295,13 @@ final class VideoExporter {
             exporter.exportAsynchronously(completionHandler: {})
 
             while exporter.status == .exporting {
-                try await Task.sleep(nanoseconds: 50_000_000)
+                progressHandler?(Double(exporter.progress))
+                try await Task.sleep(nanoseconds: 100_000_000) // 100ms
             }
 
             switch exporter.status {
             case .completed:
+                progressHandler?(1.0)
                 return outputURL
             case .failed:
                 throw exporter.error ?? ProcessingError.exportFailed

@@ -45,6 +45,11 @@ final class RallyPlayerViewModel {
 
     private var activeTasks: [Task<Void, Never>] = []
 
+    /// Remove completed or cancelled tasks from activeTasks to prevent unbounded growth.
+    private func pruneCompletedTasks() {
+        activeTasks.removeAll { $0.isCancelled }
+    }
+
     // MARK: - Navigation Forwarding
 
     var currentRallyIndex: Int { navigation.currentRallyIndex }
@@ -128,6 +133,9 @@ final class RallyPlayerViewModel {
 
     func dismissActionFeedback() { actions.dismissFeedback() }
 
+    func saveAllRallies() { actions.saveAll(totalCount: rallyVideoURLs.count) }
+    func deselectAllRallies() { actions.deselectAll() }
+
     // MARK: - Trim Forwarding
 
     var isTrimmingMode: Bool { trim.isTrimmingMode }
@@ -160,6 +168,7 @@ final class RallyPlayerViewModel {
             processingMetadata = metadata
 
             trim.loadSavedAdjustments(videoId: videoMetadata.id, metadataStore: metadataStore)
+            actions.loadSavedSelections(videoId: videoMetadata.id, metadataStore: metadataStore)
 
             let asset = AVURLAsset(url: videoMetadata.originalURL)
             actualVideoDuration = try await CMTimeGetSeconds(asset.load(.duration))
@@ -304,8 +313,13 @@ final class RallyPlayerViewModel {
         seekToCurrentRallyStart()
         setupRallyLooping()
 
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000)  // 0.1s
+        let navTask = Task { @MainActor in
+            // Wait for the new player to be buffered before playing (replaces fixed 100ms sleep)
+            let ready = await playerCache.waitForPlayerReady(for: url, timeout: 2.0)
+            if !ready {
+                // Fallback: brief delay to let the seek settle
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
             playerCache.play()
 
             await preloadAdjacent()
@@ -317,6 +331,8 @@ final class RallyPlayerViewModel {
             try? await Task.sleep(nanoseconds: 16_000_000)  // ~1 frame
             gesture.swipeOffsetY = 0
         }
+        activeTasks.append(navTask)
+        pruneCompletedTasks()
     }
 
     // MARK: - Actions
@@ -364,6 +380,12 @@ final class RallyPlayerViewModel {
                 playerCache.setCurrentPlayer(for: url)
                 seekToCurrentRallyStart()
                 setupRallyLooping()
+
+                // Wait for buffer readiness before playing (eliminates stutter)
+                let ready = await playerCache.waitForPlayerReady(for: url, timeout: 2.0)
+                if !ready {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
                 playerCache.play()
                 await preloadAdjacent()
             } else {
@@ -374,6 +396,7 @@ final class RallyPlayerViewModel {
             actions.setPerformingAction(false)
         }
         activeTasks.append(actionTask)
+        pruneCompletedTasks()
     }
 
     func undoLastAction() {
@@ -405,6 +428,7 @@ final class RallyPlayerViewModel {
             actions.setPerformingAction(false)
         }
         activeTasks.append(dismissTask)
+        pruneCompletedTasks()
     }
 
     // MARK: - Trim Mode

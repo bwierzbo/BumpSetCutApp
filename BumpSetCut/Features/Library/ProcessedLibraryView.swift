@@ -195,6 +195,21 @@ struct ProcessedVideoCard: View {
                             .clipShape(Capsule())
                         }
 
+                        // Volleyball type badge
+                        if let vbType = video.volleyballType {
+                            HStack(spacing: 4) {
+                                Image(systemName: vbType.icon)
+                                    .font(.system(size: 10))
+                                Text(vbType.displayName)
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundColor(vbType == .indoor ? .bscBlue : .bscOrange)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background((vbType == .indoor ? Color.bscBlue : Color.bscOrange).opacity(0.15))
+                            .clipShape(Capsule())
+                        }
+
                         // Date
                         Text(formatDate(video.createdDate))
                             .font(.system(size: 12))

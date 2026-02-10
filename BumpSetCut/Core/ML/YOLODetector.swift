@@ -24,6 +24,8 @@ final class YOLODetector {
     private let staticCooldownSec: Double = 10.0    // suppress that cell for this long
     private let grid: Int = 96                      // quantization grid for static map
 
+    private let modelName: String
+
     private struct StaticCell {
         var lastPoint: CGPoint
         var lastTimeSec: Double
@@ -32,16 +34,22 @@ final class YOLODetector {
     }
     private var staticCells: [Int: StaticCell] = [:]
 
-    init() {
+    init(modelName: String = "bestv2") {
+        self.modelName = modelName
         loadModel()
     }
-    
+
     private func loadModel() {
         // Prefer mlpackage; fall back to mlmodelc if present
-        let candidates: [(String, String)] = [
-            ("bestv2", "mlpackage"),
-            ("bestv2", "mlmodelc")
+        // Try the requested model first, then fall back to bestv2
+        var candidates: [(String, String)] = [
+            (modelName, "mlpackage"),
+            (modelName, "mlmodelc")
         ]
+        if modelName != "bestv2" {
+            candidates.append(("bestv2", "mlpackage"))
+            candidates.append(("bestv2", "mlmodelc"))
+        }
         for (name, ext) in candidates {
             if let url = Bundle.main.url(forResource: name, withExtension: ext) {
                 do {
@@ -58,7 +66,7 @@ final class YOLODetector {
                 }
             }
         }
-        print("❌ No CoreML model found in bundle (expected bestv2.mlpackage or bestv2.mlmodelc)")
+        print("❌ No CoreML model found in bundle (tried \(modelName), fallback bestv2)")
         print("ℹ️  AI video processing will be disabled. To enable:")
         print("   1. Add bestv2.mlpackage or bestv2.mlmodelc to the Xcode project bundle")
         print("   2. Ensure the model is included in the target and bundle resources") 

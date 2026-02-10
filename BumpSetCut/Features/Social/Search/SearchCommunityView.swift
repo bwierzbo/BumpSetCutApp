@@ -11,6 +11,7 @@ struct SearchCommunityView: View {
     @State private var viewModel = SearchCommunityViewModel()
     @State private var selectedHighlight: Highlight?
     @State private var selectedHighlightForComments: Highlight?
+    @Environment(AuthenticationService.self) private var authService
 
     private let gridColumns = Array(
         repeating: GridItem(.flexible(), spacing: BSCSpacing.xs),
@@ -165,12 +166,32 @@ struct SearchCommunityView: View {
 
             Spacer()
 
+            if authService.isAuthenticated, authService.currentUser?.id != user.id {
+                followButton(for: user)
+            }
+
             Image(systemName: "chevron.right")
                 .font(.system(size: 12))
                 .foregroundColor(.bscTextTertiary)
         }
         .padding(.horizontal, BSCSpacing.lg)
         .padding(.vertical, BSCSpacing.md)
+    }
+
+    private func followButton(for user: UserProfile) -> some View {
+        let isFollowing = viewModel.isFollowing(user.id)
+        return Button {
+            Task { await viewModel.toggleFollow(for: user.id) }
+        } label: {
+            Text(isFollowing ? "Following" : "Follow")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(isFollowing ? .bscTextPrimary : .white)
+                .padding(.horizontal, BSCSpacing.md)
+                .padding(.vertical, 6)
+                .background(isFollowing ? Color.bscSurfaceGlass : Color.bscOrange)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Posts

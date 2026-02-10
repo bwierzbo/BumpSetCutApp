@@ -7,6 +7,20 @@ struct RallyTrimAdjustment: Codable {
     var after: Double   // seconds to add after rally (negative = trim into rally)
 }
 
+// MARK: - Review Selections
+
+struct RallyReviewSelections: Codable {
+    var saved: Set<Int>
+    var removed: Set<Int>
+
+    init(saved: Set<Int> = [], removed: Set<Int> = []) {
+        self.saved = saved
+        self.removed = removed
+    }
+
+    var isEmpty: Bool { saved.isEmpty && removed.isEmpty }
+}
+
 // MARK: - Loading State
 
 enum RallyPlayerLoadingState: Equatable {

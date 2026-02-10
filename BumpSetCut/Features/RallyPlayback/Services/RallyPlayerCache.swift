@@ -156,32 +156,60 @@ final class RallyPlayerCache: ObservableObject {
         return item.status == .readyToPlay
     }
 
-    /// Wait for player to be ready with aggressive buffering check (with timeout)
+    /// Wait for player to be ready using KVO observation (no CPU-burning poll loop).
     func waitForPlayerReady(for url: URL, timeout: TimeInterval = 2.0) async -> Bool {
         guard let player = players[url],
               let item = player.currentItem else { return false }
 
-        // Wait for status and buffer
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            // Check status is ready
-            guard item.status == .readyToPlay else {
-                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-                continue
-            }
-
-            // Check we have buffered data
-            guard item.isPlaybackLikelyToKeepUp else {
-                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-                continue
-            }
-
-            // Both conditions met - ready!
+        // Fast path: already ready
+        if item.status == .readyToPlay && item.isPlaybackLikelyToKeepUp {
             return true
         }
 
-        // Timeout - return current state
-        return item.status == .readyToPlay && item.isPlaybackLikelyToKeepUp
+        // Use KVO to wait for readiness instead of polling
+        return await withCheckedContinuation { continuation in
+            var statusObserver: NSKeyValueObservation?
+            var bufferObserver: NSKeyValueObservation?
+            var timeoutTask: DispatchWorkItem?
+            var hasResumed = false
+
+            let resumeOnce: (Bool) -> Void = { result in
+                guard !hasResumed else { return }
+                hasResumed = true
+                timeoutTask?.cancel()
+                statusObserver?.invalidate()
+                bufferObserver?.invalidate()
+                continuation.resume(returning: result)
+            }
+
+            let checkReady: () -> Void = {
+                if item.status == .readyToPlay && item.isPlaybackLikelyToKeepUp {
+                    resumeOnce(true)
+                } else if item.status == .failed {
+                    resumeOnce(false)
+                }
+            }
+
+            statusObserver = item.observe(\.status, options: [.new]) { _, _ in
+                Task { @MainActor in checkReady() }
+            }
+
+            bufferObserver = item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { _, _ in
+                Task { @MainActor in checkReady() }
+            }
+
+            // Timeout fallback
+            let work = DispatchWorkItem {
+                Task { @MainActor in
+                    resumeOnce(item.status == .readyToPlay && item.isPlaybackLikelyToKeepUp)
+                }
+            }
+            timeoutTask = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: work)
+
+            // Check once more in case state changed between guard and observer setup
+            checkReady()
+        }
     }
 
     // MARK: - Audio Management

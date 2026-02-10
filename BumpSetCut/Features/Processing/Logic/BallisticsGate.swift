@@ -67,10 +67,11 @@ final class BallisticsGate {
                                             hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
 
         let allSamples = track.positions
-        guard allSamples.count >= config.parabolaMinPoints else { return insufficient }
+        guard allSamples.count >= config.parabolaMinPoints,
+              let lastSample = allSamples.last else { return insufficient }
 
         let windowSec = max(0.1, config.projectileWindowSec)
-        let endT = allSamples.last!.1
+        let endT = lastSample.1
         let cutoff = CMTimeSubtract(endT, CMTimeMakeWithSeconds(windowSec, preferredTimescale: 600))
         let samples = allSamples.filter { CMTimeCompare($0.1, cutoff) >= 0 }
         guard samples.count >= config.parabolaMinPoints else { return insufficient }
@@ -80,8 +81,8 @@ final class BallisticsGate {
         let parabolicResult = parabolicValidator.validateTrajectory(samples)
 
         var jumpsValid = true
-        if samples.count >= 2 {
-            let lastPt = samples.last!.0
+        if samples.count >= 2,
+           let lastPt = samples.last?.0 {
             let prevPt = samples[samples.count - 2].0
             let jump = hypot(lastPt.x - prevPt.x, lastPt.y - prevPt.y)
             if jump > config.maxJumpPerFrame { jumpsValid = false }
@@ -110,15 +111,17 @@ final class BallisticsGate {
                                             hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
 
         let allSamples = track.positions
-        guard allSamples.count >= config.parabolaMinPoints else { return insufficient }
+        guard allSamples.count >= config.parabolaMinPoints,
+              let lastSample = allSamples.last else { return insufficient }
 
         let windowSec = max(0.1, config.projectileWindowSec)
-        let endT = allSamples.last!.1
+        let endT = lastSample.1
         let cutoff = CMTimeSubtract(endT, CMTimeMakeWithSeconds(windowSec, preferredTimescale: 600))
         let samples = allSamples.filter { CMTimeCompare($0.1, cutoff) >= 0 }
-        guard samples.count >= config.parabolaMinPoints else { return insufficient }
+        guard samples.count >= config.parabolaMinPoints,
+              let firstSample = samples.first else { return insufficient }
 
-        let t0 = samples.first!.1
+        let t0 = firstSample.1
         var ts: [Double] = []
         var ys: [CGFloat] = []
         ts.reserveCapacity(samples.count)
@@ -134,8 +137,8 @@ final class BallisticsGate {
 
         // 1) Reject large per-frame spatial jumps
         var jumpsValid = true
-        if samples.count >= 2 {
-            let lastPt = samples.last!.0
+        if samples.count >= 2,
+           let lastPt = samples.last?.0 {
             let prevPt = samples[samples.count - 2].0
             let jump = hypot(lastPt.x - prevPt.x, lastPt.y - prevPt.y)
             if jump > config.maxJumpPerFrame { jumpsValid = false }
@@ -147,7 +150,7 @@ final class BallisticsGate {
 
         // 2) Predict last Y from prior trajectory and gate by ROI
         if samples.count >= 5 {
-            let t0p = samples.first!.1
+            let t0p = firstSample.1
             var tsPrev: [Double] = []
             var ysPrev: [CGFloat] = []
             tsPrev.reserveCapacity(samples.count - 1)

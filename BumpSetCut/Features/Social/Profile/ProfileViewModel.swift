@@ -42,7 +42,17 @@ final class ProfileViewModel {
             profile = UserProfile(id: userId, displayName: "Volleyball Player", username: "player_\(userId.prefix(4))")
         }
 
+        await loadFollowStatus()
         isLoading = false
+    }
+
+    private func loadFollowStatus() async {
+        do {
+            let rows: [FollowRow] = try await apiClient.request(.checkFollowStatus(userId: userId))
+            isFollowing = !rows.isEmpty
+        } catch {
+            // Auth failure or network issue — don't break profile loading
+        }
     }
 
     func deleteHighlight(_ highlight: Highlight) async -> Bool {

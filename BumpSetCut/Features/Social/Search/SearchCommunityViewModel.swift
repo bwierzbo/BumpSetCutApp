@@ -25,6 +25,7 @@ final class SearchCommunityViewModel {
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
     private(set) var hasMorePages = true
+    private(set) var followedUserIds: Set<String> = []
 
     private var currentPage = 0
     private let pageSize = 20
@@ -78,6 +79,7 @@ final class SearchCommunityViewModel {
                 )
                 users = results
                 hasMorePages = results.count >= pageSize
+                await checkFollowStatus(for: results.map(\.id))
             case .posts:
                 let results: [Highlight] = try await apiClient.request(
                     .searchHighlights(query: query, page: 0)
@@ -111,6 +113,7 @@ final class SearchCommunityViewModel {
                 )
                 users.append(contentsOf: results)
                 hasMorePages = results.count >= pageSize
+                await checkFollowStatus(for: results.map(\.id))
             case .posts:
                 let results: [Highlight] = try await apiClient.request(
                     .searchHighlights(query: query, page: currentPage)
@@ -152,5 +155,51 @@ final class SearchCommunityViewModel {
         searchText = tag
         searchScope = .posts
         searchTextChanged()
+    }
+
+    // MARK: - Follow State
+
+    func isFollowing(_ userId: String) -> Bool {
+        followedUserIds.contains(userId)
+    }
+
+    func checkFollowStatus(for userIds: [String]) async {
+        guard !userIds.isEmpty else { return }
+        do {
+            let rows: [FollowRow] = try await apiClient.request(
+                .checkFollowStatusBatch(userIds: userIds)
+            )
+            for row in rows {
+                followedUserIds.insert(row.followingId)
+            }
+        } catch {
+            // Auth failure — no follow state available
+        }
+    }
+
+    func toggleFollow(for userId: String) async {
+        let wasFollowing = followedUserIds.contains(userId)
+
+        // Optimistic update
+        if wasFollowing {
+            followedUserIds.remove(userId)
+        } else {
+            followedUserIds.insert(userId)
+        }
+
+        do {
+            if wasFollowing {
+                let _: EmptyResponse = try await apiClient.request(.unfollow(userId: userId))
+            } else {
+                let _: EmptyResponse = try await apiClient.request(.follow(userId: userId))
+            }
+        } catch {
+            // Revert
+            if wasFollowing {
+                followedUserIds.insert(userId)
+            } else {
+                followedUserIds.remove(userId)
+            }
+        }
     }
 }

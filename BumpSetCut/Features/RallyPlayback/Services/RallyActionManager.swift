@@ -4,7 +4,7 @@ import Observation
 // MARK: - Rally Action Manager
 
 /// Manages rally save/remove actions, undo history, and action feedback state.
-/// Pure state manager with no AVFoundation or SwiftUI animation dependencies.
+/// Persists selections to disk via MetadataStore so they survive dismiss/reopen.
 @MainActor
 @Observable
 final class RallyActionManager {
@@ -13,6 +13,11 @@ final class RallyActionManager {
     private(set) var savedRallies: Set<Int> = []
     private(set) var removedRallies: Set<Int> = []
     private(set) var actionHistory: [RallyActionResult] = []
+
+    // MARK: - Persistence
+
+    private var videoId: UUID?
+    private var metadataStore: MetadataStore?
 
     // MARK: - Feedback State
 
@@ -33,6 +38,22 @@ final class RallyActionManager {
         removedRallies.contains(index)
     }
 
+    // MARK: - Persistence Lifecycle
+
+    func loadSavedSelections(videoId: UUID, metadataStore: MetadataStore) {
+        self.videoId = videoId
+        self.metadataStore = metadataStore
+        let selections = metadataStore.loadReviewSelections(for: videoId)
+        savedRallies = selections.saved
+        removedRallies = selections.removed
+    }
+
+    private func persistSelections() {
+        guard let videoId, let metadataStore else { return }
+        let selections = RallyReviewSelections(saved: savedRallies, removed: removedRallies)
+        try? metadataStore.saveReviewSelections(selections, for: videoId)
+    }
+
     // MARK: - Action Registration
 
     /// Records a save/remove action and returns the appropriate feedback.
@@ -47,6 +68,7 @@ final class RallyActionManager {
         }
 
         actionHistory.append(RallyActionResult(action: action, rallyIndex: rallyIndex, direction: direction))
+        persistSelections()
 
         let feedback: RallyActionFeedback
         switch action {
@@ -73,9 +95,28 @@ final class RallyActionManager {
             removedRallies.remove(action.rallyIndex)
         }
 
+        persistSelections()
+
         actionFeedback = RallyActionFeedback(type: .undo, message: "Action Undone")
         showActionFeedback = true
         return action
+    }
+
+    // MARK: - Bulk Actions
+
+    /// Saves all rallies (marks every index as saved, clears removed).
+    func saveAll(totalCount: Int) {
+        savedRallies = Set(0..<totalCount)
+        removedRallies = []
+        persistSelections()
+    }
+
+    /// Clears all saved and removed selections.
+    func deselectAll() {
+        savedRallies = []
+        removedRallies = []
+        actionHistory = []
+        persistSelections()
     }
 
     // MARK: - Feedback Control

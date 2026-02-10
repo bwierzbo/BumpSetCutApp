@@ -11,6 +11,7 @@ struct HomeView: View {
     @State private var viewModel: HomeViewModel?
     @State private var showingSettings = false
     @EnvironmentObject private var appSettings: AppSettings
+    @Environment(AuthenticationService.self) private var authService
 
     @State private var hasAppeared = false
 
@@ -118,6 +119,13 @@ struct HomeView: View {
             if !appSettings.hasCompletedOnboarding {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     showingOnboarding = true
+                }
+            }
+
+            // Load community stats if authenticated
+            if authService.isAuthenticated, let vm = viewModel {
+                Task {
+                    await vm.loadCommunityStats(for: authService.currentUser)
                 }
             }
         }
@@ -611,43 +619,80 @@ struct UnprocessedVideoPickerSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var unprocessedVideos: [VideoMetadata] = []
+    @State private var showingImportPicker = false
+    @State private var selectedImportItems: [PhotosPickerItem] = []
+    @State private var isImporting = false
+    @State private var importedVideo: ImportedVideo?
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.bscBackground.ignoresSafeArea()
 
-                if unprocessedVideos.isEmpty {
+                ScrollView {
                     VStack(spacing: BSCSpacing.lg) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 48))
-                            .foregroundColor(.bscTeal)
+                        // Import & Process button — always visible at top
+                        importAndProcessButton
 
-                        Text("All Caught Up!")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.bscTextPrimary)
+                        if unprocessedVideos.isEmpty && !isImporting {
+                            VStack(spacing: BSCSpacing.lg) {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.system(size: 48))
+                                    .foregroundColor(.bscTeal)
 
-                        Text("All your videos have been processed.")
-                            .font(.system(size: 14))
-                            .foregroundColor(.bscTextSecondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(BSCSpacing.xl)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: BSCSpacing.sm) {
-                            ForEach(unprocessedVideos, id: \.id) { video in
-                                NavigationLink(destination: processVideoDestination(for: video)) {
-                                    videoRow(video)
+                                Text("All Caught Up!")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(.bscTextPrimary)
+
+                                Text("No unprocessed videos. Import a new one above.")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.bscTextSecondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .padding(.top, BSCSpacing.xl)
+                        } else if !unprocessedVideos.isEmpty {
+                            // Divider between import and existing videos
+                            HStack {
+                                Rectangle()
+                                    .fill(Color.bscSurfaceBorder)
+                                    .frame(height: 1)
+                                Text("or select an existing video")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.bscTextTertiary)
+                                Rectangle()
+                                    .fill(Color.bscSurfaceBorder)
+                                    .frame(height: 1)
+                            }
+
+                            LazyVStack(spacing: BSCSpacing.sm) {
+                                ForEach(unprocessedVideos, id: \.id) { video in
+                                    NavigationLink(destination: processVideoDestination(for: video)) {
+                                        videoRow(video)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
-                        .padding(BSCSpacing.lg)
                     }
+                    .padding(BSCSpacing.lg)
+                }
+
+                if isImporting {
+                    Color.black.opacity(0.4).ignoresSafeArea()
+                    VStack(spacing: BSCSpacing.md) {
+                        ProgressView()
+                            .tint(.bscOrange)
+                            .scaleEffect(1.2)
+                        Text("Importing video...")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.bscTextPrimary)
+                    }
+                    .padding(BSCSpacing.xl)
+                    .background(Color.bscBackgroundElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
                 }
             }
-            .navigationTitle("Select Video to Process")
+            .navigationTitle("Process Video")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -657,9 +702,90 @@ struct UnprocessedVideoPickerSheet: View {
                     .foregroundColor(.bscTextSecondary)
                 }
             }
+            .photosPicker(
+                isPresented: $showingImportPicker,
+                selection: $selectedImportItems,
+                maxSelectionCount: 1,
+                matching: .videos
+            )
+            .onChange(of: selectedImportItems) { _, items in
+                guard let item = items.first else { return }
+                selectedImportItems.removeAll()
+                Task { await importAndNavigate(item: item) }
+            }
+            .navigationDestination(item: $importedVideo) { video in
+                ProcessVideoView(
+                    videoURL: video.url,
+                    mediaStore: mediaStore,
+                    folderPath: LibraryType.saved.rootPath,
+                    onComplete: { dismiss() }
+                )
+            }
             .onAppear {
                 loadUnprocessedVideos()
             }
+        }
+    }
+
+    // MARK: - Import & Process
+
+    private var importAndProcessButton: some View {
+        Button {
+            showingImportPicker = true
+        } label: {
+            HStack(spacing: BSCSpacing.sm) {
+                Image(systemName: "square.and.arrow.down.fill")
+                    .font(.system(size: 20, weight: .semibold))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Import New Video")
+                        .font(.system(size: 16, weight: .bold))
+                    Text("Add from Photos and process immediately")
+                        .font(.system(size: 12))
+                        .opacity(0.8)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundColor(.bscTextInverse)
+            .padding(.vertical, BSCSpacing.md)
+            .padding(.horizontal, BSCSpacing.lg)
+            .background(LinearGradient.bscPrimaryGradient)
+            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
+            .bscShadow(BSCShadow.glowOrange)
+        }
+        .buttonStyle(MainCTAButtonStyle())
+        .disabled(isImporting)
+    }
+
+    private func importAndNavigate(item: PhotosPickerItem) async {
+        await MainActor.run { isImporting = true }
+
+        do {
+            guard let videoData = try await item.loadTransferable(type: VideoTransferable.self) else {
+                await MainActor.run { isImporting = false }
+                return
+            }
+
+            // Save to Saved Games root
+            let success = mediaStore.addVideo(at: videoData.url, toFolder: LibraryType.saved.rootPath)
+
+            await MainActor.run {
+                isImporting = false
+                if success {
+                    // Find the just-added video and navigate to process it
+                    if let added = mediaStore.getAllVideos(in: .saved)
+                        .filter({ $0.canBeProcessed })
+                        .last {
+                        importedVideo = ImportedVideo(url: mediaStore.getVideoURL(for: added))
+                    }
+                }
+            }
+        } catch {
+            await MainActor.run { isImporting = false }
         }
     }
 
@@ -698,7 +824,7 @@ struct UnprocessedVideoPickerSheet: View {
                             .font(.system(size: 12))
                             .foregroundColor(.bscTextSecondary)
 
-                        Text("•")
+                        Text("\u{2022}")
                             .foregroundColor(.bscTextTertiary)
                     }
 
@@ -740,6 +866,12 @@ struct UnprocessedVideoPickerSheet: View {
         // Get unprocessed videos from Saved Games library
         unprocessedVideos = mediaStore.getAllVideos(in: .saved).filter { $0.canBeProcessed }
     }
+}
+
+// MARK: - Imported Video (Identifiable wrapper for navigation)
+struct ImportedVideo: Identifiable, Hashable {
+    let id = UUID()
+    let url: URL
 }
 
 // MARK: - Preview

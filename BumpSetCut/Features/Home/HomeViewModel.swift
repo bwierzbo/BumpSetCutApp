@@ -9,10 +9,15 @@ final class HomeViewModel {
     private let mediaStore: MediaStore
     private let metadataStore: MetadataStore
 
-    var savedVideos: Int = 0
     var totalRallies: Int = 0
     var processedVideos: Int = 0
     var isLoading: Bool = false
+
+    // Community stats (populated when authenticated)
+    var followersCount: Int = 0
+    var followingCount: Int = 0
+    var highlightsShared: Int = 0
+    var hasCommunityStats: Bool = false
 
     // MARK: - Initialization
     init(mediaStore: MediaStore, metadataStore: MetadataStore) {
@@ -26,12 +31,32 @@ final class HomeViewModel {
         loadStats()
     }
 
+    func loadCommunityStats(for user: UserProfile?, apiClient: (any APIClient)? = nil) async {
+        guard let user else {
+            hasCommunityStats = false
+            return
+        }
+
+        let client = apiClient ?? SupabaseAPIClient.shared
+
+        do {
+            let profile: UserProfile = try await client.request(.getProfile(userId: user.id))
+            followersCount = profile.followersCount
+            followingCount = profile.followingCount
+            highlightsShared = profile.highlightsCount
+            hasCommunityStats = true
+        } catch {
+            // Use cached user data if API fails
+            followersCount = user.followersCount
+            followingCount = user.followingCount
+            highlightsShared = user.highlightsCount
+            hasCommunityStats = true
+        }
+    }
+
     // MARK: - Private Methods
     private func loadStats() {
         isLoading = true
-
-        // Count videos in Saved Games library
-        savedVideos = mediaStore.getAllVideos(in: .saved).count
 
         // Count videos in Processed Games library
         processedVideos = mediaStore.getAllVideos(in: .processed).count
@@ -68,25 +93,42 @@ struct StatItem: Identifiable {
 
 extension HomeViewModel {
     var stats: [StatItem] {
-        [
-            StatItem(
-                icon: "video.fill",
-                value: "\(savedVideos)",
-                label: "Saved",
-                color: .bscBlue
-            ),
-            StatItem(
-                icon: "figure.volleyball",
-                value: "\(totalRallies)",
-                label: "Rallies",
-                color: .bscOrange
-            ),
-            StatItem(
-                icon: "checkmark.seal.fill",
-                value: "\(processedVideos)",
-                label: "Processed",
-                color: .bscTeal
-            )
-        ]
+        if hasCommunityStats {
+            return [
+                StatItem(
+                    icon: "person.2.fill",
+                    value: "\(followersCount)",
+                    label: "Followers",
+                    color: .bscOrange
+                ),
+                StatItem(
+                    icon: "heart.fill",
+                    value: "\(followingCount)",
+                    label: "Following",
+                    color: .bscBlue
+                ),
+                StatItem(
+                    icon: "play.rectangle.fill",
+                    value: "\(highlightsShared)",
+                    label: "Shared",
+                    color: .bscTeal
+                )
+            ]
+        } else {
+            return [
+                StatItem(
+                    icon: "figure.volleyball",
+                    value: "\(totalRallies)",
+                    label: "Rallies",
+                    color: .bscOrange
+                ),
+                StatItem(
+                    icon: "checkmark.seal.fill",
+                    value: "\(processedVideos)",
+                    label: "Processed",
+                    color: .bscTeal
+                )
+            ]
+        }
     }
 }

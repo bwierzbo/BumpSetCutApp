@@ -67,8 +67,7 @@ struct BSCVideoCard: View {
                 videoURL: video.originalURL,
                 mediaStore: mediaStore,
                 folderPath: LibraryType.processed.rootPath,  // Always save to ProcessedGames
-                onComplete: onRefresh,
-                onShowPlayer: { showingRallyViewer = true }  // After processing: Always show rally viewer
+                onComplete: onRefresh
             )
         }
         .sheet(isPresented: $showingRenameDialog) {

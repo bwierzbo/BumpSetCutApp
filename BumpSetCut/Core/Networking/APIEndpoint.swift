@@ -43,6 +43,8 @@ enum APIEndpoint {
     case unfollow(userId: String)
     case getFollowers(userId: String, page: Int)
     case getFollowing(userId: String, page: Int)
+    case checkFollowStatus(userId: String)
+    case checkFollowStatusBatch(userIds: [String])
 
     // Upload
     case createUploadURL
@@ -72,6 +74,8 @@ enum APIEndpoint {
         case .unfollow(let userId): return "/profiles/\(userId)/follow"
         case .getFollowers(let userId, _): return "/profiles/\(userId)/followers"
         case .getFollowing(let userId, _): return "/profiles/\(userId)/following"
+        case .checkFollowStatus(let userId): return "/profiles/\(userId)/follow/status"
+        case .checkFollowStatusBatch: return "/profiles/follow/status/batch"
         case .createUploadURL: return "/uploads"
         }
     }
@@ -79,7 +83,7 @@ enum APIEndpoint {
     var method: HTTPMethod {
         switch self {
         case .signInWithApple, .createHighlight, .addComment, .likeHighlight,
-             .follow, .createUploadURL:
+             .follow, .createUploadURL, .checkFollowStatusBatch:
             return .post
         case .refreshToken:
             return .post

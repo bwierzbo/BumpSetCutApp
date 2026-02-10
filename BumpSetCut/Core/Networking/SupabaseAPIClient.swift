@@ -3,7 +3,21 @@ import Supabase
 
 // MARK: - Helper Types
 
-private struct FollowRow: Decodable { let following_id: String }
+struct FollowRow: Decodable {
+    let followingId: String
+
+    enum CodingKeys: String, CodingKey {
+        case followingId = "following_id"
+    }
+}
+
+struct FollowerWrapper: Decodable {
+    let follower: UserProfile
+}
+
+struct FollowingWrapper: Decodable {
+    let following: UserProfile
+}
 
 // MARK: - Supabase API Client
 
@@ -46,7 +60,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .eq("follower_id", value: myId)
                 .execute()
                 .value
-            let followedIds = follows.map(\.following_id)
+            let followedIds = follows.map(\.followingId)
 
             guard !followedIds.isEmpty else {
                 return [] as! T
@@ -252,6 +266,33 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .select("following:profiles!following_id(*)")
                 .eq("follower_id", value: userId)
                 .range(from: from, to: to)
+                .execute()
+                .value
+            return response
+
+        // MARK: Follow Status
+
+        case .checkFollowStatus(let userId):
+            let myId = try await currentUserId()
+            let response: T = try await supabase
+                .from("follows")
+                .select("following_id")
+                .eq("follower_id", value: myId)
+                .eq("following_id", value: userId)
+                .execute()
+                .value
+            return response
+
+        case .checkFollowStatusBatch(let userIds):
+            guard !userIds.isEmpty else {
+                return [] as! T
+            }
+            let myId = try await currentUserId()
+            let response: T = try await supabase
+                .from("follows")
+                .select("following_id")
+                .eq("follower_id", value: myId)
+                .in("following_id", values: userIds)
                 .execute()
                 .value
             return response
