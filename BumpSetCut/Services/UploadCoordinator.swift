@@ -403,6 +403,22 @@ extension UploadCoordinator {
             let fileSize = (try? FileManager.default.attributesOfItem(atPath: destinationURL.path)[.size] as? Int64) ?? 0
             print("📦 File size: \(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))")
 
+            // Check file size limit for free users
+            let sizeCheck = await MainActor.run {
+                SubscriptionService.shared.canUploadVideoSize(fileSizeBytes: fileSize)
+            }
+
+            if !sizeCheck.allowed {
+                await MainActor.run {
+                    storageWarningMessage = sizeCheck.message ?? "Video file too large"
+                    showStorageWarning = true
+                }
+                // Delete the file we just copied since it exceeds the limit
+                try? FileManager.default.removeItem(at: destinationURL)
+                logger.error("Upload blocked: video exceeds size limit for free users")
+                return
+            }
+
             // Detect sport type before adding to MediaStore
             let asset = AVURLAsset(url: destinationURL)
             let (detectedType, confidence) = (try? await SportDetector.detectSport(from: asset)) ?? (.beach, 0.5)

@@ -19,7 +19,8 @@ final class SubscriptionService {
     private(set) var isPro: Bool = false
 
     // MARK: - Free Tier Limits
-    static let weeklyProcessingLimit = 10 // Free users can process 10 videos per week
+    static let weeklyProcessingLimit = 3 // Free users can process 3 videos per week
+    static let maxVideoSizeMB: Int64 = 500 // 500MB max for free users (Pro: unlimited)
 
     // MARK: - Pro Entitlements
     enum ProFeature: String, CaseIterable {
@@ -190,6 +191,23 @@ final class SubscriptionService {
         components.second = 0
 
         return calendar.date(from: components) ?? now
+    }
+
+    // MARK: - Video Size Limit
+
+    /// Check if video size is allowed for upload
+    func canUploadVideoSize(fileSizeBytes: Int64) -> (allowed: Bool, message: String?) {
+        if isPro {
+            return (true, nil)
+        }
+
+        let fileSizeMB = fileSizeBytes / (1024 * 1024)
+
+        if fileSizeMB > SubscriptionService.maxVideoSizeMB {
+            return (false, "Video size (\(fileSizeMB)MB) exceeds the free limit of \(SubscriptionService.maxVideoSizeMB)MB. Upgrade to Pro for unlimited file sizes!")
+        }
+
+        return (true, nil)
     }
 
     // MARK: - Watermark

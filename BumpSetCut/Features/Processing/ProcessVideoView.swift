@@ -563,7 +563,7 @@ private struct ProcessingIconView: View {
                             .foregroundColor(.bscTextPrimary)
 
                         if let rem = remaining {
-                            Text("\(rem) of 10 videos remaining this week")
+                            Text("\(rem) of 3 videos remaining this week")
                                 .font(.system(size: 11))
                                 .foregroundColor(rem > 0 ? .bscTextTertiary : .bscOrange)
                         }
@@ -571,7 +571,7 @@ private struct ProcessingIconView: View {
 
                     Spacer()
 
-                    Text("\(processed)/10")
+                    Text("\(processed)/3")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(remaining ?? 0 > 0 ? .bscSuccess : .bscOrange)
                 }
