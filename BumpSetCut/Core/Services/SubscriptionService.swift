@@ -16,7 +16,15 @@ final class SubscriptionService {
     static let shared = SubscriptionService()
 
     // MARK: - Public Properties
-    private(set) var isPro: Bool = false
+    var isPro: Bool {
+        #if DEBUG
+        // Allow debug override for testing
+        if debugForcePro {
+            return true
+        }
+        #endif
+        return StoreManager.shared.hasActiveSubscription
+    }
 
     // MARK: - Free Tier Limits
     static let weeklyProcessingLimit = 3 // Free users can process 3 videos per week
@@ -62,30 +70,30 @@ final class SubscriptionService {
 
     // MARK: - Initialization
     private init() {
-        loadSubscriptionStatus()
+        // Subscription status is automatically managed by StoreManager
     }
 
     // MARK: - Subscription Management
 
-    private func loadSubscriptionStatus() {
-        // TODO: Load from StoreKit or subscription backend
-        // For now, check UserDefaults for testing
-        isPro = UserDefaults.standard.bool(forKey: "user_is_pro")
-        print("💎 Subscription status loaded: \(isPro ? "Pro" : "Free")")
+    func refreshSubscriptionStatus() async {
+        await StoreManager.shared.updateSubscriptionStatus()
+        print("💎 Subscription status refreshed: \(isPro ? "Pro" : "Free")")
     }
 
-    func refreshSubscriptionStatus() {
-        // TODO: Refresh from StoreKit or subscription backend
-        loadSubscriptionStatus()
-    }
-
-    // MARK: - Testing Helpers (Remove in production)
+    #if DEBUG
+    // MARK: - Testing Helpers (DEBUG ONLY)
 
     func setProStatus(_ status: Bool) {
-        isPro = status
-        UserDefaults.standard.set(status, forKey: "user_is_pro")
-        print("💎 Pro status set to: \(status)")
+        // This only works in DEBUG builds for testing
+        // In production, subscription status comes from StoreKit only
+        UserDefaults.standard.set(status, forKey: "debug_force_pro")
+        print("💎 [DEBUG] Pro status set to: \(status)")
     }
+
+    private var debugForcePro: Bool {
+        return UserDefaults.standard.bool(forKey: "debug_force_pro")
+    }
+    #endif
 
     // MARK: - Feature Checks
 

@@ -13,6 +13,8 @@ struct SettingsView: View {
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.dismiss) private var dismiss
     @State private var hasAppeared = false
+    @State private var showPaywall = false
+    @State private var subscriptionService = SubscriptionService.shared
 
     var body: some View {
         NavigationStack {
@@ -23,6 +25,12 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(spacing: BSCSpacing.xl) {
+                        // Subscription section
+                        subscriptionSection
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.05), value: hasAppeared)
+
                         // Debug section (debug builds only)
                         #if DEBUG
                         debugSection
@@ -88,6 +96,134 @@ struct SettingsView: View {
                     hasAppeared = true
                 }
             }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
+            }
+        }
+    }
+}
+
+// MARK: - Subscription Section
+private extension SettingsView {
+    var subscriptionSection: some View {
+        BSCSettingsSection(
+            title: subscriptionService.isPro ? "Pro" : "Free Plan",
+            subtitle: subscriptionService.isPro ? "You have unlimited access" : "Upgrade to unlock all features",
+            icon: subscriptionService.isPro ? "crown.fill" : "crown",
+            iconColor: subscriptionService.isPro ? .yellow : .bscOrange
+        ) {
+            VStack(spacing: BSCSpacing.md) {
+                if subscriptionService.isPro {
+                    // Pro status
+                    VStack(spacing: BSCSpacing.sm) {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("BumpSetCut Pro Active")
+                                .font(.headline)
+                            Spacer()
+                        }
+
+                        Button {
+                            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                                Task {
+                                    try? await AppStore.showManageSubscriptions(in: scene)
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text("Manage Subscription")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                            .fill(Color(.systemGray6))
+                    )
+                } else {
+                    // Free tier limits
+                    VStack(spacing: BSCSpacing.sm) {
+                        if let remaining = subscriptionService.remainingProcessingCredits() {
+                            LimitRow(
+                                icon: "waveform",
+                                title: "Weekly Processing",
+                                value: "\(remaining) of \(SubscriptionService.weeklyProcessingLimit) remaining"
+                            )
+                        }
+
+                        LimitRow(
+                            icon: "arrow.up.doc",
+                            title: "Max Video Size",
+                            value: "\(SubscriptionService.maxVideoSizeMB)MB"
+                        )
+
+                        LimitRow(
+                            icon: "wifi",
+                            title: "Processing Requires",
+                            value: "WiFi connection"
+                        )
+
+                        LimitRow(
+                            icon: "drop.fill",
+                            title: "Watermark",
+                            value: "On exported videos"
+                        )
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                            .fill(Color(.systemGray6))
+                    )
+
+                    Button {
+                        showPaywall = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "crown.fill")
+                            Text("Upgrade to Pro")
+                                .fontWeight(.semibold)
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                                .fill(.blue.gradient)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Limit Row
+struct LimitRow: View {
+    let icon: String
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+
+            Text(title)
+                .font(.subheadline)
+
+            Spacer()
+
+            Text(value)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
     }
 }
