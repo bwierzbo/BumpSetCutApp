@@ -26,6 +26,15 @@
 - [x] NSPhotoLibraryAddUsageDescription
 - [x] NSCameraUsageDescription
 
+### Content Moderation (App Store Guideline 1.2)
+- [x] Database schema for reports and blocks (002_content_moderation.sql)
+- [x] Content reporting system (ReportContentSheet)
+- [x] User blocking feature (BlockUserAlert, ModerationService)
+- [x] Report highlights integration (HighlightCardView menu)
+- [x] Report comments integration (CommentsSheet context menu)
+- [x] 8 report types with clear descriptions
+- [x] Client-side filtering of blocked users
+
 ---
 
 ## 🚧 Remaining Tasks
@@ -51,13 +60,14 @@
 - [ ] Add privacy policy URL to App Store Connect
 
 ### Content Moderation (Social Features)
-- [ ] Implement content reporting system
-  - Add "Report" button to comments and highlights
-  - Store reports in Supabase
-  - Create moderation dashboard/process
-- [ ] Add community guidelines
-- [ ] Implement user blocking feature
-- [ ] Add age rating compliance (likely 12+ due to social features)
+- [x] Implement content reporting system ✅
+- [x] Add "Report" button to highlights and comments ✅
+- [x] Store reports in Supabase (schema created) ✅
+- [x] Implement user blocking feature ✅
+- [ ] Create moderation dashboard/process (backend admin tool)
+- [ ] Add community guidelines document
+- [ ] Run Supabase migration: 002_content_moderation.sql
+- [ ] Add age rating compliance (set to 12+ in App Store Connect)
 
 ### Backend Security
 - [ ] Review Supabase Row Level Security policies
