@@ -12,7 +12,6 @@ struct EditProfileView: View {
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.dismiss) private var dismiss
 
-    @State private var displayName: String = ""
     @State private var username: String = ""
     @State private var bio: String = ""
     @State private var teamName: String = ""
@@ -44,9 +43,6 @@ struct EditProfileView: View {
                     .listRowBackground(Color.clear)
                 }
 
-                Section("Display Name") {
-                    TextField("Display Name", text: $displayName)
-                }
                 Section("Username") {
                     TextField("Username", text: $username)
                         .textInputAutocapitalization(.never)
@@ -84,7 +80,7 @@ struct EditProfileView: View {
                 Button("Save") {
                     saveProfile()
                 }
-                .disabled(isSaving || isUploadingAvatar || displayName.isEmpty || username.isEmpty)
+                .disabled(isSaving || isUploadingAvatar || username.isEmpty)
                 .fontWeight(.semibold)
             }
         }
@@ -94,7 +90,6 @@ struct EditProfileView: View {
         }
         .onAppear {
             if let user = authService.currentUser {
-                displayName = user.displayName
                 username = user.username
                 bio = user.bio ?? ""
                 teamName = user.teamName ?? ""
@@ -116,7 +111,7 @@ struct EditProfileView: View {
                             .frame(width: 90, height: 90)
                             .clipShape(Circle())
                     } else {
-                        AvatarView(url: currentAvatarURL, name: displayName.isEmpty ? "?" : displayName, size: 90)
+                        AvatarView(url: currentAvatarURL, name: username.isEmpty ? "?" : username, size: 90)
                     }
 
                     // Camera badge
@@ -177,7 +172,6 @@ struct EditProfileView: View {
                 }
 
                 let update = UserProfileUpdate(
-                    displayName: displayName,
                     username: username,
                     bio: bio.isEmpty ? nil : bio,
                     teamName: teamName.isEmpty ? nil : teamName,

@@ -56,7 +56,7 @@ final class CommentsViewModel {
                 id: UUID().uuidString,
                 highlightId: highlightId,
                 authorId: "me",
-                author: UserProfile(id: "me", displayName: "You", username: "me"),
+                author: UserProfile(id: "me", username: "me"),
                 text: text
             )
             comments.insert(stub, at: 0)
@@ -78,10 +78,10 @@ final class CommentsViewModel {
     static func stubComments(for highlightId: String) -> [Comment] {
         [
             Comment(id: "c1", highlightId: highlightId, authorId: "1",
-                    author: UserProfile(id: "1", displayName: "Sarah Chen", username: "sarahspikes"),
+                    author: UserProfile(id: "1", username: "sarahspikes"),
                     text: "What a save! Great rally.", likesCount: 5),
             Comment(id: "c2", highlightId: highlightId, authorId: "2",
-                    author: UserProfile(id: "2", displayName: "Mike Torres", username: "miketorres"),
+                    author: UserProfile(id: "2", username: "miketorres"),
                     text: "That dig was insane", likesCount: 3),
         ]
     }

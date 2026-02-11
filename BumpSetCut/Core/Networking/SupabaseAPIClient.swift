@@ -19,6 +19,11 @@ struct FollowingWrapper: Decodable {
     let following: UserProfile
 }
 
+struct UsernameAvailability: Decodable {
+    let isAvailable: Bool
+}
+
+
 // MARK: - Supabase API Client
 
 final class SupabaseAPIClient: APIClient, @unchecked Sendable {
@@ -218,11 +223,21 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let response: T = try await supabase
                 .from("profiles")
                 .select()
-                .or("display_name.ilike.%\(query)%,username.ilike.%\(query)%")
+                .ilike("username", pattern: "%\(query)%")
                 .range(from: from, to: to)
                 .execute()
                 .value
             return response
+
+        case .checkUsernameAvailability(let username):
+            let rows: [UserProfile] = try await supabase
+                .from("profiles")
+                .select()
+                .eq("username", value: username)
+                .limit(1)
+                .execute()
+                .value
+            return UsernameAvailability(isAvailable: rows.isEmpty) as! T
 
         // MARK: Follows
 

@@ -237,7 +237,7 @@ private extension SettingsView {
                         }
 
                         VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                            Text(authService.currentUser?.displayName ?? "Account")
+                            Text(authService.currentUser?.username ?? "Account")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.bscTextPrimary)
 

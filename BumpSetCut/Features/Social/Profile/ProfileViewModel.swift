@@ -39,7 +39,7 @@ final class ProfileViewModel {
         } catch {
             self.error = error
             // Stub data
-            profile = UserProfile(id: userId, displayName: "Volleyball Player", username: "player_\(userId.prefix(4))")
+            profile = UserProfile(id: userId, username: "player_\(userId.prefix(4))")
         }
 
         await loadFollowStatus()

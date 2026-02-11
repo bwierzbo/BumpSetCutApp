@@ -117,15 +117,11 @@ struct ProfileView: View {
     private func profileHeader(_ profile: UserProfile) -> some View {
         VStack(spacing: BSCSpacing.sm) {
             // Avatar
-            AvatarView(url: profile.avatarURL, name: profile.displayName, size: 80)
+            AvatarView(url: profile.avatarURL, name: profile.username, size: 80)
 
-            Text(profile.displayName)
+            Text(profile.username)
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(.bscTextPrimary)
-
-            Text("@\(profile.username)")
-                .font(.system(size: 14))
-                .foregroundColor(.bscTextSecondary)
 
             if let bio = profile.bio, !bio.isEmpty {
                 Text(bio)

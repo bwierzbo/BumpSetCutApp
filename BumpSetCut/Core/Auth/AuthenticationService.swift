@@ -8,6 +8,7 @@ enum AuthState {
     case unauthenticated
     case authenticating
     case authenticated
+    case needsUsername
     case expired
 }
 
@@ -20,6 +21,7 @@ final class AuthenticationService {
     private(set) var authState: AuthState = .unauthenticated
 
     var isAuthenticated: Bool { authState == .authenticated }
+    var needsUsernameSetup: Bool { currentUser?.username.hasPrefix("user_") == true }
 
     private let appleSignIn = AppleSignInCoordinator()
     private let supabase = SupabaseConfig.client
@@ -57,13 +59,21 @@ final class AuthenticationService {
 
             let profile = try await fetchProfile(userId: session.user.id.uuidString.lowercased())
             currentUser = profile
-            authState = .authenticated
+            if profile.username.hasPrefix("user_") {
+                authState = .needsUsername
+            } else {
+                authState = .authenticated
+            }
             try KeychainHelper.save(profile, for: Self.userKey)
         } catch {
             // No valid session — fall back to cached user or stay unauthenticated
             if let cachedUser: UserProfile = KeychainHelper.load(for: Self.userKey) {
                 currentUser = cachedUser
-                authState = .authenticated
+                if cachedUser.username.hasPrefix("user_") {
+                    authState = .needsUsername
+                } else {
+                    authState = .authenticated
+                }
             } else {
                 authState = .unauthenticated
             }
@@ -88,9 +98,7 @@ final class AuthenticationService {
 
             // Fetch or create profile from DB
             let profile = try await fetchOrCreateProfile(
-                userId: session.user.id.uuidString.lowercased(),
-                fullName: result.fullName,
-                email: result.email
+                userId: session.user.id.uuidString.lowercased()
             )
 
             let token = AuthToken(
@@ -103,7 +111,11 @@ final class AuthenticationService {
             try KeychainHelper.save(profile, for: Self.userKey)
 
             currentUser = profile
-            authState = .authenticated
+            if profile.username.hasPrefix("user_") {
+                authState = .needsUsername
+            } else {
+                authState = .authenticated
+            }
         } catch let error as AppleSignInError where error == .cancelled {
             authState = .unauthenticated
         } catch {
@@ -114,7 +126,7 @@ final class AuthenticationService {
 
     // MARK: - Email Sign Up
 
-    func signUpWithEmail(email: String, password: String, displayName: String) async throws {
+    func signUpWithEmail(email: String, password: String, username: String) async throws {
         authState = .authenticating
 
         do {
@@ -130,9 +142,7 @@ final class AuthenticationService {
 
             let profile = try await fetchOrCreateProfile(
                 userId: session.user.id.uuidString.lowercased(),
-                fullName: nil,
-                email: email,
-                displayName: displayName
+                username: username
             )
 
             let token = AuthToken(
@@ -164,9 +174,7 @@ final class AuthenticationService {
             )
 
             let profile = try await fetchOrCreateProfile(
-                userId: session.user.id.uuidString.lowercased(),
-                fullName: nil,
-                email: email
+                userId: session.user.id.uuidString.lowercased()
             )
 
             let token = AuthToken(
@@ -179,7 +187,11 @@ final class AuthenticationService {
             try KeychainHelper.save(profile, for: Self.userKey)
 
             currentUser = profile
-            authState = .authenticated
+            if profile.username.hasPrefix("user_") {
+                authState = .needsUsername
+            } else {
+                authState = .authenticated
+            }
         } catch {
             authState = .unauthenticated
             throw error
@@ -202,10 +214,7 @@ final class AuthenticationService {
             )
 
             let profile = try await fetchOrCreateProfile(
-                userId: session.user.id.uuidString.lowercased(),
-                fullName: nil,
-                email: result.email,
-                displayName: result.fullName
+                userId: session.user.id.uuidString.lowercased()
             )
 
             let token = AuthToken(
@@ -218,7 +227,11 @@ final class AuthenticationService {
             try KeychainHelper.save(profile, for: Self.userKey)
 
             currentUser = profile
-            authState = .authenticated
+            if profile.username.hasPrefix("user_") {
+                authState = .needsUsername
+            } else {
+                authState = .authenticated
+            }
         } catch {
             authState = .unauthenticated
             throw error
@@ -256,6 +269,16 @@ final class AuthenticationService {
         authState = .unauthenticated
     }
 
+    // MARK: - Username Setup
+
+    func completeUsernameSetup(username: String) async throws {
+        let update = UserProfileUpdate(username: username)
+        let updated: UserProfile = try await SupabaseAPIClient.shared.request(.updateProfile(update))
+        currentUser = updated
+        try? KeychainHelper.save(updated, for: Self.userKey)
+        authState = .authenticated
+    }
+
     // MARK: - Profile Update
 
     func updateLocalProfile(_ profile: UserProfile) {
@@ -287,7 +310,7 @@ final class AuthenticationService {
             .value
     }
 
-    private func fetchOrCreateProfile(userId: String, fullName: PersonNameComponents?, email: String?, displayName: String? = nil) async throws -> UserProfile {
+    private func fetchOrCreateProfile(userId: String, username: String? = nil) async throws -> UserProfile {
         // Try to fetch existing profile first
         do {
             let existing: UserProfile = try await fetchProfile(userId: userId)
@@ -296,15 +319,13 @@ final class AuthenticationService {
             // Profile doesn't exist — create one
         }
 
-        let name = displayName ?? fullName?.formatted() ?? "Volleyball Player"
-        let username = "user_\(userId.prefix(8))"
+        let finalUsername = username ?? "user_\(userId.prefix(8))"
 
         let profile: UserProfile = try await SupabaseConfig.client
             .from("profiles")
             .insert([
                 "id": userId,
-                "display_name": name,
-                "username": username,
+                "username": finalUsername,
             ])
             .select()
             .single()

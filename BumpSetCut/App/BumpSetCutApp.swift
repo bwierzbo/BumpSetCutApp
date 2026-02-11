@@ -35,6 +35,14 @@ import GoogleSignIn
                         }
                     }
                 }
+                .fullScreenCover(isPresented: Binding(
+                    get: { authService.authState == .needsUsername },
+                    set: { _ in }
+                )) {
+                    UsernamePickerView()
+                        .environment(authService)
+                        .interactiveDismissDisabled()
+                }
         }
     }
 }

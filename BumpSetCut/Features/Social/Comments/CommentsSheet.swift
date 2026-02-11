@@ -65,11 +65,11 @@ struct CommentsSheet: View {
     private func commentRow(_ comment: Comment) -> some View {
         HStack(alignment: .top, spacing: BSCSpacing.sm) {
             // Avatar
-            AvatarView(url: comment.author?.avatarURL, name: comment.author?.displayName ?? "?", size: 32)
+            AvatarView(url: comment.author?.avatarURL, name: comment.author?.username ?? "?", size: 32)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: BSCSpacing.xs) {
-                    Text(comment.author?.displayName ?? "Unknown")
+                    Text(comment.author?.username ?? "Unknown")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.bscTextPrimary)
 

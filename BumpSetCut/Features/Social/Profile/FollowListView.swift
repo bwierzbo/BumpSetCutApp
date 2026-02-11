@@ -59,15 +59,12 @@ struct FollowListView: View {
 
     private func userRow(_ user: UserProfile) -> some View {
         HStack(spacing: BSCSpacing.md) {
-            AvatarView(url: user.avatarURL, name: user.displayName, size: 44)
+            AvatarView(url: user.avatarURL, name: user.username, size: 44)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(user.displayName)
+                Text(user.username)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.bscTextPrimary)
-                Text("@\(user.username)")
-                    .font(.system(size: 13))
-                    .foregroundColor(.bscTextSecondary)
             }
 
             Spacer()

@@ -160,7 +160,7 @@ struct AuthGateView: View {
             viewModel = AuthGateViewModel(authService: authService)
         }
         .onChange(of: authService.authState) { _, newState in
-            if newState == .authenticated {
+            if newState == .authenticated || newState == .needsUsername {
                 dismiss()
             }
         }
@@ -179,12 +179,36 @@ struct AuthGateView: View {
     private var emailForm: some View {
         VStack(spacing: BSCSpacing.sm) {
             if viewModel?.isSignUpMode == true {
-                TextField("Display Name", text: Binding(
-                    get: { viewModel?.displayName ?? "" },
-                    set: { viewModel?.displayName = $0 }
-                ))
-                .textContentType(.name)
-                .autocorrectionDisabled()
+                HStack {
+                    TextField("Username", text: Binding(
+                        get: { viewModel?.username ?? "" },
+                        set: { viewModel?.username = $0 }
+                    ))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textContentType(.username)
+                    .onChange(of: viewModel?.username ?? "") { _, _ in
+                        viewModel?.usernameChanged()
+                    }
+
+                    // Availability indicator
+                    Group {
+                        if viewModel?.isCheckingUsername == true {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .tint(.bscOrange)
+                        } else if viewModel?.isUsernameAvailable == true {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.bscSuccess)
+                                .font(.system(size: 16))
+                        } else if viewModel?.isUsernameAvailable == false {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.red)
+                                .font(.system(size: 16))
+                        }
+                    }
+                    .frame(width: 20)
+                }
             }
 
             TextField("Email", text: Binding(

@@ -17,11 +17,18 @@ class AuthGateViewModel {
     // Email form state
     var email = ""
     var password = ""
-    var displayName = ""
+    var username = ""
     var isSignUpMode = true
 
-    init(authService: AuthenticationService) {
+    // Username availability
+    var isUsernameAvailable: Bool?
+    var isCheckingUsername = false
+    private var checkTask: Task<Void, Never>?
+    private let apiClient: any APIClient
+
+    init(authService: AuthenticationService, apiClient: (any APIClient)? = nil) {
         self.authService = authService
+        self.apiClient = apiClient ?? SupabaseAPIClient.shared
     }
 
     var isAuthenticating: Bool { authService.authState == .authenticating }
@@ -34,12 +41,49 @@ class AuthGateViewModel {
     var hasSymbol: Bool { password.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil }
     var isPasswordValid: Bool { hasMinLength && hasUppercase && hasNumber && hasSymbol }
 
+    var isUsernameValidFormat: Bool {
+        let pattern = /^[A-Za-z0-9_]{3,20}$/
+        return username.wholeMatch(of: pattern) != nil && !username.hasPrefix("user_")
+    }
+
     var isEmailFormValid: Bool {
         if isSignUpMode {
-            return isEmailValid && isPasswordValid && !displayName.trimmingCharacters(in: .whitespaces).isEmpty
+            return isEmailValid && isPasswordValid && isUsernameAvailable == true
         }
         return isEmailValid && password.count >= 1
     }
+
+    // MARK: - Username Availability
+
+    func usernameChanged() {
+        checkTask?.cancel()
+        isUsernameAvailable = nil
+
+        guard isUsernameValidFormat else {
+            isCheckingUsername = false
+            return
+        }
+
+        isCheckingUsername = true
+        let target = username
+        checkTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, username == target else { return }
+            do {
+                let result: UsernameAvailability = try await apiClient.request(
+                    .checkUsernameAvailability(username: target)
+                )
+                guard !Task.isCancelled, username == target else { return }
+                isUsernameAvailable = result.isAvailable
+            } catch {
+                guard !Task.isCancelled else { return }
+                isUsernameAvailable = nil
+            }
+            isCheckingUsername = false
+        }
+    }
+
+    // MARK: - Auth Actions
 
     func signInWithApple() async {
         errorMessage = nil
@@ -57,7 +101,7 @@ class AuthGateViewModel {
             try await authService.signUpWithEmail(
                 email: email.trimmingCharacters(in: .whitespaces),
                 password: password,
-                displayName: displayName.trimmingCharacters(in: .whitespaces)
+                username: username.trimmingCharacters(in: .whitespaces)
             )
         } catch {
             errorMessage = error.localizedDescription

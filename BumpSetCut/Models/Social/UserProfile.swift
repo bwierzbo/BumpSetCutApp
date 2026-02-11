@@ -20,7 +20,6 @@ enum PrivacyLevel: String, Codable, CaseIterable {
 
 struct UserProfile: Codable, Identifiable, Hashable {
     let id: String
-    var displayName: String
     var username: String
     var avatarURL: URL?
     var bio: String?
@@ -31,12 +30,11 @@ struct UserProfile: Codable, Identifiable, Hashable {
     var privacyLevel: PrivacyLevel
     let createdAt: Date
 
-    init(id: String, displayName: String, username: String, avatarURL: URL? = nil,
+    init(id: String, username: String, avatarURL: URL? = nil,
          bio: String? = nil, teamName: String? = nil, followersCount: Int = 0,
          followingCount: Int = 0, highlightsCount: Int = 0,
          privacyLevel: PrivacyLevel = .public, createdAt: Date = Date()) {
         self.id = id
-        self.displayName = displayName
         self.username = username
         self.avatarURL = avatarURL
         self.bio = bio
@@ -51,7 +49,6 @@ struct UserProfile: Codable, Identifiable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
-        displayName = try container.decode(String.self, forKey: .displayName)
         username = try container.decode(String.self, forKey: .username)
         avatarURL = try container.decodeIfPresent(URL.self, forKey: .avatarURL)
         bio = try container.decodeIfPresent(String.self, forKey: .bio)
@@ -64,7 +61,7 @@ struct UserProfile: Codable, Identifiable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, displayName, username, avatarURL, bio, teamName
+        case id, username, avatarURL, bio, teamName
         case followersCount, followingCount, highlightsCount, privacyLevel, createdAt
     }
 }

@@ -134,9 +134,9 @@ final class SocialFeedViewModel {
 
     static let stubHighlights: [Highlight] = {
         let authors = [
-            UserProfile(id: "1", displayName: "Sarah Chen", username: "sarahspikes"),
-            UserProfile(id: "2", displayName: "Mike Torres", username: "miketorres"),
-            UserProfile(id: "3", displayName: "Jade Williams", username: "jadew"),
+            UserProfile(id: "1", username: "sarahspikes"),
+            UserProfile(id: "2", username: "miketorres"),
+            UserProfile(id: "3", username: "jadew"),
         ]
         return (0..<6).map { i in
             Highlight(

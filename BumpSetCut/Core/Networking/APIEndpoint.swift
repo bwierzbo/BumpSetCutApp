@@ -46,6 +46,9 @@ enum APIEndpoint {
     case checkFollowStatus(userId: String)
     case checkFollowStatusBatch(userIds: [String])
 
+    // Username
+    case checkUsernameAvailability(username: String)
+
     // Upload
     case createUploadURL
 
@@ -76,6 +79,7 @@ enum APIEndpoint {
         case .getFollowing(let userId, _): return "/profiles/\(userId)/following"
         case .checkFollowStatus(let userId): return "/profiles/\(userId)/follow/status"
         case .checkFollowStatusBatch: return "/profiles/follow/status/batch"
+        case .checkUsernameAvailability: return "/profiles/username-check"
         case .createUploadURL: return "/uploads"
         }
     }
@@ -102,6 +106,7 @@ enum APIEndpoint {
         switch self {
         case .signInWithApple: return false
         case .refreshToken: return false
+        case .checkUsernameAvailability: return false
         case .getHighlight, .getComments, .getProfile, .getUserHighlights,
              .getFollowers, .getFollowing, .searchUsers, .searchHighlights:
             return false
@@ -114,7 +119,6 @@ enum APIEndpoint {
 // MARK: - Request Payload Types
 
 struct UserProfileUpdate: Codable {
-    var displayName: String?
     var username: String?
     var bio: String?
     var teamName: String?
