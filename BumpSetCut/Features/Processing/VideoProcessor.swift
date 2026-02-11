@@ -361,12 +361,19 @@ final class VideoProcessor {
         // Initialize metadata store on main actor
         self.metadataStore = await MainActor.run { MetadataStore() }
 
-        // Recreate stage objects with current config (no lazy)
+        // Detect sport type automatically
+        let asset = AVURLAsset(url: url)
+        let (detectedType, confidence) = try await SportDetector.detectSport(from: asset)
+        print("🏐 Detected sport: \(detectedType.displayName) (confidence: \(String(format: "%.1f%%", confidence * 100)))")
+
+        // Configure processor for detected sport type
+        configure(for: detectedType)
+
+        // Recreate stage objects with sport-specific config
         self.gate = BallisticsGate(config: config)
         self.decider = RallyDecider(config: config)
         self.segments = SegmentBuilder(config: config)
 
-        let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             await MainActor.run { isProcessing = false; backgroundGuard.end() }
             throw ProcessingError.exportFailed
