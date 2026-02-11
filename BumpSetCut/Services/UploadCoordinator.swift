@@ -210,16 +210,26 @@ extension UploadCoordinator {
 extension UploadCoordinator {
     func handleMultiplePhotosPickerItems(_ items: [PhotosPickerItem], destinationFolder: String = "") {
         logger.info("Handling \(items.count) photos picker items")
-        
+
+        // Check video limit for free users
+        let currentVideoCount = mediaStore.manifest.videos.count
+        let uploadCheck = SubscriptionService.shared.canUploadVideo(currentVideoCount: currentVideoCount + items.count)
+
+        if !uploadCheck.allowed {
+            storageWarningMessage = uploadCheck.message ?? "Video limit reached"
+            showStorageWarning = true
+            return
+        }
+
         // Simple direct upload without naming dialog
         print("🚀 UploadCoordinator: Starting direct upload, set isUploadInProgress = true")
-        
+
         // Force UI update on main thread
         Task { @MainActor in
             isUploadInProgress = true
             print("📱 UI Update: isUploadInProgress = true sent to UI")
         }
-        
+
         Task {
             // Longer delay to ensure UI has time to show the progress bar
             try? await Task.sleep(nanoseconds: 500_000_000) // 500ms

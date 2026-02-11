@@ -18,11 +18,15 @@ final class SubscriptionService {
     // MARK: - Public Properties
     private(set) var isPro: Bool = false
 
+    // MARK: - Free Tier Limits
+    static let freeVideoLimit = 10
+
     // MARK: - Pro Entitlements
     enum ProFeature: String, CaseIterable {
         case offlineProcessing = "Offline Video Processing"
         case cellularProcessing = "Process on Cellular"
         case unlimitedVideos = "Unlimited Videos"
+        case noWatermark = "No Watermark"
         case prioritySupport = "Priority Support"
         case advancedSettings = "Advanced Settings"
 
@@ -31,6 +35,7 @@ final class SubscriptionService {
             case .offlineProcessing: return "wifi.slash"
             case .cellularProcessing: return "antenna.radiowaves.left.and.right"
             case .unlimitedVideos: return "infinity"
+            case .noWatermark: return "eye.slash"
             case .prioritySupport: return "person.fill.checkmark"
             case .advancedSettings: return "gearshape.2"
             }
@@ -44,6 +49,8 @@ final class SubscriptionService {
                 return "Process videos on cellular data without WiFi"
             case .unlimitedVideos:
                 return "No limits on video uploads or processing"
+            case .noWatermark:
+                return "Remove BumpSetCut branding from exported videos"
             case .prioritySupport:
                 return "Get help faster with priority customer support"
             case .advancedSettings:
@@ -87,6 +94,34 @@ final class SubscriptionService {
 
     func requiresProMessage(for feature: ProFeature) -> String {
         return "\(feature.rawValue) is a Pro feature. Upgrade to unlock!"
+    }
+
+    // MARK: - Video Limit Checks
+
+    /// Check if user can upload more videos
+    func canUploadVideo(currentVideoCount: Int) -> (allowed: Bool, message: String?) {
+        if isPro {
+            return (true, nil)
+        }
+
+        if currentVideoCount >= SubscriptionService.freeVideoLimit {
+            return (false, "You've reached the free limit of \(SubscriptionService.freeVideoLimit) videos. Upgrade to Pro for unlimited videos!")
+        }
+
+        return (true, nil)
+    }
+
+    /// Get remaining videos for free users
+    func remainingVideos(currentVideoCount: Int) -> Int? {
+        if isPro { return nil } // Unlimited
+        return max(0, SubscriptionService.freeVideoLimit - currentVideoCount)
+    }
+
+    // MARK: - Watermark
+
+    /// Check if watermark should be added to exports
+    var shouldAddWatermark: Bool {
+        return !isPro
     }
 
     // MARK: - Paywall Presentation

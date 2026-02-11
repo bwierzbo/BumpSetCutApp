@@ -312,4 +312,78 @@ final class VideoExporter {
             }
         }
     }
+
+    // MARK: - Watermark
+
+    /// Creates a watermark text layer for video compositions
+    func createWatermarkLayer(videoSize: CGSize, videoDuration: CMTime) -> CALayer {
+        let watermarkText = "Made with BumpSetCut"
+
+        // Create text layer
+        let textLayer = CATextLayer()
+        textLayer.string = watermarkText
+        textLayer.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        textLayer.fontSize = 14
+        textLayer.foregroundColor = UIColor.white.withAlphaComponent(0.6).cgColor
+        textLayer.alignmentMode = .right
+        textLayer.shadowColor = UIColor.black.cgColor
+        textLayer.shadowOpacity = 0.5
+        textLayer.shadowOffset = CGSize(width: 1, height: 1)
+        textLayer.shadowRadius = 2
+
+        // Position in bottom-right corner with padding
+        let padding: CGFloat = 16
+        let textWidth: CGFloat = 180
+        let textHeight: CGFloat = 20
+
+        textLayer.frame = CGRect(
+            x: videoSize.width - textWidth - padding,
+            y: padding,
+            width: textWidth,
+            height: textHeight
+        )
+
+        // Create parent layer
+        let parentLayer = CALayer()
+        parentLayer.frame = CGRect(origin: .zero, size: videoSize)
+        parentLayer.addSublayer(textLayer)
+
+        return parentLayer
+    }
+
+    /// Applies watermark to a composition
+    func applyWatermark(to composition: AVMutableComposition, videoSize: CGSize) -> AVMutableVideoComposition {
+        let videoComposition = AVMutableVideoComposition()
+        videoComposition.renderSize = videoSize
+        videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+
+        // Create instruction for the full duration
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
+
+        // Add layer instruction for the video track
+        if let videoTrack = composition.tracks(withMediaType: .video).first {
+            let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+            instruction.layerInstructions = [layerInstruction]
+        }
+
+        videoComposition.instructions = [instruction]
+
+        // Add watermark as animation layer
+        let watermarkLayer = createWatermarkLayer(videoSize: videoSize, videoDuration: composition.duration)
+
+        let parentLayer = CALayer()
+        let videoLayer = CALayer()
+        parentLayer.frame = CGRect(origin: .zero, size: videoSize)
+        videoLayer.frame = CGRect(origin: .zero, size: videoSize)
+        parentLayer.addSublayer(videoLayer)
+        parentLayer.addSublayer(watermarkLayer)
+
+        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
+            postProcessingAsVideoLayer: videoLayer,
+            in: parentLayer
+        )
+
+        return videoComposition
+    }
 }
