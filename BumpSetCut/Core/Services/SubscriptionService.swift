@@ -19,7 +19,7 @@ final class SubscriptionService {
     private(set) var isPro: Bool = false
 
     // MARK: - Free Tier Limits
-    static let freeVideoLimit = 10
+    static let weeklyProcessingLimit = 10 // Free users can process 10 videos per week
 
     // MARK: - Pro Entitlements
     enum ProFeature: String, CaseIterable {
@@ -96,25 +96,100 @@ final class SubscriptionService {
         return "\(feature.rawValue) is a Pro feature. Upgrade to unlock!"
     }
 
-    // MARK: - Video Limit Checks
+    // MARK: - Processing Limit Tracking
 
-    /// Check if user can upload more videos
-    func canUploadVideo(currentVideoCount: Int) -> (allowed: Bool, message: String?) {
+    private let processingHistoryKey = "processing_history"
+
+    /// Track when a video was processed
+    func recordVideoProcessing() {
+        var history = getProcessingHistory()
+        history.append(Date())
+        saveProcessingHistory(history)
+        print("📊 Recorded video processing. This week: \(processedThisWeek())/\(SubscriptionService.weeklyProcessingLimit)")
+    }
+
+    /// Get processing history from UserDefaults
+    private func getProcessingHistory() -> [Date] {
+        guard let data = UserDefaults.standard.data(forKey: processingHistoryKey),
+              let dates = try? JSONDecoder().decode([Date].self, from: data) else {
+            return []
+        }
+        return dates
+    }
+
+    /// Save processing history to UserDefaults
+    private func saveProcessingHistory(_ dates: [Date]) {
+        if let data = try? JSONEncoder().encode(dates) {
+            UserDefaults.standard.set(data, forKey: processingHistoryKey)
+        }
+    }
+
+    /// Get the start of the current week (Monday at 00:00)
+    private func startOfCurrentWeek() -> Date {
+        let calendar = Calendar.current
+        let now = Date()
+
+        // Get components for current date
+        var components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+
+        // Set to Monday (weekday = 2 in Gregorian calendar where Sunday = 1)
+        components.weekday = 2 // Monday
+        components.hour = 0
+        components.minute = 0
+        components.second = 0
+
+        return calendar.date(from: components) ?? now
+    }
+
+    /// Count how many videos processed this week
+    func processedThisWeek() -> Int {
+        let history = getProcessingHistory()
+        let weekStart = startOfCurrentWeek()
+
+        return history.filter { $0 >= weekStart }.count
+    }
+
+    /// Check if user can process another video this week
+    func canProcessVideo() -> (allowed: Bool, message: String?) {
         if isPro {
             return (true, nil)
         }
 
-        if currentVideoCount >= SubscriptionService.freeVideoLimit {
-            return (false, "You've reached the free limit of \(SubscriptionService.freeVideoLimit) videos. Upgrade to Pro for unlimited videos!")
+        let processed = processedThisWeek()
+
+        if processed >= SubscriptionService.weeklyProcessingLimit {
+            let resetDate = getNextResetDate()
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEEE" // Day name
+            let resetDay = formatter.string(from: resetDate)
+
+            return (false, "You've reached the free limit of \(SubscriptionService.weeklyProcessingLimit) videos this week. Your limit resets \(resetDay). Upgrade to Pro for unlimited processing!")
         }
 
         return (true, nil)
     }
 
-    /// Get remaining videos for free users
-    func remainingVideos(currentVideoCount: Int) -> Int? {
+    /// Get remaining processing credits for this week
+    func remainingProcessingCredits() -> Int? {
         if isPro { return nil } // Unlimited
-        return max(0, SubscriptionService.freeVideoLimit - currentVideoCount)
+        let processed = processedThisWeek()
+        return max(0, SubscriptionService.weeklyProcessingLimit - processed)
+    }
+
+    /// Get the next reset date (next Monday)
+    func getNextResetDate() -> Date {
+        let calendar = Calendar.current
+        let now = Date()
+
+        // Get next Monday
+        var components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+        components.weekday = 2 // Monday
+        components.weekOfYear = (components.weekOfYear ?? 0) + 1 // Next week
+        components.hour = 0
+        components.minute = 0
+        components.second = 0
+
+        return calendar.date(from: components) ?? now
     }
 
     // MARK: - Watermark

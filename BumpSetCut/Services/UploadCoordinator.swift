@@ -211,15 +211,8 @@ extension UploadCoordinator {
     func handleMultiplePhotosPickerItems(_ items: [PhotosPickerItem], destinationFolder: String = "") {
         logger.info("Handling \(items.count) photos picker items")
 
-        // Check video limit for free users
-        let currentVideoCount = mediaStore.manifest.videos.count
-        let uploadCheck = SubscriptionService.shared.canUploadVideo(currentVideoCount: currentVideoCount + items.count)
-
-        if !uploadCheck.allowed {
-            storageWarningMessage = uploadCheck.message ?? "Video limit reached"
-            showStorageWarning = true
-            return
-        }
+        // Note: Upload limit removed - we only restrict processing, not uploads
+        // Users can upload as many videos as they want, but free users can only process 10/week
 
         // Simple direct upload without naming dialog
         print("🚀 UploadCoordinator: Starting direct upload, set isUploadInProgress = true")

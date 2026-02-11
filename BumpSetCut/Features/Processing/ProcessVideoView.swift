@@ -546,55 +546,90 @@ private struct ProcessingIconView: View {
         let isPro = SubscriptionService.shared.isPro
         let networkMonitor = NetworkMonitor.shared
         let connectionType = networkMonitor.connectionType
+        let processed = SubscriptionService.shared.processedThisWeek()
+        let remaining = SubscriptionService.shared.remainingProcessingCredits()
 
-        return HStack(spacing: BSCSpacing.sm) {
-            Image(systemName: connectionType.icon)
-                .font(.system(size: 14))
-                .foregroundColor(isPro ? .bscSuccess : (networkMonitor.isOnWiFi ? .bscSuccess : .bscOrange))
+        return VStack(spacing: BSCSpacing.sm) {
+            // Weekly processing limit (for free users)
+            if !isPro {
+                HStack(spacing: BSCSpacing.sm) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 14))
+                        .foregroundColor(remaining ?? 0 > 0 ? .bscSuccess : .bscOrange)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(connectionType.displayName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.bscTextPrimary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Weekly Processing")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.bscTextPrimary)
 
-                    if isPro {
-                        Text("• Pro")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.bscSuccess)
+                        if let rem = remaining {
+                            Text("\(rem) of 10 videos remaining this week")
+                                .font(.system(size: 11))
+                                .foregroundColor(rem > 0 ? .bscTextTertiary : .bscOrange)
+                        }
+                    }
+
+                    Spacer()
+
+                    Text("\(processed)/10")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(remaining ?? 0 > 0 ? .bscSuccess : .bscOrange)
+                }
+                .padding(BSCSpacing.md)
+                .background(Color.bscSurfaceGlass)
+                .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+            }
+
+            // Network status
+            HStack(spacing: BSCSpacing.sm) {
+                Image(systemName: connectionType.icon)
+                    .font(.system(size: 14))
+                    .foregroundColor(isPro ? .bscSuccess : (networkMonitor.isOnWiFi ? .bscSuccess : .bscOrange))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(connectionType.displayName)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.bscTextPrimary)
+
+                        if isPro {
+                            Text("• Pro")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.bscSuccess)
+                        }
+                    }
+
+                    if !isPro && !networkMonitor.isOnWiFi {
+                        Text("WiFi required for processing")
+                            .font(.system(size: 11))
+                            .foregroundColor(.bscOrange)
+                    } else if isPro {
+                        Text("Unlimited processing • Works anywhere")
+                            .font(.system(size: 11))
+                            .foregroundColor(.bscTextTertiary)
                     }
                 }
 
-                if !isPro && !networkMonitor.isOnWiFi {
-                    Text("WiFi required for processing")
-                        .font(.system(size: 11))
-                        .foregroundColor(.bscOrange)
-                } else if isPro {
-                    Text("Process anywhere, anytime")
-                        .font(.system(size: 11))
-                        .foregroundColor(.bscTextTertiary)
+                Spacer()
+
+                if !isPro {
+                    Button {
+                        // TODO: Show paywall
+                    } label: {
+                        Text("Go Pro")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.bscOrange)
+                            .padding(.horizontal, BSCSpacing.sm)
+                            .padding(.vertical, BSCSpacing.xs)
+                            .background(Color.bscOrange.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
                 }
             }
-
-            Spacer()
-
-            if !isPro {
-                Button {
-                    // TODO: Show paywall
-                } label: {
-                    Text("Go Pro")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.bscOrange)
-                        .padding(.horizontal, BSCSpacing.sm)
-                        .padding(.vertical, BSCSpacing.xs)
-                        .background(Color.bscOrange.opacity(0.15))
-                        .clipShape(Capsule())
-                }
-            }
+            .padding(BSCSpacing.md)
+            .background(Color.bscSurfaceGlass)
+            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
         }
-        .padding(BSCSpacing.md)
-        .background(Color.bscSurfaceGlass)
-        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
     }
 }
 

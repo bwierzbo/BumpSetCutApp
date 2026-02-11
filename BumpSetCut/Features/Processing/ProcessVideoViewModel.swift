@@ -191,6 +191,14 @@ final class ProcessVideoViewModel {
     func startProcessing(isDebugMode: Bool) {
         currentTask?.cancel()
 
+        // Check weekly processing limit for free users
+        let processingCheck = SubscriptionService.shared.canProcessVideo()
+        if !processingCheck.allowed {
+            errorMessage = processingCheck.message ?? "Processing limit reached"
+            showError = true
+            return
+        }
+
         // Check network requirement for free users
         let isPro = SubscriptionService.shared.isPro
         let networkCheck = NetworkMonitor.shared.canProcessVideo(isPro: isPro)
@@ -240,6 +248,11 @@ final class ProcessVideoViewModel {
                             mediaStore.markVideoAsProcessed(videoId: videoId, metadataFileSize: metadataSize, volleyballType: selectedType)
                         }
                         print(success ? "✅ Video marked as processed in manifest" : "❌ Failed to mark video as processed")
+
+                        // Record successful processing for weekly limit tracking
+                        await MainActor.run {
+                            SubscriptionService.shared.recordVideoProcessing()
+                        }
                     }
                 }
 
