@@ -191,6 +191,16 @@ final class ProcessVideoViewModel {
     func startProcessing(isDebugMode: Bool) {
         currentTask?.cancel()
 
+        // Check network requirement for free users
+        let isPro = SubscriptionService.shared.isPro
+        let networkCheck = NetworkMonitor.shared.canProcessVideo(isPro: isPro)
+
+        if !networkCheck.allowed {
+            errorMessage = networkCheck.reason ?? "Network connection required"
+            showError = true
+            return
+        }
+
         // Check storage space before starting
         // Estimate needing ~1.5x video size (original stays, processed output created)
         let videoSize = StorageChecker.getFileSize(at: videoURL)

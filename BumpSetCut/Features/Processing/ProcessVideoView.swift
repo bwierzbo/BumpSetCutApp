@@ -300,6 +300,9 @@ private extension ProcessVideoView {
                     .foregroundColor(.bscTextSecondary)
             }
 
+            // Network/Pro status banner
+            networkStatusBanner
+
             // Volleyball type picker
             VStack(spacing: BSCSpacing.sm) {
                 HStack {
@@ -537,6 +540,61 @@ private struct ProcessingIconView: View {
                 }
             }
         }
+    }
+
+    var networkStatusBanner: some View {
+        let isPro = SubscriptionService.shared.isPro
+        let networkMonitor = NetworkMonitor.shared
+        let connectionType = networkMonitor.connectionType
+
+        return HStack(spacing: BSCSpacing.sm) {
+            Image(systemName: connectionType.icon)
+                .font(.system(size: 14))
+                .foregroundColor(isPro ? .bscSuccess : (networkMonitor.isOnWiFi ? .bscSuccess : .bscOrange))
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(connectionType.displayName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.bscTextPrimary)
+
+                    if isPro {
+                        Text("• Pro")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.bscSuccess)
+                    }
+                }
+
+                if !isPro && !networkMonitor.isOnWiFi {
+                    Text("WiFi required for processing")
+                        .font(.system(size: 11))
+                        .foregroundColor(.bscOrange)
+                } else if isPro {
+                    Text("Process anywhere, anytime")
+                        .font(.system(size: 11))
+                        .foregroundColor(.bscTextTertiary)
+                }
+            }
+
+            Spacer()
+
+            if !isPro {
+                Button {
+                    // TODO: Show paywall
+                } label: {
+                    Text("Go Pro")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.bscOrange)
+                        .padding(.horizontal, BSCSpacing.sm)
+                        .padding(.vertical, BSCSpacing.xs)
+                        .background(Color.bscOrange.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+            }
+        }
+        .padding(BSCSpacing.md)
+        .background(Color.bscSurfaceGlass)
+        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
     }
 }
 
