@@ -62,6 +62,8 @@ struct CommentsSheet: View {
 
     // MARK: - Comment Row
 
+    @State private var reportingComment: Comment?
+
     private func commentRow(_ comment: Comment) -> some View {
         HStack(alignment: .top, spacing: BSCSpacing.sm) {
             // Avatar
@@ -102,6 +104,20 @@ struct CommentsSheet: View {
             }
 
             Spacer()
+        }
+        .contextMenu {
+            Button {
+                reportingComment = comment
+            } label: {
+                Label("Report Comment", systemImage: "exclamationmark.shield")
+            }
+        }
+        .sheet(item: $reportingComment) { comment in
+            ReportContentSheet(
+                contentType: .comment,
+                contentId: comment.id,
+                reportedUserId: UUID(uuidString: comment.authorId) ?? UUID()
+            )
         }
     }
 

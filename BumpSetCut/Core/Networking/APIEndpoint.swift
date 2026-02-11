@@ -49,6 +49,14 @@ enum APIEndpoint {
     // Username
     case checkUsernameAvailability(username: String)
 
+    // Content Moderation
+    case createReport(CreateReportRequest)
+    case getMyReports(page: Int)
+    case blockUser(userId: String, reason: String?)
+    case unblockUser(userId: String)
+    case getBlockedUsers
+    case isUserBlocked(userId: String)
+
     // Upload
     case createUploadURL
 
@@ -80,6 +88,12 @@ enum APIEndpoint {
         case .checkFollowStatus(let userId): return "/profiles/\(userId)/follow/status"
         case .checkFollowStatusBatch: return "/profiles/follow/status/batch"
         case .checkUsernameAvailability: return "/profiles/username-check"
+        case .createReport: return "/moderation/reports"
+        case .getMyReports: return "/moderation/reports/me"
+        case .blockUser(let userId, _): return "/moderation/blocks/\(userId)"
+        case .unblockUser(let userId): return "/moderation/blocks/\(userId)"
+        case .getBlockedUsers: return "/moderation/blocks"
+        case .isUserBlocked(let userId): return "/moderation/blocks/\(userId)/status"
         case .createUploadURL: return "/uploads"
         }
     }
@@ -87,13 +101,13 @@ enum APIEndpoint {
     var method: HTTPMethod {
         switch self {
         case .signInWithApple, .createHighlight, .addComment, .likeHighlight,
-             .follow, .createUploadURL, .checkFollowStatusBatch:
+             .follow, .createUploadURL, .checkFollowStatusBatch, .createReport, .blockUser:
             return .post
         case .refreshToken:
             return .post
         case .signOut:
             return .post
-        case .deleteAccount, .deleteHighlight, .deleteComment, .unlikeHighlight, .unfollow:
+        case .deleteAccount, .deleteHighlight, .deleteComment, .unlikeHighlight, .unfollow, .unblockUser:
             return .delete
         case .updateProfile:
             return .patch

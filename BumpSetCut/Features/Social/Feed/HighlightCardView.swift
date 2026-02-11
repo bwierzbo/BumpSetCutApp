@@ -19,6 +19,8 @@ struct HighlightCardView: View {
 
     @State private var player: AVPlayer?
     @State private var showDeleteConfirmation = false
+    @State private var showReportSheet = false
+    @State private var showBlockAlert = false
     @State private var showLikeHeart = false
     @State private var currentVideoPage = 0
     @State private var isPaused = false
@@ -143,21 +145,35 @@ struct HighlightCardView: View {
 
                         // Right: action buttons
                         VStack(spacing: BSCSpacing.lg) {
-                            // More menu (only shown when delete is available)
-                            if onDelete != nil {
-                                Menu {
+                            // More menu
+                            Menu {
+                                // Delete (only for own posts)
+                                if onDelete != nil {
                                     Button(role: .destructive) {
                                         showDeleteConfirmation = true
                                     } label: {
                                         Label("Delete Post", systemImage: "trash")
                                     }
-                                } label: {
-                                    Image(systemName: "ellipsis")
-                                        .font(.system(size: 22))
-                                        .foregroundColor(.white)
-                                        .frame(width: 44, height: 32)
-                                        .shadow(color: .black.opacity(0.4), radius: 4)
+                                } else {
+                                    // Report and Block (for other users' posts)
+                                    Button {
+                                        showReportSheet = true
+                                    } label: {
+                                        Label("Report Post", systemImage: "exclamationmark.shield")
+                                    }
+
+                                    Button(role: .destructive) {
+                                        showBlockAlert = true
+                                    } label: {
+                                        Label("Block @\(highlight.author?.username ?? "user")", systemImage: "hand.raised")
+                                    }
                                 }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(.white)
+                                    .frame(width: 44, height: 32)
+                                    .shadow(color: .black.opacity(0.4), radius: 4)
                             }
 
                             // Like
@@ -243,6 +259,22 @@ struct HighlightCardView: View {
         }
         .onChange(of: currentVideoPage) { _, _ in
             if isActive { switchToCurrentPage() }
+        }
+        .sheet(isPresented: $showReportSheet) {
+            ReportContentSheet(
+                contentType: .highlight,
+                contentId: highlight.id,
+                reportedUserId: UUID(uuidString: highlight.authorId) ?? UUID()
+            )
+        }
+        .blockUserAlert(
+            isPresented: $showBlockAlert,
+            username: highlight.author?.username ?? "user",
+            userId: UUID(uuidString: highlight.authorId) ?? UUID()
+        ) {
+            try await ModerationService.shared.blockUser(
+                UUID(uuidString: highlight.authorId) ?? UUID()
+            )
         }
     }
 
