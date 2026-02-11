@@ -155,6 +155,54 @@ extension BSCEmptyState {
             onAction: onViewLibrary
         )
     }
+
+    // MARK: - Social Empty States
+
+    /// No highlights from followed users
+    static func noFollowingHighlights(onDiscover: @escaping () -> Void) -> BSCEmptyState {
+        BSCEmptyState(
+            icon: "person.2",
+            title: "No Highlights Yet",
+            message: "Follow players to see their highlights here. Discover the volleyball community!",
+            actionTitle: "Discover Players",
+            onAction: onDiscover
+        )
+    }
+
+    /// User has no posted highlights
+    static func noUserHighlights(isOwnProfile: Bool) -> BSCEmptyState {
+        BSCEmptyState(
+            icon: "figure.volleyball",
+            title: isOwnProfile ? "No Highlights Yet" : "No Posts Yet",
+            message: isOwnProfile
+                ? "Share your best rallies with the community. Process a video and post your first highlight!"
+                : "This player hasn't posted any highlights yet.",
+            actionTitle: nil,
+            onAction: nil
+        )
+    }
+
+    /// No followers
+    static func noFollowers() -> BSCEmptyState {
+        BSCEmptyState(
+            icon: "person.2.slash",
+            title: "No Followers Yet",
+            message: "Share great highlights to attract followers!",
+            actionTitle: nil,
+            onAction: nil
+        )
+    }
+
+    /// Not following anyone
+    static func noFollowing(onDiscover: @escaping () -> Void) -> BSCEmptyState {
+        BSCEmptyState(
+            icon: "person.crop.circle.badge.plus",
+            title: "Not Following Anyone",
+            message: "Discover players and follow them to see their content in your feed.",
+            actionTitle: "Discover Players",
+            onAction: onDiscover
+        )
+    }
 }
 
 // MARK: - Preview

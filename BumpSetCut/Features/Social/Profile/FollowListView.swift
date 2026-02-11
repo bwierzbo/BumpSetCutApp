@@ -19,12 +19,40 @@ struct FollowListView: View {
             Color.bscBackground.ignoresSafeArea()
 
             if viewModel.isLoading && viewModel.users.isEmpty {
-                ProgressView()
-                    .tint(.bscOrange)
+                // Skeleton loaders
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(0..<8, id: \.self) { _ in
+                            HStack(spacing: BSCSpacing.md) {
+                                BSCSkeletonView()
+                                    .frame(width: 44, height: 44)
+                                    .clipShape(Circle())
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    BSCSkeletonView()
+                                        .frame(width: 120, height: 14)
+                                        .clipShape(Capsule())
+                                }
+
+                                Spacer()
+                            }
+                            .padding(.horizontal, BSCSpacing.lg)
+                            .padding(.vertical, BSCSpacing.md)
+                        }
+                    }
+                }
             } else if viewModel.users.isEmpty {
-                Text("No \(viewModel.title.lowercased()) yet")
-                    .font(.system(size: 15))
-                    .foregroundColor(.bscTextSecondary)
+                // Empty state
+                Group {
+                    switch viewModel.mode {
+                    case .followers:
+                        BSCEmptyState.noFollowers()
+                    case .following:
+                        BSCEmptyState.noFollowing {
+                            // Navigate to search/discover
+                        }
+                    }
+                }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {

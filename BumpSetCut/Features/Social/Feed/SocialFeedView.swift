@@ -106,7 +106,10 @@ struct SocialFeedView: View {
             ForEach(FeedTab.allCases, id: \.self) { tab in
                 Button {
                     guard selectedTab != tab else { return }
-                    selectedTab = tab
+                    UIImpactFeedbackGenerator.light()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTab = tab
+                    }
                     currentIndex = 0
                     viewModel.switchFeed(tab == .following ? .following : .forYou)
                 } label: {

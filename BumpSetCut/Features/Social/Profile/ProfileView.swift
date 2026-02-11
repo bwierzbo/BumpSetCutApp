@@ -193,6 +193,7 @@ struct ProfileView: View {
                 }
             } else {
                 Button {
+                    UINotificationFeedbackGenerator.success()
                     Task { await viewModel.toggleFollow() }
                 } label: {
                     Text(viewModel.isFollowing ? "Following" : "Follow")
@@ -211,26 +212,45 @@ struct ProfileView: View {
     // MARK: - Highlights Grid
 
     private var highlightsGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: BSCSpacing.xs), count: 3), spacing: BSCSpacing.xs) {
-            ForEach(viewModel.highlights) { highlight in
-                Button {
-                    selectedHighlight = highlight
-                } label: {
-                    profileGridCell(highlight)
+        Group {
+            if viewModel.isLoading && viewModel.highlights.isEmpty {
+                // Skeleton loaders
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: BSCSpacing.xs), count: 3), spacing: BSCSpacing.xs) {
+                    ForEach(0..<9, id: \.self) { _ in
+                        BSCSkeletonView()
+                            .aspectRatio(1, contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
+                    }
                 }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    if isOwnProfile {
-                        Button(role: .destructive) {
-                            highlightToDelete = highlight
+                .padding(.horizontal, BSCSpacing.xs)
+            } else if viewModel.highlights.isEmpty {
+                // Empty state
+                BSCEmptyState.noUserHighlights(isOwnProfile: isOwnProfile)
+                    .padding(.top, BSCSpacing.xxl)
+            } else {
+                // Content
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: BSCSpacing.xs), count: 3), spacing: BSCSpacing.xs) {
+                    ForEach(viewModel.highlights) { highlight in
+                        Button {
+                            selectedHighlight = highlight
                         } label: {
-                            Label("Delete Post", systemImage: "trash")
+                            profileGridCell(highlight)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            if isOwnProfile {
+                                Button(role: .destructive) {
+                                    highlightToDelete = highlight
+                                } label: {
+                                    Label("Delete Post", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, BSCSpacing.xs)
             }
         }
-        .padding(.horizontal, BSCSpacing.xs)
     }
 
     private func profileGridCell(_ highlight: Highlight) -> some View {

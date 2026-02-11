@@ -52,6 +52,7 @@ struct HighlightCardView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
+                        UIImpactFeedbackGenerator.medium()
                         onLike()
                         showLikeHeart = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -59,6 +60,7 @@ struct HighlightCardView: View {
                         }
                     }
                     .onTapGesture(count: 1) {
+                        UIImpactFeedbackGenerator.light()
                         togglePlayback()
                     }
 
@@ -120,6 +122,7 @@ struct HighlightCardView: View {
                                 }
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("View profile of \(highlight.author?.username ?? "user")")
 
                             // Caption
                             if let caption = highlight.caption, !caption.isEmpty {
@@ -158,7 +161,10 @@ struct HighlightCardView: View {
                             }
 
                             // Like
-                            Button(action: onLike) {
+                            Button {
+                                UIImpactFeedbackGenerator.medium()
+                                onLike()
+                            } label: {
                                 VStack(spacing: 4) {
                                     Image(systemName: highlight.isLikedByMe ? "heart.fill" : "heart")
                                         .font(.system(size: 28))
@@ -172,9 +178,14 @@ struct HighlightCardView: View {
                                 }
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel(highlight.isLikedByMe ? "Unlike" : "Like")
+                            .accessibilityHint("\(highlight.likesCount) likes")
 
                             // Comments
-                            Button(action: onComment) {
+                            Button {
+                                UIImpactFeedbackGenerator.light()
+                                onComment()
+                            } label: {
                                 VStack(spacing: 4) {
                                     Image(systemName: "bubble.right")
                                         .font(.system(size: 26))
@@ -186,6 +197,8 @@ struct HighlightCardView: View {
                                 }
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Comments")
+                            .accessibilityHint("\(highlight.commentsCount) comments")
 
                             // Share
                             ShareLink(item: highlight.videoURL) {
@@ -200,6 +213,7 @@ struct HighlightCardView: View {
                                 }
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Share highlight")
                         }
                         .padding(.trailing, BSCSpacing.md)
                     }
