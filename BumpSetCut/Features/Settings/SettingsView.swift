@@ -69,11 +69,17 @@ struct SettingsView: View {
                             .offset(y: hasAppeared ? 0 : 20)
                             .animation(.bscSpring.delay(0.35), value: hasAppeared)
 
+                        // Legal section
+                        legalSection
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.4), value: hasAppeared)
+
                         // App info section
                         appInfoSection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.4), value: hasAppeared)
+                            .animation(.bscSpring.delay(0.45), value: hasAppeared)
 
                         Spacer(minLength: BSCSpacing.huge)
                     }
@@ -486,6 +492,78 @@ private extension SettingsView {
                     isEnabled: appSettings.showPerformanceMetrics
                 )
                 #endif
+            }
+        }
+    }
+}
+
+// MARK: - Legal Section
+private extension SettingsView {
+    var legalSection: some View {
+        BSCSettingsSection(title: "Legal", icon: "doc.text.fill", iconColor: .bscTextSecondary) {
+            VStack(spacing: BSCSpacing.sm) {
+                Button {
+                    if let url = URL(string: "https://bumpsetcut.com/privacy") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    HStack {
+                        Text("Privacy Policy")
+                            .font(.subheadline)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .foregroundStyle(.primary)
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                        .fill(Color(.systemGray6))
+                )
+
+                Button {
+                    if let url = URL(string: "https://bumpsetcut.com/terms") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    HStack {
+                        Text("Terms of Service")
+                            .font(.subheadline)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .foregroundStyle(.primary)
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                        .fill(Color(.systemGray6))
+                )
+
+                Button {
+                    if let url = URL(string: "https://bumpsetcut.com/community-guidelines") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    HStack {
+                        Text("Community Guidelines")
+                            .font(.subheadline)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .foregroundStyle(.primary)
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                        .fill(Color(.systemGray6))
+                )
             }
         }
     }

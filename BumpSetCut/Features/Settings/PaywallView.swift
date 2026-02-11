@@ -113,7 +113,9 @@ struct PaywallView: View {
 
                         HStack(spacing: BSCSpacing.sm) {
                             Button("Terms of Service") {
-                                // TODO: Open terms URL
+                                if let url = URL(string: "https://bumpsetcut.com/terms") {
+                                    UIApplication.shared.open(url)
+                                }
                             }
                             .font(.caption2)
 
@@ -121,7 +123,9 @@ struct PaywallView: View {
                                 .foregroundStyle(.secondary)
 
                             Button("Privacy Policy") {
-                                // TODO: Open privacy URL
+                                if let url = URL(string: "https://bumpsetcut.com/privacy") {
+                                    UIApplication.shared.open(url)
+                                }
                             }
                             .font(.caption2)
                         }
