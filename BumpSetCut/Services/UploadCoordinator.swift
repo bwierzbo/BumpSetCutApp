@@ -400,11 +400,17 @@ extension UploadCoordinator {
             let fileSize = (try? FileManager.default.attributesOfItem(atPath: destinationURL.path)[.size] as? Int64) ?? 0
             print("📦 File size: \(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))")
 
-            // Add to MediaStore without custom name (will prompt user after upload)
+            // Detect sport type before adding to MediaStore
+            let asset = AVURLAsset(url: destinationURL)
+            let (detectedType, confidence) = (try? await SportDetector.detectSport(from: asset)) ?? (.beach, 0.5)
+            print("🏐 Detected sport: \(detectedType.displayName) (confidence: \(String(format: "%.1f%%", confidence * 100)))")
+
+            // Add to MediaStore with detected sport type
             let success = mediaStore.addVideo(
                 at: destinationURL,
                 toFolder: destinationFolder,
-                customName: nil
+                customName: nil,
+                volleyballType: detectedType
             )
 
             if success {

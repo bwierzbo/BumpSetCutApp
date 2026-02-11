@@ -361,13 +361,18 @@ final class VideoProcessor {
         // Initialize metadata store on main actor
         self.metadataStore = await MainActor.run { MetadataStore() }
 
-        // Detect sport type automatically
-        let asset = AVURLAsset(url: url)
-        let (detectedType, confidence) = try await SportDetector.detectSport(from: asset)
-        print("🏐 Detected sport: \(detectedType.displayName) (confidence: \(String(format: "%.1f%%", confidence * 100)))")
-
-        // Configure processor for detected sport type
-        configure(for: detectedType)
+        // Use configured volleyball type if already set, otherwise detect it
+        let sportType: VolleyballType
+        if let configuredType = volleyballType {
+            sportType = configuredType
+            print("🏐 Using configured sport type: \(sportType.displayName)")
+        } else {
+            let asset = AVURLAsset(url: url)
+            let (detectedType, confidence) = try await SportDetector.detectSport(from: asset)
+            print("🏐 Auto-detected sport: \(detectedType.displayName) (confidence: \(String(format: "%.1f%%", confidence * 100)))")
+            sportType = detectedType
+            configure(for: sportType)
+        }
 
         // Recreate stage objects with sport-specific config
         self.gate = BallisticsGate(config: config)

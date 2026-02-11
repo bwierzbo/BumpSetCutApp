@@ -204,7 +204,7 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         return fileManager.fileExists(atPath: metadataPath)
     }
     
-    init(originalURL: URL, customName: String?, folderPath: String, createdDate: Date, fileSize: Int64, duration: TimeInterval?) {
+    init(originalURL: URL, customName: String?, folderPath: String, createdDate: Date, fileSize: Int64, duration: TimeInterval?, volleyballType: VolleyballType? = nil) {
         self.id = UUID()
         self.fileName = originalURL.lastPathComponent
         self.customName = customName
@@ -212,6 +212,7 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.createdDate = createdDate
         self.fileSize = fileSize
         self.duration = duration
+        self.volleyballType = volleyballType
         self.debugSessionId = nil
         self.debugDataPath = nil
         self.debugCollectionDate = nil
@@ -719,7 +720,7 @@ extension MediaStore {
         return true
     }
     
-    func addVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil) -> Bool {
+    func addVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, volleyballType: VolleyballType? = nil) -> Bool {
         let videoKey = url.lastPathComponent
         print("📹 MediaStore.addVideo called:")
         print("   - URL: \(url)")
@@ -742,7 +743,8 @@ extension MediaStore {
             folderPath: folderPath,
             createdDate: attributes[.creationDate] as? Date ?? Date(),
             fileSize: fileSize,
-            duration: nil // Can be populated later if needed
+            duration: nil, // Can be populated later if needed
+            volleyballType: volleyballType
         )
         
         manifest.videos[videoKey] = videoMetadata

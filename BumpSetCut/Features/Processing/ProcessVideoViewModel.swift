@@ -157,6 +157,8 @@ final class ProcessVideoViewModel {
         // First check the current folder
         if let matchingVideo = videosInFolder.first(where: { $0.fileName == fileName }) {
             currentVideoMetadata = matchingVideo
+            // Load detected volleyball type, default to beach if not detected
+            selectedVolleyballType = matchingVideo.volleyballType ?? .beach
             return
         }
 
@@ -166,6 +168,7 @@ final class ProcessVideoViewModel {
             let videosInOtherFolder = mediaStore.getVideos(in: folder.path)
             if let matchingVideo = videosInOtherFolder.first(where: { $0.fileName == fileName }) {
                 currentVideoMetadata = matchingVideo
+                selectedVolleyballType = matchingVideo.volleyballType ?? .beach
                 return
             }
         }
@@ -174,6 +177,7 @@ final class ProcessVideoViewModel {
         let rootVideos = mediaStore.getVideos(in: "")
         if let matchingVideo = rootVideos.first(where: { $0.fileName == fileName }) {
             currentVideoMetadata = matchingVideo
+            selectedVolleyballType = matchingVideo.volleyballType ?? .beach
             return
         }
 

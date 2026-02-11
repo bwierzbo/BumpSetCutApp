@@ -302,10 +302,24 @@ private extension ProcessVideoView {
 
             // Volleyball type picker
             VStack(spacing: BSCSpacing.sm) {
-                Text("Volleyball Type")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.bscTextSecondary)
-                    .textCase(.uppercase)
+                HStack {
+                    Text("Volleyball Type")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.bscTextSecondary)
+                        .textCase(.uppercase)
+
+                    Spacer()
+
+                    if let detectedType = viewModel.currentVideoMetadata?.volleyballType {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 10))
+                            Text("Auto-detected: \(detectedType.displayName)")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.bscOrange.opacity(0.8))
+                    }
+                }
 
                 Picker("Volleyball Type", selection: $viewModel.selectedVolleyballType) {
                     ForEach(VolleyballType.allCases, id: \.self) { type in
@@ -314,6 +328,13 @@ private extension ProcessVideoView {
                     }
                 }
                 .pickerStyle(.segmented)
+
+                if viewModel.currentVideoMetadata?.volleyballType != nil,
+                   viewModel.selectedVolleyballType != viewModel.currentVideoMetadata?.volleyballType {
+                    Text("You've overridden the auto-detection")
+                        .font(.system(size: 11))
+                        .foregroundColor(.bscTextTertiary)
+                }
             }
         }
         .padding(BSCSpacing.xl)
