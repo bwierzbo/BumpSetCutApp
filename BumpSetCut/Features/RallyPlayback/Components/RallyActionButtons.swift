@@ -149,8 +149,8 @@ private struct RallyActionButton: View {
 private struct RallyActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
-            .animation(.bscBounce, value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            // Parent view handles animation timing - removed to avoid double-animation conflict
     }
 }
 

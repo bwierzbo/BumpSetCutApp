@@ -43,7 +43,7 @@ struct CardStackView: View {
                         .scaleEffect(scaleForPosition(position))
                         .offset(y: offsetForPosition(position))
                         .opacity(opacityForPosition(position))
-                        .animation(.bscSwipe, value: position)  // Smooth depth effect transitions
+                        .animation(.bscSwipe, value: viewModel.currentIndex)  // Animate on source state change, not computed position
                         .zIndex(viewModel.zIndexForPosition(position))  // EXPLICIT ZINDEX
                     }
                 }

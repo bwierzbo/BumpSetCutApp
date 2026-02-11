@@ -56,9 +56,13 @@ struct HighlightCardView: View {
                     .onTapGesture(count: 2) {
                         UIImpactFeedbackGenerator.medium()
                         onLike()
-                        showLikeHeart = true
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            showLikeHeart = true
+                        }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                            showLikeHeart = false
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                showLikeHeart = false
+                            }
                         }
                     }
                     .onTapGesture(count: 1) {
@@ -73,7 +77,7 @@ struct HighlightCardView: View {
                         .foregroundColor(.white)
                         .shadow(color: .black.opacity(0.3), radius: 8)
                         .transition(.scale.combined(with: .opacity))
-                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showLikeHeart)
+                        // Removed .animation() - withAnimation in gesture handler controls timing
                 }
 
                 // Pause icon
@@ -94,7 +98,7 @@ struct HighlightCardView: View {
                                 Circle()
                                     .fill(i == currentVideoPage ? Color.white : Color.white.opacity(0.35))
                                     .frame(width: 7, height: 7)
-                                    .animation(.easeInOut(duration: 0.2), value: currentVideoPage)
+                                    // Removed .animation() - TabView's implicit animation handles page transitions
                             }
                         }
                         .padding(.horizontal, BSCSpacing.md)

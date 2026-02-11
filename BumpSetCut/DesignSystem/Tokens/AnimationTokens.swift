@@ -140,6 +140,7 @@ private struct FloatingModifier: ViewModifier {
             .offset(y: isFloating ? -8 : 0)
             .animation(.bscFloat, value: isFloating)
             .onAppear { isFloating = true }
+            .onDisappear { isFloating = false }  // Stop animation when off-screen to save battery
     }
 }
 
@@ -160,6 +161,9 @@ private struct PulseGlowModifier: ViewModifier {
             .animation(.bscPulse, value: isPulsing)
             .onAppear {
                 if isActive { isPulsing = true }
+            }
+            .onDisappear {
+                isPulsing = false  // Stop pulsing when off-screen to save battery
             }
             .onChange(of: isActive) { _, newValue in
                 isPulsing = newValue
