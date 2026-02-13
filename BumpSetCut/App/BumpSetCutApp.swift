@@ -13,7 +13,7 @@ import GoogleSignIn
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appSettings = AppSettings.shared
     @State private var authService = AuthenticationService()
-    @State private var networkMonitor = NetworkMonitor()
+    @State private var networkMonitor = NetworkMonitor.shared
     @State private var offlineQueue = OfflineQueue()
 
     var body: some Scene {

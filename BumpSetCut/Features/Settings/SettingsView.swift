@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import StoreKit
 
 // MARK: - SettingsView
 struct SettingsView: View {
@@ -149,7 +150,7 @@ private extension SettingsView {
                     }
                     .padding()
                     .background(
-                        RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                        RoundedRectangle(cornerRadius: BSCRadius.md)
                             .fill(Color(.systemGray6))
                     )
                 } else {
@@ -183,7 +184,7 @@ private extension SettingsView {
                     }
                     .padding()
                     .background(
-                        RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                        RoundedRectangle(cornerRadius: BSCRadius.md)
                             .fill(Color(.systemGray6))
                     )
 
@@ -199,7 +200,7 @@ private extension SettingsView {
                         .frame(maxWidth: .infinity)
                         .padding()
                         .background(
-                            RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                            RoundedRectangle(cornerRadius: BSCRadius.md)
                                 .fill(.blue.gradient)
                         )
                     }
@@ -519,7 +520,7 @@ private extension SettingsView {
                 .foregroundStyle(.primary)
                 .padding()
                 .background(
-                    RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                    RoundedRectangle(cornerRadius: BSCRadius.md)
                         .fill(Color(.systemGray6))
                 )
 
@@ -540,7 +541,7 @@ private extension SettingsView {
                 .foregroundStyle(.primary)
                 .padding()
                 .background(
-                    RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                    RoundedRectangle(cornerRadius: BSCRadius.md)
                         .fill(Color(.systemGray6))
                 )
 
@@ -561,7 +562,7 @@ private extension SettingsView {
                 .foregroundStyle(.primary)
                 .padding()
                 .background(
-                    RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                    RoundedRectangle(cornerRadius: BSCRadius.md)
                         .fill(Color(.systemGray6))
                 )
             }

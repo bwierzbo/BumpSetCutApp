@@ -121,13 +121,6 @@ struct HomeView: View {
                     showingOnboarding = true
                 }
             }
-
-            // Load community stats if authenticated
-            if authService.isAuthenticated, let vm = viewModel {
-                Task {
-                    await vm.loadCommunityStats(for: authService.currentUser)
-                }
-            }
         }
         .alert("Storage Full", isPresented: Binding(
             get: { uploadCoordinator?.showStorageWarning ?? false },
@@ -201,7 +194,7 @@ struct HomeView: View {
     private func animatedContent(contentWidth: CGFloat) -> some View {
         if let viewModel = viewModel {
             StatsCard(
-                stats: viewModel.stats,
+                stats: viewModel.stats(isPro: SubscriptionService.shared.isPro),
                 isLoading: viewModel.isLoading
             )
             .frame(maxWidth: contentWidth)

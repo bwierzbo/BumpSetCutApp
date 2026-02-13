@@ -42,7 +42,6 @@ final class SportDetector {
         ]
 
         let readerOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: outputSettings)
-        readerOutput.alwaysCopiesSampleBuffers = false
 
         guard reader.canAdd(readerOutput) else {
             return (.beach, 0.5)

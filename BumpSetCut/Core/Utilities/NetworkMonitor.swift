@@ -55,7 +55,7 @@ final class NetworkMonitor {
     }
 
     deinit {
-        stopMonitoring()
+        monitor.cancel()
     }
 
     // MARK: - Monitoring
@@ -96,22 +96,17 @@ final class NetworkMonitor {
 
     /// Check if user can process video based on network and subscription status
     func canProcessVideo(isPro: Bool) -> (allowed: Bool, reason: String?) {
-        guard isConnected else {
-            return (false, "No internet connection. Please connect to WiFi or cellular to process videos.")
-        }
-
-        // Pro users can use any connection
+        // Pro users can process offline (e.g., on a plane)
         if isPro {
             return (true, nil)
         }
 
-        // Free users must be on WiFi
-        if connectionType == .wifi || connectionType == .wired {
-            return (true, nil)
+        // Free users require any network connection (WiFi or cellular)
+        guard isConnected else {
+            return (false, "Internet connection required. Please connect to WiFi or cellular to process videos. Upgrade to Pro to process offline.")
         }
 
-        // Free user on cellular
-        return (false, "WiFi required for video processing. Upgrade to Pro to process videos on cellular or offline.")
+        return (true, nil)
     }
 
     /// Check if currently on WiFi (or wired)

@@ -45,10 +45,7 @@ final class ModerationService {
             description: description
         )
 
-        try await apiClient.request(
-            .createReport(request),
-            responseType: ContentReport.self
-        )
+        let _: ContentReport = try await apiClient.request(.createReport(request))
     }
 
     /// Report a comment
@@ -66,10 +63,7 @@ final class ModerationService {
             description: description
         )
 
-        try await apiClient.request(
-            .createReport(request),
-            responseType: ContentReport.self
-        )
+        let _: ContentReport = try await apiClient.request(.createReport(request))
     }
 
     /// Report a user profile
@@ -86,27 +80,20 @@ final class ModerationService {
             description: description
         )
 
-        try await apiClient.request(
-            .createReport(request),
-            responseType: ContentReport.self
-        )
+        let _: ContentReport = try await apiClient.request(.createReport(request))
     }
 
     /// Get user's submitted reports
     func getMyReports(page: Int = 0) async throws -> [ContentReport] {
-        return try await apiClient.request(
-            .getMyReports(page: page),
-            responseType: [ContentReport].self
-        )
+        return try await apiClient.request(.getMyReports(page: page))
     }
 
     // MARK: - User Blocking
 
     /// Block a user
     func blockUser(_ userId: UUID, reason: String? = nil) async throws {
-        let block = try await apiClient.request(
-            .blockUser(userId: userId.uuidString, reason: reason),
-            responseType: UserBlock.self
+        let block: UserBlock = try await apiClient.request(
+            .blockUser(userId: userId.uuidString, reason: reason)
         )
 
         // Update local cache
@@ -115,9 +102,8 @@ final class ModerationService {
 
     /// Unblock a user
     func unblockUser(_ userId: UUID) async throws {
-        try await apiClient.request(
-            .unblockUser(userId: userId.uuidString),
-            responseType: EmptyResponse.self
+        let _: EmptyResponse = try await apiClient.request(
+            .unblockUser(userId: userId.uuidString)
         )
 
         // Update local cache
@@ -129,10 +115,7 @@ final class ModerationService {
         isLoadingBlocks = true
         defer { isLoadingBlocks = false }
 
-        let blocks: [UserBlock] = try await apiClient.request(
-            .getBlockedUsers,
-            responseType: [UserBlock].self
-        )
+        let blocks: [UserBlock] = try await apiClient.request(.getBlockedUsers)
 
         blockedUserIds = Set(blocks.map { $0.blockedId })
     }
@@ -144,19 +127,9 @@ final class ModerationService {
 
     /// Check if user is blocked (remote check)
     func checkIfBlocked(_ userId: UUID) async throws -> Bool {
-        struct BlockStatus: Codable {
-            let isBlocked: Bool
-
-            enum CodingKeys: String, CodingKey {
-                case isBlocked = "is_blocked"
-            }
-        }
-
-        let status = try await apiClient.request(
-            .isUserBlocked(userId: userId.uuidString),
-            responseType: BlockStatus.self
+        let status: BlockStatusResult = try await apiClient.request(
+            .isUserBlocked(userId: userId.uuidString)
         )
-
         return status.isBlocked
     }
 
@@ -172,10 +145,6 @@ final class ModerationService {
 
     /// Filter out blocked users from a list of user profiles
     func filterBlockedUsers(_ users: [UserProfile]) -> [UserProfile] {
-        return users.filter { !isBlocked($0.id) }
+        return users.filter { UUID(uuidString: $0.id).map { !isBlocked($0) } ?? true }
     }
 }
-
-// MARK: - Empty Response
-
-private struct EmptyResponse: Codable {}

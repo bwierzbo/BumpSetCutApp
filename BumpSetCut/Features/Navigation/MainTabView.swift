@@ -14,6 +14,18 @@ enum AppTab: Int, CaseIterable {
     case profile
 }
 
+// Environment key for changing tabs from child views
+private struct ChangeTabKey: EnvironmentKey {
+    static let defaultValue: (AppTab) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var changeTab: (AppTab) -> Void {
+        get { self[ChangeTabKey.self] }
+        set { self[ChangeTabKey.self] = newValue }
+    }
+}
+
 struct MainTabView: View {
     @State private var selectedTab: AppTab = .home
     @State private var mediaStore = MediaStore()
@@ -39,7 +51,9 @@ struct MainTabView: View {
                 if authService.isAuthenticated {
                     SocialFeedView()
                 } else {
-                    AuthGateView()
+                    AuthGateView(onSkip: {
+                        selectedTab = .home
+                    })
                 }
             }
             .tag(AppTab.feed)
@@ -70,6 +84,9 @@ struct MainTabView: View {
         }
         .tint(.bscOrange)
         .environment(navigationState)
+        .environment(\.changeTab, { tab in
+            selectedTab = tab
+        })
         .onChange(of: navigationState.postedHighlight) { _, highlight in
             if highlight != nil {
                 selectedTab = .feed

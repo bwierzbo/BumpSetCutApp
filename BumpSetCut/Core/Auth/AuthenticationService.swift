@@ -59,24 +59,12 @@ final class AuthenticationService {
 
             let profile = try await fetchProfile(userId: session.user.id.uuidString.lowercased())
             currentUser = profile
-            if profile.username.hasPrefix("user_") {
-                authState = .needsUsername
-            } else {
-                authState = .authenticated
-            }
+            authState = .authenticated
             try KeychainHelper.save(profile, for: Self.userKey)
         } catch {
-            // No valid session — fall back to cached user or stay unauthenticated
-            if let cachedUser: UserProfile = KeychainHelper.load(for: Self.userKey) {
-                currentUser = cachedUser
-                if cachedUser.username.hasPrefix("user_") {
-                    authState = .needsUsername
-                } else {
-                    authState = .authenticated
-                }
-            } else {
-                authState = .unauthenticated
-            }
+            // No valid session — stay unauthenticated
+            // Don't use cached user for .needsUsername since there's no active session
+            authState = .unauthenticated
         }
     }
 
@@ -97,7 +85,7 @@ final class AuthenticationService {
             )
 
             // Fetch or create profile from DB
-            let profile = try await fetchOrCreateProfile(
+            let (profile, isNew) = try await fetchOrCreateProfile(
                 userId: session.user.id.uuidString.lowercased()
             )
 
@@ -111,7 +99,7 @@ final class AuthenticationService {
             try KeychainHelper.save(profile, for: Self.userKey)
 
             currentUser = profile
-            if profile.username.hasPrefix("user_") {
+            if isNew && profile.username.hasPrefix("user_") {
                 authState = .needsUsername
             } else {
                 authState = .authenticated
@@ -137,10 +125,10 @@ final class AuthenticationService {
 
             guard let session = session.session else {
                 authState = .unauthenticated
-                throw APIError.serverError(statusCode: 400, message: "Sign up failed — no session returned.")
+                throw APIError.serverError(statusCode: 400, message: "Sign up failed — please check your email for a confirmation link, or try again.")
             }
 
-            let profile = try await fetchOrCreateProfile(
+            let (profile, _) = try await fetchOrCreateProfile(
                 userId: session.user.id.uuidString.lowercased(),
                 username: username
             )
@@ -156,7 +144,7 @@ final class AuthenticationService {
 
             currentUser = profile
             authState = .authenticated
-        } catch let error where !(error is APIError) {
+        } catch {
             authState = .unauthenticated
             throw error
         }
@@ -173,7 +161,7 @@ final class AuthenticationService {
                 password: password
             )
 
-            let profile = try await fetchOrCreateProfile(
+            let (profile, _) = try await fetchOrCreateProfile(
                 userId: session.user.id.uuidString.lowercased()
             )
 
@@ -187,11 +175,7 @@ final class AuthenticationService {
             try KeychainHelper.save(profile, for: Self.userKey)
 
             currentUser = profile
-            if profile.username.hasPrefix("user_") {
-                authState = .needsUsername
-            } else {
-                authState = .authenticated
-            }
+            authState = .authenticated
         } catch {
             authState = .unauthenticated
             throw error
@@ -213,7 +197,7 @@ final class AuthenticationService {
                 )
             )
 
-            let profile = try await fetchOrCreateProfile(
+            let (profile, isNew) = try await fetchOrCreateProfile(
                 userId: session.user.id.uuidString.lowercased()
             )
 
@@ -227,7 +211,7 @@ final class AuthenticationService {
             try KeychainHelper.save(profile, for: Self.userKey)
 
             currentUser = profile
-            if profile.username.hasPrefix("user_") {
+            if isNew && profile.username.hasPrefix("user_") {
                 authState = .needsUsername
             } else {
                 authState = .authenticated
@@ -286,6 +270,20 @@ final class AuthenticationService {
         try? KeychainHelper.save(profile, for: Self.userKey)
     }
 
+    // MARK: - Password Reset
+
+    func resetPassword(email: String) async throws {
+        try await supabase.auth.resetPasswordForEmail(email)
+    }
+
+    func verifyOTP(email: String, token: String) async throws {
+        try await supabase.auth.verifyOTP(email: email, token: token, type: .recovery)
+    }
+
+    func updatePassword(newPassword: String) async throws {
+        try await supabase.auth.update(user: .init(password: newPassword))
+    }
+
     // MARK: - Account Deletion
 
     func deleteAccount() async throws {
@@ -310,20 +308,37 @@ final class AuthenticationService {
             .value
     }
 
-    private func fetchOrCreateProfile(userId: String, username: String? = nil) async throws -> UserProfile {
-        // Try to fetch existing profile first
+    /// Returns (profile, isNewAccount)
+    private func fetchOrCreateProfile(userId: String, username: String? = nil) async throws -> (UserProfile, Bool) {
+        // Try to fetch existing profile first — .single() throws when no rows match
         do {
             let existing: UserProfile = try await fetchProfile(userId: userId)
-            return existing
+
+            // If caller provided a username and the profile has an auto-generated one, update it
+            if let username, existing.username.hasPrefix("user_"), existing.username != username {
+                let updated: UserProfile = try await SupabaseConfig.client
+                    .from("profiles")
+                    .update(["username": username])
+                    .eq("id", value: userId)
+                    .select()
+                    .single()
+                    .execute()
+                    .value
+                return (updated, true)
+            }
+
+            return (existing, false)
         } catch {
-            // Profile doesn't exist — create one
+            // Profile doesn't exist or fetch failed — attempt upsert (PK constraint prevents duplicates)
+            print("[Auth] fetchProfile failed for \(userId.prefix(8))..., will create: \(error)")
         }
 
         let finalUsername = username ?? "user_\(userId.prefix(8))"
 
+        // Use upsert to handle race conditions; DB defaults handle counts and privacy_level
         let profile: UserProfile = try await SupabaseConfig.client
             .from("profiles")
-            .insert([
+            .upsert([
                 "id": userId,
                 "username": finalUsername,
             ])
@@ -332,7 +347,7 @@ final class AuthenticationService {
             .execute()
             .value
 
-        return profile
+        return (profile, true)
     }
 }
 

@@ -11,16 +11,18 @@ import AVFoundation
 struct ShareRallySheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppNavigationState.self) private var navigationState
+    @Environment(AuthenticationService.self) private var authService
     @State private var viewModel: ShareRallyViewModel
     @State private var player = AVPlayer()
     @State private var loopObserver: Any?
     @State private var carouselOffset: CGFloat = 0
     @State private var isSliding = false
+    @State private var showAuthGate = false
     @FocusState private var isCaptionFocused: Bool
 
     init(originalVideoURL: URL, rallyVideoURLs: [URL], savedRallyIndices: [Int],
          initialRallyIndex: Int, thumbnailCache: RallyThumbnailCache,
-         videoId: UUID, rallyInfo: [Int: RallyShareInfo]) {
+         videoId: UUID, rallyInfo: [Int: RallyShareInfo], postAllSaved: Bool = false) {
         let initialPage = savedRallyIndices.firstIndex(of: initialRallyIndex) ?? 0
         _viewModel = State(initialValue: ShareRallyViewModel(
             originalVideoURL: originalVideoURL,
@@ -29,7 +31,8 @@ struct ShareRallySheet: View {
             initialPage: initialPage,
             thumbnailCache: thumbnailCache,
             videoId: videoId,
-            rallyInfo: rallyInfo
+            rallyInfo: rallyInfo,
+            postAllSaved: postAllSaved
         ))
     }
 
@@ -91,6 +94,16 @@ struct ShareRallySheet: View {
                 }
             }
         }
+        .sheet(isPresented: $showAuthGate) {
+            AuthGateView()
+        }
+        .onChange(of: authService.authState) { _, newState in
+            if newState == .authenticated {
+                showAuthGate = false
+                // Auto-upload after signing in
+                viewModel.upload()
+            }
+        }
     }
 
     // MARK: - Rally Carousel
@@ -123,14 +136,28 @@ struct ShareRallySheet: View {
                     .clipped()
                     .allowsHitTesting(false)
 
-                    // Rally number badge
-                    Text("Rally \(viewModel.currentRallyIndex + 1)")
-                        .font(.system(size: 13, weight: .bold))
+                    // Rally badge
+                    if viewModel.postAllSaved && viewModel.savedRallyIndices.count > 1 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "square.stack.fill")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("\(viewModel.savedRallyIndices.count) Rallies")
+                                .font(.system(size: 13, weight: .bold))
+                        }
                         .foregroundColor(.white)
                         .padding(.horizontal, BSCSpacing.sm)
                         .padding(.vertical, BSCSpacing.xxs)
-                        .background(Capsule().fill(Color.black.opacity(0.7)))
+                        .background(Capsule().fill(Color.bscOrange.opacity(0.85)))
                         .padding(BSCSpacing.sm)
+                    } else {
+                        Text("Rally \(viewModel.currentRallyIndex + 1)")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, BSCSpacing.sm)
+                            .padding(.vertical, BSCSpacing.xxs)
+                            .background(Capsule().fill(Color.black.opacity(0.7)))
+                            .padding(BSCSpacing.sm)
+                    }
                 }
                 .offset(x: carouselOffset)
                 .contentShape(Rectangle())
@@ -197,15 +224,15 @@ struct ShareRallySheet: View {
     private func slideTo(page: Int, direction: CGFloat, width: CGFloat) {
         isSliding = true
 
-        // Slide current content off-screen
+        // Slide current content off-screen in the swipe direction
         withAnimation(.easeIn(duration: 0.18)) {
-            carouselOffset = direction * -width
+            carouselOffset = direction * width
         }
 
         // At midpoint: swap page (player seeks while off-screen), jump to opposite side
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             viewModel.selectedPage = page
-            carouselOffset = direction * width
+            carouselOffset = direction * -width
 
             // Slide new content in
             withAnimation(.easeOut(duration: 0.22)) {
@@ -329,19 +356,28 @@ struct ShareRallySheet: View {
     // MARK: - Rally Info
 
     private var rallyInfo: some View {
-        let meta = viewModel.currentMetadata
-        return VStack(spacing: BSCSpacing.xs) {
-            HStack(spacing: BSCSpacing.lg) {
-                Label("\(String(format: "%.1f", meta.duration))s", systemImage: "timer")
-                Label("\(meta.detectionCount) detections", systemImage: "eye")
-            }
-            .font(.system(size: 12))
-            .foregroundColor(.bscTextTertiary)
+        VStack(spacing: BSCSpacing.xs) {
+            if viewModel.postAllSaved && viewModel.savedRallyIndices.count > 1 {
+                HStack(spacing: BSCSpacing.lg) {
+                    Label("\(viewModel.postCount) rallies", systemImage: "square.stack")
+                    Label("\(String(format: "%.1f", viewModel.totalDuration))s total", systemImage: "timer")
+                }
+                .font(.system(size: 12))
+                .foregroundColor(.bscTextTertiary)
+            } else {
+                let meta = viewModel.currentMetadata
+                HStack(spacing: BSCSpacing.lg) {
+                    Label("\(String(format: "%.1f", meta.duration))s", systemImage: "timer")
+                    Label("\(meta.detectionCount) detections", systemImage: "eye")
+                }
+                .font(.system(size: 12))
+                .foregroundColor(.bscTextTertiary)
 
-            if viewModel.isTooLong {
-                Label("Rally must be under 1 minute to share", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.bscError)
+                if viewModel.isTooLong {
+                    Label("Rally must be under 1 minute to share", systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.bscError)
+                }
             }
         }
     }
@@ -358,7 +394,9 @@ struct ShareRallySheet: View {
             VStack(spacing: BSCSpacing.sm) {
                 ProgressView(value: progress)
                     .tint(.bscOrange)
-                Text("Uploading... \(Int(progress * 100))%")
+                Text(viewModel.postAllSaved && viewModel.postCount > 1
+                     ? "Uploading \(viewModel.postCount) rallies... \(Int(progress * 100))%"
+                     : "Uploading... \(Int(progress * 100))%")
                     .font(.system(size: 13))
                     .foregroundColor(.bscTextSecondary)
             }
@@ -404,11 +442,16 @@ struct ShareRallySheet: View {
     // MARK: - Post Button
 
     private var postButton: some View {
-        Button("Post") {
-            viewModel.upload()
+        let canPost = viewModel.state == .idle && (!viewModel.isTooLong || viewModel.postAllSaved)
+        return Button("Post") {
+            if authService.isAuthenticated {
+                viewModel.upload()
+            } else {
+                showAuthGate = true
+            }
         }
-        .disabled(viewModel.state != .idle || viewModel.isTooLong)
+        .disabled(!canPost)
         .fontWeight(.semibold)
-        .foregroundColor(viewModel.state == .idle && !viewModel.isTooLong ? .bscOrange : .bscTextTertiary)
+        .foregroundColor(canPost ? .bscOrange : .bscTextTertiary)
     }
 }

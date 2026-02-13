@@ -33,7 +33,7 @@ final class UsernamePickerViewModel {
     }
 
     var canSubmit: Bool {
-        isValidFormat && isAvailable == true && !isSubmitting
+        isValidFormat && !isChecking && isAvailable != false && !isSubmitting
     }
 
     // MARK: - Availability Check

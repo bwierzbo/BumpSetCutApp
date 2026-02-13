@@ -18,10 +18,7 @@ final class SubscriptionService {
     // MARK: - Public Properties
     var isPro: Bool {
         #if DEBUG
-        // Allow debug override for testing
-        if debugForcePro {
-            return true
-        }
+        return true // TODO: Remove before release
         #endif
         return StoreManager.shared.hasActiveSubscription
     }
@@ -32,8 +29,7 @@ final class SubscriptionService {
 
     // MARK: - Pro Entitlements
     enum ProFeature: String, CaseIterable {
-        case offlineProcessing = "Offline Video Processing"
-        case cellularProcessing = "Process on Cellular"
+        case offlineProcessing = "Offline Processing"
         case unlimitedVideos = "Unlimited Videos"
         case noWatermark = "No Watermark"
         case prioritySupport = "Priority Support"
@@ -41,8 +37,7 @@ final class SubscriptionService {
 
         var icon: String {
             switch self {
-            case .offlineProcessing: return "wifi.slash"
-            case .cellularProcessing: return "antenna.radiowaves.left.and.right"
+            case .offlineProcessing: return "airplane"
             case .unlimitedVideos: return "infinity"
             case .noWatermark: return "eye.slash"
             case .prioritySupport: return "person.fill.checkmark"
@@ -53,11 +48,9 @@ final class SubscriptionService {
         var description: String {
             switch self {
             case .offlineProcessing:
-                return "Process videos without WiFi or internet connection"
-            case .cellularProcessing:
-                return "Process videos on cellular data without WiFi"
+                return "Process videos offline without any internet connection"
             case .unlimitedVideos:
-                return "No limits on video uploads or processing"
+                return "No limits on video uploads or processing per week"
             case .noWatermark:
                 return "Remove BumpSetCut branding from exported videos"
             case .prioritySupport:

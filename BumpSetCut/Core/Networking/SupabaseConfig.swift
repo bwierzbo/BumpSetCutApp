@@ -28,7 +28,8 @@ enum SupabaseConfig {
                 db: .init(encoder: encoder, decoder: decoder),
                 auth: .init(
                     redirectToURL: URL(string: "bumpsetcut://auth-callback"),
-                    autoRefreshToken: true
+                    autoRefreshToken: true,
+                    emitLocalSessionAsInitialSession: true
                 ),
                 global: .init(logger: nil)
             )

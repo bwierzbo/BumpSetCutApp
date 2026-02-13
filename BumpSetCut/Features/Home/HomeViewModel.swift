@@ -13,12 +13,6 @@ final class HomeViewModel {
     var processedVideos: Int = 0
     var isLoading: Bool = false
 
-    // Community stats (populated when authenticated)
-    var followersCount: Int = 0
-    var followingCount: Int = 0
-    var highlightsShared: Int = 0
-    var hasCommunityStats: Bool = false
-
     // MARK: - Initialization
     init(mediaStore: MediaStore, metadataStore: MetadataStore) {
         self.mediaStore = mediaStore
@@ -29,29 +23,6 @@ final class HomeViewModel {
     // MARK: - Public Methods
     func refresh() {
         loadStats()
-    }
-
-    func loadCommunityStats(for user: UserProfile?, apiClient: (any APIClient)? = nil) async {
-        guard let user else {
-            hasCommunityStats = false
-            return
-        }
-
-        let client = apiClient ?? SupabaseAPIClient.shared
-
-        do {
-            let profile: UserProfile = try await client.request(.getProfile(userId: user.id))
-            followersCount = profile.followersCount
-            followingCount = profile.followingCount
-            highlightsShared = profile.highlightsCount
-            hasCommunityStats = true
-        } catch {
-            // Use cached user data if API fails
-            followersCount = user.followersCount
-            followingCount = user.followingCount
-            highlightsShared = user.highlightsCount
-            hasCommunityStats = true
-        }
     }
 
     // MARK: - Private Methods
@@ -92,29 +63,11 @@ struct StatItem: Identifiable {
 }
 
 extension HomeViewModel {
-    var stats: [StatItem] {
-        if hasCommunityStats {
-            return [
-                StatItem(
-                    icon: "person.2.fill",
-                    value: "\(followersCount)",
-                    label: "Followers",
-                    color: .bscOrange
-                ),
-                StatItem(
-                    icon: "heart.fill",
-                    value: "\(followingCount)",
-                    label: "Following",
-                    color: .bscBlue
-                ),
-                StatItem(
-                    icon: "play.rectangle.fill",
-                    value: "\(highlightsShared)",
-                    label: "Shared",
-                    color: .bscTeal
-                )
-            ]
-        } else {
+    func stats(isPro: Bool) -> [StatItem] {
+        let subscriptionService = SubscriptionService.shared
+
+        if isPro {
+            // Pro users: Show processing stats + Pro badge
             return [
                 StatItem(
                     icon: "figure.volleyball",
@@ -127,6 +80,46 @@ extension HomeViewModel {
                     value: "\(processedVideos)",
                     label: "Processed",
                     color: .bscTeal
+                ),
+                StatItem(
+                    icon: "crown.fill",
+                    value: "Pro",
+                    label: "Unlimited",
+                    color: .yellow
+                )
+            ]
+        } else {
+            // Free users: Show processing stats + remaining limit
+            let remaining = subscriptionService.remainingProcessingCredits() ?? 0
+            let batteryIcon: String
+            if remaining == 3 {
+                batteryIcon = "battery.100"
+            } else if remaining == 2 {
+                batteryIcon = "battery.75"
+            } else if remaining == 1 {
+                batteryIcon = "battery.25"
+            } else {
+                batteryIcon = "battery.0"
+            }
+
+            return [
+                StatItem(
+                    icon: "figure.volleyball",
+                    value: "\(totalRallies)",
+                    label: "Rallies",
+                    color: .bscOrange
+                ),
+                StatItem(
+                    icon: "checkmark.seal.fill",
+                    value: "\(processedVideos)",
+                    label: "Processed",
+                    color: .bscTeal
+                ),
+                StatItem(
+                    icon: batteryIcon,
+                    value: "\(remaining)/3",
+                    label: "This Week",
+                    color: remaining > 0 ? .bscBlue : .red
                 )
             ]
         }

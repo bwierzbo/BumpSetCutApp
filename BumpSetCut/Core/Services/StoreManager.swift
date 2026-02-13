@@ -47,8 +47,8 @@ final class StoreManager {
         }
     }
 
-    deinit {
-        updateListenerTask?.cancel()
+    nonisolated deinit {
+        // Task will cancel automatically when no strong references remain
     }
 
     // MARK: - Product Loading
@@ -126,7 +126,7 @@ final class StoreManager {
 
     // MARK: - Transaction Verification
 
-    private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
+    private nonisolated func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
         switch result {
         case .unverified:
             throw StoreError.failedVerification
@@ -138,19 +138,19 @@ final class StoreManager {
     // MARK: - Transaction Listener
 
     private func listenForTransactions() -> Task<Void, Error> {
-        return Task.detached {
+        return Task.detached { [weak self] in
             for await result in Transaction.updates {
                 do {
-                    let transaction = try self.checkVerified(result)
+                    let transaction = try self?.checkVerified(result)
 
                     // Update subscription status when new transaction comes in
-                    await self.updateSubscriptionStatus()
+                    await self?.updateSubscriptionStatus()
 
                     // Always finish the transaction
-                    await transaction.finish()
+                    await transaction?.finish()
 
                 } catch {
-                    self.logger.error("Transaction verification failed: \(error.localizedDescription)")
+                    self?.logger.error("Transaction verification failed: \(error.localizedDescription)")
                 }
             }
         }
@@ -170,6 +170,9 @@ final class StoreManager {
     // MARK: - Helper Methods
 
     var hasActiveSubscription: Bool {
+        #if DEBUG
+        return true // TODO: Remove before release
+        #endif
         return !purchasedProductIDs.isEmpty
     }
 

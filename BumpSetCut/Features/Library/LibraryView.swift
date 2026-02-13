@@ -248,7 +248,11 @@ private extension LibraryView {
                 BSCFolderCard(
                     folder: folder,
                     displayMode: .list,
-                    onTap: { viewModel.navigateToFolder(folder.path) },
+                    onTap: {
+                        withAnimation(.bscSpring) {
+                            viewModel.navigateToFolder(folder.path)
+                        }
+                    },
                     onRename: { newName in
                         Task { try await viewModel.renameFolder(folder, to: newName) }
                     },
@@ -277,7 +281,11 @@ private extension LibraryView {
                 BSCFolderCard(
                     folder: folder,
                     displayMode: .grid,
-                    onTap: { viewModel.navigateToFolder(folder.path) },
+                    onTap: {
+                        withAnimation(.bscSpring) {
+                            viewModel.navigateToFolder(folder.path)
+                        }
+                    },
                     onRename: { newName in
                         Task { try await viewModel.renameFolder(folder, to: newName) }
                     },
@@ -397,19 +405,12 @@ private extension LibraryView {
         // Custom back button when inside a folder
         if !viewModel.isAtRoot {
             ToolbarItem(placement: .navigationBarLeading) {
-                Button {
+                BSCIconButton(icon: "chevron.left", style: .ghost, size: .compact) {
                     withAnimation(.bscSpring) {
                         viewModel.navigateToParent()
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text(viewModel.libraryType.displayName)
-                            .font(.system(size: 16))
-                    }
-                    .foregroundColor(.bscOrange)
                 }
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
 
@@ -444,6 +445,7 @@ private extension LibraryView {
                     BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact) {
                         viewModel.showingCreateFolder = true
                     }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
 
                 // Upload - only in saved library

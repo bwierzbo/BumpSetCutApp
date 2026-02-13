@@ -55,6 +55,15 @@ struct ProfileView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .alert("Sign Out?", isPresented: $showSignOutConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Sign Out", role: .destructive) {
+                authService.signOut()
+                dismiss()
+            }
+        } message: {
+            Text("Are you sure you want to sign out?")
+        }
         .alert("Delete Post?", isPresented: Binding(
             get: { highlightToDelete != nil },
             set: { if !$0 { highlightToDelete = nil } }
@@ -177,6 +186,8 @@ struct ProfileView: View {
 
     // MARK: - Actions
 
+    @State private var showSignOutConfirmation = false
+
     private func actionButtons(_ profile: UserProfile) -> some View {
         HStack(spacing: BSCSpacing.sm) {
             if isOwnProfile {
@@ -188,6 +199,18 @@ struct ProfileView: View {
                         .foregroundColor(.bscTextPrimary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, BSCSpacing.sm)
+                        .background(Color.bscSurfaceGlass)
+                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+                }
+
+                Button {
+                    showSignOutConfirmation = true
+                } label: {
+                    Text("Sign Out")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.red)
+                        .padding(.vertical, BSCSpacing.sm)
+                        .padding(.horizontal, BSCSpacing.md)
                         .background(Color.bscSurfaceGlass)
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                 }

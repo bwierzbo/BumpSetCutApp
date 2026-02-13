@@ -67,6 +67,30 @@ final class ProcessVideoViewModel {
         return String(format: "%d:%02d", minutes, seconds)
     }
 
+    /// Time cut = original video duration minus total rally duration.
+    var timeCutFormatted: String? {
+        guard let originalDuration = currentVideoMetadata?.duration,
+              originalDuration > 0,
+              let videoId = currentVideoMetadata?.id,
+              let metadata = try? MetadataStore().loadMetadata(for: videoId) else { return nil }
+        let cut = originalDuration - metadata.totalRallyDuration
+        guard cut > 0 else { return nil }
+        let minutes = Int(cut) / 60
+        let seconds = Int(cut) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    /// Percentage of original video that was cut.
+    var timeCutPercent: Int? {
+        guard let originalDuration = currentVideoMetadata?.duration,
+              originalDuration > 0,
+              let videoId = currentVideoMetadata?.id,
+              let metadata = try? MetadataStore().loadMetadata(for: videoId) else { return nil }
+        let cut = originalDuration - metadata.totalRallyDuration
+        guard cut > 0 else { return nil }
+        return Int((cut / originalDuration) * 100)
+    }
+
     var canBeProcessed: Bool {
         currentVideoMetadata?.canBeProcessed ?? true
     }

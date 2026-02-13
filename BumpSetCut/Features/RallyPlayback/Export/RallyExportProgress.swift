@@ -240,7 +240,7 @@ struct RallyExportProgress: View {
         }
 
         // Track temp files for cleanup on cancel/failure
-        var tempFiles: [URL] = []
+        let tempFiles: [URL] = []
 
         do {
             await MainActor.run {

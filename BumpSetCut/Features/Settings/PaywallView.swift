@@ -222,7 +222,7 @@ struct FeatureRow: View {
         }
         .padding()
         .background(
-            RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+            RoundedRectangle(cornerRadius: BSCRadius.md)
                 .fill(Color(.systemGray6))
         )
     }

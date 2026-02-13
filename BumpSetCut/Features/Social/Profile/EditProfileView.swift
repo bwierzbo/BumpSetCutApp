@@ -180,7 +180,7 @@ struct EditProfileView: View {
                 )
 
                 let updated: UserProfile = try await SupabaseAPIClient.shared.request(.updateProfile(update))
-                await authService.updateLocalProfile(updated)
+                authService.updateLocalProfile(updated)
                 dismiss()
             } catch {
                 isUploadingAvatar = false

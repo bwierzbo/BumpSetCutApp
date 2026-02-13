@@ -9,17 +9,18 @@ struct GoogleSignInResult {
 
 final class GoogleSignInCoordinator {
 
+    @MainActor
     func signIn() async throws -> GoogleSignInResult {
         let config = GIDConfiguration(clientID: Secrets.googleClientID)
         GIDSignIn.sharedInstance.configuration = config
 
-        guard let scene = await UIApplication.shared.connectedScenes
+        guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).first,
-              let rootVC = await scene.windows.first?.rootViewController else {
+              let rootVC = scene.windows.first?.rootViewController else {
             throw GoogleSignInError.missingRootViewController
         }
 
-        let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC)
+        let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC, hint: nil, additionalScopes: nil)
 
         guard let idToken = result.user.idToken?.tokenString else {
             throw GoogleSignInError.missingIDToken

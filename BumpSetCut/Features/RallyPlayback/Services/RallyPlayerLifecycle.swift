@@ -24,7 +24,7 @@ final class RallyPlayerLifecycle {
         let interval = CMTimeMakeWithSeconds(0.05, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
-                guard let self, !isTrimmingMode() else { return }
+                guard let _ = self, !isTrimmingMode() else { return }
                 if CMTimeCompare(time, endCMTime) >= 0 {
                     playerCache.currentPlayer?.seek(to: startCMTime, toleranceBefore: .zero, toleranceAfter: .zero)
                 }

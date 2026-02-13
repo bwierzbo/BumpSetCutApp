@@ -89,9 +89,9 @@ struct RallyPlayerView: View {
                         viewModel.showOverviewSheet = false
                         viewModel.showExportOptions = true
                     },
-                    onPostToCommunity: { index in
+                    onPostToCommunity: { index, postAll in
                         viewModel.showOverviewSheet = false
-                        rallyIndexToShare = ShareableRallyIndex(index: index)
+                        rallyIndexToShare = ShareableRallyIndex(index: index, postAllSaved: postAll)
                     },
                     onSaveAll: { viewModel.saveAllRallies() },
                     onDeselectAll: { viewModel.deselectAllRallies() },
@@ -106,7 +106,8 @@ struct RallyPlayerView: View {
                     initialRallyIndex: item.index,
                     thumbnailCache: viewModel.thumbnailCache,
                     videoId: viewModel.videoMetadata.id,
-                    rallyInfo: viewModel.savedRallyShareInfo
+                    rallyInfo: viewModel.savedRallyShareInfo,
+                    postAllSaved: item.postAllSaved
                 )
             }
         }
@@ -543,6 +544,7 @@ struct UnifiedRallyCard: View {
 struct ShareableRallyIndex: Identifiable {
     let id = UUID()
     let index: Int
+    var postAllSaved: Bool = false
 }
 
 // MARK: - Preview

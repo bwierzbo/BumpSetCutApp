@@ -38,20 +38,26 @@ struct HighlightCardView: View {
             ZStack {
                 Color.bscMediaBackground.ignoresSafeArea()
 
-                // Video content (single or carousel) with zoom
-                Group {
-                    if isMultiVideo {
-                        multiVideoCarousel(size: geo.size)
-                    } else {
-                        singleVideoView(size: geo.size)
-                    }
-                }
-                .scaleEffect(zoomScale)
-                .offset(zoomOffset)
-                .gesture(pinchGesture)
-
-                // Tap gestures layer
-                Color.clear
+                // Video content (single or carousel) with zoom + tap gestures
+                // Tap gestures are on the same view as the TabView so they don't block swipes
+                videoContent(size: geo.size)
+                    .scaleEffect(zoomScale)
+                    .offset(zoomOffset)
+                    .simultaneousGesture(pinchOnlyGesture)
+                    .modifier(ConditionalDragModifier(isEnabled: zoomScale > 1.0, onDrag: { translation in
+                        zoomOffset = CGSize(
+                            width: lastZoomOffset.width + translation.width,
+                            height: lastZoomOffset.height + translation.height
+                        )
+                    }, onEnd: {
+                        lastZoomOffset = zoomOffset
+                        if zoomScale <= 1.05 {
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                zoomOffset = .zero
+                            }
+                            lastZoomOffset = .zero
+                        }
+                    }))
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
                         UIImpactFeedbackGenerator.medium()
@@ -77,7 +83,7 @@ struct HighlightCardView: View {
                         .foregroundColor(.white)
                         .shadow(color: .black.opacity(0.3), radius: 8)
                         .transition(.scale.combined(with: .opacity))
-                        // Removed .animation() - withAnimation in gesture handler controls timing
+                        .allowsHitTesting(false)
                 }
 
                 // Pause icon
@@ -87,6 +93,7 @@ struct HighlightCardView: View {
                         .foregroundColor(.white.opacity(0.8))
                         .shadow(color: .black.opacity(0.4), radius: 10)
                         .transition(.opacity)
+                        .allowsHitTesting(false)
                 }
 
                 // Page indicator dots at bottom for multi-video
@@ -98,7 +105,6 @@ struct HighlightCardView: View {
                                 Circle()
                                     .fill(i == currentVideoPage ? Color.white : Color.white.opacity(0.35))
                                     .frame(width: 7, height: 7)
-                                    // Removed .animation() - TabView's implicit animation handles page transitions
                             }
                         }
                         .padding(.horizontal, BSCSpacing.md)
@@ -106,139 +112,11 @@ struct HighlightCardView: View {
                         .background(Capsule().fill(Color.black.opacity(0.45)))
                         .padding(.bottom, BSCSpacing.huge + 8)
                     }
+                    .allowsHitTesting(false)
                 }
 
                 // Overlay controls
-                VStack {
-                    Spacer()
-
-                    HStack(alignment: .bottom, spacing: BSCSpacing.lg) {
-                        // Left: author info + caption
-                        VStack(alignment: .leading, spacing: BSCSpacing.sm) {
-                            // Author
-                            Button {
-                                onProfile(highlight.authorId)
-                            } label: {
-                                HStack(spacing: BSCSpacing.xs) {
-                                    AvatarView(url: highlight.author?.avatarURL, name: highlight.author?.username ?? "?", size: 32)
-
-                                    Text(highlight.author?.username ?? "Unknown")
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundColor(.white)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("View profile of \(highlight.author?.username ?? "user")")
-
-                            // Caption
-                            if let caption = highlight.caption, !caption.isEmpty {
-                                Text(caption)
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.white)
-                                    .lineLimit(2)
-                            }
-
-                            // Rally metadata
-                            Label("\(String(format: "%.1f", highlight.rallyMetadata.duration))s", systemImage: "timer")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.7))
-                        }
-                        .padding(.leading, BSCSpacing.md)
-
-                        Spacer()
-
-                        // Right: action buttons
-                        VStack(spacing: BSCSpacing.lg) {
-                            // More menu
-                            Menu {
-                                // Delete (only for own posts)
-                                if onDelete != nil {
-                                    Button(role: .destructive) {
-                                        showDeleteConfirmation = true
-                                    } label: {
-                                        Label("Delete Post", systemImage: "trash")
-                                    }
-                                } else {
-                                    // Report and Block (for other users' posts)
-                                    Button {
-                                        showReportSheet = true
-                                    } label: {
-                                        Label("Report Post", systemImage: "exclamationmark.shield")
-                                    }
-
-                                    Button(role: .destructive) {
-                                        showBlockAlert = true
-                                    } label: {
-                                        Label("Block @\(highlight.author?.username ?? "user")", systemImage: "hand.raised")
-                                    }
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis")
-                                    .font(.system(size: 22))
-                                    .foregroundColor(.white)
-                                    .frame(width: 44, height: 32)
-                                    .shadow(color: .black.opacity(0.4), radius: 4)
-                            }
-
-                            // Like
-                            Button {
-                                UIImpactFeedbackGenerator.medium()
-                                onLike()
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: highlight.isLikedByMe ? "heart.fill" : "heart")
-                                        .font(.system(size: 28))
-                                        .foregroundColor(highlight.isLikedByMe ? .red : .white)
-
-                                    if !highlight.hideLikes {
-                                        Text(formatCount(highlight.likesCount))
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(.white)
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(highlight.isLikedByMe ? "Unlike" : "Like")
-                            .accessibilityHint("\(highlight.likesCount) likes")
-
-                            // Comments
-                            Button {
-                                UIImpactFeedbackGenerator.light()
-                                onComment()
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: "bubble.right")
-                                        .font(.system(size: 26))
-                                        .foregroundColor(.white)
-
-                                    Text(formatCount(highlight.commentsCount))
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.white)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Comments")
-                            .accessibilityHint("\(highlight.commentsCount) comments")
-
-                            // Share
-                            ShareLink(item: highlight.videoURL) {
-                                VStack(spacing: 4) {
-                                    Image(systemName: "arrowshape.turn.up.right")
-                                        .font(.system(size: 26))
-                                        .foregroundColor(.white)
-
-                                    Text("Share")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.white)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Share highlight")
-                        }
-                        .padding(.trailing, BSCSpacing.md)
-                    }
-                    .padding(.bottom, BSCSpacing.huge)
-                }
+                overlayControls
             }
         }
         .alert("Delete Post?", isPresented: $showDeleteConfirmation) {
@@ -267,7 +145,7 @@ struct HighlightCardView: View {
         .sheet(isPresented: $showReportSheet) {
             ReportContentSheet(
                 contentType: .highlight,
-                contentId: highlight.id,
+                contentId: UUID(uuidString: highlight.id) ?? UUID(),
                 reportedUserId: UUID(uuidString: highlight.authorId) ?? UUID()
             )
         }
@@ -279,6 +157,141 @@ struct HighlightCardView: View {
             try await ModerationService.shared.blockUser(
                 UUID(uuidString: highlight.authorId) ?? UUID()
             )
+        }
+    }
+
+    // MARK: - Overlay Controls
+
+    private var overlayControls: some View {
+        VStack {
+            Spacer()
+
+            HStack(alignment: .bottom, spacing: BSCSpacing.lg) {
+                // Left: author info + caption
+                VStack(alignment: .leading, spacing: BSCSpacing.sm) {
+                    // Author
+                    Button {
+                        onProfile(highlight.authorId)
+                    } label: {
+                        HStack(spacing: BSCSpacing.xs) {
+                            AvatarView(url: highlight.author?.avatarURL, name: highlight.author?.username ?? "?", size: 32)
+
+                            Text(highlight.author?.username ?? "Unknown")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("View profile of \(highlight.author?.username ?? "user")")
+
+                    // Caption
+                    if let caption = highlight.caption, !caption.isEmpty {
+                        Text(caption)
+                            .font(.system(size: 14))
+                            .foregroundColor(.white)
+                            .lineLimit(2)
+                    }
+
+                    // Rally metadata
+                    Label("\(String(format: "%.1f", highlight.rallyMetadata.duration))s", systemImage: "timer")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .padding(.leading, BSCSpacing.md)
+
+                Spacer()
+
+                // Right: action buttons
+                VStack(spacing: BSCSpacing.lg) {
+                    // More menu
+                    Menu {
+                        // Delete (only for own posts)
+                        if onDelete != nil {
+                            Button(role: .destructive) {
+                                showDeleteConfirmation = true
+                            } label: {
+                                Label("Delete Post", systemImage: "trash")
+                            }
+                        } else {
+                            // Report and Block (for other users' posts)
+                            Button {
+                                showReportSheet = true
+                            } label: {
+                                Label("Report Post", systemImage: "exclamationmark.shield")
+                            }
+
+                            Button(role: .destructive) {
+                                showBlockAlert = true
+                            } label: {
+                                Label("Block @\(highlight.author?.username ?? "user")", systemImage: "hand.raised")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 22))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 32)
+                            .shadow(color: .black.opacity(0.4), radius: 4)
+                    }
+
+                    // Like
+                    Button {
+                        UIImpactFeedbackGenerator.medium()
+                        onLike()
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: highlight.isLikedByMe ? "heart.fill" : "heart")
+                                .font(.system(size: 28))
+                                .foregroundColor(highlight.isLikedByMe ? .red : .white)
+
+                            if !highlight.hideLikes {
+                                Text(formatCount(highlight.likesCount))
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(highlight.isLikedByMe ? "Unlike" : "Like")
+                    .accessibilityHint("\(highlight.likesCount) likes")
+
+                    // Comments
+                    Button {
+                        UIImpactFeedbackGenerator.light()
+                        onComment()
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "bubble.right")
+                                .font(.system(size: 26))
+                                .foregroundColor(.white)
+
+                            Text(formatCount(highlight.commentsCount))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Comments")
+                    .accessibilityHint("\(highlight.commentsCount) comments")
+
+                    // Share
+                    ShareLink(item: highlight.videoURL) {
+                        VStack(spacing: 4) {
+                            Image(systemName: "arrowshape.turn.up.right")
+                                .font(.system(size: 26))
+                                .foregroundColor(.white)
+
+                            Text("Share")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Share highlight")
+                }
+                .padding(.trailing, BSCSpacing.md)
+            }
+            .padding(.bottom, BSCSpacing.huge)
         }
     }
 
@@ -307,7 +320,8 @@ struct HighlightCardView: View {
 
     // MARK: - Pinch to Zoom
 
-    private var pinchGesture: some Gesture {
+    /// Pinch gesture: uses simultaneousGesture so it doesn't block TabView swipes.
+    private var pinchOnlyGesture: some Gesture {
         MagnifyGesture()
             .onChanged { value in
                 let newScale = lastZoomScale * value.magnification
@@ -315,7 +329,6 @@ struct HighlightCardView: View {
             }
             .onEnded { _ in
                 if zoomScale <= 1.05 {
-                    // Snap back to normal
                     withAnimation(.easeOut(duration: 0.25)) {
                         zoomScale = 1.0
                         zoomOffset = .zero
@@ -326,25 +339,15 @@ struct HighlightCardView: View {
                     lastZoomScale = zoomScale
                 }
             }
-            .simultaneously(with:
-                DragGesture()
-                    .onChanged { value in
-                        guard zoomScale > 1.0 else { return }
-                        zoomOffset = CGSize(
-                            width: lastZoomOffset.width + value.translation.width,
-                            height: lastZoomOffset.height + value.translation.height
-                        )
-                    }
-                    .onEnded { _ in
-                        lastZoomOffset = zoomOffset
-                        if zoomScale <= 1.05 {
-                            withAnimation(.easeOut(duration: 0.25)) {
-                                zoomOffset = .zero
-                            }
-                            lastZoomOffset = .zero
-                        }
-                    }
-            )
+    }
+
+    @ViewBuilder
+    private func videoContent(size: CGSize) -> some View {
+        if isMultiVideo {
+            multiVideoCarousel(size: size)
+        } else {
+            singleVideoView(size: size)
+        }
     }
 
     // MARK: - Single Video
@@ -434,5 +437,26 @@ struct HighlightCardView: View {
         if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
         if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000) }
         return "\(count)"
+    }
+}
+
+// MARK: - Conditional Drag Modifier
+
+/// Only attaches a DragGesture when enabled, so it doesn't block other gestures (like TabView swipe) when disabled.
+private struct ConditionalDragModifier: ViewModifier {
+    let isEnabled: Bool
+    let onDrag: (CGSize) -> Void
+    let onEnd: () -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.gesture(
+                DragGesture()
+                    .onChanged { value in onDrag(value.translation) }
+                    .onEnded { _ in onEnd() }
+            )
+        } else {
+            content
+        }
     }
 }

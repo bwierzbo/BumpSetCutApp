@@ -23,6 +23,10 @@ struct UsernameAvailability: Decodable {
     let isAvailable: Bool
 }
 
+struct BlockStatusResult: Decodable {
+    let isBlocked: Bool
+}
+
 
 // MARK: - Supabase API Client
 
@@ -312,6 +316,80 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .value
             return response
 
+        // MARK: Moderation
+
+        case .createReport(let report):
+            let response: T = try await supabase
+                .from("reports")
+                .insert(report)
+                .select()
+                .single()
+                .execute()
+                .value
+            return response
+
+        case .getMyReports(let page):
+            let myId = try await currentUserId()
+            let pageSize = 20
+            let from = page * pageSize
+            let to = from + pageSize - 1
+            let response: T = try await supabase
+                .from("reports")
+                .select()
+                .eq("reporter_id", value: myId)
+                .order("created_at", ascending: false)
+                .range(from: from, to: to)
+                .execute()
+                .value
+            return response
+
+        case .blockUser(let userId, let reason):
+            let myId = try await currentUserId()
+            let blockData: [String: String] = [
+                "blocker_id": myId,
+                "blocked_id": userId,
+            ].merging(reason.map { ["reason": $0] } ?? [:]) { _, new in new }
+            let response: T = try await supabase
+                .from("blocks")
+                .insert(blockData)
+                .select()
+                .single()
+                .execute()
+                .value
+            return response
+
+        case .unblockUser(let userId):
+            let myId = try await currentUserId()
+            try await supabase
+                .from("blocks")
+                .delete()
+                .eq("blocker_id", value: myId)
+                .eq("blocked_id", value: userId)
+                .execute()
+            return EmptyResponse() as! T
+
+        case .getBlockedUsers:
+            let myId = try await currentUserId()
+            let response: T = try await supabase
+                .from("blocks")
+                .select()
+                .eq("blocker_id", value: myId)
+                .execute()
+                .value
+            return response
+
+        case .isUserBlocked(let userId):
+            let myId = try await currentUserId()
+            let rows: [UserBlock] = try await supabase
+                .from("blocks")
+                .select()
+                .eq("blocker_id", value: myId)
+                .eq("blocked_id", value: userId)
+                .limit(1)
+                .execute()
+                .value
+            return BlockStatusResult(isBlocked: !rows.isEmpty) as! T
+
         // MARK: Auth (handled via Supabase Auth, not DB)
 
         case .signInWithApple, .refreshToken, .signOut, .deleteAccount:
@@ -396,7 +474,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
 
         func writeString(_ string: String) {
             let data = Data(string.utf8)
-            data.withUnsafeBytes { buffer in
+            _ = data.withUnsafeBytes { buffer in
                 outputStream.write(buffer.baseAddress!.assumingMemoryBound(to: UInt8.self), maxLength: data.count)
             }
         }

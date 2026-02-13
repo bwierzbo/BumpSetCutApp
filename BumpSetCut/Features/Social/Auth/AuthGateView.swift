@@ -12,6 +12,9 @@ struct AuthGateView: View {
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: AuthGateViewModel?
+    @State private var showForgotPassword = false
+
+    var onSkip: (() -> Void)? = nil
 
     var body: some View {
         ZStack {
@@ -92,58 +95,15 @@ struct AuthGateView: View {
                         }
                         .buttonStyle(.plain)
 
-                        // Divider
-                        HStack {
-                            Rectangle().fill(Color.white.opacity(0.15)).frame(height: 1)
-                            Text("or")
-                                .font(.system(size: 13))
-                                .foregroundColor(.bscTextTertiary)
-                            Rectangle().fill(Color.white.opacity(0.15)).frame(height: 1)
-                        }
-                        .padding(.vertical, BSCSpacing.xs)
-
-                        // Sign in with Apple
-                        SignInWithAppleButton(.signIn) { request in
-                            request.requestedScopes = [.fullName, .email]
-                        } onCompletion: { result in
-                            switch result {
-                            case .success:
-                                Task { await viewModel?.signInWithApple() }
-                            case .failure(let error):
-                                if let authError = error as? ASAuthorizationError,
-                                   authError.code == .canceled {
-                                    // User cancelled — do nothing
-                                } else {
-                                    viewModel?.errorMessage = error.localizedDescription
-                                    viewModel?.showError = true
-                                }
-                            }
-                        }
-                        .signInWithAppleButtonStyle(.white)
-                        .frame(height: 50)
-                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
-
-                        // Sign in with Google
-                        Button {
-                            Task { await viewModel?.signInWithGoogle() }
-                        } label: {
-                            HStack(spacing: BSCSpacing.sm) {
-                                Image(systemName: "g.circle.fill")
-                                    .font(.system(size: 20))
-                                Text("Sign in with Google")
-                                    .font(.system(size: 16, weight: .medium))
-                            }
-                            .foregroundColor(.black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
-                        }
                     }
 
                     // Continue without account
                     Button {
-                        dismiss()
+                        if let onSkip = onSkip {
+                            onSkip()
+                        } else {
+                            dismiss()
+                        }
                     } label: {
                         Text("Continue without account")
                             .font(.system(size: 15, weight: .medium))
@@ -172,6 +132,9 @@ struct AuthGateView: View {
         } message: {
             Text(viewModel?.errorMessage ?? "An unknown error occurred.")
         }
+        .sheet(isPresented: $showForgotPassword) {
+            ForgotPasswordView(authService: authService)
+        }
     }
 
     // MARK: - Email Form
@@ -186,7 +149,7 @@ struct AuthGateView: View {
                     ))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .textContentType(.username)
+                    .textContentType(.oneTimeCode)
                     .onChange(of: viewModel?.username ?? "") { _, _ in
                         viewModel?.usernameChanged()
                     }
@@ -224,7 +187,7 @@ struct AuthGateView: View {
                 get: { viewModel?.password ?? "" },
                 set: { viewModel?.password = $0 }
             ))
-            .textContentType(viewModel?.isSignUpMode == true ? .newPassword : .password)
+            .textContentType(.oneTimeCode)
 
             // Password requirements (sign-up only)
             if viewModel?.isSignUpMode == true, let vm = viewModel, !vm.password.isEmpty {
@@ -235,6 +198,41 @@ struct AuthGateView: View {
                     passwordReq("One symbol", met: vm.hasSymbol)
                 }
                 .padding(.top, BSCSpacing.xxs)
+            }
+
+            // Confirm password (sign-up only)
+            if viewModel?.isSignUpMode == true {
+                SecureField("Confirm Password", text: Binding(
+                    get: { viewModel?.confirmPassword ?? "" },
+                    set: { viewModel?.confirmPassword = $0 }
+                ))
+                .textContentType(.oneTimeCode)
+
+                if let vm = viewModel, !vm.confirmPassword.isEmpty {
+                    HStack(spacing: BSCSpacing.xs) {
+                        Image(systemName: vm.passwordsMatch ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(vm.passwordsMatch ? .bscSuccess : .red)
+                        Text(vm.passwordsMatch ? "Passwords match" : "Passwords do not match")
+                            .font(.system(size: 12))
+                            .foregroundColor(vm.passwordsMatch ? .bscTextSecondary : .red)
+                    }
+                }
+            }
+
+            // Forgot password (sign-in only)
+            if viewModel?.isSignUpMode == false {
+                HStack {
+                    Spacer()
+                    Button {
+                        showForgotPassword = true
+                    } label: {
+                        Text("Forgot password?")
+                            .font(.system(size: 13))
+                            .foregroundColor(.bscOrange)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .textFieldStyle(.roundedBorder)

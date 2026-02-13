@@ -115,7 +115,7 @@ struct CommentsSheet: View {
         .sheet(item: $reportingComment) { comment in
             ReportContentSheet(
                 contentType: .comment,
-                contentId: comment.id,
+                contentId: UUID(uuidString: comment.id) ?? UUID(),
                 reportedUserId: UUID(uuidString: comment.authorId) ?? UUID()
             )
         }

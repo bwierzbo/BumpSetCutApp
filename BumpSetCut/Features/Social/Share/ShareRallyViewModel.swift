@@ -47,6 +47,7 @@ final class ShareRallyViewModel {
     var caption: String = ""
     var hideLikes: Bool = false
     var selectedPage: Int
+    var postAllSaved: Bool
     private(set) var state: ShareState = .idle
 
     let originalVideoURL: URL
@@ -75,6 +76,19 @@ final class ShareRallyViewModel {
             ?? RallyHighlightMetadata(duration: 0, confidence: 0, quality: 0, detectionCount: 0)
     }
 
+    /// Total duration of all rallies that will be posted.
+    var totalDuration: Double {
+        if postAllSaved {
+            return savedRallyIndices.compactMap { rallyInfo[$0] }.reduce(0) { $0 + ($1.endTime - $1.startTime) }
+        }
+        return currentDuration ?? 0
+    }
+
+    /// Number of rallies that will be posted.
+    var postCount: Int {
+        postAllSaved ? savedRallyIndices.count : 1
+    }
+
     // MARK: - Hashtag Extraction
 
     var extractedTags: [String] {
@@ -91,7 +105,8 @@ final class ShareRallyViewModel {
 
     init(originalVideoURL: URL, rallyVideoURLs: [URL], savedRallyIndices: [Int],
          initialPage: Int, thumbnailCache: RallyThumbnailCache, videoId: UUID,
-         rallyInfo: [Int: RallyShareInfo], apiClient: (any APIClient)? = nil) {
+         rallyInfo: [Int: RallyShareInfo], postAllSaved: Bool = false,
+         apiClient: (any APIClient)? = nil) {
         self.originalVideoURL = originalVideoURL
         self.rallyVideoURLs = rallyVideoURLs
         self.savedRallyIndices = savedRallyIndices
@@ -99,6 +114,7 @@ final class ShareRallyViewModel {
         self.thumbnailCache = thumbnailCache
         self.videoId = videoId
         self.rallyInfo = rallyInfo
+        self.postAllSaved = postAllSaved
         self.apiClient = apiClient ?? SupabaseAPIClient.shared
     }
 
@@ -118,11 +134,15 @@ final class ShareRallyViewModel {
 
     func upload() {
         guard state == .idle else { return }
-        if isTooLong {
-            state = .failed("Rally must be under 1 minute to share")
-            return
+        if postAllSaved {
+            startBatchUpload()
+        } else {
+            if isTooLong {
+                state = .failed("Rally must be under 1 minute to share")
+                return
+            }
+            startUpload()
         }
-        startUpload()
     }
 
     func retry() {
@@ -189,6 +209,86 @@ final class ShareRallyViewModel {
                     localVideoId: videoId,
                     localRallyIndex: rallyIndex,
                     rallyMetadata: metadata
+                )
+
+                let highlight: Highlight = try await apiClient.request(.createHighlight(upload))
+                state = .complete(highlight)
+            } catch is CancellationError {
+                state = .idle
+            } catch {
+                state = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    // MARK: - Batch Upload (Multi-Rally Carousel)
+
+    private func startBatchUpload() {
+        uploadTask = Task {
+            state = .uploading(progress: 0)
+
+            do {
+                let indicesToUpload = savedRallyIndices
+                let totalCount = Double(indicesToUpload.count)
+                var uploadedURLs: [String] = []
+                var clipURLsToClean: [URL] = []
+
+                let asset = AVURLAsset(url: originalVideoURL)
+
+                // Export and upload each rally
+                for (i, rallyIndex) in indicesToUpload.enumerated() {
+                    try Task.checkCancellation()
+
+                    guard let info = rallyInfo[rallyIndex] else { continue }
+                    let startCM = CMTime(seconds: info.startTime, preferredTimescale: 600)
+                    let endCM = CMTime(seconds: info.endTime, preferredTimescale: 600)
+
+                    let clipURL = try await exportRallyClip(
+                        asset: asset, startTime: startCM, endTime: endCM, rallyIndex: rallyIndex
+                    )
+                    clipURLsToClean.append(clipURL)
+
+                    try Task.checkCancellation()
+
+                    // Upload with progress scoped to this rally's portion
+                    let baseProgress = Double(i) / totalCount
+                    let uploadURL = try await apiClient.upload(
+                        fileURL: clipURL,
+                        to: .createUploadURL
+                    ) { [weak self] progress in
+                        Task { @MainActor in
+                            let overallProgress = baseProgress + (progress / totalCount)
+                            self?.state = .uploading(progress: overallProgress)
+                        }
+                    }
+
+                    uploadedURLs.append(uploadURL.absoluteString)
+                }
+
+                // Clean up temp clips
+                for url in clipURLsToClean {
+                    try? FileManager.default.removeItem(at: url)
+                }
+
+                try Task.checkCancellation()
+                state = .processing
+
+                // Create a single highlight with all video URLs
+                let userId = try await SupabaseConfig.client.auth.session.user.id.uuidString.lowercased()
+                let firstIndex = indicesToUpload.first ?? 0
+                let firstMetadata = rallyInfo[firstIndex]?.metadata
+                    ?? RallyHighlightMetadata(duration: 0, confidence: 0, quality: 0, detectionCount: 0)
+
+                let upload = HighlightUpload(
+                    authorId: userId,
+                    muxPlaybackId: uploadedURLs.first ?? "",
+                    caption: caption.isEmpty ? nil : caption,
+                    tags: extractedTags,
+                    hideLikes: hideLikes,
+                    videoUrls: uploadedURLs.count > 1 ? uploadedURLs : nil,
+                    localVideoId: videoId,
+                    localRallyIndex: nil,
+                    rallyMetadata: firstMetadata
                 )
 
                 let highlight: Highlight = try await apiClient.request(.createHighlight(upload))

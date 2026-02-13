@@ -266,9 +266,20 @@ private extension ProcessVideoView {
                         Text(viewModel.detectedRallyDurationFormatted)
                             .font(.system(size: 24, weight: .bold))
                             .foregroundColor(.bscTeal)
-                        Text("Total Duration")
+                        Text("Rally Time")
                             .font(.system(size: 12))
                             .foregroundColor(.bscTextSecondary)
+                    }
+                    if let timeCut = viewModel.timeCutFormatted,
+                       let percent = viewModel.timeCutPercent {
+                        VStack(spacing: BSCSpacing.xxs) {
+                            Text(timeCut)
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(.bscBlue)
+                            Text("\(percent)% Cut")
+                                .font(.system(size: 12))
+                                .foregroundColor(.bscTextSecondary)
+                        }
                     }
                 }
                 .padding(.top, BSCSpacing.xs)
@@ -541,7 +552,10 @@ private struct ProcessingIconView: View {
             }
         }
     }
+}
 
+// MARK: - Network Status Banner
+private extension ProcessVideoView {
     var networkStatusBanner: some View {
         let isPro = SubscriptionService.shared.isPro
         let networkMonitor = NetworkMonitor.shared

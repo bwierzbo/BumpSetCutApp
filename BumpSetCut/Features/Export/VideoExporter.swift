@@ -279,7 +279,7 @@ final class VideoExporter {
         if #available(iOS 18.0, *) {
             // Poll progress on a background task while awaiting export
             let pollTask = Task.detached { [weak exporter] in
-                while let exp = exporter, exp.status == .exporting || exp.status == .waiting {
+                while let exp = exporter, exp.progress < 1.0 {
                     progressHandler?(Double(exp.progress))
                     try await Task.sleep(nanoseconds: 100_000_000) // 100ms
                 }

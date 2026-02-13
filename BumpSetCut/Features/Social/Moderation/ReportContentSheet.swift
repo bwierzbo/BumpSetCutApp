@@ -198,7 +198,7 @@ struct ReportTypeButton: View {
             }
             .padding()
             .background(
-                RoundedRectangle(cornerRadius: BSCCornerRadius.md)
+                RoundedRectangle(cornerRadius: BSCRadius.md)
                     .fill(isSelected ? Color.red : Color(.systemGray6))
             )
         }

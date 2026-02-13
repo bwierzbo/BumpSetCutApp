@@ -10,7 +10,7 @@ struct RallyOverviewSheet: View {
     let thumbnailCache: RallyThumbnailCache
     let onSelectRally: (Int) -> Void
     let onExport: () -> Void
-    let onPostToCommunity: (Int) -> Void
+    let onPostToCommunity: (Int, Bool) -> Void  // (rallyIndex, postAllSaved)
     let onSaveAll: () -> Void
     let onDeselectAll: () -> Void
     let onDismiss: () -> Void
@@ -177,15 +177,16 @@ struct RallyOverviewSheet: View {
 
                 // Post to Community
                 Button {
-                    // Post the first saved rally by default
                     if let firstSaved = savedRallies.sorted().first {
-                        onPostToCommunity(firstSaved)
+                        onPostToCommunity(firstSaved, savedRallies.count > 1)
                     }
                 } label: {
                     HStack(spacing: BSCSpacing.sm) {
-                        Image(systemName: "paperplane.fill")
+                        Image(systemName: savedRallies.count > 1 ? "square.stack.fill" : "paperplane.fill")
                             .font(.system(size: 16, weight: .semibold))
-                        Text("Post to Community")
+                        Text(savedRallies.count > 1
+                             ? "Post \(savedRallies.count) Rallies"
+                             : "Post to Community")
                             .font(.system(size: 16, weight: .semibold))
                     }
                     .foregroundColor(.white)
@@ -290,7 +291,7 @@ private struct RallyOverviewCell: View {
         thumbnailCache: RallyThumbnailCache(),
         onSelectRally: { _ in },
         onExport: {},
-        onPostToCommunity: { _ in },
+        onPostToCommunity: { _, _ in },
         onSaveAll: {},
         onDeselectAll: {},
         onDismiss: {}
