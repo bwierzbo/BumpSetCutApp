@@ -44,6 +44,13 @@ final class VideoProcessor {
     // Background execution protection
     private let backgroundGuard = BackgroundProcessingGuard()
 
+    /// Register a closure to be called if background time expires during processing.
+    /// Typically used by the ViewModel to cancel the current processing Task.
+    @MainActor
+    func setBackgroundCancellationHandler(_ handler: @escaping @MainActor () -> Void) {
+        backgroundGuard.setCancellationHandler(handler)
+    }
+
     // Debug data collection
     var trajectoryDebugger: TrajectoryDebugger?
     private var metricsCollector: MetricsCollector?
@@ -92,6 +99,7 @@ final class VideoProcessor {
         let totalFramesEstimate = Int(duration.seconds * Double(fps))
 
         reader.startReading()
+        defer { reader.cancelReading() }
         let tracker = KalmanBallTracker()
 
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
@@ -236,9 +244,10 @@ final class VideoProcessor {
         var rawFrameIndex = 0
 
         reader.startReading()
+        defer { reader.cancelReading() }
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
-              
+
             // Check for cancellation before processing each frame
             try Task.checkCancellation()
 
@@ -339,7 +348,7 @@ final class VideoProcessor {
         await MainActor.run {
             isProcessing = true; progress = 0; processedMetadata = nil
             backgroundGuard.begin {
-                print("⚠️ BackgroundProcessingGuard: background time expiring during metadata processing")
+                print("⚠️ BackgroundProcessingGuard: background time expiring — cancelling processing")
             }
         }
 
@@ -418,6 +427,7 @@ final class VideoProcessor {
         let totalFramesEstimate = Int(duration.seconds * Double(fps))
 
         reader.startReading()
+        defer { reader.cancelReading() }
         eventLog.log(.frameLoopStarted, detail: "fps=\(fps), totalFramesEstimate=\(totalFramesEstimate)")
         let tracker = KalmanBallTracker(config: config)
         // Reuse stateless classifier across frames to avoid per-frame allocation

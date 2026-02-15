@@ -45,7 +45,7 @@ final class ProcessVideoViewModel {
     }
 
     var isComplete: Bool {
-        processor.processedURL != nil
+        processor.processedURL != nil || processor.processedMetadata != nil
     }
 
     var hasMetadata: Bool {
@@ -240,6 +240,14 @@ final class ProcessVideoViewModel {
             do {
                 // Configure processor for the selected volleyball type
                 processor.configure(for: selectedVolleyballType)
+
+                // Register background expiry cancellation so the guard cancels this Task
+                // if background time runs out
+                let task = self.currentTask
+                processor.setBackgroundCancellationHandler { [weak self] in
+                    task?.cancel()
+                    self?.processor.isProcessing = false
+                }
 
                 let tempProcessedURL: URL?
                 let debugData: TrajectoryDebugger?
