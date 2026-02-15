@@ -70,7 +70,7 @@ final class VideoProcessor {
 
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.noVideoTrack
         }
 
         let duration = try await asset.load(.duration)
@@ -137,11 +137,7 @@ final class VideoProcessor {
 
         // Check if reader finished successfully or encountered an error
         if reader.status == .failed {
-            if let error = reader.error {
-                throw error
-            } else {
-                throw ProcessingError.exportFailed
-            }
+            throw ProcessingError.assetReaderFailed(reader.error)
         }
 
         let keep = segments.finalize(until: duration)
@@ -159,14 +155,9 @@ final class VideoProcessor {
         }
 
         guard !keep.isEmpty else {
-            print("❌ No keep ranges. Detections may be too sparse or gating too strict. Check labels and thresholds.")
-            print("💡 Possible causes:")
-            print("   - Enhanced physics validation too strict")
-            print("   - No ball detections found")
-            print("   - Rally detection thresholds too high")
-            print("   - Processing configuration issues")
+            print("❌ No keep ranges. Detections may be too sparse or gating too strict.")
             await MainActor.run { isProcessing = false; backgroundGuard.end() }
-            throw ProcessingError.exportFailed
+            throw ProcessingError.noRalliesDetected
         }
 
         // Check for cancellation before export (which can take a long time)
@@ -208,7 +199,7 @@ final class VideoProcessor {
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             await MainActor.run { isProcessing = false; backgroundGuard.end() }
-            throw ProcessingError.exportFailed
+            throw ProcessingError.noVideoTrack
         }
 
         let duration = try await asset.load(.duration)
@@ -382,7 +373,7 @@ final class VideoProcessor {
 
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             await MainActor.run { isProcessing = false; backgroundGuard.end() }
-            throw ProcessingError.exportFailed
+            throw ProcessingError.noVideoTrack
         }
 
         let duration = try await asset.load(.duration)
@@ -590,11 +581,7 @@ final class VideoProcessor {
 
         // Check if reader finished successfully or encountered an error
         if reader.status == .failed {
-            if let error = reader.error {
-                throw error
-            } else {
-                throw ProcessingError.exportFailed
-            }
+            throw ProcessingError.assetReaderFailed(reader.error)
         }
 
         let keep = segments.finalize(until: duration)
@@ -625,7 +612,7 @@ final class VideoProcessor {
         guard !keep.isEmpty else {
             print("❌ No rally segments found for metadata generation")
             await MainActor.run { isProcessing = false; backgroundGuard.end() }
-            throw ProcessingError.exportFailed
+            throw ProcessingError.noRalliesDetected
         }
 
         // Check for cancellation before metadata generation
@@ -732,7 +719,7 @@ final class VideoProcessor {
         // Save metadata to store
         do {
             guard let metadataStore = metadataStore else {
-                throw ProcessingError.exportFailed
+                throw ProcessingError.metadataStoreUnavailable
             }
             try await metadataStore.saveMetadata(metadata)
             print("✅ Successfully saved metadata for video \(videoId)")

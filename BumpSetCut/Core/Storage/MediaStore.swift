@@ -400,7 +400,14 @@ struct FolderManifest: Codable {
         do {
             manifest.updateModifiedDate()
             let data = try JSONEncoder().encode(manifest)
-            try data.write(to: manifestURL)
+
+            // Atomic write: write to temp file, then replace original
+            let tempURL = manifestURL.deletingLastPathComponent()
+                .appendingPathComponent(".manifest_tmp_\(UUID().uuidString).json")
+            try data.write(to: tempURL, options: [.atomic])
+
+            // Use replaceItemAt for crash-safe swap (preserves file metadata)
+            _ = try FileManager.default.replaceItemAt(manifestURL, withItemAt: tempURL)
 
             // Increment version so @Observable consumers detect the change
             contentVersion += 1

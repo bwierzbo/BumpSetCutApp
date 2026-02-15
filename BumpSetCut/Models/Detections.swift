@@ -51,10 +51,39 @@ struct VolleyballRallyEvidence {
     var isActive: Bool = false
 }
 
-enum ProcessingError: Error {
+enum ProcessingError: Error, LocalizedError {
     case modelNotFound
-    case exportFailed
+    case noVideoTrack
+    case noRalliesDetected
+    case assetReaderFailed(Error?)
+    case exportSessionFailed(String)
+    case compositionFailed
+    case metadataStoreUnavailable
     case exportCancelled
+
+    // Legacy alias — migrate callers to specific cases
+    static let exportFailed = exportSessionFailed("Unknown export failure")
+
+    var errorDescription: String? {
+        switch self {
+        case .modelNotFound:
+            return "AI model not found. Please reinstall the app."
+        case .noVideoTrack:
+            return "No video track found in the file. The file may be corrupted."
+        case .noRalliesDetected:
+            return "No volleyball rallies were detected in this video."
+        case .assetReaderFailed(let underlying):
+            return "Failed to read video: \(underlying?.localizedDescription ?? "unknown error")"
+        case .exportSessionFailed(let reason):
+            return "Video export failed: \(reason)"
+        case .compositionFailed:
+            return "Failed to create video composition."
+        case .metadataStoreUnavailable:
+            return "Unable to save processing results."
+        case .exportCancelled:
+            return "Export was cancelled."
+        }
+    }
 }
 
 struct ProcessorConfig {

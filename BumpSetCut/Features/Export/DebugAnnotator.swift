@@ -82,7 +82,7 @@ final class DebugAnnotator {
         ]
         self.adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: srcAttrs)
 
-        guard writer.canAdd(videoInput) else { throw ProcessingError.exportFailed }
+        guard writer.canAdd(videoInput) else { throw ProcessingError.compositionFailed }
         writer.add(videoInput)
     }
 
@@ -100,7 +100,7 @@ final class DebugAnnotator {
 
         // Start the session at the first PTS
         if !started {
-            guard writer.startWriting() else { throw writer.error ?? ProcessingError.exportFailed }
+            guard writer.startWriting() else { throw writer.error ?? ProcessingError.exportSessionFailed("Debug writer failed to start") }
             writer.startSession(atSourceTime: pts)
             started = true
         }
@@ -121,9 +121,9 @@ final class DebugAnnotator {
 
         // Create a new pixel buffer to draw into
         var outPB: CVPixelBuffer?
-        guard let pool = adaptor.pixelBufferPool else { throw ProcessingError.exportFailed }
+        guard let pool = adaptor.pixelBufferPool else { throw ProcessingError.exportSessionFailed("Debug pixel buffer pool unavailable") }
         let status = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &outPB)
-        guard status == kCVReturnSuccess, let pixelBuffer = outPB else { throw ProcessingError.exportFailed }
+        guard status == kCVReturnSuccess, let pixelBuffer = outPB else { throw ProcessingError.exportSessionFailed("Debug pixel buffer allocation failed") }
 
         // Render the base image into the output pixel buffer
         ciContext.render(baseCI, to: pixelBuffer)
@@ -137,7 +137,7 @@ final class DebugAnnotator {
 
         // Append to writer
         if !adaptor.append(pixelBuffer, withPresentationTime: pts) {
-            throw writer.error ?? ProcessingError.exportFailed
+            throw writer.error ?? ProcessingError.exportSessionFailed("Debug frame append failed")
         }
 
         // Clean up sample buffer to prevent memory accumulation
@@ -151,7 +151,7 @@ final class DebugAnnotator {
         // Check if writer is already in a terminal state
         guard writer.status == .writing else {
             if writer.status == .failed {
-                throw writer.error ?? ProcessingError.exportFailed
+                throw writer.error ?? ProcessingError.exportSessionFailed("Debug writer in failed state")
             }
             // Already completed or cancelled
             return outURL
@@ -170,7 +170,7 @@ final class DebugAnnotator {
             }
         }
         if writer.status == .failed {
-            throw writer.error ?? ProcessingError.exportFailed
+            throw writer.error ?? ProcessingError.exportSessionFailed("Debug writer finish failed")
         }
         return outURL
     }

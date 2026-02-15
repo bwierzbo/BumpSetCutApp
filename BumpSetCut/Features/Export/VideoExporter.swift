@@ -46,7 +46,7 @@ final class VideoExporter {
     /// Returns the output URL on success, or throws on failure.
     private func exportPassthrough(asset: AVAsset, timeRange: CMTimeRange, to outURL: URL) async throws -> URL {
         guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.exportSessionFailed("Passthrough export session unavailable")
         }
 
         exporter.timeRange = timeRange
@@ -65,7 +65,7 @@ final class VideoExporter {
             }
 
             if exporter.status == .failed {
-                throw exporter.error ?? ProcessingError.exportFailed
+                throw exporter.error ?? ProcessingError.exportSessionFailed("Passthrough export failed")
             }
             return outURL
         }
@@ -79,12 +79,12 @@ final class VideoExporter {
 
         let comp = AVMutableComposition()
         guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.noVideoTrack
         }
         let aTrack = try? await asset.loadTracks(withMediaType: .audio).first
 
         guard let compV = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.compositionFailed
         }
         let compA = aTrack != nil ? comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
 
@@ -98,7 +98,7 @@ final class VideoExporter {
         }
 
         guard let exporter = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetHighestQuality) else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.exportSessionFailed("Re-encoding export session unavailable")
         }
 
         if #available(iOS 18.0, *) {
@@ -116,7 +116,7 @@ final class VideoExporter {
             }
 
             if exporter.status == .failed {
-                throw exporter.error ?? ProcessingError.exportFailed
+                throw exporter.error ?? ProcessingError.exportSessionFailed("Re-encoding export failed")
             }
             return outURL
         }
@@ -129,12 +129,12 @@ final class VideoExporter {
 
         let comp = AVMutableComposition()
         guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.noVideoTrack
         }
         let aTrack = try? await asset.loadTracks(withMediaType: .audio).first
 
         guard let compV = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.compositionFailed
         }
         let compA = aTrack != nil ? comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
 
@@ -153,7 +153,7 @@ final class VideoExporter {
         }
 
         guard let exporter = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetHighestQuality) else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.exportSessionFailed("Trimmed export session unavailable")
         }
 
         if #available(iOS 18.0, *) {
@@ -174,15 +174,15 @@ final class VideoExporter {
             case .completed:
                 // Verify the file was actually created
                 guard FileManager.default.fileExists(atPath: outURL.path) else {
-                    throw ProcessingError.exportFailed
+                    throw ProcessingError.exportSessionFailed("Output file not created")
                 }
                 return outURL
             case .failed:
-                throw exporter.error ?? ProcessingError.exportFailed
+                throw exporter.error ?? ProcessingError.exportSessionFailed("Trimmed export failed")
             case .cancelled:
                 throw ProcessingError.exportCancelled
             default:
-                throw ProcessingError.exportFailed
+                throw ProcessingError.exportSessionFailed("Unexpected export status: \(exporter.status.rawValue)")
             }
         }
     }
@@ -240,12 +240,12 @@ final class VideoExporter {
         let composition = AVMutableComposition()
 
         guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.noVideoTrack
         }
         let aTrack = try? await asset.loadTracks(withMediaType: .audio).first
 
         guard let compV = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.compositionFailed
         }
         let compA = aTrack != nil ? composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
 
@@ -273,7 +273,7 @@ final class VideoExporter {
         }
 
         guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
-            throw ProcessingError.exportFailed
+            throw ProcessingError.exportSessionFailed("Stitched export session unavailable")
         }
 
         if #available(iOS 18.0, *) {
@@ -304,11 +304,11 @@ final class VideoExporter {
                 progressHandler?(1.0)
                 return outputURL
             case .failed:
-                throw exporter.error ?? ProcessingError.exportFailed
+                throw exporter.error ?? ProcessingError.exportSessionFailed("Stitched export failed")
             case .cancelled:
                 throw ProcessingError.exportCancelled
             default:
-                throw ProcessingError.exportFailed
+                throw ProcessingError.exportSessionFailed("Unexpected stitched export status: \(exporter.status.rawValue)")
             }
         }
     }

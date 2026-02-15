@@ -291,7 +291,7 @@ final class ProcessVideoViewModel {
                     currentTask = nil
                     processor.isProcessing = false
                 }
-            } catch let error as ProcessingError where error == .exportFailed {
+            } catch ProcessingError.noRalliesDetected {
                 // No rally segments found — show friendly guidance instead of generic error
                 await MainActor.run {
                     currentTask = nil
