@@ -176,6 +176,8 @@ private extension ProcessVideoView {
             processingContent  // Show processing UI while pending save
         case .complete:
             completeContent
+        case .noRallies:
+            noRalliesContent
         case .hasMetadata:
             hasMetadataContent
         case .alreadyProcessed:
@@ -227,6 +229,55 @@ private extension ProcessVideoView {
         }
         .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
+    }
+
+    var noRalliesContent: some View {
+        VStack(spacing: BSCSpacing.lg) {
+            ZStack {
+                Circle()
+                    .fill(Color.bscOrange.opacity(0.15))
+                    .frame(width: 80, height: 80)
+
+                Image(systemName: "volleyball.fill")
+                    .font(.system(size: 40))
+                    .foregroundColor(.bscOrange)
+            }
+
+            VStack(spacing: BSCSpacing.sm) {
+                Text("No Rallies Detected")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.bscTextPrimary)
+
+                Text("The AI couldn't find active volleyball rallies in this video. Here are some tips for better results:")
+                    .font(.system(size: 14))
+                    .foregroundColor(.bscTextSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: BSCSpacing.md) {
+                tipRow(icon: "camera.fill", text: "Film from a steady, elevated angle with the full court visible")
+                tipRow(icon: "sun.max.fill", text: "Record in good lighting so the ball is clearly visible")
+                tipRow(icon: "figure.volleyball", text: "Make sure the ball is in frame during active play")
+                tipRow(icon: "timer", text: "Longer clips with multiple rallies work best")
+                tipRow(icon: "arrow.up.circle.fill", text: "Higher video resolution helps the AI track the ball")
+            }
+        }
+        .padding(BSCSpacing.xl)
+        .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
+    }
+
+    private func tipRow(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: BSCSpacing.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(.bscOrange)
+                .frame(width: 20)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundColor(.bscTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     var hasMetadataContent: some View {
@@ -366,6 +417,8 @@ private extension ProcessVideoView {
             EmptyView()  // No buttons while pending save
         case .complete:
             doneButton
+        case .noRallies:
+            noRalliesButtons
         case .hasMetadata:
             viewRalliesButton
         case .alreadyProcessed:
@@ -398,6 +451,12 @@ private extension ProcessVideoView {
     var cancelButton: some View {
         BSCButton(title: "Cancel Processing", icon: "xmark", style: .ghost, size: .medium) {
             viewModel.cancelProcessing()
+            dismiss()
+        }
+    }
+
+    var noRalliesButtons: some View {
+        BSCButton(title: "Back to Library", icon: "chevron.left", style: .secondary, size: .large) {
             dismiss()
         }
     }

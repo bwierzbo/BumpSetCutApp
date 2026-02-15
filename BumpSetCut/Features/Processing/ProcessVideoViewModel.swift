@@ -13,7 +13,7 @@ final class ProcessVideoViewModel {
 
     // MARK: - State
     var processor = VideoProcessor()
-    var selectedVolleyballType: VolleyballType = .indoor
+    var selectedVolleyballType: VolleyballType = .beach
     var currentTask: Task<Void, Never>? = nil
     var currentVideoMetadata: VideoMetadata? = nil
     var showError: Bool = false
@@ -99,12 +99,17 @@ final class ProcessVideoViewModel {
         getVideoDisplayName()
     }
 
+    // No rallies detected flag
+    var noRalliesDetected: Bool = false
+
     // MARK: - Processing Status
     var processingState: ProcessingState {
         if isProcessing {
             return .processing
         } else if pendingSaveURL != nil {
             return .pendingSave
+        } else if noRalliesDetected {
+            return .noRallies
         } else if isComplete {
             return .complete
         } else if hasMetadata {
@@ -121,6 +126,7 @@ final class ProcessVideoViewModel {
         case processing
         case pendingSave  // Processing done, waiting for user to select folder
         case complete
+        case noRallies    // Processing finished but no rallies found
         case hasMetadata
         case alreadyProcessed
     }
@@ -176,33 +182,18 @@ final class ProcessVideoViewModel {
     // MARK: - Actions
     func loadCurrentVideoMetadata() {
         let fileName = videoURL.lastPathComponent
-        let videosInFolder = mediaStore.getVideos(in: folderPath)
 
-        // First check the current folder
-        if let matchingVideo = videosInFolder.first(where: { $0.fileName == fileName }) {
-            currentVideoMetadata = matchingVideo
-            // Load detected volleyball type, default to beach if not detected
-            selectedVolleyballType = matchingVideo.volleyballType ?? .beach
-            return
-        }
+        // Search all library root paths and registered folders
+        let searchPaths = [folderPath, LibraryType.saved.rootPath, LibraryType.processed.rootPath, ""]
+            + mediaStore.getFolders(in: "").map(\.path)
 
-        // Check other folders
-        let allFolders = mediaStore.getFolders(in: "")
-        for folder in allFolders {
-            let videosInOtherFolder = mediaStore.getVideos(in: folder.path)
-            if let matchingVideo = videosInOtherFolder.first(where: { $0.fileName == fileName }) {
-                currentVideoMetadata = matchingVideo
-                selectedVolleyballType = matchingVideo.volleyballType ?? .beach
+        for path in searchPaths {
+            let videos = mediaStore.getVideos(in: path)
+            if let match = videos.first(where: { $0.fileName == fileName }) {
+                currentVideoMetadata = match
+                selectedVolleyballType = match.volleyballType ?? .beach
                 return
             }
-        }
-
-        // Check root folder
-        let rootVideos = mediaStore.getVideos(in: "")
-        if let matchingVideo = rootVideos.first(where: { $0.fileName == fileName }) {
-            currentVideoMetadata = matchingVideo
-            selectedVolleyballType = matchingVideo.volleyballType ?? .beach
-            return
         }
 
         currentVideoMetadata = nil
@@ -259,11 +250,9 @@ final class ProcessVideoViewModel {
                 } else {
                     let videoId = currentVideoMetadata?.id ?? UUID()
                     _ = try await processor.processVideo(videoURL, videoId: videoId)
-                    tempProcessedURL = nil
                     debugData = nil
 
                     // Mark the video as processed in the manifest
-                    // Get metadata file size from the saved metadata
                     if let metadataSize = await MainActor.run(body: {
                         currentVideoMetadata?.getCurrentMetadataSize()
                     }) {
@@ -273,23 +262,20 @@ final class ProcessVideoViewModel {
                         }
                         print(success ? "✅ Video marked as processed in manifest" : "❌ Failed to mark video as processed")
 
-                        // Record successful processing for weekly limit tracking
                         await MainActor.run {
                             SubscriptionService.shared.recordVideoProcessing()
                         }
                     }
+
+                    // Create a hard link of the original video so it can be saved to Processed Games
+                    let linkURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("Processed_\(UUID().uuidString).mp4")
+                    try FileManager.default.linkItem(at: videoURL, to: linkURL)
+                    tempProcessedURL = linkURL
                 }
 
                 await MainActor.run {
                     currentTask = nil
-                }
-
-                guard let tempProcessedURL = tempProcessedURL else {
-                    await MainActor.run {
-                        loadCurrentVideoMetadata()
-                        showRallyPlayer = true
-                    }
-                    return
                 }
 
                 // Store pending save info and show folder picker
@@ -304,6 +290,13 @@ final class ProcessVideoViewModel {
                 await MainActor.run {
                     currentTask = nil
                     processor.isProcessing = false
+                }
+            } catch let error as ProcessingError where error == .exportFailed {
+                // No rally segments found — show friendly guidance instead of generic error
+                await MainActor.run {
+                    currentTask = nil
+                    processor.isProcessing = false
+                    noRalliesDetected = true
                 }
             } catch {
                 await MainActor.run {
@@ -333,6 +326,14 @@ final class ProcessVideoViewModel {
                     pendingSaveURL = nil
                     pendingDebugData = nil
                     showingFolderPicker = false
+                    loadCurrentVideoMetadata()
+                }
+                // Let SwiftUI settle before presenting rally viewer
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                await MainActor.run {
+                    if currentVideoMetadata != nil {
+                        showRallyPlayer = true
+                    }
                 }
             } catch {
                 await MainActor.run {

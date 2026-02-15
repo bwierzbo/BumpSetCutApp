@@ -164,11 +164,12 @@ final class RallyPlayerViewModel {
         loadingState = .loading
 
         do {
-            let metadata = try metadataStore.loadMetadata(for: videoMetadata.id)
+            let metadataVideoId = videoMetadata.originalVideoId ?? videoMetadata.id
+            let metadata = try metadataStore.loadMetadata(for: metadataVideoId)
             processingMetadata = metadata
 
-            trim.loadSavedAdjustments(videoId: videoMetadata.id, metadataStore: metadataStore)
-            actions.loadSavedSelections(videoId: videoMetadata.id, metadataStore: metadataStore)
+            trim.loadSavedAdjustments(videoId: metadataVideoId, metadataStore: metadataStore)
+            actions.loadSavedSelections(videoId: metadataVideoId, metadataStore: metadataStore)
 
             let asset = AVURLAsset(url: videoMetadata.originalURL)
             actualVideoDuration = try await CMTimeGetSeconds(asset.load(.duration))
@@ -446,7 +447,8 @@ final class RallyPlayerViewModel {
     }
 
     func confirmTrim() {
-        trim.confirmTrim(rallyIndex: currentRallyIndex, videoId: videoMetadata.id, metadataStore: metadataStore)
+        let metadataVideoId = videoMetadata.originalVideoId ?? videoMetadata.id
+        trim.confirmTrim(rallyIndex: currentRallyIndex, videoId: metadataVideoId, metadataStore: metadataStore)
         seekToCurrentRallyStart()
         setupRallyLooping()
         playerCache.play()
