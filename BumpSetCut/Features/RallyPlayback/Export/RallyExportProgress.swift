@@ -254,12 +254,16 @@ struct RallyExportProgress: View {
                 index < metadata.rallySegments.count ? (index, metadata.rallySegments[index]) : nil
             }
 
-            // Apply per-rally trim adjustments
-            let selectedSegments = rawSegments.map { (rallyIndex, segment) -> RallySegment in
+            // Apply per-rally trim adjustments, filtering out invalid ranges
+            let selectedSegments = rawSegments.compactMap { (rallyIndex, segment) -> RallySegment? in
                 guard let adj = trimAdjustments[rallyIndex] else { return segment }
+                let adjustedStart = max(0, segment.startTime - adj.before)
+                let adjustedEnd = min(videoDuration, segment.endTime + adj.after)
+                // Skip segments where trim adjustments create invalid ranges
+                guard adjustedStart < adjustedEnd else { return nil }
                 return segment.withAdjustedTimes(
-                    startSeconds: max(0, segment.startTime - adj.before),
-                    endSeconds: min(videoDuration, segment.endTime + adj.after)
+                    startSeconds: adjustedStart,
+                    endSeconds: adjustedEnd
                 )
             }
 

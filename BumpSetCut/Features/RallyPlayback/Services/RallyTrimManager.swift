@@ -32,6 +32,13 @@ final class RallyTrimManager {
         return min(maxEnd, segment.endTime + (adj?.after ?? 0))
     }
 
+    /// Returns true if the effective time range for the rally is valid (start < end).
+    func isValidTimeRange(for rallyIndex: Int, segments: [RallySegment], videoDuration: Double) -> Bool {
+        let start = effectiveStartTime(for: rallyIndex, segments: segments)
+        let end = effectiveEndTime(for: rallyIndex, segments: segments, videoDuration: videoDuration)
+        return start < end
+    }
+
     // MARK: - Trim Mode Lifecycle
 
     func enterTrimMode(rallyIndex: Int) {
