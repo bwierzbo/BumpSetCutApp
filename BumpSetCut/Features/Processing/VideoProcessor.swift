@@ -348,6 +348,8 @@ final class VideoProcessor {
         print("📊 Analysis mode: \(useThoroughAnalysis ? "Thorough" : "Quick")")
 
         let startTime = Date()
+        let eventLog = ProcessingEventLog()
+        eventLog.log(.processingStarted, detail: "videoId=\(videoId), mode=\(useThoroughAnalysis ? "thorough" : "quick")")
 
         // Initialize metadata store on main actor
         self.metadataStore = await MainActor.run { MetadataStore() }
@@ -359,11 +361,13 @@ final class VideoProcessor {
         if let configuredType = volleyballType {
             sportType = configuredType
             print("🏐 Using configured sport type: \(sportType.displayName)")
+            eventLog.log(.sportDetected, detail: "configured=\(sportType.displayName)")
         } else {
             let (detectedType, confidence) = try await SportDetector.detectSport(from: asset)
             print("🏐 Auto-detected sport: \(detectedType.displayName) (confidence: \(String(format: "%.1f%%", confidence * 100)))")
             sportType = detectedType
             configure(for: sportType)
+            eventLog.log(.sportDetected, detail: "detected=\(detectedType.displayName), confidence=\(String(format: "%.1f%%", confidence * 100))")
         }
 
         // Recreate stage objects with sport-specific config
@@ -414,6 +418,7 @@ final class VideoProcessor {
         let totalFramesEstimate = Int(duration.seconds * Double(fps))
 
         reader.startReading()
+        eventLog.log(.frameLoopStarted, detail: "fps=\(fps), totalFramesEstimate=\(totalFramesEstimate)")
         let tracker = KalmanBallTracker(config: config)
         // Reuse stateless classifier across frames to avoid per-frame allocation
         let movementClassifier = MovementClassifier()
@@ -421,6 +426,7 @@ final class VideoProcessor {
         // Dynamic stride tracking
         var rawFrameIndex = 0
         var skippedFrames = 0
+        var previousRallyActive = false
 
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
@@ -468,6 +474,14 @@ final class VideoProcessor {
             let hasBall = !dets.isEmpty
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
             segments.observe(isActive: isActive, at: pts)
+
+            // Log rally state transitions
+            if isActive && !previousRallyActive {
+                eventLog.log(.rallyStarted, at: pts, detail: "hasBall=\(hasBall), isProjectile=\(isProjectile)")
+            } else if !isActive && previousRallyActive {
+                eventLog.log(.rallyEnded, at: pts, detail: "hasBall=\(hasBall), isProjectile=\(isProjectile)")
+            }
+            previousRallyActive = isActive
 
             // Update statistics
             if !tracker.tracks.isEmpty {
@@ -582,10 +596,12 @@ final class VideoProcessor {
 
         // Check if reader finished successfully or encountered an error
         if reader.status == .failed {
+            eventLog.log(.processingFailed, detail: "AVAssetReader failed: \(reader.error?.localizedDescription ?? "unknown")")
             throw ProcessingError.assetReaderFailed(reader.error)
         }
 
         let keep = segments.finalize(until: duration)
+        eventLog.log(.segmentFinalized, detail: "keepRanges=\(keep.count), videoDuration=\(String(format: "%.2f", CMTimeGetSeconds(duration)))s")
 
         // Log processing statistics
         let processedFrames = rawFrameIndex - skippedFrames
@@ -612,6 +628,7 @@ final class VideoProcessor {
 
         guard !keep.isEmpty else {
             print("❌ No rally segments found for metadata generation")
+            eventLog.log(.processingFailed, detail: "noRalliesDetected")
             await MainActor.run { isProcessing = false; backgroundGuard.end() }
             throw ProcessingError.noRalliesDetected
         }
@@ -704,6 +721,7 @@ final class VideoProcessor {
         )
 
         // Create final metadata
+        eventLog.log(.processingCompleted, detail: "rallies=\(rallySegments.count), duration=\(String(format: "%.1f", endTime.timeIntervalSince(startTime)))s")
         let metadata = ProcessingMetadata.createWithEnhancedData(
             for: videoId,
             with: config,
@@ -714,7 +732,8 @@ final class VideoProcessor {
             classifications: classificationResults,
             physics: physicsValidationData,
             volleyballType: volleyballType,
-            performance: performanceMetrics
+            performance: performanceMetrics,
+            eventLog: eventLog.allEvents
         )
 
         // Save metadata to store
@@ -727,7 +746,7 @@ final class VideoProcessor {
         } catch {
             print("❌ Failed to save metadata: \(error)")
             await MainActor.run { backgroundGuard.end() }
-            throw error
+            throw error // eventLog already embedded in metadata at this point
         }
 
         await MainActor.run {

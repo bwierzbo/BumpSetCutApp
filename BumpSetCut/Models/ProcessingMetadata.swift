@@ -34,6 +34,9 @@ struct ProcessingMetadata: Codable, Identifiable {
     // Performance Data
     let performanceMetrics: PerformanceData
 
+    // Structured event log (optional for backwards compatibility)
+    let eventLog: [ProcessingEvent]?
+
     init(videoId: UUID,
          processingConfig: ProcessorConfig,
          rallySegments: [RallySegment],
@@ -43,7 +46,8 @@ struct ProcessingMetadata: Codable, Identifiable {
          classificationResults: [ProcessingClassificationResult]? = nil,
          physicsValidation: [PhysicsValidationData]? = nil,
          volleyballType: VolleyballType? = nil,
-         performanceMetrics: PerformanceData) {
+         performanceMetrics: PerformanceData,
+         eventLog: [ProcessingEvent]? = nil) {
         self.id = UUID()
         self.videoId = videoId
         self.processingVersion = "1.0"
@@ -57,6 +61,7 @@ struct ProcessingMetadata: Codable, Identifiable {
         self.physicsValidation = physicsValidation
         self.volleyballType = volleyballType
         self.performanceMetrics = performanceMetrics
+        self.eventLog = eventLog
     }
 
     // Custom decoder for backwards compatibility
@@ -78,13 +83,14 @@ struct ProcessingMetadata: Codable, Identifiable {
         physicsValidation = try container.decodeIfPresent([PhysicsValidationData].self, forKey: .physicsValidation)
         volleyballType = try container.decodeIfPresent(VolleyballType.self, forKey: .volleyballType)
         performanceMetrics = try container.decode(PerformanceData.self, forKey: .performanceMetrics)
+        eventLog = try container.decodeIfPresent([ProcessingEvent].self, forKey: .eventLog)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, videoId, processingVersion, processingDate, processingConfig
         case rallySegments, processingStats, qualityMetrics
         case trajectoryData, classificationResults, physicsValidation
-        case volleyballType, performanceMetrics
+        case volleyballType, performanceMetrics, eventLog
     }
 }
 
@@ -544,7 +550,8 @@ extension ProcessingMetadata {
                                      classifications: [ProcessingClassificationResult],
                                      physics: [PhysicsValidationData],
                                      volleyballType: VolleyballType? = nil,
-                                     performance: PerformanceData) -> ProcessingMetadata {
+                                     performance: PerformanceData,
+                                     eventLog: [ProcessingEvent]? = nil) -> ProcessingMetadata {
         return ProcessingMetadata(
             videoId: videoId,
             processingConfig: config,
@@ -555,7 +562,8 @@ extension ProcessingMetadata {
             classificationResults: classifications,
             physicsValidation: physics,
             volleyballType: volleyballType,
-            performanceMetrics: performance
+            performanceMetrics: performance,
+            eventLog: eventLog
         )
     }
 }
