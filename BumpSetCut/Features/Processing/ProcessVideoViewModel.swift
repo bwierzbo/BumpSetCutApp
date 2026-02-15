@@ -287,6 +287,7 @@ final class ProcessVideoViewModel {
                 guard let tempProcessedURL = tempProcessedURL else {
                     await MainActor.run {
                         loadCurrentVideoMetadata()
+                        showRallyPlayer = true
                     }
                     return
                 }
