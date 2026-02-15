@@ -128,7 +128,9 @@ struct BSCVideoCard: View {
             menuButton
 
             // Quick action buttons
-            if video.canBeProcessed {
+            if !video.processedVideoIds.isEmpty {
+                quickViewRalliesButton
+            } else if video.canBeProcessed {
                 quickProcessButton
             }
             quickDeleteButton
@@ -237,7 +239,7 @@ struct BSCVideoCard: View {
             .fill(Color.black.opacity(0.6))
             .frame(width: 36, height: 36)
             .overlay(
-                Image(systemName: "play.fill")
+                Image(systemName: !video.processedVideoIds.isEmpty ? "play.rectangle.fill" : "play.fill")
                     .font(.system(size: 14))
                     .foregroundColor(.white)
             )
@@ -312,7 +314,7 @@ struct BSCVideoCard: View {
         if video.isProcessed {
             return "checkmark.seal.fill"
         } else if !video.processedVideoIds.isEmpty {
-            return "arrow.branch"
+            return "play.rectangle.fill"
         } else {
             return "video.circle"
         }
@@ -322,8 +324,7 @@ struct BSCVideoCard: View {
         if video.isProcessed {
             return "Processed"
         } else if !video.processedVideoIds.isEmpty {
-            let count = video.processedVideoIds.count
-            return "\(count) version\(count == 1 ? "" : "s")"
+            return "Rallies Ready"
         } else {
             return "Original"
         }
@@ -400,6 +401,18 @@ struct BSCVideoCard: View {
         .accessibilityLabel("Process with AI")
     }
 
+    private var quickViewRalliesButton: some View {
+        Button {
+            showingRallyViewer = true
+        } label: {
+            Image(systemName: "play.rectangle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.bscStatusVersioned)
+                .frame(width: 32, height: 32)
+        }
+        .accessibilityLabel("View Rallies")
+    }
+
     private var quickDeleteButton: some View {
         Button {
             showingDeleteConfirmation = true
@@ -415,6 +428,15 @@ struct BSCVideoCard: View {
     // MARK: - Context Menu
     @ViewBuilder
     private var contextMenuContent: some View {
+        if !video.processedVideoIds.isEmpty {
+            Button {
+                showingRallyViewer = true
+            } label: {
+                Label("View Rallies", systemImage: "play.rectangle")
+            }
+            Divider()
+        }
+
         if video.canBeProcessed {
             Button {
                 showingProcessVideo = true
@@ -453,6 +475,8 @@ struct BSCVideoCard: View {
     private func handleTap() {
         if isSelectable {
             onSelectionToggle?()
+        } else if libraryType == .saved && !video.processedVideoIds.isEmpty {
+            showingRallyViewer = true
         } else {
             showingVideoPlayer = true
         }
