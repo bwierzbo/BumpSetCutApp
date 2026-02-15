@@ -226,6 +226,9 @@ final class VideoProcessor {
 
         // Tracking
         let tracker = KalmanBallTracker()
+        // Reuse stateless classifiers across frames to avoid per-frame allocation
+        let movementClassifier = MovementClassifier()
+        let trajectoryQualityScore = TrajectoryQualityScore()
 
         var frameCount = 0
         // We will write every frame in debug output
@@ -275,10 +278,7 @@ final class VideoProcessor {
                         confidenceLevel: gr.confidenceLevel
                     )
 
-                    let movementClassifier = MovementClassifier()
                     let movementClassification = movementClassifier.classifyMovement(track)
-
-                    let trajectoryQualityScore = TrajectoryQualityScore()
                     let qualityMetrics = trajectoryQualityScore.calculateQuality(for: track)
 
                     debugger.analyzeTrajectory(
@@ -415,6 +415,8 @@ final class VideoProcessor {
 
         reader.startReading()
         let tracker = KalmanBallTracker(config: config)
+        // Reuse stateless classifier across frames to avoid per-frame allocation
+        let movementClassifier = MovementClassifier()
 
         // Dynamic stride tracking
         var rawFrameIndex = 0
@@ -500,7 +502,6 @@ final class VideoProcessor {
                         )
                     }
 
-                    let movementClassifier = MovementClassifier()
                     let classification = movementClassifier.classifyMovement(track)
 
                     let trackStartTime = track.positions.first?.1 ?? pts

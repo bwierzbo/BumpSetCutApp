@@ -24,7 +24,7 @@ final class SportDetector {
         let reader = try AVAssetReader(asset: asset)
 
         guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
-            // Default to beach if we can't analyze
+            print("⚠️ SportDetector: no video track found, defaulting to beach")
             return (.beach, 0.5)
         }
 
@@ -33,6 +33,7 @@ final class SportDetector {
         let durationSeconds = CMTimeGetSeconds(duration)
 
         guard durationSeconds > 0 else {
+            print("⚠️ SportDetector: zero duration video, defaulting to beach")
             return (.beach, 0.5)
         }
 
@@ -44,6 +45,7 @@ final class SportDetector {
         let readerOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: outputSettings)
 
         guard reader.canAdd(readerOutput) else {
+            print("⚠️ SportDetector: cannot add reader output, defaulting to beach")
             return (.beach, 0.5)
         }
 
@@ -51,6 +53,7 @@ final class SportDetector {
 
         // Start reading
         guard reader.startReading() else {
+            print("⚠️ SportDetector: failed to start reading, defaulting to beach")
             return (.beach, 0.5)
         }
 
@@ -61,6 +64,7 @@ final class SportDetector {
         var frameCount = 0
 
         while let sampleBuffer = readerOutput.copyNextSampleBuffer(), framesAnalyzed < targetSamples {
+            defer { CMSampleBufferInvalidate(sampleBuffer) }
             frameCount += 1
 
             // Skip frames to get even distribution
