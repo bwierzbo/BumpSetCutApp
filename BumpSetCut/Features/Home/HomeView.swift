@@ -794,16 +794,13 @@ struct UnprocessedVideoPickerSheet: View {
 
     private func videoRow(_ video: VideoMetadata) -> some View {
         HStack(spacing: BSCSpacing.md) {
-            // Thumbnail placeholder
-            ZStack {
-                RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
-                    .fill(Color.bscSurfaceGlass)
-                    .frame(width: 80, height: 50)
-
-                Image(systemName: "video.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(.bscTextTertiary)
-            }
+            // Video thumbnail
+            VideoThumbnailView(
+                thumbnailURL: nil,
+                videoURL: mediaStore.getVideoURL(for: video)
+            )
+            .frame(width: 80, height: 50)
+            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(video.displayName)
