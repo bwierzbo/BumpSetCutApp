@@ -48,6 +48,11 @@ struct HomeView: View {
                 } else {
                     portraitContent(contentWidth: contentWidth)
                 }
+
+                // Upload progress overlay
+                if let coordinator = uploadCoordinator, coordinator.isUploadInProgress {
+                    uploadProgressOverlay(coordinator)
+                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -151,6 +156,84 @@ struct HomeView: View {
                 videoNameInput = uploadCoordinator?.namingDialogSuggestedName ?? ""
             }
         }
+    }
+
+    // MARK: - Upload Progress Overlay
+
+    private func uploadProgressOverlay(_ coordinator: UploadCoordinator) -> some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .transition(.opacity)
+
+            VStack(spacing: BSCSpacing.lg) {
+                if coordinator.showCompleted {
+                    // Completion state
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 44))
+                        .foregroundColor(.bscSuccess)
+                        .transition(.scale.combined(with: .opacity))
+
+                    Text("Upload Complete!")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.bscTextPrimary)
+                } else {
+                    // Progress state
+                    ProgressView()
+                        .scaleEffect(1.3)
+                        .tint(.bscOrange)
+
+                    VStack(spacing: BSCSpacing.sm) {
+                        if !coordinator.uploadProgressText.isEmpty {
+                            Text(coordinator.uploadProgressText)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.bscTextPrimary)
+                        } else {
+                            Text("Importing video...")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.bscTextPrimary)
+                        }
+
+                        if coordinator.totalItemCount > 1 {
+                            Text("Video \(coordinator.currentItemIndex) of \(coordinator.totalItemCount)")
+                                .font(.system(size: 13))
+                                .foregroundColor(.bscTextSecondary)
+                        }
+
+                        if !coordinator.currentFileSize.isEmpty {
+                            Text(coordinator.currentFileSize)
+                                .font(.system(size: 12))
+                                .foregroundColor(.bscTextTertiary)
+                        }
+
+                        if coordinator.elapsedTime > 2 {
+                            Text(formatElapsedTime(coordinator.elapsedTime))
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundColor(.bscTextTertiary)
+                        }
+                    }
+                }
+            }
+            .padding(BSCSpacing.xl)
+            .padding(.horizontal, BSCSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
+                    .fill(Color.bscBackgroundElevated)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
+                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+            .transition(.scale(scale: 0.9).combined(with: .opacity))
+        }
+        .animation(.bscSpring, value: coordinator.showCompleted)
+    }
+
+    private func formatElapsedTime(_ seconds: TimeInterval) -> String {
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%d:%02d", mins, secs)
     }
 
     // MARK: - Portrait Layout
