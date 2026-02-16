@@ -157,6 +157,9 @@ struct BSCVideoCard: View {
                     selectionOverlay
                 }
 
+                // Duration badge (bottom-right)
+                durationBadgeOverlay
+
                 // Play button
                 playButtonOverlay
             }
@@ -231,6 +234,25 @@ struct BSCVideoCard: View {
                 .padding(BSCSpacing.sm)
             }
             Spacer()
+        }
+    }
+
+    private var durationBadgeOverlay: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                if let duration = video.duration {
+                    Text(formatDuration(duration))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.7))
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .padding(BSCSpacing.sm)
+                }
+            }
         }
     }
 

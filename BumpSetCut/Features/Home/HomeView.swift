@@ -794,6 +794,9 @@ struct UnprocessedVideoPickerSheet: View {
             .onAppear {
                 loadUnprocessedVideos()
             }
+            .onChange(of: mediaStore.contentVersion) { _, _ in
+                loadUnprocessedVideos()
+            }
         }
     }
 
@@ -930,8 +933,15 @@ struct UnprocessedVideoPickerSheet: View {
     }
 
     private func loadUnprocessedVideos() {
-        // Get unprocessed videos from Saved Games library
-        unprocessedVideos = mediaStore.getAllVideos(in: .saved).filter { $0.canBeProcessed }
+        // Get IDs of originals that have processed versions pointing back to them
+        let processedOriginalIds = Set(
+            mediaStore.getAllVideos()
+                .compactMap { $0.originalVideoId }
+        )
+        // Filter to truly unprocessed videos: canBeProcessed AND no processed video references this original
+        unprocessedVideos = mediaStore.getAllVideos(in: .saved).filter {
+            $0.canBeProcessed && !processedOriginalIds.contains($0.id)
+        }
     }
 }
 
