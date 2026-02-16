@@ -42,23 +42,15 @@ final class UploadCoordinator {
     private let logger = Logger(subsystem: "BumpSetCut", category: "UploadCoordinator")
 
     var isUploadInProgress = false
-    var showingUploadProgress = false
     var showCompleted = false
     var uploadProgressText = ""
-    var currentItemIndex = 0
-    var totalItemCount = 0
     var elapsedTime: TimeInterval = 0
-    var estimatedTimeRemaining: TimeInterval?
     var currentFileSize: String = ""
 
     // Storage warning
     var showStorageWarning = false
     var storageWarningMessage = ""
 
-    // Track import speed for estimates
-    private var importStartTime: Date?
-    private var lastImportDuration: TimeInterval?
-    private var lastImportSize: Int64?
     @ObservationIgnored private var elapsedTimer: Timer?
 
     // Publisher for notifying when upload is completed
@@ -66,11 +58,6 @@ final class UploadCoordinator {
     var uploadCompletedPublisher: AnyPublisher<Void, Never> {
         uploadCompletedSubject.eraseToAnyPublisher()
     }
-
-    // Upload flow state
-    private var pendingUploads: [PhotosPickerItem] = []
-    private var currentUploadIndex = 0
-    private var currentFolderPath: String = ""
 
     // Track recently uploaded videos for post-upload naming
     private var recentlyUploadedFileNames: [String] = []
@@ -92,9 +79,6 @@ final class UploadCoordinator {
         uploadManager.cancelAllUploads()
         isUploadInProgress = false
         showCompleted = false
-        pendingUploads.removeAll()
-        currentUploadIndex = 0
-        currentFolderPath = ""
     }
 
     var uploadProgress: UploadManager {
@@ -205,144 +189,68 @@ extension UploadCoordinator {
     }
 }
 
-// MARK: - Multiple File Upload Support
+// MARK: - Single File Upload
 
 extension UploadCoordinator {
-    func handleMultiplePhotosPickerItems(_ items: [PhotosPickerItem], destinationFolder: String = "") {
-        logger.info("Handling \(items.count) photos picker items")
+    func handlePhotosPickerItem(_ item: PhotosPickerItem, destinationFolder: String = "") {
+        logger.info("Handling photos picker item")
 
-        // Note: Upload limit removed - we only restrict processing, not uploads
-        // Users can upload as many videos as they want, but free users can only process 10/week
-
-        // Simple direct upload without naming dialog
-        print("🚀 UploadCoordinator: Starting direct upload, set isUploadInProgress = true")
-
-        // Force UI update on main thread
         Task { @MainActor in
             isUploadInProgress = true
-            print("📱 UI Update: isUploadInProgress = true sent to UI")
         }
 
         Task {
-            // Longer delay to ensure UI has time to show the progress bar
-            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
-            await processItemsDirectly(items, destinationFolder: destinationFolder)
+            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms for UI to show overlay
+            await processItem(item, destinationFolder: destinationFolder)
         }
     }
-    
-    private func processItemsDirectly(_ items: [PhotosPickerItem], destinationFolder: String) async {
-        print("🔄 Processing \(items.count) items directly")
 
+    private func processItem(_ item: PhotosPickerItem, destinationFolder: String) async {
         await MainActor.run {
-            totalItemCount = items.count
-            currentItemIndex = 0
             elapsedTime = 0
-            estimatedTimeRemaining = nil
             recentlyUploadedFileNames.removeAll()
             startElapsedTimer()
+            uploadProgressText = "Importing from Photos..."
         }
 
-        // Check storage space before starting (estimate based on first item)
-        if let firstItem = items.first,
-           let firstVideoURL = try? await loadVideoToTempFile(from: firstItem, index: 0) {
-            let firstFileSize = StorageChecker.getFileSize(at: firstVideoURL)
-            // Estimate total size as firstFileSize * count (conservative estimate)
-            let estimatedTotalSize = firstFileSize * Int64(items.count)
-
-            let storageCheck = StorageChecker.checkAvailableSpace(requiredBytes: estimatedTotalSize)
-            if !storageCheck.isSufficient {
-                await MainActor.run {
-                    stopElapsedTimer()
-                    isUploadInProgress = false
-                    storageWarningMessage = storageCheck.errorMessage ?? "Not enough storage space"
-                    showStorageWarning = true
-                }
-                // Clean up temp file
-                try? FileManager.default.removeItem(at: firstVideoURL)
-                logger.warning("Upload cancelled: insufficient storage space")
-                return
-            }
-
-            // Process the first item we already loaded
-            let fileSize = firstFileSize
-            let fileSizeString = ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
-
+        guard let videoURL = try? await loadVideoToTempFile(from: item, index: 0) else {
+            logger.warning("Failed to load video from Photos")
             await MainActor.run {
-                currentItemIndex = 1
-                currentFileSize = fileSizeString
-                uploadProgressText = "Saving \(fileSizeString) video..."
+                stopElapsedTimer()
+                isUploadInProgress = false
             }
-
-            await saveVideoFromURL(firstVideoURL, destinationFolder: destinationFolder)
-            try? FileManager.default.removeItem(at: firstVideoURL)
+            return
         }
 
-        // Process remaining items (skip first since we already processed it)
-        let remainingItems = items.count > 1 ? Array(items.dropFirst()) : []
-        for (index, item) in remainingItems.enumerated() {
-            let actualIndex = index + 1  // Offset by 1 since we already processed first item
-            let itemStartTime = Date()
+        let fileSize = StorageChecker.getFileSize(at: videoURL)
 
+        // Check storage space
+        let storageCheck = StorageChecker.checkAvailableSpace(requiredBytes: fileSize)
+        if !storageCheck.isSufficient {
             await MainActor.run {
-                currentItemIndex = actualIndex + 1  // +1 for display (1-indexed)
-                currentFileSize = ""
-                uploadProgressText = "Preparing video \(actualIndex + 1) of \(items.count)..."
-
-                // Calculate estimate based on previous imports
-                if let lastDuration = lastImportDuration, items.count > 1 {
-                    let remainingCount = items.count - actualIndex
-                    estimatedTimeRemaining = lastDuration * Double(remainingCount)
-                }
+                stopElapsedTimer()
+                isUploadInProgress = false
+                storageWarningMessage = storageCheck.errorMessage ?? "Not enough storage space"
+                showStorageWarning = true
             }
-
-            // Use file-based transfer for large videos (avoids loading entire video into memory)
-            do {
-                await MainActor.run {
-                    uploadProgressText = "Importing from Photos..."
-                }
-
-                guard let videoURL = try await loadVideoToTempFile(from: item, index: actualIndex) else {
-                    logger.warning("Failed to load video for item \(actualIndex)")
-                    continue
-                }
-
-                // Get file size for display
-                let fileSize = (try? FileManager.default.attributesOfItem(atPath: videoURL.path)[.size] as? Int64) ?? 0
-                let fileSizeString = ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
-
-                await MainActor.run {
-                    currentFileSize = fileSizeString
-                    uploadProgressText = "Saving \(fileSizeString) video..."
-                }
-
-                print("✅ Loaded video \(actualIndex) to temp file: \(videoURL.lastPathComponent) (\(fileSizeString))")
-
-                // Copy to final destination
-                await saveVideoFromURL(videoURL, destinationFolder: destinationFolder)
-
-                // Track timing for estimates
-                let importDuration = Date().timeIntervalSince(itemStartTime)
-                await MainActor.run {
-                    lastImportDuration = importDuration
-                    lastImportSize = fileSize
-                }
-
-                // Clean up temp file
-                try? FileManager.default.removeItem(at: videoURL)
-
-            } catch {
-                logger.error("Failed to process item \(actualIndex): \(error.localizedDescription)")
-                await MainActor.run {
-                    uploadProgressText = "Failed to import video \(actualIndex + 1)"
-                }
-            }
+            try? FileManager.default.removeItem(at: videoURL)
+            logger.warning("Upload cancelled: insufficient storage space")
+            return
         }
+
+        let fileSizeString = ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
+        await MainActor.run {
+            currentFileSize = fileSizeString
+            uploadProgressText = "Saving \(fileSizeString) video..."
+        }
+
+        await saveVideoFromURL(videoURL, destinationFolder: destinationFolder)
+        try? FileManager.default.removeItem(at: videoURL)
 
         await MainActor.run {
             stopElapsedTimer()
         }
 
-        print("✨ Finished processing all items")
         await handleUploadCompletion()
     }
 
@@ -354,10 +262,6 @@ extension UploadCoordinator {
         elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.elapsedTime += 1
-                // Update remaining estimate
-                if let remaining = self?.estimatedTimeRemaining, remaining > 1 {
-                    self?.estimatedTimeRemaining = remaining - 1
-                }
             }
         }
     }

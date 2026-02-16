@@ -152,21 +152,8 @@ struct UploadStatusBar: View {
                     .foregroundColor(.secondary)
             }
 
-            // Show item count if multiple
-            if uploadCoordinator.totalItemCount > 1 {
-                Text("Video \(uploadCoordinator.currentItemIndex) of \(uploadCoordinator.totalItemCount)")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                // Progress bar for multiple items
-                ProgressView(value: Double(uploadCoordinator.currentItemIndex - 1), total: Double(uploadCoordinator.totalItemCount))
-                    .progressViewStyle(LinearProgressViewStyle())
-                    .padding(.horizontal)
-            }
-
-            // Show elapsed time and estimate
-            HStack(spacing: 16) {
-                // Elapsed time
+            // Show elapsed time
+            if uploadCoordinator.elapsedTime > 2 {
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
                         .font(.caption)
@@ -175,18 +162,6 @@ struct UploadStatusBar: View {
                         .monospacedDigit()
                 }
                 .foregroundColor(.secondary)
-
-                // Estimated remaining (if available)
-                if let remaining = uploadCoordinator.estimatedTimeRemaining, remaining > 0 {
-                    HStack(spacing: 4) {
-                        Image(systemName: "hourglass")
-                            .font(.caption)
-                        Text("~\(formatTime(remaining)) remaining")
-                            .font(.caption)
-                            .monospacedDigit()
-                    }
-                    .foregroundColor(.secondary)
-                }
             }
         }
     }
@@ -282,7 +257,7 @@ struct EnhancedUploadButton: View {
         )
         .onChange(of: selectedItems) { _, items in
             if !items.isEmpty, let item = items.first {
-                uploadCoordinator.handleMultiplePhotosPickerItems([item], destinationFolder: destinationFolder)
+                uploadCoordinator.handlePhotosPickerItem(item, destinationFolder: destinationFolder)
                 selectedItems.removeAll()
             }
         }

@@ -68,12 +68,12 @@ struct HomeView: View {
         .photosPicker(
             isPresented: $showingPhotoPicker,
             selection: $selectedPhotoItems,
-            maxSelectionCount: 10,
+            maxSelectionCount: 1,
             matching: .videos
         )
         .onChange(of: selectedPhotoItems) { _, items in
-            if !items.isEmpty {
-                pendingUploadItems = items
+            if let item = items.first {
+                pendingUploadItems = [item]
                 selectedPhotoItems.removeAll()
                 showingFolderSelection = true
             }
@@ -82,8 +82,8 @@ struct HomeView: View {
             UploadFolderSelectionSheet(
                 mediaStore: mediaStore,
                 onFolderSelected: { folderPath in
-                    if let coordinator = uploadCoordinator {
-                        coordinator.handleMultiplePhotosPickerItems(pendingUploadItems, destinationFolder: folderPath)
+                    if let coordinator = uploadCoordinator, let item = pendingUploadItems.first {
+                        coordinator.handlePhotosPickerItem(item, destinationFolder: folderPath)
                     }
                     pendingUploadItems.removeAll()
                     showingFolderSelection = false
@@ -192,12 +192,6 @@ struct HomeView: View {
                             Text("Importing video...")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.bscTextPrimary)
-                        }
-
-                        if coordinator.totalItemCount > 1 {
-                            Text("Video \(coordinator.currentItemIndex) of \(coordinator.totalItemCount)")
-                                .font(.system(size: 13))
-                                .foregroundColor(.bscTextSecondary)
                         }
 
                         if !coordinator.currentFileSize.isEmpty {

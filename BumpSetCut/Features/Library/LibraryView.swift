@@ -77,7 +77,7 @@ struct LibraryView: View {
             )
             .onChange(of: selectedPhotoItems) { _, items in
                 if !items.isEmpty, let item = items.first {
-                    viewModel.uploadCoordinator.handleMultiplePhotosPickerItems([item], destinationFolder: viewModel.currentPath)
+                    viewModel.uploadCoordinator.handlePhotosPickerItem(item, destinationFolder: viewModel.currentPath)
                     selectedPhotoItems.removeAll()
                 }
             }
