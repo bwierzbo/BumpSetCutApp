@@ -15,6 +15,9 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var hasAppeared = false
     @State private var showPaywall = false
+    @State private var showDeleteConfirmation = false
+    @State private var isDeletingAccount = false
+    @State private var deleteError: String?
     @State private var subscriptionService = SubscriptionService.shared
 
     var body: some View {
@@ -242,6 +245,19 @@ private extension SettingsView {
         BSCSettingsSection(title: "Debug", subtitle: "Debug builds only", icon: "ladybug.fill", iconColor: .bscTeal) {
             VStack(spacing: BSCSpacing.md) {
                 BSCSettingsToggle(
+                    title: "Pro Mode",
+                    subtitle: "Switch between Pro and Free tier for testing",
+                    icon: "crown.fill",
+                    isOn: Binding(
+                        get: { subscriptionService.isPro },
+                        set: { subscriptionService.setProStatus($0) }
+                    )
+                )
+
+                Divider()
+                    .background(Color.bscSurfaceBorder)
+
+                BSCSettingsToggle(
                     title: "Debug Features",
                     subtitle: "Enable advanced debug tools",
                     icon: "wrench.and.screwdriver.fill",
@@ -415,11 +431,16 @@ private extension SettingsView {
 
                     // Delete account button
                     Button {
-                        // Confirmation alert added in future iteration
+                        showDeleteConfirmation = true
                     } label: {
                         HStack {
-                            Image(systemName: "trash")
-                                .foregroundColor(.red.opacity(0.8))
+                            if isDeletingAccount {
+                                ProgressView()
+                                    .tint(.red.opacity(0.8))
+                            } else {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red.opacity(0.8))
+                            }
                             Text("Delete Account")
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.red.opacity(0.8))
@@ -427,6 +448,32 @@ private extension SettingsView {
                         }
                     }
                     .buttonStyle(.plain)
+                    .disabled(isDeletingAccount)
+                    .alert("Delete Account", isPresented: $showDeleteConfirmation) {
+                        Button("Cancel", role: .cancel) { }
+                        Button("Delete", role: .destructive) {
+                            Task {
+                                isDeletingAccount = true
+                                deleteError = nil
+                                do {
+                                    try await authService.deleteAccount()
+                                } catch {
+                                    deleteError = error.localizedDescription
+                                }
+                                isDeletingAccount = false
+                            }
+                        }
+                    } message: {
+                        Text("This will permanently delete your account and all associated data. This cannot be undone.")
+                    }
+                    .alert("Delete Failed", isPresented: .init(
+                        get: { deleteError != nil },
+                        set: { if !$0 { deleteError = nil } }
+                    )) {
+                        Button("OK") { deleteError = nil }
+                    } message: {
+                        Text(deleteError ?? "")
+                    }
                 } else {
                     // Not signed in state
                     HStack(spacing: BSCSpacing.md) {

@@ -18,9 +18,10 @@ final class SubscriptionService {
     // MARK: - Public Properties
     var isPro: Bool {
         #if DEBUG
-        return true // TODO: Remove before release
-        #endif
+        return debugForcePro
+        #else
         return StoreManager.shared.hasActiveSubscription
+        #endif
     }
 
     // MARK: - Free Tier Limits
@@ -76,15 +77,12 @@ final class SubscriptionService {
     #if DEBUG
     // MARK: - Testing Helpers (DEBUG ONLY)
 
-    func setProStatus(_ status: Bool) {
-        // This only works in DEBUG builds for testing
-        // In production, subscription status comes from StoreKit only
-        UserDefaults.standard.set(status, forKey: "debug_force_pro")
-        print("💎 [DEBUG] Pro status set to: \(status)")
-    }
+    private(set) var debugForcePro: Bool = UserDefaults.standard.object(forKey: "debug_force_pro") as? Bool ?? true
 
-    private var debugForcePro: Bool {
-        return UserDefaults.standard.bool(forKey: "debug_force_pro")
+    func setProStatus(_ status: Bool) {
+        UserDefaults.standard.set(status, forKey: "debug_force_pro")
+        debugForcePro = status
+        print("💎 [DEBUG] Pro status set to: \(status)")
     }
     #endif
 
