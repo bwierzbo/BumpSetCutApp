@@ -216,7 +216,7 @@ final class ProcessVideoViewModel {
             pendingIsDebugMode = results.isDebugMode
             pendingDebugData = results.debugData
             loadCurrentVideoMetadata()
-            showingFolderPicker = true
+            // Don't show folder picker yet — show summary first
         }
     }
 

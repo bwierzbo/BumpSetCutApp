@@ -173,7 +173,7 @@ private extension ProcessVideoView {
         case .processing:
             processingContent
         case .pendingSave:
-            processingContent  // Show processing UI while pending save
+            pendingSaveContent
         case .complete:
             completeContent
         case .noRallies:
@@ -200,6 +200,66 @@ private extension ProcessVideoView {
             Text("Analyzing video...")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.bscTextSecondary)
+        }
+        .padding(BSCSpacing.xl)
+        .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
+    }
+
+    var pendingSaveContent: some View {
+        VStack(spacing: BSCSpacing.lg) {
+            ZStack {
+                Circle()
+                    .fill(Color.bscSuccess.opacity(0.15))
+                    .frame(width: 80, height: 80)
+
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 48))
+                    .foregroundColor(.bscSuccess)
+            }
+
+            VStack(spacing: BSCSpacing.xs) {
+                Text("Processing Complete!")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.bscTextPrimary)
+
+                Text("Here's what the AI found in your video")
+                    .font(.system(size: 14))
+                    .foregroundColor(.bscTextSecondary)
+            }
+
+            // Rally summary stats
+            if viewModel.detectedRallyCount > 0 {
+                HStack(spacing: BSCSpacing.xl) {
+                    VStack(spacing: BSCSpacing.xxs) {
+                        Text("\(viewModel.detectedRallyCount)")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.bscOrange)
+                        Text(viewModel.detectedRallyCount == 1 ? "Rally" : "Rallies")
+                            .font(.system(size: 12))
+                            .foregroundColor(.bscTextSecondary)
+                    }
+                    VStack(spacing: BSCSpacing.xxs) {
+                        Text(viewModel.detectedRallyDurationFormatted)
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.bscTeal)
+                        Text("Rally Time")
+                            .font(.system(size: 12))
+                            .foregroundColor(.bscTextSecondary)
+                    }
+                    if let timeCut = viewModel.timeCutFormatted,
+                       let percent = viewModel.timeCutPercent {
+                        VStack(spacing: BSCSpacing.xxs) {
+                            Text(timeCut)
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(.bscBlue)
+                            Text("\(percent)% Cut")
+                                .font(.system(size: 12))
+                                .foregroundColor(.bscTextSecondary)
+                        }
+                    }
+                }
+                .padding(.top, BSCSpacing.xs)
+            }
         }
         .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
@@ -414,7 +474,7 @@ private extension ProcessVideoView {
         case .processing:
             cancelButton
         case .pendingSave:
-            EmptyView()  // No buttons while pending save
+            saveButtons
         case .complete:
             doneButton
         case .noRallies:
@@ -470,6 +530,23 @@ private extension ProcessVideoView {
                     .foregroundColor(.bscTextTertiary)
                     .multilineTextAlignment(.center)
                     .padding(.top, BSCSpacing.xs)
+            }
+        }
+    }
+
+    var saveButtons: some View {
+        VStack(spacing: BSCSpacing.md) {
+            BSCButton(title: "Save to Library", icon: "square.and.arrow.down", style: .primary, size: .large) {
+                viewModel.showingFolderPicker = true
+            }
+
+            BSCButton(title: "Discard", icon: "trash", style: .ghost, size: .medium) {
+                // Clean up temp file
+                if let tempURL = viewModel.pendingSaveURL {
+                    try? FileManager.default.removeItem(at: tempURL)
+                }
+                viewModel.pendingSaveURL = nil
+                dismiss()
             }
         }
     }
