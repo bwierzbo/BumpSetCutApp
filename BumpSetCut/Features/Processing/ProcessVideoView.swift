@@ -200,6 +200,17 @@ private extension ProcessVideoView {
             Text("Analyzing video...")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.bscTextSecondary)
+
+            HStack(spacing: BSCSpacing.xs) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.bscOrange)
+                Text("Keep BumpSetCut open while processing. Switching apps may interrupt the analysis.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.bscTextTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .multilineTextAlignment(.leading)
         }
         .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)

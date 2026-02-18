@@ -142,11 +142,16 @@ struct MainTabView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Processing...")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.bscTextPrimary)
+                        HStack(spacing: BSCSpacing.xxs) {
+                            Text("Processing...")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.bscTextPrimary)
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 9))
+                                .foregroundColor(.bscOrange)
+                        }
 
-                        Text(processingCoordinator.videoName)
+                        Text("Keep app open \u{2022} \(processingCoordinator.videoName)")
                             .font(.system(size: 11))
                             .foregroundColor(.bscTextTertiary)
                             .lineLimit(1)
