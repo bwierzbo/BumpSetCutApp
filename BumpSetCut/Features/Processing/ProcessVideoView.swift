@@ -308,19 +308,22 @@ private extension ProcessVideoView {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(.bscTextPrimary)
 
-                Text("The AI couldn't find active volleyball rallies in this video. Here are some tips for better results:")
+                Text("The AI analyzed this video but couldn't identify any active volleyball rallies. This usually means the video angle, lighting, or content wasn't ideal for rally detection.")
                     .font(.system(size: 14))
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(alignment: .leading, spacing: BSCSpacing.md) {
+            VStack(alignment: .leading, spacing: BSCSpacing.sm) {
+                Text("For best results with a different video:")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.bscTextPrimary)
+
                 tipRow(icon: "camera.fill", text: "Film from a steady, elevated angle with the full court visible")
-                tipRow(icon: "sun.max.fill", text: "Record in good lighting so the ball is clearly visible")
-                tipRow(icon: "figure.volleyball", text: "Make sure the ball is in frame during active play")
-                tipRow(icon: "timer", text: "Longer clips with multiple rallies work best")
-                tipRow(icon: "arrow.up.circle.fill", text: "Higher video resolution helps the AI track the ball")
+                tipRow(icon: "sun.max.fill", text: "Good lighting so the ball is clearly visible")
+                tipRow(icon: "figure.volleyball", text: "Active volleyball play with the ball in frame")
+                tipRow(icon: "arrow.up.circle.fill", text: "Higher resolution video (1080p or above)")
             }
         }
         .padding(BSCSpacing.xl)
