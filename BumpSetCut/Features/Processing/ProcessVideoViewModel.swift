@@ -12,9 +12,7 @@ final class ProcessVideoViewModel {
     let onComplete: () -> Void
 
     // MARK: - State
-    var processor = VideoProcessor()
     var selectedVolleyballType: VolleyballType = .beach
-    var currentTask: Task<Void, Never>? = nil
     var currentVideoMetadata: VideoMetadata? = nil
     var showError: Bool = false
     var errorMessage: String = ""
@@ -31,21 +29,27 @@ final class ProcessVideoViewModel {
     var showingFolderPicker: Bool = false
     var selectedProcessedFolder: String = LibraryType.processed.rootPath
 
-    // MARK: - Computed Properties
+    // No rallies detected flag
+    var noRalliesDetected: Bool = false
+
+    // MARK: - Coordinator Reference
+    private var coordinator: ProcessingCoordinator { ProcessingCoordinator.shared }
+
+    // MARK: - Computed Properties (read from coordinator when processing)
     var isProcessing: Bool {
-        processor.isProcessing
+        coordinator.isProcessing && coordinator.videoURL == videoURL
     }
 
     var progress: Double {
-        min(1.0, max(0.0, processor.progress))
+        coordinator.progress
     }
 
     var progressPercent: Int {
-        Int(progress * 100)
+        coordinator.progressPercent
     }
 
     var isComplete: Bool {
-        processor.processedURL != nil || processor.processedMetadata != nil
+        coordinator.didComplete && !coordinator.noRalliesDetected && coordinator.errorMessage == nil
     }
 
     var hasMetadata: Bool {
@@ -95,12 +99,14 @@ final class ProcessVideoViewModel {
         currentVideoMetadata?.canBeProcessed ?? true
     }
 
+    /// Another video is currently being processed (not this one)
+    var isAnotherVideoProcessing: Bool {
+        coordinator.isProcessing && coordinator.videoURL != videoURL
+    }
+
     var videoDisplayName: String {
         getVideoDisplayName()
     }
-
-    // No rallies detected flag
-    var noRalliesDetected: Bool = false
 
     // MARK: - Processing Status
     var processingState: ProcessingState {
@@ -183,28 +189,48 @@ final class ProcessVideoViewModel {
     func loadCurrentVideoMetadata() {
         let fileName = videoURL.lastPathComponent
 
-        // Search all library root paths and registered folders
-        let searchPaths = [folderPath, LibraryType.saved.rootPath, LibraryType.processed.rootPath, ""]
-            + mediaStore.getFolders(in: "").map(\.path)
-
-        for path in searchPaths {
-            let videos = mediaStore.getVideos(in: path)
-            if let match = videos.first(where: { $0.fileName == fileName }) {
-                currentVideoMetadata = match
-                selectedVolleyballType = match.volleyballType ?? .beach
-                return
-            }
+        // Search all videos in the manifest by filename (covers all folders including nested subfolders)
+        if let match = mediaStore.getAllVideos().first(where: { $0.fileName == fileName }) {
+            currentVideoMetadata = match
+            selectedVolleyballType = match.volleyballType ?? .beach
+            return
         }
 
         currentVideoMetadata = nil
     }
 
+    /// Check if the coordinator has pending results for this video and pick them up.
+    func checkForPendingResults() {
+        guard coordinator.didComplete,
+              coordinator.videoURL == videoURL else { return }
+
+        let results = coordinator.consumeResults()
+
+        if let error = results.error {
+            errorMessage = error
+            showError = true
+        } else if results.noRallies {
+            noRalliesDetected = true
+        } else if let saveURL = results.saveURL {
+            pendingSaveURL = saveURL
+            pendingIsDebugMode = results.isDebugMode
+            pendingDebugData = results.debugData
+            loadCurrentVideoMetadata()
+            showingFolderPicker = true
+        }
+    }
+
     func cancelProcessing() {
-        currentTask?.cancel()
+        coordinator.cancelProcessing()
     }
 
     func startProcessing(isDebugMode: Bool) {
-        currentTask?.cancel()
+        // Block concurrent processing — only one video at a time
+        if coordinator.isProcessing, coordinator.videoURL != videoURL {
+            errorMessage = "Another video is already being processed. Please wait for it to finish or cancel it first."
+            showError = true
+            return
+        }
 
         // Check weekly processing limit for free users
         let processingCheck = SubscriptionService.shared.canProcessVideo()
@@ -225,7 +251,6 @@ final class ProcessVideoViewModel {
         }
 
         // Check storage space before starting
-        // Estimate needing ~1.5x video size (original stays, processed output created)
         let videoSize = StorageChecker.getFileSize(at: videoURL)
         let requiredSpace = Int64(Double(videoSize) * 1.5)
         let storageCheck = StorageChecker.checkAvailableSpace(requiredBytes: requiredSpace)
@@ -236,91 +261,24 @@ final class ProcessVideoViewModel {
             return
         }
 
-        currentTask = Task {
-            do {
-                // Configure processor for the selected volleyball type
-                processor.configure(for: selectedVolleyballType)
-
-                // Register background expiry cancellation so the guard cancels this Task
-                // if background time runs out
-                let task = self.currentTask
-                processor.setBackgroundCancellationHandler { [weak self] in
-                    task?.cancel()
-                    self?.processor.isProcessing = false
-                }
-
-                let tempProcessedURL: URL?
-                let debugData: TrajectoryDebugger?
-
-                if isDebugMode {
-                    tempProcessedURL = try await processor.processVideoDebug(videoURL)
-                    debugData = processor.trajectoryDebugger
-                } else {
-                    let videoId = currentVideoMetadata?.id ?? UUID()
-                    _ = try await processor.processVideo(videoURL, videoId: videoId)
-                    debugData = nil
-
-                    // Mark the video as processed in the manifest
-                    if let metadataSize = await MainActor.run(body: {
-                        currentVideoMetadata?.getCurrentMetadataSize()
-                    }) {
-                        let selectedType = selectedVolleyballType
-                        let success = await MainActor.run {
-                            mediaStore.markVideoAsProcessed(videoId: videoId, metadataFileSize: metadataSize, volleyballType: selectedType)
-                        }
-                        print(success ? "✅ Video marked as processed in manifest" : "❌ Failed to mark video as processed")
-
-                        await MainActor.run {
-                            SubscriptionService.shared.recordVideoProcessing()
-                        }
-                    }
-
-                    // Create a hard link of the original video so it can be saved to Processed Games
-                    let linkURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("Processed_\(UUID().uuidString).mp4")
-                    try FileManager.default.linkItem(at: videoURL, to: linkURL)
-                    tempProcessedURL = linkURL
-                }
-
-                await MainActor.run {
-                    currentTask = nil
-                }
-
-                // Store pending save info and show folder picker
-                await MainActor.run {
-                    pendingSaveURL = tempProcessedURL
-                    pendingIsDebugMode = isDebugMode
-                    pendingDebugData = debugData
-                    showingFolderPicker = true
-                }
-
-            } catch is CancellationError {
-                await MainActor.run {
-                    currentTask = nil
-                    processor.isProcessing = false
-                }
-            } catch ProcessingError.noRalliesDetected {
-                // No rally segments found — show friendly guidance instead of generic error
-                await MainActor.run {
-                    currentTask = nil
-                    processor.isProcessing = false
-                    noRalliesDetected = true
-                }
-            } catch {
-                await MainActor.run {
-                    currentTask = nil
-                    processor.isProcessing = false
-                    errorMessage = error.localizedDescription
-                    showError = true
-                }
-            }
-        }
+        // Delegate to coordinator — processing survives view dismissal
+        coordinator.startProcessing(
+            videoURL: videoURL,
+            mediaStore: mediaStore,
+            volleyballType: selectedVolleyballType,
+            videoId: currentVideoMetadata?.id ?? UUID(),
+            isDebugMode: isDebugMode
+        )
     }
 
     /// Called after user selects a folder in the folder picker
     func confirmSaveToFolder(_ folderPath: String) {
-        guard let tempURL = pendingSaveURL else { return }
+        guard let tempURL = pendingSaveURL else {
+            print("⚠️ confirmSaveToFolder: no pendingSaveURL")
+            return
+        }
 
+        print("📁 confirmSaveToFolder: saving to '\(folderPath)'")
         Task {
             do {
                 try await saveProcessedVideo(
@@ -329,21 +287,26 @@ final class ProcessVideoViewModel {
                     debugData: pendingDebugData,
                     destinationFolder: folderPath
                 )
+                print("✅ confirmSaveToFolder: save succeeded")
 
                 await MainActor.run {
                     pendingSaveURL = nil
                     pendingDebugData = nil
                     showingFolderPicker = false
                     loadCurrentVideoMetadata()
+                    coordinator.reset()
                 }
                 // Let SwiftUI settle before presenting rally viewer
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 await MainActor.run {
                     if currentVideoMetadata != nil {
                         showRallyPlayer = true
+                    } else {
+                        print("⚠️ confirmSaveToFolder: currentVideoMetadata is nil, can't show rally player")
                     }
                 }
             } catch {
+                print("❌ confirmSaveToFolder: error: \(error)")
                 await MainActor.run {
                     errorMessage = error.localizedDescription
                     showError = true
@@ -356,21 +319,25 @@ final class ProcessVideoViewModel {
         let originalDisplayName = getVideoDisplayName()
         let prefix = isDebugMode ? "Debug" : "Processed"
         let processedName = getNextProcessedVideoName(originalDisplayName: originalDisplayName, prefix: prefix, inFolder: destinationFolder)
-        let processedFileName = "\(processedName).mp4"
+        let ext = videoURL.pathExtension.isEmpty ? "mp4" : videoURL.pathExtension
+        let processedFileName = "\(processedName).\(ext)"
 
         let mediaStoreBase = mediaStore.baseDirectory
         let targetDirectory = mediaStoreBase.appendingPathComponent(destinationFolder)
         let finalURL = targetDirectory.appendingPathComponent(processedFileName)
 
+        print("📁 saveProcessedVideo: moving \(tempProcessedURL.lastPathComponent) → \(finalURL.path)")
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true, attributes: nil)
 
         if FileManager.default.fileExists(atPath: finalURL.path) {
             try FileManager.default.removeItem(at: finalURL)
         }
         try FileManager.default.moveItem(at: tempProcessedURL, to: finalURL)
+        print("✅ saveProcessedVideo: file moved to \(processedFileName)")
 
         let originalVideoId = currentVideoMetadata?.id ?? UUID()
         let success = mediaStore.addProcessedVideo(at: finalURL, toFolder: destinationFolder, customName: processedName, originalVideoId: originalVideoId, volleyballType: selectedVolleyballType)
+        print(success ? "✅ saveProcessedVideo: added to manifest" : "❌ saveProcessedVideo: addProcessedVideo returned false")
 
         if isDebugMode, success, let debugger = debugData {
             if let addedVideo = mediaStore.getVideos(in: destinationFolder).first(where: { $0.displayName == processedName }) {
@@ -390,22 +357,8 @@ final class ProcessVideoViewModel {
     private func getVideoDisplayName() -> String {
         let fileName = videoURL.lastPathComponent
 
-        let videosInFolder = mediaStore.getVideos(in: folderPath)
-        if let matchingVideo = videosInFolder.first(where: { $0.fileName == fileName }) {
-            return matchingVideo.displayName
-        }
-
-        let allFolders = mediaStore.getFolders(in: "")
-        for folder in allFolders {
-            let videosInOtherFolder = mediaStore.getVideos(in: folder.path)
-            if let matchingVideo = videosInOtherFolder.first(where: { $0.fileName == fileName }) {
-                return matchingVideo.displayName
-            }
-        }
-
-        let rootVideos = mediaStore.getVideos(in: "")
-        if let matchingVideo = rootVideos.first(where: { $0.fileName == fileName }) {
-            return matchingVideo.displayName
+        if let match = mediaStore.getAllVideos().first(where: { $0.fileName == fileName }) {
+            return match.displayName
         }
 
         return videoURL.deletingPathExtension().lastPathComponent

@@ -60,9 +60,9 @@ struct ProcessVideoView: View {
         .navigationTitle("AI Processing")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
-        .onDisappear { viewModel.cancelProcessing() }
         .onAppear {
             viewModel.loadCurrentVideoMetadata()
+            viewModel.checkForPendingResults()
             withAnimation {
                 hasAppeared = true
             }
@@ -430,21 +430,47 @@ private extension ProcessVideoView {
 
     var processingButtons: some View {
         VStack(spacing: BSCSpacing.md) {
+            if viewModel.isAnotherVideoProcessing {
+                // Another video is processing — block concurrent processing
+                HStack(spacing: BSCSpacing.sm) {
+                    ProgressView()
+                        .tint(.bscOrange)
+                    Text("Another video is processing...")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.bscTextSecondary)
+                }
+                .padding(BSCSpacing.md)
+                .frame(maxWidth: .infinity)
+                .bscGlass(cornerRadius: BSCRadius.md, padding: 0)
+            }
+
             // AI Processing - Primary
             BSCButton(title: "Start AI Processing", icon: "brain.head.profile", style: .primary, size: .large) {
                 viewModel.startProcessing(isDebugMode: false)
             }
+            .disabled(viewModel.isAnotherVideoProcessing)
+            .opacity(viewModel.isAnotherVideoProcessing ? 0.5 : 1.0)
 
-            // Debug Processing - Secondary
-            BSCButton(title: "Debug Processing", icon: "ladybug", style: .secondary, size: .medium) {
-                viewModel.startProcessing(isDebugMode: true)
+            if AppSettings.shared.enableDebugFeatures {
+                // Debug Processing - Secondary (only when debug features enabled in Settings)
+                BSCButton(title: "Debug Processing", icon: "ladybug", style: .secondary, size: .medium) {
+                    viewModel.startProcessing(isDebugMode: true)
+                }
+                .disabled(viewModel.isAnotherVideoProcessing)
+                .opacity(viewModel.isAnotherVideoProcessing ? 0.5 : 1.0)
+
+                Text("AI Processing removes dead time\nDebug Processing includes analysis overlay")
+                    .font(.system(size: 12))
+                    .foregroundColor(.bscTextTertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, BSCSpacing.xs)
+            } else {
+                Text("AI Processing removes dead time")
+                    .font(.system(size: 12))
+                    .foregroundColor(.bscTextTertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, BSCSpacing.xs)
             }
-
-            Text("AI Processing removes dead time\nDebug Processing includes analysis overlay")
-                .font(.system(size: 12))
-                .foregroundColor(.bscTextTertiary)
-                .multilineTextAlignment(.center)
-                .padding(.top, BSCSpacing.xs)
         }
     }
 
