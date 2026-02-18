@@ -72,7 +72,11 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let followedIds = follows.map(\.followingId)
 
             guard !followedIds.isEmpty else {
-                return [] as! T
+                // Safe empty array cast — T is always [Highlight] for feed endpoints
+                guard let empty = [Highlight]() as? T else {
+                    throw URLError(.cannotDecodeContentData)
+                }
+                return empty
             }
 
             let response: T = try await supabase
@@ -320,7 +324,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
 
         case .createReport(let report):
             let response: T = try await supabase
-                .from("reports")
+                .from("content_reports")
                 .insert(report)
                 .select()
                 .single()
@@ -334,7 +338,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let from = page * pageSize
             let to = from + pageSize - 1
             let response: T = try await supabase
-                .from("reports")
+                .from("content_reports")
                 .select()
                 .eq("reporter_id", value: myId)
                 .order("created_at", ascending: false)
@@ -350,7 +354,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 "blocked_id": userId,
             ].merging(reason.map { ["reason": $0] } ?? [:]) { _, new in new }
             let response: T = try await supabase
-                .from("blocks")
+                .from("user_blocks")
                 .insert(blockData)
                 .select()
                 .single()
@@ -361,7 +365,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         case .unblockUser(let userId):
             let myId = try await currentUserId()
             try await supabase
-                .from("blocks")
+                .from("user_blocks")
                 .delete()
                 .eq("blocker_id", value: myId)
                 .eq("blocked_id", value: userId)
@@ -371,7 +375,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         case .getBlockedUsers:
             let myId = try await currentUserId()
             let response: T = try await supabase
-                .from("blocks")
+                .from("user_blocks")
                 .select()
                 .eq("blocker_id", value: myId)
                 .execute()
@@ -381,7 +385,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         case .isUserBlocked(let userId):
             let myId = try await currentUserId()
             let rows: [UserBlock] = try await supabase
-                .from("blocks")
+                .from("user_blocks")
                 .select()
                 .eq("blocker_id", value: myId)
                 .eq("blocked_id", value: userId)
