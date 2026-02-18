@@ -143,7 +143,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .delete()
                 .eq("id", value: id)
                 .execute()
-            return EmptyResponse() as! T
+            return try safeCast(EmptyResponse())
 
         // MARK: Likes
 
@@ -153,7 +153,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .from("likes")
                 .insert(["highlight_id": id, "user_id": userId])
                 .execute()
-            return EmptyResponse() as! T
+            return try safeCast(EmptyResponse())
 
         case .unlikeHighlight(let id):
             let userId = try await currentUserId()
@@ -163,7 +163,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .eq("highlight_id", value: id)
                 .eq("user_id", value: userId)
                 .execute()
-            return EmptyResponse() as! T
+            return try safeCast(EmptyResponse())
 
         // MARK: Comments
 
@@ -198,7 +198,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .delete()
                 .eq("id", value: id)
                 .execute()
-            return EmptyResponse() as! T
+            return try safeCast(EmptyResponse())
 
         // MARK: Profiles
 
@@ -245,7 +245,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .limit(1)
                 .execute()
                 .value
-            return UsernameAvailability(isAvailable: rows.isEmpty) as! T
+            return try safeCast(UsernameAvailability(isAvailable: rows.isEmpty))
 
         // MARK: Follows
 
@@ -255,7 +255,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .from("follows")
                 .insert(["follower_id": myId, "following_id": userId])
                 .execute()
-            return EmptyResponse() as! T
+            return try safeCast(EmptyResponse())
 
         case .unfollow(let userId):
             let myId = try await currentUserId()
@@ -265,7 +265,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .eq("follower_id", value: myId)
                 .eq("following_id", value: userId)
                 .execute()
-            return EmptyResponse() as! T
+            return try safeCast(EmptyResponse())
 
         case .getFollowers(let userId, let page):
             let pageSize = 20
@@ -308,7 +308,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
 
         case .checkFollowStatusBatch(let userIds):
             guard !userIds.isEmpty else {
-                return [] as! T
+                return try safeCast([FollowRow]())
             }
             let myId = try await currentUserId()
             let response: T = try await supabase
@@ -370,7 +370,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .eq("blocker_id", value: myId)
                 .eq("blocked_id", value: userId)
                 .execute()
-            return EmptyResponse() as! T
+            return try safeCast(EmptyResponse())
 
         case .getBlockedUsers:
             let myId = try await currentUserId()
@@ -392,7 +392,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .limit(1)
                 .execute()
                 .value
-            return BlockStatusResult(isBlocked: !rows.isEmpty) as! T
+            return try safeCast(BlockStatusResult(isBlocked: !rows.isEmpty))
 
         // MARK: Auth (handled via Supabase Auth, not DB)
 
@@ -472,7 +472,9 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         fileName: String,
         to outputURL: URL
     ) throws {
-        let outputStream = OutputStream(url: outputURL, append: false)!
+        guard let outputStream = OutputStream(url: outputURL, append: false) else {
+            throw APIError.invalidRequest("Cannot write to \(outputURL)")
+        }
         outputStream.open()
         defer { outputStream.close() }
 
@@ -528,12 +530,22 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
 
         let publicURL = try supabase.storage.from("avatars").getPublicURL(path: fileName)
         // Append cache-buster so AsyncImage re-fetches after update
-        var components = URLComponents(url: publicURL, resolvingAgainstBaseURL: false)!
+        guard var components = URLComponents(url: publicURL, resolvingAgainstBaseURL: false) else {
+            return publicURL
+        }
         components.queryItems = [URLQueryItem(name: "t", value: "\(Int(Date().timeIntervalSince1970))")]
         return components.url ?? publicURL
     }
 
     // MARK: - Private
+
+    /// Safe cast helper — avoids force cast (`as! T`) crashes at runtime.
+    private nonisolated func safeCast<T>(_ value: Any) throws -> T {
+        guard let result = value as? T else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        return result
+    }
 
     private func currentUserId() async throws -> String {
         guard let user = try? await SupabaseConfig.client.auth.session.user else {
