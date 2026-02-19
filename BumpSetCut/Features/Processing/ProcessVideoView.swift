@@ -32,29 +32,43 @@ struct ProcessVideoView: View {
             // Background
             backgroundGradient
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: isLandscape ? BSCSpacing.lg : BSCSpacing.xxl) {
-                    // Animated header
-                    headerSection
-                        .opacity(hasAppeared ? 1 : 0)
-                        .offset(y: hasAppeared ? 0 : 20)
-                        .animation(.bscSpring.delay(0.1), value: hasAppeared)
+            VStack(spacing: 0) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: isLandscape ? BSCSpacing.lg : BSCSpacing.xxl) {
+                        // Animated header
+                        headerSection
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.1), value: hasAppeared)
 
-                    // Processing state content
-                    stateContent
-                        .opacity(hasAppeared ? 1 : 0)
-                        .offset(y: hasAppeared ? 0 : 20)
-                        .animation(.bscSpring.delay(0.2), value: hasAppeared)
+                        // Processing state content
+                        stateContent
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.2), value: hasAppeared)
 
-                    // Action buttons
-                    actionButtons
+                        // Action buttons (non-processing states)
+                        if viewModel.processingState != .processing {
+                            actionButtons
+                                .opacity(hasAppeared ? 1 : 0)
+                                .offset(y: hasAppeared ? 0 : 20)
+                                .animation(.bscSpring.delay(0.3), value: hasAppeared)
+                        }
+                    }
+                    .padding(BSCSpacing.xl)
+                    .frame(maxWidth: isLandscape ? 500 : .infinity)
+                    .frame(maxWidth: .infinity)
+                }
+
+                // Cancel button pinned to bottom during processing
+                if viewModel.processingState == .processing {
+                    cancelButton
+                        .padding(.horizontal, BSCSpacing.xl)
+                        .padding(.bottom, BSCSpacing.lg)
+                        .padding(.top, BSCSpacing.sm)
                         .opacity(hasAppeared ? 1 : 0)
-                        .offset(y: hasAppeared ? 0 : 20)
                         .animation(.bscSpring.delay(0.3), value: hasAppeared)
                 }
-                .padding(BSCSpacing.xl)
-                .frame(maxWidth: isLandscape ? 500 : .infinity)
-                .frame(maxWidth: .infinity)
             }
         }
         .navigationTitle("AI Processing")
@@ -102,6 +116,18 @@ struct ProcessVideoView: View {
                 Color.bscBackground
                     .ignoresSafeArea()
                     .onAppear { viewModel.showRallyPlayer = false }
+            }
+        }
+        .onChange(of: viewModel.isProcessing) { old, new in
+            // When processing finishes, consume results from the coordinator
+            if old && !new {
+                viewModel.checkForPendingResults()
+            }
+        }
+        .onChange(of: viewModel.showRallyPlayer) { old, new in
+            // When rally player is dismissed, go all the way back to library
+            if old && !new {
+                dismiss()
             }
         }
     }
@@ -249,21 +275,22 @@ private extension ProcessVideoView {
                             .font(.system(size: 12))
                             .foregroundColor(.bscTextSecondary)
                     }
-                    VStack(spacing: BSCSpacing.xxs) {
-                        Text(viewModel.detectedRallyDurationFormatted)
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.bscTeal)
-                        Text("Rally Time")
-                            .font(.system(size: 12))
-                            .foregroundColor(.bscTextSecondary)
-                    }
-                    if let timeCut = viewModel.timeCutFormatted,
-                       let percent = viewModel.timeCutPercent {
+                    if let timeCut = viewModel.timeCutFormatted {
                         VStack(spacing: BSCSpacing.xxs) {
                             Text(timeCut)
                                 .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(.bscTeal)
+                            Text("Time Saved")
+                                .font(.system(size: 12))
+                                .foregroundColor(.bscTextSecondary)
+                        }
+                    }
+                    if let percent = viewModel.timeCutPercent {
+                        VStack(spacing: BSCSpacing.xxs) {
+                            Text("\(percent)%")
+                                .font(.system(size: 24, weight: .bold))
                                 .foregroundColor(.bscBlue)
-                            Text("\(percent)% Cut")
+                            Text("Dead Time Cut")
                                 .font(.system(size: 12))
                                 .foregroundColor(.bscTextSecondary)
                         }
@@ -387,21 +414,22 @@ private extension ProcessVideoView {
                             .font(.system(size: 12))
                             .foregroundColor(.bscTextSecondary)
                     }
-                    VStack(spacing: BSCSpacing.xxs) {
-                        Text(viewModel.detectedRallyDurationFormatted)
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.bscTeal)
-                        Text("Rally Time")
-                            .font(.system(size: 12))
-                            .foregroundColor(.bscTextSecondary)
-                    }
-                    if let timeCut = viewModel.timeCutFormatted,
-                       let percent = viewModel.timeCutPercent {
+                    if let timeCut = viewModel.timeCutFormatted {
                         VStack(spacing: BSCSpacing.xxs) {
                             Text(timeCut)
                                 .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(.bscTeal)
+                            Text("Time Saved")
+                                .font(.system(size: 12))
+                                .foregroundColor(.bscTextSecondary)
+                        }
+                    }
+                    if let percent = viewModel.timeCutPercent {
+                        VStack(spacing: BSCSpacing.xxs) {
+                            Text("\(percent)%")
+                                .font(.system(size: 24, weight: .bold))
                                 .foregroundColor(.bscBlue)
-                            Text("\(percent)% Cut")
+                            Text("Dead Time Cut")
                                 .font(.system(size: 12))
                                 .foregroundColor(.bscTextSecondary)
                         }
@@ -486,7 +514,7 @@ private extension ProcessVideoView {
     var actionButtons: some View {
         switch viewModel.processingState {
         case .processing:
-            cancelButton
+            EmptyView()
         case .pendingSave:
             saveButtons
         case .complete:

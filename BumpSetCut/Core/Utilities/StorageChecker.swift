@@ -63,6 +63,29 @@ enum StorageChecker {
         }
     }
 
+    /// Threshold for "low storage" warning (500 MB)
+    static let lowStorageThreshold: Int64 = 500_000_000
+
+    /// Check if device storage is running low
+    static func isStorageLow() -> (isLow: Bool, available: Int64) {
+        let available = getAvailableSpace()
+        return (available < lowStorageThreshold, available)
+    }
+
+    /// Check if an error is a storage-full error
+    static func isStorageError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        // POSIX "No space left on device" (errno 28)
+        if nsError.domain == NSPOSIXErrorDomain && nsError.code == 28 { return true }
+        // Cocoa file write error with underlying POSIX 28
+        if nsError.domain == NSCocoaErrorDomain,
+           let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSPOSIXErrorDomain && underlying.code == 28 { return true }
+        // Check localizedDescription as last resort
+        let desc = error.localizedDescription.lowercased()
+        return desc.contains("no space left") || desc.contains("not enough space") || desc.contains("disk full")
+    }
+
     /// Format bytes into a human-readable string
     /// - Parameter bytes: Number of bytes
     /// - Returns: Formatted string (e.g., "1.5 GB")

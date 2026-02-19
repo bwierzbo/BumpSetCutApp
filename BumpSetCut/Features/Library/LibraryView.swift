@@ -94,21 +94,24 @@ struct LibraryView: View {
                 set: { if !$0 { viewModel.uploadCoordinator.completeNaming(customName: nil) } }
             )) {
                 TextField("Video name", text: $videoNameInput)
+                    .onChange(of: videoNameInput) { _, newValue in
+                        let stripped = String(newValue.drop(while: { $0.isWhitespace }))
+                        let limited = String(stripped.prefix(100))
+                        if limited != newValue {
+                            videoNameInput = limited
+                        }
+                    }
                 Button("Save") {
                     viewModel.uploadCoordinator.completeNaming(customName: videoNameInput)
                     videoNameInput = ""
                 }
+                .disabled(videoNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Skip", role: .cancel) {
                     viewModel.uploadCoordinator.completeNaming(customName: nil)
                     videoNameInput = ""
                 }
             } message: {
                 Text("Give your video a custom name")
-            }
-            .onChange(of: viewModel.uploadCoordinator.showNamingDialog) { _, show in
-                if show {
-                    videoNameInput = viewModel.uploadCoordinator.namingDialogSuggestedName
-                }
             }
         }
     }

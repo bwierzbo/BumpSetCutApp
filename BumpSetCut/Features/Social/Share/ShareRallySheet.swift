@@ -13,17 +13,19 @@ struct ShareRallySheet: View {
     @Environment(AppNavigationState.self) private var navigationState
     @Environment(AuthenticationService.self) private var authService
     @State private var viewModel: ShareRallyViewModel
-    @State private var player = AVPlayer()
-    @State private var loopObserver: Any?
-    @State private var carouselOffset: CGFloat = 0
-    @State private var isSliding = false
+    @State private var playerPool: [Int: AVPlayer] = [:]
+    @State private var loopObservers: [Int: Any] = [:]
+    @State private var carouselSelection: Int = 0
     @State private var showAuthGate = false
     @FocusState private var isCaptionFocused: Bool
+
+    private let preloadRadius = 4
 
     init(originalVideoURL: URL, rallyVideoURLs: [URL], savedRallyIndices: [Int],
          initialRallyIndex: Int, thumbnailCache: RallyThumbnailCache,
          videoId: UUID, rallyInfo: [Int: RallyShareInfo], postAllSaved: Bool = false) {
         let initialPage = savedRallyIndices.firstIndex(of: initialRallyIndex) ?? 0
+        _carouselSelection = State(initialValue: initialPage)
         _viewModel = State(initialValue: ShareRallyViewModel(
             originalVideoURL: originalVideoURL,
             rallyVideoURLs: rallyVideoURLs,
@@ -75,14 +77,20 @@ struct ShareRallySheet: View {
                 }
             }
         }
-        .onAppear { configurePlayer() }
-        .onDisappear { cleanupPlayer() }
-        .onChange(of: viewModel.selectedPage) { _, _ in configurePlayer() }
+        .onAppear {
+            carouselSelection = viewModel.selectedPage
+            updatePlayerPool(activePage: viewModel.selectedPage)
+        }
+        .onDisappear { cleanupAllPlayers() }
+        .onChange(of: carouselSelection) { _, newPage in
+            viewModel.selectedPage = newPage
+            updatePlayerPool(activePage: newPage)
+        }
         .onChange(of: isCaptionFocused) { _, focused in
             if focused {
-                player.pause()
+                playerPool[viewModel.selectedPage]?.pause()
             } else {
-                player.play()
+                playerPool[viewModel.selectedPage]?.play()
             }
         }
         .onChange(of: viewModel.state) { _, newState in
@@ -110,59 +118,40 @@ struct ShareRallySheet: View {
 
     private var rallyCarousel: some View {
         VStack(spacing: BSCSpacing.sm) {
-            GeometryReader { geo in
-                ZStack(alignment: .bottomLeading) {
-                    // Thumbnail fallback behind video
-                    Group {
-                        if let url = currentThumbnailURL,
-                           let thumb = viewModel.thumbnailCache.getThumbnail(for: url) {
+            TabView(selection: $carouselSelection) {
+                ForEach(viewModel.savedRallyIndices.indices, id: \.self) { pageIndex in
+                    let rallyIndex = viewModel.savedRallyIndices[pageIndex]
+                    let url = viewModel.rallyVideoURLs[rallyIndex]
+                    let isCurrent = pageIndex == viewModel.selectedPage
+
+                    ZStack(alignment: .bottomLeading) {
+                        // Thumbnail (always visible — instant, no loading)
+                        if let thumb = viewModel.thumbnailCache.getThumbnail(for: url) {
                             Image(uiImage: thumb)
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         } else {
                             Color.bscSurfaceGlass
                         }
-                    }
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
 
-                    // Video player on top
-                    CustomVideoPlayerView(
-                        player: player,
-                        gravity: .resizeAspectFill,
-                        onReadyForDisplay: { _ in }
-                    )
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                    .allowsHitTesting(false)
-
-                    // Rally badge
-                    if viewModel.postAllSaved && viewModel.savedRallyIndices.count > 1 {
-                        HStack(spacing: 4) {
-                            Image(systemName: "square.stack.fill")
-                                .font(.system(size: 11, weight: .bold))
-                            Text("\(viewModel.savedRallyIndices.count) Rallies")
-                                .font(.system(size: 13, weight: .bold))
+                        // Preloaded video player (current ±4 pages have players)
+                        if let pagePlayer = playerPool[pageIndex] {
+                            CustomVideoPlayerView(
+                                player: pagePlayer,
+                                gravity: .resizeAspectFill,
+                                onReadyForDisplay: { _ in }
+                            )
+                            .allowsHitTesting(false)
                         }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, BSCSpacing.sm)
-                        .padding(.vertical, BSCSpacing.xxs)
-                        .background(Capsule().fill(Color.bscOrange.opacity(0.85)))
-                        .padding(BSCSpacing.sm)
-                    } else {
-                        Text("Rally \(viewModel.currentRallyIndex + 1)")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, BSCSpacing.sm)
-                            .padding(.vertical, BSCSpacing.xxs)
-                            .background(Capsule().fill(Color.black.opacity(0.7)))
-                            .padding(BSCSpacing.sm)
+
+                        // Rally badge
+                        rallyBadge(pageIndex: pageIndex)
                     }
+                    .clipped()
+                    .tag(pageIndex)
                 }
-                .offset(x: carouselOffset)
-                .contentShape(Rectangle())
-                .gesture(carouselGesture(width: geo.size.width))
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
             .aspectRatio(16/9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
 
@@ -180,115 +169,101 @@ struct ShareRallySheet: View {
         }
     }
 
-    private var currentThumbnailURL: URL? {
-        let index = viewModel.currentRallyIndex
-        guard index < viewModel.rallyVideoURLs.count else { return nil }
-        return viewModel.rallyVideoURLs[index]
+    @ViewBuilder
+    private func rallyBadge(pageIndex: Int) -> some View {
+        if viewModel.postAllSaved && viewModel.savedRallyIndices.count > 1 {
+            HStack(spacing: 4) {
+                Image(systemName: "square.stack.fill")
+                    .font(.system(size: 11, weight: .bold))
+                Text("\(viewModel.savedRallyIndices.count) Rallies")
+                    .font(.system(size: 13, weight: .bold))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, BSCSpacing.sm)
+            .padding(.vertical, BSCSpacing.xxs)
+            .background(Capsule().fill(Color.bscOrange.opacity(0.85)))
+            .padding(BSCSpacing.sm)
+        } else {
+            let rallyIndex = viewModel.savedRallyIndices[pageIndex]
+            Text("Rally \(rallyIndex + 1)")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.horizontal, BSCSpacing.sm)
+                .padding(.vertical, BSCSpacing.xxs)
+                .background(Capsule().fill(Color.black.opacity(0.7)))
+                .padding(BSCSpacing.sm)
+        }
     }
 
-    // MARK: - Carousel Gesture
+    // MARK: - Player Pool Management
 
-    private func carouselGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 20)
-            .onChanged { value in
-                guard !isSliding, viewModel.savedRallyIndices.count > 1 else { return }
-                // Rubber-band at edges
-                let atStart = viewModel.selectedPage == 0 && value.translation.width > 0
-                let atEnd = viewModel.selectedPage == viewModel.savedRallyIndices.count - 1
-                    && value.translation.width < 0
-                carouselOffset = (atStart || atEnd)
-                    ? value.translation.width * 0.25
-                    : value.translation.width
+    private func updatePlayerPool(activePage: Int) {
+        let pageCount = viewModel.savedRallyIndices.count
+        let lo = max(0, activePage - preloadRadius)
+        let hi = min(pageCount - 1, activePage + preloadRadius)
+        let visibleRange = lo...hi
+
+        // Remove players outside the window
+        for pageIndex in playerPool.keys where !visibleRange.contains(pageIndex) {
+            if let observer = loopObservers.removeValue(forKey: pageIndex) {
+                playerPool[pageIndex]?.removeTimeObserver(observer)
             }
-            .onEnded { value in
-                guard !isSliding, viewModel.savedRallyIndices.count > 1 else {
-                    snapBack()
-                    return
+            playerPool[pageIndex]?.pause()
+            playerPool[pageIndex]?.replaceCurrentItem(with: nil)
+            playerPool.removeValue(forKey: pageIndex)
+        }
+
+        // Create players for pages in the window that don't have one
+        for pageIndex in visibleRange {
+            let rallyIndex = viewModel.savedRallyIndices[pageIndex]
+            guard let info = viewModel.rallyInfo[rallyIndex] else { continue }
+
+            if playerPool[pageIndex] == nil {
+                let player = AVPlayer(url: viewModel.originalVideoURL)
+                player.automaticallyWaitsToMinimizeStalling = false
+                let startTime = CMTimeMakeWithSeconds(info.startTime, preferredTimescale: 600)
+                let endTime = CMTimeMakeWithSeconds(info.endTime, preferredTimescale: 600)
+
+                player.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
+
+                // Set up looping
+                let observer = player.addBoundaryTimeObserver(
+                    forTimes: [NSValue(time: endTime)],
+                    queue: .main
+                ) { [weak player] in
+                    player?.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
                 }
+                loopObservers[pageIndex] = observer
 
-                let threshold = width * 0.25
-                let velocity = value.predictedEndTranslation.width
-
-                if (value.translation.width < -threshold || velocity < -threshold),
-                   viewModel.selectedPage < viewModel.savedRallyIndices.count - 1 {
-                    slideTo(page: viewModel.selectedPage + 1, direction: -1, width: width)
-                } else if (value.translation.width > threshold || velocity > threshold),
-                          viewModel.selectedPage > 0 {
-                    slideTo(page: viewModel.selectedPage - 1, direction: 1, width: width)
+                // Only play the active page
+                if pageIndex == activePage {
+                    player.play()
                 } else {
-                    snapBack()
+                    player.pause()
+                }
+
+                playerPool[pageIndex] = player
+            } else {
+                // Player exists — play/pause based on active page
+                if pageIndex == activePage {
+                    playerPool[pageIndex]?.play()
+                } else {
+                    playerPool[pageIndex]?.pause()
                 }
             }
+        }
     }
 
-    private func slideTo(page: Int, direction: CGFloat, width: CGFloat) {
-        isSliding = true
-
-        // Slide current content off-screen in the swipe direction
-        withAnimation(.easeIn(duration: 0.18)) {
-            carouselOffset = direction * width
-        }
-
-        // At midpoint: swap page (player seeks while off-screen), jump to opposite side
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-            viewModel.selectedPage = page
-            carouselOffset = direction * -width
-
-            // Slide new content in
-            withAnimation(.easeOut(duration: 0.22)) {
-                carouselOffset = 0
+    private func cleanupAllPlayers() {
+        for (pageIndex, player) in playerPool {
+            if let observer = loopObservers[pageIndex] {
+                player.removeTimeObserver(observer)
             }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                isSliding = false
-            }
+            player.pause()
+            player.replaceCurrentItem(with: nil)
         }
-    }
-
-    private func snapBack() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            carouselOffset = 0
-        }
-    }
-
-    // MARK: - Player Management
-
-    private func configurePlayer() {
-        // Remove old boundary observer
-        if let observer = loopObserver {
-            player.removeTimeObserver(observer)
-            loopObserver = nil
-        }
-
-        guard let info = viewModel.currentShareInfo else { return }
-        let startTime = CMTimeMakeWithSeconds(info.startTime, preferredTimescale: 600)
-        let endTime = CMTimeMakeWithSeconds(info.endTime, preferredTimescale: 600)
-
-        // Create item only once (all rallies are from the same source video)
-        if player.currentItem == nil {
-            let item = AVPlayerItem(url: viewModel.originalVideoURL)
-            player.replaceCurrentItem(with: item)
-        }
-
-        player.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        player.play()
-
-        // Loop back to start when reaching end of rally segment
-        loopObserver = player.addBoundaryTimeObserver(
-            forTimes: [NSValue(time: endTime)],
-            queue: .main
-        ) { [player] in
-            player.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        }
-    }
-
-    private func cleanupPlayer() {
-        if let observer = loopObserver {
-            player.removeTimeObserver(observer)
-            loopObserver = nil
-        }
-        player.pause()
-        player.replaceCurrentItem(with: nil)
+        playerPool.removeAll()
+        loopObservers.removeAll()
     }
 
     // MARK: - Caption
@@ -444,6 +419,7 @@ struct ShareRallySheet: View {
     private var postButton: some View {
         let canPost = viewModel.state == .idle && (!viewModel.isTooLong || viewModel.postAllSaved)
         return Button("Post") {
+            isCaptionFocused = false
             if authService.isAuthenticated {
                 viewModel.upload()
             } else {

@@ -31,7 +31,11 @@ final class CommentsViewModel {
 
         do {
             let page: [Comment] = try await apiClient.request(.getComments(highlightId: highlightId, page: 0))
-            comments = page
+            let blocked = ModerationService.shared.blockedUserIds
+            comments = page.filter { comment in
+                guard let authorUUID = UUID(uuidString: comment.authorId) else { return true }
+                return !blocked.contains(authorUUID)
+            }
             currentPage = 1
         } catch {
             // Stub comments for development

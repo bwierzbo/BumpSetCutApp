@@ -318,7 +318,11 @@ struct RallyExportProgress: View {
             cleanupTempFiles(tempFiles)
             cleanupOrphanedRallyFiles()
             await MainActor.run {
-                exportStatus = .failed(error.localizedDescription)
+                if StorageChecker.isStorageError(error) {
+                    storageError = "Your device ran out of storage during export. Free up space and try again."
+                } else {
+                    exportStatus = .failed(error.localizedDescription)
+                }
                 isExporting = false
             }
         }

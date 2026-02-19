@@ -12,6 +12,8 @@ struct ProfileView: View {
     @State private var selectedHighlight: Highlight?
     @State private var selectedHighlightForComments: Highlight?
     @State private var highlightToDelete: Highlight?
+    @State private var showReportSheet = false
+    @State private var showBlockAlert = false
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.dismiss) private var dismiss
 
@@ -77,6 +79,47 @@ struct ProfileView: View {
             }
         } message: {
             Text("This post will be permanently removed.")
+        }
+        .toolbar {
+            if !isOwnProfile {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button(role: .destructive) {
+                            showReportSheet = true
+                        } label: {
+                            Label("Report User", systemImage: "exclamationmark.triangle")
+                        }
+                        Button(role: .destructive) {
+                            showBlockAlert = true
+                        } label: {
+                            Label("Block @\(viewModel.profile?.username ?? "user")", systemImage: "hand.raised")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.bscTextSecondary)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showReportSheet) {
+            ReportContentSheet(
+                contentType: .userProfile,
+                contentId: UUID(uuidString: viewModel.userId) ?? UUID(),
+                reportedUserId: UUID(uuidString: viewModel.userId) ?? UUID()
+            )
+        }
+        .alert("Block @\(viewModel.profile?.username ?? "user")?", isPresented: $showBlockAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Block", role: .destructive) {
+                guard let userId = UUID(uuidString: viewModel.userId) else { return }
+                Task {
+                    try? await ModerationService.shared.blockUser(userId)
+                    dismiss()
+                }
+            }
+        } message: {
+            Text("You won't see their posts or comments, and they won't be able to see yours.")
         }
     }
 

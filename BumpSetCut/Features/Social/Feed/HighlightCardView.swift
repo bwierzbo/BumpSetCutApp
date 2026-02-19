@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import AVKit
+import AVFoundation
 
 struct HighlightCardView: View {
     let highlight: Highlight
@@ -17,21 +17,23 @@ struct HighlightCardView: View {
     let onProfile: (String) -> Void
     var onDelete: (() -> Void)?
 
-    @State private var player: AVPlayer?
+    @State private var playerPool: [Int: AVPlayer] = [:]
+    @State private var loopObservers: [Int: Any] = [:]
     @State private var showDeleteConfirmation = false
     @State private var showReportSheet = false
     @State private var showBlockAlert = false
     @State private var showLikeHeart = false
     @State private var currentVideoPage = 0
     @State private var isPaused = false
-    @State private var showPauseIcon = false
     @State private var zoomScale: CGFloat = 1.0
     @State private var lastZoomScale: CGFloat = 1.0
     @State private var zoomOffset: CGSize = .zero
     @State private var lastZoomOffset: CGSize = .zero
 
+    private let preloadRadius = 4
     private var videoURLs: [URL] { highlight.allVideoURLs }
     private var isMultiVideo: Bool { videoURLs.count > 1 }
+    private var currentPlayer: AVPlayer? { playerPool[currentVideoPage] }
 
     var body: some View {
         GeometryReader { geo in
@@ -86,16 +88,6 @@ struct HighlightCardView: View {
                         .allowsHitTesting(false)
                 }
 
-                // Pause icon
-                if showPauseIcon {
-                    Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                        .font(.system(size: 50))
-                        .foregroundColor(.white.opacity(0.8))
-                        .shadow(color: .black.opacity(0.4), radius: 10)
-                        .transition(.opacity)
-                        .allowsHitTesting(false)
-                }
-
                 // Page indicator dots at bottom for multi-video
                 if isMultiVideo {
                     VStack {
@@ -110,13 +102,13 @@ struct HighlightCardView: View {
                         .padding(.horizontal, BSCSpacing.md)
                         .padding(.vertical, 6)
                         .background(Capsule().fill(Color.black.opacity(0.45)))
-                        .padding(.bottom, BSCSpacing.huge + 8)
+                        .padding(.bottom, geo.safeAreaInsets.bottom + BSCSpacing.huge + BSCSpacing.md)
                     }
                     .allowsHitTesting(false)
                 }
 
                 // Overlay controls
-                overlayControls
+                overlayControls(bottomInset: geo.safeAreaInsets.bottom)
             }
         }
         .alert("Delete Post?", isPresented: $showDeleteConfirmation) {
@@ -128,19 +120,22 @@ struct HighlightCardView: View {
             Text("This post will be permanently removed.")
         }
         .onAppear {
-            if isActive { setupPlayer() }
+            if isActive { setupPlayers() }
         }
-        .onDisappear { teardownPlayer() }
+        .onDisappear { teardownAllPlayers() }
         .onChange(of: isActive) { _, active in
             if active {
-                setupPlayer()
+                setupPlayers()
                 if isPaused { isPaused = false }
             } else {
-                teardownPlayer()
+                // Just pause — don't tear down. Keeps last video frame visible
+                // during scroll transitions (prevents flash to thumbnail/black).
+                // Actual teardown happens in onDisappear when LazyVStack recycles.
+                pauseAllPlayers()
             }
         }
         .onChange(of: currentVideoPage) { _, _ in
-            if isActive { switchToCurrentPage() }
+            if isActive { onPageChanged() }
         }
         .sheet(isPresented: $showReportSheet) {
             ReportContentSheet(
@@ -162,7 +157,7 @@ struct HighlightCardView: View {
 
     // MARK: - Overlay Controls
 
-    private var overlayControls: some View {
+    private func overlayControls(bottomInset: CGFloat) -> some View {
         VStack {
             Spacer()
 
@@ -291,30 +286,20 @@ struct HighlightCardView: View {
                 }
                 .padding(.trailing, BSCSpacing.md)
             }
-            .padding(.bottom, BSCSpacing.huge)
+            .padding(.bottom, bottomInset + BSCSpacing.huge)
         }
     }
 
     // MARK: - Tap to Pause/Play
 
     private func togglePlayback() {
-        guard let player else { return }
+        guard let player = currentPlayer else { return }
         isPaused.toggle()
 
         if isPaused {
             player.pause()
         } else {
             player.play()
-        }
-
-        // Flash the icon briefly
-        withAnimation(.easeIn(duration: 0.15)) {
-            showPauseIcon = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            withAnimation(.easeOut(duration: 0.3)) {
-                showPauseIcon = false
-            }
         }
     }
 
@@ -353,18 +338,24 @@ struct HighlightCardView: View {
     // MARK: - Single Video
 
     private func singleVideoView(size: CGSize) -> some View {
-        Group {
-            if let player {
-                VideoPlayer(player: player)
-                    .ignoresSafeArea()
-                    .disabled(true)
-            } else {
-                VideoThumbnailView(
-                    thumbnailURL: highlight.thumbnailImageURL,
-                    videoURL: highlight.videoURL
+        ZStack {
+            // Thumbnail always underneath to prevent flash
+            VideoThumbnailView(
+                thumbnailURL: highlight.thumbnailImageURL,
+                videoURL: highlight.videoURL,
+                contentMode: .fit
+            )
+            .frame(width: size.width, height: size.height)
+            .clipped()
+
+            // Video player overlay
+            if let player = playerPool[0] {
+                CustomVideoPlayerView(
+                    player: player,
+                    gravity: .resizeAspect,
+                    onReadyForDisplay: { _ in }
                 )
-                .frame(width: size.width, height: size.height)
-                .clipped()
+                .allowsHitTesting(false)
             }
         }
     }
@@ -373,16 +364,25 @@ struct HighlightCardView: View {
 
     private func multiVideoCarousel(size: CGSize) -> some View {
         TabView(selection: $currentVideoPage) {
-            ForEach(Array(videoURLs.enumerated()), id: \.offset) { index, _ in
-                Group {
-                    if index == currentVideoPage, let player {
-                        VideoPlayer(player: player)
-                            .disabled(true)
-                    } else {
-                        VideoThumbnailView(
-                            thumbnailURL: highlight.thumbnailImageURL,
-                            videoURL: videoURLs[index]
+            ForEach(Array(videoURLs.enumerated()), id: \.offset) { index, url in
+                ZStack {
+                    // Thumbnail always underneath — prevents flash on page switch
+                    VideoThumbnailView(
+                        thumbnailURL: index == 0 ? highlight.thumbnailImageURL : nil,
+                        videoURL: url,
+                        contentMode: .fit
+                    )
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
+
+                    // Preloaded video player overlay (within ±4 window)
+                    if let pagePlayer = playerPool[index] {
+                        CustomVideoPlayerView(
+                            player: pagePlayer,
+                            gravity: .resizeAspect,
+                            onReadyForDisplay: { _ in }
                         )
+                        .allowsHitTesting(false)
                     }
                 }
                 .frame(width: size.width, height: size.height)
@@ -394,43 +394,110 @@ struct HighlightCardView: View {
         .frame(width: size.width, height: size.height)
     }
 
-    // MARK: - Player Management
+    // MARK: - Player Pool Management
 
-    private func setupPlayer() {
-        guard player == nil else {
-            if !isPaused { player?.play() }
+    private func setupPlayers() {
+        guard playerPool.isEmpty else {
+            // Already set up — just resume the active player
+            if !isPaused { playerPool[currentVideoPage]?.play() }
             return
         }
-        let url = videoURLs.isEmpty ? highlight.videoURL : videoURLs[currentVideoPage]
-        let avPlayer = AVPlayer(url: url)
-        avPlayer.isMuted = false
-        player = avPlayer
-        avPlayer.play()
-
-        NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: avPlayer.currentItem,
-            queue: .main
-        ) { _ in
-            avPlayer.seek(to: .zero)
+        if isMultiVideo {
+            updatePlayerPool(activePage: currentVideoPage)
+        } else {
+            // Single video — just one player at index 0
+            let url = videoURLs.first ?? highlight.videoURL
+            let avPlayer = makeLoopingPlayer(url: url, pageIndex: 0)
             avPlayer.play()
+            playerPool[0] = avPlayer
         }
     }
 
-    private func switchToCurrentPage() {
+    private func updatePlayerPool(activePage: Int) {
+        let pageCount = videoURLs.count
+        guard pageCount > 0 else { return }
+        let lo = max(0, activePage - preloadRadius)
+        let hi = min(pageCount - 1, activePage + preloadRadius)
+        let visibleRange = lo...hi
+
+        // Remove players outside the window
+        for pageIndex in playerPool.keys where !visibleRange.contains(pageIndex) {
+            if let observer = loopObservers.removeValue(forKey: pageIndex) {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            playerPool[pageIndex]?.pause()
+            playerPool[pageIndex]?.replaceCurrentItem(with: nil)
+            playerPool.removeValue(forKey: pageIndex)
+        }
+
+        // Create players for pages in the window
+        for pageIndex in visibleRange {
+            guard pageIndex < videoURLs.count else { continue }
+            if playerPool[pageIndex] == nil {
+                let url = videoURLs[pageIndex]
+                let avPlayer = makeLoopingPlayer(url: url, pageIndex: pageIndex)
+
+                if pageIndex == activePage && !isPaused {
+                    avPlayer.play()
+                } else {
+                    avPlayer.pause()
+                }
+                playerPool[pageIndex] = avPlayer
+            } else {
+                // Player exists — play/pause based on active page
+                if pageIndex == activePage && !isPaused {
+                    playerPool[pageIndex]?.play()
+                } else {
+                    playerPool[pageIndex]?.pause()
+                }
+            }
+        }
+    }
+
+    private func makeLoopingPlayer(url: URL, pageIndex: Int) -> AVPlayer {
+        let avPlayer = AVPlayer(url: url)
+        avPlayer.isMuted = false
+        avPlayer.automaticallyWaitsToMinimizeStalling = false
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: avPlayer.currentItem,
+            queue: .main
+        ) { [weak avPlayer] _ in
+            avPlayer?.seek(to: .zero)
+            avPlayer?.play()
+        }
+        loopObservers[pageIndex] = observer
+
+        return avPlayer
+    }
+
+    private func onPageChanged() {
         isPaused = false
         // Reset zoom on page switch
         zoomScale = 1.0
         lastZoomScale = 1.0
         zoomOffset = .zero
         lastZoomOffset = .zero
-        teardownPlayer()
-        setupPlayer()
+        updatePlayerPool(activePage: currentVideoPage)
     }
 
-    private func teardownPlayer() {
-        player?.pause()
-        player = nil
+    private func pauseAllPlayers() {
+        for (_, player) in playerPool {
+            player.pause()
+        }
+    }
+
+    private func teardownAllPlayers() {
+        for (pageIndex, player) in playerPool {
+            if let observer = loopObservers[pageIndex] {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            player.pause()
+            player.replaceCurrentItem(with: nil)
+        }
+        playerPool.removeAll()
+        loopObservers.removeAll()
     }
 
     private func formatCount(_ count: Int) -> String {

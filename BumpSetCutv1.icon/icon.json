@@ -6,13 +6,13 @@
     {
       "layers" : [
         {
-          "image-name" : "volleyball-icon-3247.png",
-          "name" : "volleyball-icon-3247",
+          "image-name" : "ChatGPT Image Feb 11, 2026, 05_31_03 PM.png",
+          "name" : "ChatGPT Image Feb 11, 2026, 05_31_03 PM",
           "position" : {
-            "scale" : 0.1,
+            "scale" : 1.35,
             "translation-in-points" : [
-              8.476739931106408,
-              39.944052553408454
+              0,
+              0
             ]
           }
         }

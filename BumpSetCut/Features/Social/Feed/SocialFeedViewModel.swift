@@ -53,7 +53,11 @@ final class SocialFeedViewModel {
                 ? .getFollowingFeed(page: 0, pageSize: pageSize)
                 : .getFeed(page: 0, pageSize: pageSize)
             let page: [Highlight] = try await apiClient.request(endpoint)
-            highlights = page
+            let blocked = ModerationService.shared.blockedUserIds
+            highlights = page.filter { highlight in
+                guard let authorUUID = UUID(uuidString: highlight.authorId) else { return true }
+                return !blocked.contains(authorUUID)
+            }
             hasMorePages = page.count >= pageSize
             currentPage = 1
         } catch {
@@ -81,7 +85,12 @@ final class SocialFeedViewModel {
                 ? .getFollowingFeed(page: currentPage, pageSize: pageSize)
                 : .getFeed(page: currentPage, pageSize: pageSize)
             let page: [Highlight] = try await apiClient.request(endpoint)
-            highlights.append(contentsOf: page)
+            let blocked = ModerationService.shared.blockedUserIds
+            let filtered = page.filter { highlight in
+                guard let authorUUID = UUID(uuidString: highlight.authorId) else { return true }
+                return !blocked.contains(authorUUID)
+            }
+            highlights.append(contentsOf: filtered)
             hasMorePages = page.count >= pageSize
             currentPage += 1
         } catch {

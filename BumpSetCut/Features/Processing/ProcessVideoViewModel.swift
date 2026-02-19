@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import Observation
 
 // MARK: - ProcessVideoViewModel
@@ -71,9 +72,12 @@ final class ProcessVideoViewModel {
         return String(format: "%d:%02d", minutes, seconds)
     }
 
+    /// Cached original video duration (loaded async since metadata may not store it).
+    var cachedOriginalDuration: Double?
+
     /// Time cut = original video duration minus total rally duration.
     var timeCutFormatted: String? {
-        guard let originalDuration = currentVideoMetadata?.duration,
+        guard let originalDuration = cachedOriginalDuration ?? currentVideoMetadata?.duration,
               originalDuration > 0,
               let videoId = currentVideoMetadata?.id,
               let metadata = try? MetadataStore().loadMetadata(for: videoId) else { return nil }
@@ -86,7 +90,7 @@ final class ProcessVideoViewModel {
 
     /// Percentage of original video that was cut.
     var timeCutPercent: Int? {
-        guard let originalDuration = currentVideoMetadata?.duration,
+        guard let originalDuration = cachedOriginalDuration ?? currentVideoMetadata?.duration,
               originalDuration > 0,
               let videoId = currentVideoMetadata?.id,
               let metadata = try? MetadataStore().loadMetadata(for: videoId) else { return nil }
@@ -193,10 +197,26 @@ final class ProcessVideoViewModel {
         if let match = mediaStore.getAllVideos().first(where: { $0.fileName == fileName }) {
             currentVideoMetadata = match
             selectedVolleyballType = match.volleyballType ?? .beach
+            // Load duration from AVAsset if metadata doesn't have it
+            if match.duration == nil || match.duration == 0 {
+                loadVideoDuration()
+            }
             return
         }
 
         currentVideoMetadata = nil
+    }
+
+    /// Load video duration from AVAsset (async) for stats computation.
+    private func loadVideoDuration() {
+        Task {
+            let asset = AVURLAsset(url: videoURL)
+            if let duration = try? await CMTimeGetSeconds(asset.load(.duration)), duration > 0 {
+                await MainActor.run {
+                    self.cachedOriginalDuration = duration
+                }
+            }
+        }
     }
 
     /// Check if the coordinator has pending results for this video and pick them up.

@@ -31,9 +31,14 @@ struct MainTabView: View {
     @State private var mediaStore = MediaStore()
     @State private var metadataStore = MetadataStore()
     @State private var navigationState = AppNavigationState()
+    @State private var showProcessingView = false
+    @State private var showLowStorageBanner = false
+    @State private var lowStorageAvailable: Int64 = 0
+    @State private var lowStorageDismissed = false
     private var processingCoordinator = ProcessingCoordinator.shared
 
     @Environment(AuthenticationService.self) private var authService
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -92,10 +97,16 @@ struct MainTabView: View {
                     .padding(.bottom, 54) // Above tab bar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(100)
+            } else if showLowStorageBanner {
+                lowStorageBannerView
+                    .padding(.bottom, 54) // Above tab bar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(99)
             }
         }
         .animation(.bscSpring, value: processingCoordinator.isProcessing)
         .animation(.bscSpring, value: processingCoordinator.showCompletionPill)
+        .animation(.bscSpring, value: showLowStorageBanner)
         .environment(navigationState)
         .environment(\.changeTab, { tab in
             selectedTab = tab
@@ -105,13 +116,36 @@ struct MainTabView: View {
                 selectedTab = .feed
             }
         }
+        .onAppear { checkStorage() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { checkStorage() }
+        }
+        .sheet(isPresented: $showProcessingView) {
+            if let videoURL = processingCoordinator.videoURL,
+               let store = processingCoordinator.mediaStore {
+                NavigationStack {
+                    ProcessVideoView(
+                        videoURL: videoURL,
+                        mediaStore: store,
+                        folderPath: LibraryType.processed.rootPath,
+                        onComplete: { showProcessingView = false }
+                    )
+                }
+            }
+        }
     }
 
     // MARK: - Processing Progress Pill
 
     private var processingPill: some View {
         Button {
-            selectedTab = .home
+            print("🔘 Processing pill tapped — videoURL=\(processingCoordinator.videoURL?.lastPathComponent ?? "nil"), showProcessingView=\(showProcessingView)")
+            if processingCoordinator.videoURL != nil {
+                showProcessingView = true
+            } else {
+                print("⚠️ Pill tap: videoURL is nil, switching to home tab")
+                selectedTab = .home
+            }
         } label: {
             HStack(spacing: BSCSpacing.sm) {
                 if processingCoordinator.didComplete {
@@ -179,5 +213,58 @@ struct MainTabView: View {
             .padding(.horizontal, BSCSpacing.lg)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Low Storage Banner
+
+    private var lowStorageBannerView: some View {
+        HStack(spacing: BSCSpacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.orange)
+
+            Text("Storage nearly full — \(StorageChecker.formatBytes(lowStorageAvailable)) remaining. Free up space to avoid issues.")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.bscTextPrimary)
+                .lineLimit(2)
+
+            Spacer(minLength: 0)
+
+            Button {
+                withAnimation(.bscSpring) {
+                    showLowStorageBanner = false
+                    lowStorageDismissed = true
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.bscTextSecondary)
+            }
+        }
+        .padding(.horizontal, BSCSpacing.md)
+        .padding(.vertical, BSCSpacing.sm)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                .fill(Color.bscBackgroundElevated)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                .stroke(Color.orange.opacity(0.4), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+        .padding(.horizontal, BSCSpacing.lg)
+    }
+
+    // MARK: - Storage Check
+
+    private func checkStorage() {
+        let (isLow, available) = StorageChecker.isStorageLow()
+        lowStorageAvailable = available
+        if isLow && !lowStorageDismissed {
+            showLowStorageBanner = true
+        } else if !isLow {
+            showLowStorageBanner = false
+        }
     }
 }

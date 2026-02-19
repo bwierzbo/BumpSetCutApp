@@ -349,7 +349,15 @@ extension UploadCoordinator {
             }
 
         } catch {
-            logger.error("Failed to save video: \(error.localizedDescription)")
+            if StorageChecker.isStorageError(error) {
+                logger.error("Storage full during upload: \(error.localizedDescription)")
+                await MainActor.run {
+                    storageWarningMessage = "Your device ran out of storage space while importing the video. Free up space in Settings > General > iPhone Storage, then try again."
+                    showStorageWarning = true
+                }
+            } else {
+                logger.error("Failed to save video: \(error.localizedDescription)")
+            }
             print("❌ Save error: \(error)")
         }
     }
@@ -399,7 +407,9 @@ extension UploadCoordinator {
     /// Called from the SwiftUI naming alert when user saves or skips
     func completeNaming(customName: String?) {
         let fileName = namingDialogFileName
-        if let name = customName, !name.isEmpty {
+        let trimmed = customName?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let name = trimmed, !name.isEmpty {
             let success = mediaStore.renameVideo(fileName: fileName, to: name)
             if success {
                 logger.info("Video named: \(name)")
@@ -407,7 +417,14 @@ extension UploadCoordinator {
                 logger.warning("Failed to name video: \(fileName)")
             }
         } else {
-            logger.info("Video naming skipped for: \(fileName)")
+            // Skip — apply auto-generated name
+            let suggestedName = namingDialogSuggestedName
+            let success = mediaStore.renameVideo(fileName: fileName, to: suggestedName)
+            if success {
+                logger.info("Video auto-named: \(suggestedName)")
+            } else {
+                logger.warning("Failed to auto-name video: \(fileName)")
+            }
         }
         showNamingDialog = false
         namingContinuation?.resume()

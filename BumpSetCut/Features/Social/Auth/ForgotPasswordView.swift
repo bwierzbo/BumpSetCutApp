@@ -236,7 +236,7 @@ struct ForgotPasswordView: View {
 
                 if !newPassword.isEmpty {
                     VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                        passwordReq("12+ characters", met: newPassword.count >= 12)
+                        passwordReq("8+ characters", met: newPassword.count >= 8)
                         passwordReq("One uppercase letter", met: newPassword.range(of: "[A-Z]", options: .regularExpression) != nil)
                         passwordReq("One number", met: newPassword.range(of: "[0-9]", options: .regularExpression) != nil)
                         passwordReq("One symbol", met: newPassword.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil)
@@ -325,7 +325,7 @@ struct ForgotPasswordView: View {
     }
 
     private var isPasswordFormValid: Bool {
-        newPassword.count >= 12
+        newPassword.count >= 8
         && newPassword.range(of: "[A-Z]", options: .regularExpression) != nil
         && newPassword.range(of: "[0-9]", options: .regularExpression) != nil
         && newPassword.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil

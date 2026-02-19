@@ -170,9 +170,6 @@ final class StoreManager {
     // MARK: - Helper Methods
 
     var hasActiveSubscription: Bool {
-        #if DEBUG
-        return true // TODO: Remove before release
-        #endif
         return !purchasedProductIDs.isEmpty
     }
 

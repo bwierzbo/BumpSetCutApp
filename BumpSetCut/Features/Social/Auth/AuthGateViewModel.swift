@@ -40,7 +40,7 @@ class AuthGateViewModel {
     var isAuthenticated: Bool { authService.authState == .authenticated }
 
     var isEmailValid: Bool { email.contains("@") && email.contains(".") }
-    var hasMinLength: Bool { password.count >= 12 }
+    var hasMinLength: Bool { password.count >= 8 }
     var hasUppercase: Bool { password.range(of: "[A-Z]", options: .regularExpression) != nil }
     var hasNumber: Bool { password.range(of: "[0-9]", options: .regularExpression) != nil }
     var hasSymbol: Bool { password.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil }

@@ -68,7 +68,13 @@ final class ProcessingCoordinator {
         // Reset state
         self.isProcessing = true
         self.progress = 0.0
-        self.videoName = videoURL.deletingPathExtension().lastPathComponent
+        // Use custom display name if available, otherwise fall back to file name
+        let fileName = videoURL.lastPathComponent
+        if let match = mediaStore.getAllVideos().first(where: { $0.fileName == fileName }) {
+            self.videoName = match.displayName
+        } else {
+            self.videoName = videoURL.deletingPathExtension().lastPathComponent
+        }
         self.noRalliesDetected = false
         self.errorMessage = nil
         self.pendingSaveURL = nil
@@ -153,7 +159,11 @@ final class ProcessingCoordinator {
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = error.localizedDescription
+                    if StorageChecker.isStorageError(error) {
+                        self.errorMessage = "Ran out of storage space during processing. Free up space and try again."
+                    } else {
+                        self.errorMessage = error.localizedDescription
+                    }
                     self.handleCompletion()
                 }
             }

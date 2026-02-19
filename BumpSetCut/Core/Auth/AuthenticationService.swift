@@ -287,7 +287,13 @@ final class AuthenticationService {
     // MARK: - Account Deletion
 
     func deleteAccount() async throws {
-        try await supabase.functions.invoke("delete-account")
+        let session = try await supabase.auth.session
+        try await supabase.functions.invoke(
+            "delete-account",
+            options: .init(
+                headers: ["Authorization": "Bearer \(session.accessToken)"]
+            )
+        )
         signOut()
     }
 

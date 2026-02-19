@@ -192,7 +192,7 @@ struct AuthGateView: View {
             // Password requirements (sign-up only)
             if viewModel?.isSignUpMode == true, let vm = viewModel, !vm.password.isEmpty {
                 VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                    passwordReq("12+ characters", met: vm.hasMinLength)
+                    passwordReq("8+ characters", met: vm.hasMinLength)
                     passwordReq("One uppercase letter", met: vm.hasUppercase)
                     passwordReq("One number", met: vm.hasNumber)
                     passwordReq("One symbol", met: vm.hasSymbol)

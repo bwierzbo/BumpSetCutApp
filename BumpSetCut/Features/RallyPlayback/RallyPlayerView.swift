@@ -95,7 +95,10 @@ struct RallyPlayerView: View {
                     },
                     onSaveAll: { viewModel.saveAllRallies() },
                     onDeselectAll: { viewModel.deselectAllRallies() },
-                    onDismiss: { viewModel.showOverviewSheet = false }
+                    onDismiss: {
+                        viewModel.showOverviewSheet = false
+                        dismiss()
+                    }
                 )
             }
             .sheet(item: $rallyIndexToShare) { item in

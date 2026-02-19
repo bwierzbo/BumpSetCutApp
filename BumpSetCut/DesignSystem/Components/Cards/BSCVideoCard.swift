@@ -128,12 +128,13 @@ struct BSCVideoCard: View {
             menuButton
 
             // Quick action buttons
-            if !video.processedVideoIds.isEmpty {
+            if libraryType == .processed {
+                quickPlayButton
+            } else if !video.processedVideoIds.isEmpty {
                 quickViewRalliesButton
             } else if video.canBeProcessed {
                 quickProcessButton
             }
-            quickDeleteButton
         }
         .padding(.vertical, BSCSpacing.sm)
         .background(isSelected ? Color.bscBlue.opacity(0.1) : Color.clear)
@@ -421,6 +422,18 @@ struct BSCVideoCard: View {
                 .frame(width: 32, height: 32)
         }
         .accessibilityLabel("Process with AI")
+    }
+
+    private var quickPlayButton: some View {
+        Button {
+            showingVideoPlayer = true
+        } label: {
+            Image(systemName: "play.rectangle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.bscStatusVersioned)
+                .frame(width: 32, height: 32)
+        }
+        .accessibilityLabel("Play")
     }
 
     private var quickViewRalliesButton: some View {

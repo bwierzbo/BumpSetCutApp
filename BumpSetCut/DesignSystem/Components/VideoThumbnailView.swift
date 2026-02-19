@@ -11,6 +11,7 @@ import AVFoundation
 struct VideoThumbnailView: View {
     let thumbnailURL: URL?
     let videoURL: URL?
+    var contentMode: ContentMode = .fill
 
     @State private var generatedImage: UIImage?
     @State private var didFail = false
@@ -21,7 +22,7 @@ struct VideoThumbnailView: View {
                 AsyncImage(url: thumbnailURL) { phase in
                     switch phase {
                     case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fill)
+                        image.resizable().aspectRatio(contentMode: contentMode)
                     case .failure:
                         fallbackView
                     default:
@@ -31,7 +32,7 @@ struct VideoThumbnailView: View {
             } else if let generatedImage {
                 Image(uiImage: generatedImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 fallbackView
             }

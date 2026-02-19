@@ -140,21 +140,24 @@ struct HomeView: View {
             set: { if !$0 { uploadCoordinator?.completeNaming(customName: nil) } }
         )) {
             TextField("Video name", text: $videoNameInput)
+                .onChange(of: videoNameInput) { _, newValue in
+                    let stripped = String(newValue.drop(while: { $0.isWhitespace }))
+                    let limited = String(stripped.prefix(100))
+                    if limited != newValue {
+                        videoNameInput = limited
+                    }
+                }
             Button("Save") {
                 uploadCoordinator?.completeNaming(customName: videoNameInput)
                 videoNameInput = ""
             }
+            .disabled(videoNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             Button("Skip", role: .cancel) {
                 uploadCoordinator?.completeNaming(customName: nil)
                 videoNameInput = ""
             }
         } message: {
             Text("Give your video a custom name")
-        }
-        .onChange(of: uploadCoordinator?.showNamingDialog) { _, show in
-            if show == true {
-                videoNameInput = uploadCoordinator?.namingDialogSuggestedName ?? ""
-            }
         }
     }
 
@@ -367,7 +370,7 @@ struct HomeView: View {
 
     // MARK: - Processed Games CTA Button
     private var processedGamesCTAButton: some View {
-        NavigationLink(destination: ProcessedLibraryView(mediaStore: mediaStore)) {
+        NavigationLink(destination: LibraryView(mediaStore: mediaStore, libraryType: .processed)) {
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 20, weight: .semibold))

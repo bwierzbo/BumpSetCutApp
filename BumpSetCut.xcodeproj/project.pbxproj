@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 3620E8B02E230C5C00BD0036 /* MijickCamera */; };
+		366A3AA02F47925E001FCE8B /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 366A3A9F2F47925E001FCE8B /* StoreKit.framework */; };
 		3674FF662E4672F200A9C4CB /* MijickTimer in Frameworks */ = {isa = PBXBuildFile; productRef = 3674FF652E4672F200A9C4CB /* MijickTimer */; };
 		36A1B0012E7500010SUPABASE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 36A1B0002E7500010SUPABASE /* Supabase */; };
 		36B2C0012E7800010GSIGNIN /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 36B2C0002E7800010GSIGNIN /* GoogleSignIn */; };
@@ -24,6 +25,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		366A3A9F2F47925E001FCE8B /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		36F390202E1C86F40020C100 /* BumpSetCut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BumpSetCut.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BDB98D452E750001000TE5TS /* BumpSetCutTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BumpSetCutTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -68,6 +70,7 @@
 			files = (
 				3674FF662E4672F200A9C4CB /* MijickTimer in Frameworks */,
 				3620E8B12E230C5C00BD0036 /* MijickCamera in Frameworks */,
+				366A3AA02F47925E001FCE8B /* StoreKit.framework in Frameworks */,
 				36A1B0012E7500010SUPABASE /* Supabase in Frameworks */,
 				36B2C0012E7800010GSIGNIN /* GoogleSignIn in Frameworks */,
 			);
@@ -76,11 +79,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		366A3A9E2F47925E001FCE8B /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				366A3A9F2F47925E001FCE8B /* StoreKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		36F390172E1C86F40020C100 = {
 			isa = PBXGroup;
 			children = (
 				36F390222E1C86F40020C100 /* BumpSetCut */,
 				87FCF3062E750001000TE5TS /* BumpSetCutTests */,
+				366A3A9E2F47925E001FCE8B /* Frameworks */,
 				36F390212E1C86F40020C100 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -388,10 +400,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BumpSetCut/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Access Volleyball Footage";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "BumpSetCut needs permission to save processed videos and rally highlights to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "BumpSetCut needs access to your photo library to import videos for volleyball rally detection and processing.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -421,10 +433,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BumpSetCut/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Access Volleyball Footage";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "BumpSetCut needs permission to save processed videos and rally highlights to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "BumpSetCut needs access to your photo library to import videos for volleyball rally detection and processing.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
