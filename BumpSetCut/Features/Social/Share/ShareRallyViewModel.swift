@@ -301,33 +301,20 @@ final class ShareRallyViewModel {
         }
     }
 
-    /// Export just the rally time range from the source video using passthrough (no re-encoding).
+    /// Export just the rally time range from the source video.
+    /// Uses passthrough when possible; falls back to re-encoding when watermark is needed.
     private func exportRallyClip(asset: AVAsset, startTime: CMTime, endTime: CMTime, rallyIndex: Int) async throws -> URL {
         let outURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("share_rally_\(rallyIndex)_\(UUID().uuidString).mp4")
 
         let timeRange = CMTimeRange(start: startTime, end: endTime)
+        let addWatermark = SubscriptionService.shared.shouldAddWatermark
 
-        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
-            throw NSError(domain: "ShareRally", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot create export session"])
-        }
-
-        exporter.timeRange = timeRange
-        exporter.outputURL = outURL
-        exporter.outputFileType = .mp4
-        exporter.shouldOptimizeForNetworkUse = true
-
-        if #available(iOS 18.0, *) {
-            try await exporter.export(to: outURL, as: .mp4)
-        } else {
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                exporter.exportAsynchronously { cont.resume() }
-            }
-            if exporter.status == .failed {
-                throw exporter.error ?? NSError(domain: "ShareRally", code: 2, userInfo: [NSLocalizedDescriptionKey: "Export failed"])
-            }
-        }
-
-        return outURL
+        return try await VideoExporter().exportClip(
+            asset: asset,
+            timeRange: timeRange,
+            to: outURL,
+            addWatermark: addWatermark
+        )
     }
 }

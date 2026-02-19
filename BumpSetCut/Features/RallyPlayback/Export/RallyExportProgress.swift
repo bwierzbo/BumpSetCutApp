@@ -250,6 +250,7 @@ struct RallyExportProgress: View {
             let asset = AVURLAsset(url: videoMetadata.originalURL)
             let videoDuration = try await CMTimeGetSeconds(asset.load(.duration))
             let exporter = VideoExporter()
+            let addWatermark = SubscriptionService.shared.shouldAddWatermark
             let rawSegments = savedRallies.compactMap { index in
                 index < metadata.rallySegments.count ? (index, metadata.rallySegments[index]) : nil
             }
@@ -278,7 +279,7 @@ struct RallyExportProgress: View {
                         exportedCount = index
                     }
 
-                    let url = try await exporter.exportRallyToPhotoLibrary(asset: asset, rally: segment, index: index)
+                    let url = try await exporter.exportRallyToPhotoLibrary(asset: asset, rally: segment, index: index, addWatermark: addWatermark)
                     await MainActor.run {
                         exportedURLs.append(url)
                     }
@@ -287,7 +288,8 @@ struct RallyExportProgress: View {
                 // Export stitched video with real progress polling
                 let url = try await exporter.exportStitchedRalliesToPhotoLibrary(
                     asset: asset,
-                    rallies: selectedSegments
+                    rallies: selectedSegments,
+                    addWatermark: addWatermark
                 ) { progress in
                     Task { @MainActor in
                         exportProgress = progress

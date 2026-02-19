@@ -12,14 +12,14 @@ import Photos
 final class VideoExporter {
 
     /// Exports individual rally segments as separate video files
-    func exportRallySegments(asset: AVAsset, rallies: [RallySegment]) async throws -> [URL] {
+    func exportRallySegments(asset: AVAsset, rallies: [RallySegment], addWatermark: Bool = false) async throws -> [URL] {
         var exportedURLs: [URL] = []
 
         for (index, rally) in rallies.enumerated() {
             let startTime = CMTime(seconds: rally.startTime, preferredTimescale: 600)
             let endTime = CMTime(seconds: rally.endTime, preferredTimescale: 600)
             let timeRange = CMTimeRange(start: startTime, end: endTime)
-            let url = try await exportSingleRally(asset: asset, timeRange: timeRange, rallyIndex: index)
+            let url = try await exportSingleRally(asset: asset, timeRange: timeRange, rallyIndex: index, addWatermark: addWatermark)
             exportedURLs.append(url)
         }
 
@@ -28,9 +28,14 @@ final class VideoExporter {
 
     /// Exports a single rally segment as an individual video file.
     /// Uses passthrough (no re-encoding) when possible, falls back to re-encoding if needed.
-    private func exportSingleRally(asset: AVAsset, timeRange: CMTimeRange, rallyIndex: Int) async throws -> URL {
+    private func exportSingleRally(asset: AVAsset, timeRange: CMTimeRange, rallyIndex: Int, addWatermark: Bool = false) async throws -> URL {
         let outURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("rally_\(rallyIndex)_\(UUID().uuidString).mp4")
+
+        // Watermark requires composition-based export (can't overlay on passthrough)
+        if addWatermark {
+            return try await exportWithReencoding(asset: asset, timeRange: timeRange, to: outURL, rallyIndex: rallyIndex, addWatermark: true)
+        }
 
         // Try passthrough first: extract the time range directly from the source asset
         // without re-encoding. This preserves original quality and is dramatically faster.
@@ -73,7 +78,7 @@ final class VideoExporter {
 
     /// Export a time range using composition + re-encoding (HighestQuality).
     /// Used as fallback when passthrough is not supported for the source codec.
-    private func exportWithReencoding(asset: AVAsset, timeRange: CMTimeRange, to outURL: URL, rallyIndex: Int) async throws -> URL {
+    private func exportWithReencoding(asset: AVAsset, timeRange: CMTimeRange, to outURL: URL, rallyIndex: Int, addWatermark: Bool = false) async throws -> URL {
         // Clean up any partial file from failed passthrough attempt
         try? FileManager.default.removeItem(at: outURL)
 
@@ -93,12 +98,19 @@ final class VideoExporter {
             try dstA.insertTimeRange(timeRange, of: srcA, at: .zero)
         }
 
-        if let pref = try? await vTrack.load(.preferredTransform) {
-            compV.preferredTransform = pref
+        let preferredTransform = (try? await vTrack.load(.preferredTransform)) ?? .identity
+        if !addWatermark {
+            compV.preferredTransform = preferredTransform
         }
 
         guard let exporter = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetHighestQuality) else {
             throw ProcessingError.exportSessionFailed("Re-encoding export session unavailable")
+        }
+
+        if addWatermark {
+            let naturalSize = try await vTrack.load(.naturalSize)
+            let videoSize = videoSizeAfterTransform(naturalSize: naturalSize, transform: preferredTransform)
+            exporter.videoComposition = applyWatermark(to: comp, videoSize: videoSize, transform: preferredTransform)
         }
 
         if #available(iOS 18.0, *) {
@@ -192,14 +204,14 @@ final class VideoExporter {
     /// Export a single rally segment to the photo library, returning the temp file URL for sharing.
     /// Caller is responsible for cleaning up the returned URL when done.
     @discardableResult
-    func exportRallyToPhotoLibrary(asset: AVAsset, rally: RallySegment, index: Int) async throws -> URL {
+    func exportRallyToPhotoLibrary(asset: AVAsset, rally: RallySegment, index: Int, addWatermark: Bool = false) async throws -> URL {
         // Create time range from rally segment
         let startTime = CMTime(seconds: rally.startTime, preferredTimescale: 600)
         let endTime = CMTime(seconds: rally.endTime, preferredTimescale: 600)
         let timeRange = CMTimeRange(start: startTime, end: endTime)
 
         // Export rally segment to temporary file
-        let exportedURL = try await exportSingleRally(asset: asset, timeRange: timeRange, rallyIndex: index)
+        let exportedURL = try await exportSingleRally(asset: asset, timeRange: timeRange, rallyIndex: index, addWatermark: addWatermark)
 
         // Save to photo library
         try await saveVideoToPhotoLibrary(url: exportedURL)
@@ -210,7 +222,7 @@ final class VideoExporter {
     /// Export multiple rally segments stitched together to the photo library, returning the temp file URL for sharing.
     /// Caller is responsible for cleaning up the returned URL when done.
     @discardableResult
-    func exportStitchedRalliesToPhotoLibrary(asset: AVAsset, rallies: [RallySegment], progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
+    func exportStitchedRalliesToPhotoLibrary(asset: AVAsset, rallies: [RallySegment], addWatermark: Bool = false, progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("stitched_rallies_\(UUID().uuidString).mp4")
 
@@ -219,6 +231,7 @@ final class VideoExporter {
             asset: asset,
             rallies: rallies,
             outputURL: tempURL,
+            addWatermark: addWatermark,
             progressHandler: progressHandler
         )
 
@@ -236,7 +249,7 @@ final class VideoExporter {
         }
     }
 
-    private func createStitchedVideo(asset: AVAsset, rallies: [RallySegment], outputURL: URL, progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
+    private func createStitchedVideo(asset: AVAsset, rallies: [RallySegment], outputURL: URL, addWatermark: Bool = false, progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
         let composition = AVMutableComposition()
 
         guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
@@ -268,12 +281,19 @@ final class VideoExporter {
         }
 
         // Keep orientation
-        if let pref = try? await vTrack.load(.preferredTransform) {
-            compV.preferredTransform = pref
+        let preferredTransform = (try? await vTrack.load(.preferredTransform)) ?? .identity
+        if !addWatermark {
+            compV.preferredTransform = preferredTransform
         }
 
         guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
             throw ProcessingError.exportSessionFailed("Stitched export session unavailable")
+        }
+
+        if addWatermark {
+            let naturalSize = try await vTrack.load(.naturalSize)
+            let videoSize = videoSizeAfterTransform(naturalSize: naturalSize, transform: preferredTransform)
+            exporter.videoComposition = applyWatermark(to: composition, videoSize: videoSize, transform: preferredTransform)
         }
 
         if #available(iOS 18.0, *) {
@@ -315,6 +335,12 @@ final class VideoExporter {
 
     // MARK: - Watermark
 
+    /// Compute the rendered video size after applying the preferred transform
+    private func videoSizeAfterTransform(naturalSize: CGSize, transform: CGAffineTransform) -> CGSize {
+        let rect = CGRect(origin: .zero, size: naturalSize).applying(transform)
+        return CGSize(width: abs(rect.width), height: abs(rect.height))
+    }
+
     /// Creates a watermark text layer for video compositions
     func createWatermarkLayer(videoSize: CGSize, videoDuration: CMTime) -> CALayer {
         let watermarkText = "Made with BumpSetCut"
@@ -352,7 +378,7 @@ final class VideoExporter {
     }
 
     /// Applies watermark to a composition
-    func applyWatermark(to composition: AVMutableComposition, videoSize: CGSize) -> AVMutableVideoComposition {
+    func applyWatermark(to composition: AVMutableComposition, videoSize: CGSize, transform: CGAffineTransform = .identity) -> AVMutableVideoComposition {
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = videoSize
         videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
@@ -364,6 +390,7 @@ final class VideoExporter {
         // Add layer instruction for the video track
         if let videoTrack = composition.tracks(withMediaType: .video).first {
             let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+            layerInstruction.setTransform(transform, at: .zero)
             instruction.layerInstructions = [layerInstruction]
         }
 
@@ -385,5 +412,14 @@ final class VideoExporter {
         )
 
         return videoComposition
+    }
+
+    /// Export a single time range to a URL, optionally with watermark overlay.
+    /// Used by ShareRallyViewModel for community posts.
+    func exportClip(asset: AVAsset, timeRange: CMTimeRange, to outputURL: URL, addWatermark: Bool = false) async throws -> URL {
+        if addWatermark {
+            return try await exportWithReencoding(asset: asset, timeRange: timeRange, to: outputURL, rallyIndex: 0, addWatermark: true)
+        }
+        return try await exportPassthrough(asset: asset, timeRange: timeRange, to: outputURL)
     }
 }

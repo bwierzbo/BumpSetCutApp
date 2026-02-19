@@ -16,11 +16,30 @@ import GoogleSignIn
     @State private var networkMonitor = NetworkMonitor.shared
     @State private var offlineQueue = OfflineQueue()
 
+    init() {
+        // Clear stale Keychain data on fresh install / reinstall
+        if !UserDefaults.standard.bool(forKey: "hasLaunchedBefore") {
+            try? KeychainHelper.delete(for: "auth_token")
+            try? KeychainHelper.delete(for: "cached_user")
+            UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             MainTabView()
                 .withAppSettings()
                 .environment(authService)
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Done") {
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        }
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.bscOrange)
+                    }
+                }
                 .preferredColorScheme(appSettings.appearanceMode.colorScheme)
                 .task {
                     await authService.restoreSession()
