@@ -426,14 +426,14 @@ struct BSCVideoCard: View {
 
     private var quickPlayButton: some View {
         Button {
-            showingVideoPlayer = true
+            showingRallyViewer = true
         } label: {
             Image(systemName: "play.rectangle.fill")
                 .font(.system(size: 16))
                 .foregroundColor(.bscStatusVersioned)
                 .frame(width: 32, height: 32)
         }
-        .accessibilityLabel("Play")
+        .accessibilityLabel("View Rallies")
     }
 
     private var quickViewRalliesButton: some View {
@@ -510,6 +510,8 @@ struct BSCVideoCard: View {
     private func handleTap() {
         if isSelectable {
             onSelectionToggle?()
+        } else if libraryType == .processed {
+            showingRallyViewer = true
         } else if libraryType == .saved && !video.processedVideoIds.isEmpty {
             showingRallyViewer = true
         } else {

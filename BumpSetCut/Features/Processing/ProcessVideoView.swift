@@ -111,6 +111,7 @@ struct ProcessVideoView: View {
         .fullScreenCover(isPresented: $viewModel.showRallyPlayer) {
             if let videoMetadata = viewModel.currentVideoMetadata {
                 RallyPlayerView(videoMetadata: videoMetadata)
+                    .environment(AppNavigationState())
             } else {
                 // Safety fallback — dismiss if metadata unexpectedly nil
                 Color.bscBackground

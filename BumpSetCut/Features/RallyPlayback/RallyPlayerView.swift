@@ -83,6 +83,7 @@ struct RallyPlayerView: View {
                     currentIndex: viewModel.currentRallyIndex,
                     thumbnailCache: viewModel.thumbnailCache,
                     onSelectRally: { index in
+                        viewModel.showOverviewSheet = false
                         viewModel.jumpToRally(index)
                     },
                     onExport: {
@@ -181,8 +182,6 @@ struct RallyPlayerView: View {
             RallyPlayerOverlay(
                 currentIndex: viewModel.currentRallyIndex,
                 totalCount: viewModel.totalRallies,
-                savedCount: viewModel.savedRallies.count,
-                removedCount: viewModel.removedRallies.count,
                 isSaved: viewModel.currentRallyIsSaved,
                 isRemoved: viewModel.currentRallyIsRemoved,
                 onDismiss: { dismiss() },

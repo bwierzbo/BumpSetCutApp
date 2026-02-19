@@ -337,8 +337,12 @@ final class ProcessVideoViewModel {
 
     private func saveProcessedVideo(tempProcessedURL: URL, isDebugMode: Bool, debugData: TrajectoryDebugger?, destinationFolder: String) async throws {
         let originalDisplayName = getVideoDisplayName()
-        let prefix = isDebugMode ? "Debug" : "Processed"
-        let processedName = getNextProcessedVideoName(originalDisplayName: originalDisplayName, prefix: prefix, inFolder: destinationFolder)
+        let processedName: String
+        if isDebugMode {
+            processedName = getNextProcessedVideoName(originalDisplayName: originalDisplayName, prefix: "Debug", inFolder: destinationFolder)
+        } else {
+            processedName = getUniqueVideoName(originalDisplayName: originalDisplayName, inFolder: destinationFolder)
+        }
         let ext = videoURL.pathExtension.isEmpty ? "mp4" : videoURL.pathExtension
         let processedFileName = "\(processedName).\(ext)"
 
@@ -382,6 +386,23 @@ final class ProcessVideoViewModel {
         }
 
         return videoURL.deletingPathExtension().lastPathComponent
+    }
+
+    private func getUniqueVideoName(originalDisplayName: String, inFolder destinationFolder: String) -> String {
+        let sanitized = sanitizeFilename(originalDisplayName)
+        let videosInFolder = mediaStore.getVideos(in: destinationFolder)
+        let existingNames = Set(videosInFolder.map { $0.displayName })
+
+        if !existingNames.contains(sanitized) {
+            return sanitized
+        }
+
+        // Name conflict — append incrementing number
+        var counter = 2
+        while existingNames.contains("\(sanitized) \(counter)") {
+            counter += 1
+        }
+        return "\(sanitized) \(counter)"
     }
 
     private func getNextProcessedVideoName(originalDisplayName: String, prefix: String, inFolder destinationFolder: String) -> String {

@@ -43,7 +43,6 @@ struct RallyOverviewSheet: View {
                             .bscStaggered(index: index)
                             .onTapGesture {
                                 onSelectRally(index)
-                                onDismiss()
                             }
                     }
                 }

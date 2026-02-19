@@ -63,22 +63,42 @@ struct GestureTipsOverlay: View {
                 }
                 .frame(height: 200)
 
-                // Hold to trim hint
-                HStack(spacing: 8) {
-                    Image(systemName: "hand.tap.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("Hold to Trim")
-                        .font(.system(size: 13, weight: .bold))
+                // Additional tips
+                VStack(spacing: 12) {
+                    // Hold to trim hint
+                    HStack(spacing: 8) {
+                        Image(systemName: "hand.tap.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Hold to Trim")
+                            .font(.system(size: 13, weight: .bold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.bscOrange.opacity(0.25))
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.bscOrange.opacity(0.4), lineWidth: 1)
+                    )
+
+                    // Tap counter for overview hint
+                    HStack(spacing: 8) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Tap Counter for Overview")
+                            .font(.system(size: 13, weight: .bold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.blue.opacity(0.25))
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.blue.opacity(0.4), lineWidth: 1)
+                    )
                 }
-                .foregroundColor(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Color.bscOrange.opacity(0.25))
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(Color.bscOrange.opacity(0.4), lineWidth: 1)
-                )
                 .opacity(showingContent ? 1 : 0)
                 .offset(y: showingContent ? 0 : 10)
 

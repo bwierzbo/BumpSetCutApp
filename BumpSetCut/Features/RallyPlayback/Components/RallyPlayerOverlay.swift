@@ -4,8 +4,6 @@ import SwiftUI
 struct RallyPlayerOverlay: View {
     let currentIndex: Int
     let totalCount: Int
-    let savedCount: Int
-    let removedCount: Int
     let isSaved: Bool
     let isRemoved: Bool
     let onDismiss: () -> Void
@@ -22,9 +20,6 @@ struct RallyPlayerOverlay: View {
 
                 // Rally counter with status
                 HStack(spacing: BSCSpacing.sm) {
-                    // Saved/Removed tally pill (tappable -> overview)
-                    selectionTally
-
                     rallyCounter
 
                     // Help/Tips button
@@ -78,81 +73,36 @@ struct RallyPlayerOverlay: View {
         .accessibilityHint("Return to library")
     }
 
-    // MARK: - Selection Tally
-    private var selectionTally: some View {
+    // MARK: - Rally Counter
+    private var rallyCounter: some View {
         Button(action: onShowOverview) {
-            HStack(spacing: BSCSpacing.xs) {
-                if savedCount > 0 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.bscSuccess)
-                        Text("\(savedCount)")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.bscSuccess)
-                            .contentTransition(.numericText())
-                    }
-                }
-                if savedCount > 0 && removedCount > 0 {
-                    Text("/")
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.4))
-                }
-                if removedCount > 0 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.bscError)
-                        Text("\(removedCount)")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.bscError)
-                            .contentTransition(.numericText())
-                    }
-                }
+            HStack(spacing: BSCSpacing.xxs) {
+                Text("\(currentIndex + 1)")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                    .contentTransition(.numericText())
+
+                Text("/")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.6))
+
+                Text("\(totalCount)")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white.opacity(0.8))
             }
-            .padding(.horizontal, BSCSpacing.md)
-            .padding(.vertical, BSCSpacing.xs)
+            .padding(.horizontal, BSCSpacing.lg)
+            .padding(.vertical, BSCSpacing.sm)
             .background(
                 Capsule()
                     .fill(Color.bscSurfaceGlass)
                     .overlay(
                         Capsule()
-                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                            .stroke(statusBorderColor, lineWidth: isSaved || isRemoved ? 2 : 1)
                     )
             )
         }
-        .opacity(savedCount > 0 || removedCount > 0 ? 1.0 : 0.0)
-        .animation(.easeInOut(duration: 0.2), value: savedCount)
-        .animation(.easeInOut(duration: 0.2), value: removedCount)
-        .accessibilityLabel("\(savedCount) saved, \(removedCount) removed")
-    }
-
-    // MARK: - Rally Counter
-    private var rallyCounter: some View {
-        HStack(spacing: BSCSpacing.xxs) {
-            Text("\(currentIndex + 1)")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.white)
-                .contentTransition(.numericText())
-
-            Text("/")
-                .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.6))
-
-            Text("\(totalCount)")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.white.opacity(0.8))
-        }
-        .padding(.horizontal, BSCSpacing.lg)
-        .padding(.vertical, BSCSpacing.sm)
-        .background(
-            Capsule()
-                .fill(Color.bscSurfaceGlass)
-                .overlay(
-                    Capsule()
-                        .stroke(statusBorderColor, lineWidth: isSaved || isRemoved ? 2 : 1)
-                )
-        )
+        .accessibilityLabel("Rally \(currentIndex + 1) of \(totalCount)")
+        .accessibilityHint("Tap to see rally overview")
         .animation(.easeInOut(duration: 0.25), value: currentIndex)
         .animation(.easeInOut(duration: 0.2), value: isSaved)
         .animation(.easeInOut(duration: 0.2), value: isRemoved)
@@ -176,8 +126,6 @@ struct RallyPlayerOverlay: View {
         RallyPlayerOverlay(
             currentIndex: 2,
             totalCount: 10,
-            savedCount: 3,
-            removedCount: 1,
             isSaved: true,
             isRemoved: false,
             onDismiss: {}
