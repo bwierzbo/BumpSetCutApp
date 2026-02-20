@@ -17,7 +17,7 @@ struct RallyExportSheet: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 24) {
+            VStack(spacing: BSCSpacing.xl) {
                 if savedRallies.isEmpty {
                     noSavedRalliesView
                 } else {
@@ -26,7 +26,8 @@ struct RallyExportSheet: View {
 
                 Spacer()
             }
-            .padding(24)
+            .padding(BSCSpacing.xl)
+            .background(Color.bscBackground)
             .navigationTitle("Export Rallies")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -35,6 +36,7 @@ struct RallyExportSheet: View {
                         dismiss()
                         onDismiss()
                     }
+                    .foregroundColor(.bscPrimary)
                     .disabled(isExporting)
                 }
             }
@@ -55,10 +57,10 @@ struct RallyExportSheet: View {
     private var noSavedRalliesView: some View {
         Text("No rallies saved — swipe right on rallies to keep them.")
             .font(.body)
-            .foregroundColor(.secondary)
+            .foregroundColor(.bscTextSecondary)
             .multilineTextAlignment(.center)
             .padding(.horizontal)
-            .padding(.vertical, 32)
+            .padding(.vertical, BSCSpacing.xxl)
     }
 
     private var rallyCountLabel: String {
@@ -67,34 +69,41 @@ struct RallyExportSheet: View {
     }
 
     private var exportOptionsView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: BSCSpacing.lg) {
             Text("Export \(rallyCountLabel)")
                 .font(.headline)
-                .padding(.bottom, 8)
+                .foregroundColor(.bscTextPrimary)
+                .padding(.bottom, BSCSpacing.sm)
 
             // Individual Export Option
             RallyExportOptionCard(
                 title: "Export Individual Videos",
                 subtitle: "Save each rally as a separate video",
                 icon: "square.stack.3d.up",
-                color: .blue,
+                color: .bscPrimary,
                 isDisabled: isExporting
             ) {
                 guard !isExporting else { return }
                 exportType = .individual
             }
+            .accessibilityIdentifier(AccessibilityID.Export.individualOption)
+            .accessibilityLabel("Export individual videos")
+            .accessibilityHint("Save each rally as a separate video file")
 
             // Stitched Export Option
             RallyExportOptionCard(
                 title: "Export Combined Video",
                 subtitle: "Stitch all saved rallies into one video",
                 icon: "film.stack",
-                color: .purple,
+                color: .bscTeal,
                 isDisabled: isExporting
             ) {
                 guard !isExporting else { return }
                 exportType = .stitched
             }
+            .accessibilityIdentifier(AccessibilityID.Export.combinedOption)
+            .accessibilityLabel("Export combined video")
+            .accessibilityHint("Stitch all saved rallies into one video file")
         }
     }
 }
@@ -111,36 +120,36 @@ struct RallyExportOptionCard: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 16) {
+            HStack(spacing: BSCSpacing.lg) {
                 Image(systemName: icon)
                     .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(isDisabled ? .secondary : color)
+                    .foregroundColor(isDisabled ? .bscTextTertiary : color)
                     .frame(width: 50, height: 50)
-                    .background((isDisabled ? Color.secondary : color).opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .background((isDisabled ? Color.bscTextTertiary : color).opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.headline)
-                        .foregroundColor(isDisabled ? .secondary : .primary)
+                        .foregroundColor(isDisabled ? .bscTextTertiary : .bscTextPrimary)
 
                     Text(subtitle)
                         .font(.body)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.bscTextTertiary)
             }
-            .padding(16)
-            .background(Color(UIColor.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(BSCSpacing.lg)
+            .background(Color.bscBackgroundElevated)
+            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color(UIColor.separator), lineWidth: 1)
+                RoundedRectangle(cornerRadius: BSCRadius.md)
+                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
             )
         }
         .buttonStyle(PlainButtonStyle())

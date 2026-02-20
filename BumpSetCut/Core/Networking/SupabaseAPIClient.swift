@@ -27,6 +27,10 @@ struct BlockStatusResult: Decodable {
     let isBlocked: Bool
 }
 
+struct PollVoteRow: Decodable {
+    let optionId: String
+}
+
 
 // MARK: - Supabase API Client
 
@@ -50,7 +54,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let to = from + pageSize - 1
             let response: T = try await supabase
                 .from("highlights")
-                .select("*, author:profiles(*)")
+                .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .order("created_at", ascending: false)
                 .range(from: from, to: to)
                 .execute()
@@ -81,7 +85,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
 
             let response: T = try await supabase
                 .from("highlights")
-                .select("*, author:profiles(*)")
+                .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .in("author_id", values: followedIds)
                 .order("created_at", ascending: false)
                 .range(from: from, to: to)
@@ -95,7 +99,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let to = from + pageSize - 1
             let response: T = try await supabase
                 .from("highlights")
-                .select("*, author:profiles(*)")
+                .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .eq("author_id", value: userId)
                 .order("created_at", ascending: false)
                 .range(from: from, to: to)
@@ -106,7 +110,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         case .getHighlight(let id):
             let response: T = try await supabase
                 .from("highlights")
-                .select("*, author:profiles(*)")
+                .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .eq("id", value: id)
                 .single()
                 .execute()
@@ -117,7 +121,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let response: T = try await supabase
                 .from("highlights")
                 .insert(upload)
-                .select("*, author:profiles(*)")
+                .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .single()
                 .execute()
                 .value
@@ -129,7 +133,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let to = from + pageSize - 1
             let response: T = try await supabase
                 .from("highlights")
-                .select("*, author:profiles(*)")
+                .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .or("caption.ilike.%\(query)%,tags.cs.{\(query)}")
                 .order("created_at", ascending: false)
                 .range(from: from, to: to)
@@ -393,6 +397,56 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .execute()
                 .value
             return try safeCast(BlockStatusResult(isBlocked: !rows.isEmpty))
+
+        // MARK: Polls
+
+        case .createPoll(let upload):
+            let response: T = try await supabase
+                .from("polls")
+                .insert(upload)
+                .select()
+                .single()
+                .execute()
+                .value
+            return response
+
+        case .createPollOptions(_, let options):
+            let response: T = try await supabase
+                .from("poll_options")
+                .insert(options)
+                .select()
+                .execute()
+                .value
+            return response
+
+        case .votePoll(let vote):
+            try await supabase
+                .from("poll_votes")
+                .insert(vote)
+                .execute()
+            return try safeCast(EmptyResponse())
+
+        case .getMyPollVote(let pollId):
+            let userId = try await currentUserId()
+            let rows: [PollVoteRow] = try await supabase
+                .from("poll_votes")
+                .select("option_id")
+                .eq("poll_id", value: pollId)
+                .eq("user_id", value: userId)
+                .limit(1)
+                .execute()
+                .value
+            return try safeCast(rows)
+
+        case .deletePollVote(let pollId):
+            let userId = try await currentUserId()
+            try await supabase
+                .from("poll_votes")
+                .delete()
+                .eq("poll_id", value: pollId)
+                .eq("user_id", value: userId)
+                .execute()
+            return try safeCast(EmptyResponse())
 
         // MARK: Auth (handled via Supabase Auth, not DB)
 

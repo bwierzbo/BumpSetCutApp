@@ -15,6 +15,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		366A3AB52F48FD8C001FCE8B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 36F390182E1C86F40020C100 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 36F3901F2E1C86F40020C100;
+			remoteInfo = BumpSetCut;
+		};
 		F1D4D31D2E750001000TE5TS /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 36F390182E1C86F40020C100 /* Project object */;
@@ -26,6 +33,7 @@
 
 /* Begin PBXFileReference section */
 		366A3A9F2F47925E001FCE8B /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
+		366A3AAF2F48FD8C001FCE8B /* BumpSetCutUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BumpSetCutUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		36F390202E1C86F40020C100 /* BumpSetCut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BumpSetCut.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BDB98D452E750001000TE5TS /* BumpSetCutTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BumpSetCutTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -41,6 +49,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		366A3AB02F48FD8C001FCE8B /* BumpSetCutUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BumpSetCutUITests;
+			sourceTree = "<group>";
+		};
 		36F390222E1C86F40020C100 /* BumpSetCut */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -58,6 +71,13 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		0E3AF8F32E750001000TE5TS /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		366A3AAC2F48FD8C001FCE8B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -92,6 +112,7 @@
 			children = (
 				36F390222E1C86F40020C100 /* BumpSetCut */,
 				87FCF3062E750001000TE5TS /* BumpSetCutTests */,
+				366A3AB02F48FD8C001FCE8B /* BumpSetCutUITests */,
 				366A3A9E2F47925E001FCE8B /* Frameworks */,
 				36F390212E1C86F40020C100 /* Products */,
 			);
@@ -102,6 +123,7 @@
 			children = (
 				36F390202E1C86F40020C100 /* BumpSetCut.app */,
 				BDB98D452E750001000TE5TS /* BumpSetCutTests.xctest */,
+				366A3AAF2F48FD8C001FCE8B /* BumpSetCutUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -109,6 +131,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		366A3AAE2F48FD8C001FCE8B /* BumpSetCutUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 366A3AB72F48FD8C001FCE8B /* Build configuration list for PBXNativeTarget "BumpSetCutUITests" */;
+			buildPhases = (
+				366A3AAB2F48FD8C001FCE8B /* Sources */,
+				366A3AAC2F48FD8C001FCE8B /* Frameworks */,
+				366A3AAD2F48FD8C001FCE8B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				366A3AB62F48FD8C001FCE8B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				366A3AB02F48FD8C001FCE8B /* BumpSetCutUITests */,
+			);
+			name = BumpSetCutUITests;
+			packageProductDependencies = (
+			);
+			productName = BumpSetCutUITests;
+			productReference = 366A3AAF2F48FD8C001FCE8B /* BumpSetCutUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		36F3901F2E1C86F40020C100 /* BumpSetCut */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 36F390442E1C86F50020C100 /* Build configuration list for PBXNativeTarget "BumpSetCut" */;
@@ -163,9 +208,13 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1600;
+				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					366A3AAE2F48FD8C001FCE8B = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 36F3901F2E1C86F40020C100;
+					};
 					36F3901F2E1C86F40020C100 = {
 						CreatedOnToolsVersion = 16.0;
 					};
@@ -197,12 +246,20 @@
 			targets = (
 				36F3901F2E1C86F40020C100 /* BumpSetCut */,
 				429E9BCB2E750001000TE5TS /* BumpSetCutTests */,
+				366A3AAE2F48FD8C001FCE8B /* BumpSetCutUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		20D2C5D62E750001000TE5TS /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		366A3AAD2F48FD8C001FCE8B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -226,6 +283,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		366A3AAB2F48FD8C001FCE8B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		36F3901C2E1C86F40020C100 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -236,6 +300,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		366A3AB62F48FD8C001FCE8B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 36F3901F2E1C86F40020C100 /* BumpSetCut */;
+			targetProxy = 366A3AB52F48FD8C001FCE8B /* PBXContainerItemProxy */;
+		};
 		8B9927142E750001000TE5TS /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 36F3901F2E1C86F40020C100 /* BumpSetCut */;
@@ -262,6 +331,48 @@
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BumpSetCut.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BumpSetCut";
 			};
 			name = Debug;
+		};
+		366A3AB82F48FD8C001FCE8B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8UHLPBQL7Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.BumpSetCutUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = BumpSetCut;
+			};
+			name = Debug;
+		};
+		366A3AB92F48FD8C001FCE8B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8UHLPBQL7Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.BumpSetCutUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = BumpSetCut;
+			};
+			name = Release;
 		};
 		36F390422E1C86F50020C100 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -474,6 +585,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		366A3AB72F48FD8C001FCE8B /* Build configuration list for PBXNativeTarget "BumpSetCutUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				366A3AB82F48FD8C001FCE8B /* Debug */,
+				366A3AB92F48FD8C001FCE8B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		36F3901B2E1C86F40020C100 /* Build configuration list for PBXProject "BumpSetCut" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

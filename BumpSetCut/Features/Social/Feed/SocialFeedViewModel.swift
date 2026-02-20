@@ -60,6 +60,7 @@ final class SocialFeedViewModel {
             }
             hasMorePages = page.count >= pageSize
             currentPage = 1
+            await enrichPollVotes()
         } catch {
             self.error = error
             if feedType == .forYou {
@@ -93,6 +94,7 @@ final class SocialFeedViewModel {
             highlights.append(contentsOf: filtered)
             hasMorePages = page.count >= pageSize
             currentPage += 1
+            await enrichPollVotes()
         } catch {
             // Silently fail pagination — user can retry by scrolling
         }
@@ -136,6 +138,53 @@ final class SocialFeedViewModel {
             // Revert on failure
             highlights[index].isLikedByMe = wasLiked
             highlights[index].likesCount += wasLiked ? 1 : -1
+        }
+    }
+
+    // MARK: - Poll Voting
+
+    func votePoll(highlightId: String, pollId: String, optionId: String) async {
+        guard let highlightIndex = highlights.firstIndex(where: { $0.id == highlightId }),
+              var poll = highlights[highlightIndex].poll else { return }
+
+        // Optimistic update
+        if let optIndex = poll.options.firstIndex(where: { $0.id == optionId }) {
+            poll.options[optIndex].voteCount += 1
+            poll.totalVotes += 1
+            poll.myVoteOptionId = optionId
+            highlights[highlightIndex].poll = poll
+        }
+
+        do {
+            let userId = try await SupabaseConfig.client.auth.session.user.id.uuidString.lowercased()
+            let vote = PollVoteUpload(pollId: pollId, optionId: optionId, userId: userId)
+            let _: EmptyResponse = try await apiClient.request(.votePoll(vote))
+        } catch {
+            // Revert on failure
+            if var revertPoll = highlights[highlightIndex].poll,
+               let optIndex = revertPoll.options.firstIndex(where: { $0.id == optionId }) {
+                revertPoll.options[optIndex].voteCount -= 1
+                revertPoll.totalVotes -= 1
+                revertPoll.myVoteOptionId = nil
+                highlights[highlightIndex].poll = revertPoll
+            }
+        }
+    }
+
+    func enrichPollVotes() async {
+        // Only enrich if user is authenticated
+        guard (try? await SupabaseConfig.client.auth.session) != nil else { return }
+        for i in highlights.indices {
+            guard let poll = highlights[i].poll,
+                  poll.myVoteOptionId == nil else { continue }
+            do {
+                let rows: [PollVoteRow] = try await apiClient.request(.getMyPollVote(pollId: poll.id))
+                if let row = rows.first {
+                    highlights[i].poll?.myVoteOptionId = row.optionId
+                }
+            } catch {
+                // Non-critical — user just won't see their vote highlighted
+            }
         }
     }
 

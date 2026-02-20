@@ -50,6 +50,11 @@ final class ShareRallyViewModel {
     var postAllSaved: Bool
     private(set) var state: ShareState = .idle
 
+    // Poll
+    var includePoll: Bool = false
+    var pollQuestion: String = ""
+    var pollOptions: [String] = ["", ""]
+
     let originalVideoURL: URL
     let rallyVideoURLs: [URL]
     let savedRallyIndices: [Int]
@@ -99,6 +104,25 @@ final class ShareRallyViewModel {
             guard let tagRange = Range(match.range(at: 1), in: caption) else { return nil }
             return String(caption[tagRange]).lowercased()
         }
+    }
+
+    // MARK: - Poll Helpers
+
+    var isPollValid: Bool {
+        guard includePoll else { return true }
+        let trimmedQuestion = pollQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nonEmptyOptions = pollOptions.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return !trimmedQuestion.isEmpty && nonEmptyOptions.count >= 2
+    }
+
+    func addPollOption() {
+        guard pollOptions.count < 5 else { return }
+        pollOptions.append("")
+    }
+
+    func removePollOption(at index: Int) {
+        guard pollOptions.count > 2 else { return }
+        pollOptions.remove(at: index)
     }
 
     // MARK: - Init
@@ -211,7 +235,13 @@ final class ShareRallyViewModel {
                     rallyMetadata: metadata
                 )
 
-                let highlight: Highlight = try await apiClient.request(.createHighlight(upload))
+                var highlight: Highlight = try await apiClient.request(.createHighlight(upload))
+
+                if includePoll {
+                    let poll = try await createPollForHighlight(highlightId: highlight.id)
+                    highlight.poll = poll
+                }
+
                 state = .complete(highlight)
             } catch is CancellationError {
                 state = .idle
@@ -291,7 +321,13 @@ final class ShareRallyViewModel {
                     rallyMetadata: firstMetadata
                 )
 
-                let highlight: Highlight = try await apiClient.request(.createHighlight(upload))
+                var highlight: Highlight = try await apiClient.request(.createHighlight(upload))
+
+                if includePoll {
+                    let poll = try await createPollForHighlight(highlightId: highlight.id)
+                    highlight.poll = poll
+                }
+
                 state = .complete(highlight)
             } catch is CancellationError {
                 state = .idle
@@ -299,6 +335,24 @@ final class ShareRallyViewModel {
                 state = .failed(error.localizedDescription)
             }
         }
+    }
+
+    // MARK: - Poll Creation
+
+    private func createPollForHighlight(highlightId: String) async throws -> Poll {
+        let upload = PollUpload(highlightId: highlightId, question: pollQuestion.trimmingCharacters(in: .whitespacesAndNewlines))
+        let poll: Poll = try await apiClient.request(.createPoll(upload))
+
+        let optionUploads = pollOptions.enumerated().compactMap { index, text -> PollOptionUpload? in
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return PollOptionUpload(pollId: poll.id, text: trimmed, sortOrder: index)
+        }
+
+        let options: [PollOption] = try await apiClient.request(.createPollOptions(pollId: poll.id, options: optionUploads))
+        var completePoll = poll
+        completePoll.options = options.sorted { $0.sortOrder < $1.sortOrder }
+        return completePoll
     }
 
     /// Export just the rally time range from the source video.

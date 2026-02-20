@@ -40,6 +40,17 @@
                ReferencedContainer = "container:BumpSetCut.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "366A3AAE2F48FD8C001FCE8B"
+               BuildableName = "BumpSetCutUITests.xctest"
+               BlueprintName = "BumpSetCutUITests"
+               ReferencedContainer = "container:BumpSetCut.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

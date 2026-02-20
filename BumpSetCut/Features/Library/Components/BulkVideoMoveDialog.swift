@@ -134,7 +134,7 @@ struct BulkVideoMoveDialog: View {
                             ForEach(folders, id: \.id) { folder in
                                 BulkFolderRowView(
                                     icon: "folder.fill",
-                                    iconColor: .bscOrange,
+                                    iconColor: .bscPrimary,
                                     name: folder.name,
                                     subtitle: "\(folder.videoCount) videos",
                                     isSelected: selectedFolderPath == folder.path,

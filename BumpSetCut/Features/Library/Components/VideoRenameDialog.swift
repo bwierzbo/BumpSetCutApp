@@ -32,7 +32,7 @@ struct VideoRenameDialog: View {
                     
                     Text("Enter a new name for your video")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 
@@ -56,18 +56,18 @@ struct VideoRenameDialog: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color(.systemGray5))
-                    .foregroundColor(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .background(Color.bscSurfaceGlass)
+                    .foregroundColor(.bscTextPrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                     
                     Button("Rename") {
                         handleRename()
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color(.systemGray4) : Color.blue)
+                    .background(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.bscSurfaceGlass : Color.bscPrimary)
                     .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                     .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 .padding(.bottom)

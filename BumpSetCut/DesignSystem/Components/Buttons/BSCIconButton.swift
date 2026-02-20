@@ -8,7 +8,7 @@ struct BSCIconButton: View {
         case glass       // Frosted glass background
         case solid       // Solid color background
         case ghost       // Transparent
-        case primary     // Orange gradient
+        case primary     // Blue primary
         case destructive // Red
         case success     // Green
     }
@@ -108,7 +108,7 @@ struct BSCIconButton: View {
         case .ghost:
             return Color.clear
         case .primary:
-            return Color.bscOrange
+            return Color.bscPrimary
         case .destructive:
             return Color.bscError
         case .success:
@@ -129,7 +129,7 @@ struct BSCIconButton: View {
         guard isEnabled else { return BSCShadow.sm }
         switch style {
         case .primary:
-            return BSCShadow.glowOrange
+            return BSCShadow.glowPrimary
         case .destructive:
             return BSCShadow.glowError
         case .success:

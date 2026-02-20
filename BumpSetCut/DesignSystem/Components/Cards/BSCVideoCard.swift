@@ -22,7 +22,6 @@ struct BSCVideoCard: View {
     var isSelectable: Bool = false
     var isSelected: Bool = false
     var onSelectionToggle: (() -> Void)? = nil
-    var libraryType: LibraryType? = nil  // Determines video playback behavior
 
     // MARK: - State
     @State private var thumbnail: UIImage?
@@ -49,14 +48,7 @@ struct BSCVideoCard: View {
         .contextMenu { contextMenuContent }
         .onAppear(perform: generateThumbnail)
         .fullScreenCover(isPresented: $showingVideoPlayer) {
-            // Regular tap: Respect library type
-            // Saved Games: Always play full original video
-            // Other libraries: Use factory to decide based on metadata
-            if libraryType == .saved {
-                VideoPlayerView(videoURL: video.originalURL)
-            } else {
-                RallyPlayerFactory.createRallyPlayer(for: video)
-            }
+            VideoPlayerView(videoURL: video.originalURL)
         }
         .fullScreenCover(isPresented: $showingRallyViewer) {
             // "View Rallies" button: Always show rally viewer (ignores library type)
@@ -128,16 +120,14 @@ struct BSCVideoCard: View {
             menuButton
 
             // Quick action buttons
-            if libraryType == .processed {
-                quickPlayButton
-            } else if !video.processedVideoIds.isEmpty {
+            if !video.processedVideoIds.isEmpty {
                 quickViewRalliesButton
             } else if video.canBeProcessed {
                 quickProcessButton
             }
         }
         .padding(.vertical, BSCSpacing.sm)
-        .background(isSelected ? Color.bscBlue.opacity(0.1) : Color.clear)
+        .background(isSelected ? Color.bscPrimary.opacity(0.1) : Color.clear)
         .bscInteractive(isSelected: isSelected, cornerRadius: BSCRadius.md)
     }
 
@@ -197,12 +187,12 @@ struct BSCVideoCard: View {
 
     private var thumbnailBorder: some View {
         RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
-            .stroke(isSelected ? Color.bscBlue : Color.bscSurfaceBorder, lineWidth: isSelected ? 2 : 1)
+            .stroke(isSelected ? Color.bscPrimary : Color.bscSurfaceBorder, lineWidth: isSelected ? 2 : 1)
     }
 
     private var gridThumbnailBorder: some View {
         RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-            .stroke(isSelected ? Color.bscBlue : Color.clear, lineWidth: 3)
+            .stroke(isSelected ? Color.bscPrimary : Color.clear, lineWidth: 3)
     }
 
     // MARK: - Selection Views
@@ -212,7 +202,7 @@ struct BSCVideoCard: View {
         } label: {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.title3)
-                .foregroundColor(isSelected ? .bscBlue : .bscTextSecondary)
+                .foregroundColor(isSelected ? .bscPrimary : .bscTextSecondary)
         }
     }
 
@@ -225,7 +215,7 @@ struct BSCVideoCard: View {
                 } label: {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
-                        .foregroundColor(isSelected ? .bscBlue : .white)
+                        .foregroundColor(isSelected ? .bscPrimary : .white)
                         .background(
                             Circle()
                                 .fill(Color.black.opacity(0.6))
@@ -334,30 +324,24 @@ struct BSCVideoCard: View {
     }
 
     private var statusIconName: String {
-        if video.isProcessed {
+        if video.isProcessed || !video.processedVideoIds.isEmpty {
             return "checkmark.seal.fill"
-        } else if !video.processedVideoIds.isEmpty {
-            return "play.rectangle.fill"
         } else {
             return "video.circle"
         }
     }
 
     private var statusText: String {
-        if video.isProcessed {
+        if video.isProcessed || !video.processedVideoIds.isEmpty {
             return "Processed"
-        } else if !video.processedVideoIds.isEmpty {
-            return "Rallies Ready"
         } else {
-            return "Original"
+            return "Unprocessed"
         }
     }
 
     private var statusColor: Color {
-        if video.isProcessed {
+        if video.isProcessed || !video.processedVideoIds.isEmpty {
             return .bscStatusProcessed
-        } else if !video.processedVideoIds.isEmpty {
-            return .bscStatusVersioned
         } else {
             return .bscStatusOriginal
         }
@@ -418,22 +402,10 @@ struct BSCVideoCard: View {
         } label: {
             Image(systemName: "brain.head.profile.fill")
                 .font(.system(size: 16))
-                .foregroundColor(.bscBlue)
+                .foregroundColor(.bscPrimary)
                 .frame(width: 32, height: 32)
         }
         .accessibilityLabel("Process with AI")
-    }
-
-    private var quickPlayButton: some View {
-        Button {
-            showingRallyViewer = true
-        } label: {
-            Image(systemName: "play.rectangle.fill")
-                .font(.system(size: 16))
-                .foregroundColor(.bscStatusVersioned)
-                .frame(width: 32, height: 32)
-        }
-        .accessibilityLabel("View Rallies")
     }
 
     private var quickViewRalliesButton: some View {
@@ -442,7 +414,7 @@ struct BSCVideoCard: View {
         } label: {
             Image(systemName: "play.rectangle.fill")
                 .font(.system(size: 16))
-                .foregroundColor(.bscStatusVersioned)
+                .foregroundColor(.bscStatusProcessed)
                 .frame(width: 32, height: 32)
         }
         .accessibilityLabel("View Rallies")
@@ -510,9 +482,7 @@ struct BSCVideoCard: View {
     private func handleTap() {
         if isSelectable {
             onSelectionToggle?()
-        } else if libraryType == .processed {
-            showingRallyViewer = true
-        } else if libraryType == .saved && !video.processedVideoIds.isEmpty {
+        } else if !video.processedVideoIds.isEmpty {
             showingRallyViewer = true
         } else {
             showingVideoPlayer = true

@@ -66,7 +66,7 @@ struct EditProfileView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundColor(.red)
+                            .foregroundColor(.bscError)
                             .font(.system(size: 13))
                     }
                 }
@@ -116,7 +116,7 @@ struct EditProfileView: View {
 
                     // Camera badge
                     Circle()
-                        .fill(Color.bscOrange)
+                        .fill(Color.bscPrimary)
                         .frame(width: 28, height: 28)
                         .overlay(
                             Image(systemName: "camera.fill")

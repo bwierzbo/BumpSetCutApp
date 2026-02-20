@@ -59,7 +59,7 @@ struct BSCLoadingOverlay: View {
             .foregroundStyle(LinearGradient.bscPrimaryGradient)
             .offset(y: isAnimating ? -8 : 0)
             .animation(.bscFloat, value: isAnimating)
-            .bscShadow(BSCShadow.glowOrange)
+            .bscShadow(BSCShadow.glowPrimary)
     }
 
     // MARK: - Progress Indicator
@@ -86,14 +86,14 @@ struct BSCLoadingOverlay: View {
             // Percentage
             Text("\(Int(progress * 100))%")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.bscOrange)
+                .foregroundColor(.bscPrimary)
         }
     }
 
     // MARK: - Indeterminate Indicator
     private var indeterminateIndicator: some View {
         ProgressView()
-            .progressViewStyle(CircularProgressViewStyle(tint: .bscOrange))
+            .progressViewStyle(CircularProgressViewStyle(tint: .bscPrimary))
             .scaleEffect(1.2)
     }
 }
@@ -107,7 +107,7 @@ struct BSCLoadingIndicator: View {
     var body: some View {
         HStack(spacing: BSCSpacing.sm) {
             ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: .bscOrange))
+                .progressViewStyle(CircularProgressViewStyle(tint: .bscPrimary))
                 .scaleEffect(size / 20)
 
             if let message = message {

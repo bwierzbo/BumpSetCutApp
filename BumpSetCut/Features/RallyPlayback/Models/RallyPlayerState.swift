@@ -12,13 +12,22 @@ struct RallyTrimAdjustment: Codable {
 struct RallyReviewSelections: Codable {
     var saved: Set<Int>
     var removed: Set<Int>
+    var favorited: Set<Int>
 
-    init(saved: Set<Int> = [], removed: Set<Int> = []) {
+    init(saved: Set<Int> = [], removed: Set<Int> = [], favorited: Set<Int> = []) {
         self.saved = saved
         self.removed = removed
+        self.favorited = favorited
     }
 
-    var isEmpty: Bool { saved.isEmpty && removed.isEmpty }
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        saved = try container.decode(Set<Int>.self, forKey: .saved)
+        removed = try container.decode(Set<Int>.self, forKey: .removed)
+        favorited = try container.decodeIfPresent(Set<Int>.self, forKey: .favorited) ?? []
+    }
+
+    var isEmpty: Bool { saved.isEmpty && removed.isEmpty && favorited.isEmpty }
 }
 
 // MARK: - Loading State
@@ -35,6 +44,7 @@ enum RallyPlayerLoadingState: Equatable {
 enum RallySwipeAction {
     case save
     case remove
+    case favorite
 }
 
 // MARK: - Swipe Direction
@@ -42,6 +52,7 @@ enum RallySwipeAction {
 enum RallySwipeDirection {
     case left
     case right
+    case up
 }
 
 // MARK: - Peek Direction

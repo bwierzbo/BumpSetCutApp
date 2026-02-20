@@ -10,7 +10,7 @@ struct HomeView: View {
 
     @State private var viewModel: HomeViewModel?
     @State private var showingSettings = false
-    @EnvironmentObject private var appSettings: AppSettings
+    @Environment(AppSettings.self) private var appSettings
     @Environment(AuthenticationService.self) private var authService
 
     @State private var hasAppeared = false
@@ -30,6 +30,7 @@ struct HomeView: View {
     @State private var showingOnboarding = false
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
     // MARK: - Body
@@ -63,7 +64,7 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
-                .environmentObject(appSettings)
+                .environment(appSettings)
         }
         .photosPicker(
             isPresented: $showingPhotoPicker,
@@ -137,7 +138,7 @@ struct HomeView: View {
         }
         .alert("Name Your Video", isPresented: Binding(
             get: { uploadCoordinator?.showNamingDialog ?? false },
-            set: { if !$0 { uploadCoordinator?.completeNaming(customName: nil) } }
+            set: { if !$0 && (uploadCoordinator?.showNamingDialog ?? false) { uploadCoordinator?.completeNaming(customName: nil) } }
         )) {
             TextField("Video name", text: $videoNameInput)
                 .onChange(of: videoNameInput) { _, newValue in
@@ -184,7 +185,7 @@ struct HomeView: View {
                     // Progress state
                     ProgressView()
                         .scaleEffect(1.3)
-                        .tint(.bscOrange)
+                        .tint(.bscPrimary)
 
                     VStack(spacing: BSCSpacing.sm) {
                         if !coordinator.uploadProgressText.isEmpty {
@@ -277,6 +278,7 @@ struct HomeView: View {
                 stats: viewModel.stats(isPro: SubscriptionService.shared.isPro),
                 isLoading: viewModel.isLoading
             )
+            .accessibilityIdentifier(AccessibilityID.Home.statsCard)
             .frame(maxWidth: contentWidth)
             .opacity(hasAppeared ? 1 : 0)
             .offset(
@@ -288,7 +290,7 @@ struct HomeView: View {
 
         VStack(spacing: BSCSpacing.sm) {
             mainCTAButton
-            processedGamesCTAButton
+            favoriteRalliesCTAButton
         }
         .frame(maxWidth: contentWidth)
         .opacity(hasAppeared ? 1 : 0)
@@ -314,41 +316,43 @@ struct HomeView: View {
             Color.bscBackground
                 .ignoresSafeArea()
 
-            // Subtle gradient orbs
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.bscOrange.opacity(0.08), Color.clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 300
+            // Subtle gradient orbs (hidden when reduce motion is on)
+            if !reduceMotion {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Color.bscPrimary.opacity(0.08), Color.clear],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 300
+                        )
                     )
-                )
-                .frame(width: 600, height: 600)
-                .offset(x: -100, y: -200)
+                    .frame(width: 600, height: 600)
+                    .offset(x: -100, y: -200)
 
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.bscBlue.opacity(0.05), Color.clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 250
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Color.bscBlue.opacity(0.05), Color.clear],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 250
+                        )
                     )
-                )
-                .frame(width: 500, height: 500)
-                .offset(x: 150, y: 300)
+                    .frame(width: 500, height: 500)
+                    .offset(x: 150, y: 300)
+            }
         }
     }
 
     // MARK: - Main CTA Button
     private var mainCTAButton: some View {
-        NavigationLink(destination: LibraryView(mediaStore: mediaStore, libraryType: .saved)) {
+        NavigationLink(destination: LibraryView(mediaStore: mediaStore)) {
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "play.circle.fill")
                     .font(.system(size: 24, weight: .semibold))
 
-                Text("View Saved Games")
+                Text("View Library")
                     .font(.system(size: 18, weight: .bold))
 
                 Spacer()
@@ -361,21 +365,22 @@ struct HomeView: View {
             .padding(.horizontal, BSCSpacing.xl)
             .background(LinearGradient.bscPrimaryGradient)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
-            .bscShadow(BSCShadow.glowOrange)
+            .bscShadow(BSCShadow.glowPrimary)
         }
         .buttonStyle(MainCTAButtonStyle())
-        .accessibilityLabel("View Saved Games")
+        .accessibilityIdentifier(AccessibilityID.Home.viewLibrary)
+        .accessibilityLabel("View Library")
         .accessibilityHint("Navigate to your video library")
     }
 
-    // MARK: - Processed Games CTA Button
-    private var processedGamesCTAButton: some View {
-        NavigationLink(destination: LibraryView(mediaStore: mediaStore, libraryType: .processed)) {
+    // MARK: - Favorite Rallies CTA Button
+    private var favoriteRalliesCTAButton: some View {
+        NavigationLink(destination: FavoritesGridView(mediaStore: mediaStore)) {
             HStack(spacing: BSCSpacing.sm) {
-                Image(systemName: "checkmark.seal.fill")
+                Image(systemName: "star.fill")
                     .font(.system(size: 20, weight: .semibold))
 
-                Text("View Processed Games")
+                Text("Favorite Rallies")
                     .font(.system(size: 16, weight: .bold))
 
                 Spacer()
@@ -390,12 +395,13 @@ struct HomeView: View {
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                    .stroke(Color.bscTeal.opacity(0.5), lineWidth: 1)
+                    .stroke(Color.bscWarmAccent.opacity(0.5), lineWidth: 1)
             )
         }
         .buttonStyle(MainCTAButtonStyle())
-        .accessibilityLabel("View Processed Games")
-        .accessibilityHint("Navigate to processed videos")
+        .accessibilityIdentifier(AccessibilityID.Home.favoriteRallies)
+        .accessibilityLabel("View Favorite Rallies")
+        .accessibilityHint("Navigate to your favorite rally clips")
     }
 
     // MARK: - Quick Actions
@@ -408,6 +414,9 @@ struct HomeView: View {
                 quickActionContent(icon: "square.and.arrow.up", title: "Upload", color: .bscBlue)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Upload video")
+            .accessibilityHint("Import a video from your photo library")
+            .accessibilityIdentifier(AccessibilityID.Home.upload)
 
             // Process button - shows unprocessed video picker
             Button {
@@ -416,6 +425,9 @@ struct HomeView: View {
                 quickActionContent(icon: "brain.head.profile", title: "Process", color: .bscTeal)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Process video")
+            .accessibilityHint("Detect rallies in an unprocessed video")
+            .accessibilityIdentifier(AccessibilityID.Home.process)
 
             // Help button - shows onboarding tutorial
             Button {
@@ -424,6 +436,9 @@ struct HomeView: View {
                 quickActionContent(icon: "questionmark.circle", title: "Help", color: .bscTextSecondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Help")
+            .accessibilityHint("Show the onboarding tutorial")
+            .accessibilityIdentifier(AccessibilityID.Home.help)
         }
     }
 
@@ -456,6 +471,7 @@ struct HomeView: View {
         BSCIconButton(icon: "gearshape.fill", style: .glass, size: .compact) {
             showingSettings = true
         }
+        .accessibilityIdentifier(AccessibilityID.Home.settings)
         .accessibilityLabel("Settings")
     }
 }
@@ -497,8 +513,8 @@ struct UploadFolderSelectionSheet: View {
                     // Folder list
                     ScrollView {
                         LazyVStack(spacing: BSCSpacing.xs) {
-                            // Saved Games root option
-                            folderRow(name: "Saved Games", path: LibraryType.saved.rootPath, icon: "house.fill", color: .bscBlue)
+                            // Library root option
+                            folderRow(name: "Library", path: LibraryType.saved.rootPath, icon: "house.fill", color: .bscBlue)
 
                             if !folders.isEmpty {
                                 Divider()
@@ -506,7 +522,7 @@ struct UploadFolderSelectionSheet: View {
                                     .padding(.vertical, BSCSpacing.sm)
 
                                 ForEach(folders, id: \.id) { folder in
-                                    folderRow(name: folder.name, path: folder.path, icon: "folder.fill", color: .bscOrange)
+                                    folderRow(name: folder.name, path: folder.path, icon: "folder.fill", color: .bscPrimary)
                                 }
                             }
                         }
@@ -518,7 +534,7 @@ struct UploadFolderSelectionSheet: View {
                         Button {
                             onFolderSelected(selectedFolderPath)
                         } label: {
-                            Text("Upload to \(selectedFolderPath == LibraryType.saved.rootPath ? "Saved Games" : selectedFolderPath.components(separatedBy: "/").last ?? "Folder")")
+                            Text("Upload to \(selectedFolderPath == LibraryType.saved.rootPath ? "Library" : selectedFolderPath.components(separatedBy: "/").last ?? "Folder")")
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(.bscTextInverse)
                                 .frame(maxWidth: .infinity)
@@ -590,17 +606,17 @@ struct UploadFolderSelectionSheet: View {
                 if selectedFolderPath == path {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 22))
-                        .foregroundColor(.bscOrange)
+                        .foregroundColor(.bscPrimary)
                 }
             }
             .padding(BSCSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
-                    .fill(selectedFolderPath == path ? Color.bscOrange.opacity(0.1) : Color.bscSurfaceGlass)
+                    .fill(selectedFolderPath == path ? Color.bscPrimary.opacity(0.1) : Color.bscSurfaceGlass)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
-                    .stroke(selectedFolderPath == path ? Color.bscOrange.opacity(0.3) : Color.bscSurfaceBorder, lineWidth: 1)
+                    .stroke(selectedFolderPath == path ? Color.bscPrimary.opacity(0.3) : Color.bscSurfaceBorder, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -642,7 +658,7 @@ struct UploadFolderSelectionSheet: View {
                         createFolder()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(.bscOrange)
+                    .foregroundColor(.bscPrimary)
                     .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
@@ -754,7 +770,7 @@ struct UnprocessedVideoPickerSheet: View {
                     Color.black.opacity(0.4).ignoresSafeArea()
                     VStack(spacing: BSCSpacing.md) {
                         ProgressView()
-                            .tint(.bscOrange)
+                            .tint(.bscPrimary)
                             .scaleEffect(1.2)
                         Text("Importing video...")
                             .font(.system(size: 14, weight: .medium))
@@ -831,7 +847,7 @@ struct UnprocessedVideoPickerSheet: View {
             .padding(.horizontal, BSCSpacing.lg)
             .background(LinearGradient.bscPrimaryGradient)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
-            .bscShadow(BSCShadow.glowOrange)
+            .bscShadow(BSCShadow.glowPrimary)
         }
         .buttonStyle(MainCTAButtonStyle())
         .disabled(isImporting)
@@ -959,5 +975,5 @@ struct ImportedVideo: Identifiable, Hashable {
     NavigationStack {
         HomeView(mediaStore: MediaStore(), metadataStore: MetadataStore())
     }
-    .environmentObject(AppSettings.shared)
+    .environment(AppSettings.shared)
 }

@@ -58,7 +58,7 @@ struct BSCProgressView: View {
             if showPercentage {
                 Text("\(Int(progress * 100))%")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.bscOrange)
+                    .foregroundColor(.bscPrimary)
             }
         }
     }
@@ -134,7 +134,7 @@ struct BSCProgressView: View {
                 )
                 .rotationEffect(.degrees(-90))
                 .animation(.bscSpring, value: progress)
-                .bscShadow(BSCShadow.glowOrange)
+                .bscShadow(BSCShadow.glowPrimary)
 
             // Volleyball icon
             Image(systemName: "figure.volleyball")
@@ -151,7 +151,7 @@ struct BSCProgressView: View {
                         .foregroundColor(.bscTextInverse)
                         .padding(.horizontal, BSCSpacing.sm)
                         .padding(.vertical, BSCSpacing.xxs)
-                        .background(Color.bscOrange)
+                        .background(Color.bscPrimary)
                         .clipShape(Capsule())
                         .offset(y: BSCSpacing.sm)
                 }
@@ -198,7 +198,7 @@ struct BSCStepProgress: View {
     private func stepIndicator(for step: Int) -> some View {
         ZStack {
             Circle()
-                .fill(step <= currentStep ? Color.bscOrange : Color.bscSurfaceGlass)
+                .fill(step <= currentStep ? Color.bscPrimary : Color.bscSurfaceGlass)
                 .frame(width: 24, height: 24)
 
             if step < currentStep {
@@ -215,7 +215,7 @@ struct BSCStepProgress: View {
 
     private func connector(isComplete: Bool) -> some View {
         Rectangle()
-            .fill(isComplete ? Color.bscOrange : Color.bscSurfaceGlass)
+            .fill(isComplete ? Color.bscPrimary : Color.bscSurfaceGlass)
             .frame(height: 2)
             .frame(maxWidth: .infinity)
     }

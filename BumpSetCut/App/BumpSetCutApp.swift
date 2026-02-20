@@ -11,12 +11,23 @@ import GoogleSignIn
 
 @main struct BumpSetCutApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var appSettings = AppSettings.shared
+    @State private var appSettings = AppSettings.shared
     @State private var authService = AuthenticationService()
     @State private var networkMonitor = NetworkMonitor.shared
     @State private var offlineQueue = OfflineQueue()
 
     init() {
+        // UI Testing launch arguments
+        if CommandLine.arguments.contains("--uitesting") {
+            if CommandLine.arguments.contains("--skip-onboarding") {
+                UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+            }
+            if CommandLine.arguments.contains("--reset-onboarding") {
+                UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
+            }
+            UserDefaults.standard.set(true, forKey: "hasSeenRallyTips")
+        }
+
         // Clear stale Keychain data on fresh install / reinstall
         if !UserDefaults.standard.bool(forKey: "hasLaunchedBefore") {
             try? KeychainHelper.delete(for: "auth_token")

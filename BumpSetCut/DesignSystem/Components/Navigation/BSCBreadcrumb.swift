@@ -103,9 +103,9 @@ struct BSCBreadcrumb: View {
         } label: {
             Image(systemName: "house.fill")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(currentPath.isEmpty ? .bscOrange : .bscTextSecondary)
+                .foregroundColor(currentPath.isEmpty ? .bscPrimary : .bscTextSecondary)
                 .frame(width: 28, height: 28)
-                .background(currentPath.isEmpty ? Color.bscOrange.opacity(0.15) : Color.clear)
+                .background(currentPath.isEmpty ? Color.bscPrimary.opacity(0.15) : Color.clear)
                 .clipShape(Circle())
         }
         .accessibilityLabel("Home")
@@ -134,10 +134,10 @@ struct BSCBreadcrumb: View {
             } label: {
                 Text("...")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.bscBlue)
+                    .foregroundColor(.bscPrimary)
                     .padding(.horizontal, BSCSpacing.sm)
                     .padding(.vertical, BSCSpacing.xs)
-                    .background(Color.bscBlue.opacity(0.1))
+                    .background(Color.bscPrimary.opacity(0.1))
                     .clipShape(Capsule())
             }
             .accessibilityLabel("Show hidden folders")
@@ -159,7 +159,7 @@ struct BSCBreadcrumb: View {
                 .foregroundColor(isLast ? .bscTextPrimary : .bscTextSecondary)
                 .padding(.horizontal, BSCSpacing.sm)
                 .padding(.vertical, BSCSpacing.xs)
-                .background(isLast ? Color.bscBlue.opacity(0.15) : Color.clear)
+                .background(isLast ? Color.bscPrimary.opacity(0.15) : Color.clear)
                 .clipShape(Capsule())
             }
             .disabled(isLast)

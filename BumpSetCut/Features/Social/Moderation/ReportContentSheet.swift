@@ -30,14 +30,14 @@ struct ReportContentSheet: View {
                     VStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "exclamationmark.shield.fill")
                             .font(.system(size: 48))
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Color.bscError)
 
                         Text("Report \(contentType.displayName)")
                             .font(.title2.bold())
 
                         Text("Help us keep the community safe by reporting content that violates our guidelines.")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.bscTextSecondary)
                             .multilineTextAlignment(.center)
                     }
                     .padding(.top, BSCSpacing.lg)
@@ -91,7 +91,7 @@ struct ReportContentSheet: View {
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(.red)
+                        .tint(.bscError)
                         .disabled(isSubmitting)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
@@ -176,17 +176,17 @@ struct ReportTypeButton: View {
             HStack(spacing: BSCSpacing.md) {
                 Image(systemName: type.icon)
                     .font(.title3)
-                    .foregroundStyle(isSelected ? .white : .red)
+                    .foregroundStyle(isSelected ? .white : Color.bscError)
                     .frame(width: 32)
 
                 VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                     Text(type.displayName)
                         .font(.headline)
-                        .foregroundStyle(isSelected ? .white : .primary)
+                        .foregroundStyle(isSelected ? .white : Color.bscTextPrimary)
 
                     Text(type.description)
                         .font(.caption)
-                        .foregroundStyle(isSelected ? .white.opacity(0.8) : .secondary)
+                        .foregroundStyle(isSelected ? .white.opacity(0.8) : Color.bscTextSecondary)
                 }
 
                 Spacer()
@@ -199,7 +199,7 @@ struct ReportTypeButton: View {
             .padding()
             .background(
                 RoundedRectangle(cornerRadius: BSCRadius.md)
-                    .fill(isSelected ? Color.red : Color(.systemGray6))
+                    .fill(isSelected ? Color.bscError : Color.bscSurfaceGlass)
             )
         }
         .buttonStyle(.plain)

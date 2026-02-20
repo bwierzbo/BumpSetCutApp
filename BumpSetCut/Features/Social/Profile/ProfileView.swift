@@ -9,7 +9,7 @@ import SwiftUI
 
 struct ProfileView: View {
     @State private var viewModel: ProfileViewModel
-    @State private var selectedHighlight: Highlight?
+    @State private var selectedHighlightIndex: Int?
     @State private var selectedHighlightForComments: Highlight?
     @State private var highlightToDelete: Highlight?
     @State private var showReportSheet = false
@@ -31,7 +31,7 @@ struct ProfileView: View {
 
             if viewModel.isLoading && viewModel.profile == nil {
                 ProgressView()
-                    .tint(.bscOrange)
+                    .tint(.bscPrimary)
             } else if let profile = viewModel.profile {
                 ScrollView {
                     VStack(spacing: BSCSpacing.lg) {
@@ -49,8 +49,31 @@ struct ProfileView: View {
         .task {
             await viewModel.loadProfile()
         }
-        .fullScreenCover(item: $selectedHighlight) { highlight in
-            highlightDetail(highlight)
+        .fullScreenCover(isPresented: Binding(
+            get: { selectedHighlightIndex != nil },
+            set: { if !$0 { selectedHighlightIndex = nil } }
+        )) {
+            if let index = selectedHighlightIndex {
+                ProfileHighlightFeedView(
+                    highlights: viewModel.highlights,
+                    startIndex: index,
+                    isOwnProfile: isOwnProfile,
+                    onLike: { highlight in
+                        Task { await viewModel.toggleLike(for: highlight) }
+                    },
+                    onComment: { highlight in
+                        selectedHighlightIndex = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            selectedHighlightForComments = highlight
+                        }
+                    },
+                    onDelete: isOwnProfile ? { highlight in
+                        selectedHighlightIndex = nil
+                        Task { await viewModel.deleteHighlight(highlight) }
+                    } : nil,
+                    onDismiss: { selectedHighlightIndex = nil }
+                )
+            }
         }
         .sheet(item: $selectedHighlightForComments) { highlight in
             CommentsSheet(highlight: highlight)
@@ -120,47 +143,6 @@ struct ProfileView: View {
             }
         } message: {
             Text("You won't see their posts or comments, and they won't be able to see yours.")
-        }
-    }
-
-    // MARK: - Highlight Detail
-
-    private func highlightDetail(_ highlight: Highlight) -> some View {
-        ZStack {
-            HighlightCardView(
-                highlight: highlight,
-                onLike: {
-                    Task { await viewModel.toggleLike(for: highlight) }
-                },
-                onComment: {
-                    selectedHighlight = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        selectedHighlightForComments = highlight
-                    }
-                },
-                onProfile: { _ in },
-                onDelete: isOwnProfile ? {
-                    selectedHighlight = nil
-                    Task { await viewModel.deleteHighlight(highlight) }
-                } : nil
-            )
-
-            // Close button
-            VStack {
-                HStack {
-                    Spacer()
-                    Button {
-                        selectedHighlight = nil
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(.white.opacity(0.8))
-                            .shadow(radius: 4)
-                    }
-                    .padding(BSCSpacing.md)
-                }
-                Spacer()
-            }
         }
     }
 
@@ -251,7 +233,7 @@ struct ProfileView: View {
                 } label: {
                     Text("Sign Out")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.red)
+                        .foregroundColor(.bscError)
                         .padding(.vertical, BSCSpacing.sm)
                         .padding(.horizontal, BSCSpacing.md)
                         .background(Color.bscSurfaceGlass)
@@ -267,7 +249,7 @@ struct ProfileView: View {
                         .foregroundColor(viewModel.isFollowing ? .bscTextPrimary : .white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, BSCSpacing.sm)
-                        .background(viewModel.isFollowing ? Color.bscSurfaceGlass : Color.bscOrange)
+                        .background(viewModel.isFollowing ? Color.bscSurfaceGlass : Color.bscPrimary)
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                 }
             }
@@ -296,9 +278,9 @@ struct ProfileView: View {
             } else {
                 // Content
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: BSCSpacing.xs), count: 3), spacing: BSCSpacing.xs) {
-                    ForEach(viewModel.highlights) { highlight in
+                    ForEach(Array(viewModel.highlights.enumerated()), id: \.element.id) { index, highlight in
                         Button {
-                            selectedHighlight = highlight
+                            selectedHighlightIndex = index
                         } label: {
                             profileGridCell(highlight)
                         }

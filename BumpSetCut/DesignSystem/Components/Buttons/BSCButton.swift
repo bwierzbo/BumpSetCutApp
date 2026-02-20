@@ -5,7 +5,7 @@ import SwiftUI
 struct BSCButton: View {
     // MARK: - Types
     enum Style {
-        case primary      // Orange gradient - main CTAs
+        case primary      // Blue gradient - main CTAs
         case secondary    // Glass effect - secondary actions
         case ghost        // Transparent with border
         case destructive  // Red - dangerous actions
@@ -68,7 +68,7 @@ struct BSCButton: View {
         case .primary:
             return .bscTextInverse
         case .secondary:
-            return .bscOrange
+            return .bscPrimary
         case .ghost:
             return .bscTextPrimary
         case .destructive:
@@ -82,7 +82,7 @@ struct BSCButton: View {
         case .primary:
             LinearGradient.bscPrimaryGradient
         case .secondary:
-            Color.bscOrange.opacity(0.12)
+            Color.bscPrimary.opacity(0.12)
         case .ghost:
             Color.clear
         case .destructive:
@@ -95,7 +95,7 @@ struct BSCButton: View {
         switch style {
         case .secondary:
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.bscOrange.opacity(0.3), lineWidth: 1)
+                .stroke(Color.bscPrimary.opacity(0.3), lineWidth: 1)
         case .ghost:
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(Color.bscSurfaceBorder, lineWidth: 1)

@@ -5,14 +5,27 @@
   "groups" : [
     {
       "layers" : [
+
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "layers" : [
         {
-          "image-name" : "ChatGPT Image Feb 11, 2026, 05_31_03 PM.png",
-          "name" : "ChatGPT Image Feb 11, 2026, 05_31_03 PM",
+          "image-name" : "ChatGPT Image Feb 11, 2026, 05_31_03 PM 2.png",
+          "name" : "ChatGPT Image Feb 11, 2026, 05_31_03 PM 2",
           "position" : {
-            "scale" : 1.35,
+            "scale" : 1.5,
             "translation-in-points" : [
-              0,
-              0
+              -8.586962547457688,
+              -3.25
             ]
           }
         }

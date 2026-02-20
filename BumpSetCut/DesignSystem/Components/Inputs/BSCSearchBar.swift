@@ -20,7 +20,7 @@ struct BSCSearchBar: View {
                 // Search icon
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(isFocused ? .bscOrange : .bscTextSecondary)
+                    .foregroundColor(isFocused ? .bscPrimary : .bscTextSecondary)
 
                 // Text field
                 TextField(placeholder, text: $text)
@@ -53,7 +53,7 @@ struct BSCSearchBar: View {
             .overlay(
                 Capsule()
                     .stroke(
-                        isFocused ? Color.bscOrange.opacity(0.5) : Color.bscSurfaceBorder,
+                        isFocused ? Color.bscPrimary.opacity(0.5) : Color.bscSurfaceBorder,
                         lineWidth: isFocused ? 2 : 1
                     )
             )
@@ -70,7 +70,7 @@ struct BSCSearchBar: View {
                 } label: {
                     Text("Cancel")
                         .font(.system(size: 16))
-                        .foregroundColor(.bscOrange)
+                        .foregroundColor(.bscPrimary)
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
@@ -103,7 +103,7 @@ struct BSCTextField: View {
                 if let icon = icon {
                     Image(systemName: icon)
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(isFocused ? .bscOrange : .bscTextSecondary)
+                        .foregroundColor(isFocused ? .bscPrimary : .bscTextSecondary)
                         .frame(width: 24)
                 }
 
@@ -151,7 +151,7 @@ struct BSCTextField: View {
         if errorMessage != nil {
             return .bscError
         } else if isFocused {
-            return .bscOrange.opacity(0.5)
+            return .bscPrimary.opacity(0.5)
         } else {
             return .bscSurfaceBorder
         }
@@ -196,7 +196,7 @@ struct BSCTextArea: View {
         .overlay(
             RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
                 .stroke(
-                    isFocused ? Color.bscOrange.opacity(0.5) : Color.bscSurfaceBorder,
+                    isFocused ? Color.bscPrimary.opacity(0.5) : Color.bscSurfaceBorder,
                     lineWidth: isFocused ? 2 : 1
                 )
         )

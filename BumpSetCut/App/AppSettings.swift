@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Foundation
 
 // MARK: - Appearance Mode
 
@@ -29,12 +28,12 @@ enum AppTheme: String, CaseIterable, Identifiable {
 // MARK: - App Settings
 
 @MainActor
-class AppSettings: ObservableObject {
+@Observable class AppSettings {
     static let shared = AppSettings()
 
     // MARK: - Appearance
 
-    @Published var appearanceMode: AppTheme {
+    var appearanceMode: AppTheme {
         didSet {
             UserDefaults.standard.set(appearanceMode.rawValue, forKey: "appearanceMode")
         }
@@ -43,21 +42,21 @@ class AppSettings: ObservableObject {
     // MARK: - Feature Toggles
 
     /// Enable debug features and logging
-    @Published var enableDebugFeatures: Bool {
+    var enableDebugFeatures: Bool {
         didSet {
             UserDefaults.standard.set(enableDebugFeatures, forKey: "enableDebugFeatures")
         }
     }
 
     /// Show performance metrics in debug builds
-    @Published var showPerformanceMetrics: Bool {
+    var showPerformanceMetrics: Bool {
         didSet {
             UserDefaults.standard.set(showPerformanceMetrics, forKey: "showPerformanceMetrics")
         }
     }
 
     /// Track rally view usage for analytics
-    @Published var enableAnalytics: Bool {
+    var enableAnalytics: Bool {
         didSet {
             UserDefaults.standard.set(enableAnalytics, forKey: "enableAnalytics")
         }
@@ -68,7 +67,7 @@ class AppSettings: ObservableObject {
     /// Use thorough analysis with dynamic frame stride, trajectory tracking,
     /// classification, and quality metrics. When OFF, uses quick mode that
     /// just detects rallies without extra analysis.
-    @Published var useThoroughAnalysis: Bool {
+    var useThoroughAnalysis: Bool {
         didSet {
             UserDefaults.standard.set(useThoroughAnalysis, forKey: "useThoroughAnalysis")
         }
@@ -77,14 +76,14 @@ class AppSettings: ObservableObject {
     // MARK: - Onboarding State
 
     /// Whether user has completed the app onboarding tutorial
-    @Published var hasCompletedOnboarding: Bool {
+    var hasCompletedOnboarding: Bool {
         didSet {
             UserDefaults.standard.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding")
         }
     }
 
     /// Whether user has seen the rally gesture tips overlay
-    @Published var hasSeenRallyTips: Bool {
+    var hasSeenRallyTips: Bool {
         didSet {
             UserDefaults.standard.set(hasSeenRallyTips, forKey: "hasSeenRallyTips")
         }
@@ -93,8 +92,8 @@ class AppSettings: ObservableObject {
 
     private init() {
         // Appearance
-        let storedTheme = UserDefaults.standard.string(forKey: "appearanceMode") ?? "Dark"
-        self.appearanceMode = AppTheme(rawValue: storedTheme) ?? .dark
+        let storedTheme = UserDefaults.standard.string(forKey: "appearanceMode") ?? "System"
+        self.appearanceMode = AppTheme(rawValue: storedTheme) ?? .system
 
         // Initialize with defaults based on build configuration
         #if DEBUG
@@ -166,6 +165,6 @@ enum RallyGestureType: String, CaseIterable {
 
 extension View {
     func withAppSettings() -> some View {
-        self.environmentObject(AppSettings.shared)
+        self.environment(AppSettings.shared)
     }
 }

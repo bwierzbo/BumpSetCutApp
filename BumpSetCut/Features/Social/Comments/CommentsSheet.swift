@@ -24,7 +24,7 @@ struct CommentsSheet: View {
                 if viewModel.isLoading && viewModel.comments.isEmpty {
                     Spacer()
                     ProgressView()
-                        .tint(.bscOrange)
+                        .tint(.bscPrimary)
                     Spacer()
                 } else if viewModel.comments.isEmpty {
                     Spacer()
@@ -91,7 +91,7 @@ struct CommentsSheet: View {
                     HStack(spacing: 2) {
                         Image(systemName: comment.isLikedByMe ? "heart.fill" : "heart")
                             .font(.system(size: 11))
-                            .foregroundColor(comment.isLikedByMe ? .red : .bscTextTertiary)
+                            .foregroundColor(comment.isLikedByMe ? .bscError : .bscTextTertiary)
                         if comment.likesCount > 0 {
                             Text("\(comment.likesCount)")
                                 .font(.system(size: 11))
@@ -141,7 +141,7 @@ struct CommentsSheet: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 30))
-                    .foregroundColor(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .bscTextTertiary : .bscOrange)
+                    .foregroundColor(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .bscTextTertiary : .bscPrimary)
             }
             .disabled(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isSending)
         }

@@ -4,10 +4,12 @@ import SwiftUI
 struct RallyActionButtons: View {
     let isSaved: Bool
     let isRemoved: Bool
+    var isFavorited: Bool = false
     let canUndo: Bool
     let onRemove: () -> Void
     let onUndo: () -> Void
     let onSave: () -> Void
+    var onFavorite: () -> Void = {}
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -17,7 +19,7 @@ struct RallyActionButtons: View {
         VStack {
             Spacer()
 
-            HStack(spacing: BSCSpacing.xxl) {
+            HStack(spacing: BSCSpacing.xl) {
                 // Remove button - fixed container prevents layout shift
                 RallyActionButton(
                     icon: "xmark",
@@ -26,9 +28,9 @@ struct RallyActionButtons: View {
                     isActive: isRemoved,
                     action: onRemove
                 )
-                .frame(width: 80, height: 80)  // Fixed frame (70 * 1.15 ≈ 80)
+                .frame(width: 80, height: 80)
                 .accessibilityLabel("Remove rally")
-                .id("remove-\(isRemoved)")  // Stable identity
+                .id("remove-\(isRemoved)")
 
                 // Undo button - fixed container
                 RallyActionButton(
@@ -38,12 +40,12 @@ struct RallyActionButtons: View {
                     isActive: false,
                     action: onUndo
                 )
-                .frame(width: 65, height: 65)  // Fixed frame (56 * 1.15 ≈ 65)
+                .frame(width: 65, height: 65)
                 .opacity(canUndo ? 1.0 : 0.4)
                 .disabled(!canUndo)
                 .accessibilityLabel("Undo")
                 .accessibilityValue(canUndo ? "Available" : "No action to undo")
-                .id("undo-\(canUndo)")  // Stable identity
+                .id("undo-\(canUndo)")
 
                 // Save button - fixed container
                 RallyActionButton(
@@ -53,9 +55,21 @@ struct RallyActionButtons: View {
                     isActive: isSaved,
                     action: onSave
                 )
-                .frame(width: 80, height: 80)  // Fixed frame (70 * 1.15 ≈ 80)
+                .frame(width: 80, height: 80)
                 .accessibilityLabel(isSaved ? "Unsave rally" : "Save rally")
-                .id("save-\(isSaved)")  // Stable identity
+                .id("save-\(isSaved)")
+
+                // Favorite button - fixed container
+                RallyActionButton(
+                    icon: isFavorited ? "star.fill" : "star",
+                    color: .bscPrimary,
+                    size: .large,
+                    isActive: isFavorited,
+                    action: onFavorite
+                )
+                .frame(width: 80, height: 80)
+                .accessibilityLabel(isFavorited ? "Unfavorite rally" : "Favorite rally")
+                .id("favorite-\(isFavorited)")
             }
             .padding(.bottom, isPortrait ? 60 : 20)
         }
@@ -223,6 +237,8 @@ extension RallyActionFeedback.ActionType {
             return .bscError
         case .undo:
             return .bscBlue
+        case .favorite:
+            return .bscPrimary
         }
     }
 }

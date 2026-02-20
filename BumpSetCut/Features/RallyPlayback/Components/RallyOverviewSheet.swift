@@ -6,6 +6,7 @@ struct RallyOverviewSheet: View {
     let rallyVideoURLs: [URL]
     let savedRallies: Set<Int>
     let removedRallies: Set<Int>
+    var favoritedRallies: Set<Int> = []
     let currentIndex: Int
     let thumbnailCache: RallyThumbnailCache
     let onSelectRally: (Int) -> Void
@@ -76,6 +77,9 @@ struct RallyOverviewSheet: View {
             HStack(spacing: BSCSpacing.lg) {
                 statPill(count: savedRallies.count, label: "saved", color: .bscSuccess)
                 statPill(count: removedRallies.count, label: "removed", color: .bscError)
+                if !favoritedRallies.isEmpty {
+                    statPill(count: favoritedRallies.count, label: "favorited", color: .bscPrimary)
+                }
             }
             .padding(.horizontal, BSCSpacing.xl)
 
@@ -142,12 +146,14 @@ struct RallyOverviewSheet: View {
         let url = rallyVideoURLs[index]
         let isSaved = savedRallies.contains(index)
         let isRemoved = removedRallies.contains(index)
+        let isFavorited = favoritedRallies.contains(index)
 
         return RallyOverviewCell(
             url: url,
             index: index,
             isSaved: isSaved,
             isRemoved: isRemoved,
+            isFavorited: isFavorited,
             thumbnailCache: thumbnailCache
         )
     }
@@ -201,11 +207,24 @@ struct RallyOverviewSheet: View {
 
             // Done
             Button(action: onDismiss) {
-                Text("Done")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.bscTextTertiary)
+                HStack(spacing: BSCSpacing.sm) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("Done")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .foregroundColor(.bscTextPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, BSCSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                        .fill(Color.bscSurfaceGlass)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                                .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+                        )
+                )
             }
-            .padding(.bottom, BSCSpacing.xs)
         }
         .padding(.horizontal, BSCSpacing.lg)
         .padding(.top, BSCSpacing.md)
@@ -221,6 +240,7 @@ private struct RallyOverviewCell: View {
     let index: Int
     let isSaved: Bool
     let isRemoved: Bool
+    var isFavorited: Bool = false
     let thumbnailCache: RallyThumbnailCache
 
     @State private var thumbnail: UIImage?
@@ -262,7 +282,24 @@ private struct RallyOverviewCell: View {
                         .fill(Color.black.opacity(0.7))
                 )
                 .padding(BSCSpacing.xs)
+
+            // Star badge for favorited rallies
+            if isFavorited {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.bscPrimary)
+                            .shadow(color: .black.opacity(0.5), radius: 2)
+                            .padding(BSCSpacing.xs)
+                    }
+                    Spacer()
+                }
+            }
         }
+        .accessibilityLabel("Rally \(index + 1), \(rallyStatus)")
+        .accessibilityAddTraits(.isButton)
         .onAppear {
             thumbnail = thumbnailCache.getThumbnail(for: url)
         }
@@ -272,7 +309,15 @@ private struct RallyOverviewCell: View {
         }
     }
 
+    private var rallyStatus: String {
+        if isFavorited { return "favorited" }
+        if isSaved { return "saved" }
+        if isRemoved { return "removed" }
+        return "unsorted"
+    }
+
     private var borderColor: Color {
+        if isFavorited { return .bscPrimary.opacity(0.7) }
         if isSaved { return .bscSuccess.opacity(0.7) }
         if isRemoved { return .bscError.opacity(0.7) }
         return Color.white.opacity(0.1)

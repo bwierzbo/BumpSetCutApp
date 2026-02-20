@@ -66,7 +66,7 @@ struct BSCEmptyState: View {
         ZStack {
             // Glow circle
             Circle()
-                .fill(Color.bscOrange.opacity(0.1))
+                .fill(Color.bscPrimary.opacity(0.1))
                 .frame(width: 120, height: 120)
                 .scaleEffect(isAnimating ? 1.1 : 0.95)
 

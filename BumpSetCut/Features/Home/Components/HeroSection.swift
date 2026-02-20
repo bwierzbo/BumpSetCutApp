@@ -30,7 +30,7 @@ struct HeroSection: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        colors: [Color.bscOrange.opacity(0.3), Color.clear],
+                        colors: [Color.bscPrimary.opacity(0.3), Color.clear],
                         center: .center,
                         startRadius: 30,
                         endRadius: 60

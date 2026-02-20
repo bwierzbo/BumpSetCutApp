@@ -12,6 +12,7 @@
 
 ### 1.1 Fresh Install
 - [ ] App launches without crash on clean install
+- [ ] Keychain cleared on fresh install (no stale auth)
 - [ ] Onboarding carousel appears automatically
 - [ ] All 4 pages display correctly (Upload, AI Detection, Save Rallies, Share & Connect)
 - [ ] "Skip" button works on pages 1-3
@@ -30,14 +31,19 @@
 
 ### 2.1 Layout & Display
 - [ ] Hero section renders with app branding
-- [ ] Stats card shows: Total Rallies, Processed Videos, Tier status
+- [ ] Stats card shows processing stats (responsive to Pro status)
 - [ ] Quick action buttons visible: Upload, Process, Help
+- [ ] "View Library" primary CTA navigates to saved video library
+- [ ] "Favorite Rallies" secondary CTA navigates to favorites grid
 
 ### 2.2 Navigation
-- [ ] "View Saved Games" navigates to saved video library
-- [ ] "View Processed Games" navigates to processed library
 - [ ] Settings gear icon opens settings sheet
 - [ ] Help button re-opens onboarding carousel
+- [ ] Upload progress overlay shows during active uploads (file name, size, status)
+
+### 2.3 Responsive Layout
+- [ ] Portrait mode renders correctly
+- [ ] Landscape mode adjusts layout
 
 ---
 
@@ -47,12 +53,12 @@
 - [ ] Tap "Upload" on Home → PhotosPicker opens
 - [ ] Select a video → folder selection sheet appears
 - [ ] Select destination folder → naming dialog appears
-- [ ] Enter custom name → video appears in library
+- [ ] Enter custom name (100 char limit) → video appears in library
 - [ ] Skip naming (use default) → video appears with auto-generated name
 - [ ] Cancel at any step → no partial files left behind
 
 ### 3.2 Large File Handling
-- [ ] Upload a video >500MB on free tier → storage/tier warning shown
+- [ ] Upload a video >100MB on free tier → storage/tier warning shown
 - [ ] Upload a 5-minute video → completes without memory crash
 - [ ] Upload a 30+ minute video → completes (URL-based, no Data loading)
 
@@ -67,47 +73,124 @@
 ## 4. Video Library
 
 ### 4.1 Saved Games Library
-- [ ] Grid displays video thumbnails with duration and file size
+- [ ] Grid view displays video thumbnails with duration and file size
+- [ ] List view displays video rows with metadata
+- [ ] Toggle between grid/list via toolbar menu
 - [ ] Thumbnails load progressively (no blank grid)
 - [ ] Empty state shown when no videos exist
 - [ ] Search bar filters videos by name
 - [ ] Pull to refresh updates the list
 
-### 4.2 Folder Management
-- [ ] Create new folder → appears in library
-- [ ] Rename folder → name updates everywhere
-- [ ] Delete folder → confirmation prompt → folder removed
-- [ ] Delete folder with videos → appropriate warning
+### 4.2 Sorting
+- [ ] Sort picker in toolbar (Name / Date Created / File Size)
+- [ ] Changing sort option reorders videos immediately
+- [ ] Sort applies to both folders and videos
 
-### 4.3 Processed Games Library
+### 4.3 Filtering
+- [ ] Filter chips at root level: All / Processed / Unprocessed
+- [ ] Selecting a filter updates displayed videos
+- [ ] Filter chips hidden when inside a folder
+
+### 4.4 Folder Management
+- [ ] Create new folder → appears in library
+- [ ] Rename folder via three-dot menu or long-press context menu
+- [ ] Delete folder via three-dot menu → confirmation prompt → folder removed
+- [ ] Delete folder with videos → appropriate warning (videos moved to parent)
+- [ ] Folders limited to one level deep (no nested subfolder creation)
+
+### 4.5 Video Context Menu
+- [ ] Long-press video → context menu with Delete, Rename, Move to Folder
+- [ ] Rename video → name updates in grid/list
+- [ ] Move video to folder → video moves, counts update
+- [ ] Drag-drop video onto folder → video moves
+
+### 4.6 Processed Games Library
 - [ ] Only processed videos appear here
 - [ ] Tap a processed video → opens rally player
 - [ ] Unprocessed videos do NOT appear in processed library
 
-### 4.4 Navigation Between Libraries
-- [ ] "Saved Games" and "Processed Games" are clearly distinguished
-- [ ] Breadcrumb navigation works for nested folders
-- [ ] Back button returns to parent folder
+### 4.7 Navigation
+- [ ] Back chevron button returns to parent folder
+- [ ] Swipe-right gesture returns to parent folder
+- [ ] Navigation title updates to show current folder name
 
 ---
 
-## 5. Video Processing (Critical Path)
+## 5. Favorite Rallies
 
-### 5.1 Start Processing
+### 5.1 Grid Display
+- [ ] Navigate to Favorites from Home → FavoritesGridView loads
+- [ ] 3-column thumbnail grid with duration badges
+- [ ] Empty state shown when no favorites exist
+- [ ] Rally count label displayed in header
+
+### 5.2 Sorting
+- [ ] Sort picker in toolbar (Name / Date Created / File Size)
+- [ ] Changing sort reorders both folders and videos
+
+### 5.3 Folder Management
+- [ ] Create folder via toolbar button → sheet with name input
+- [ ] Folders display in 2-column grid style
+- [ ] Rename folder via three-dot menu or long-press
+- [ ] Delete folder via three-dot menu → confirmation prompt
+- [ ] Drag-drop video onto folder to move
+
+### 5.4 Video Context Menu
+- [ ] Long-press thumbnail → Rename, Move to Folder, Remove Favorite
+- [ ] Rename → alert with text field pre-filled → name updates
+- [ ] Move to Folder → picker sheet with available folders
+- [ ] Remove Favorite → confirmation → unfavorites and syncs back to source video
+
+### 5.5 Favorites Feed (Full-Screen)
+- [ ] Tap thumbnail → full-screen vertical feed opens
+- [ ] TikTok-style vertical swipe between favorites
+- [ ] Counter shows current position (e.g., "3/12")
+- [ ] Video name displayed at bottom
+- [ ] Close button (X) dismisses feed
+
+### 5.6 Tap-to-Pause
+- [ ] Tap video in feed → playback pauses
+- [ ] Centered play icon overlay appears when paused
+- [ ] Tap again → resumes playback, icon disappears
+
+### 5.7 Long-Press Trim in Feed
+- [ ] Long-press (0.5s) on video → trim mode activates
+- [ ] Filmstrip with thumbnails appears at bottom
+- [ ] Drag left handle → trims start of clip
+- [ ] Drag right handle → trims end of clip
+- [ ] Duration label updates in real-time
+- [ ] Scrubbing handles seeks video to match
+- [ ] "Done" → saves trim, playback loops within trimmed bounds
+- [ ] "Cancel" → reverts to previous trim values
+- [ ] Trim persists across app restarts (MetadataStore sidecar JSON)
+- [ ] Scroll to different favorite and back → trim still applied
+
+### 5.8 Looping with Trim
+- [ ] Untrimmed clip → loops from start to end
+- [ ] Trimmed clip → loops within trimmed boundaries only
+- [ ] Boundary observer resets playback at trim end point
+
+---
+
+## 6. Video Processing (Critical Path)
+
+### 6.1 Start Processing
 - [ ] Tap "Process" on Home → list of unprocessed videos shown
 - [ ] Select a video → ProcessVideoView opens
 - [ ] Video metadata displayed (duration, resolution, file size)
 - [ ] Volleyball type selection available (Beach/Indoor)
 - [ ] "Process Video" button is tappable
 
-### 5.2 Processing Progress
+### 6.2 Processing Progress
 - [ ] Tap "Process Video" → animated brain icon appears
 - [ ] Progress bar increments smoothly from 0% to 100%
 - [ ] "Analyzing video..." label shown during processing
+- [ ] Floating progress pill visible above tab bar during processing
+- [ ] "Keep app open" warning displayed
 - [ ] App remains responsive during processing (UI not frozen)
 - [ ] Backgrounding the app during processing → processing continues (~30s grace)
 
-### 5.3 Processing Results - Rallies Found
+### 6.3 Processing Results - Rallies Found
 - [ ] Rally count displayed (e.g., "12 rallies detected")
 - [ ] Total duration and time saved percentage shown
 - [ ] "Preview" button → opens rally player
@@ -115,36 +198,36 @@
 - [ ] Processed video appears in Processed Games library
 - [ ] Original video now shows as "already processed" (cannot reprocess)
 
-### 5.4 Processing Results - No Rallies
+### 6.4 Processing Results - No Rallies
 - [ ] "No rallies detected" message shown
 - [ ] Retry option available
 - [ ] Dismiss returns to library without crash
 
-### 5.5 Processing Edge Cases
+### 6.5 Processing Edge Cases
 - [ ] Process a 10-second video (very short) → handles gracefully
 - [ ] Process a 30+ minute video → completes (may take time)
 - [ ] Process a non-volleyball video → "no rallies" result (no crash)
-- [ ] Storage nearly full → warning before processing starts
+- [ ] Storage nearly full → low storage warning shown
 - [ ] Kill app during processing → no corrupt metadata on relaunch
 - [ ] Already-processed video → "already processed" state, no reprocess button
 
-### 5.6 Thorough vs Quick Mode
+### 6.6 Thorough vs Quick Mode
 - [ ] Settings → toggle "Thorough Analysis" OFF
 - [ ] Process a video → completes faster (fewer frames analyzed)
 - [ ] Toggle back ON → more detailed processing
 
 ---
 
-## 6. Rally Playback (Critical Path)
+## 7. Rally Playback (Critical Path)
 
-### 6.1 Basic Playback
+### 7.1 Basic Playback
 - [ ] Open processed video → rally player loads
 - [ ] First rally plays automatically
 - [ ] Video plays with correct orientation (portrait/landscape)
 - [ ] Play/pause works correctly
 - [ ] Rally counter visible (e.g., "Rally 3 of 12")
 
-### 6.2 Navigation Between Rallies
+### 7.2 Navigation Between Rallies
 - [ ] Swipe up → next rally loads and plays
 - [ ] Swipe down → previous rally loads and plays
 - [ ] Rapid swiping → no crash, smooth transitions
@@ -152,70 +235,77 @@
 - [ ] Last rally → swipe up does nothing (or bounces)
 - [ ] No audio bleed between rallies during fast swiping
 
-### 6.3 Rally Selection (Save/Remove)
+### 7.3 Rally Selection (Save/Remove)
 - [ ] Tap to toggle rally as "saved" → visual indicator updates
 - [ ] Tap again to deselect → indicator clears
 - [ ] Counter pill shows count of selected rallies
 - [ ] Removing all rallies → appropriate empty state
+- [ ] Favoriting a rally → clip appears in Favorite Rallies
 
-### 6.4 Per-Rally Trim/Buffer
-- [ ] Long-press on rally → trim mode activates
-- [ ] Adjust start buffer (- button): decreases in 0.5s steps, down to -3s
-- [ ] Adjust start buffer (+ button): increases in 0.5s steps, up to +3s
-- [ ] Adjust end buffer similarly
+### 7.4 Per-Rally Trim/Buffer
+- [ ] Long-press on rally → trim mode activates with filmstrip
+- [ ] Drag left handle to adjust start boundary (up to ±3s)
+- [ ] Drag right handle to adjust end boundary (up to ±3s)
+- [ ] Duration label updates in real-time
 - [ ] Trim values persist when navigating away and back
 - [ ] Trim values persist across app restarts (sidecar JSON)
 - [ ] Trim does not extend beyond original video boundaries
 
-### 6.5 Rally Overview Sheet
+### 7.5 Rally Overview Sheet
 - [ ] Tap counter pill → overview sheet opens
 - [ ] Thumbnail grid shows all rallies
 - [ ] Tap a thumbnail → jumps to that rally in player
 - [ ] Selected/deselected rallies visually distinguished
 - [ ] Can select/deselect rallies from overview
+- [ ] Export from overview works
 - [ ] Close sheet → returns to current rally position
 
-### 6.6 Undo
+### 7.6 Undo
 - [ ] Make several actions (save, remove, trim) → undo reverts last action
 - [ ] Multiple undos work (multi-level undo stack)
 - [ ] Undo after trim → trim values revert
 
-### 6.7 Player Cache
+### 7.7 Player Cache
 - [ ] Play through 10+ rallies → no memory warning
 - [ ] Navigate back to earlier rally → loads from cache or re-creates player
 - [ ] No audio from off-screen rallies
+- [ ] Sliding window keeps max 5 players (current ±2)
 
-### 6.8 Gesture Tips
+### 7.8 Gesture Tips
 - [ ] First time viewing rallies → gesture tips overlay appears
 - [ ] Tips do not reappear on subsequent views
 
 ---
 
-## 7. Export
+## 8. Export
 
-### 7.1 Save to Device
-- [ ] From rally player → tap "Save" or export button
+### 8.1 Save to Device
+- [ ] From rally player → tap export button
 - [ ] Folder selection appears
 - [ ] Select folder → rally clips exported as MP4
 - [ ] Exported clips play correctly in Photos app
 - [ ] Video orientation preserved in export
 - [ ] Audio preserved in export
 
-### 7.2 Batch Export
+### 8.2 Watermark
+- [ ] Free tier → exported clips have watermark overlay
+- [ ] Pro tier → no watermark on exports
+
+### 8.3 Batch Export
 - [ ] Select multiple rallies → export all selected
 - [ ] Export from overview sheet works
 - [ ] Each clip is a separate file with correct time boundaries
 
-### 7.3 Export Edge Cases
+### 8.4 Export Edge Cases
 - [ ] Export a trimmed rally → trim offsets applied correctly
 - [ ] Export with storage nearly full → appropriate error
 - [ ] Cancel export mid-way → no corrupt partial files
 
 ---
 
-## 8. Authentication (Social Gate)
+## 9. Authentication (Social Gate)
 
-### 8.1 Apple Sign-In
+### 9.1 Apple Sign-In
 - [ ] Tap Feed or Profile tab (unauthenticated) → AuthGate appears
 - [ ] "Sign in with Apple" button → Apple auth sheet appears
 - [ ] Complete Apple auth → authenticated state reached
@@ -223,30 +313,22 @@
 - [ ] If first sign-in → username picker modal appears
 - [ ] Enter valid username → profile complete, gate dismissed
 
-### 8.2 Email Sign-In
-- [ ] Toggle to "Sign Up" form
-- [ ] Enter email + password → account created
-- [ ] Toggle to "Sign In" → existing account logs in
-- [ ] Invalid email format → form validation error shown
-- [ ] Wrong password → error message shown
-- [ ] "Forgot Password" link → ForgotPasswordView opens
-- [ ] Password reset flow works end-to-end
-
-### 8.3 Session Persistence
+### 9.2 Session Persistence
 - [ ] Kill and relaunch app → still authenticated (no re-login)
+- [ ] Keychain cleared on reinstall → fresh auth state
 - [ ] Session expires → re-auth prompt appears (not crash)
 - [ ] Sign out from Settings → returns to unauthenticated state
 
-### 8.4 Continue Without Account
+### 9.3 Continue Without Account
 - [ ] "Continue without account" option visible on AuthGate
 - [ ] Selecting it → dismisses auth gate
 - [ ] Social features (like, comment, share) still gated when attempted
 
 ---
 
-## 9. Social Feed
+## 10. Social Feed
 
-### 9.1 Feed Display
+### 10.1 Feed Display
 - [ ] Feed tab (authenticated) → highlights load
 - [ ] TikTok-style vertical scroll with snap-to-page
 - [ ] Each card: full-screen video, author info, like/comment buttons, caption
@@ -254,14 +336,22 @@
 - [ ] Switching tabs reloads appropriate content
 - [ ] Empty "Following" feed → shows "follow users" prompt
 
-### 9.2 Feed Interactions
+### 10.2 Feed Interactions
 - [ ] Tap heart (or double-tap video) → like toggles instantly (optimistic)
 - [ ] Like count increments/decrements immediately
 - [ ] Tap comment button → CommentsSheet opens
 - [ ] Tap author avatar/name → ProfileView opens
 - [ ] Scroll to bottom → more highlights load (pagination)
 
-### 9.3 Feed Edge Cases
+### 10.3 Polls on Highlights
+- [ ] Poll overlay displays on highlight cards that have polls
+- [ ] Pre-vote: tappable option buttons shown
+- [ ] Tap an option → vote registered, results shown with percentage bars
+- [ ] Post-vote: results visible with vote count
+- [ ] Only authenticated users can vote
+- [ ] Author sees results immediately
+
+### 10.4 Feed Edge Cases
 - [ ] No internet → appropriate offline message
 - [ ] Slow connection → loading state visible, no crash
 - [ ] Pull to refresh → feed reloads
@@ -269,30 +359,29 @@
 
 ---
 
-## 10. Sharing to Community
+## 11. Sharing to Community
 
-### 10.1 Share Flow
+### 11.1 Share Flow
 - [ ] From rally player → tap "Share" button
 - [ ] ShareRallySheet opens with rally preview
 - [ ] Caption editor accepts text + hashtags
-- [ ] "Hide likes" toggle works
+- [ ] Visibility options available (Public / Private / Friends Only)
 - [ ] Tap "Post" → upload progress shown (uploading → processing → complete)
 - [ ] On success → highlight appears in feed
 
-### 10.2 Batch Share
+### 11.2 Batch Share
 - [ ] "Post All" option for multiple rallies
 - [ ] Each rally uploaded sequentially with progress
 - [ ] All appear in feed on completion
 
-### 10.3 Share Failures
+### 11.3 Share Failures
 - [ ] No internet during upload → error state with retry button
 - [ ] Retry after reconnecting → upload resumes/restarts
 - [ ] Cancel upload → cleanup, no partial post
-- [ ] Rally exceeds duration limit (>1 min) → validation error before upload
 
 ---
 
-## 11. Comments
+## 12. Comments
 
 - [ ] Tap comment button on highlight → CommentsSheet opens
 - [ ] Existing comments load with avatar, username, timestamp
@@ -303,17 +392,18 @@
 
 ---
 
-## 12. User Profile
+## 13. User Profile
 
-### 12.1 Own Profile
+### 13.1 Own Profile
 - [ ] Profile tab → shows own profile
 - [ ] Avatar, display name, username, bio visible
 - [ ] Stats: highlight count, following, followers
 - [ ] Highlight grid shows own posts
+- [ ] Tap own highlight → plays in viewer
 - [ ] "Edit Profile" → EditProfileView opens
 - [ ] Update bio/display name → changes saved and reflected
 
-### 12.2 Other User Profiles
+### 13.2 Other User Profiles
 - [ ] Tap author in feed → their profile opens
 - [ ] Follow button visible → tap to follow
 - [ ] Followers count increments on their profile
@@ -322,7 +412,13 @@
 - [ ] View their highlights grid
 - [ ] Tap a highlight → plays in viewer
 
-### 12.3 Community Search
+### 13.3 Followers/Following Lists
+- [ ] Tap followers count → FollowListView opens
+- [ ] Tap following count → FollowListView opens
+- [ ] Lists show avatars, usernames
+- [ ] Tap a user → navigates to their profile
+
+### 13.4 Community Search
 - [ ] Search tab → search bar visible
 - [ ] Type username → matching users appear
 - [ ] Tap user → ProfileView opens
@@ -330,31 +426,39 @@
 
 ---
 
-## 13. Settings
+## 14. Settings
 
-### 13.1 Core Settings
-- [ ] Appearance: System / Light / Dark → theme changes immediately
-- [ ] Thorough Analysis toggle → persists across restart
-- [ ] App version and build number displayed
-
-### 13.2 Subscription
-- [ ] Free tier: shows processing limit (3/week), max video size (500MB)
-- [ ] Subscription button → PaywallView opens
-- [ ] Feature list displays correctly
+### 14.1 Subscription
+- [ ] Free tier: shows weekly processing credits, max video size (100MB), WiFi requirement, watermark status
+- [ ] Pro tier: shows Pro badge, unlimited processing, no watermark
+- [ ] "Upgrade to Pro" button → PaywallView opens
 - [ ] "Restore Purchases" works (for TestFlight testers with prior purchase)
 
-### 13.3 Account Management
+### 14.2 Appearance
+- [ ] Theme picker: Dark / Light / System with preview boxes
+- [ ] Selecting a theme → changes immediately
+
+### 14.3 Processing
+- [ ] "Thorough Analysis" toggle → persists across restart
+
+### 14.4 Privacy
+- [ ] "Analytics" toggle for anonymous usage data
+
+### 14.5 Account Management (authenticated)
+- [ ] User account info displayed
 - [ ] "Sign Out" → returns to unauthenticated state, clears session
 - [ ] "Delete Account" → confirmation dialog → account deleted
 - [ ] After deletion → returned to unauthenticated state
 
-### 13.4 Privacy & Legal
+### 14.6 Legal
 - [ ] Privacy policy link opens
 - [ ] Terms of service link opens
 - [ ] Community guidelines link opens
-- [ ] "Hide Profile" toggle → profile hidden from search
 
-### 13.5 Content Moderation
+### 14.7 About
+- [ ] App version and build number displayed
+
+### 14.8 Content Moderation
 - [ ] Report content option available on other users' highlights
 - [ ] Report flow: select reason → submit
 - [ ] Block user option available
@@ -362,34 +466,36 @@
 
 ---
 
-## 14. Stability & Performance
+## 15. Stability & Performance
 
-### 14.1 Memory
+### 15.1 Memory
 - [ ] Process a long video (15+ min) → no memory crash
 - [ ] Scroll through 50+ rally cards → memory stable
 - [ ] Browse feed with 20+ highlights → no memory warning
 - [ ] Background the app during playback → no crash on return
+- [ ] Favorites feed with 20+ clips → sliding-window cache stable
 
-### 14.2 App Lifecycle
+### 15.2 App Lifecycle
 - [ ] Background → foreground: state preserved (current screen, playback position)
 - [ ] Kill app → relaunch: library intact, settings intact, auth intact
 - [ ] Receive phone call during processing → processing paused/resumed gracefully
 - [ ] Low battery mode → app still functional
 
-### 14.3 Orientation
+### 15.3 Orientation
 - [ ] Portrait video plays in portrait (`.fit`)
 - [ ] Landscape video plays in landscape (`.fill`)
 - [ ] Rotate device during playback → layout adjusts
 - [ ] Export preserves original orientation
 
-### 14.4 Empty States
+### 15.4 Empty States
 - [ ] No videos uploaded → library empty state (not blank/crash)
 - [ ] No rallies detected → appropriate message
+- [ ] No favorites → empty state with prompt in FavoritesGridView
 - [ ] No highlights in feed → empty state with prompt
 - [ ] No followers/following → "0" counts, no crash
 - [ ] No comments on highlight → empty list, input bar still visible
 
-### 14.5 Network Conditions
+### 15.5 Network Conditions
 - [ ] Process video with no internet → works (local operation)
 - [ ] Social features with no internet → offline message, queued actions
 - [ ] Restore internet → OfflineQueue drains, pending actions complete
@@ -397,24 +503,27 @@
 
 ---
 
-## 15. Data Integrity
+## 16. Data Integrity
 
-### 15.1 Persistence
+### 16.1 Persistence
 - [ ] Upload video → kill app → relaunch → video still in library
 - [ ] Process video → kill app → relaunch → processing metadata intact
 - [ ] Trim a rally → kill app → relaunch → trim values preserved
+- [ ] Trim a favorite clip → kill app → relaunch → trim values preserved
 - [ ] Save rally selections → kill app → relaunch → selections preserved
+- [ ] Favorite a rally → kill app → relaunch → appears in Favorites
 - [ ] Settings changes → kill app → relaunch → settings intact
 
-### 15.2 Metadata
+### 16.2 Metadata
 - [ ] Processed video shows correct rally count on reopen
 - [ ] Original video correctly linked to processed output
 - [ ] Deleting original video → processed video still accessible
 - [ ] Deleting processed video → original video can be reprocessed
+- [ ] Removing favorite syncs unfavorite back to source video's review selections
 
 ---
 
-## 16. Quick Smoke Test (5-Minute Walkthrough)
+## 17. Quick Smoke Test (5-Minute Walkthrough)
 
 Run this end-to-end before every beta build:
 
@@ -423,19 +532,23 @@ Run this end-to-end before every beta build:
 3. [ ] Process the video → see rally results
 4. [ ] Preview rallies → swipe through 3+ rallies
 5. [ ] Long-press to trim one rally
-6. [ ] Save selected rallies to a folder
-7. [ ] Sign in with Apple
-8. [ ] Share a rally to the feed
-9. [ ] View it in the social feed
-10. [ ] Like and comment on it
-11. [ ] Check Settings → sign out
-12. [ ] Relaunch app → library still intact
+6. [ ] Favorite a rally → check it appears in Favorite Rallies
+7. [ ] Open Favorites → tap clip → tap to pause/resume
+8. [ ] Long-press in favorites feed → trim a clip → confirm
+9. [ ] Save selected rallies to a folder
+10. [ ] Sign in with Apple
+11. [ ] Share a rally to the feed
+12. [ ] View it in the social feed
+13. [ ] Like and comment on it
+14. [ ] Vote on a poll (if available)
+15. [ ] Check Settings → sign out
+16. [ ] Relaunch app → library and favorites still intact
 
 ---
 
 ## Notes
 
 - **Devices to test**: iPhone 15/16 Pro (primary), iPhone SE (smallest screen), iPad (if supported)
-- **iOS versions**: iOS 17+ (minimum deployment target)
+- **iOS versions**: iOS 18+ (minimum deployment target)
 - **Network conditions**: WiFi, cellular, airplane mode
 - **Storage**: Test with <1GB free space to trigger warnings

@@ -22,12 +22,12 @@ struct UsernamePickerView: View {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(Color.bscOrange.opacity(0.15))
+                        .fill(Color.bscPrimary.opacity(0.15))
                         .frame(width: 88, height: 88)
 
                     Image(systemName: "at")
                         .font(.system(size: 40, weight: .medium))
-                        .foregroundColor(.bscOrange)
+                        .foregroundColor(.bscPrimary)
                 }
 
                 // Title
@@ -70,13 +70,13 @@ struct UsernamePickerView: View {
                             if viewModel?.isChecking == true {
                                 ProgressView()
                                     .scaleEffect(0.8)
-                                    .tint(.bscOrange)
+                                    .tint(.bscPrimary)
                             } else if viewModel?.isAvailable == true {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.bscSuccess)
                             } else if viewModel?.isAvailable == false {
                                 Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.red)
+                                    .foregroundColor(.bscError)
                             }
                         }
                         .frame(width: 24)
@@ -97,13 +97,13 @@ struct UsernamePickerView: View {
                     if viewModel?.isAvailable == false {
                         Text("This username is already taken.")
                             .font(.system(size: 13))
-                            .foregroundColor(.red)
+                            .foregroundColor(.bscError)
                     }
 
                     if let error = viewModel?.errorMessage {
                         Text(error)
                             .font(.system(size: 13))
-                            .foregroundColor(.red)
+                            .foregroundColor(.bscError)
                     }
                 }
                 .padding(.horizontal, BSCSpacing.xl)
@@ -119,7 +119,7 @@ struct UsernamePickerView: View {
                             .tint(.black)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(Color.bscOrange)
+                            .background(Color.bscPrimary)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                     } else {
                         Text("Continue")
@@ -127,7 +127,7 @@ struct UsernamePickerView: View {
                             .foregroundColor(.black)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(Color.bscOrange)
+                            .background(Color.bscPrimary)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                     }
                 }

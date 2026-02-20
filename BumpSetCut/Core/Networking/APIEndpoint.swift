@@ -57,6 +57,13 @@ enum APIEndpoint {
     case getBlockedUsers
     case isUserBlocked(userId: String)
 
+    // Polls
+    case createPoll(PollUpload)
+    case createPollOptions(pollId: String, options: [PollOptionUpload])
+    case votePoll(PollVoteUpload)
+    case getMyPollVote(pollId: String)
+    case deletePollVote(pollId: String)
+
     // Upload
     case createUploadURL
 
@@ -94,6 +101,11 @@ enum APIEndpoint {
         case .unblockUser(let userId): return "/moderation/blocks/\(userId)"
         case .getBlockedUsers: return "/moderation/blocks"
         case .isUserBlocked(let userId): return "/moderation/blocks/\(userId)/status"
+        case .createPoll: return "/polls"
+        case .createPollOptions(let pollId, _): return "/polls/\(pollId)/options"
+        case .votePoll: return "/poll_votes"
+        case .getMyPollVote(let pollId): return "/polls/\(pollId)/my-vote"
+        case .deletePollVote(let pollId): return "/polls/\(pollId)/my-vote"
         case .createUploadURL: return "/uploads"
         }
     }
@@ -101,13 +113,14 @@ enum APIEndpoint {
     var method: HTTPMethod {
         switch self {
         case .signInWithApple, .createHighlight, .addComment, .likeHighlight,
-             .follow, .createUploadURL, .checkFollowStatusBatch, .createReport, .blockUser:
+             .follow, .createUploadURL, .checkFollowStatusBatch, .createReport, .blockUser,
+             .createPoll, .createPollOptions, .votePoll:
             return .post
         case .refreshToken:
             return .post
         case .signOut:
             return .post
-        case .deleteAccount, .deleteHighlight, .deleteComment, .unlikeHighlight, .unfollow, .unblockUser:
+        case .deleteAccount, .deleteHighlight, .deleteComment, .unlikeHighlight, .unfollow, .unblockUser, .deletePollVote:
             return .delete
         case .updateProfile:
             return .patch

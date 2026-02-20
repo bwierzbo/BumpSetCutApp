@@ -23,7 +23,7 @@ struct OnboardingPage: Identifiable {
             title: "Welcome to BumpSetCut",
             description: "AI-powered rally detection for volleyball videos. Find the best moments automatically.",
             icon: "volleyball.fill",
-            color: .bscOrange
+            color: .bscPrimary
         ),
         OnboardingPage(
             title: "Upload Your Videos",
@@ -41,7 +41,7 @@ struct OnboardingPage: Identifiable {
             title: "Swipe Through Rallies",
             description: "Browse rallies TikTok-style. Save your favorites or remove clips you don't need.",
             icon: "play.circle.fill",
-            color: .bscOrange
+            color: .bscPrimary
         ),
         OnboardingPage(
             title: "You're Ready!",

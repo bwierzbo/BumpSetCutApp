@@ -10,7 +10,7 @@ import StoreKit
 
 // MARK: - SettingsView
 struct SettingsView: View {
-    @EnvironmentObject private var appSettings: AppSettings
+    @Environment(AppSettings.self) private var appSettings
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.dismiss) private var dismiss
     @State private var hasAppeared = false
@@ -98,7 +98,8 @@ struct SettingsView: View {
                         dismiss()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(.bscOrange)
+                    .foregroundColor(.bscPrimary)
+                    .accessibilityIdentifier(AccessibilityID.Settings.done)
                 }
             }
             .onAppear {
@@ -120,7 +121,7 @@ private extension SettingsView {
             title: subscriptionService.isPro ? "Pro" : "Free Plan",
             subtitle: subscriptionService.isPro ? "You have unlimited access" : "Upgrade to unlock all features",
             icon: subscriptionService.isPro ? "crown.fill" : "crown",
-            iconColor: subscriptionService.isPro ? .yellow : .bscOrange
+            iconColor: subscriptionService.isPro ? .yellow : .bscPrimary
         ) {
             VStack(spacing: BSCSpacing.md) {
                 if subscriptionService.isPro {
@@ -128,7 +129,7 @@ private extension SettingsView {
                     VStack(spacing: BSCSpacing.sm) {
                         HStack {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(Color.bscSuccess)
                             Text("BumpSetCut Pro Active")
                                 .font(.headline)
                             Spacer()
@@ -146,15 +147,15 @@ private extension SettingsView {
                                 Spacer()
                                 Image(systemName: "chevron.right")
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Color.bscTextSecondary)
                             }
                         }
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Color.bscTextPrimary)
                     }
                     .padding()
                     .background(
                         RoundedRectangle(cornerRadius: BSCRadius.md)
-                            .fill(Color(.systemGray6))
+                            .fill(Color.bscSurfaceGlass)
                     )
                 } else {
                     // Free tier limits
@@ -188,7 +189,7 @@ private extension SettingsView {
                     .padding()
                     .background(
                         RoundedRectangle(cornerRadius: BSCRadius.md)
-                            .fill(Color(.systemGray6))
+                            .fill(Color.bscSurfaceGlass)
                     )
 
                     Button {
@@ -204,7 +205,7 @@ private extension SettingsView {
                         .padding()
                         .background(
                             RoundedRectangle(cornerRadius: BSCRadius.md)
-                                .fill(.blue.gradient)
+                                .fill(LinearGradient(colors: [Color.bscBlue, Color.bscBlueDark], startPoint: .topLeading, endPoint: .bottomTrailing))
                         )
                     }
                 }
@@ -223,7 +224,7 @@ struct LimitRow: View {
         HStack {
             Image(systemName: icon)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.bscTextSecondary)
                 .frame(width: 20)
 
             Text(title)
@@ -233,7 +234,7 @@ struct LimitRow: View {
 
             Text(value)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.bscTextSecondary)
         }
     }
 }
@@ -242,7 +243,8 @@ struct LimitRow: View {
 #if DEBUG
 private extension SettingsView {
     var debugSection: some View {
-        BSCSettingsSection(title: "Debug", subtitle: "Debug builds only", icon: "ladybug.fill", iconColor: .bscTeal) {
+        @Bindable var appSettings = appSettings
+        return BSCSettingsSection(title: "Debug", subtitle: "Debug builds only", icon: "ladybug.fill", iconColor: .bscTeal) {
             VStack(spacing: BSCSpacing.md) {
                 BSCSettingsToggle(
                     title: "Pro Mode",
@@ -282,18 +284,18 @@ private extension SettingsView {
 // MARK: - Appearance Section
 private extension SettingsView {
     var appearanceSection: some View {
-        BSCSettingsSection(title: "Appearance", icon: "paintbrush.fill", iconColor: .bscOrange) {
+        BSCSettingsSection(title: "Appearance", icon: "paintbrush.fill", iconColor: .bscBlue) {
             VStack(spacing: BSCSpacing.md) {
                 HStack(spacing: BSCSpacing.md) {
                     ZStack {
                         Circle()
-                            .fill(Color.bscOrange.opacity(0.15))
+                            .fill(Color.bscBlue.opacity(0.15))
                             .frame(width: 36, height: 36)
 
                         Image(systemName: appSettings.appearanceMode == .dark ? "moon.fill" :
                                 appSettings.appearanceMode == .light ? "sun.max.fill" : "circle.lefthalf.filled")
                             .font(.system(size: 16))
-                            .foregroundColor(.bscOrange)
+                            .foregroundColor(.bscBlue)
                     }
 
                     VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
@@ -326,22 +328,29 @@ private extension SettingsView {
                                         .frame(height: 48)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
-                                                .stroke(appSettings.appearanceMode == theme ? Color.bscOrange : Color.bscSurfaceBorder, lineWidth: appSettings.appearanceMode == theme ? 2 : 1)
+                                                .stroke(appSettings.appearanceMode == theme ? Color.bscBlue : Color.bscSurfaceBorder, lineWidth: appSettings.appearanceMode == theme ? 2 : 1)
                                         )
 
                                     Image(systemName: theme == .dark ? "moon.fill" :
                                             theme == .light ? "sun.max.fill" : "circle.lefthalf.filled")
                                         .font(.system(size: 18))
-                                        .foregroundColor(theme == .dark ? .white : theme == .light ? Color(hex: "#1A1A1C") : .bscOrange)
+                                        .foregroundColor(theme == .dark ? .white : theme == .light ? Color(hex: "#1A1A1C") : .bscBlue)
                                 }
 
                                 Text(theme.rawValue)
                                     .font(.system(size: 12, weight: appSettings.appearanceMode == theme ? .semibold : .regular))
-                                    .foregroundColor(appSettings.appearanceMode == theme ? .bscOrange : .bscTextSecondary)
+                                    .foregroundColor(appSettings.appearanceMode == theme ? .bscBlue : .bscTextSecondary)
                             }
                             .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("\(theme.rawValue) theme\(appSettings.appearanceMode == theme ? ", selected" : "")")
+                        .accessibilityAddTraits(appSettings.appearanceMode == theme ? .isSelected : [])
+                        .accessibilityIdentifier(
+                            theme == .light ? AccessibilityID.Settings.themeLight :
+                            theme == .dark ? AccessibilityID.Settings.themeDark :
+                            AccessibilityID.Settings.themeSystem
+                        )
                     }
                 }
             }
@@ -352,13 +361,15 @@ private extension SettingsView {
 // MARK: - Processing Section
 private extension SettingsView {
     var processingSection: some View {
-        BSCSettingsSection(title: "Processing", icon: "brain.head.profile", iconColor: .purple) {
+        @Bindable var appSettings = appSettings
+        return BSCSettingsSection(title: "Processing", icon: "brain.head.profile", iconColor: .purple) {
             BSCSettingsToggle(
                 title: "Thorough Analysis",
                 subtitle: "Slower but more detailed rally detection with trajectory tracking",
                 icon: "waveform.path.ecg",
                 isOn: $appSettings.useThoroughAnalysis
             )
+            .accessibilityIdentifier(AccessibilityID.Settings.thoroughAnalysis)
         }
     }
 }
@@ -366,13 +377,15 @@ private extension SettingsView {
 // MARK: - Privacy Section
 private extension SettingsView {
     var privacySection: some View {
-        BSCSettingsSection(title: "Privacy", icon: "lock.shield.fill", iconColor: .bscBlue) {
+        @Bindable var appSettings = appSettings
+        return BSCSettingsSection(title: "Privacy", icon: "lock.shield.fill", iconColor: .bscBlue) {
             BSCSettingsToggle(
                 title: "Analytics",
                 subtitle: "Help improve the app with anonymous usage data",
                 icon: "chart.bar.fill",
                 isOn: $appSettings.enableAnalytics
             )
+            .accessibilityIdentifier(AccessibilityID.Settings.analytics)
         }
     }
 }
@@ -380,19 +393,19 @@ private extension SettingsView {
 // MARK: - Social & Privacy Section
 private extension SettingsView {
     var socialPrivacySection: some View {
-        BSCSettingsSection(title: "Social & Privacy", icon: "person.2.circle.fill", iconColor: .bscOrange) {
+        BSCSettingsSection(title: "Social & Privacy", icon: "person.2.circle.fill", iconColor: .bscPrimary) {
             VStack(spacing: BSCSpacing.md) {
                 if authService.authState == .authenticated {
                     // Account row
                     HStack(spacing: BSCSpacing.md) {
                         ZStack {
                             Circle()
-                                .fill(Color.bscOrange.opacity(0.15))
+                                .fill(Color.bscPrimary.opacity(0.15))
                                 .frame(width: 36, height: 36)
 
                             Image(systemName: "person.fill")
                                 .font(.system(size: 16))
-                                .foregroundColor(.bscOrange)
+                                .foregroundColor(.bscPrimary)
                         }
 
                         VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
@@ -425,6 +438,7 @@ private extension SettingsView {
                         }
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier(AccessibilityID.Settings.signOut)
 
                     Divider()
                         .background(Color.bscSurfaceBorder)
@@ -436,19 +450,20 @@ private extension SettingsView {
                         HStack {
                             if isDeletingAccount {
                                 ProgressView()
-                                    .tint(.red.opacity(0.8))
+                                    .tint(.bscError)
                             } else {
                                 Image(systemName: "trash")
-                                    .foregroundColor(.red.opacity(0.8))
+                                    .foregroundColor(.bscError)
                             }
                             Text("Delete Account")
                                 .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.red.opacity(0.8))
+                                .foregroundColor(.bscError)
                             Spacer()
                         }
                     }
                     .buttonStyle(.plain)
                     .disabled(isDeletingAccount)
+                    .accessibilityHint("Permanently deletes your account and data")
                     .alert("Delete Account", isPresented: $showDeleteConfirmation) {
                         Button("Cancel", role: .cancel) { }
                         Button("Delete", role: .destructive) {
@@ -479,12 +494,12 @@ private extension SettingsView {
                     HStack(spacing: BSCSpacing.md) {
                         ZStack {
                             Circle()
-                                .fill(Color.bscOrange.opacity(0.15))
+                                .fill(Color.bscPrimary.opacity(0.15))
                                 .frame(width: 36, height: 36)
 
                             Image(systemName: "person.fill")
                                 .font(.system(size: 16))
-                                .foregroundColor(.bscOrange)
+                                .foregroundColor(.bscPrimary)
                         }
 
                         VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
@@ -561,15 +576,17 @@ private extension SettingsView {
                         Spacer()
                         Image(systemName: "arrow.up.right")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.bscTextSecondary)
                     }
                 }
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color.bscTextPrimary)
                 .padding()
                 .background(
                     RoundedRectangle(cornerRadius: BSCRadius.md)
-                        .fill(Color(.systemGray6))
+                        .fill(Color.bscSurfaceGlass)
                 )
+                .accessibilityHint("Opens in browser")
+                .accessibilityIdentifier(AccessibilityID.Settings.privacyPolicy)
 
                 Button {
                     if let url = URL(string: "https://bumpsetcut.com/terms") {
@@ -582,15 +599,17 @@ private extension SettingsView {
                         Spacer()
                         Image(systemName: "arrow.up.right")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.bscTextSecondary)
                     }
                 }
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color.bscTextPrimary)
                 .padding()
                 .background(
                     RoundedRectangle(cornerRadius: BSCRadius.md)
-                        .fill(Color(.systemGray6))
+                        .fill(Color.bscSurfaceGlass)
                 )
+                .accessibilityHint("Opens in browser")
+                .accessibilityIdentifier(AccessibilityID.Settings.termsOfService)
 
                 Button {
                     if let url = URL(string: "https://bumpsetcut.com/community-guidelines") {
@@ -603,15 +622,17 @@ private extension SettingsView {
                         Spacer()
                         Image(systemName: "arrow.up.right")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.bscTextSecondary)
                     }
                 }
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color.bscTextPrimary)
                 .padding()
                 .background(
                     RoundedRectangle(cornerRadius: BSCRadius.md)
-                        .fill(Color(.systemGray6))
+                        .fill(Color.bscSurfaceGlass)
                 )
+                .accessibilityHint("Opens in browser")
+                .accessibilityIdentifier(AccessibilityID.Settings.communityGuidelines)
             }
         }
     }
@@ -620,23 +641,24 @@ private extension SettingsView {
 // MARK: - App Info Section
 private extension SettingsView {
     var appInfoSection: some View {
-        BSCSettingsSection(title: "About", icon: "info.circle.fill", iconColor: .bscOrange) {
+        BSCSettingsSection(title: "About", icon: "info.circle.fill", iconColor: .bscPrimary) {
             VStack(spacing: BSCSpacing.lg) {
                 // App logo
                 ZStack {
                     Circle()
-                        .fill(Color.bscOrange.opacity(0.15))
+                        .fill(Color.bscPrimary.opacity(0.15))
                         .frame(width: 64, height: 64)
 
                     Image(systemName: "figure.volleyball")
                         .font(.system(size: 28, weight: .medium))
-                        .foregroundColor(.bscOrange)
+                        .foregroundColor(.bscPrimary)
                 }
 
                 VStack(spacing: BSCSpacing.xs) {
                     Text("BumpSetCut")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(.bscTextPrimary)
+                        .accessibilityIdentifier(AccessibilityID.Settings.appName)
 
                     Text("Rally Detection AI")
                         .font(.system(size: 14))
@@ -654,6 +676,7 @@ private extension SettingsView {
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.bscTextPrimary)
                     }
+                    .accessibilityIdentifier(AccessibilityID.Settings.appVersion)
 
                     Rectangle()
                         .fill(Color.bscSurfaceBorder)
@@ -755,7 +778,7 @@ private struct BSCSettingsToggle: View {
             // Toggle
             Toggle("", isOn: $isOn)
                 .labelsHidden()
-                .tint(.bscOrange)
+                .tint(.bscPrimary)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(subtitle)")
@@ -793,6 +816,6 @@ private struct BSCStatusRow: View {
 // MARK: - Preview
 #Preview("SettingsView") {
     SettingsView()
-        .environmentObject(AppSettings.shared)
+        .environment(AppSettings.shared)
         .environment(AuthenticationService())
 }

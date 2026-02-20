@@ -156,7 +156,7 @@ final class ProcessVideoViewModel {
         if metadata.isProcessed {
             return StatusInfo(
                 icon: "checkmark.seal.fill",
-                color: .bscOrange,
+                color: .bscPrimary,
                 title: "Processed Video",
                 description: "This video is the result of AI processing and cannot be processed again. Only original videos can be processed.",
                 detail: "Result of AI processing"

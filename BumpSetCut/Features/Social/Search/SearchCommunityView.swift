@@ -80,7 +80,7 @@ struct SearchCommunityView: View {
                             } label: {
                                 Text("#\(tag)")
                                     .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(.bscOrange)
+                                    .foregroundColor(.bscPrimary)
                                     .padding(.horizontal, BSCSpacing.md)
                                     .padding(.vertical, BSCSpacing.sm)
                                     .background(Color.bscSurfaceGlass)
@@ -100,7 +100,7 @@ struct SearchCommunityView: View {
         Group {
             if viewModel.isLoading {
                 ProgressView()
-                    .tint(.bscOrange)
+                    .tint(.bscPrimary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 switch viewModel.searchScope {
@@ -130,7 +130,7 @@ struct SearchCommunityView: View {
 
                     if viewModel.hasMorePages {
                         ProgressView()
-                            .tint(.bscOrange)
+                            .tint(.bscPrimary)
                             .padding()
                             .onAppear {
                                 Task { await viewModel.loadMore() }
@@ -178,7 +178,7 @@ struct SearchCommunityView: View {
                 .foregroundColor(isFollowing ? .bscTextPrimary : .white)
                 .padding(.horizontal, BSCSpacing.md)
                 .padding(.vertical, 6)
-                .background(isFollowing ? Color.bscSurfaceGlass : Color.bscOrange)
+                .background(isFollowing ? Color.bscSurfaceGlass : Color.bscPrimary)
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -205,7 +205,7 @@ struct SearchCommunityView: View {
 
                 if viewModel.hasMorePages {
                     ProgressView()
-                        .tint(.bscOrange)
+                        .tint(.bscPrimary)
                         .padding()
                         .onAppear {
                             Task { await viewModel.loadMore() }

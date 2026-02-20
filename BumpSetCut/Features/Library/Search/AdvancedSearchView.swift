@@ -39,23 +39,23 @@ struct AdvancedSearchView: View {
                 // Main search field
                 HStack {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                    
+                        .foregroundColor(.bscTextSecondary)
+
                     TextField("Search videos and folders...", text: $searchViewModel.searchText)
                         .textFieldStyle(PlainTextFieldStyle())
-                    
+
                     if !searchViewModel.searchText.isEmpty {
                         Button {
                             searchViewModel.clearSearch()
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.bscTextSecondary)
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(.systemGray6))
+                .padding(.horizontal, BSCSpacing.md)
+                .padding(.vertical, BSCSpacing.sm)
+                .background(Color.bscSurfaceGlass)
                 .cornerRadius(10)
                 
                 // Filter toggle
@@ -63,7 +63,7 @@ struct AdvancedSearchView: View {
                     searchViewModel.isShowingFilters.toggle()
                 } label: {
                     Image(systemName: searchViewModel.isShowingFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                        .foregroundColor(.blue)
+                        .foregroundColor(.bscPrimary)
                         .font(.title2)
                 }
             }
@@ -78,9 +78,9 @@ struct AdvancedSearchView: View {
                 actionButtonsView
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color(.systemGroupedBackground))
+        .padding(.horizontal, BSCSpacing.lg)
+        .padding(.vertical, BSCSpacing.md)
+        .background(Color.bscBackgroundMuted)
     }
     
     private var filterControlsView: some View {
@@ -102,15 +102,15 @@ struct AdvancedSearchView: View {
                         Image(systemName: "chevron.down")
                             .font(.caption2)
                     }
-                    .foregroundColor(.blue)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.blue.opacity(0.1))
+                    .foregroundColor(.bscPrimary)
+                    .padding(.horizontal, BSCSpacing.sm)
+                    .padding(.vertical, BSCSpacing.xs)
+                    .background(Color.bscPrimary.opacity(0.1))
                     .cornerRadius(6)
                 }
-                
+
                 Spacer()
-                
+
                 // File type filter
                 Menu {
                     Picker("File Type", selection: $searchViewModel.searchFilter.fileType) {
@@ -125,10 +125,10 @@ struct AdvancedSearchView: View {
                         Image(systemName: "chevron.down")
                             .font(.caption2)
                     }
-                    .foregroundColor(.blue)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.blue.opacity(0.1))
+                    .foregroundColor(.bscPrimary)
+                    .padding(.horizontal, BSCSpacing.sm)
+                    .padding(.vertical, BSCSpacing.xs)
+                    .background(Color.bscPrimary.opacity(0.1))
                     .cornerRadius(6)
                 }
             }
@@ -149,10 +149,10 @@ struct AdvancedSearchView: View {
                         Image(systemName: "chevron.down")
                             .font(.caption2)
                     }
-                    .foregroundColor(.green)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.green.opacity(0.1))
+                    .foregroundColor(.bscSuccess)
+                    .padding(.horizontal, BSCSpacing.sm)
+                    .padding(.vertical, BSCSpacing.xs)
+                    .background(Color.bscSuccess.opacity(0.1))
                     .cornerRadius(6)
                 }
                 
@@ -172,10 +172,10 @@ struct AdvancedSearchView: View {
                         Image(systemName: "chevron.down")
                             .font(.caption2)
                     }
-                    .foregroundColor(.orange)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.orange.opacity(0.1))
+                    .foregroundColor(.bscWarmAccent)
+                    .padding(.horizontal, BSCSpacing.sm)
+                    .padding(.vertical, BSCSpacing.xs)
+                    .background(Color.bscWarmAccent.opacity(0.1))
                     .cornerRadius(6)
                 }
             }
@@ -195,10 +195,10 @@ struct AdvancedSearchView: View {
                         Image(systemName: "chevron.down")
                             .font(.caption2)
                     }
-                    .foregroundColor(.purple)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.purple.opacity(0.1))
+                    .foregroundColor(.bscTeal)
+                    .padding(.horizontal, BSCSpacing.sm)
+                    .padding(.vertical, BSCSpacing.xs)
+                    .background(Color.bscTeal.opacity(0.1))
                     .cornerRadius(6)
                 }
                 
@@ -213,16 +213,16 @@ struct AdvancedSearchView: View {
                         Text("Reset")
                     }
                     .font(.caption)
-                    .foregroundColor(.red)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.red.opacity(0.1))
+                    .foregroundColor(.bscError)
+                    .padding(.horizontal, BSCSpacing.sm)
+                    .padding(.vertical, BSCSpacing.xs)
+                    .background(Color.bscError.opacity(0.1))
                     .cornerRadius(6)
                 }
             }
         }
-        .padding(12)
-        .background(Color(.systemGray6))
+        .padding(BSCSpacing.md)
+        .background(Color.bscSurfaceGlass)
         .cornerRadius(10)
     }
     
@@ -237,11 +237,11 @@ struct AdvancedSearchView: View {
                     Text("History")
                 }
                 .font(.caption)
-                .foregroundColor(.blue)
+                .foregroundColor(.bscPrimary)
             }
-            
+
             Spacer()
-            
+
             // Saved searches
             Button {
                 searchViewModel.isShowingSavedSearches.toggle()
@@ -251,11 +251,11 @@ struct AdvancedSearchView: View {
                     Text("Saved")
                 }
                 .font(.caption)
-                .foregroundColor(.blue)
+                .foregroundColor(.bscPrimary)
             }
-            
+
             Spacer()
-            
+
             // Save search
             Button {
                 showingSaveSearchDialog = true
@@ -265,7 +265,7 @@ struct AdvancedSearchView: View {
                     Text("Save")
                 }
                 .font(.caption)
-                .foregroundColor(.green)
+                .foregroundColor(.bscSuccess)
             }
         }
         .padding(.horizontal, 4)
@@ -282,8 +282,8 @@ struct AdvancedSearchView: View {
             }
             .padding(.horizontal, 16)
         }
-        .padding(.vertical, 8)
-        .background(Color(.systemBackground))
+        .padding(.vertical, BSCSpacing.sm)
+        .background(Color.bscBackground)
     }
     
     private func quickFilterButton(_ filter: QuickFilter) -> some View {
@@ -299,8 +299,8 @@ struct AdvancedSearchView: View {
             .font(.caption)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(isActive ? Color.blue : Color(.systemGray6))
-            .foregroundColor(isActive ? .white : .primary)
+            .background(isActive ? Color.bscPrimary : Color.bscSurfaceGlass)
+            .foregroundColor(isActive ? .white : .bscTextPrimary)
             .cornerRadius(16)
         }
     }
@@ -347,23 +347,23 @@ struct AdvancedSearchView: View {
                 }
             }
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color.bscBackgroundMuted)
     }
     
     private var searchPlaceholderView: some View {
         VStack(spacing: 24) {
             Image(systemName: "magnifyingglass.circle")
                 .font(.system(size: 64))
-                .foregroundColor(.gray)
-            
-            VStack(spacing: 8) {
+                .foregroundColor(.bscTextTertiary)
+
+            VStack(spacing: BSCSpacing.sm) {
                 Text("Search Your Library")
                     .font(.title2)
                     .fontWeight(.semibold)
-                
+
                 Text("Find videos and folders across your entire collection")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
             }
             
@@ -372,23 +372,23 @@ struct AdvancedSearchView: View {
                     Image(systemName: "textformat")
                     Text("Search by name, filename, or folder")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                     Spacer()
                 }
-                
+
                 HStack {
                     Image(systemName: "slider.horizontal.3")
                     Text("Use filters for advanced searches")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                     Spacer()
                 }
-                
+
                 HStack {
                     Image(systemName: "bookmark")
                     Text("Save frequently used searches")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                     Spacer()
                 }
             }
@@ -409,7 +409,7 @@ struct AdvancedSearchView: View {
                     searchViewModel.searchHistory.removeAll()
                 }
                 .font(.caption)
-                .foregroundColor(.red)
+                .foregroundColor(.bscError)
             }
             
             LazyVStack(spacing: 8) {
@@ -420,34 +420,34 @@ struct AdvancedSearchView: View {
                     } label: {
                         HStack {
                             Image(systemName: "clock")
-                                .foregroundColor(.secondary)
-                            
+                                .foregroundColor(.bscTextSecondary)
+
                             VStack(alignment: .leading) {
                                 Text(history.query)
                                     .font(.subheadline)
                                 Text("\(history.resultCount) results")
                                     .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(.bscTextSecondary)
                             }
-                            
+
                             Spacer()
-                            
+
                             Text(RelativeDateTimeFormatter().localizedString(for: history.timestamp, relativeTo: Date()))
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.bscTextSecondary)
                         }
                         .padding(.vertical, 8)
                     }
-                    .foregroundColor(.primary)
+                    .foregroundColor(.bscTextPrimary)
                 }
             }
         }
-        .padding(16)
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .padding(.horizontal, 16)
+        .padding(BSCSpacing.lg)
+        .background(Color.bscBackgroundElevated)
+        .cornerRadius(BSCRadius.md)
+        .padding(.horizontal, BSCSpacing.lg)
     }
-    
+
     private var savedSearchesView: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Saved Searches")
@@ -462,38 +462,38 @@ struct AdvancedSearchView: View {
                         } label: {
                             HStack {
                                 Image(systemName: "bookmark.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.bscPrimary)
                                 
                                 VStack(alignment: .leading) {
                                     Text(savedSearch.name)
                                         .font(.subheadline)
                                     Text(savedSearch.query)
                                         .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(.bscTextSecondary)
                                 }
                                 
                                 Spacer()
                             }
                         }
-                        .foregroundColor(.primary)
-                        
+                        .foregroundColor(.bscTextPrimary)
+
                         Button {
                             searchViewModel.deleteSavedSearch(savedSearch)
                         } label: {
                             Image(systemName: "trash")
-                                .foregroundColor(.red)
+                                .foregroundColor(.bscError)
                         }
                     }
                     .padding(.vertical, 8)
                 }
             }
         }
-        .padding(16)
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .padding(.horizontal, 16)
+        .padding(BSCSpacing.lg)
+        .background(Color.bscBackgroundElevated)
+        .cornerRadius(BSCRadius.md)
+        .padding(.horizontal, BSCSpacing.lg)
     }
-    
+
     // MARK: - Save Search Sheet
     
     private var saveSearchSheet: some View {
@@ -513,7 +513,7 @@ struct AdvancedSearchView: View {
                     
                     Text(searchViewModel.searchText)
                         .padding()
-                        .background(Color(.systemGray6))
+                        .background(Color.bscSurfaceGlass)
                         .cornerRadius(8)
                 }
                 

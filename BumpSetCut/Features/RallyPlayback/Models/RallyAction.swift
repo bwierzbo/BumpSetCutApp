@@ -10,20 +10,23 @@ struct RallyActionFeedback {
         case save
         case remove
         case undo
+        case favorite
 
         var iconName: String {
             switch self {
             case .save: return "heart.fill"
             case .remove: return "trash.fill"
             case .undo: return "arrow.uturn.backward"
+            case .favorite: return "star.fill"
             }
         }
 
         var color: Color {
             switch self {
-            case .save: return .green
-            case .remove: return .red
-            case .undo: return .orange
+            case .save: return .bscSuccess
+            case .remove: return .bscError
+            case .undo: return .bscWarning
+            case .favorite: return .bscPrimary
             }
         }
     }

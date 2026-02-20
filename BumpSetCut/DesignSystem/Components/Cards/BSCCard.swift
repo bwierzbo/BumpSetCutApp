@@ -77,7 +77,7 @@ struct BSCCard<Content: View>: View {
         case .interactive:
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(
-                    isSelected ? Color.bscBlue : Color.bscSurfaceBorder,
+                    isSelected ? Color.bscPrimary : Color.bscSurfaceBorder,
                     lineWidth: isSelected ? 2 : 1
                 )
 
@@ -173,7 +173,7 @@ extension View {
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
-                        isSelected ? Color.bscBlue : Color.bscSurfaceBorder,
+                        isSelected ? Color.bscPrimary : Color.bscSurfaceBorder,
                         lineWidth: isSelected ? 2 : 1
                     )
             )
@@ -207,7 +207,7 @@ struct BSCSectionCard<Content: View>: View {
                     if let icon = icon {
                         Image(systemName: icon)
                             .font(.system(size: BSCIconSize.md, weight: .semibold))
-                            .foregroundColor(.bscOrange)
+                            .foregroundColor(.bscPrimary)
                     }
 
                     if let title = title {
@@ -280,14 +280,14 @@ struct BSCSectionCard<Content: View>: View {
                             .foregroundColor(.bscTextPrimary)
                         Spacer()
                         Toggle("", isOn: .constant(true))
-                            .tint(.bscOrange)
+                            .tint(.bscPrimary)
                     }
                     HStack {
                         Text("Option 2")
                             .foregroundColor(.bscTextPrimary)
                         Spacer()
                         Toggle("", isOn: .constant(false))
-                            .tint(.bscOrange)
+                            .tint(.bscPrimary)
                     }
                 }
             }

@@ -21,7 +21,7 @@ struct RallyPlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(AppNavigationState.self) private var navigationState
-    @EnvironmentObject private var appSettings: AppSettings
+    @Environment(AppSettings.self) private var appSettings
 
     private var isPortrait: Bool {
         verticalSizeClass == .regular
@@ -80,6 +80,7 @@ struct RallyPlayerView: View {
                     rallyVideoURLs: viewModel.rallyVideoURLs,
                     savedRallies: viewModel.savedRallies,
                     removedRallies: viewModel.removedRallies,
+                    favoritedRallies: viewModel.favoritedRallies,
                     currentIndex: viewModel.currentRallyIndex,
                     thumbnailCache: viewModel.thumbnailCache,
                     onSelectRally: { index in
@@ -88,17 +89,22 @@ struct RallyPlayerView: View {
                     },
                     onExport: {
                         viewModel.showOverviewSheet = false
+                        Task { await viewModel.copyFavoritesToLibrary() }
                         viewModel.showExportOptions = true
                     },
                     onPostToCommunity: { index, postAll in
                         viewModel.showOverviewSheet = false
+                        Task { await viewModel.copyFavoritesToLibrary() }
                         rallyIndexToShare = ShareableRallyIndex(index: index, postAllSaved: postAll)
                     },
                     onSaveAll: { viewModel.saveAllRallies() },
                     onDeselectAll: { viewModel.deselectAllRallies() },
                     onDismiss: {
                         viewModel.showOverviewSheet = false
-                        dismiss()
+                        Task {
+                            await viewModel.copyFavoritesToLibrary()
+                            dismiss()
+                        }
                     }
                 )
             }
@@ -174,7 +180,8 @@ struct RallyPlayerView: View {
                     swipeOffsetY: viewModel.swipeOffsetY,
                     swipeRotation: viewModel.swipeRotation,
                     slideInOffset: viewModel.transitionDirection == .down
-                        ? geometry.size.height : -geometry.size.height
+                        ? geometry.size.height : -geometry.size.height,
+                    actionSwipeOffsetY: viewModel.actionSwipeOffsetY
                 ))
             }
 
@@ -184,7 +191,13 @@ struct RallyPlayerView: View {
                 totalCount: viewModel.totalRallies,
                 isSaved: viewModel.currentRallyIsSaved,
                 isRemoved: viewModel.currentRallyIsRemoved,
-                onDismiss: { dismiss() },
+                isFavorited: viewModel.currentRallyIsFavorited,
+                onDismiss: {
+                    Task {
+                        await viewModel.copyFavoritesToLibrary()
+                        dismiss()
+                    }
+                },
                 onShowTips: { showingGestureTips = true },
                 onShowOverview: { viewModel.showOverviewSheet = true }
             )
@@ -194,10 +207,12 @@ struct RallyPlayerView: View {
             RallyActionButtons(
                 isSaved: viewModel.currentRallyIsSaved,
                 isRemoved: viewModel.currentRallyIsRemoved,
+                isFavorited: viewModel.currentRallyIsFavorited,
                 canUndo: viewModel.canUndo,
                 onRemove: { performAction(.remove) },
                 onUndo: { viewModel.undoLastAction() },
-                onSave: { performAction(.save) }
+                onSave: { performAction(.save) },
+                onFavorite: { viewModel.performAction(.favorite, direction: .up) }
             )
             .zIndex(200)
 
@@ -312,15 +327,32 @@ struct RallyPlayerView: View {
                     )
                     viewModel.zoomOffset = clampedOffset(newOffset, scale: viewModel.zoomScale, cardSize: geometry.size)
                 } else {
-                    // Horizontal-only drag (no vertical navigation)
-                    viewModel.dragOffset = CGSize(width: value.translation.width, height: 0)
+                    // Lock drag axis after initial movement exceeds threshold
+                    if viewModel.dragAxis == nil {
+                        let absW = abs(value.translation.width)
+                        let absH = abs(value.translation.height)
+                        if absW > 10 || absH > 10 {
+                            viewModel.dragAxis = absW >= absH ? .horizontal : .vertical
+                        }
+                    }
+
+                    switch viewModel.dragAxis {
+                    case .horizontal, .none:
+                        viewModel.dragOffset = CGSize(width: value.translation.width, height: 0)
+                    case .vertical:
+                        // Only track upward drags (negative height)
+                        let clampedHeight = min(value.translation.height, 0)
+                        viewModel.dragOffset = CGSize(width: 0, height: clampedHeight)
+                    }
                 }
             }
             .onEnded { value in
                 // Ignore gestures during transitions
                 guard !viewModel.isTransitioning, !viewModel.isPerformingAction else { return }
 
+                let lockedAxis = viewModel.dragAxis
                 viewModel.isDragging = false
+                viewModel.dragAxis = nil
 
                 if viewModel.isZoomed {
                     // Snap offset to bounds
@@ -329,21 +361,35 @@ struct RallyPlayerView: View {
                 }
 
                 let actionThreshold: CGFloat = 150
-                let horizontalOffset = viewModel.dragOffset.width
-                let horizontalVelocity = value.velocity.width
-                let dragWidth = viewModel.dragOffset.width
 
-                // Velocity-based or distance-based trigger
-                let triggeredByVelocity = abs(horizontalVelocity) > 300
-                let triggeredByDistance = abs(horizontalOffset) > actionThreshold
+                if lockedAxis == .vertical {
+                    // Vertical swipe-up → favorite
+                    let verticalOffset = viewModel.dragOffset.height  // negative = up
+                    let verticalVelocity = value.velocity.height       // negative = up
+                    let triggeredByVelocity = verticalVelocity < -300
+                    let triggeredByDistance = verticalOffset < -actionThreshold
 
-                if triggeredByVelocity || triggeredByDistance {
-                    if horizontalOffset < 0 || (triggeredByVelocity && horizontalVelocity < -300) {
-                        viewModel.performAction(.remove, direction: .left, fromDragOffset: dragWidth)
+                    if triggeredByVelocity || triggeredByDistance {
+                        viewModel.performAction(.favorite, direction: .up, fromDragOffset: viewModel.dragOffset.height)
                         return
-                    } else if horizontalOffset > 0 || (triggeredByVelocity && horizontalVelocity > 300) {
-                        viewModel.performAction(.save, direction: .right, fromDragOffset: dragWidth)
-                        return
+                    }
+                } else {
+                    // Horizontal swipe → save/remove
+                    let horizontalOffset = viewModel.dragOffset.width
+                    let horizontalVelocity = value.velocity.width
+                    let dragWidth = viewModel.dragOffset.width
+
+                    let triggeredByVelocity = abs(horizontalVelocity) > 300
+                    let triggeredByDistance = abs(horizontalOffset) > actionThreshold
+
+                    if triggeredByVelocity || triggeredByDistance {
+                        if horizontalOffset < 0 || (triggeredByVelocity && horizontalVelocity < -300) {
+                            viewModel.performAction(.remove, direction: .left, fromDragOffset: dragWidth)
+                            return
+                        } else if horizontalOffset > 0 || (triggeredByVelocity && horizontalVelocity > 300) {
+                            viewModel.performAction(.save, direction: .right, fromDragOffset: dragWidth)
+                            return
+                        }
                     }
                 }
 
@@ -421,6 +467,7 @@ struct TopCardDragModifier: ViewModifier {
     let swipeOffsetY: CGFloat      // Vertical swipe (navigation)
     let swipeRotation: Double
     let slideInOffset: CGFloat     // Card height offset for sliding-in card (+height or -height)
+    var actionSwipeOffsetY: CGFloat = 0  // Vertical swipe for favorite action
 
     func body(content: Content) -> some View {
         content
@@ -437,7 +484,7 @@ struct TopCardDragModifier: ViewModifier {
 
     private var computedOffsetY: CGFloat {
         if isTopCard {
-            return dragOffset.height
+            return dragOffset.height + actionSwipeOffsetY
         } else if isSlidingOut {
             return swipeOffsetY
         } else if isSlidingIn {

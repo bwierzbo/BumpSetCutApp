@@ -8,6 +8,15 @@ import SwiftUI
 @MainActor
 @Observable
 final class RallyGestureState {
+    // MARK: - Drag Axis Lock
+
+    enum DragAxis {
+        case horizontal
+        case vertical
+    }
+
+    var dragAxis: DragAxis?
+
     // MARK: - Drag State
 
     var dragOffset: CGSize = .zero
@@ -28,6 +37,7 @@ final class RallyGestureState {
     var swipeOffset: CGFloat = 0.0
     var swipeOffsetY: CGFloat = 0.0
     var swipeRotation: Double = 0.0
+    var actionSwipeOffsetY: CGFloat = 0.0
 
     // MARK: - Peek State
 
@@ -53,8 +63,10 @@ final class RallyGestureState {
             swipeOffset = 0
             swipeOffsetY = 0
             swipeRotation = 0
+            actionSwipeOffsetY = 0
             dragOffset = .zero
         }
+        dragAxis = nil
     }
 
     // MARK: - Peek Methods

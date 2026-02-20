@@ -51,11 +51,11 @@ struct RallyTrimOverlay: View {
                     Spacer()
                     Text(formatDuration(selectionDuration))
                         .font(.system(size: 15, weight: .medium, design: .monospaced))
-                        .foregroundColor(.bscOrange)
+                        .foregroundColor(.bscPrimary)
                     Spacer()
                     Button("Done") { onConfirm() }
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.bscOrange)
+                        .foregroundColor(.bscPrimary)
                 }
                 .padding(.horizontal, BSCSpacing.xl)
                 .padding(.bottom, BSCSpacing.md)
@@ -99,9 +99,9 @@ struct RallyTrimOverlay: View {
             // 4. Yellow top/bottom borders between handles
             let innerWidth = max(0, rightX - leftX - 2 * handleWidth)
             VStack(spacing: 0) {
-                Rectangle().fill(Color.bscOrange).frame(height: borderThickness)
+                Rectangle().fill(Color.bscPrimary).frame(height: borderThickness)
                 Spacer()
-                Rectangle().fill(Color.bscOrange).frame(height: borderThickness)
+                Rectangle().fill(Color.bscPrimary).frame(height: borderThickness)
             }
             .frame(width: innerWidth, height: barHeight)
             .offset(x: leftX + handleWidth)
@@ -161,7 +161,7 @@ struct RallyTrimOverlay: View {
                 bottomTrailingRadius: isLeft ? 0 : BSCRadius.sm,
                 topTrailingRadius: isLeft ? 0 : BSCRadius.sm
             )
-            .fill(Color.bscOrange)
+            .fill(Color.bscPrimary)
             .frame(width: handleWidth, height: barHeight)
             .overlay(
                 Image(systemName: isLeft ? "chevron.compact.left" : "chevron.compact.right")

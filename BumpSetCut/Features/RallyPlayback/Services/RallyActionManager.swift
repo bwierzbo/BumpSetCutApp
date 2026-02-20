@@ -12,6 +12,7 @@ final class RallyActionManager {
 
     private(set) var savedRallies: Set<Int> = []
     private(set) var removedRallies: Set<Int> = []
+    private(set) var favoritedRallies: Set<Int> = []
     private(set) var actionHistory: [RallyActionResult] = []
 
     // MARK: - Persistence
@@ -38,6 +39,10 @@ final class RallyActionManager {
         removedRallies.contains(index)
     }
 
+    func isFavorited(at index: Int) -> Bool {
+        favoritedRallies.contains(index)
+    }
+
     // MARK: - Persistence Lifecycle
 
     func loadSavedSelections(videoId: UUID, metadataStore: MetadataStore) {
@@ -46,11 +51,12 @@ final class RallyActionManager {
         let selections = metadataStore.loadReviewSelections(for: videoId)
         savedRallies = selections.saved
         removedRallies = selections.removed
+        favoritedRallies = selections.favorited
     }
 
     private func persistSelections() {
         guard let videoId, let metadataStore else { return }
-        let selections = RallyReviewSelections(saved: savedRallies, removed: removedRallies)
+        let selections = RallyReviewSelections(saved: savedRallies, removed: removedRallies, favorited: favoritedRallies)
         try? metadataStore.saveReviewSelections(selections, for: videoId)
     }
 
@@ -65,6 +71,11 @@ final class RallyActionManager {
         case .remove:
             removedRallies.insert(rallyIndex)
             savedRallies.remove(rallyIndex)
+            favoritedRallies.remove(rallyIndex)
+        case .favorite:
+            favoritedRallies.insert(rallyIndex)
+            savedRallies.insert(rallyIndex)
+            removedRallies.remove(rallyIndex)
         }
 
         actionHistory.append(RallyActionResult(action: action, rallyIndex: rallyIndex, direction: direction))
@@ -76,6 +87,8 @@ final class RallyActionManager {
             feedback = RallyActionFeedback(type: .save, message: "Rally Saved")
         case .remove:
             feedback = RallyActionFeedback(type: .remove, message: "Rally Removed")
+        case .favorite:
+            feedback = RallyActionFeedback(type: .favorite, message: "Rally Favorited")
         }
 
         actionFeedback = feedback
@@ -93,6 +106,9 @@ final class RallyActionManager {
             savedRallies.remove(action.rallyIndex)
         case .remove:
             removedRallies.remove(action.rallyIndex)
+        case .favorite:
+            favoritedRallies.remove(action.rallyIndex)
+            savedRallies.remove(action.rallyIndex)
         }
 
         persistSelections()
@@ -115,6 +131,7 @@ final class RallyActionManager {
     func deselectAll() {
         savedRallies = []
         removedRallies = []
+        favoritedRallies = []
         actionHistory = []
         persistSelections()
     }

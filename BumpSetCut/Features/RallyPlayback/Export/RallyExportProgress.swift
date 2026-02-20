@@ -23,7 +23,7 @@ struct RallyExportProgress: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 32) {
+            VStack(spacing: BSCSpacing.xxl) {
                 Spacer()
 
                 if let storageError {
@@ -39,7 +39,9 @@ struct RallyExportProgress: View {
                             cancelExport()
                         }
                         .font(.headline)
-                        .foregroundColor(.red)
+                        .foregroundColor(.bscError)
+                        .accessibilityIdentifier(AccessibilityID.Export.cancelButton)
+                        .accessibilityLabel("Cancel export")
 
                     case .completed:
                         progressIndicator
@@ -53,7 +55,8 @@ struct RallyExportProgress: View {
                     }
                 }
             }
-            .padding(24)
+            .padding(BSCSpacing.xl)
+            .background(Color.bscBackground)
             .navigationTitle(exportType.title)
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -68,45 +71,46 @@ struct RallyExportProgress: View {
     }
 
     private var progressIndicator: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: BSCSpacing.lg) {
             if exportStatus == .completed {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 60))
-                    .foregroundColor(.green)
+                    .foregroundColor(.bscSuccess)
             } else {
                 ProgressView(value: exportProgress)
-                    .progressViewStyle(CircularProgressViewStyle(tint: exportType == .individual ? .blue : .purple))
+                    .progressViewStyle(CircularProgressViewStyle(tint: exportType == .individual ? .bscPrimary : .bscTeal))
                     .scaleEffect(2.0)
             }
         }
     }
 
     private var statusText: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: BSCSpacing.sm) {
             Text(exportStatus.message)
                 .font(.headline)
+                .foregroundColor(.bscTextPrimary)
                 .multilineTextAlignment(.center)
 
             if exportStatus == .exporting {
                 if exportType == .individual {
                     Text("\(exportedCount) of \(savedRallies.count) rallies")
                         .font(.body)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                 } else {
                     Text("\(Int(exportProgress * 100))%")
                         .font(.body)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                 }
             }
         }
     }
 
     private var successView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: BSCSpacing.lg) {
             Text("Saved to Photos")
                 .font(.title3)
                 .fontWeight(.semibold)
-                .foregroundColor(.green)
+                .foregroundColor(.bscSuccess)
 
             if !exportedURLs.isEmpty {
                 Button {
@@ -114,13 +118,15 @@ struct RallyExportProgress: View {
                 } label: {
                     Label("Share", systemImage: "square.and.arrow.up")
                         .font(.headline)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 32)
-                        .padding(.vertical, 12)
+                        .foregroundColor(.bscTextInverse)
+                        .padding(.horizontal, BSCSpacing.xxl)
+                        .padding(.vertical, BSCSpacing.md)
                         .frame(maxWidth: .infinity)
-                        .background(Color.bscOrange)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .background(LinearGradient.bscPrimaryGradient)
+                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                 }
+                .accessibilityIdentifier(AccessibilityID.Export.shareButton)
+                .accessibilityLabel("Share exported videos")
             }
 
             Button("Done") {
@@ -128,7 +134,8 @@ struct RallyExportProgress: View {
                 dismiss()
             }
             .font(.headline)
-            .foregroundColor(.secondary)
+            .foregroundColor(.bscTextSecondary)
+            .accessibilityIdentifier(AccessibilityID.Export.doneButton)
         }
         .sheet(isPresented: $showShareSheet) {
             ActivityViewController(activityItems: exportedURLs)
@@ -136,19 +143,20 @@ struct RallyExportProgress: View {
     }
 
     private func storageErrorView(message: String) -> some View {
-        VStack(spacing: 24) {
+        VStack(spacing: BSCSpacing.xl) {
             Image(systemName: "externaldrive.badge.exclamationmark")
                 .font(.system(size: 60))
-                .foregroundColor(.orange)
+                .foregroundColor(.bscWarning)
 
-            VStack(spacing: 8) {
+            VStack(spacing: BSCSpacing.sm) {
                 Text("Not Enough Storage")
                     .font(.title3)
                     .fontWeight(.semibold)
+                    .foregroundColor(.bscTextPrimary)
 
                 Text(message)
                     .font(.body)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
             }
 
@@ -156,44 +164,47 @@ struct RallyExportProgress: View {
                 dismiss()
             }
             .font(.headline)
-            .foregroundColor(.red)
+            .foregroundColor(.bscError)
         }
     }
 
     private func failedView(errorMessage: String) -> some View {
-        VStack(spacing: 24) {
+        VStack(spacing: BSCSpacing.xl) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 60))
-                .foregroundColor(.red)
+                .foregroundColor(.bscError)
 
-            VStack(spacing: 8) {
+            VStack(spacing: BSCSpacing.sm) {
                 Text("Export Failed")
                     .font(.title3)
                     .fontWeight(.semibold)
+                    .foregroundColor(.bscTextPrimary)
 
                 Text(errorMessage)
                     .font(.body)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
             }
 
-            VStack(spacing: 12) {
+            VStack(spacing: BSCSpacing.md) {
                 Button("Retry") {
                     storageError = nil
                     startExport()
                 }
                 .font(.headline)
-                .foregroundColor(.white)
-                .padding(.horizontal, 32)
-                .padding(.vertical, 12)
-                .background(Color.blue)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .foregroundColor(.bscTextInverse)
+                .padding(.horizontal, BSCSpacing.xxl)
+                .padding(.vertical, BSCSpacing.md)
+                .background(LinearGradient.bscPrimaryGradient)
+                .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
+                .accessibilityIdentifier(AccessibilityID.Export.retryButton)
+                .accessibilityLabel("Retry export")
 
                 Button("Dismiss") {
                     dismiss()
                 }
                 .font(.headline)
-                .foregroundColor(.red)
+                .foregroundColor(.bscError)
             }
         }
     }

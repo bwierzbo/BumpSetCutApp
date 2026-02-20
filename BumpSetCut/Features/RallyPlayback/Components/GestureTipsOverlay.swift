@@ -30,13 +30,18 @@ struct GestureTipsOverlay: View {
 
                 // Center gesture diagram with animated arrows
                 ZStack {
+                    // UP arrow - Favorite
+                    GestureArrow(direction: .up, label: "Favorite", icon: "star.fill", color: .bscPrimary)
+                        .offset(y: -140)
+                        .opacity(showingContent ? 1 : 0)
+
                     // LEFT arrow - Remove
-                    GestureArrow(direction: .left, label: "Remove", icon: "xmark", color: .red)
+                    GestureArrow(direction: .left, label: "Remove", icon: "xmark", color: .bscError)
                         .offset(x: -140)
                         .opacity(showingContent ? 1 : 0)
 
                     // RIGHT arrow - Save
-                    GestureArrow(direction: .right, label: "Save", icon: "heart.fill", color: .green)
+                    GestureArrow(direction: .right, label: "Save", icon: "heart.fill", color: .bscSuccess)
                         .offset(x: 140)
                         .opacity(showingContent ? 1 : 0)
 
@@ -49,10 +54,10 @@ struct GestureTipsOverlay: View {
                                 .stroke(Color.white.opacity(0.2), lineWidth: 1)
                         )
                         .overlay(
-                            VStack(spacing: 8) {
+                            VStack(spacing: BSCSpacing.sm) {
                                 Image(systemName: "play.fill")
                                     .font(.system(size: 28))
-                                    .foregroundColor(.bscOrange)
+                                    .foregroundColor(.bscPrimary)
                                 Text("Rally")
                                     .font(.caption.bold())
                                     .foregroundColor(.white.opacity(0.7))
@@ -61,42 +66,42 @@ struct GestureTipsOverlay: View {
                         .scaleEffect(showingContent ? 1 : 0.8)
                         .opacity(showingContent ? 1 : 0)
                 }
-                .frame(height: 200)
+                .frame(height: 240)
 
                 // Additional tips
-                VStack(spacing: 12) {
+                VStack(spacing: BSCSpacing.md) {
                     // Hold to trim hint
-                    HStack(spacing: 8) {
+                    HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "hand.tap.fill")
                             .font(.system(size: 14, weight: .semibold))
                         Text("Hold to Trim")
                             .font(.system(size: 13, weight: .bold))
                     }
                     .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.bscOrange.opacity(0.25))
+                    .padding(.horizontal, BSCSpacing.md)
+                    .padding(.vertical, BSCSpacing.sm)
+                    .background(Color.bscPrimary.opacity(0.25))
                     .clipShape(Capsule())
                     .overlay(
                         Capsule()
-                            .stroke(Color.bscOrange.opacity(0.4), lineWidth: 1)
+                            .stroke(Color.bscPrimary.opacity(0.4), lineWidth: 1)
                     )
 
                     // Tap counter for overview hint
-                    HStack(spacing: 8) {
+                    HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "square.grid.2x2")
                             .font(.system(size: 14, weight: .semibold))
                         Text("Tap Counter for Overview")
                             .font(.system(size: 13, weight: .bold))
                     }
                     .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.blue.opacity(0.25))
+                    .padding(.horizontal, BSCSpacing.md)
+                    .padding(.vertical, BSCSpacing.sm)
+                    .background(Color.bscPrimary.opacity(0.25))
                     .clipShape(Capsule())
                     .overlay(
                         Capsule()
-                            .stroke(Color.blue.opacity(0.4), lineWidth: 1)
+                            .stroke(Color.bscPrimary.opacity(0.4), lineWidth: 1)
                     )
                 }
                 .opacity(showingContent ? 1 : 0)
@@ -109,7 +114,7 @@ struct GestureTipsOverlay: View {
                     .opacity(showingContent ? 1 : 0)
                     .offset(y: showingContent ? 0 : 20)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, BSCSpacing.xl)
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -143,7 +148,7 @@ private struct GestureArrow: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: BSCSpacing.sm) {
             if direction == .down {
                 labelView
             }
@@ -166,15 +171,15 @@ private struct GestureArrow: View {
     }
 
     private var labelView: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: BSCSpacing.xs) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .semibold))
             Text(label)
                 .font(.system(size: 13, weight: .bold))
         }
         .foregroundColor(.white)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, BSCSpacing.md)
+        .padding(.vertical, BSCSpacing.sm)
         .background(color.opacity(0.25))
         .clipShape(Capsule())
         .overlay(

@@ -80,7 +80,7 @@ struct VideoMoveDialog: View {
                         ForEach(folders, id: \.id) { folder in
                             FolderRowView(
                                 icon: "folder.fill",
-                                iconColor: .bscOrange,
+                                iconColor: .bscPrimary,
                                 name: folder.name,
                                 subtitle: "\(folder.videoCount) videos",
                                 isSelected: selectedFolderPath == folder.path,

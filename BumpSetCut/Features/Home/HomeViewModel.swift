@@ -29,8 +29,8 @@ final class HomeViewModel {
     private func loadStats() {
         isLoading = true
 
-        // Count videos in Processed Games library
-        processedVideos = mediaStore.getAllVideos(in: .processed).count
+        // Count saved videos that have been processed
+        processedVideos = mediaStore.getAllVideos(in: .saved).filter { !$0.processedVideoIds.isEmpty }.count
 
         // Count rallies from metadata (from all videos with metadata)
         totalRallies = countTotalRallies()
@@ -73,7 +73,7 @@ extension HomeViewModel {
                     icon: "figure.volleyball",
                     value: "\(totalRallies)",
                     label: "Rallies",
-                    color: .bscOrange
+                    color: .bscPrimary
                 ),
                 StatItem(
                     icon: "checkmark.seal.fill",
@@ -107,7 +107,7 @@ extension HomeViewModel {
                     icon: "figure.volleyball",
                     value: "\(totalRallies)",
                     label: "Rallies",
-                    color: .bscOrange
+                    color: .bscPrimary
                 ),
                 StatItem(
                     icon: "checkmark.seal.fill",

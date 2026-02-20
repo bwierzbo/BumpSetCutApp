@@ -26,6 +26,7 @@ struct Highlight: Codable, Identifiable, Hashable {
     let createdAt: Date
     var hideLikes: Bool
     var videoUrls: [String]?
+    var poll: Poll?
 
     // Links to local data (nil if not from this device)
     var localVideoId: UUID?
@@ -56,7 +57,7 @@ struct Highlight: Codable, Identifiable, Hashable {
          thumbnailURL: URL? = nil, caption: String? = nil, tags: [String] = [],
          rallyMetadata: RallyHighlightMetadata, likesCount: Int = 0, commentsCount: Int = 0,
          isLikedByMe: Bool = false, createdAt: Date = Date(),
-         hideLikes: Bool = false, videoUrls: [String]? = nil,
+         hideLikes: Bool = false, videoUrls: [String]? = nil, poll: Poll? = nil,
          localVideoId: UUID? = nil, localRallyIndex: Int? = nil) {
         self.id = id
         self.authorId = authorId
@@ -72,6 +73,7 @@ struct Highlight: Codable, Identifiable, Hashable {
         self.createdAt = createdAt
         self.hideLikes = hideLikes
         self.videoUrls = videoUrls
+        self.poll = poll
         self.localVideoId = localVideoId
         self.localRallyIndex = localRallyIndex
     }
@@ -92,6 +94,7 @@ struct Highlight: Codable, Identifiable, Hashable {
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         hideLikes = try container.decodeIfPresent(Bool.self, forKey: .hideLikes) ?? false
         videoUrls = try container.decodeIfPresent([String].self, forKey: .videoUrls)
+        poll = try container.decodeIfPresent(Poll.self, forKey: .poll)
         localVideoId = try container.decodeIfPresent(UUID.self, forKey: .localVideoId)
         localRallyIndex = try container.decodeIfPresent(Int.self, forKey: .localRallyIndex)
     }
@@ -99,6 +102,6 @@ struct Highlight: Codable, Identifiable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, authorId, author, muxPlaybackId, thumbnailURL, caption, tags
         case rallyMetadata, likesCount, commentsCount, isLikedByMe, createdAt
-        case hideLikes, videoUrls, localVideoId, localRallyIndex
+        case hideLikes, videoUrls, poll, localVideoId, localRallyIndex
     }
 }

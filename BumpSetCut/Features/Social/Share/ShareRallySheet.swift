@@ -54,6 +54,9 @@ struct ShareRallySheet: View {
                         // Post options
                         postOptions
 
+                        // Poll editor
+                        pollEditor
+
                         // Rally info for selected rally
                         rallyInfo
 
@@ -160,7 +163,7 @@ struct ShareRallySheet: View {
                 HStack(spacing: BSCSpacing.xs) {
                     ForEach(viewModel.savedRallyIndices.indices, id: \.self) { i in
                         Circle()
-                            .fill(i == viewModel.selectedPage ? Color.bscOrange : Color.white.opacity(0.3))
+                            .fill(i == viewModel.selectedPage ? Color.bscPrimary : Color.white.opacity(0.3))
                             .frame(width: 6, height: 6)
                             .animation(.easeInOut(duration: 0.2), value: viewModel.selectedPage)
                     }
@@ -181,7 +184,7 @@ struct ShareRallySheet: View {
             .foregroundColor(.white)
             .padding(.horizontal, BSCSpacing.sm)
             .padding(.vertical, BSCSpacing.xxs)
-            .background(Capsule().fill(Color.bscOrange.opacity(0.85)))
+            .background(Capsule().fill(Color.bscPrimary.opacity(0.85)))
             .padding(BSCSpacing.sm)
         } else {
             let rallyIndex = viewModel.savedRallyIndices[pageIndex]
@@ -290,10 +293,10 @@ struct ShareRallySheet: View {
                         ForEach(viewModel.extractedTags, id: \.self) { tag in
                             Text("#\(tag)")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.bscOrange)
+                                .foregroundColor(.bscPrimary)
                                 .padding(.horizontal, BSCSpacing.sm)
                                 .padding(.vertical, BSCSpacing.xxs)
-                                .background(Color.bscOrange.opacity(0.15))
+                                .background(Color.bscPrimary.opacity(0.15))
                                 .clipShape(Capsule())
                         }
                     }
@@ -321,8 +324,90 @@ struct ShareRallySheet: View {
                     }
                 }
             }
-            .tint(.bscOrange)
+            .tint(.bscPrimary)
             .padding(BSCSpacing.sm)
+        }
+        .background(Color.bscSurfaceGlass)
+        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+    }
+
+    // MARK: - Poll Editor
+
+    private var pollEditor: some View {
+        VStack(spacing: 0) {
+            Toggle(isOn: $viewModel.includePoll) {
+                HStack(spacing: BSCSpacing.sm) {
+                    Image(systemName: "chart.bar.xaxis")
+                        .font(.system(size: 15))
+                        .foregroundColor(.bscTextSecondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Add a poll")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.bscTextPrimary)
+                        Text("Let viewers vote on your rally")
+                            .font(.system(size: 12))
+                            .foregroundColor(.bscTextTertiary)
+                    }
+                }
+            }
+            .tint(.bscPrimary)
+            .padding(BSCSpacing.sm)
+
+            if viewModel.includePoll {
+                Divider().opacity(0.3)
+
+                VStack(spacing: BSCSpacing.sm) {
+                    TextField("Ask a question...", text: $viewModel.pollQuestion)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.bscTextPrimary)
+                        .padding(BSCSpacing.sm)
+                        .background(Color.bscSurfaceGlass.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
+
+                    ForEach(viewModel.pollOptions.indices, id: \.self) { index in
+                        HStack(spacing: BSCSpacing.xs) {
+                            Circle()
+                                .stroke(Color.bscTextTertiary, lineWidth: 1.5)
+                                .frame(width: 16, height: 16)
+
+                            TextField("Option \(index + 1)", text: $viewModel.pollOptions[index])
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 14))
+                                .foregroundColor(.bscTextPrimary)
+
+                            if viewModel.pollOptions.count > 2 {
+                                Button {
+                                    viewModel.removePollOption(at: index)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(.bscTextTertiary)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, BSCSpacing.sm)
+                        .padding(.vertical, BSCSpacing.xs)
+                        .background(Color.bscSurfaceGlass.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
+                    }
+
+                    if viewModel.pollOptions.count < 5 {
+                        Button {
+                            viewModel.addPollOption()
+                        } label: {
+                            HStack(spacing: BSCSpacing.xs) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 14))
+                                Text("Add option")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            .foregroundColor(.bscPrimary)
+                        }
+                    }
+                }
+                .padding(BSCSpacing.sm)
+            }
         }
         .background(Color.bscSurfaceGlass)
         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
@@ -368,7 +453,7 @@ struct ShareRallySheet: View {
         case .uploading(let progress):
             VStack(spacing: BSCSpacing.sm) {
                 ProgressView(value: progress)
-                    .tint(.bscOrange)
+                    .tint(.bscPrimary)
                 Text(viewModel.postAllSaved && viewModel.postCount > 1
                      ? "Uploading \(viewModel.postCount) rallies... \(Int(progress * 100))%"
                      : "Uploading... \(Int(progress * 100))%")
@@ -379,7 +464,7 @@ struct ShareRallySheet: View {
         case .processing:
             HStack(spacing: BSCSpacing.sm) {
                 ProgressView()
-                    .tint(.bscOrange)
+                    .tint(.bscPrimary)
                 Text("Processing...")
                     .font(.system(size: 13))
                     .foregroundColor(.bscTextSecondary)
@@ -389,7 +474,7 @@ struct ShareRallySheet: View {
             VStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 36))
-                    .foregroundColor(.green)
+                    .foregroundColor(.bscSuccess)
                 Text("Shared successfully!")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.bscTextPrimary)
@@ -402,14 +487,14 @@ struct ShareRallySheet: View {
             VStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 36))
-                    .foregroundColor(.red)
+                    .foregroundColor(.bscError)
                 Text(message)
                     .font(.system(size: 13))
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                 Button("Retry") { viewModel.retry() }
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.bscOrange)
+                    .foregroundColor(.bscPrimary)
             }
         }
     }
@@ -417,7 +502,7 @@ struct ShareRallySheet: View {
     // MARK: - Post Button
 
     private var postButton: some View {
-        let canPost = viewModel.state == .idle && (!viewModel.isTooLong || viewModel.postAllSaved)
+        let canPost = viewModel.state == .idle && (!viewModel.isTooLong || viewModel.postAllSaved) && viewModel.isPollValid
         return Button("Post") {
             isCaptionFocused = false
             if authService.isAuthenticated {
@@ -428,6 +513,6 @@ struct ShareRallySheet: View {
         }
         .disabled(!canPost)
         .fontWeight(.semibold)
-        .foregroundColor(canPost ? .bscOrange : .bscTextTertiary)
+        .foregroundColor(canPost ? .bscPrimary : .bscTextTertiary)
     }
 }

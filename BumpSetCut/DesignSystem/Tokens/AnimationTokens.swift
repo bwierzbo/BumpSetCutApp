@@ -121,7 +121,7 @@ extension View {
     }
 
     /// Apply pulse glow effect
-    func bscPulseGlow(color: Color = .bscOrange, isActive: Bool = true) -> some View {
+    func bscPulseGlow(color: Color = .bscPrimary, isActive: Bool = true) -> some View {
         modifier(PulseGlowModifier(color: color, isActive: isActive))
     }
 

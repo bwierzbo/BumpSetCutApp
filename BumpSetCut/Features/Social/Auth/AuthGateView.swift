@@ -27,12 +27,12 @@ struct AuthGateView: View {
                 // App icon
                 ZStack {
                     Circle()
-                        .fill(Color.bscOrange.opacity(0.15))
+                        .fill(Color.bscPrimary.opacity(0.15))
                         .frame(width: 88, height: 88)
 
                     Image(systemName: "figure.volleyball")
                         .font(.system(size: 40, weight: .medium))
-                        .foregroundColor(.bscOrange)
+                        .foregroundColor(.bscPrimary)
                 }
 
                 // Title and subtitle
@@ -55,7 +55,7 @@ struct AuthGateView: View {
                 VStack(spacing: BSCSpacing.md) {
                     if viewModel?.isAuthenticating == true {
                         ProgressView()
-                            .tint(.bscOrange)
+                            .tint(.bscPrimary)
                             .scaleEffect(1.2)
                             .frame(height: 50)
                     } else {
@@ -77,11 +77,12 @@ struct AuthGateView: View {
                                 .foregroundColor(.black)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 50)
-                                .background(Color.bscOrange)
+                                .background(Color.bscPrimary)
                                 .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                         }
                         .disabled(viewModel?.isEmailFormValid != true)
                         .opacity(viewModel?.isEmailFormValid == true ? 1.0 : 0.5)
+                        .accessibilityIdentifier(AccessibilityID.AuthGate.emailSignIn)
 
                         // Toggle sign-up / sign-in
                         Button {
@@ -91,7 +92,7 @@ struct AuthGateView: View {
                                  ? "Already have an account? Sign In"
                                  : "Don't have an account? Sign Up")
                                 .font(.system(size: 14))
-                                .foregroundColor(.bscOrange)
+                                .foregroundColor(.bscPrimary)
                         }
                         .buttonStyle(.plain)
 
@@ -110,6 +111,7 @@ struct AuthGateView: View {
                             .foregroundColor(.bscTextTertiary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier(AccessibilityID.AuthGate.skip)
                     .padding(.top, BSCSpacing.xs)
                 }
                 .padding(.horizontal, BSCSpacing.xl)
@@ -159,14 +161,14 @@ struct AuthGateView: View {
                         if viewModel?.isCheckingUsername == true {
                             ProgressView()
                                 .scaleEffect(0.7)
-                                .tint(.bscOrange)
+                                .tint(.bscPrimary)
                         } else if viewModel?.isUsernameAvailable == true {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.bscSuccess)
                                 .font(.system(size: 16))
                         } else if viewModel?.isUsernameAvailable == false {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.red)
+                                .foregroundColor(.bscError)
                                 .font(.system(size: 16))
                         }
                     }
@@ -212,10 +214,10 @@ struct AuthGateView: View {
                     HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: vm.passwordsMatch ? "checkmark.circle.fill" : "xmark.circle.fill")
                             .font(.system(size: 12))
-                            .foregroundColor(vm.passwordsMatch ? .bscSuccess : .red)
+                            .foregroundColor(vm.passwordsMatch ? .bscSuccess : .bscError)
                         Text(vm.passwordsMatch ? "Passwords match" : "Passwords do not match")
                             .font(.system(size: 12))
-                            .foregroundColor(vm.passwordsMatch ? .bscTextSecondary : .red)
+                            .foregroundColor(vm.passwordsMatch ? .bscTextSecondary : .bscError)
                     }
                 }
             }
@@ -229,7 +231,7 @@ struct AuthGateView: View {
                     } label: {
                         Text("Forgot password?")
                             .font(.system(size: 13))
-                            .foregroundColor(.bscOrange)
+                            .foregroundColor(.bscPrimary)
                     }
                     .buttonStyle(.plain)
                 }

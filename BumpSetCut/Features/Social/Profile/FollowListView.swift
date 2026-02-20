@@ -65,7 +65,7 @@ struct FollowListView: View {
 
                         if viewModel.hasMorePages {
                             ProgressView()
-                                .tint(.bscOrange)
+                                .tint(.bscPrimary)
                                 .padding()
                                 .onAppear {
                                     Task { await viewModel.loadMore() }

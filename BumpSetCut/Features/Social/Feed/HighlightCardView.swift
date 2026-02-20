@@ -16,6 +16,8 @@ struct HighlightCardView: View {
     let onComment: () -> Void
     let onProfile: (String) -> Void
     var onDelete: (() -> Void)?
+    var onPollVote: ((String, String) -> Void)?
+    var additionalBottomInset: CGFloat = 0
 
     @State private var playerPool: [Int: AVPlayer] = [:]
     @State private var loopObservers: [Int: Any] = [:]
@@ -102,7 +104,7 @@ struct HighlightCardView: View {
                         .padding(.horizontal, BSCSpacing.md)
                         .padding(.vertical, 6)
                         .background(Capsule().fill(Color.black.opacity(0.45)))
-                        .padding(.bottom, geo.safeAreaInsets.bottom + BSCSpacing.huge + BSCSpacing.md)
+                        .padding(.bottom, geo.safeAreaInsets.bottom + BSCSpacing.huge + BSCSpacing.md + additionalBottomInset)
                     }
                     .allowsHitTesting(false)
                 }
@@ -187,6 +189,18 @@ struct HighlightCardView: View {
                             .lineLimit(2)
                     }
 
+                    // Poll
+                    if let poll = highlight.poll {
+                        PollView(
+                            poll: poll,
+                            isAuthor: onDelete != nil,
+                            isAuthenticated: onPollVote != nil,
+                            onVote: { optionId in
+                                onPollVote?(poll.id, optionId)
+                            }
+                        )
+                    }
+
                     // Rally metadata
                     Label("\(String(format: "%.1f", highlight.rallyMetadata.duration))s", systemImage: "timer")
                         .font(.system(size: 12))
@@ -237,7 +251,7 @@ struct HighlightCardView: View {
                         VStack(spacing: 4) {
                             Image(systemName: highlight.isLikedByMe ? "heart.fill" : "heart")
                                 .font(.system(size: 28))
-                                .foregroundColor(highlight.isLikedByMe ? .red : .white)
+                                .foregroundColor(highlight.isLikedByMe ? .bscError : .white)
 
                             if !highlight.hideLikes {
                                 Text(formatCount(highlight.likesCount))
@@ -286,7 +300,7 @@ struct HighlightCardView: View {
                 }
                 .padding(.trailing, BSCSpacing.md)
             }
-            .padding(.bottom, bottomInset + BSCSpacing.huge)
+            .padding(.bottom, bottomInset + BSCSpacing.huge + additionalBottomInset)
         }
     }
 
@@ -398,8 +412,13 @@ struct HighlightCardView: View {
 
     private func setupPlayers() {
         guard playerPool.isEmpty else {
-            // Already set up — just resume the active player
-            if !isPaused { playerPool[currentVideoPage]?.play() }
+            // Already set up — seek to start and resume
+            currentVideoPage = 0
+            for (_, player) in playerPool {
+                player.seek(to: .zero)
+            }
+            isPaused = false
+            playerPool[0]?.play()
             return
         }
         if isMultiVideo {

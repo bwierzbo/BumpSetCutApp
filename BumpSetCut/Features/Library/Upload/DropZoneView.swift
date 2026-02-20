@@ -26,31 +26,31 @@ struct DropZoneView<Content: View>: View {
             content
             
             if isDropping {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.blue.opacity(0.1))
+                RoundedRectangle(cornerRadius: BSCRadius.md)
+                    .fill(Color.bscPrimary.opacity(0.1))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(Color.blue, style: StrokeStyle(lineWidth: 2, dash: [10]))
+                        RoundedRectangle(cornerRadius: BSCRadius.md)
+                            .strokeBorder(Color.bscPrimary, style: StrokeStyle(lineWidth: 2, dash: [10]))
                     )
                     .overlay(
-                        VStack(spacing: 16) {
+                        VStack(spacing: BSCSpacing.lg) {
                             Image(systemName: "video.badge.plus")
                                 .font(.system(size: 48))
-                                .foregroundColor(.blue)
-                            
+                                .foregroundColor(.bscPrimary)
+
                             Text("Drop videos here to upload")
                                 .font(.title2)
                                 .fontWeight(.semibold)
-                                .foregroundColor(.blue)
-                            
+                                .foregroundColor(.bscPrimary)
+
                             if !destinationFolder.isEmpty {
                                 Text("To folder: \(destinationFolder)")
                                     .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(.bscTextSecondary)
                             }
                         }
                         .padding()
-                        .background(Color(.systemBackground).opacity(0.9))
+                        .background(Color.bscBackground.opacity(0.9))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                     )
             }
@@ -91,11 +91,11 @@ struct UploadStatusBar: View {
                         createCancelButton()
                     }
                 }
-                .padding(24)
-                .background(Color(.systemGroupedBackground))
-                .cornerRadius(12)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .padding(BSCSpacing.xl)
+                .background(Color.bscBackgroundMuted)
+                .cornerRadius(BSCRadius.md)
+                .padding(.horizontal, BSCSpacing.lg)
+                .padding(.bottom, BSCSpacing.lg)
             } else {
                 let _ = print("❌ Progress bar should NOT be visible")
                 EmptyView()
@@ -111,16 +111,16 @@ struct UploadStatusBar: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(Color.red)
+        .background(Color.bscError)
         .foregroundColor(.white)
-        .cornerRadius(12)
+        .cornerRadius(BSCRadius.md)
     }
     
     private func createHeaderView() -> some View {
         VStack(spacing: 12) {
             Image(systemName: "icloud.and.arrow.up")
                 .font(.system(size: 48))
-                .foregroundColor(.blue)
+                .foregroundColor(.bscPrimary)
             
             Text("Processing Video")
                 .font(.title2)
@@ -138,18 +138,18 @@ struct UploadStatusBar: View {
             if !uploadCoordinator.uploadProgressText.isEmpty {
                 Text(uploadCoordinator.uploadProgressText)
                     .font(.headline)
-                    .foregroundColor(.primary)
+                    .foregroundColor(.bscTextPrimary)
             } else {
                 Text("Processing video...")
                     .font(.headline)
-                    .foregroundColor(.primary)
+                    .foregroundColor(.bscTextPrimary)
             }
 
             // Show file size if available
             if !uploadCoordinator.currentFileSize.isEmpty {
                 Text(uploadCoordinator.currentFileSize)
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.bscTextSecondary)
             }
 
             // Show elapsed time
@@ -161,7 +161,7 @@ struct UploadStatusBar: View {
                         .font(.caption)
                         .monospacedDigit()
                 }
-                .foregroundColor(.secondary)
+                .foregroundColor(.bscTextSecondary)
             }
         }
     }
@@ -180,15 +180,15 @@ struct UploadStatusBar: View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 32))
-                .foregroundColor(.green)
-            
+                .foregroundColor(.bscSuccess)
+
             Text("Upload Complete!")
                 .font(.headline)
-                .foregroundColor(.primary)
+                .foregroundColor(.bscTextPrimary)
             
             Text("Video uploaded and automatically named with today's date")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(.bscTextSecondary)
                 .multilineTextAlignment(.center)
         }
     }
@@ -200,7 +200,7 @@ struct UploadStatusBar: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(Color.green)
+        .background(Color.bscSuccess)
         .foregroundColor(.white)
         .cornerRadius(12)
     }
@@ -245,7 +245,7 @@ struct EnhancedUploadButton: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(Color.blue)
+            .background(Color.bscPrimary)
             .foregroundColor(.white)
             .clipShape(Capsule())
         }
@@ -338,7 +338,7 @@ struct VideoNamingSheet: View {
                     
                     Text("Enter a name for your video")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 

@@ -84,11 +84,9 @@ struct BSCFolderCard: View {
 
             // Quick open button
             quickOpenButton
-
-            // Quick delete button
-            quickDeleteButton
         }
         .padding(.vertical, BSCSpacing.sm)
+        .padding(.trailing, BSCSpacing.md)
         .bscInteractive(isSelected: false, cornerRadius: BSCRadius.md)
     }
 
@@ -136,7 +134,7 @@ struct BSCFolderCard: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        colors: [Color.bscBlue.opacity(0.2), Color.clear],
+                        colors: [Color.bscPrimary.opacity(0.2), Color.clear],
                         center: .center,
                         startRadius: size * 0.3,
                         endRadius: size * 0.6
@@ -148,7 +146,7 @@ struct BSCFolderCard: View {
             Circle()
                 .fill(
                     LinearGradient(
-                        colors: [Color.bscBlue.opacity(0.2), Color.bscBlue.opacity(0.1)],
+                        colors: [Color.bscPrimary.opacity(0.2), Color.bscPrimary.opacity(0.1)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -156,7 +154,7 @@ struct BSCFolderCard: View {
                 .frame(width: size, height: size)
                 .overlay(
                     Circle()
-                        .stroke(Color.bscBlue.opacity(0.3), lineWidth: 1)
+                        .stroke(Color.bscPrimary.opacity(0.3), lineWidth: 1)
                 )
 
             // Icon
@@ -164,7 +162,7 @@ struct BSCFolderCard: View {
                 .font(.system(size: size * 0.45, weight: .medium))
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [Color.bscBlue, Color.bscBlue.opacity(0.7)],
+                        colors: [Color.bscPrimary, Color.bscPrimary.opacity(0.7)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -233,7 +231,7 @@ struct BSCFolderCard: View {
                 Text("\(folder.videoCount)")
                     .font(.system(size: 11, weight: .medium))
             }
-            .foregroundColor(folder.videoCount > 0 ? .bscBlue : .bscTextTertiary)
+            .foregroundColor(folder.videoCount > 0 ? .bscPrimary : .bscTextTertiary)
 
             // Subfolder count
             if folder.subfolderCount > 0 {
@@ -275,22 +273,10 @@ struct BSCFolderCard: View {
         } label: {
             Image(systemName: "arrow.right.circle.fill")
                 .font(.system(size: 20))
-                .foregroundColor(.bscBlue)
+                .foregroundColor(.bscPrimary)
                 .frame(width: 32, height: 32)
         }
         .accessibilityLabel("Open folder")
-    }
-
-    private var quickDeleteButton: some View {
-        Button {
-            showingDeleteConfirmation = true
-        } label: {
-            Image(systemName: "trash.fill")
-                .font(.system(size: 16))
-                .foregroundColor(.bscError)
-                .frame(width: 32, height: 32)
-        }
-        .accessibilityLabel("Delete folder")
     }
 
     // MARK: - Context Menu

@@ -96,15 +96,18 @@ enum BSCShadow {
         y: 12
     )
 
-    /// Orange glow - Primary accent glow
-    static let glowOrange = BSCShadowStyle(
-        color: .bscOrange.opacity(0.4),
+    /// Primary glow - Brand accent glow (blue)
+    static let glowPrimary = BSCShadowStyle(
+        color: .bscPrimary.opacity(0.4),
         radius: 20,
         x: 0,
         y: 0
     )
 
-    /// Blue glow - Secondary accent glow
+    /// Orange glow - Backward compatibility alias for glowPrimary
+    static let glowOrange = glowPrimary
+
+    /// Blue glow - Specific blue accent glow
     static let glowBlue = BSCShadowStyle(
         color: .bscBlue.opacity(0.4),
         radius: 20,

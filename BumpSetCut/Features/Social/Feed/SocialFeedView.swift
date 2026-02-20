@@ -27,7 +27,7 @@ struct SocialFeedView: View {
 
             if viewModel.isLoading && viewModel.highlights.isEmpty {
                 ProgressView()
-                    .tint(.bscOrange)
+                    .tint(.bscPrimary)
                     .scaleEffect(1.5)
             } else if viewModel.highlights.isEmpty {
                 emptyState
@@ -69,27 +69,12 @@ struct SocialFeedView: View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 0) {
                 ForEach(Array(viewModel.highlights.enumerated()), id: \.element.id) { index, highlight in
-                    HighlightCardView(
-                        highlight: highlight,
-                        isActive: currentIndex == index,
-                        onLike: {
-                            Task { await viewModel.toggleLike(for: highlight) }
-                        },
-                        onComment: {
-                            selectedHighlightForComments = highlight
-                        },
-                        onProfile: { authorId in
-                            selectedProfileId = ProfileID(id: authorId)
-                        },
-                        onDelete: highlight.authorId == authService.currentUser?.id ? {
-                            Task { await viewModel.deleteHighlight(highlight) }
-                        } : nil
-                    )
-                    .containerRelativeFrame(.vertical)
-                    .id(index)
-                    .task {
-                        await viewModel.loadMoreIfNeeded(currentItem: highlight)
-                    }
+                    highlightCard(index: index, highlight: highlight)
+                        .containerRelativeFrame(.vertical)
+                        .id(index)
+                        .task {
+                            await viewModel.loadMoreIfNeeded(currentItem: highlight)
+                        }
                 }
             }
             .scrollTargetLayout()
@@ -97,6 +82,33 @@ struct SocialFeedView: View {
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $currentIndex)
         .ignoresSafeArea()
+    }
+
+    private func highlightCard(index: Int, highlight: Highlight) -> some View {
+        let isOwner = highlight.authorId == authService.currentUser?.id
+        let deleteAction: (() -> Void)? = isOwner ? {
+            Task { await viewModel.deleteHighlight(highlight) }
+        } : nil
+        let pollVoteAction: ((String, String) -> Void)? = authService.isAuthenticated ? { pollId, optionId in
+            Task { await viewModel.votePoll(highlightId: highlight.id, pollId: pollId, optionId: optionId) }
+        } : nil
+
+        return HighlightCardView(
+            highlight: highlight,
+            isActive: currentIndex == index,
+            onLike: {
+                Task { await viewModel.toggleLike(for: highlight) }
+            },
+            onComment: {
+                selectedHighlightForComments = highlight
+            },
+            onProfile: { authorId in
+                selectedProfileId = ProfileID(id: authorId)
+            },
+            onDelete: deleteAction,
+            onPollVote: pollVoteAction,
+            additionalBottomInset: 49
+        )
     }
 
     // MARK: - Tab Picker
@@ -152,7 +164,7 @@ struct SocialFeedView: View {
             } label: {
                 Text("Refresh")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.bscOrange)
+                    .foregroundColor(.bscPrimary)
             }
         }
         .padding(BSCSpacing.xl)

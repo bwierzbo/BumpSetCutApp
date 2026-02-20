@@ -24,17 +24,17 @@ struct LoadingStatusBar: View {
                 
                 Text(message)
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.bscTextSecondary)
                 
                 Spacer()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color(.systemBackground))
+            .background(Color.bscBackground)
             .overlay(
                 Rectangle()
                     .frame(height: 0.5)
-                    .foregroundColor(Color(.separator)),
+                    .foregroundColor(Color.bscSurfaceBorder),
                 alignment: .top
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -48,5 +48,5 @@ struct LoadingStatusBar: View {
         Spacer()
         LoadingStatusBar(isLoading: true, message: "Loading folders...")
     }
-    .background(Color(.systemGroupedBackground))
+    .background(Color.bscBackgroundMuted)
 }

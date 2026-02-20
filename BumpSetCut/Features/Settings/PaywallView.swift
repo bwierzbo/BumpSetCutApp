@@ -206,7 +206,7 @@ struct FeatureRow: View {
         HStack(alignment: .top, spacing: BSCSpacing.md) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundStyle(.blue)
+                .foregroundStyle(Color.bscPrimary)
                 .frame(width: 32)
 
             VStack(alignment: .leading, spacing: BSCSpacing.xs) {
@@ -223,7 +223,7 @@ struct FeatureRow: View {
         .padding()
         .background(
             RoundedRectangle(cornerRadius: BSCRadius.md)
-                .fill(Color(.systemGray6))
+                .fill(Color.bscSurfaceGlass)
         )
     }
 }

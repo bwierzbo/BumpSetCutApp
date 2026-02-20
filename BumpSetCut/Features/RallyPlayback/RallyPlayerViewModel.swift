@@ -104,6 +104,11 @@ final class RallyPlayerViewModel {
     var swipeOffset: CGFloat { gesture.swipeOffset }
     var swipeOffsetY: CGFloat { gesture.swipeOffsetY }
     var swipeRotation: Double { gesture.swipeRotation }
+    var actionSwipeOffsetY: CGFloat { gesture.actionSwipeOffsetY }
+    var dragAxis: RallyGestureState.DragAxis? {
+        get { gesture.dragAxis }
+        set { gesture.dragAxis = newValue }
+    }
     var peekProgress: Double { gesture.peekProgress }
     var currentPeekDirection: RallyPeekDirection? { gesture.currentPeekDirection }
     var peekThumbnail: UIImage? { gesture.peekThumbnail }
@@ -122,9 +127,11 @@ final class RallyPlayerViewModel {
 
     var savedRallies: Set<Int> { actions.savedRallies }
     var removedRallies: Set<Int> { actions.removedRallies }
+    var favoritedRallies: Set<Int> { actions.favoritedRallies }
     var actionHistory: [RallyActionResult] { actions.actionHistory }
     var currentRallyIsSaved: Bool { actions.isSaved(at: currentRallyIndex) }
     var currentRallyIsRemoved: Bool { actions.isRemoved(at: currentRallyIndex) }
+    var currentRallyIsFavorited: Bool { actions.isFavorited(at: currentRallyIndex) }
     var savedRalliesArray: [Int] { actions.savedRalliesArray }
     var canUndo: Bool { actions.canUndo }
     var actionFeedback: RallyActionFeedback? { actions.actionFeedback }
@@ -343,20 +350,33 @@ final class RallyPlayerViewModel {
         gesture.resetZoom()
         playerCache.pause()
 
-        // Transfer drag position to swipe offset seamlessly
-        gesture.swipeOffset = fromDragOffset
-        gesture.swipeRotation = Double(fromDragOffset) / 30.0
-        gesture.dragOffset = .zero
         gesture.peekProgress = 0.0
         gesture.currentPeekDirection = nil
+        gesture.dragOffset = .zero
 
-        let slideDistance = UIScreen.main.bounds.width * 1.2
-        let targetOffset = direction == .right ? slideDistance : -slideDistance
-        let targetRotation = direction == .right ? 10.0 : -10.0
+        if direction == .up {
+            // Vertical slide-out for favorite
+            gesture.actionSwipeOffsetY = fromDragOffset
+            gesture.swipeOffset = 0
+            gesture.swipeRotation = 0
 
-        withAnimation(.interpolatingSpring(stiffness: 200, damping: 28)) {
-            gesture.swipeOffset = targetOffset
-            gesture.swipeRotation = targetRotation
+            let slideDistance = UIScreen.main.bounds.height * 1.2
+            withAnimation(.interpolatingSpring(stiffness: 200, damping: 28)) {
+                gesture.actionSwipeOffsetY = -slideDistance
+            }
+        } else {
+            // Horizontal slide-out for save/remove
+            gesture.swipeOffset = fromDragOffset
+            gesture.swipeRotation = Double(fromDragOffset) / 30.0
+
+            let slideDistance = UIScreen.main.bounds.width * 1.2
+            let targetOffset = direction == .right ? slideDistance : -slideDistance
+            let targetRotation = direction == .right ? 10.0 : -10.0
+
+            withAnimation(.interpolatingSpring(stiffness: 200, damping: 28)) {
+                gesture.swipeOffset = targetOffset
+                gesture.swipeRotation = targetRotation
+            }
         }
 
         let _ = actions.registerAction(action, rallyIndex: currentRallyIndex, direction: direction)
@@ -373,6 +393,7 @@ final class RallyPlayerViewModel {
             gesture.swipeOffset = 0
             gesture.swipeOffsetY = 0
             gesture.swipeRotation = 0
+            gesture.actionSwipeOffsetY = 0
             gesture.dragOffset = .zero
 
             if canGoNext {
@@ -404,9 +425,15 @@ final class RallyPlayerViewModel {
         guard let action = actions.undoLast() else { return }
         actions.setPerformingAction(true)
 
-        let slideDistance = UIScreen.main.bounds.width * 1.2
-        gesture.swipeOffset = action.direction == .right ? slideDistance : -slideDistance
-        gesture.swipeRotation = action.direction == .right ? 10.0 : -10.0
+        if action.direction == .up {
+            // Undo favorite: slide back from top
+            let slideDistance = UIScreen.main.bounds.height * 1.2
+            gesture.actionSwipeOffsetY = -slideDistance
+        } else {
+            let slideDistance = UIScreen.main.bounds.width * 1.2
+            gesture.swipeOffset = action.direction == .right ? slideDistance : -slideDistance
+            gesture.swipeRotation = action.direction == .right ? 10.0 : -10.0
+        }
 
         navigation.setIndex(action.rallyIndex, totalCount: rallyVideoURLs.count)
 
@@ -421,6 +448,7 @@ final class RallyPlayerViewModel {
         withAnimation(.interpolatingSpring(stiffness: 200, damping: 28)) {
             gesture.swipeOffset = 0
             gesture.swipeRotation = 0
+            gesture.actionSwipeOffsetY = 0
         }
 
         let dismissTask = Task {
@@ -476,6 +504,53 @@ final class RallyPlayerViewModel {
         isExporting = false
         exportProgress = 0.0
         showExportOptions = false
+    }
+
+    // MARK: - Copy Favorites to Library
+
+    func copyFavoritesToLibrary() async {
+        guard !favoritedRallies.isEmpty,
+              let metadata = processingMetadata else { return }
+
+        let asset = AVURLAsset(url: videoMetadata.originalURL)
+        let exporter = VideoExporter()
+        let fileManager = FileManager.default
+        let baseDir = StorageManager.getPersistentStorageDirectory()
+        let favoritesDir = baseDir.appendingPathComponent(LibraryType.favorites.rootPath, isDirectory: true)
+        try? fileManager.createDirectory(at: favoritesDir, withIntermediateDirectories: true)
+
+        let mediaStore = MediaStore()
+
+        for index in favoritedRallies.sorted() {
+            guard index < metadata.rallySegments.count else { continue }
+            let segment = metadata.rallySegments[index]
+            do {
+                let startTime = CMTime(seconds: segment.startTime, preferredTimescale: 600)
+                let endTime = CMTime(seconds: segment.endTime, preferredTimescale: 600)
+                let timeRange = CMTimeRange(start: startTime, end: endTime)
+
+                // Export to temp
+                let tempURL = fileManager.temporaryDirectory
+                    .appendingPathComponent("fav_rally_\(index)_\(UUID().uuidString).mp4")
+                let exportedURL = try await exporter.exportClip(asset: asset, timeRange: timeRange, to: tempURL)
+
+                // Move to persistent storage
+                let destFileName = UUID().uuidString + ".mp4"
+                let destURL = favoritesDir.appendingPathComponent(destFileName)
+                try fileManager.moveItem(at: exportedURL, to: destURL)
+
+                // Register in MediaStore with source backlink for sync
+                let _ = mediaStore.addVideo(
+                    at: destURL,
+                    toFolder: LibraryType.favorites.rootPath,
+                    customName: "\(videoMetadata.displayName) - Rally \(index + 1)",
+                    sourceVideoId: videoMetadata.id,
+                    sourceRallyIndex: index
+                )
+            } catch {
+                print("Failed to export favorite rally \(index): \(error)")
+            }
+        }
     }
 
     // MARK: - Cleanup

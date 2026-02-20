@@ -38,6 +38,7 @@ struct OnboardingView: View {
                         .foregroundColor(.bscTextSecondary)
                         .padding(.horizontal, BSCSpacing.lg)
                         .padding(.top, BSCSpacing.md)
+                        .accessibilityIdentifier(AccessibilityID.Onboarding.skip)
                     }
                 }
                 .frame(height: 44)
@@ -47,6 +48,7 @@ struct OnboardingView: View {
                     ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
                         OnboardingPageView(page: page)
                             .tag(index)
+                            .accessibilityIdentifier(AccessibilityID.Onboarding.page(index))
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
@@ -131,7 +133,7 @@ private struct OnboardingFooter: View {
             HStack(spacing: BSCSpacing.sm) {
                 ForEach(0..<totalPages, id: \.self) { index in
                     Circle()
-                        .fill(index == currentPage ? Color.bscOrange : Color.white.opacity(0.3))
+                        .fill(index == currentPage ? Color.bscPrimary : Color.white.opacity(0.3))
                         .frame(width: index == currentPage ? 10 : 8, height: index == currentPage ? 10 : 8)
                         .animation(.spring(response: 0.3), value: currentPage)
                 }
@@ -157,6 +159,7 @@ private struct OnboardingFooter: View {
             }
             .buttonStyle(OnboardingButtonStyle())
             .padding(.horizontal, BSCSpacing.xl)
+            .accessibilityIdentifier(isLastPage ? AccessibilityID.Onboarding.getStarted : AccessibilityID.Onboarding.next)
         }
     }
 }

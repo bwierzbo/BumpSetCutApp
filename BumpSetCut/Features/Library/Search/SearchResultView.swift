@@ -25,13 +25,13 @@ struct SearchResultView: View {
                         text: result.title,
                         query: query,
                         font: .headline,
-                        highlightColor: .blue
+                        highlightColor: .bscPrimary
                     )
                     
                     // Subtitle with context
                     Text(result.subtitle)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                         .lineLimit(1)
                     
                     // Folder path with navigation
@@ -52,15 +52,15 @@ struct SearchResultView: View {
                 // Navigation chevron
                 Image(systemName: "chevron.right")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.bscTextSecondary)
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
-            .background(Color(.systemBackground))
-            .cornerRadius(8)
+            .padding(.vertical, BSCSpacing.sm)
+            .padding(.horizontal, BSCSpacing.md)
+            .background(Color.bscBackgroundElevated)
+            .cornerRadius(BSCRadius.sm)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(.systemGray5), lineWidth: 1)
+                RoundedRectangle(cornerRadius: BSCRadius.sm)
+                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -71,11 +71,11 @@ struct SearchResultView: View {
         switch result.type {
         case .video(_):
             Image(systemName: "video.fill")
-                .foregroundColor(.blue)
+                .foregroundColor(.bscPrimary)
                 .font(.title2)
         case .folder(_):
             Image(systemName: "folder.fill")
-                .foregroundColor(.orange)
+                .foregroundColor(.bscWarmAccent)
                 .font(.title2)
         }
     }
@@ -93,13 +93,13 @@ struct SearchResultView: View {
                     text: result.folderPath,
                     query: query,
                     font: .caption2,
-                    highlightColor: .blue
+                    highlightColor: .bscPrimary
                 )
                 
                 Image(systemName: "arrow.up.right.square")
                     .font(.caption2)
             }
-            .foregroundColor(.blue)
+            .foregroundColor(.bscPrimary)
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -231,20 +231,20 @@ struct SearchEmptyStateView: View {
                     .scaleEffect(1.2)
                 Text("Searching...")
                     .font(.headline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.bscTextSecondary)
             } else {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 48))
-                    .foregroundColor(.gray)
-                
+                    .foregroundColor(.bscTextTertiary)
+
                 Text("No results found")
                     .font(.headline)
-                    .foregroundColor(.secondary)
-                
+                    .foregroundColor(.bscTextSecondary)
+
                 if !query.isEmpty {
                     Text("Try adjusting your search terms or filters")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                         .multilineTextAlignment(.center)
                 }
             }
@@ -261,14 +261,14 @@ struct SearchResultStatsView: View {
         HStack {
             Text(resultText)
                 .font(.caption)
-                .foregroundColor(.secondary)
-            
+                .foregroundColor(.bscTextSecondary)
+
             Spacer()
-            
+
             if let duration = searchDuration {
                 Text("(\(String(format: "%.2f", duration))s)")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.bscTextSecondary)
             }
         }
         .padding(.horizontal, 16)
@@ -333,6 +333,6 @@ struct SearchResultView_Previews: PreviewProvider {
             )
         }
         .padding()
-        .background(Color(.systemGroupedBackground))
+        .background(Color.bscBackgroundMuted)
     }
 }

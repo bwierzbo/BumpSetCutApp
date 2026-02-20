@@ -25,20 +25,20 @@ struct BulkVideoOperationsBar: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(selectedCount) selected")
                         .font(.headline)
-                        .foregroundColor(.primary)
+                        .foregroundColor(.bscTextPrimary)
                     
                     if selectedCount < totalCount {
                         Button("Select All (\(totalCount))") {
                             onSelectAll()
                         }
                         .font(.caption)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.bscPrimary)
                     } else {
                         Button("Deselect All") {
                             onDeselectAll()
                         }
                         .font(.caption)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.bscPrimary)
                     }
                 }
                 
@@ -55,7 +55,7 @@ struct BulkVideoOperationsBar: View {
                             Text("Move")
                                 .font(.caption2)
                         }
-                        .foregroundColor(.blue)
+                        .foregroundColor(.bscPrimary)
                         .frame(width: 50, height: 50)
                     }
                     .disabled(selectedCount == 0)
@@ -69,7 +69,7 @@ struct BulkVideoOperationsBar: View {
                             Text("Delete")
                                 .font(.caption2)
                         }
-                        .foregroundColor(.red)
+                        .foregroundColor(.bscError)
                         .frame(width: 50, height: 50)
                     }
                     .disabled(selectedCount == 0)
@@ -83,14 +83,14 @@ struct BulkVideoOperationsBar: View {
                             Text("Cancel")
                                 .font(.caption2)
                         }
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.bscTextSecondary)
                         .frame(width: 50, height: 50)
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color(.systemBackground))
+            .padding(.horizontal, BSCSpacing.lg)
+            .padding(.vertical, BSCSpacing.md)
+            .background(Color.bscBackgroundElevated)
         }
     }
 }

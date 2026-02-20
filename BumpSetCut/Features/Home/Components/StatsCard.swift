@@ -141,7 +141,7 @@ struct SingleStatCard: View {
     VStack(spacing: BSCSpacing.lg) {
         StatsCard(stats: [
             StatItem(icon: "video.fill", value: "24", label: "Videos", color: .bscBlue),
-            StatItem(icon: "figure.volleyball", value: "156", label: "Rallies", color: .bscOrange),
+            StatItem(icon: "figure.volleyball", value: "156", label: "Rallies", color: .bscWarmAccent),
             StatItem(icon: "checkmark.seal.fill", value: "18", label: "Processed", color: .bscTeal)
         ])
 

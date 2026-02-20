@@ -2,6 +2,13 @@ import SwiftUI
 import Combine
 import Observation
 
+// MARK: - Video Filter
+enum VideoFilter: String, CaseIterable {
+    case all = "All"
+    case processed = "Processed"
+    case unprocessed = "Unprocessed"
+}
+
 // MARK: - LibraryViewModel
 @MainActor
 @Observable
@@ -19,6 +26,7 @@ final class LibraryViewModel {
     var showingCreateFolder: Bool = false
     var newFolderName: String = ""
     var isSearching: Bool = false
+    var videoFilter: VideoFilter = .all
 
     // MARK: - Computed Properties
     var currentPath: String {
@@ -61,7 +69,7 @@ final class LibraryViewModel {
 
     var title: String {
         if isAtRoot {
-            return libraryType.displayName
+            return libraryType == .saved ? "Library" : libraryType.displayName
         }
         return currentPath.components(separatedBy: "/").last ?? "Contents"
     }
@@ -83,11 +91,13 @@ final class LibraryViewModel {
 
     // MARK: - Filtered Content
     var filteredFolders: [FolderMetadata] {
+        var folders: [FolderMetadata]
+
         if searchText.isEmpty {
-            return folderManager.getSortedFolders(by: sortOption.folderSort)
+            folders = folderManager.getSortedFolders(by: sortOption.folderSort)
         } else {
             // Use library-scoped search
-            return folderManager.globalSearchFolders(query: searchText)
+            folders = folderManager.globalSearchFolders(query: searchText)
                 .sorted { folder1, folder2 in
                     switch sortOption.folderSort {
                     case .name:
@@ -101,6 +111,23 @@ final class LibraryViewModel {
                     }
                 }
         }
+
+        // Hide folders with no matching videos when filter is active
+        if libraryType == .saved && videoFilter != .all {
+            folders = folders.filter { folder in
+                let folderVideos = folderManager.store.getVideos(in: folder.path)
+                switch videoFilter {
+                case .processed:
+                    return folderVideos.contains { !$0.processedVideoIds.isEmpty }
+                case .unprocessed:
+                    return folderVideos.contains { $0.processedVideoIds.isEmpty }
+                case .all:
+                    return true
+                }
+            }
+        }
+
+        return folders
     }
 
     var filteredVideos: [VideoMetadata] {
@@ -123,7 +150,18 @@ final class LibraryViewModel {
                 }
         }
 
-        // No filter needed - library separation handles this
+        // Apply video filter (only for saved library)
+        if libraryType == .saved {
+            switch videoFilter {
+            case .all:
+                break
+            case .processed:
+                videos = videos.filter { !$0.processedVideoIds.isEmpty }
+            case .unprocessed:
+                videos = videos.filter { $0.processedVideoIds.isEmpty }
+            }
+        }
+
         return videos
     }
 
@@ -131,7 +169,8 @@ final class LibraryViewModel {
     var breadcrumbs: [BSCBreadcrumb.Crumb] {
         // Use relative path for breadcrumbs, with library name as root
         let relativePath = folderManager.currentRelativePath
-        return BSCBreadcrumb.crumbs(from: relativePath, rootName: libraryType.displayName)
+        let rootName = libraryType == .saved ? "Library" : libraryType.displayName
+        return BSCBreadcrumb.crumbs(from: relativePath, rootName: rootName)
     }
 
     // MARK: - Initialization

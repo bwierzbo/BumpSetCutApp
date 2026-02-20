@@ -13,18 +13,21 @@ import Observation
 enum LibraryType: String, Codable, CaseIterable {
     case saved = "saved"
     case processed = "processed"
+    case favorites = "favorites"
 
     var rootPath: String {
         switch self {
         case .saved: return "SavedGames"
         case .processed: return "ProcessedGames"
+        case .favorites: return "FavoriteRallies"
         }
     }
 
     var displayName: String {
         switch self {
-        case .saved: return "Saved Games"
+        case .saved: return "Library"
         case .processed: return "Processed Games"
+        case .favorites: return "Favorite Rallies"
         }
     }
 }
@@ -88,6 +91,10 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
     // Volleyball type (nil for legacy videos)
     var volleyballType: VolleyballType?
 
+    // Favorite source tracking (for syncing unfavorite back to rally player)
+    var sourceVideoId: UUID?
+    var sourceRallyIndex: Int?
+
     // Custom decoder to handle backwards compatibility
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -119,6 +126,10 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
 
         // Volleyball type with default for backwards compatibility
         volleyballType = try container.decodeIfPresent(VolleyballType.self, forKey: .volleyballType)
+
+        // Favorite source tracking with defaults for backwards compatibility
+        sourceVideoId = try container.decodeIfPresent(UUID.self, forKey: .sourceVideoId)
+        sourceRallyIndex = try container.decodeIfPresent(Int.self, forKey: .sourceRallyIndex)
     }
     
     // Custom encoder
@@ -152,6 +163,10 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
 
         // Volleyball type
         try container.encodeIfPresent(volleyballType, forKey: .volleyballType)
+
+        // Favorite source tracking
+        try container.encodeIfPresent(sourceVideoId, forKey: .sourceVideoId)
+        try container.encodeIfPresent(sourceRallyIndex, forKey: .sourceRallyIndex)
     }
     
     // CodingKeys enum for custom coding
@@ -161,6 +176,7 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         case isProcessed, processedDate, originalVideoId, processedVideoIds
         case hasProcessingMetadata, metadataCreatedDate, metadataFileSize
         case volleyballType
+        case sourceVideoId, sourceRallyIndex
     }
     
     var displayName: String {
@@ -224,7 +240,8 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.hasProcessingMetadata = false
         self.metadataCreatedDate = nil
         self.metadataFileSize = nil
-        self.volleyballType = nil
+        self.sourceVideoId = nil
+        self.sourceRallyIndex = nil
     }
 
     init(fileName: String, customName: String?, folderPath: String, createdDate: Date, fileSize: Int64, duration: TimeInterval?) {
@@ -247,6 +264,8 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.metadataCreatedDate = nil
         self.metadataFileSize = nil
         self.volleyballType = nil
+        self.sourceVideoId = nil
+        self.sourceRallyIndex = nil
     }
     
     // Debug data management methods
@@ -727,7 +746,7 @@ extension MediaStore {
         return true
     }
     
-    func addVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, volleyballType: VolleyballType? = nil) -> Bool {
+    func addVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, volleyballType: VolleyballType? = nil, sourceVideoId: UUID? = nil, sourceRallyIndex: Int? = nil) -> Bool {
         let videoKey = url.lastPathComponent
         print("📹 MediaStore.addVideo called:")
         print("   - URL: \(url)")
@@ -744,7 +763,7 @@ extension MediaStore {
         }
         print("✅ File attributes retrieved, size: \(fileSize) bytes")
         
-        let videoMetadata = VideoMetadata(
+        var videoMetadata = VideoMetadata(
             originalURL: url,
             customName: customName,
             folderPath: folderPath,
@@ -753,7 +772,9 @@ extension MediaStore {
             duration: nil, // Can be populated later if needed
             volleyballType: volleyballType
         )
-        
+        videoMetadata.sourceVideoId = sourceVideoId
+        videoMetadata.sourceRallyIndex = sourceRallyIndex
+
         manifest.videos[videoKey] = videoMetadata
         print("✅ Video metadata added to manifest with key: '\(videoKey)'")
         

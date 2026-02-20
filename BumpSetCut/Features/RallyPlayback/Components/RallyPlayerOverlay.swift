@@ -6,6 +6,7 @@ struct RallyPlayerOverlay: View {
     let totalCount: Int
     let isSaved: Bool
     let isRemoved: Bool
+    var isFavorited: Bool = false
     let onDismiss: () -> Void
     var onShowTips: () -> Void = {}
     var onShowOverview: () -> Void = {}
@@ -39,7 +40,7 @@ struct RallyPlayerOverlay: View {
             Image(systemName: "questionmark.circle")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundColor(.white.opacity(0.7))
-                .frame(width: 36, height: 36)
+                .frame(width: 44, height: 44)
                 .background(
                     Circle()
                         .fill(Color.white.opacity(0.1))
@@ -77,6 +78,12 @@ struct RallyPlayerOverlay: View {
     private var rallyCounter: some View {
         Button(action: onShowOverview) {
             HStack(spacing: BSCSpacing.xxs) {
+                if isFavorited {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.bscPrimary)
+                }
+
                 Text("\(currentIndex + 1)")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
@@ -97,7 +104,7 @@ struct RallyPlayerOverlay: View {
                     .fill(Color.bscSurfaceGlass)
                     .overlay(
                         Capsule()
-                            .stroke(statusBorderColor, lineWidth: isSaved || isRemoved ? 2 : 1)
+                            .stroke(statusBorderColor, lineWidth: isSaved || isRemoved || isFavorited ? 2 : 1)
                     )
             )
         }
@@ -106,10 +113,13 @@ struct RallyPlayerOverlay: View {
         .animation(.easeInOut(duration: 0.25), value: currentIndex)
         .animation(.easeInOut(duration: 0.2), value: isSaved)
         .animation(.easeInOut(duration: 0.2), value: isRemoved)
+        .animation(.easeInOut(duration: 0.2), value: isFavorited)
     }
 
     private var statusBorderColor: Color {
-        if isSaved {
+        if isFavorited {
+            return .bscPrimary.opacity(0.6)
+        } else if isSaved {
             return .bscSuccess.opacity(0.6)
         } else if isRemoved {
             return .bscError.opacity(0.6)

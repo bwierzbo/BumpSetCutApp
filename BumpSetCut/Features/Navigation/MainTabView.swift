@@ -52,6 +52,7 @@ struct MainTabView: View {
                     Image(systemName: "house.fill")
                     Text("Home")
                 }
+                .accessibilityIdentifier(AccessibilityID.Tab.home)
 
                 // Feed
                 NavigationStack {
@@ -68,6 +69,7 @@ struct MainTabView: View {
                     Image(systemName: "flame.fill")
                     Text("Feed")
                 }
+                .accessibilityIdentifier(AccessibilityID.Tab.feed)
 
                 // Search
                 NavigationStack {
@@ -78,6 +80,7 @@ struct MainTabView: View {
                     Image(systemName: "magnifyingglass")
                     Text("Search")
                 }
+                .accessibilityIdentifier(AccessibilityID.Tab.search)
 
                 // Profile
                 NavigationStack {
@@ -88,8 +91,9 @@ struct MainTabView: View {
                     Image(systemName: "person.fill")
                     Text("Profile")
                 }
+                .accessibilityIdentifier(AccessibilityID.Tab.profile)
             }
-            .tint(.bscOrange)
+            .tint(.bscPrimary)
 
             // Floating processing progress pill
             if processingCoordinator.isProcessing || processingCoordinator.showCompletionPill {
@@ -166,13 +170,13 @@ struct MainTabView: View {
 
                         Circle()
                             .trim(from: 0, to: processingCoordinator.progress)
-                            .stroke(Color.bscOrange, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .stroke(Color.bscPrimary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                             .frame(width: 24, height: 24)
                             .rotationEffect(.degrees(-90))
 
                         Text("\(processingCoordinator.progressPercent)")
                             .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .foregroundColor(.bscOrange)
+                            .foregroundColor(.bscPrimary)
                     }
 
                     VStack(alignment: .leading, spacing: 1) {
@@ -182,7 +186,7 @@ struct MainTabView: View {
                                 .foregroundColor(.bscTextPrimary)
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.system(size: 9))
-                                .foregroundColor(.bscOrange)
+                                .foregroundColor(.bscWarning)
                         }
 
                         Text("Keep app open \u{2022} \(processingCoordinator.videoName)")
@@ -195,7 +199,7 @@ struct MainTabView: View {
 
                     Text("\(processingCoordinator.progressPercent)%")
                         .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .foregroundColor(.bscOrange)
+                        .foregroundColor(.bscPrimary)
                 }
             }
             .padding(.horizontal, BSCSpacing.md)
@@ -221,7 +225,7 @@ struct MainTabView: View {
         HStack(spacing: BSCSpacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 16))
-                .foregroundColor(.orange)
+                .foregroundColor(.bscWarning)
 
             Text("Storage nearly full — \(StorageChecker.formatBytes(lowStorageAvailable)) remaining. Free up space to avoid issues.")
                 .font(.system(size: 12, weight: .medium))
@@ -250,7 +254,7 @@ struct MainTabView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                .stroke(Color.orange.opacity(0.4), lineWidth: 1)
+                .stroke(Color.bscWarning.opacity(0.4), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
         .padding(.horizontal, BSCSpacing.lg)

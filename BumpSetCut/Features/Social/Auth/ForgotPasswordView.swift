@@ -87,7 +87,7 @@ struct ForgotPasswordView: View {
             }
         }
         .font(.system(size: 48, weight: .light))
-        .foregroundColor(saved ? .bscSuccess : .bscOrange)
+        .foregroundColor(saved ? .bscSuccess : .bscPrimary)
     }
 
     private var headerText: some View {
@@ -182,7 +182,7 @@ struct ForgotPasswordView: View {
                             .overlay(
                                 RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
                                     .stroke(
-                                        index == otpCode.count ? Color.bscOrange : Color.white.opacity(0.15),
+                                        index == otpCode.count ? Color.bscPrimary : Color.white.opacity(0.15),
                                         lineWidth: index == otpCode.count ? 2 : 1
                                     )
                             )
@@ -215,7 +215,7 @@ struct ForgotPasswordView: View {
             } label: {
                 Text("Resend code")
                     .font(.system(size: 13))
-                    .foregroundColor(.bscOrange)
+                    .foregroundColor(.bscPrimary)
             }
             .buttonStyle(.plain)
         }
@@ -251,10 +251,10 @@ struct ForgotPasswordView: View {
                     HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: passwordsMatch ? "checkmark.circle.fill" : "xmark.circle.fill")
                             .font(.system(size: 12))
-                            .foregroundColor(passwordsMatch ? .bscSuccess : .red)
+                            .foregroundColor(passwordsMatch ? .bscSuccess : .bscError)
                         Text(passwordsMatch ? "Passwords match" : "Passwords do not match")
                             .font(.system(size: 12))
-                            .foregroundColor(passwordsMatch ? .bscTextSecondary : .red)
+                            .foregroundColor(passwordsMatch ? .bscTextSecondary : .bscError)
                     }
                 }
 
@@ -278,7 +278,7 @@ struct ForgotPasswordView: View {
         if let errorMessage {
             Text(errorMessage)
                 .font(.system(size: 13))
-                .foregroundColor(.red)
+                .foregroundColor(.bscError)
         }
     }
 
@@ -296,7 +296,7 @@ struct ForgotPasswordView: View {
             .foregroundColor(.black)
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(Color.bscOrange)
+            .background(Color.bscPrimary)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
         }
         .disabled(disabled)

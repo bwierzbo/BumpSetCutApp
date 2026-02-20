@@ -34,20 +34,40 @@ extension Color {
 
 // MARK: - Brand Colors
 extension Color {
-    /// Primary Brand - Volleyball Orange (energetic, athletic)
-    static let bscOrange = Color(hex: "#FF6B35")
-    static let bscOrangeBright = Color(hex: "#FF8C5A")
-    static let bscOrangeDark = Color(hex: "#E55A28")
-
-    /// Secondary - Electric Blue (dynamic, tech-forward)
+    /// Primary Brand - Blue (aligned to logo, dynamic, tech-forward)
     static let bscBlue = Color(hex: "#3B82F6")
     static let bscBlueBright = Color(hex: "#60A5FA")
     static let bscBlueDark = Color(hex: "#2563EB")
+
+    /// Secondary - Warm Orange (energetic accent, badges, highlights)
+    static let bscOrange = Color(hex: "#FF6B35")
+    static let bscOrangeBright = Color(hex: "#FF8C5A")
+    static let bscOrangeDark = Color(hex: "#E55A28")
 
     /// Accent - Vibrant Teal (fresh, active)
     static let bscTeal = Color(hex: "#14B8A6")
     static let bscTealBright = Color(hex: "#2DD4BF")
     static let bscTealDark = Color(hex: "#0D9488")
+}
+
+// MARK: - Semantic Primary Colors
+extension Color {
+    /// The current primary brand color used throughout the app.
+    static let bscPrimary = Color.bscBlue
+    static let bscPrimaryBright = Color.bscBlueBright
+    static let bscPrimaryDark = Color.bscBlueDark
+
+    /// Primary for text usage — darker blue that passes WCAG AA on light backgrounds
+    static let bscPrimaryText = Color(light: Color(hex: "#2563EB"), dark: Color(hex: "#60A5FA"))
+
+    /// Subtle tinted background using the primary color
+    static let bscPrimarySubtle = Color(
+        light: Color(hex: "#3B82F6").opacity(0.10),
+        dark: Color(hex: "#3B82F6").opacity(0.15)
+    )
+
+    /// Warm accent (demoted orange — for special callouts, favorites)
+    static let bscWarmAccent = Color.bscOrange
 }
 
 // MARK: - Surface Colors (Adaptive)
@@ -85,7 +105,7 @@ extension Color {
     /// Tertiary text - Low emphasis, hints
     static let bscTextTertiary = Color(light: Color(hex: "#9E9EA8"), dark: Color(hex: "#71717A"))
 
-    /// Inverse text - For use on light/colored backgrounds
+    /// Inverse text - For use on dark/colored backgrounds
     static let bscTextInverse = Color(light: Color(hex: "#F1EFEF"), dark: Color(hex: "#0D0D0E"))
 }
 
@@ -106,6 +126,10 @@ extension Color {
     /// Info - Information, neutral highlights
     static let bscInfo = Color(hex: "#3B82F6")
     static let bscInfoSubtle = Color(hex: "#3B82F6").opacity(0.15)
+
+    /// Contrast-safe text variants for status colors in light mode
+    static let bscSuccessText = Color(light: Color(hex: "#16A34A"), dark: Color(hex: "#22C55E"))
+    static let bscErrorText = Color(light: Color(hex: "#DC2626"), dark: Color(hex: "#EF4444"))
 }
 
 // MARK: - Processing Status Colors
@@ -114,24 +138,24 @@ extension Color {
     static let bscStatusOriginal = Color.bscTeal.opacity(0.8)
 
     /// Processed video - Has AI-detected rallies
-    static let bscStatusProcessed = Color.bscOrange
+    static let bscStatusProcessed = Color.bscBlue
 
     /// Has versions - Multiple processed variants
-    static let bscStatusVersioned = Color.bscBlue
+    static let bscStatusVersioned = Color.bscTeal
 }
 
 // MARK: - Gradient Definitions
 extension LinearGradient {
-    /// Primary action gradient (energetic sports feel)
+    /// Primary action gradient (blue brand feel)
     static let bscPrimaryGradient = LinearGradient(
-        colors: [Color.bscOrange, Color.bscOrangeDark],
+        colors: [Color.bscBlue, Color.bscBlueDark],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
 
-    /// Hero/header gradient (warm to cool transition)
+    /// Hero/header gradient (blue to teal transition)
     static let bscHeroGradient = LinearGradient(
-        colors: [Color.bscOrange.opacity(0.8), Color.bscBlue.opacity(0.6)],
+        colors: [Color.bscBlue.opacity(0.8), Color.bscTeal.opacity(0.6)],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
@@ -163,12 +187,19 @@ extension LinearGradient {
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
+
+    /// Warm accent gradient (for special callouts, badges)
+    static let bscWarmGradient = LinearGradient(
+        colors: [Color.bscOrange, Color.bscOrangeDark],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
 }
 
 // MARK: - Radial Gradients
 extension RadialGradient {
-    /// Glow effect for buttons and cards
-    static func bscGlow(color: Color = .bscOrange) -> RadialGradient {
+    /// Glow effect for buttons and cards — defaults to primary blue
+    static func bscGlow(color: Color = .bscPrimary) -> RadialGradient {
         RadialGradient(
             colors: [color.opacity(0.4), color.opacity(0)],
             center: .center,
@@ -181,8 +212,11 @@ extension RadialGradient {
 // MARK: - Design System Namespace
 enum BSCColors {
     // Brand
-    static let primary = Color.bscOrange
-    static let secondary = Color.bscBlue
+    static let primary = Color.bscPrimary
+    static let primaryText = Color.bscPrimaryText
+    static let primarySubtle = Color.bscPrimarySubtle
+    static let warmAccent = Color.bscWarmAccent
+    static let secondary = Color.bscOrange
     static let accent = Color.bscTeal
 
     // Backgrounds

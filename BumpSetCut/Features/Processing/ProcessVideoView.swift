@@ -231,7 +231,7 @@ private extension ProcessVideoView {
             HStack(spacing: BSCSpacing.xs) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
-                    .foregroundColor(.bscOrange)
+                    .foregroundColor(.bscWarning)
                 Text("Keep BumpSetCut open while processing. Switching apps may interrupt the analysis.")
                     .font(.system(size: 12))
                     .foregroundColor(.bscTextTertiary)
@@ -271,7 +271,7 @@ private extension ProcessVideoView {
                     VStack(spacing: BSCSpacing.xxs) {
                         Text("\(viewModel.detectedRallyCount)")
                             .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.bscOrange)
+                            .foregroundColor(.bscPrimary)
                         Text(viewModel.detectedRallyCount == 1 ? "Rally" : "Rallies")
                             .font(.system(size: 12))
                             .foregroundColor(.bscTextSecondary)
@@ -334,12 +334,12 @@ private extension ProcessVideoView {
         VStack(spacing: BSCSpacing.lg) {
             ZStack {
                 Circle()
-                    .fill(Color.bscOrange.opacity(0.15))
+                    .fill(Color.bscWarning.opacity(0.15))
                     .frame(width: 80, height: 80)
 
                 Image(systemName: "volleyball.fill")
                     .font(.system(size: 40))
-                    .foregroundColor(.bscOrange)
+                    .foregroundColor(.bscWarning)
             }
 
             VStack(spacing: BSCSpacing.sm) {
@@ -373,7 +373,7 @@ private extension ProcessVideoView {
         HStack(alignment: .top, spacing: BSCSpacing.sm) {
             Image(systemName: icon)
                 .font(.system(size: 14))
-                .foregroundColor(.bscOrange)
+                .foregroundColor(.bscPrimary)
                 .frame(width: 20)
             Text(text)
                 .font(.system(size: 13))
@@ -410,7 +410,7 @@ private extension ProcessVideoView {
                     VStack(spacing: BSCSpacing.xxs) {
                         Text("\(viewModel.detectedRallyCount)")
                             .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.bscOrange)
+                            .foregroundColor(.bscPrimary)
                         Text(viewModel.detectedRallyCount == 1 ? "Rally" : "Rallies")
                             .font(.system(size: 12))
                             .foregroundColor(.bscTextSecondary)
@@ -537,7 +537,7 @@ private extension ProcessVideoView {
                 // Another video is processing — block concurrent processing
                 HStack(spacing: BSCSpacing.sm) {
                     ProgressView()
-                        .tint(.bscOrange)
+                        .tint(.bscPrimary)
                     Text("Another video is processing...")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.bscTextSecondary)
@@ -774,7 +774,7 @@ struct ProcessedFolderSelectionSheet: View {
                                     .padding(.vertical, BSCSpacing.sm)
 
                                 ForEach(folders, id: \.id) { folder in
-                                    folderRow(name: folder.name, path: folder.path, icon: "folder.fill", color: .bscOrange)
+                                    folderRow(name: folder.name, path: folder.path, icon: "folder.fill", color: .bscPrimary)
                                 }
                             }
                         }

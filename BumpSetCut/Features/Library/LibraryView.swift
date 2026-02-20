@@ -31,8 +31,8 @@ struct LibraryView: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // Main content - only wrap with DropZoneView in saved library
                     if viewModel.libraryType == .saved {
+                        // Main content with drop zone
                         DropZoneView(
                             uploadCoordinator: viewModel.uploadCoordinator,
                             destinationFolder: viewModel.currentPath
@@ -121,14 +121,26 @@ struct LibraryView: View {
 private extension LibraryView {
     @ViewBuilder
     var emptyStateForLibraryType: some View {
-        switch viewModel.libraryType {
-        case .saved:
+        if viewModel.videoFilter != .all {
+            // Filtered empty state
+            BSCEmptyState(
+                icon: viewModel.videoFilter == .processed ? "checkmark.seal" : "video.circle",
+                title: "No \(viewModel.videoFilter.rawValue) Videos",
+                message: viewModel.videoFilter == .processed
+                    ? "Process a video to see it here."
+                    : "All your videos have been processed!",
+                actionTitle: "Show All",
+                onAction: { viewModel.videoFilter = .all }
+            )
+        } else if viewModel.libraryType == .favorites {
+            BSCEmptyState(
+                icon: "star",
+                title: "No Favorites Yet",
+                message: "Favorite rallies from the rally viewer to see them here."
+            )
+        } else {
             BSCEmptyState.emptyFolder(onUpload: {
                 showingPhotoPicker = true
-            })
-        case .processed:
-            BSCEmptyState.noProcessedVideos(onViewLibrary: {
-                dismiss()
             })
         }
     }
@@ -181,17 +193,58 @@ private extension LibraryView {
     func contentHeader(geometry: GeometryProxy) -> some View {
         let isLandscape = geometry.size.width > geometry.size.height
 
-        return HStack {
-            VStack(alignment: .leading, spacing: BSCSpacing.xs) {
-                Text(viewModel.title)
-                    .font(.system(size: isLandscape ? 24 : 28, weight: .bold))
-                    .foregroundColor(.bscTextPrimary)
+        return VStack(alignment: .leading, spacing: BSCSpacing.md) {
+            HStack {
+                VStack(alignment: .leading, spacing: BSCSpacing.xs) {
+                    Text(viewModel.title)
+                        .font(.system(size: isLandscape ? 24 : 28, weight: .bold))
+                        .foregroundColor(.bscTextPrimary)
 
-                if !viewModel.subtitle.isEmpty {
-                    Text(viewModel.subtitle)
-                        .font(.system(size: 13))
-                        .foregroundColor(.bscTextSecondary)
+                    if !viewModel.subtitle.isEmpty {
+                        Text(viewModel.subtitle)
+                            .font(.system(size: 13))
+                            .foregroundColor(.bscTextSecondary)
+                    }
                 }
+                Spacer()
+            }
+
+            // Filter chips (only at root level of saved library)
+            if viewModel.isAtRoot && viewModel.libraryType == .saved {
+                filterChips
+            }
+        }
+    }
+
+    var filterChips: some View {
+        HStack(spacing: BSCSpacing.sm) {
+            ForEach(VideoFilter.allCases, id: \.self) { filter in
+                Button {
+                    withAnimation(.bscBounce) {
+                        viewModel.videoFilter = filter
+                    }
+                } label: {
+                    Text(filter.rawValue)
+                        .font(.system(size: 13, weight: viewModel.videoFilter == filter ? .semibold : .medium))
+                        .foregroundColor(viewModel.videoFilter == filter ? .bscTextInverse : .bscTextSecondary)
+                        .padding(.horizontal, BSCSpacing.md)
+                        .padding(.vertical, BSCSpacing.sm)
+                        .background(
+                            Capsule()
+                                .fill(viewModel.videoFilter == filter ? Color.bscPrimary : Color.bscSurfaceGlass)
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(viewModel.videoFilter == filter ? Color.clear : Color.bscSurfaceBorder, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(filter.rawValue) videos\(viewModel.videoFilter == filter ? ", selected" : "")")
+                .accessibilityIdentifier(
+                    filter.rawValue == "All" ? AccessibilityID.Library.filterAll :
+                    filter.rawValue == "Processed" ? AccessibilityID.Library.filterProcessed :
+                    AccessibilityID.Library.filterUnprocessed
+                )
             }
             Spacer()
         }
@@ -204,6 +257,7 @@ private extension LibraryView {
         if viewModel.isEmpty {
             if viewModel.searchText.isEmpty {
                 emptyStateForLibraryType
+                    .accessibilityIdentifier(AccessibilityID.Library.emptyState)
                     .padding(.top, BSCSpacing.xxl)
             } else {
                 BSCEmptyState.noSearchResults(query: viewModel.searchText, onClear: {
@@ -246,7 +300,7 @@ private extension LibraryView {
     }
 
     var foldersList: some View {
-        VStack(spacing: BSCSpacing.sm) {
+        LazyVStack(spacing: BSCSpacing.sm) {
             ForEach(viewModel.filteredFolders, id: \.id) { folder in
                 BSCFolderCard(
                     folder: folder,
@@ -328,7 +382,7 @@ private extension LibraryView {
     }
 
     var videosList: some View {
-        VStack(spacing: BSCSpacing.sm) {
+        LazyVStack(spacing: BSCSpacing.sm) {
             ForEach(viewModel.filteredVideos, id: \.id) { video in
                 BSCVideoCard(
                     video: video,
@@ -344,7 +398,7 @@ private extension LibraryView {
                     onMove: { targetFolder in
                         Task { try await viewModel.moveVideo(video, to: targetFolder) }
                     },
-                    libraryType: viewModel.libraryType
+
                 )
                 .draggable(video)  // Make videos draggable
             }
@@ -371,7 +425,7 @@ private extension LibraryView {
                     onMove: { targetFolder in
                         Task { try await viewModel.moveVideo(video, to: targetFolder) }
                     },
-                    libraryType: viewModel.libraryType
+
                 )
                 .draggable(video)  // Make videos draggable
             }
@@ -442,17 +496,20 @@ private extension LibraryView {
                         .foregroundColor(.bscTextSecondary)
                         .frame(width: 32, height: 32)
                 }
+                .accessibilityLabel("Sort and view options")
+                .accessibilityIdentifier(AccessibilityID.Library.sortMenu)
 
-                // Create folder - only at root (max depth = 1)
-                if viewModel.isAtRoot {
-                    BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact) {
-                        viewModel.showingCreateFolder = true
-                    }
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-
-                // Upload - only in saved library
                 if viewModel.libraryType == .saved {
+                    // Create folder - only at root (max depth = 1)
+                    if viewModel.isAtRoot {
+                        BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact, accessibilityLabel: "Create new folder") {
+                            viewModel.showingCreateFolder = true
+                        }
+                        .accessibilityIdentifier(AccessibilityID.Library.createFolder)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
+
+                    // Upload
                     EnhancedUploadButton(
                         uploadCoordinator: viewModel.uploadCoordinator,
                         destinationFolder: viewModel.currentPath
@@ -477,6 +534,7 @@ private extension LibraryView {
 
                     TextField("Enter folder name", text: $viewModel.newFolderName)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(AccessibilityID.Library.folderNameField)
                         .onSubmit {
                             createFolder()
                         }
@@ -502,7 +560,7 @@ private extension LibraryView {
                         createFolder()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(.bscOrange)
+                    .foregroundColor(.bscPrimary)
                     .disabled(viewModel.newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
@@ -517,12 +575,7 @@ private extension LibraryView {
 }
 
 // MARK: - Preview
-#Preview("Saved Games Library") {
-    LibraryView(mediaStore: MediaStore(), libraryType: .saved)
-        .environmentObject(AppSettings.shared)
-}
-
-#Preview("Processed Games Library") {
-    LibraryView(mediaStore: MediaStore(), libraryType: .processed)
-        .environmentObject(AppSettings.shared)
+#Preview("Library") {
+    LibraryView(mediaStore: MediaStore())
+        .environment(AppSettings.shared)
 }
