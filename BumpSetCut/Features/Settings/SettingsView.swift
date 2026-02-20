@@ -19,6 +19,8 @@ struct SettingsView: View {
     @State private var isDeletingAccount = false
     @State private var deleteError: String?
     @State private var subscriptionService = SubscriptionService.shared
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var isLandscape: Bool { verticalSizeClass == .compact }
 
     var body: some View {
         NavigationStack {
@@ -88,6 +90,8 @@ struct SettingsView: View {
                         Spacer(minLength: BSCSpacing.huge)
                     }
                     .padding(BSCSpacing.lg)
+                    .frame(maxWidth: isLandscape ? 600 : .infinity)
+                    .frame(maxWidth: .infinity)
                 }
             }
             .navigationTitle("Settings")

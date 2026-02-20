@@ -17,6 +17,8 @@ struct LibraryView: View {
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var videoNameInput = ""
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var isLandscape: Bool { verticalSizeClass == .compact }
 
     init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
         self._viewModel = State(wrappedValue: LibraryViewModel(mediaStore: mediaStore, libraryType: libraryType))
@@ -158,7 +160,9 @@ private extension LibraryView {
                     // Content
                     contentBody(geometry: geometry)
                 }
-                .padding(geometry.size.width > geometry.size.height ? BSCSpacing.xl : BSCSpacing.lg)
+                .padding(isLandscape ? BSCSpacing.xl : BSCSpacing.lg)
+                .frame(maxWidth: isLandscape ? 700 : .infinity)
+                .frame(maxWidth: .infinity)
             }
             .background(Color.bscBackground)
             .toolbar { toolbarContent }

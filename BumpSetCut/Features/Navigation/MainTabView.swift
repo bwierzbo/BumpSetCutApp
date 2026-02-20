@@ -204,7 +204,7 @@ struct MainTabView: View {
             }
             .padding(.horizontal, BSCSpacing.md)
             .padding(.vertical, BSCSpacing.sm)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: 500)
             .background(
                 RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
                     .fill(Color.bscBackgroundElevated)
@@ -247,7 +247,7 @@ struct MainTabView: View {
         }
         .padding(.horizontal, BSCSpacing.md)
         .padding(.vertical, BSCSpacing.sm)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: 500)
         .background(
             RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
                 .fill(Color.bscBackgroundElevated)

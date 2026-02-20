@@ -264,6 +264,8 @@ struct HomeView: View {
                     animatedContent(contentWidth: contentWidth)
                     Spacer(minLength: BSCSpacing.md)
                 }
+                .frame(maxWidth: 500)
+                .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
