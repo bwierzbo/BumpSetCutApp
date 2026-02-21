@@ -25,4 +25,21 @@ struct FavoritesScreen {
     var rallyCount: XCUIElement {
         app.descendants(matching: .any)["favorites.rallyCount"]
     }
+
+    // Feed elements
+    var feedCloseButton: XCUIElement {
+        app.buttons["favorites.feed.close"]
+    }
+
+    var feedCounter: XCUIElement {
+        app.descendants(matching: .any)["favorites.feed.counter"]
+    }
+
+    var feedPauseIcon: XCUIElement {
+        app.images["favorites.feed.pauseIcon"]
+    }
+
+    var feedVideoName: XCUIElement {
+        app.descendants(matching: .any)["favorites.feed.videoName"]
+    }
 }

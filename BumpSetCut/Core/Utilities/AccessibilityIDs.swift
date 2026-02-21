@@ -65,6 +65,10 @@ enum AccessibilityID {
         static let sortMenu = "favorites.sortMenu"
         static let createFolder = "favorites.createFolder"
         static let rallyCount = "favorites.rallyCount"
+        static let feedClose = "favorites.feed.close"
+        static let feedCounter = "favorites.feed.counter"
+        static let feedPauseIcon = "favorites.feed.pauseIcon"
+        static let feedVideoName = "favorites.feed.videoName"
     }
 
     enum AuthGate {

@@ -452,6 +452,7 @@ struct FavoritesFeedView: View {
                                 .padding(.vertical, BSCSpacing.xs)
                                 .background(.ultraThinMaterial.opacity(0.8))
                                 .clipShape(Capsule())
+                                .accessibilityIdentifier(AccessibilityID.Favorites.feedCounter)
                         }
 
                         Spacer()
@@ -462,6 +463,7 @@ struct FavoritesFeedView: View {
                                 .foregroundColor(.white.opacity(0.8))
                                 .shadow(radius: 4)
                         }
+                        .accessibilityIdentifier(AccessibilityID.Favorites.feedClose)
                     }
                     .padding(.horizontal, BSCSpacing.md)
                     .padding(.top, BSCSpacing.md)
@@ -475,6 +477,7 @@ struct FavoritesFeedView: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(.white)
                                 .lineLimit(1)
+                                .accessibilityIdentifier(AccessibilityID.Favorites.feedVideoName)
                         }
                         Spacer()
                     }
@@ -491,6 +494,7 @@ struct FavoritesFeedView: View {
                     .shadow(radius: 8)
                     .allowsHitTesting(false)
                     .transition(.opacity)
+                    .accessibilityIdentifier(AccessibilityID.Favorites.feedPauseIcon)
             }
 
             // Trim overlay

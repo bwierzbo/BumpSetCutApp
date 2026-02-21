@@ -445,6 +445,24 @@ struct FolderManifest: Codable {
            let videoMeta = manifest.videos[videoKey] {
             injectPreProcessedMetadata(metadataTemplatePath: metadataPath, videoMetadata: videoMeta)
         }
+
+        // Inject a favorite video if provided (for favorites UI tests)
+        if let favVideoPath = ProcessInfo.processInfo.environment["TEST_FAVORITES_VIDEO_PATH"],
+           FileManager.default.fileExists(atPath: favVideoPath) {
+            let favSourceURL = URL(fileURLWithPath: favVideoPath)
+            let favDir = baseDirectory.appendingPathComponent(LibraryType.favorites.rootPath)
+            try? FileManager.default.createDirectory(at: favDir, withIntermediateDirectories: true)
+            let favDestURL = favDir.appendingPathComponent("fav_" + favSourceURL.lastPathComponent)
+
+            if !FileManager.default.fileExists(atPath: favDestURL.path) {
+                try? FileManager.default.createSymbolicLink(at: favDestURL, withDestinationURL: favSourceURL)
+            }
+
+            let favVideoKey = favDestURL.lastPathComponent
+            if manifest.videos[favVideoKey] == nil {
+                _ = addVideo(at: favDestURL, toFolder: LibraryType.favorites.rootPath, customName: "Test Favorite Rally")
+            }
+        }
     }
 
     /// Inject a pre-processed metadata JSON template, replacing the videoId with the actual video's UUID.
