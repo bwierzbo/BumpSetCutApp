@@ -13,7 +13,7 @@ final class SettingsAccountTests: BSCUITestCase {
     override func setUpWithError() throws {
         try super.setUpWithError()
         // Navigate to settings
-        let settingsButton = app.descendants(matching: .any)["home.settings"]
+        let settingsButton = app.descendants(matching: .any)["home.settings"].firstMatch
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
         settingsButton.tap()
     }
@@ -30,7 +30,7 @@ final class SettingsAccountTests: BSCUITestCase {
 
         let hasAccountSection = signOut.waitForExistence(timeout: 3) || signIn.waitForExistence(timeout: 3)
         // Some version of account info should be present
-        XCTAssertTrue(true, "Settings should display account section")
+        XCTAssertTrue(hasAccountSection, "Settings should display account section")
     }
 
     // MARK: - Sign Out (14.5.2)
@@ -71,7 +71,7 @@ final class SettingsAccountTests: BSCUITestCase {
         doneButton.tap()
 
         // Should dismiss settings
-        let homeButton = app.descendants(matching: .any)["home.viewLibrary"]
+        let homeButton = app.descendants(matching: .any)["home.viewLibrary"].firstMatch
         XCTAssertTrue(homeButton.waitForExistence(timeout: 5),
                        "Should return to home after dismissing settings")
     }

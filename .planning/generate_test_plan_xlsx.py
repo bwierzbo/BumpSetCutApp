@@ -422,7 +422,7 @@ sections = [
                 "name": "9.1 Feed Display",
                 "tests": [
                     ("TC-138", "Authenticated → highlights load", "Sign in, tap Feed — content loads"),
-                    ("TC-139", "TikTok-style vertical scroll", "Snap-to-page behavior on scroll"),
+                    ("TC-139", "Vertical scroll with snap-to-page", "Snap-to-page behavior on scroll"),
                     ("TC-140", "Card shows video, author, buttons, caption", "All elements visible per card"),
                     ("TC-141", '"For You" / "Following" tabs work', "Switch tabs — different content loads"),
                     ("TC-142", "Empty Following → prompt shown", 'No follows — "follow users" message'),

@@ -68,7 +68,7 @@ BumpSetCut/
 - Key files: `BumpSetCut/Features/Library/LibraryViewModel.swift`, `BumpSetCut/Features/Library/Upload/UploadProgressPopup.swift`
 
 **Features/RallyPlayback/:**
-- Purpose: TikTok-style rally viewer
+- Purpose: Full-screen rally viewer
 - Contains: Player view model, player components, export functionality, caching services
 - Key files: `BumpSetCut/Features/RallyPlayback/RallyPlayerViewModel.swift`, `BumpSetCut/Features/RallyPlayback/Services/RallyPlayerCache.swift`
 

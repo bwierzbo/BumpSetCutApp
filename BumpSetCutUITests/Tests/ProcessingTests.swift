@@ -20,8 +20,8 @@ final class ProcessingTests: VideoTestCase {
         tapFirstVideoCard()
 
         // Wait for processing screen to load
-        let title = app.staticTexts["Rally Detection"]
-        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertTrue(processScreen.startButton.waitForExistence(timeout: 10),
+                       "Processing screen should show start button")
     }
 
     func testReadyStateShown() {
@@ -49,7 +49,7 @@ final class ProcessingTests: VideoTestCase {
 
         // Should return (dismiss). Verify by checking we're back at library or home.
         let libraryExists = app.staticTexts["Test Rally Video"].waitForExistence(timeout: 5)
-        let homeExists = app.descendants(matching: .any)["home.viewLibrary"].waitForExistence(timeout: 5)
+        let homeExists = app.descendants(matching: .any)["home.viewLibrary"].firstMatch.waitForExistence(timeout: 5)
         XCTAssertTrue(libraryExists || homeExists, "Should navigate back after cancelling")
     }
 
@@ -139,7 +139,7 @@ final class ProcessingTests: VideoTestCase {
 
             // Should dismiss back to library or home
             let libraryExists = app.staticTexts["Test Rally Video"].waitForExistence(timeout: 5)
-            let homeExists = app.descendants(matching: .any)["home.viewLibrary"].waitForExistence(timeout: 5)
+            let homeExists = app.descendants(matching: .any)["home.viewLibrary"].firstMatch.waitForExistence(timeout: 5)
             XCTAssertTrue(libraryExists || homeExists, "Should navigate back after tapping Done")
         }
     }

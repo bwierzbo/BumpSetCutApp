@@ -37,7 +37,7 @@ BumpSetCut/
 │   │   ├── Tracking/       # KalmanBallTracker
 │   │   ├── Classification/ # MovementClassifier
 │   │   └── Physics/        # ParabolicValidator
-│   ├── RallyPlayback/      # TikTok-style rally viewer with swipe navigation
+│   ├── RallyPlayback/      # Full-screen rally viewer with swipe navigation
 │   ├── Export/             # VideoExporter, DebugAnnotator
 │   ├── Settings/           # App settings
 │   └── Onboarding/         # First-launch tutorial

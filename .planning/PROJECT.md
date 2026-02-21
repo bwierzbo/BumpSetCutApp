@@ -55,7 +55,7 @@ Users can quickly review AI-detected rally clips with simple swipe gestures to k
 - MVVM pattern with @Observable view models
 - File-based storage (no database)
 - AVFoundation for video processing and playback
-- Current rally playback uses TikTok-style vertical swipe (see RallyPlaybackView)
+- Current rally playback uses full-screen vertical swipe (see RallyPlaybackView)
 
 **User Experience Goals:**
 - Fast, fluid gestures for quick review of many clips

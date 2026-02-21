@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Add a social layer to BumpSetCut where users can share volleyball rally highlights, browse a TikTok-style feed of community rallies, and interact via likes and comments. The existing local-first workflow (detect, review, trim, export) remains fully functional without an account. Social features are additive and gated behind lazy authentication.
+Add a social layer to BumpSetCut where users can share volleyball rally highlights, browse a vertical feed of community rallies, and interact via likes and comments. The existing local-first workflow (detect, review, trim, export) remains fully functional without an account. Social features are additive and gated behind lazy authentication.
 
 ### Goals
 - Users can share saved rallies as highlights to the community
@@ -334,7 +334,7 @@ BumpSetCut/
   Features/
     Social/
       Feed/
-        SocialFeedView.swift        -- TikTok-style vertical scroll
+        SocialFeedView.swift        -- Vertical scroll feed
         SocialFeedViewModel.swift   -- Paginated feed loading
         HighlightCard.swift         -- Single highlight with social overlay
       Profile/

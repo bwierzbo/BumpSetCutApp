@@ -213,6 +213,7 @@ struct FavoritesGridView: View {
                     gridCell(video)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("favorites.gridCell.\(index)")
                 .draggable(video)
                 .contextMenu {
                     Button {

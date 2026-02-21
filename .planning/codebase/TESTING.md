@@ -62,7 +62,7 @@ xcodebuild -project BumpSetCut.xcodeproj -scheme BumpSetCut \
       │   └── SearchViewModelTests.swift
       └── Views/
           ├── RallyPlayerViewTests.swift
-          └── TikTokRallyPlayerViewTests.swift
+          └── RallyPlayerGestureTests.swift
   ```
 
 **Naming:**

@@ -2,7 +2,7 @@
 //  SocialFeedView.swift
 //  BumpSetCut
 //
-//  TikTok-style vertical feed of volleyball highlight clips.
+//  Vertical feed of volleyball highlight clips.
 //
 
 import SwiftUI

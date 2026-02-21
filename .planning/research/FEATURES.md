@@ -1,6 +1,6 @@
 # Feature Research: Swipeable Card Video Viewer
 
-**Domain:** Short-form video card stack interfaces (Tinder-style swipe + TikTok-style video playback)
+**Domain:** Short-form video card stack interfaces (swipe gestures + vertical video playback)
 **Researched:** 2026-01-24
 **Confidence:** MEDIUM
 
@@ -16,7 +16,7 @@ Features users assume exist. Missing these = product feels incomplete or broken.
 | **Tap action buttons as alternative** | Accessibility + one-handed use. Not everyone can/wants to swipe | LOW | Tinder has both swipe and buttons. Must mirror swipe actions exactly |
 | **Visual feedback during drag** | Users need to see card following finger, hint at direction/action | MEDIUM | Card rotation, translation during drag. Color/icon hints for actions |
 | **Spring physics on release** | Feels "broken" without natural physics. Card should bounce/settle realistically | MEDIUM | SwiftUI spring animations with stiffness/damping tuned for snappy but natural feel |
-| **Immediate video autoplay** | TikTok/Reels train users: video starts when visible, no play button needed | MEDIUM | Auto-play on card reveal, loop seamlessly. Muted isn't expected for user's own content |
+| **Immediate video autoplay** | Short-form video apps train users: video starts when visible, no play button needed | MEDIUM | Auto-play on card reveal, loop seamlessly. Muted isn't expected for user's own content |
 | **Seamless video looping** | Short clips (3-15s) must loop without visible restart. Jarring gap = poor quality | LOW | Use AVPlayer loop, ensure restart <24ms. Modern browsers do this well |
 | **Smooth orientation transitions** | iOS users rotate devices constantly. Video/UI must adapt without breaking playback | HIGH | Portrait: fit video, buttons at bottom. Landscape: fill screen, reposition buttons. No player reset |
 | **Last card awareness** | Users need to know when stack ends. Empty state or "no more cards" feedback | LOW | Show indicator when reaching last card. Prevent confusing infinite scroll feeling |
@@ -46,7 +46,7 @@ Features that seem good but create problems in this context.
 | **Delete confirmation dialogs** | "Prevent accidental deletion" | Slows workflow dramatically. User must confirm every delete = friction. Kills swipe flow | Undo provides safety net. Visual feedback (red overlay, trash icon) during swipe is warning enough |
 | **Reorder clips in export** | "I want clips in specific order" | Complex drag-drop UI. Requires rethinking card stack (no longer chronological). Most users don't care about order | Export clips in original video timestamp order. If reorder needed, use external editor |
 | **In-app video trimming** | "Clip is too long/has dead time" | Scope creep. Becomes video editor, not rally reviewer. Trim UI is complex (timeline scrubber, handles) | AI detection should already produce good clip boundaries. Re-process video if detection is bad |
-| **Swipe up/down for other actions** | "More gestures = more features" | Cognitive load. TikTok uses vertical swipe for navigation between videos, not actions. Conflicts with scroll | Left/right + undo covers 99% of use cases. Keep it simple |
+| **Swipe up/down for other actions** | "More gestures = more features" | Cognitive load. Vertical swipe is used for navigation between videos, not actions. Conflicts with scroll | Left/right + undo covers 99% of use cases. Keep it simple |
 | **Share individual clips to social** | "I want to post to Instagram" | Privacy/workflow mismatch. Volleyball footage often includes minors (permission issues). Export to camera roll → user shares manually | Export to camera roll, let user handle sharing. App stays out of social media integration |
 | **Real-time processing feedback on cards** | "Show detection confidence score on each clip" | Info overload during fast review. Users just want good clips, not ML debugging | Hide technical details. If clip quality is bad, it won't get liked. Keep UI clean |
 
@@ -95,7 +95,7 @@ Minimum viable product — what's needed to validate the swipe-to-curate workflo
 - [x] **Visual feedback during drag** — Card follows finger, rotates, shows action hint
 - [x] **Spring physics on release** — Natural feel. Non-negotiable
 - [x] **Single-level undo** — Safety net for mistakes
-- [x] **Video autoplay with seamless loop** — Expected from TikTok/Reels experience
+- [x] **Video autoplay with seamless loop** — Expected from short-form video experience
 - [x] **Portrait/landscape orientation support** — iOS users expect this
 - [x] **Batch export screen** — Checkbox selection, individual or stitched export
 - [x] **Select all/deselect all** — QoL for multi-clip curation
@@ -147,12 +147,12 @@ Features to defer until product-market fit is established.
 
 ## Competitor Feature Analysis
 
-| Feature | TikTok/Reels | Tinder | BumpSetCut Approach |
-|---------|--------------|--------|---------------------|
+| Feature | Short-Form Video Apps | Tinder | BumpSetCut Approach |
+|---------|----------------------|--------|---------------------|
 | **Swipe direction** | Vertical (next video) | Horizontal (like/pass) | Horizontal (like/delete) — matches Tinder metaphor |
 | **Undo** | None | 1 level (paid feature) | 1 level (free) — table stakes for curation |
 | **Buttons as alternative** | None | Yes (heart, X buttons) | Yes (heart, trash) — accessibility + one-handed use |
-| **Video behavior** | Autoplay, loop | N/A (static images) | Autoplay, loop — TikTok expectation |
+| **Video behavior** | Autoplay, loop | N/A (static images) | Autoplay, loop — standard expectation |
 | **Batch actions** | Save to collection | None | Export liked clips — differentiator for coaches |
 | **Animation style** | Slide + fade | Card stack, tilt | Page-peel + stack — tactile metaphor |
 | **Orientation handling** | Portrait only (forced) | Portrait only | Portrait + landscape — iOS user expectation |
@@ -196,7 +196,7 @@ Features to defer until product-market fit is established.
 - SwiftUI Spring Animation reference (GitHub: GetStream/swiftui-spring-animations)
 
 **Medium Confidence:**
-- TikTok/Instagram Reels UI patterns (WebSearch, 2026)
+- Short-form video app UI patterns (WebSearch, 2026)
 - Tinder swipe interaction patterns (WebSearch, community articles)
 - Medium articles: "How Not to Design Swipe Actions" (2018, principles still relevant)
 - ZURB: "5 Common Mistakes Designers Make When Using Cards" (WebFetch, 2026)

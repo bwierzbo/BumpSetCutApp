@@ -50,7 +50,7 @@ completed: 2026-01-24
 
 # Phase 1 Plan 3: Card Stack Integration Summary
 
-**Complete TikTok-style card stack with depth effect, stable layering via explicit zIndex, and smooth animations - ready for Phase 2 video integration**
+**Complete card stack with depth effect, stable layering via explicit zIndex, and smooth animations - ready for Phase 2 video integration**
 
 ## Performance
 

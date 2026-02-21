@@ -6,7 +6,7 @@
 
 ## Summary
 
-Phase 1 requires implementing a TikTok-style swipeable card stack with gestures, animations, and stable layering. This is a well-established SwiftUI pattern with clear best practices from Apple's design guidelines and the community.
+Phase 1 requires implementing a swipeable card stack with gestures, animations, and stable layering. This is a well-established SwiftUI pattern with clear best practices from Apple's design guidelines and the community.
 
 The standard approach uses `DragGesture` for swipe interactions, spring-based animations for physics-based movement, and explicit `zIndex` management to prevent layering glitches during animations. The codebase already contains excellent patterns in `RallyPlayerView.swift` and `AnimationTokens.swift` that should be extended, not duplicated.
 

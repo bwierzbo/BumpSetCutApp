@@ -193,13 +193,13 @@ Camera/File → AVAsset → Frame Extraction → Detection → Tracking → Phys
 - **File Management Framework**: Sophisticated folder operations and batch processing
 - **Upload and Progress Tracking**: Drag-drop integration with real-time progress monitoring
 
-### TikTok-Style Rally Player (Latest)
+### Full-Screen Rally Player (Latest)
 - **Individual Video Export**: Each rally segment exported as separate MP4 files
 - **Auto-Play/Loop**: Seamless video looping with automatic restart
 - **Swipe Navigation**: Vertical (portrait) and horizontal (landscape) gesture-based navigation
 - **Tap Controls**: Tap-to-pause/play functionality with state tracking
 - **AVFoundation Integration**: AVPlayer management with proper cleanup and memory handling
-- **Clean Interface**: No visible video controls for TikTok-style user experience
+- **Clean Interface**: No visible video controls for immersive user experience
 
 ### Swift 6 Concurrency Migration
 - **Main Actor Isolation**: Complete migration to Swift 6 concurrency model

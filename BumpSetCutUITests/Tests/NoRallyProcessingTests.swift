@@ -64,7 +64,7 @@ final class NoRallyProcessingTests: VideoTestCase {
         backButton.tap()
 
         // Should return to home or library view
-        let homeExists = app.descendants(matching: .any)["home.viewLibrary"].waitForExistence(timeout: 5)
+        let homeExists = app.descendants(matching: .any)["home.viewLibrary"].firstMatch.waitForExistence(timeout: 5)
         let libraryExists = app.staticTexts["Test Rally Video"].waitForExistence(timeout: 5)
         XCTAssertTrue(homeExists || libraryExists, "Should navigate back to home or library")
     }

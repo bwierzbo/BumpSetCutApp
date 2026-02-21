@@ -50,7 +50,7 @@ completed: 2026-01-24
 
 # Phase 01 Plan 01: Core Card Stack Summary
 
-**Generic card stack data models with identifier-based tracking and @Observable state management for swipeable TikTok-style UI**
+**Generic card stack data models with identifier-based tracking and @Observable state management for swipeable card UI**
 
 ## Performance
 

@@ -20,7 +20,7 @@ class AuthGateViewModel {
     var password = ""
     var confirmPassword = ""
     var username = ""
-    var isSignUpMode = true
+    var isSignUpMode = false
 
     // Forgot password
     var showForgotPasswordSent = false

@@ -86,7 +86,7 @@
 1. User navigates to Library → select processed video
 2. `RallyPlayerViewModel` loads `ProcessingMetadata` from disk
 3. For each rally segment, creates looping AVPlayer with trimmed time range
-4. TikTok-style vertical swipe navigation between rallies
+4. Full-screen vertical swipe navigation between rallies
 5. Export uses `VideoExporter` to create standalone rally clips
 
 ## Key Abstractions

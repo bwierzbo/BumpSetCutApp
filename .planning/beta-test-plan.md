@@ -143,7 +143,7 @@
 
 ### 5.5 Favorites Feed (Full-Screen)
 - [ ] Tap thumbnail → full-screen vertical feed opens
-- [ ] TikTok-style vertical swipe between favorites
+- [ ] Vertical swipe between favorites
 - [ ] Counter shows current position (e.g., "3/12")
 - [ ] Video name displayed at bottom
 - [ ] Close button (X) dismisses feed
@@ -330,7 +330,7 @@
 
 ### 10.1 Feed Display
 - [ ] Feed tab (authenticated) → highlights load
-- [ ] TikTok-style vertical scroll with snap-to-page
+- [ ] Vertical scroll with snap-to-page
 - [ ] Each card: full-screen video, author info, like/comment buttons, caption
 - [ ] "For You" and "Following" tabs work
 - [ ] Switching tabs reloads appropriate content

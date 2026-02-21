@@ -51,34 +51,33 @@ final class MultiRallyPlaybackTests: PreProcessedVideoTestCase {
         XCTAssertEqual(result, .completed, "Swiping left should advance to next rally")
     }
 
-    /// 7.2.5 — Swipe right goes to previous rally
-    func testSwipeToPreviousRally() {
-        // Go to rally 2 first
-        app.swipeLeft()
-        let secondLabel = rallyPlayer.rallyCounter.label
-        XCTAssertTrue(rallyPlayer.rallyCounter.waitForExistence(timeout: 3))
-
-        // Swipe back
+    /// 7.2.5 — Swipe right saves rally (Tinder-card action model)
+    func testSwipeRightSavesRally() {
+        // Swipe right triggers save action
         app.swipeRight()
 
-        let predicate = NSPredicate(format: "label != %@", secondLabel)
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: rallyPlayer.rallyCounter)
-        let result = XCTWaiter.wait(for: [expectation], timeout: 5)
-        XCTAssertEqual(result, .completed, "Swiping right should go back to previous rally")
+        // Should show save feedback
+        let feedbackText = app.staticTexts["Rally Saved"]
+        XCTAssertTrue(
+            feedbackText.waitForExistence(timeout: 5),
+            "Swiping right should save the rally"
+        )
+
+        // Rally player should still be functional
+        XCTAssertTrue(rallyPlayer.rallyCounter.waitForExistence(timeout: 5),
+                       "Rally player should continue after save")
     }
 
-    /// 7.2.4 — First rally bounces when swiping back
-    func testFirstRallyBounceOnSwipeBack() {
-        // On first rally, swipe right — should stay on rally 1 (bounce)
-        let initialLabel = rallyPlayer.rallyCounter.label
+    /// 7.2.4 — Swiping right on first rally saves it and advances
+    func testFirstRallySwipeRightSaves() {
+        // On first rally, swipe right triggers save action
         app.swipeRight()
 
-        // Counter should remain the same
-        sleep(1)
-        XCTAssertEqual(
-            rallyPlayer.rallyCounter.label,
-            initialLabel,
-            "Should stay on first rally when swiping right at the beginning"
+        // Save action shows feedback and auto-advances
+        let feedbackText = app.staticTexts["Rally Saved"]
+        XCTAssertTrue(
+            feedbackText.waitForExistence(timeout: 5),
+            "Swiping right should trigger save action"
         )
     }
 
@@ -126,16 +125,14 @@ final class MultiRallyPlaybackTests: PreProcessedVideoTestCase {
     func testTapThumbnailJumpsToRally() {
         // Save rally 1 first so it appears in overview
         rallyPlayer.saveButton.tap()
-        let savedPredicate = NSPredicate(format: "label == 'Unsave rally'")
-        let savedExpectation = XCTNSPredicateExpectation(predicate: savedPredicate, object: rallyPlayer.saveButton)
-        XCTWaiter.wait(for: [savedExpectation], timeout: 3)
+        sleep(1) // Wait for auto-advance
 
         // Open overview
         rallyPlayer.rallyCounter.tap()
         let doneButton = app.buttons["Done"]
         XCTAssertTrue(doneButton.waitForExistence(timeout: 5))
 
-        // Tap first thumbnail/card in overview
+        // Tap first thumbnail/card in overview — this selects a rally and closes overview
         let firstImage = app.images.firstMatch
         if firstImage.waitForExistence(timeout: 3) {
             firstImage.tap()
@@ -148,35 +145,40 @@ final class MultiRallyPlaybackTests: PreProcessedVideoTestCase {
         }
     }
 
-    /// 7.5.4 — Select/deselect rallies from overview
+    /// 7.5.4 — Overview shows all rallies and can be navigated
     func testSelectDeselectFromOverview() {
         // Open overview
         rallyPlayer.rallyCounter.tap()
         let doneButton = app.buttons["Done"]
         XCTAssertTrue(doneButton.waitForExistence(timeout: 5))
 
-        // Overview should exist without crash
-        XCTAssertTrue(doneButton.exists, "Overview Done button should be present")
+        // Overview should exist with rally thumbnails
+        let images = app.images.allElementsBoundByIndex
+        XCTAssertGreaterThanOrEqual(images.count, 1, "Overview should show rally thumbnails")
 
-        // Dismiss
+        // Dismiss via Done (finishes review session and exits rally player)
         doneButton.tap()
-        XCTAssertTrue(
-            rallyPlayer.rallyCounter.waitForExistence(timeout: 5),
-            "Rally player should be visible after dismissing overview"
-        )
+
+        // Done = finish review, so rally player should dismiss
+        let predicate = NSPredicate(format: "exists == false")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: rallyPlayer.rallyCounter)
+        let result = XCTWaiter.wait(for: [expectation], timeout: 10)
+        XCTAssertEqual(result, .completed, "Done should dismiss the rally player")
     }
 
-    /// 7.5.5 — Overview dismisses with Done button
+    /// 7.5.5 — Overview Done button finishes review session
     func testOverviewDismisses() {
         rallyPlayer.rallyCounter.tap()
         let doneButton = app.buttons["Done"]
         XCTAssertTrue(doneButton.waitForExistence(timeout: 5))
 
+        // Done = finish review, copies favorites and exits
         doneButton.tap()
-        XCTAssertTrue(
-            rallyPlayer.rallyCounter.waitForExistence(timeout: 5),
-            "Rally player counter should be visible after overview dismissal"
-        )
+
+        let predicate = NSPredicate(format: "exists == false")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: rallyPlayer.rallyCounter)
+        let result = XCTWaiter.wait(for: [expectation], timeout: 10)
+        XCTAssertEqual(result, .completed, "Done should finish the review and dismiss rally player")
     }
 
     // MARK: - Multi-Action Tests

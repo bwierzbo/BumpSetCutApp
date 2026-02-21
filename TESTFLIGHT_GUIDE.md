@@ -134,7 +134,7 @@ Go to **iOS App** → **1.0 Prepare for Submission**:
    • Organize videos by beach or indoor volleyball
    • Share highlights with the community
    • Like, comment, and follow other players
-   • TikTok-style swipeable rally viewer
+   • Full-screen swipeable rally viewer
 
    FREE TIER:
    • Process 3 videos per week

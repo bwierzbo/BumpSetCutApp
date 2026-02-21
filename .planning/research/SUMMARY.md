@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-BumpSetCut needs a Tinder-style swipeable card stack for reviewing rally clips with TikTok-style video playback. Research shows this is a well-established pattern combining horizontal swipe gestures (like/delete) with vertical navigation (next/previous rally) and autoplay video. The recommended approach uses native SwiftUI DragGesture with existing AVPlayer infrastructure (RallyVideoPlayer, RallyPlayerCache) rather than third-party card libraries that add dependencies and break on iOS updates.
+BumpSetCut needs a Tinder-style swipeable card stack for reviewing rally clips with full-screen video playback. Research shows this is a well-established pattern combining horizontal swipe gestures (like/delete) with vertical navigation (next/previous rally) and autoplay video. The recommended approach uses native SwiftUI DragGesture with existing AVPlayer infrastructure (RallyVideoPlayer, RallyPlayerCache) rather than third-party card libraries that add dependencies and break on iOS updates.
 
 The critical success factors are: (1) proper AVPlayer lifecycle management to prevent memory leaks, (2) gesture priority hierarchy to avoid swipe/tap conflicts, (3) stable zIndex architecture to prevent animation glitches, and (4) orientation-aware video sizing without recreating players. BumpSetCut already has proven implementations of player caching, thumbnail preloading, and async video handling that can be reused—the main architectural work is the gesture system and state-driven card removal.
 
@@ -40,7 +40,7 @@ Key risks include AVPlayer memory leaks from NotificationCenter observers (iOS 1
 - Tap action buttons as alternative (accessibility + one-handed use)—Tinder standard
 - Visual feedback during drag (card follows finger, rotation, action hints)—prevents "broken" feel
 - Spring physics on release (realistic bounce/settle)—non-negotiable for polish
-- Immediate video autoplay with seamless loop (TikTok expectation)—no play button needed
+- Immediate video autoplay with seamless loop (short-form video expectation)—no play button needed
 - Smooth orientation transitions (portrait/landscape without breaking playback)—iOS user expectation
 - Single-level undo (safety net for accidental swipes)—Tinder/Bumble standard
 
@@ -285,7 +285,7 @@ Based on research, recommended 5-phase structure aligned with dependency chains 
 | Area | Confidence | Notes |
 |------|------------|-------|
 | Stack | HIGH | All recommendations verified against iOS 18 APIs and existing working code (RallyPlayerView, RallyPlayerCache). Zero dependencies, native SwiftUI patterns. |
-| Features | MEDIUM | Table stakes confirmed via iOS HIG and competitor analysis (TikTok, Tinder). Specific thresholds (40-50% swipe distance) based on library defaults, may need tuning. |
+| Features | MEDIUM | Table stakes confirmed via iOS HIG and competitor analysis (short-form video apps, Tinder). Specific thresholds (40-50% swipe distance) based on library defaults, may need tuning. |
 | Architecture | HIGH | Directly analyzed existing BumpSetCut codebase—feature-based modules, @Observable ViewModels, MediaStore patterns all proven. Recommended structure fits naturally. |
 | Pitfalls | HIGH | Critical pitfalls (#1-#3) verified via Apple Developer Forums, iOS 17 regression docs, existing codebase audit. Phase mapping based on component dependencies. |
 

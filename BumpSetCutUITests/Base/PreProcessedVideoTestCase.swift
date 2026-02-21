@@ -52,19 +52,28 @@ class PreProcessedVideoTestCase: BSCUITestCase {
             homeScreen.viewLibraryButton.tap()
         }
 
-        // Tap the "Process with AI" button to open ProcessVideoView
+        // Pre-processed video has processedVideoIds set, so card shows "View Rallies"
+        // directly instead of "Process with AI"
+        let viewRalliesOnCard = app.buttons["View Rallies"]
         let processButton = app.buttons["Process with AI"]
-        XCTAssertTrue(processButton.waitForExistence(timeout: 5), "Process with AI button not found")
-        processButton.tap()
 
-        // Since metadata is injected, the view should show "Rallies Detected!" state
-        // with a "View Rallies" button
-        let viewRalliesButton = app.buttons["process.viewRallies"]
-        XCTAssertTrue(
-            viewRalliesButton.waitForExistence(timeout: 10),
-            "View Rallies button should appear for pre-processed video"
-        )
-        viewRalliesButton.tap()
+        let found = viewRalliesOnCard.waitForExistence(timeout: 5)
+            || processButton.waitForExistence(timeout: 5)
+        XCTAssertTrue(found, "Neither 'View Rallies' nor 'Process with AI' button found")
+
+        if viewRalliesOnCard.exists {
+            // Directly opens rally player from the card
+            viewRalliesOnCard.tap()
+        } else {
+            // Fallback: open ProcessVideoView then tap View Rallies
+            processButton.tap()
+            let viewRalliesButton = app.buttons["process.viewRallies"]
+            XCTAssertTrue(
+                viewRalliesButton.waitForExistence(timeout: 10),
+                "View Rallies button should appear for pre-processed video"
+            )
+            viewRalliesButton.tap()
+        }
 
         // Wait for rally player to load
         let rallyPlayer = RallyPlayerScreen(app: app)

@@ -2,7 +2,7 @@
 //  RallyPlayerView.swift
 //  BumpSetCut
 //
-//  Unified rally player with TikTok-style swipe navigation
+//  Unified rally player with vertical swipe navigation
 //
 
 import SwiftUI
@@ -170,7 +170,7 @@ struct RallyPlayerView: View {
                 .offset(y: offsetForPosition(position))
                 .opacity(opacityForPosition(position, rallyIndex: rallyIndex))
                 .zIndex(zIndexForPosition(position, rallyIndex: rallyIndex))
-                // Apply drag/swipe transforms (TikTok-style scroll)
+                // Apply drag/swipe transforms (vertical scroll)
                 .modifier(TopCardDragModifier(
                     isTopCard: position == 0 && viewModel.previousRallyIndex == nil,
                     isSlidingOut: rallyIndex == viewModel.previousRallyIndex,
@@ -452,7 +452,7 @@ struct RallyPlayerView: View {
 
 // MARK: - Top Card Drag Modifier
 
-/// Applies drag/transition transforms for TikTok-style scroll navigation.
+/// Applies drag/transition transforms for vertical scroll navigation.
 /// During transitions, old and new cards move together (connected edge-to-edge) like a continuous scroll.
 ///
 /// IMPORTANT: Uses a single modifier chain (offset + rotation) for ALL states to preserve
@@ -509,7 +509,7 @@ struct TopCardDragModifier: ViewModifier {
 // MARK: - Unified Rally Card
 
 /// Single card component using custom AVPlayerLayer for smooth transitions
-/// TikTok-style: adjacent players stay mounted, thumbnail visible until video playing
+/// Adjacent players stay mounted, thumbnail visible until video playing
 struct UnifiedRallyCard: View {
     let url: URL
     let rallyIndex: Int

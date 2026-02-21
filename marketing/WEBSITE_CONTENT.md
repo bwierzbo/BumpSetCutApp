@@ -42,13 +42,13 @@ Our computer vision AI watches your videos and automatically identifies when the
 - Distinguishes between beach and indoor volleyball
 - Processes videos up to 4K resolution
 
-### Feature 2: TikTok-Style Rally Viewer
+### Feature 2: Full-Screen Rally Viewer
 **Icon:** 📱 (or swipe gesture icon)
 
 **Title:** Swipe Through Your Best Moments
 
 **Description:**
-Review your rallies with a smooth, vertical swipe interface. Like TikTok, but for volleyball highlights. Perfect for quick review sessions after practice or games.
+Review your rallies with a smooth, vertical swipe interface. Built for volleyball highlights. Perfect for quick review sessions after practice or games.
 
 **Details:**
 - Vertical swipe navigation
@@ -148,7 +148,7 @@ Features:
 - ✅ Videos up to 500MB
 - ✅ WiFi-only uploads
 - ✅ AI rally detection
-- ✅ TikTok-style viewer
+- ✅ Full-screen rally viewer
 - ✅ Export with watermark
 - ✅ Community sharing
 - ✅ Custom folders
@@ -166,7 +166,7 @@ Features:
 - ✅ **Cellular uploads**
 - ✅ **No watermarks**
 - ✅ AI rally detection
-- ✅ TikTok-style viewer
+- ✅ Full-screen rally viewer
 - ✅ Export to camera roll
 - ✅ Community sharing
 - ✅ Custom folders
@@ -192,7 +192,7 @@ CTA: **Start Free Trial**
 — **Jake T.**, Club Player
 
 ### Testimonial 3
-*"Love the TikTok-style interface. Makes reviewing game footage actually fun instead of a chore."*
+*"Love the swipe-through interface. Makes reviewing game footage actually fun instead of a chore."*
 — **Emily R.**, College Athlete
 
 *(Note: Replace with real testimonials once you have beta testers)*
@@ -447,7 +447,7 @@ Use these CTAs throughout the site:
 ### Twitter/X Bio
 Automatic volleyball rally detection for players & coaches. AI finds the action so you can focus on the game. Download for iOS 👇
 
-### TikTok Bio
+### Short-Form Video Bio
 🏐 AI finds your best rallies
 📱 Download for iOS
 👇 Link below
@@ -457,7 +457,7 @@ Automatic volleyball rally detection for players & coaches. AI finds the action 
 ## Press Kit Content
 
 ### Boilerplate
-BumpSetCut is an iOS application that uses artificial intelligence and computer vision to automatically detect and extract volleyball rallies from game footage. Founded in 2024, BumpSetCut helps players, coaches, and teams save hours of video review time by instantly identifying the moments that matter. The app features AI-powered detection, a TikTok-style rally viewer, custom organization, and social sharing capabilities.
+BumpSetCut is an iOS application that uses artificial intelligence and computer vision to automatically detect and extract volleyball rallies from game footage. Founded in 2024, BumpSetCut helps players, coaches, and teams save hours of video review time by instantly identifying the moments that matter. The app features AI-powered detection, a full-screen rally viewer, custom organization, and social sharing capabilities.
 
 ### Key Facts
 - **Launch Date:** [Your Launch Date]
@@ -490,7 +490,7 @@ BumpSetCut is an iOS application that uses artificial intelligence and computer 
 *Visual: App processing video, progress bar*
 "...and our computer vision scans every frame, tracking the ball and detecting rallies."
 
-*Visual: Swipe through rallies in TikTok style*
+*Visual: Swipe through rallies in full-screen viewer*
 "Swipe through your highlights in seconds."
 
 **[35-50s] Features**
@@ -523,7 +523,7 @@ Welcome to BumpSetCut! You're now part of a community of volleyball players usin
 Tap the + button and choose a video from your camera roll. We'll process it automatically.
 
 2️⃣ **Review your rallies**
-Swipe through extracted rallies like TikTok. Slow-motion and frame-by-frame controls included.
+Swipe through extracted rallies in a full-screen viewer. Slow-motion and frame-by-frame controls included.
 
 3️⃣ **Share your best moments**
 Export to camera roll or share to the BumpSetCut community feed.
@@ -531,7 +531,7 @@ Export to camera roll or share to the BumpSetCut community feed.
 **Free Plan Includes:**
 ✅ 3 videos per week
 ✅ AI rally detection
-✅ TikTok-style viewer
+✅ Full-screen rally viewer
 ✅ Export & share
 
 Need more? Upgrade to Pro for unlimited processing and no watermarks.

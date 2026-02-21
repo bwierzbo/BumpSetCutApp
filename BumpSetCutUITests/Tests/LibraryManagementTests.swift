@@ -92,48 +92,74 @@ final class LibraryManagementTests: VideoTestCase {
     /// 4.5.3 — Move video to folder via context menu
     func testMoveVideoToFolder() {
         // First create a folder
-        guard library.createFolderButton.waitForExistence(timeout: 5) else { return }
+        guard library.createFolderButton.waitForExistence(timeout: 5) else {
+            XCTFail("Create folder button not found")
+            return
+        }
         library.createFolderButton.tap()
 
         let folderNameField = app.textFields["Enter folder name"]
-        guard folderNameField.waitForExistence(timeout: 5) else { return }
+        guard folderNameField.waitForExistence(timeout: 5) else {
+            XCTFail("Folder name field not found")
+            return
+        }
         folderNameField.tap()
         folderNameField.typeText("Move Target")
 
         let createButton = app.buttons["Create"]
-        guard createButton.waitForExistence(timeout: 3) else { return }
+        guard createButton.waitForExistence(timeout: 3) else {
+            XCTFail("Create button not found")
+            return
+        }
         createButton.tap()
 
         // Verify folder was created
         let folderText = app.staticTexts["Move Target"]
-        guard folderText.waitForExistence(timeout: 5) else { return }
+        guard folderText.waitForExistence(timeout: 5) else {
+            XCTFail("Folder was not created")
+            return
+        }
 
         // Now long-press the video to get context menu
         let videoCard = app.staticTexts["Test Rally Video"]
-        guard videoCard.waitForExistence(timeout: 5) else { return }
+        guard videoCard.waitForExistence(timeout: 5) else {
+            XCTFail("Video card not found")
+            return
+        }
 
         videoCard.press(forDuration: 1.0)
 
         let moveButton = app.buttons["Move"]
         guard moveButton.waitForExistence(timeout: 5) else {
             app.tap()
+            XCTFail("Move button not found in context menu")
             return
         }
         moveButton.tap()
 
         // Move dialog should appear with folder options
-        let targetFolder = app.buttons.matching(
+        let targetFolder = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS 'Move Target'")
         ).firstMatch
-        if targetFolder.waitForExistence(timeout: 5) {
-            targetFolder.tap()
-
-            // Video should no longer be visible in root (it moved to folder)
-            let predicate = NSPredicate(format: "exists == false")
-            let expectation = XCTNSPredicateExpectation(predicate: predicate, object: videoCard)
-            let result = XCTWaiter.wait(for: [expectation], timeout: 5)
-            XCTAssertEqual(result, .completed, "Video should move out of root after moving to folder")
+        guard targetFolder.waitForExistence(timeout: 5) else {
+            XCTFail("Target folder not found in move dialog")
+            return
         }
+        targetFolder.tap()
+
+        // Tap the "Move" confirmation button in the dialog
+        let moveConfirm = app.buttons["Move"]
+        guard moveConfirm.waitForExistence(timeout: 3) else {
+            XCTFail("Move confirmation button not found")
+            return
+        }
+        moveConfirm.tap()
+
+        // Video should no longer be visible in root (it moved to folder)
+        let predicate = NSPredicate(format: "exists == false")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: videoCard)
+        let result = XCTWaiter.wait(for: [expectation], timeout: 10)
+        XCTAssertEqual(result, .completed, "Video should move out of root after moving to folder")
     }
 
     // MARK: - Folder Navigation (4.7.1, 4.7.3)
@@ -158,10 +184,10 @@ final class LibraryManagementTests: VideoTestCase {
         guard folderText.waitForExistence(timeout: 5) else { return }
         folderText.tap()
 
-        // 4.7.3 — Navigation title should update to folder name
-        let navTitle = app.navigationBars["Nav Folder"]
+        // 4.7.3 — Title should show folder name
+        let navTitle = app.staticTexts["Nav Folder"]
         XCTAssertTrue(navTitle.waitForExistence(timeout: 5),
-                       "Navigation title should show folder name")
+                       "Title should show folder name")
 
         // Folder should be empty
         let emptyState = library.emptyState
@@ -189,8 +215,11 @@ final class LibraryManagementTests: VideoTestCase {
         folderText.tap()
 
         // Should be inside folder now
-        let navTitle = app.navigationBars["Back Test Folder"]
-        guard navTitle.waitForExistence(timeout: 5) else { return }
+        let navTitle = app.staticTexts["Back Test Folder"]
+        guard navTitle.waitForExistence(timeout: 5) else {
+            XCTFail("Folder title should appear after navigation")
+            return
+        }
 
         // Tap back button
         let backButton = app.navigationBars.buttons.firstMatch
@@ -208,45 +237,61 @@ final class LibraryManagementTests: VideoTestCase {
     /// 4.4.2 — Rename folder via context menu
     func testRenameFolderViaContextMenu() {
         // Create a folder
-        guard library.createFolderButton.waitForExistence(timeout: 5) else { return }
+        guard library.createFolderButton.waitForExistence(timeout: 5) else {
+            XCTFail("Create folder button not found")
+            return
+        }
         library.createFolderButton.tap()
 
         let folderNameField = app.textFields["Enter folder name"]
-        guard folderNameField.waitForExistence(timeout: 5) else { return }
+        guard folderNameField.waitForExistence(timeout: 5) else {
+            XCTFail("Folder name field not found")
+            return
+        }
         folderNameField.tap()
         folderNameField.typeText("Old Name")
 
         let createButton = app.buttons["Create"]
-        guard createButton.waitForExistence(timeout: 3) else { return }
+        guard createButton.waitForExistence(timeout: 3) else {
+            XCTFail("Create button not found")
+            return
+        }
         createButton.tap()
 
         // Long-press folder to get context menu
         let folderText = app.staticTexts["Old Name"]
-        guard folderText.waitForExistence(timeout: 5) else { return }
+        guard folderText.waitForExistence(timeout: 5) else {
+            XCTFail("Folder 'Old Name' not found")
+            return
+        }
         folderText.press(forDuration: 1.0)
 
         let renameButton = app.buttons["Rename"]
         guard renameButton.waitForExistence(timeout: 5) else {
             app.tap()
+            XCTFail("Rename button not found in context menu")
             return
         }
         renameButton.tap()
 
         // Rename alert should appear
         let renameField = app.textFields.firstMatch
-        guard renameField.waitForExistence(timeout: 5) else { return }
+        guard renameField.waitForExistence(timeout: 5) else {
+            XCTFail("Rename text field not found")
+            return
+        }
 
+        // Clear existing text and type new name
         renameField.tap()
-        // Select all and replace
-        renameField.press(forDuration: 1.0)
-        let selectAll = app.menuItems["Select All"]
-        if selectAll.waitForExistence(timeout: 2) {
-            selectAll.tap()
+        // Delete existing text character by character
+        if let currentValue = renameField.value as? String, !currentValue.isEmpty {
+            let deleteString = String(repeating: XCUIKeyboardKey.delete.rawValue, count: currentValue.count)
+            renameField.typeText(deleteString)
         }
         renameField.typeText("New Name")
 
         // Confirm
-        let confirmRename = app.buttons["Rename"]
+        let confirmRename = app.alerts.buttons["Rename"]
         if confirmRename.waitForExistence(timeout: 3) {
             confirmRename.tap()
         }

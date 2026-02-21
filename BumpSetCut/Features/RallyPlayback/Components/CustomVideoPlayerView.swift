@@ -2,7 +2,7 @@
 //  CustomVideoPlayerView.swift
 //  BumpSetCut
 //
-//  Custom video player using AVPlayerLayer for TikTok-smooth playback
+//  Custom video player using AVPlayerLayer for smooth playback
 //
 
 import SwiftUI

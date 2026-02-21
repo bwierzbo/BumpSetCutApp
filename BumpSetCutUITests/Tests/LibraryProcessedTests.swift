@@ -29,7 +29,10 @@ final class LibraryProcessedTests: PreProcessedVideoTestCase {
 
     /// 4.6.1 — Processed filter shows processed video
     func testProcessedFilterShowsProcessedVideo() {
-        guard library.filterProcessed.waitForExistence(timeout: 5) else { return }
+        guard library.filterProcessed.waitForExistence(timeout: 5) else {
+            XCTFail("Processed filter chip not found — filter chips may not be visible")
+            return
+        }
 
         library.filterProcessed.tap()
 
@@ -41,7 +44,10 @@ final class LibraryProcessedTests: PreProcessedVideoTestCase {
 
     /// 4.6.3 — Unprocessed filter hides processed video
     func testUnprocessedFilterHidesProcessedVideo() {
-        guard library.filterUnprocessed.waitForExistence(timeout: 5) else { return }
+        guard library.filterUnprocessed.waitForExistence(timeout: 5) else {
+            XCTFail("Unprocessed filter chip not found — filter chips may not be visible")
+            return
+        }
 
         library.filterUnprocessed.tap()
 
@@ -58,15 +64,11 @@ final class LibraryProcessedTests: PreProcessedVideoTestCase {
 
     /// 4.6.2 — Tap processed video opens rally player
     func testTapProcessedVideoOpensRallyPlayer() {
-        // Tap the "Process with AI" button (which for pre-processed shows "View Rallies")
-        let processButton = app.buttons["Process with AI"]
-        guard processButton.waitForExistence(timeout: 5) else { return }
-        processButton.tap()
-
-        // Should show "Rallies Detected!" state with View Rallies button
-        let viewRalliesButton = app.buttons["process.viewRallies"]
-        guard viewRalliesButton.waitForExistence(timeout: 10) else { return }
-        viewRalliesButton.tap()
+        // Pre-processed video has processedVideoIds set, so card shows "View Rallies"
+        let viewRalliesOnCard = app.buttons["View Rallies"]
+        XCTAssertTrue(viewRalliesOnCard.waitForExistence(timeout: 5),
+                       "'View Rallies' button should appear on processed video card")
+        viewRalliesOnCard.tap()
 
         // Rally player should open
         let rallyPlayer = RallyPlayerScreen(app: app)

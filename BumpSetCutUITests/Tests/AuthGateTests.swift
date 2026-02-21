@@ -140,7 +140,7 @@ final class AuthGateTests: BSCUITestCase {
     /// 9.2.4 — Sign out button in Settings returns to unauthenticated state
     func testSignOutFromSettingsReturnsToAuthGate() {
         // Settings has a sign out button
-        let settingsButton = app.descendants(matching: .any)["home.settings"]
+        let settingsButton = app.descendants(matching: .any)["home.settings"].firstMatch
         if settingsButton.waitForExistence(timeout: 5) {
             settingsButton.tap()
 

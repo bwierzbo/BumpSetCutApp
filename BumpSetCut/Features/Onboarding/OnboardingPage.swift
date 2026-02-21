@@ -39,7 +39,7 @@ struct OnboardingPage: Identifiable {
         ),
         OnboardingPage(
             title: "Swipe Through Rallies",
-            description: "Browse rallies TikTok-style. Save your favorites or remove clips you don't need.",
+            description: "Browse rallies in a full-screen swipe feed. Save your favorites or remove clips you don't need.",
             icon: "play.circle.fill",
             color: .bscPrimary
         ),

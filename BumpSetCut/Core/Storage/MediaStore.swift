@@ -480,10 +480,14 @@ struct FolderManifest: Codable {
             try correctedData.write(to: destURL, options: .atomic)
             print("MediaStore: ✅ Injected pre-processed metadata for video \(videoId)")
 
-            // Update manifest entry to reflect metadata presence
+            // Update manifest entry to reflect metadata presence and processed status
             let videoKey = videoMetadata.fileName
             if var updatedMeta = manifest.videos[videoKey] {
                 updatedMeta.updateMetadataTracking(fileSize: Int64(correctedData.count))
+                // Mark as processed so filter logic recognizes it
+                if updatedMeta.processedVideoIds.isEmpty {
+                    updatedMeta.processedVideoIds.append(videoId)
+                }
                 manifest.videos[videoKey] = updatedMeta
                 saveManifest()
             }
