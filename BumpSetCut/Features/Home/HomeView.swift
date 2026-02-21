@@ -38,7 +38,7 @@ struct HomeView: View {
         GeometryReader { geometry in
             let contentWidth = isLandscape
                 ? min(geometry.size.width * 0.45, 500)
-                : min(geometry.size.width * 0.85, 400)
+                : min(geometry.size.width * 0.92, 500)
 
             ZStack {
                 // Background
@@ -255,21 +255,16 @@ struct HomeView: View {
         HStack(spacing: BSCSpacing.xl) {
             // Left side: Hero
             HeroSection()
-                .frame(maxWidth: geometry.size.width * 0.35, maxHeight: .infinity)
+                .frame(maxWidth: geometry.size.width * 0.3, maxHeight: .infinity)
 
-            // Right side: Stats + CTAs (scrollable)
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: BSCSpacing.md) {
-                    Spacer(minLength: BSCSpacing.md)
-                    animatedContent(contentWidth: contentWidth)
-                    Spacer(minLength: BSCSpacing.md)
-                }
-                .frame(maxWidth: 500)
-                .frame(maxWidth: .infinity)
+            // Right side: Stats + CTAs (centered, no scroll needed — content ~276pt fits)
+            VStack(spacing: BSCSpacing.sm) {
+                animatedContent(contentWidth: contentWidth)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(.horizontal, BSCSpacing.lg)
+        .padding(.bottom, BSCSpacing.huge)
     }
 
     // MARK: - Animated Content (shared between layouts)
