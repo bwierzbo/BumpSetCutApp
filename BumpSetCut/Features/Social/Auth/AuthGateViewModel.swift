@@ -95,17 +95,6 @@ class AuthGateViewModel {
 
     // MARK: - Auth Actions
 
-    func signInWithApple() async {
-        errorMessage = nil
-        do {
-            try await authService.signInWithApple()
-        } catch {
-            print("[Auth] Apple sign-in error: \(error)")
-            errorMessage = userFriendlyMessage(for: error)
-            showError = true
-        }
-    }
-
     func signUpWithEmail() async {
         errorMessage = nil
         do {
@@ -130,17 +119,6 @@ class AuthGateViewModel {
             )
         } catch {
             print("[Auth] Email sign-in error: \(error)")
-            errorMessage = userFriendlyMessage(for: error)
-            showError = true
-        }
-    }
-
-    func signInWithGoogle() async {
-        errorMessage = nil
-        do {
-            try await authService.signInWithGoogle()
-        } catch {
-            print("[Auth] Google sign-in error: \(error)")
             errorMessage = userFriendlyMessage(for: error)
             showError = true
         }

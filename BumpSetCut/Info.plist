@@ -9,7 +9,6 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.265930144040-6adi05f15va0baajbae4ecv6blvbvonv</string>
 				<string>bumpsetcut</string>
 			</array>
 		</dict>

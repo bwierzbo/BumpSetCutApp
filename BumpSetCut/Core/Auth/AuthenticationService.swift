@@ -23,7 +23,6 @@ final class AuthenticationService {
     var isAuthenticated: Bool { authState == .authenticated }
     var needsUsernameSetup: Bool { currentUser?.username.hasPrefix("user_") == true }
 
-    private let appleSignIn = AppleSignInCoordinator()
     private let supabase = SupabaseConfig.client
     private static let tokenKey = "auth_token"
     private static let userKey = "cached_user"
@@ -65,50 +64,6 @@ final class AuthenticationService {
             // No valid session — stay unauthenticated
             // Don't use cached user for .needsUsername since there's no active session
             authState = .unauthenticated
-        }
-    }
-
-    // MARK: - Apple Sign In
-
-    func signInWithApple() async throws {
-        authState = .authenticating
-
-        do {
-            let result = try await appleSignIn.signIn()
-
-            // Exchange Apple identity token with Supabase for a session
-            let session = try await supabase.auth.signInWithIdToken(
-                credentials: .init(
-                    provider: .apple,
-                    idToken: result.identityToken
-                )
-            )
-
-            // Fetch or create profile from DB
-            let (profile, isNew) = try await fetchOrCreateProfile(
-                userId: session.user.id.uuidString.lowercased()
-            )
-
-            let token = AuthToken(
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
-            )
-
-            try KeychainHelper.save(token, for: Self.tokenKey)
-            try KeychainHelper.save(profile, for: Self.userKey)
-
-            currentUser = profile
-            if isNew && profile.username.hasPrefix("user_") {
-                authState = .needsUsername
-            } else {
-                authState = .authenticated
-            }
-        } catch let error as AppleSignInError where error == .cancelled {
-            authState = .unauthenticated
-        } catch {
-            authState = .unauthenticated
-            throw error
         }
     }
 
@@ -176,46 +131,6 @@ final class AuthenticationService {
 
             currentUser = profile
             authState = .authenticated
-        } catch {
-            authState = .unauthenticated
-            throw error
-        }
-    }
-
-    // MARK: - Google Sign In
-
-    func signInWithGoogle() async throws {
-        authState = .authenticating
-
-        do {
-            let result = try await GoogleSignInCoordinator().signIn()
-
-            let session = try await supabase.auth.signInWithIdToken(
-                credentials: .init(
-                    provider: .google,
-                    idToken: result.idToken
-                )
-            )
-
-            let (profile, isNew) = try await fetchOrCreateProfile(
-                userId: session.user.id.uuidString.lowercased()
-            )
-
-            let token = AuthToken(
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
-            )
-
-            try KeychainHelper.save(token, for: Self.tokenKey)
-            try KeychainHelper.save(profile, for: Self.userKey)
-
-            currentUser = profile
-            if isNew && profile.username.hasPrefix("user_") {
-                authState = .needsUsername
-            } else {
-                authState = .authenticated
-            }
         } catch {
             authState = .unauthenticated
             throw error
@@ -354,17 +269,5 @@ final class AuthenticationService {
             .value
 
         return (profile, true)
-    }
-}
-
-// MARK: - AppleSignInError Equatable
-
-extension AppleSignInError: Equatable {
-    static func == (lhs: AppleSignInError, rhs: AppleSignInError) -> Bool {
-        switch (lhs, rhs) {
-        case (.cancelled, .cancelled): return true
-        case (.missingCredentials, .missingCredentials): return true
-        default: return false
-        }
     }
 }

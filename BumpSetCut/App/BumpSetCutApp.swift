@@ -7,7 +7,6 @@
 
 import SwiftUI
 import AVFoundation
-import GoogleSignIn
 
 @main struct BumpSetCutApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -54,9 +53,6 @@ import GoogleSignIn
                 .preferredColorScheme(appSettings.appearanceMode.colorScheme)
                 .task {
                     await authService.restoreSession()
-                }
-                .onOpenURL { url in
-                    GIDSignIn.sharedInstance.handle(url)
                 }
                 .onChange(of: networkMonitor.isConnected) { _, isConnected in
                     if isConnected {

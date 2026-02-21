@@ -14,7 +14,6 @@ enum HTTPMethod: String {
 
 enum APIEndpoint {
     // Auth
-    case signInWithApple(identityToken: String)
     case refreshToken(String)
     case signOut
     case deleteAccount
@@ -69,7 +68,6 @@ enum APIEndpoint {
 
     var path: String {
         switch self {
-        case .signInWithApple: return "/auth/apple"
         case .refreshToken: return "/auth/refresh"
         case .signOut: return "/auth/signout"
         case .deleteAccount: return "/auth/delete"
@@ -112,7 +110,7 @@ enum APIEndpoint {
 
     var method: HTTPMethod {
         switch self {
-        case .signInWithApple, .createHighlight, .addComment, .likeHighlight,
+        case .createHighlight, .addComment, .likeHighlight,
              .follow, .createUploadURL, .checkFollowStatusBatch, .createReport, .blockUser,
              .createPoll, .createPollOptions, .votePoll:
             return .post
@@ -131,7 +129,6 @@ enum APIEndpoint {
 
     var requiresAuth: Bool {
         switch self {
-        case .signInWithApple: return false
         case .refreshToken: return false
         case .checkUsernameAvailability: return false
         case .getHighlight, .getComments, .getProfile, .getUserHighlights,

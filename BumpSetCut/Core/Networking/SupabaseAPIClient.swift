@@ -450,7 +450,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
 
         // MARK: Auth (handled via Supabase Auth, not DB)
 
-        case .signInWithApple, .refreshToken, .signOut, .deleteAccount:
+        case .refreshToken, .signOut, .deleteAccount:
             throw APIError.invalidRequest("Auth endpoints are handled by AuthenticationService, not APIClient")
 
         // MARK: Upload URL

@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import AuthenticationServices
 
 struct AuthGateView: View {
     @Environment(AuthenticationService.self) private var authService
