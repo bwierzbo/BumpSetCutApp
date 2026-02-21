@@ -94,6 +94,7 @@ struct AuthGateView: View {
                                 .foregroundColor(.bscPrimary)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier(AccessibilityID.AuthGate.toggleMode)
 
                     }
 
@@ -151,6 +152,7 @@ struct AuthGateView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .textContentType(.oneTimeCode)
+                    .accessibilityIdentifier(AccessibilityID.AuthGate.usernameField)
                     .onChange(of: viewModel?.username ?? "") { _, _ in
                         viewModel?.usernameChanged()
                     }
@@ -183,12 +185,14 @@ struct AuthGateView: View {
             .keyboardType(.emailAddress)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .accessibilityIdentifier(AccessibilityID.AuthGate.emailField)
 
             SecureField("Password", text: Binding(
                 get: { viewModel?.password ?? "" },
                 set: { viewModel?.password = $0 }
             ))
             .textContentType(.oneTimeCode)
+            .accessibilityIdentifier(AccessibilityID.AuthGate.passwordField)
 
             // Password requirements (sign-up only)
             if viewModel?.isSignUpMode == true, let vm = viewModel, !vm.password.isEmpty {
@@ -208,6 +212,7 @@ struct AuthGateView: View {
                     set: { viewModel?.confirmPassword = $0 }
                 ))
                 .textContentType(.oneTimeCode)
+                .accessibilityIdentifier(AccessibilityID.AuthGate.confirmPasswordField)
 
                 if let vm = viewModel, !vm.confirmPassword.isEmpty {
                     HStack(spacing: BSCSpacing.xs) {
@@ -233,6 +238,7 @@ struct AuthGateView: View {
                             .foregroundColor(.bscPrimary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier(AccessibilityID.AuthGate.forgotPassword)
                 }
             }
         }

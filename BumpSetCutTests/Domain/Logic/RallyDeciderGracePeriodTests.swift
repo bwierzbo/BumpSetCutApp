@@ -27,11 +27,11 @@ final class RallyDeciderGracePeriodTests: XCTestCase {
 
         // Feed projectile for 0.2s (6 frames)
         for i in 0..<6 {
-            decider.update(hasBall: true, isProjectile: true, timestamp: time(Double(i) * dt))
+            _ = decider.update(hasBall: true, isProjectile: true, timestamp: time(Double(i) * dt))
         }
 
         // Drop 1 frame (within grace period)
-        decider.update(hasBall: true, isProjectile: false, timestamp: time(6.0 * dt))
+        _ = decider.update(hasBall: true, isProjectile: false, timestamp: time(6.0 * dt))
 
         // Resume projectile -- the run should still be counting from the original start
         // Total elapsed: 0.0 to ~0.33s = 10 frames at 30fps, well past startBuffer=0.3s
@@ -55,12 +55,12 @@ final class RallyDeciderGracePeriodTests: XCTestCase {
 
         // Feed projectile for 0.2s (6 frames)
         for i in 0..<6 {
-            decider.update(hasBall: true, isProjectile: true, timestamp: time(Double(i) * dt))
+            _ = decider.update(hasBall: true, isProjectile: true, timestamp: time(Double(i) * dt))
         }
 
         // Drop 3 frames (exceeds grace period of 2)
         for i in 6..<9 {
-            decider.update(hasBall: true, isProjectile: false, timestamp: time(Double(i) * dt))
+            _ = decider.update(hasBall: true, isProjectile: false, timestamp: time(Double(i) * dt))
         }
 
         // Resume projectile -- projRunStart was reset, so we need another full startBuffer
@@ -84,11 +84,11 @@ final class RallyDeciderGracePeriodTests: XCTestCase {
 
         // Feed projectile for 0.25s (8 frames, just under startBuffer=0.3s)
         for i in 0..<8 {
-            decider.update(hasBall: true, isProjectile: true, timestamp: time(Double(i) * dt))
+            _ = decider.update(hasBall: true, isProjectile: true, timestamp: time(Double(i) * dt))
         }
 
         // Drop exactly 1 frame -- with grace=0, this should reset projRunStart
-        decider.update(hasBall: true, isProjectile: false, timestamp: time(8.0 * dt))
+        _ = decider.update(hasBall: true, isProjectile: false, timestamp: time(8.0 * dt))
 
         // Resume projectile for only a short burst (not enough for startBuffer from scratch)
         var state = false

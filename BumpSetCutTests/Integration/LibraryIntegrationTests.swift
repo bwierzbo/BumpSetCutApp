@@ -292,11 +292,11 @@ final class LibraryIntegrationTests: XCTestCase {
         for folderPath in folderStructure {
             let pathComponents = folderPath.split(separator: "/")
             if pathComponents.count == 1 {
-                mediaStore.createFolder(name: String(pathComponents[0]), parentPath: "")
+                _ = mediaStore.createFolder(name: String(pathComponents[0]), parentPath: "")
             } else {
                 let parentPath = pathComponents.dropLast().joined(separator: "/")
                 let folderName = String(pathComponents.last!)
-                mediaStore.createFolder(name: folderName, parentPath: parentPath)
+                _ = mediaStore.createFolder(name: folderName, parentPath: parentPath)
             }
         }
         
@@ -396,7 +396,7 @@ final class LibraryIntegrationTests: XCTestCase {
         
         // Test with non-existent file
         let nonExistentURL = URL(fileURLWithPath: "/path/to/nonexistent/video.mp4")
-        let invalidVideo = mediaStore.addVideo(at: nonExistentURL, toFolder: "ErrorTest", customName: "Invalid Video")
+        let _ = mediaStore.addVideo(at: nonExistentURL, toFolder: "ErrorTest", customName: "Invalid Video")
         // This might return a video object but operations on it should handle the missing file gracefully
         
         print("✅ Edge case video operations handled")

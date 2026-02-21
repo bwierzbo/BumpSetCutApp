@@ -142,8 +142,8 @@ final class MetadataOverlayViewTests: XCTestCase {
     func testCurrentRallyDetection() {
         // Given
         let metadata = createSampleProcessingMetadata()
-        let rallyStartTime = 2.0
-        let rallyEndTime = 8.0
+        let _ = 2.0
+        let _ = 8.0
 
         // When - Current time is within rally
         let overlayView = MetadataOverlayView(
@@ -189,7 +189,7 @@ final class MetadataOverlayViewTests: XCTestCase {
         let currentTime = 5.0
         let trajectoryHistoryDuration = 2.0
 
-        let overlayView = MetadataOverlayView(
+        let _ = MetadataOverlayView(
             processingMetadata: metadata,
             currentTime: currentTime,
             videoSize: CGSize(width: 400, height: 300)
@@ -225,7 +225,7 @@ final class MetadataOverlayViewTests: XCTestCase {
         let canvasSize = CGSize(width: 800, height: 600)
         let videoSize = CGSize(width: 400, height: 300)
 
-        let overlayView = MetadataOverlayView(
+        let _ = MetadataOverlayView(
             processingMetadata: metadata,
             currentTime: 5.0,
             videoSize: videoSize

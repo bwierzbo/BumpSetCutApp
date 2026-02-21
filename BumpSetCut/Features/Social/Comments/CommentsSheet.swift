@@ -31,6 +31,7 @@ struct CommentsSheet: View {
                     Text("No comments yet")
                         .font(.system(size: 15))
                         .foregroundColor(.bscTextSecondary)
+                        .accessibilityIdentifier(AccessibilityID.Comments.emptyState)
                     Text("Be the first to comment!")
                         .font(.system(size: 13))
                         .foregroundColor(.bscTextTertiary)
@@ -135,6 +136,7 @@ struct CommentsSheet: View {
                 .clipShape(Capsule())
                 .focused($isCommentFocused)
                 .onAppear { isCommentFocused = true }
+                .accessibilityIdentifier(AccessibilityID.Comments.inputField)
 
             Button {
                 Task { await viewModel.sendComment() }
@@ -144,6 +146,7 @@ struct CommentsSheet: View {
                     .foregroundColor(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .bscTextTertiary : .bscPrimary)
             }
             .disabled(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isSending)
+            .accessibilityIdentifier(AccessibilityID.Comments.sendButton)
         }
         .padding(.horizontal, BSCSpacing.md)
         .padding(.vertical, BSCSpacing.sm)

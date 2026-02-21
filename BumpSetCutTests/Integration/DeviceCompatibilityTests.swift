@@ -90,7 +90,7 @@ final class DeviceCompatibilityTests: XCTestCase {
         let concurrentCount = deviceInfo.cpuCores
 
         let concurrentResults = try await withThrowingTaskGroup(of: TimeInterval.self) { group in
-            for i in 1...concurrentCount {
+            for _ in 1...concurrentCount {
                 group.addTask {
                     let taskStart = Date()
                     _ = try await compatibilityExtractor.extractFrame(from: self.testVideoURL, priority: .normal)
@@ -297,11 +297,11 @@ final class DeviceCompatibilityTests: XCTestCase {
 
             // Enable pressure
             frameExtractor.enableGracefulDegradation()
-            let pressureStatus = frameExtractor.cacheStatus
+            let _ = frameExtractor.cacheStatus
 
             // Test extraction under pressure
             do {
-                let frame = try await frameExtractor.extractFrame(from: testVideoURL, priority: .high)
+                let _ = try await frameExtractor.extractFrame(from: testVideoURL, priority: .high)
                 pressureCycleResults.append((cycle, true, "Extraction succeeded under pressure"))
                 print("✅ Cycle \(cycle): Succeeded under pressure")
             } catch {
@@ -314,7 +314,7 @@ final class DeviceCompatibilityTests: XCTestCase {
 
             // Test recovery extraction
             do {
-                let frame = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
+                let _ = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
                 pressureCycleResults.append((cycle, true, "Recovery successful"))
                 print("✅ Cycle \(cycle): Recovery successful")
             } catch {
@@ -354,7 +354,7 @@ final class DeviceCompatibilityTests: XCTestCase {
 
         for iteration in 1...5 {
             // Populate resources
-            let frame = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
+            let _ = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
             let populatedStatus = frameExtractor.cacheStatus
             cleanupResults.append(("populate_\(iteration)", populatedStatus))
 
@@ -408,7 +408,7 @@ final class DeviceCompatibilityTests: XCTestCase {
 
         // Test cache performance
         let cacheHitStart = Date()
-        let cachedFrame = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
+        let _ = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
         let cacheHitTime = Date().timeIntervalSince(cacheHitStart)
 
         let cacheSpeedup = extractionTime / cacheHitTime

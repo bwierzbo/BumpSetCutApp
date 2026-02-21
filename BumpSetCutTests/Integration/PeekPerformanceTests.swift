@@ -315,11 +315,11 @@ final class PeekPerformanceTests: XCTestCase {
 
             // Simulate peek progress calculation (lightweight operation)
             let progress = Double(frame) / Double(testFrames)
-            let direction: RallyPeekDirection = frame % 2 == 0 ? .next : .previous
+            let _: RallyPeekDirection = frame % 2 == 0 ? .next : .previous
 
             // Simulate UI update work
-            let scale = 0.85 + (progress * 0.15)
-            let opacity = pow(progress, 0.8) * 0.9
+            let _ = 0.85 + (progress * 0.15)
+            let _ = pow(progress, 0.8) * 0.9
 
             let frameTime = Date().timeIntervalSince(frameStart)
 
@@ -405,7 +405,7 @@ final class PeekPerformanceTests: XCTestCase {
 
         // Test performance on simulated low-end device
         let extractionTimes: [TimeInterval] = try await withThrowingTaskGroup(of: TimeInterval.self) { group in
-            for i in 1...3 {
+            for _ in 1...3 {
                 group.addTask {
                     let start = Date()
                     _ = try await lowEndExtractor.extractFrame(from: self.testVideoURL, priority: .low)
@@ -445,7 +445,7 @@ final class PeekPerformanceTests: XCTestCase {
 
         // Test optimized performance
         let extractionTimes: [TimeInterval] = try await withThrowingTaskGroup(of: TimeInterval.self) { group in
-            for i in 1...5 {
+            for _ in 1...5 {
                 group.addTask {
                     let start = Date()
                     _ = try await highEndExtractor.extractFrame(from: self.testVideoURL, priority: .high)

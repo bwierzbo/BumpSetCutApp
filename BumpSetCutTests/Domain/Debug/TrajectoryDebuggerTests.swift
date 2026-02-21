@@ -327,7 +327,7 @@ final class TrajectoryDebuggerTests: XCTestCase {
     }
     
     private func addMultipleTrajectories() {
-        for i in 0..<5 {
+        for _ in 0..<5 {
             let trackedBall = createTestTrajectory()
             let physicsResult = createTestPhysicsResult()
             let classificationResult = createTestClassificationResult()

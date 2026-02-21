@@ -20,11 +20,20 @@ import AVFoundation
         if CommandLine.arguments.contains("--uitesting") {
             if CommandLine.arguments.contains("--skip-onboarding") {
                 UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+                AppSettings.shared.hasCompletedOnboarding = true
             }
             if CommandLine.arguments.contains("--reset-onboarding") {
                 UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
+                AppSettings.shared.hasCompletedOnboarding = false
             }
             UserDefaults.standard.set(true, forKey: "hasSeenRallyTips")
+            AppSettings.shared.hasSeenRallyTips = true
+
+            // Clear library for a clean test slate
+            if CommandLine.arguments.contains("--clear-library") {
+                let storageDir = StorageManager.getPersistentStorageDirectory()
+                try? FileManager.default.removeItem(at: storageDir)
+            }
         }
 
         // Clear stale Keychain data on fresh install / reinstall

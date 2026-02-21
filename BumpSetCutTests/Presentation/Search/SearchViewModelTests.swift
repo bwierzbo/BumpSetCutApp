@@ -363,7 +363,7 @@ final class SearchViewModelTests: XCTestCase {
         searchViewModel.searchText = "volleyball"
         await fulfillment(of: [firstSearchExpectation], timeout: 2.0)
         
-        let initialHistoryCount = searchViewModel.searchHistory.count
+        let _ = searchViewModel.searchHistory.count
         
         // Perform same search again
         let secondSearchExpectation = XCTestExpectation(description: "Second search completes")

@@ -52,6 +52,7 @@ struct RallyPlayerOverlay: View {
         }
         .accessibilityLabel("Help")
         .accessibilityHint("Show gesture tips")
+        .accessibilityIdentifier(AccessibilityID.RallyPlayer.help)
     }
 
     // MARK: - Back Button
@@ -72,6 +73,7 @@ struct RallyPlayerOverlay: View {
         }
         .accessibilityLabel("Back")
         .accessibilityHint("Return to library")
+        .accessibilityIdentifier(AccessibilityID.RallyPlayer.back)
     }
 
     // MARK: - Rally Counter
@@ -110,6 +112,7 @@ struct RallyPlayerOverlay: View {
         }
         .accessibilityLabel("Rally \(currentIndex + 1) of \(totalCount)")
         .accessibilityHint("Tap to see rally overview")
+        .accessibilityIdentifier(AccessibilityID.RallyPlayer.counter)
         .animation(.easeInOut(duration: 0.25), value: currentIndex)
         .animation(.easeInOut(duration: 0.2), value: isSaved)
         .animation(.easeInOut(duration: 0.2), value: isRemoved)

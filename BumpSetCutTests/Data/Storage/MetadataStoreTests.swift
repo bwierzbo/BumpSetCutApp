@@ -219,7 +219,6 @@ final class MetadataStoreTests: XCTestCase {
         try metadataStore.saveMetadata(testMetadata)
 
         // Create updated metadata
-        var updatedMetadata = testMetadata
         // We can't modify the let properties, so we'll create a new one with a different processing date
         let updatedTestMetadata = ProcessingMetadata(
             videoId: testMetadata.videoId,
@@ -256,7 +255,7 @@ final class MetadataStoreTests: XCTestCase {
 
         // Get file info before update
         let metadataURL = metadataStore.metadataDirectory.appendingPathComponent("\(testVideoId!.uuidString).json")
-        let initialSize = try FileManager.default.attributesOfItem(atPath: metadataURL.path)[.size] as! Int64
+        let _ = try FileManager.default.attributesOfItem(atPath: metadataURL.path)[.size] as! Int64
 
         // Create and save updated metadata (this should create a backup)
         let updatedTestMetadata = ProcessingMetadata(

@@ -31,8 +31,8 @@ struct SearchCommunityView: View {
             }
         }
         .navigationTitle("Search")
-        .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $viewModel.searchText, prompt: "Search users or posts")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $viewModel.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search users or posts")
         .searchScopes($viewModel.searchScope) {
             ForEach(SearchScope.allCases, id: \.self) { scope in
                 Text(scope.rawValue).tag(scope)
@@ -72,6 +72,7 @@ struct SearchCommunityView: View {
                         .foregroundColor(.bscTextPrimary)
                         .padding(.horizontal, BSCSpacing.lg)
                         .padding(.top, BSCSpacing.md)
+                        .accessibilityIdentifier(AccessibilityID.Search.trendingSection)
 
                     FlowLayout(spacing: BSCSpacing.sm) {
                         ForEach(viewModel.trendingTags, id: \.self) { tag in
@@ -260,6 +261,7 @@ struct SearchCommunityView: View {
             .foregroundColor(.bscTextSecondary)
             .frame(maxWidth: .infinity)
             .padding(.top, 60)
+            .accessibilityIdentifier(AccessibilityID.Search.emptyResult)
     }
 
     // MARK: - Highlight Detail

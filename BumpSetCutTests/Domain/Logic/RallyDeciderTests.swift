@@ -186,7 +186,7 @@ final class RallyDeciderTests: XCTestCase {
         let base = 2.0
         for i in 1...15 {
             let t = base + Double(i) * (1.0 / 30.0) // 0.5s gap
-            decider.update(hasBall: false, isProjectile: false, timestamp: time(t))
+            _ = decider.update(hasBall: false, isProjectile: false, timestamp: time(t))
         }
 
         // Projectile returns at 2.5s
@@ -286,7 +286,7 @@ final class RallyDeciderTests: XCTestCase {
         // Enter rally
         for i in 0...30 {
             let t = Double(i) * (1.0 / 30.0)
-            decider.update(hasBall: true, isProjectile: true, timestamp: time(t))
+            _ = decider.update(hasBall: true, isProjectile: true, timestamp: time(t))
         }
 
         // Reset

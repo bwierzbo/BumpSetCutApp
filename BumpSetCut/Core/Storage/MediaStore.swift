@@ -413,6 +413,83 @@ struct FolderManifest: Codable {
 
         // Clean up stale entries
         cleanupStaleEntries()
+
+        // UI Testing: inject test video from the test runner
+        injectTestVideoIfNeeded()
+    }
+
+    /// When running UI tests, symlink the test video into storage and add it to the manifest.
+    private func injectTestVideoIfNeeded() {
+        guard CommandLine.arguments.contains("--uitesting"),
+              let testVideoPath = ProcessInfo.processInfo.environment["TEST_VIDEO_PATH"],
+              FileManager.default.fileExists(atPath: testVideoPath) else { return }
+
+        let sourceURL = URL(fileURLWithPath: testVideoPath)
+        let savedDir = baseDirectory.appendingPathComponent(LibraryType.saved.rootPath)
+        try? FileManager.default.createDirectory(at: savedDir, withIntermediateDirectories: true)
+        let destURL = savedDir.appendingPathComponent(sourceURL.lastPathComponent)
+
+        if !FileManager.default.fileExists(atPath: destURL.path) {
+            try? FileManager.default.createSymbolicLink(at: destURL, withDestinationURL: sourceURL)
+        }
+
+        // Only add if not already in manifest
+        let videoKey = sourceURL.lastPathComponent
+        if manifest.videos[videoKey] == nil {
+            _ = addVideo(at: destURL, toFolder: LibraryType.saved.rootPath, customName: "Test Rally Video")
+        }
+
+        // Inject pre-processed metadata if provided (skips ML processing in UI tests)
+        if let metadataPath = ProcessInfo.processInfo.environment["TEST_METADATA_PATH"],
+           FileManager.default.fileExists(atPath: metadataPath),
+           let videoMeta = manifest.videos[videoKey] {
+            injectPreProcessedMetadata(metadataTemplatePath: metadataPath, videoMetadata: videoMeta)
+        }
+    }
+
+    /// Inject a pre-processed metadata JSON template, replacing the videoId with the actual video's UUID.
+    private func injectPreProcessedMetadata(metadataTemplatePath: String, videoMetadata: VideoMetadata) {
+        let fileManager = FileManager.default
+        let videoId = videoMetadata.id
+
+        // Read the template JSON
+        guard let templateData = fileManager.contents(atPath: metadataTemplatePath) else {
+            print("MediaStore: ⚠️ Could not read metadata template at \(metadataTemplatePath)")
+            return
+        }
+
+        // Parse, replace videoId, re-encode
+        guard var json = try? JSONSerialization.jsonObject(with: templateData) as? [String: Any] else {
+            print("MediaStore: ⚠️ Could not parse metadata template JSON")
+            return
+        }
+
+        json["videoId"] = videoId.uuidString
+
+        guard let correctedData = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else {
+            print("MediaStore: ⚠️ Could not re-encode metadata JSON")
+            return
+        }
+
+        // Write to ProcessedMetadata/{videoId}.json
+        let metadataDir = baseDirectory.appendingPathComponent("ProcessedMetadata", isDirectory: true)
+        try? fileManager.createDirectory(at: metadataDir, withIntermediateDirectories: true)
+        let destURL = metadataDir.appendingPathComponent("\(videoId.uuidString).json")
+
+        do {
+            try correctedData.write(to: destURL, options: .atomic)
+            print("MediaStore: ✅ Injected pre-processed metadata for video \(videoId)")
+
+            // Update manifest entry to reflect metadata presence
+            let videoKey = videoMetadata.fileName
+            if var updatedMeta = manifest.videos[videoKey] {
+                updatedMeta.updateMetadataTracking(fileSize: Int64(correctedData.count))
+                manifest.videos[videoKey] = updatedMeta
+                saveManifest()
+            }
+        } catch {
+            print("MediaStore: ❌ Failed to write metadata: \(error)")
+        }
     }
     
     private func saveManifest() {

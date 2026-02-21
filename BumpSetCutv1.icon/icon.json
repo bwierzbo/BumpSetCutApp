@@ -19,6 +19,7 @@
     {
       "layers" : [
         {
+          "hidden" : true,
           "image-name" : "ChatGPT Image Feb 11, 2026, 05_31_03 PM 2.png",
           "name" : "ChatGPT Image Feb 11, 2026, 05_31_03 PM 2",
           "position" : {

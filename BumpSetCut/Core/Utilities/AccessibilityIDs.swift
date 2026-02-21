@@ -70,6 +70,71 @@ enum AccessibilityID {
     enum AuthGate {
         static let emailSignIn = "authGate.emailSignIn"
         static let skip = "authGate.skip"
+        static let toggleMode = "authGate.toggleMode"
+        static let usernameField = "authGate.username"
+        static let emailField = "authGate.email"
+        static let passwordField = "authGate.password"
+        static let confirmPasswordField = "authGate.confirmPassword"
+        static let forgotPassword = "authGate.forgotPassword"
+    }
+
+    enum Feed {
+        static let forYouTab = "feed.forYou"
+        static let followingTab = "feed.following"
+        static let emptyState = "feed.emptyState"
+        static let refreshButton = "feed.refresh"
+        static let highlightCard = "feed.highlightCard"
+        static let likeButton = "feed.like"
+        static let commentButton = "feed.comment"
+        static let profileButton = "feed.profile"
+    }
+
+    enum Comments {
+        static let inputField = "comments.input"
+        static let sendButton = "comments.send"
+        static let emptyState = "comments.emptyState"
+        static let commentRow = "comments.row"
+    }
+
+    enum Profile {
+        static let editProfileButton = "profile.editProfile"
+        static let signOutButton = "profile.signOut"
+        static let followButton = "profile.follow"
+        static let highlightsCount = "profile.highlightsCount"
+        static let followersCount = "profile.followersCount"
+        static let followingCount = "profile.followingCount"
+        static let highlightsGrid = "profile.highlightsGrid"
+        static let username = "profile.username"
+        static let bio = "profile.bio"
+        static let emptyHighlights = "profile.emptyHighlights"
+    }
+
+    enum Search {
+        static let searchField = "search.field"
+        static let usersScope = "search.users"
+        static let postsScope = "search.posts"
+        static let trendingSection = "search.trending"
+        static let userRow = "search.userRow"
+        static let postCell = "search.postCell"
+        static let emptyResult = "search.emptyResult"
+    }
+
+    enum Process {
+        static let startButton = "process.startButton"
+        static let cancelButton = "process.cancelButton"
+        static let saveToLibrary = "process.saveToLibrary"
+        static let viewRallies = "process.viewRallies"
+        static let doneButton = "process.doneButton"
+    }
+
+    enum RallyPlayer {
+        static let back = "rallyPlayer.back"
+        static let counter = "rallyPlayer.counter"
+        static let help = "rallyPlayer.help"
+        static let remove = "rallyPlayer.remove"
+        static let undo = "rallyPlayer.undo"
+        static let save = "rallyPlayer.save"
+        static let favorite = "rallyPlayer.favorite"
     }
 
     enum Export {

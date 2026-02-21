@@ -156,7 +156,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
         }
 
         // Create video metadata
-        let videoMetadata = createSampleVideoMetadata(url: testVideoURLs[0])
+        let _ = createSampleVideoMetadata(url: testVideoURLs[0])
 
         // Test complex multi-directional sequence
         let multiDirectionalSequence: [(Double, RallyPeekDirection?, String)] = [
@@ -293,7 +293,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
             // Minimal callback processing for performance test
         }
 
-        let videoMetadata = createSampleVideoMetadata(url: testVideoURLs[0])
+        let _ = createSampleVideoMetadata(url: testVideoURLs[0])
 
         for iteration in 1...loadTestIterations {
             let iterationStart = Date()
@@ -311,7 +311,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
                 if progress >= 0.7 {
                     let extractionStart = Date()
                     do {
-                        let frame = try await frameExtractor.extractFrame(from: testVideoURLs[1], priority: .high)
+                        let _ = try await frameExtractor.extractFrame(from: testVideoURLs[1], priority: .high)
                         let extractionTime = Date().timeIntervalSince(extractionStart)
                         performanceMetrics.append(("extraction_\(iteration)", extractionTime))
 
@@ -359,7 +359,6 @@ final class PeekGestureIntegrationTests: XCTestCase {
         frameExtractor.clearCache()
 
         var cacheMetrics: [(String, TimeInterval, Bool)] = []
-        let peekCallback: (Double, RallyPeekDirection?) -> Void = { _, _ in }
 
         // First pass: Cache misses
         for i in 0..<testVideoURLs.count {
@@ -367,7 +366,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
             let extractionStart = Date()
 
             do {
-                let frame = try await frameExtractor.extractFrame(from: url, priority: .normal)
+                let _ = try await frameExtractor.extractFrame(from: url, priority: .normal)
                 let extractionTime = Date().timeIntervalSince(extractionStart)
                 cacheMetrics.append(("miss_\(i)", extractionTime, true))
                 print("📍 Cache miss \(i): \(Int(extractionTime * 1000))ms")
@@ -382,7 +381,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
             let extractionStart = Date()
 
             do {
-                let frame = try await frameExtractor.extractFrame(from: url, priority: .normal)
+                let _ = try await frameExtractor.extractFrame(from: url, priority: .normal)
                 let extractionTime = Date().timeIntervalSince(extractionStart)
                 cacheMetrics.append(("hit_\(i)", extractionTime, true))
                 print("⚡ Cache hit \(i): \(Int(extractionTime * 1000))ms")

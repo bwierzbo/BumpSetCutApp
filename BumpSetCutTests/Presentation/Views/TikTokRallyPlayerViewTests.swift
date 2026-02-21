@@ -238,7 +238,7 @@ final class RallyPlayerGestureTests: XCTestCase {
         var extractionRequests: [URL] = []
         var callbackProgress: [Double] = []
 
-        let peekCallback: (Double, RallyPeekDirection?) -> Void = { progress, direction in
+        let _: (Double, RallyPeekDirection?) -> Void = { progress, direction in
             callbackProgress.append(progress)
             print("📞 Peek progress: \(progress) for \(String(describing: direction))")
         }

@@ -182,7 +182,7 @@ final class FrameExtractorTests: XCTestCase {
         }
 
         // Add first video to cache
-        try await frameExtractor.extractFrame(from: testVideoURL)
+        _ = try await frameExtractor.extractFrame(from: testVideoURL)
         XCTAssertTrue(frameExtractor.cacheStatus.contains("entries: 1"))
 
         // Simulate cache behavior by creating a new extractor for this test
@@ -381,7 +381,7 @@ final class FrameExtractorTests: XCTestCase {
         // Fill cache with maximum entries
         for i in 1...5 {
             // Create slightly different URLs to avoid cache hits
-            let testURL = testVideoURL.appendingPathComponent("../test_\(i).mp4")
+            let _ = testVideoURL.appendingPathComponent("../test_\(i).mp4")
             do {
                 _ = try await frameExtractor.extractFrame(from: testVideoURL)
             } catch {
@@ -653,7 +653,7 @@ final class FrameExtractorTests: XCTestCase {
 
         // Create concurrent load
         let results = try await withThrowingTaskGroup(of: TimeInterval.self) { group in
-            for i in 1...loadTestIterations {
+            for _ in 1...loadTestIterations {
                 group.addTask {
                     let taskStart = Date()
                     _ = try await self.frameExtractor.extractFrame(from: self.testVideoURL, priority: .normal)
@@ -699,7 +699,7 @@ final class FrameExtractorTests: XCTestCase {
 
         // Create a minimal composition for testing
         let composition = AVMutableComposition()
-        let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
+        let _ = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
 
         // This creates a minimal video structure, though it might be empty
         // In a real test environment, you'd want to use actual test video files

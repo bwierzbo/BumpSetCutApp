@@ -551,6 +551,7 @@ private extension ProcessVideoView {
             BSCButton(title: "Start AI Processing", icon: "brain.head.profile", style: .primary, size: .large) {
                 viewModel.startProcessing(isDebugMode: false)
             }
+            .accessibilityIdentifier(AccessibilityID.Process.startButton)
             .disabled(viewModel.isAnotherVideoProcessing)
             .opacity(viewModel.isAnotherVideoProcessing ? 0.5 : 1.0)
 
@@ -582,6 +583,7 @@ private extension ProcessVideoView {
             BSCButton(title: "Save to Library", icon: "square.and.arrow.down", style: .primary, size: .large) {
                 viewModel.showingFolderPicker = true
             }
+            .accessibilityIdentifier(AccessibilityID.Process.saveToLibrary)
 
             BSCButton(title: "Discard", icon: "trash", style: .ghost, size: .medium) {
                 // Clean up temp file
@@ -599,6 +601,7 @@ private extension ProcessVideoView {
             viewModel.cancelProcessing()
             dismiss()
         }
+        .accessibilityIdentifier(AccessibilityID.Process.cancelButton)
     }
 
     var noRalliesButtons: some View {
@@ -617,12 +620,14 @@ private extension ProcessVideoView {
         BSCButton(title: "Done", icon: "checkmark", style: .primary, size: .large) {
             dismiss()
         }
+        .accessibilityIdentifier(AccessibilityID.Process.doneButton)
     }
 
     var viewRalliesButton: some View {
         BSCButton(title: "View Rallies", icon: "play.fill", style: .primary, size: .large) {
             viewModel.showRallyPlayer = true
         }
+        .accessibilityIdentifier(AccessibilityID.Process.viewRallies)
     }
 }
 

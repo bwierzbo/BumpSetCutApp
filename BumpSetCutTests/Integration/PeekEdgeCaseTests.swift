@@ -62,7 +62,7 @@ final class PeekEdgeCaseTests: XCTestCase {
             print("🔍 Testing \(description): \(url.lastPathComponent)")
 
             do {
-                let frame = try await frameExtractor.extractFrame(from: url, priority: .normal)
+                let _ = try await frameExtractor.extractFrame(from: url, priority: .normal)
                 corruptionResults.append((description, true, "Unexpected success"))
                 XCTFail("Should have failed for \(description)")
             } catch let error as FrameExtractionError {
@@ -223,7 +223,7 @@ final class PeekEdgeCaseTests: XCTestCase {
             // Cancel immediately
             extractionTask.cancel()
 
-            let frame = try await extractionTask.value
+            let _ = try await extractionTask.value
             let cancellationTime = Date().timeIntervalSince(cancellationStart)
             cancellationResults.append(("immediate", false, cancellationTime))
             print("⚠️ Immediate cancellation: Task completed unexpectedly")
@@ -250,7 +250,7 @@ final class PeekEdgeCaseTests: XCTestCase {
                 extractionTask.cancel()
             }
 
-            let frame = try await extractionTask.value
+            let _ = try await extractionTask.value
             let cancellationTime = Date().timeIntervalSince(cancellationStart)
             cancellationResults.append(("delayed", false, cancellationTime))
             print("⚠️ Delayed cancellation: Task completed despite cancellation")
@@ -475,8 +475,6 @@ final class PeekEdgeCaseTests: XCTestCase {
 
     func testResourceExhaustionScenarios() async throws {
         print("🧪 Testing resource exhaustion scenarios")
-
-        var resourceResults: [(String, Bool)] = []
 
         // Test many concurrent extractions to exhaust resources
         let exhaustionCount = 20

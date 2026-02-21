@@ -267,7 +267,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
     }
 
     func testVideoMetadata_MetadataFilePath() {
-        let videoId = UUID()
+        let _ = UUID()
         var videoMetadata = VideoMetadata(
             fileName: "test.mp4",
             customName: "Test Video",

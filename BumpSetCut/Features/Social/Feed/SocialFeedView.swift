@@ -31,6 +31,7 @@ struct SocialFeedView: View {
                     .scaleEffect(1.5)
             } else if viewModel.highlights.isEmpty {
                 emptyState
+                    .accessibilityIdentifier(AccessibilityID.Feed.emptyState)
             } else {
                 feedContent
             }
@@ -131,6 +132,7 @@ struct SocialFeedView: View {
                         .padding(.vertical, BSCSpacing.sm)
                         .padding(.horizontal, BSCSpacing.md)
                 }
+                .accessibilityIdentifier(tab == .forYou ? AccessibilityID.Feed.forYouTab : AccessibilityID.Feed.followingTab)
             }
         }
         .padding(.vertical, BSCSpacing.xs)
@@ -166,6 +168,7 @@ struct SocialFeedView: View {
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.bscPrimary)
             }
+            .accessibilityIdentifier(AccessibilityID.Feed.refreshButton)
         }
         .padding(BSCSpacing.xl)
     }

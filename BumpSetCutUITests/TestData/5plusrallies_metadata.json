@@ -1,0 +1,140 @@
+{
+  "id" : "A0000002-0000-0000-0000-000000000001",
+  "videoId" : "PLACEHOLDER-WILL-BE-REPLACED-AT-RUNTIME",
+  "processingVersion" : "1.0",
+  "processingDate" : "2026-02-20T00:00:00Z",
+  "processingConfig" : {
+    "parabolaMinPoints" : 5,
+    "parabolaMinR2" : 0.7,
+    "accelConsistencyMaxStd" : 200.0,
+    "minVelocityToConsiderActive" : 5.0,
+    "projectileWindowSec" : 0.5,
+    "useGravityBand" : true,
+    "gravityMinA" : 300.0,
+    "gravityMaxA" : 2500.0,
+    "yIncreasingDown" : true,
+    "maxJumpPerFrame" : 150.0,
+    "roiYRadius" : 200.0,
+    "trackGateRadius" : 80.0,
+    "minTrackAgeForPhysics" : 4,
+    "startBuffer" : 1.0,
+    "endTimeout" : 2.0,
+    "preroll" : 1.5,
+    "postroll" : 1.0,
+    "minGapToMerge" : 3.0,
+    "minSegmentLength" : 2.0,
+    "enableEnhancedPhysics" : false,
+    "enhancedMinR2" : 0.85,
+    "excellentR2Threshold" : 0.95,
+    "goodR2Threshold" : 0.85,
+    "acceptableR2Threshold" : 0.7,
+    "enablePhysicsConstraints" : false,
+    "maxAccelerationDeviation" : 500.0,
+    "velocityConsistencyThreshold" : 0.6,
+    "trajectorySmoothnessThreshold" : 0.5,
+    "movementClassifierEnabled" : true,
+    "minClassificationConfidence" : 0.6,
+    "airbornePhysicsThreshold" : 0.7,
+    "minAccelerationPattern" : 0.3,
+    "minSmoothnessForAirborne" : 0.4,
+    "maxVerticalMotionForRolling" : 0.1,
+    "minSmoothnessForRolling" : 0.7,
+    "maxAccelerationForRolling" : 0.2
+  },
+  "rallySegments" : [
+    {
+      "id" : "C0000001-0000-0000-0000-000000000001",
+      "startTime" : 5.0,
+      "endTime" : 25.0,
+      "confidence" : 0.92,
+      "quality" : 0.88,
+      "detectionCount" : 85,
+      "averageTrajectoryLength" : 12.3
+    },
+    {
+      "id" : "C0000002-0000-0000-0000-000000000002",
+      "startTime" : 35.0,
+      "endTime" : 58.0,
+      "confidence" : 0.88,
+      "quality" : 0.82,
+      "detectionCount" : 72,
+      "averageTrajectoryLength" : 10.1
+    },
+    {
+      "id" : "C0000003-0000-0000-0000-000000000003",
+      "startTime" : 70.0,
+      "endTime" : 95.0,
+      "confidence" : 0.91,
+      "quality" : 0.85,
+      "detectionCount" : 90,
+      "averageTrajectoryLength" : 11.7
+    },
+    {
+      "id" : "C0000004-0000-0000-0000-000000000004",
+      "startTime" : 110.0,
+      "endTime" : 130.0,
+      "confidence" : 0.86,
+      "quality" : 0.79,
+      "detectionCount" : 65,
+      "averageTrajectoryLength" : 9.4
+    },
+    {
+      "id" : "C0000005-0000-0000-0000-000000000005",
+      "startTime" : 145.0,
+      "endTime" : 170.0,
+      "confidence" : 0.89,
+      "quality" : 0.84,
+      "detectionCount" : 78,
+      "averageTrajectoryLength" : 10.8
+    },
+    {
+      "id" : "C0000006-0000-0000-0000-000000000006",
+      "startTime" : 185.0,
+      "endTime" : 210.0,
+      "confidence" : 0.87,
+      "quality" : 0.81,
+      "detectionCount" : 70,
+      "averageTrajectoryLength" : 9.9
+    }
+  ],
+  "processingStats" : {
+    "totalFrames" : 7200,
+    "processedFrames" : 7200,
+    "detectionFrames" : 2800,
+    "trackingFrames" : 2400,
+    "rallyFrames" : 4500,
+    "physicsValidFrames" : 2000,
+    "totalDetections" : 4200,
+    "validTrajectories" : 85,
+    "averageDetectionsPerFrame" : 0.58,
+    "averageConfidence" : 0.82,
+    "processingDuration" : 180.0,
+    "framesPerSecond" : 40.0
+  },
+  "qualityMetrics" : {
+    "overallQuality" : 0.83,
+    "averageRSquared" : 0.86,
+    "trajectoryConsistency" : 0.78,
+    "physicsValidationRate" : 0.72,
+    "confidenceDistribution" : {
+      "high" : 52,
+      "medium" : 25,
+      "low" : 8
+    },
+    "qualityBreakdown" : {
+      "velocityConsistency" : 0.8,
+      "accelerationPattern" : 0.76,
+      "smoothnessScore" : 0.82,
+      "verticalMotionScore" : 0.85,
+      "overallCoherence" : 0.81
+    }
+  },
+  "performanceMetrics" : {
+    "processingStartTime" : "2026-02-20T00:00:00Z",
+    "processingEndTime" : "2026-02-20T00:03:00Z",
+    "averageFPS" : 40.0,
+    "peakMemoryUsageMB" : 380.0,
+    "averageMemoryUsageMB" : 260.0,
+    "processingOverheadPercent" : 4.5
+  }
+}

@@ -58,7 +58,7 @@
 - [ ] Cancel at any step → no partial files left behind
 
 ### 3.2 Large File Handling
-- [ ] Upload a video >100MB on free tier → storage/tier warning shown
+- [ ] Upload a video >500MB on free tier → storage/tier warning shown
 - [ ] Upload a 5-minute video → completes without memory crash
 - [ ] Upload a 30+ minute video → completes (URL-based, no Data loading)
 
@@ -429,7 +429,7 @@
 ## 14. Settings
 
 ### 14.1 Subscription
-- [ ] Free tier: shows weekly processing credits, max video size (100MB), WiFi requirement, watermark status
+- [ ] Free tier: shows weekly processing credits, max video size (500MB), WiFi requirement, watermark status
 - [ ] Pro tier: shows Pro badge, unlimited processing, no watermark
 - [ ] "Upgrade to Pro" button → PaywallView opens
 - [ ] "Restore Purchases" works (for TestFlight testers with prior purchase)

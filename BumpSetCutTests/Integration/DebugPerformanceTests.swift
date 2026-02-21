@@ -146,7 +146,7 @@ final class DebugPerformanceTests: XCTestCase {
         
         let storageStartTime = CFAbsoluteTimeGetCurrent()
         
-        let savedPath = try await mediaStore.saveDebugData(
+        let savedPath = try mediaStore.saveDebugData(
             for: testVideoId,
             debugData: debugData,
             sessionId: sessionId
@@ -164,7 +164,7 @@ final class DebugPerformanceTests: XCTestCase {
         // Test loading performance
         let loadStartTime = CFAbsoluteTimeGetCurrent()
         
-        let loadedData = try await mediaStore.loadDebugData(for: testVideoId)
+        let loadedData = mediaStore.loadDebugData(for: testVideoId)
         
         let loadTime = CFAbsoluteTimeGetCurrent() - loadStartTime
         
@@ -177,7 +177,7 @@ final class DebugPerformanceTests: XCTestCase {
         print("  Load time: \(String(format: "%.3f", loadTime))s")
         
         // Clean up
-        try await mediaStore.deleteVideoWithDebugData(videoId: testVideoId)
+        mediaStore.deleteVideoWithDebugData(videoId: testVideoId)
     }
     
     
@@ -190,7 +190,7 @@ final class DebugPerformanceTests: XCTestCase {
         let startTime = CFAbsoluteTimeGetCurrent()
         
         let results = try await withThrowingTaskGroup(of: URL.self) { group in
-            for i in 0..<concurrentTasks {
+            for _ in 0..<concurrentTasks {
                 group.addTask { [self] in
                     return try await videoProcessor.processVideoDebug(testVideoURL)
                 }

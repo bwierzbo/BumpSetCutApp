@@ -25,6 +25,13 @@ BumpSetCut/Core/Networking/Secrets.swift
 *.swp
 *~
 
+# Test videos (too large for git)
+BumpSetCutUITests/TestData/*.mov
+
+# Supabase local
+supabase/.branches/
+supabase/.temp/
+
 # Claude plans
 .claude/plans/
 .claude/plan.md

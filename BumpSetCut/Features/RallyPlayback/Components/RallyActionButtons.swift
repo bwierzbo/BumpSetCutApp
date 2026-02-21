@@ -30,6 +30,7 @@ struct RallyActionButtons: View {
                 )
                 .frame(width: 80, height: 80)
                 .accessibilityLabel("Remove rally")
+                .accessibilityIdentifier(AccessibilityID.RallyPlayer.remove)
                 .id("remove-\(isRemoved)")
 
                 // Undo button - fixed container
@@ -45,6 +46,7 @@ struct RallyActionButtons: View {
                 .disabled(!canUndo)
                 .accessibilityLabel("Undo")
                 .accessibilityValue(canUndo ? "Available" : "No action to undo")
+                .accessibilityIdentifier(AccessibilityID.RallyPlayer.undo)
                 .id("undo-\(canUndo)")
 
                 // Save button - fixed container
@@ -57,6 +59,7 @@ struct RallyActionButtons: View {
                 )
                 .frame(width: 80, height: 80)
                 .accessibilityLabel(isSaved ? "Unsave rally" : "Save rally")
+                .accessibilityIdentifier(AccessibilityID.RallyPlayer.save)
                 .id("save-\(isSaved)")
 
                 // Favorite button - fixed container
@@ -69,6 +72,7 @@ struct RallyActionButtons: View {
                 )
                 .frame(width: 80, height: 80)
                 .accessibilityLabel(isFavorited ? "Unfavorite rally" : "Favorite rally")
+                .accessibilityIdentifier(AccessibilityID.RallyPlayer.favorite)
                 .id("favorite-\(isFavorited)")
             }
             .padding(.bottom, isPortrait ? 60 : 20)

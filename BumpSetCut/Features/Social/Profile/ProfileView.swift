@@ -156,6 +156,7 @@ struct ProfileView: View {
             Text(profile.username)
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(.bscTextPrimary)
+                .accessibilityIdentifier(AccessibilityID.Profile.username)
 
             if let bio = profile.bio, !bio.isEmpty {
                 Text(bio)
@@ -164,6 +165,7 @@ struct ProfileView: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
                     .padding(.horizontal, BSCSpacing.xl)
+                    .accessibilityIdentifier(AccessibilityID.Profile.bio)
             }
 
             if let team = profile.teamName, !team.isEmpty {
@@ -179,6 +181,7 @@ struct ProfileView: View {
     private func statsRow(_ profile: UserProfile) -> some View {
         HStack(spacing: 0) {
             statItem(count: profile.highlightsCount, label: "Highlights")
+                .accessibilityIdentifier(AccessibilityID.Profile.highlightsCount)
             Divider().frame(height: 30)
             NavigationLink {
                 FollowListView(userId: viewModel.userId, mode: .followers)
@@ -186,6 +189,7 @@ struct ProfileView: View {
                 statItem(count: profile.followersCount, label: "Followers")
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier(AccessibilityID.Profile.followersCount)
             Divider().frame(height: 30)
             NavigationLink {
                 FollowListView(userId: viewModel.userId, mode: .following)
@@ -193,6 +197,7 @@ struct ProfileView: View {
                 statItem(count: profile.followingCount, label: "Following")
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier(AccessibilityID.Profile.followingCount)
         }
         .padding(.horizontal, BSCSpacing.lg)
     }
@@ -227,6 +232,7 @@ struct ProfileView: View {
                         .background(Color.bscSurfaceGlass)
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                 }
+                .accessibilityIdentifier(AccessibilityID.Profile.editProfileButton)
 
                 Button {
                     showSignOutConfirmation = true
@@ -239,6 +245,7 @@ struct ProfileView: View {
                         .background(Color.bscSurfaceGlass)
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                 }
+                .accessibilityIdentifier(AccessibilityID.Profile.signOutButton)
             } else {
                 Button {
                     UINotificationFeedbackGenerator.success()
@@ -252,6 +259,7 @@ struct ProfileView: View {
                         .background(viewModel.isFollowing ? Color.bscSurfaceGlass : Color.bscPrimary)
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                 }
+                .accessibilityIdentifier(AccessibilityID.Profile.followButton)
             }
         }
         .padding(.horizontal, BSCSpacing.lg)

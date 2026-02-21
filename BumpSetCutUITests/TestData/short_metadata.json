@@ -1,0 +1,95 @@
+{
+  "id" : "A0000001-0000-0000-0000-000000000001",
+  "videoId" : "PLACEHOLDER-WILL-BE-REPLACED-AT-RUNTIME",
+  "processingVersion" : "1.0",
+  "processingDate" : "2026-02-20T00:00:00Z",
+  "processingConfig" : {
+    "parabolaMinPoints" : 5,
+    "parabolaMinR2" : 0.7,
+    "accelConsistencyMaxStd" : 200.0,
+    "minVelocityToConsiderActive" : 5.0,
+    "projectileWindowSec" : 0.5,
+    "useGravityBand" : true,
+    "gravityMinA" : 300.0,
+    "gravityMaxA" : 2500.0,
+    "yIncreasingDown" : true,
+    "maxJumpPerFrame" : 150.0,
+    "roiYRadius" : 200.0,
+    "trackGateRadius" : 80.0,
+    "minTrackAgeForPhysics" : 4,
+    "startBuffer" : 1.0,
+    "endTimeout" : 2.0,
+    "preroll" : 1.5,
+    "postroll" : 1.0,
+    "minGapToMerge" : 3.0,
+    "minSegmentLength" : 2.0,
+    "enableEnhancedPhysics" : false,
+    "enhancedMinR2" : 0.85,
+    "excellentR2Threshold" : 0.95,
+    "goodR2Threshold" : 0.85,
+    "acceptableR2Threshold" : 0.7,
+    "enablePhysicsConstraints" : false,
+    "maxAccelerationDeviation" : 500.0,
+    "velocityConsistencyThreshold" : 0.6,
+    "trajectorySmoothnessThreshold" : 0.5,
+    "movementClassifierEnabled" : true,
+    "minClassificationConfidence" : 0.6,
+    "airbornePhysicsThreshold" : 0.7,
+    "minAccelerationPattern" : 0.3,
+    "minSmoothnessForAirborne" : 0.4,
+    "maxVerticalMotionForRolling" : 0.1,
+    "minSmoothnessForRolling" : 0.7,
+    "maxAccelerationForRolling" : 0.2
+  },
+  "rallySegments" : [
+    {
+      "id" : "B0000001-0000-0000-0000-000000000001",
+      "startTime" : 2.0,
+      "endTime" : 12.0,
+      "confidence" : 0.85,
+      "quality" : 0.8,
+      "detectionCount" : 45,
+      "averageTrajectoryLength" : 8.5
+    }
+  ],
+  "processingStats" : {
+    "totalFrames" : 450,
+    "processedFrames" : 450,
+    "detectionFrames" : 120,
+    "trackingFrames" : 100,
+    "rallyFrames" : 300,
+    "physicsValidFrames" : 80,
+    "totalDetections" : 180,
+    "validTrajectories" : 15,
+    "averageDetectionsPerFrame" : 0.4,
+    "averageConfidence" : 0.78,
+    "processingDuration" : 30.0,
+    "framesPerSecond" : 15.0
+  },
+  "qualityMetrics" : {
+    "overallQuality" : 0.75,
+    "averageRSquared" : 0.82,
+    "trajectoryConsistency" : 0.7,
+    "physicsValidationRate" : 0.65,
+    "confidenceDistribution" : {
+      "high" : 8,
+      "medium" : 5,
+      "low" : 2
+    },
+    "qualityBreakdown" : {
+      "velocityConsistency" : 0.72,
+      "accelerationPattern" : 0.68,
+      "smoothnessScore" : 0.75,
+      "verticalMotionScore" : 0.8,
+      "overallCoherence" : 0.74
+    }
+  },
+  "performanceMetrics" : {
+    "processingStartTime" : "2026-02-20T00:00:00Z",
+    "processingEndTime" : "2026-02-20T00:00:30Z",
+    "averageFPS" : 15.0,
+    "peakMemoryUsageMB" : 250.0,
+    "averageMemoryUsageMB" : 180.0,
+    "processingOverheadPercent" : 5.0
+  }
+}
