@@ -11,17 +11,17 @@ import SwiftUI
 struct RallyPlayerFactory {
     /// Creates the appropriate rally player view based on metadata availability
     @ViewBuilder
-    static func createRallyPlayer(for videoMetadata: VideoMetadata) -> some View {
+    static func createRallyPlayer(for videoMetadata: VideoMetadata, mediaStore: MediaStore) -> some View {
         if videoMetadata.hasMetadata {
-            RallyPlayerView(videoMetadata: videoMetadata)
+            RallyPlayerView(videoMetadata: videoMetadata, mediaStore: mediaStore)
         } else {
             VideoPlayerView(videoURL: videoMetadata.originalURL)
         }
     }
 
     /// Creates a rally player with session tracking
-    static func createTrackedRallyPlayer(for videoMetadata: VideoMetadata) -> some View {
-        TrackedRallyPlayer(videoMetadata: videoMetadata)
+    static func createTrackedRallyPlayer(for videoMetadata: VideoMetadata, mediaStore: MediaStore) -> some View {
+        TrackedRallyPlayer(videoMetadata: videoMetadata, mediaStore: mediaStore)
     }
 }
 
@@ -30,10 +30,11 @@ struct RallyPlayerFactory {
 @MainActor
 struct TrackedRallyPlayer: View {
     let videoMetadata: VideoMetadata
+    let mediaStore: MediaStore
     @State private var startTime = Date()
 
     var body: some View {
-        RallyPlayerFactory.createRallyPlayer(for: videoMetadata)
+        RallyPlayerFactory.createRallyPlayer(for: videoMetadata, mediaStore: mediaStore)
             .onAppear {
                 startTime = Date()
                 print("Rally player opened for: \(videoMetadata.displayName)")
@@ -57,7 +58,8 @@ struct TrackedRallyPlayer: View {
             createdDate: Date(),
             fileSize: 0,
             duration: 120.0
-        )
+        ),
+        mediaStore: MediaStore()
     )
 }
 #endif

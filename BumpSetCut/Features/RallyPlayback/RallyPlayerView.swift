@@ -35,9 +35,9 @@ struct RallyPlayerView: View {
 
     // MARK: - Initialization
 
-    init(videoMetadata: VideoMetadata) {
+    init(videoMetadata: VideoMetadata, mediaStore: MediaStore) {
         self.videoMetadata = videoMetadata
-        self._viewModel = State(wrappedValue: RallyPlayerViewModel(videoMetadata: videoMetadata))
+        self._viewModel = State(wrappedValue: RallyPlayerViewModel(videoMetadata: videoMetadata, mediaStore: mediaStore))
     }
 
     // MARK: - Body
@@ -605,6 +605,7 @@ struct ShareableRallyIndex: Identifiable {
             createdDate: Date(),
             fileSize: 0,
             duration: 60.0
-        )
+        ),
+        mediaStore: MediaStore()
     )
 }

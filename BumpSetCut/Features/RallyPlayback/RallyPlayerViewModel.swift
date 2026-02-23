@@ -11,6 +11,7 @@ final class RallyPlayerViewModel {
     // MARK: - Input
 
     let videoMetadata: VideoMetadata
+    let mediaStore: MediaStore
 
     // MARK: - Loading State
 
@@ -161,8 +162,9 @@ final class RallyPlayerViewModel {
 
     // MARK: - Initialization
 
-    init(videoMetadata: VideoMetadata) {
+    init(videoMetadata: VideoMetadata, mediaStore: MediaStore) {
         self.videoMetadata = videoMetadata
+        self.mediaStore = mediaStore
     }
 
     // MARK: - Loading
@@ -423,6 +425,30 @@ final class RallyPlayerViewModel {
 
     func undoLastAction() {
         guard let action = actions.undoLast() else { return }
+
+        if action.isTrimAction {
+            let metadataVideoId = videoMetadata.originalVideoId ?? videoMetadata.id
+            trim.restoreTrimAdjustment(action.previousTrim, for: action.rallyIndex, videoId: metadataVideoId, metadataStore: metadataStore)
+
+            if currentRallyIndex != action.rallyIndex {
+                navigation.setIndex(action.rallyIndex, totalCount: rallyVideoURLs.count)
+                if let url = currentRallyURL {
+                    playerCache.setCurrentPlayer(for: url)
+                }
+            }
+            seekToCurrentRallyStart()
+            setupRallyLooping()
+            playerCache.play()
+
+            let dismissTask = Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                actions.dismissFeedback()
+            }
+            activeTasks.append(dismissTask)
+            pruneCompletedTasks()
+            return
+        }
+
         actions.setPerformingAction(true)
 
         if action.direction == .up {
@@ -476,10 +502,20 @@ final class RallyPlayerViewModel {
 
     func confirmTrim() {
         let metadataVideoId = videoMetadata.originalVideoId ?? videoMetadata.id
-        trim.confirmTrim(rallyIndex: currentRallyIndex, videoId: metadataVideoId, metadataStore: metadataStore)
+        let previousTrim = trim.confirmTrim(rallyIndex: currentRallyIndex, videoId: metadataVideoId, metadataStore: metadataStore)
+
+        actions.registerTrimAction(rallyIndex: currentRallyIndex, previousTrim: previousTrim)
+
         seekToCurrentRallyStart()
         setupRallyLooping()
         playerCache.play()
+
+        let dismissTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            actions.dismissFeedback()
+        }
+        activeTasks.append(dismissTask)
+        pruneCompletedTasks()
     }
 
     func cancelTrim() {
@@ -518,8 +554,6 @@ final class RallyPlayerViewModel {
         let baseDir = StorageManager.getPersistentStorageDirectory()
         let favoritesDir = baseDir.appendingPathComponent(LibraryType.favorites.rootPath, isDirectory: true)
         try? fileManager.createDirectory(at: favoritesDir, withIntermediateDirectories: true)
-
-        let mediaStore = MediaStore()
 
         for index in favoritedRallies.sorted() {
             guard index < metadata.rallySegments.count else { continue }

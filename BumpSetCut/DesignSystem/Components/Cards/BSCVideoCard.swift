@@ -31,6 +31,7 @@ struct BSCVideoCard: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingRenameDialog = false
     @State private var showingMoveDialog = false
+    @State private var showingGameReview = false
     @State private var isPressed = false
 
     // MARK: - Body
@@ -52,7 +53,10 @@ struct BSCVideoCard: View {
         }
         .fullScreenCover(isPresented: $showingRallyViewer) {
             // "View Rallies" button: Always show rally viewer (ignores library type)
-            RallyPlayerView(videoMetadata: video)
+            RallyPlayerView(videoMetadata: video, mediaStore: mediaStore)
+        }
+        .sheet(isPresented: $showingGameReview) {
+            GameReviewFactory(videoMetadata: video)
         }
         .sheet(isPresented: $showingProcessVideo) {
             NavigationStack {
@@ -440,6 +444,11 @@ struct BSCVideoCard: View {
                 showingRallyViewer = true
             } label: {
                 Label("View Rallies", systemImage: "play.rectangle")
+            }
+            Button {
+                showingGameReview = true
+            } label: {
+                Label("Game Review", systemImage: "sportscourt")
             }
             Divider()
         }

@@ -110,7 +110,7 @@ struct ProcessVideoView: View {
         }
         .fullScreenCover(isPresented: $viewModel.showRallyPlayer) {
             if let videoMetadata = viewModel.currentVideoMetadata {
-                RallyPlayerView(videoMetadata: videoMetadata)
+                RallyPlayerView(videoMetadata: videoMetadata, mediaStore: viewModel.mediaStore)
                     .environment(AppNavigationState())
             } else {
                 // Safety fallback — dismiss if metadata unexpectedly nil
