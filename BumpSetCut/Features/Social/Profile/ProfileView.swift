@@ -14,6 +14,7 @@ struct ProfileView: View {
     @State private var highlightToDelete: Highlight?
     @State private var showReportSheet = false
     @State private var showBlockAlert = false
+    @State private var showCopiedToast = false
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.dismiss) private var dismiss
 
@@ -41,6 +42,21 @@ struct ProfileView: View {
                         highlightsGrid
                     }
                     .padding(.top, BSCSpacing.md)
+                }
+            }
+
+            // "Copied!" toast
+            if showCopiedToast {
+                VStack {
+                    Spacer()
+                    Text("Copied!")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, BSCSpacing.lg)
+                        .padding(.vertical, BSCSpacing.sm)
+                        .background(Color.bscSurfaceGlass, in: Capsule())
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .padding(.bottom, BSCSpacing.xl)
                 }
             }
         }
@@ -157,6 +173,14 @@ struct ProfileView: View {
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(.bscTextPrimary)
                 .accessibilityIdentifier(AccessibilityID.Profile.username)
+                .onLongPressGesture {
+                    UIPasteboard.general.string = profile.username
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    withAnimation { showCopiedToast = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { showCopiedToast = false }
+                    }
+                }
 
             if let bio = profile.bio, !bio.isEmpty {
                 Text(bio)
