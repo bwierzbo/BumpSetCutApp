@@ -119,6 +119,24 @@ struct ProcessVideoView: View {
                     .onAppear { viewModel.showRallyPlayer = false }
             }
         }
+        .fullScreenCover(isPresented: $viewModel.showGameReview) {
+            if let videoMetadata = viewModel.currentVideoMetadata {
+                NavigationStack {
+                    GameReviewFactory(videoMetadata: videoMetadata)
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarLeading) {
+                                Button { viewModel.showGameReview = false } label: {
+                                    Image(systemName: "xmark")
+                                }
+                            }
+                        }
+                }
+            } else {
+                Color.bscBackground
+                    .ignoresSafeArea()
+                    .onAppear { viewModel.showGameReview = false }
+            }
+        }
         .onChange(of: viewModel.isProcessing) { old, new in
             // When processing finishes, consume results from the coordinator
             if old && !new {
@@ -127,6 +145,12 @@ struct ProcessVideoView: View {
         }
         .onChange(of: viewModel.showRallyPlayer) { old, new in
             // When rally player is dismissed, go all the way back to library
+            if old && !new {
+                dismiss()
+            }
+        }
+        .onChange(of: viewModel.showGameReview) { old, new in
+            // When game review is dismissed, go all the way back to library
             if old && !new {
                 dismiss()
             }
@@ -523,7 +547,7 @@ private extension ProcessVideoView {
         case .noRallies:
             noRalliesButtons
         case .hasMetadata:
-            viewRalliesButton
+            reviewModeButtons
         case .alreadyProcessed:
             alreadyProcessedButtons
         case .ready:
@@ -623,11 +647,24 @@ private extension ProcessVideoView {
         .accessibilityIdentifier(AccessibilityID.Process.doneButton)
     }
 
-    var viewRalliesButton: some View {
-        BSCButton(title: "View Rallies", icon: "play.fill", style: .primary, size: .large) {
-            viewModel.showRallyPlayer = true
+    var reviewModeButtons: some View {
+        VStack(spacing: BSCSpacing.md) {
+            HStack(spacing: BSCSpacing.md) {
+                BSCButton(title: "Rally Viewer", icon: "play.fill", style: .primary, size: .large) {
+                    viewModel.showRallyPlayer = true
+                }
+                .accessibilityIdentifier(AccessibilityID.Process.viewRallies)
+
+                BSCButton(title: "Game Review", icon: "sportscourt", style: .secondary, size: .large) {
+                    viewModel.showGameReview = true
+                }
+            }
+
+            Text("Rally Viewer plays rallies back-to-back\nGame Review tracks score rally by rally")
+                .font(.system(size: 12))
+                .foregroundColor(.bscTextTertiary)
+                .multilineTextAlignment(.center)
         }
-        .accessibilityIdentifier(AccessibilityID.Process.viewRallies)
     }
 }
 

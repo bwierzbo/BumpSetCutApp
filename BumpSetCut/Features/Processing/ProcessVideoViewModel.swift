@@ -20,8 +20,9 @@ final class ProcessVideoViewModel {
     var showStorageWarning: Bool = false
     var storageWarningMessage: String = ""
 
-    // Rally player navigation
+    // Review navigation
     var showRallyPlayer: Bool = false
+    var showGameReview: Bool = false
 
     // Pending save state - holds temp URL until user selects destination folder
     var pendingSaveURL: URL? = nil
@@ -252,8 +253,9 @@ final class ProcessVideoViewModel {
             return
         }
 
-        // Check weekly processing limit for free users
-        let processingCheck = SubscriptionService.shared.canProcessVideo()
+        // Check weekly processing duration limit for free users
+        let videoDuration = cachedOriginalDuration ?? currentVideoMetadata?.duration ?? 0
+        let processingCheck = SubscriptionService.shared.canProcessVideo(durationSeconds: videoDuration)
         if !processingCheck.allowed {
             errorMessage = processingCheck.message ?? "Processing limit reached"
             showError = true
@@ -316,15 +318,7 @@ final class ProcessVideoViewModel {
                     loadCurrentVideoMetadata()
                     coordinator.reset()
                 }
-                // Let SwiftUI settle before presenting rally viewer
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                await MainActor.run {
-                    if currentVideoMetadata != nil {
-                        showRallyPlayer = true
-                    } else {
-                        print("⚠️ confirmSaveToFolder: currentVideoMetadata is nil, can't show rally player")
-                    }
-                }
+                // Don't auto-open rally player — let user choose between Rally Viewer and Game Review
             } catch {
                 print("❌ confirmSaveToFolder: error: \(error)")
                 await MainActor.run {
