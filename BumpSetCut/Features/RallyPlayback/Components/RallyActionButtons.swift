@@ -4,12 +4,10 @@ import SwiftUI
 struct RallyActionButtons: View {
     let isSaved: Bool
     let isRemoved: Bool
-    var isFavorited: Bool = false
     let canUndo: Bool
     let onRemove: () -> Void
     let onUndo: () -> Void
     let onSave: () -> Void
-    var onFavorite: () -> Void = {}
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -61,19 +59,6 @@ struct RallyActionButtons: View {
                 .accessibilityLabel(isSaved ? "Unsave rally" : "Save rally")
                 .accessibilityIdentifier(AccessibilityID.RallyPlayer.save)
                 .id("save-\(isSaved)")
-
-                // Favorite button - fixed container
-                RallyActionButton(
-                    icon: isFavorited ? "star.fill" : "star",
-                    color: .bscPrimary,
-                    size: .large,
-                    isActive: isFavorited,
-                    action: onFavorite
-                )
-                .frame(width: 80, height: 80)
-                .accessibilityLabel(isFavorited ? "Unfavorite rally" : "Favorite rally")
-                .accessibilityIdentifier(AccessibilityID.RallyPlayer.favorite)
-                .id("favorite-\(isFavorited)")
             }
             .padding(.bottom, isPortrait ? 60 : 20)
         }
@@ -243,6 +228,8 @@ extension RallyActionFeedback.ActionType {
             return .bscBlue
         case .favorite:
             return .bscPrimary
+        case .trim:
+            return .bscWarning
         }
     }
 }

@@ -207,12 +207,10 @@ struct RallyPlayerView: View {
             RallyActionButtons(
                 isSaved: viewModel.currentRallyIsSaved,
                 isRemoved: viewModel.currentRallyIsRemoved,
-                isFavorited: viewModel.currentRallyIsFavorited,
                 canUndo: viewModel.canUndo,
                 onRemove: { performAction(.remove) },
                 onUndo: { viewModel.undoLastAction() },
-                onSave: { performAction(.save) },
-                onFavorite: { viewModel.performAction(.favorite, direction: .up) }
+                onSave: { performAction(.save) }
             )
             .zIndex(200)
 
