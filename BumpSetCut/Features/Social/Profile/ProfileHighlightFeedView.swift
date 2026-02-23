@@ -43,22 +43,12 @@ struct ProfileHighlightFeedView: View {
             }
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: $currentIndex)
+            .scrollBounceBehavior(.always)
             .ignoresSafeArea()
 
-            // Close button + counter
+            // Close button
             VStack {
                 HStack {
-                    // Position counter
-                    if highlights.count > 1 {
-                        Text("\((currentIndex ?? startIndex) + 1)/\(highlights.count)")
-                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, BSCSpacing.sm)
-                            .padding(.vertical, BSCSpacing.xs)
-                            .background(.ultraThinMaterial.opacity(0.8))
-                            .clipShape(Capsule())
-                    }
-
                     Spacer()
 
                     Button {
