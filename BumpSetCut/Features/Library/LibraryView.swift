@@ -93,7 +93,7 @@ struct LibraryView: View {
             }
             .alert("Name Your Video", isPresented: Binding(
                 get: { viewModel.uploadCoordinator.showNamingDialog },
-                set: { if !$0 { viewModel.uploadCoordinator.completeNaming(customName: nil) } }
+                set: { if !$0 && viewModel.uploadCoordinator.showNamingDialog { viewModel.uploadCoordinator.completeNaming(customName: nil) } }
             )) {
                 TextField("Video name", text: $videoNameInput)
                     .onChange(of: videoNameInput) { _, newValue in
