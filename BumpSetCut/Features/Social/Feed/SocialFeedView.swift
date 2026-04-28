@@ -30,8 +30,15 @@ struct SocialFeedView: View {
                     .tint(.bscPrimary)
                     .scaleEffect(1.5)
             } else if viewModel.highlights.isEmpty {
-                emptyState
+                if viewModel.error != nil {
+                    BSCEmptyState.loadFailed(message: viewModel.error?.localizedDescription) {
+                        Task { await viewModel.loadFeed() }
+                    }
                     .accessibilityIdentifier(AccessibilityID.Feed.emptyState)
+                } else {
+                    emptyState
+                        .accessibilityIdentifier(AccessibilityID.Feed.emptyState)
+                }
             } else {
                 feedContent
             }

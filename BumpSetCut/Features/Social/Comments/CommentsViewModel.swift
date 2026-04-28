@@ -13,6 +13,8 @@ import Observation
 final class CommentsViewModel {
     private(set) var comments: [Comment] = []
     private(set) var isLoading = false
+    private(set) var loadError: Error?
+    private(set) var sendError: Error?
     var newCommentText: String = ""
     private(set) var isSending = false
 
@@ -28,6 +30,7 @@ final class CommentsViewModel {
     func loadComments() async {
         guard !isLoading else { return }
         isLoading = true
+        loadError = nil
 
         do {
             let page: [Comment] = try await apiClient.request(.getComments(highlightId: highlightId, page: 0))
@@ -38,8 +41,8 @@ final class CommentsViewModel {
             }
             currentPage = 1
         } catch {
-            // Stub comments for development
-            comments = Self.stubComments(for: highlightId)
+            loadError = error
+            comments = []
         }
 
         isLoading = false
@@ -49,22 +52,14 @@ final class CommentsViewModel {
         let text = newCommentText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isSending else { return }
         isSending = true
+        sendError = nil
 
         do {
             let comment: Comment = try await apiClient.request(.addComment(highlightId: highlightId, text: text))
             comments.insert(comment, at: 0)
             newCommentText = ""
         } catch {
-            // Optimistic: add stub comment locally
-            let stub = Comment(
-                id: UUID().uuidString,
-                highlightId: highlightId,
-                authorId: "me",
-                author: UserProfile(id: "me", username: "me"),
-                text: text
-            )
-            comments.insert(stub, at: 0)
-            newCommentText = ""
+            sendError = error
         }
 
         isSending = false
@@ -75,18 +70,5 @@ final class CommentsViewModel {
         let wasLiked = comments[index].isLikedByMe
         comments[index].isLikedByMe = !wasLiked
         comments[index].likesCount += wasLiked ? -1 : 1
-    }
-
-    // MARK: - Stubs
-
-    static func stubComments(for highlightId: String) -> [Comment] {
-        [
-            Comment(id: "c1", highlightId: highlightId, authorId: "1",
-                    author: UserProfile(id: "1", username: "sarahspikes"),
-                    text: "What a save! Great rally.", likesCount: 5),
-            Comment(id: "c2", highlightId: highlightId, authorId: "2",
-                    author: UserProfile(id: "2", username: "miketorres"),
-                    text: "That dig was insane", likesCount: 3),
-        ]
     }
 }

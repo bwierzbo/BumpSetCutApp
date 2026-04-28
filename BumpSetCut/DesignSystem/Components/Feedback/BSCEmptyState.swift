@@ -203,6 +203,17 @@ extension BSCEmptyState {
             onAction: onDiscover
         )
     }
+
+    /// Failed to load remote content. Use for any social surface that had a network/auth error.
+    static func loadFailed(message: String? = nil, onRetry: @escaping () -> Void) -> BSCEmptyState {
+        BSCEmptyState(
+            icon: "wifi.exclamationmark",
+            title: "Couldn't load",
+            message: message ?? "Check your connection and try again.",
+            actionTitle: "Retry",
+            onAction: onRetry
+        )
+    }
 }
 
 // MARK: - Preview

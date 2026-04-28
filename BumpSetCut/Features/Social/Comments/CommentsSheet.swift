@@ -26,6 +26,13 @@ struct CommentsSheet: View {
                     ProgressView()
                         .tint(.bscPrimary)
                     Spacer()
+                } else if viewModel.comments.isEmpty && viewModel.loadError != nil {
+                    Spacer()
+                    BSCEmptyState.loadFailed(message: viewModel.loadError?.localizedDescription) {
+                        Task { await viewModel.loadComments() }
+                    }
+                    .accessibilityIdentifier(AccessibilityID.Comments.emptyState)
+                    Spacer()
                 } else if viewModel.comments.isEmpty {
                     Spacer()
                     Text("No comments yet")

@@ -63,9 +63,7 @@ final class SocialFeedViewModel {
             await enrichPollVotes()
         } catch {
             self.error = error
-            if feedType == .forYou {
-                highlights = Self.stubHighlights
-            }
+            highlights = []
             hasMorePages = false
         }
 
@@ -187,30 +185,5 @@ final class SocialFeedViewModel {
             }
         }
     }
-
-    // MARK: - Stub Data
-
-    static let stubHighlights: [Highlight] = {
-        let authors = [
-            UserProfile(id: "1", username: "sarahspikes"),
-            UserProfile(id: "2", username: "miketorres"),
-            UserProfile(id: "3", username: "jadew"),
-        ]
-        return (0..<6).map { i in
-            Highlight(
-                id: "stub-\(i)",
-                authorId: authors[i % 3].id,
-                author: authors[i % 3],
-                muxPlaybackId: "stub-playback-\(i)",
-                caption: ["Huge rally!", "Beach volleyball finals", "What a save!", "Perfect set to spike", "Amazing dig", "Match point"][i],
-                tags: ["volleyball", "rally"],
-                rallyMetadata: RallyHighlightMetadata(duration: Double.random(in: 5...20), confidence: 0.92, quality: 0.88, detectionCount: Int.random(in: 30...120)),
-                likesCount: Int.random(in: 0...200),
-                commentsCount: Int.random(in: 0...50),
-                createdAt: Date().addingTimeInterval(TimeInterval(-i * 3600)),
-                hideLikes: i == 2
-            )
-        }
-    }()
 }
 

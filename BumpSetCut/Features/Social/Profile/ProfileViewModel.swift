@@ -38,8 +38,6 @@ final class ProfileViewModel {
             currentPage = 1
         } catch {
             self.error = error
-            // Stub data
-            profile = UserProfile(id: userId, username: "player_\(userId.prefix(4))")
         }
 
         await loadFollowStatus()

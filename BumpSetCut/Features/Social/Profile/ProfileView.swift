@@ -43,6 +43,10 @@ struct ProfileView: View {
                     }
                     .padding(.top, BSCSpacing.md)
                 }
+            } else if viewModel.error != nil {
+                BSCEmptyState.loadFailed(message: viewModel.error?.localizedDescription) {
+                    Task { await viewModel.loadProfile() }
+                }
             }
 
             // "Copied!" toast
