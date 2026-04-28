@@ -682,7 +682,7 @@ struct FavoritesFeedView: View {
             }
         }
 
-        if let existing = players[index] {
+        if players[index] != nil {
             applyTrimAndPlay(at: index)
             return
         }

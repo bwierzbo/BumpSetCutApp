@@ -151,6 +151,8 @@ struct ShareRallySheet: View {
                         rallyBadge(pageIndex: pageIndex)
                     }
                     .clipped()
+                    .opacity(isCurrent ? 1.0 : 0.85)
+                    .animation(.easeInOut(duration: 0.2), value: isCurrent)
                     .tag(pageIndex)
                 }
             }

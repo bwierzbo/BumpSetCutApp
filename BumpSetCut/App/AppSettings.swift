@@ -129,7 +129,6 @@ enum AppTheme: String, CaseIterable, Identifiable {
         ]
 
         print("📊 Rally view analytics: \(analyticsData)")
-        // TODO: Send to analytics service when available
     }
 
     func logRallyGestureUsage(gestureType: RallyGestureType, rallyIndex: Int) {
@@ -142,7 +141,6 @@ enum AppTheme: String, CaseIterable, Identifiable {
         ]
 
         print("👆 Rally gesture analytics: \(gestureData)")
-        // TODO: Send to analytics service when available
     }
 }
 

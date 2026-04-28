@@ -9,8 +9,8 @@ protocol APIClient: Sendable {
 
 // MARK: - Stub API Client
 
-/// Stub implementation for compilation and local development.
-/// Replace with SupabaseAPIClient when backend is integrated.
+/// Stub implementation used by previews and tests.
+/// Production traffic goes through SupabaseAPIClient.
 @MainActor
 final class StubAPIClient: APIClient, @unchecked Sendable {
 
