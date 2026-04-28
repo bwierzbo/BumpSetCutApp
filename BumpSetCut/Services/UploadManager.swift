@@ -200,11 +200,6 @@ class UploadManager: ObservableObject {
                 item.destinationFolderPath = folderPath
             }
             
-            // Simulate upload progress
-            print("⏳ Starting upload progress simulation for: \(item.originalFileName)")
-            try await simulateUploadProgress(item: item)
-            print("✅ Upload progress simulation completed for: \(item.originalFileName)")
-            
             // Save to media store
             let fileName = UUID().uuidString + ".mp4"
             let baseURL = StorageManager.getPersistentStorageDirectory()
@@ -219,17 +214,10 @@ class UploadManager: ObservableObject {
                 attributes: nil
             )
 
-            // Copy file from source URL (memory efficient - no Data loading)
-            try FileManager.default.copyItem(at: item.sourceURL, to: destinationURL)
-            print("UploadManager: Successfully copied file to: \(destinationURL.path)")
-            print("UploadManager: File size: \(item.fileSize) bytes")
-            
-            // Verify file was written
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                print("UploadManager: File verified to exist at: \(destinationURL.path)")
-            } else {
-                print("UploadManager: WARNING - File not found after writing!")
-            }
+            item.status = .uploading(progress: 0.5, transferRate: "", eta: "")
+
+            // Move file (O(1) rename on same filesystem, avoids full copy)
+            try FileManager.default.moveItem(at: item.sourceURL, to: destinationURL)
             
             // Add to MediaStore
             let success = mediaStore.addVideo(
@@ -260,25 +248,6 @@ class UploadManager: ObservableObject {
         }
     }
     
-    private func simulateUploadProgress(item: UploadItem) async throws {
-        let totalSteps = 100
-        let stepDuration: UInt64 = 50_000_000 // 50ms
-        
-        for step in 0...totalSteps {
-            try Task.checkCancellation()
-            
-            let progress = Double(step) / Double(totalSteps)
-            let transferRate = formatTransferRate(bytesPerSecond: Double(item.fileSize) / 5.0) // Assume 5 second upload
-            let remainingSeconds = Double(totalSteps - step) * 0.05
-            let eta = formatETA(seconds: remainingSeconds)
-            
-            item.status = .uploading(progress: progress, transferRate: transferRate, eta: eta)
-            
-            if step < totalSteps {
-                try await Task.sleep(nanoseconds: stepDuration)
-            }
-        }
-    }
     
     private func generateThumbnail(for item: UploadItem) async {
         // Generate thumbnail directly from source URL (no memory copy needed)
@@ -287,21 +256,6 @@ class UploadManager: ObservableObject {
         }
     }
     
-    private func formatTransferRate(bytesPerSecond: Double) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useBytes, .useKB, .useMB]
-        formatter.countStyle = .binary
-        return "\(formatter.string(fromByteCount: Int64(bytesPerSecond)))/s"
-    }
-    
-    private func formatETA(seconds: Double) -> String {
-        if seconds < 60 {
-            return "\(Int(seconds))s left"
-        } else {
-            let minutes = Int(seconds) / 60
-            return "\(minutes)m left"
-        }
-    }
 }
 
 // MARK: - Upload Errors

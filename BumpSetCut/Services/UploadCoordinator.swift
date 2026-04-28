@@ -23,7 +23,7 @@ struct VideoTransferable: Transferable {
         FileRepresentation(contentType: .movie) { video in
             SentTransferredFile(video.url)
         } importing: { received in
-            // Copy to temp location
+            // Copy to our temp location (Apple owns the received file and may clean it up)
             let tempURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("import_\(UUID().uuidString).mov")
             try FileManager.default.copyItem(at: received.file, to: tempURL)
@@ -245,7 +245,6 @@ extension UploadCoordinator {
         }
 
         await saveVideoFromURL(videoURL, destinationFolder: destinationFolder)
-        try? FileManager.default.removeItem(at: videoURL)
 
         await MainActor.run {
             stopElapsedTimer()
@@ -274,12 +273,16 @@ extension UploadCoordinator {
     /// Load video from PhotosPickerItem to a temp file (memory efficient for large videos)
     private func loadVideoToTempFile(from item: PhotosPickerItem, index: Int) async throws -> URL? {
         // Use file-based transfer only - never load entire video into memory
+        let start = CFAbsoluteTimeGetCurrent()
         if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            print("⏱️ loadTransferable took \(String(format: "%.1f", elapsed))s")
             return movie.url
         }
 
         // If VideoTransferable fails, log and return nil (don't fall back to Data loading)
-        logger.warning("VideoTransferable failed for item \(index) - skipping to avoid memory issues")
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        logger.warning("VideoTransferable failed for item \(index) after \(String(format: "%.1f", elapsed))s - skipping to avoid memory issues")
         return nil
     }
 
@@ -299,25 +302,21 @@ extension UploadCoordinator {
                 attributes: nil
             )
 
-            // Copy file (more efficient than loading into memory)
-            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-            print("✅ Copied video to: \(destinationURL.path)")
+            // Move file (O(1) rename on same filesystem, avoids full copy)
+            let moveStart = CFAbsoluteTimeGetCurrent()
+            try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+            print("⏱️ moveItem took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - moveStart))s")
 
             // Get file size for display
             let fileSize = (try? FileManager.default.attributesOfItem(atPath: destinationURL.path)[.size] as? Int64) ?? 0
             print("📦 File size: \(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))")
 
-            // Detect sport type before adding to MediaStore
-            let asset = AVURLAsset(url: destinationURL)
-            let (detectedType, confidence) = (try? await SportDetector.detectSport(from: asset)) ?? (.beach, 0.5)
-            print("🏐 Detected sport: \(detectedType.displayName) (confidence: \(String(format: "%.1f%%", confidence * 100)))")
-
-            // Add to MediaStore with detected sport type
+            // Add to MediaStore (default to beach volleyball)
             let success = mediaStore.addVideo(
                 at: destinationURL,
                 toFolder: destinationFolder,
                 customName: nil,
-                volleyballType: detectedType
+                volleyballType: .beach
             )
 
             if success {
