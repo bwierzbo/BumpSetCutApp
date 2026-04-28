@@ -89,14 +89,16 @@ extension HomeViewModel {
                 )
             ]
         } else {
-            // Free users: Show processing stats + remaining limit
-            let remaining = subscriptionService.remainingProcessingCredits() ?? 0
+            // Free users: Show processing stats + remaining minutes
+            let remainingMin = subscriptionService.remainingProcessingMinutes() ?? 0
+            let cap = SubscriptionService.weeklyProcessingDurationMinutes
+            let fraction = remainingMin / cap
             let batteryIcon: String
-            if remaining == 3 {
+            if fraction > 0.75 {
                 batteryIcon = "battery.100"
-            } else if remaining == 2 {
+            } else if fraction > 0.5 {
                 batteryIcon = "battery.75"
-            } else if remaining == 1 {
+            } else if fraction > 0.25 {
                 batteryIcon = "battery.25"
             } else {
                 batteryIcon = "battery.0"
@@ -117,9 +119,9 @@ extension HomeViewModel {
                 ),
                 StatItem(
                     icon: batteryIcon,
-                    value: "\(remaining)/3",
+                    value: "\(Int(remainingMin))m",
                     label: "This Week",
-                    color: remaining > 0 ? .bscBlue : .red
+                    color: remainingMin > 0 ? .bscBlue : .red
                 )
             ]
         }

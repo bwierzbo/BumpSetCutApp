@@ -25,8 +25,7 @@ final class SubscriptionService {
     }
 
     // MARK: - Free Tier Limits
-    static let weeklyProcessingLimit = 3 // Free users can process 3 videos per week
-    static let maxVideoSizeMB: Int64 = 500 // 500MB max for free users (Pro: unlimited)
+    static let weeklyProcessingDurationMinutes: Double = 60 // Free users get 60 min/week
 
     // MARK: - Pro Entitlements
     enum ProFeature: String, CaseIterable {
@@ -51,7 +50,7 @@ final class SubscriptionService {
             case .offlineProcessing:
                 return "Process videos offline without any internet connection"
             case .unlimitedVideos:
-                return "No limits on video uploads or processing per week"
+                return "No weekly duration limit on video processing"
             case .noWatermark:
                 return "Remove BumpSetCut branding from exported videos"
             case .prioritySupport:
@@ -100,26 +99,43 @@ final class SubscriptionService {
 
     private let processingHistoryKey = "processing_history"
 
-    /// Track when a video was processed
-    func recordVideoProcessing() {
-        var history = getProcessingHistory()
-        history.append(Date())
-        saveProcessingHistory(history)
-        print("📊 Recorded video processing. This week: \(processedThisWeek())/\(SubscriptionService.weeklyProcessingLimit)")
+    /// Entry tracking a processed video's date and duration
+    private struct ProcessingEntry: Codable {
+        let date: Date
+        let durationSeconds: Double
     }
 
-    /// Get processing history from UserDefaults
-    private func getProcessingHistory() -> [Date] {
-        guard let data = UserDefaults.standard.data(forKey: processingHistoryKey),
-              let dates = try? JSONDecoder().decode([Date].self, from: data) else {
+    /// Track when a video was processed with its duration
+    func recordVideoProcessing(durationSeconds: Double) {
+        var history = getProcessingHistory()
+        history.append(ProcessingEntry(date: Date(), durationSeconds: durationSeconds))
+        saveProcessingHistory(history)
+        let used = processedMinutesThisWeek()
+        print("📊 Recorded video processing (\(Int(durationSeconds))s). This week: \(String(format: "%.1f", used))/\(Int(SubscriptionService.weeklyProcessingDurationMinutes)) min")
+    }
+
+    /// Get processing history from UserDefaults, migrating from legacy format if needed
+    private func getProcessingHistory() -> [ProcessingEntry] {
+        guard let data = UserDefaults.standard.data(forKey: processingHistoryKey) else {
             return []
         }
-        return dates
+
+        // Try new format first
+        if let entries = try? JSONDecoder().decode([ProcessingEntry].self, from: data) {
+            return entries
+        }
+
+        // Fall back to legacy [Date] format — treat each as 0 seconds (grandfathered)
+        if let dates = try? JSONDecoder().decode([Date].self, from: data) {
+            return dates.map { ProcessingEntry(date: $0, durationSeconds: 0) }
+        }
+
+        return []
     }
 
     /// Save processing history to UserDefaults
-    private func saveProcessingHistory(_ dates: [Date]) {
-        if let data = try? JSONEncoder().encode(dates) {
+    private func saveProcessingHistory(_ entries: [ProcessingEntry]) {
+        if let data = try? JSONEncoder().encode(entries) {
             UserDefaults.standard.set(data, forKey: processingHistoryKey)
         }
     }
@@ -141,39 +157,46 @@ final class SubscriptionService {
         return calendar.date(from: components) ?? now
     }
 
-    /// Count how many videos processed this week
-    func processedThisWeek() -> Int {
+    /// Total minutes of video processed this week
+    func processedMinutesThisWeek() -> Double {
         let history = getProcessingHistory()
         let weekStart = startOfCurrentWeek()
 
-        return history.filter { $0 >= weekStart }.count
+        let totalSeconds = history
+            .filter { $0.date >= weekStart }
+            .reduce(0.0) { $0 + $1.durationSeconds }
+
+        return totalSeconds / 60.0
     }
 
-    /// Check if user can process another video this week
-    func canProcessVideo() -> (allowed: Bool, message: String?) {
+    /// Check if user can process a video of the given duration this week
+    func canProcessVideo(durationSeconds: Double) -> (allowed: Bool, message: String?) {
         if isPro {
             return (true, nil)
         }
 
-        let processed = processedThisWeek()
+        let usedMinutes = processedMinutesThisWeek()
+        let videoMinutes = durationSeconds / 60.0
+        let cap = SubscriptionService.weeklyProcessingDurationMinutes
+        let remaining = max(0, cap - usedMinutes)
 
-        if processed >= SubscriptionService.weeklyProcessingLimit {
+        if usedMinutes + videoMinutes > cap {
             let resetDate = getNextResetDate()
             let formatter = DateFormatter()
             formatter.dateFormat = "EEEE" // Day name
             let resetDay = formatter.string(from: resetDate)
 
-            return (false, "You've reached the free limit of \(SubscriptionService.weeklyProcessingLimit) videos this week. Your limit resets \(resetDay). Upgrade to Pro for unlimited processing!")
+            return (false, "This video is \(String(format: "%.1f", videoMinutes)) min but you only have \(String(format: "%.1f", remaining)) min remaining this week. Your limit resets \(resetDay). Upgrade to Pro for unlimited processing!")
         }
 
         return (true, nil)
     }
 
-    /// Get remaining processing credits for this week
-    func remainingProcessingCredits() -> Int? {
+    /// Get remaining processing minutes for this week (nil = unlimited for Pro)
+    func remainingProcessingMinutes() -> Double? {
         if isPro { return nil } // Unlimited
-        let processed = processedThisWeek()
-        return max(0, SubscriptionService.weeklyProcessingLimit - processed)
+        let used = processedMinutesThisWeek()
+        return max(0, SubscriptionService.weeklyProcessingDurationMinutes - used)
     }
 
     /// Get the next reset date (next Monday)
@@ -190,23 +213,6 @@ final class SubscriptionService {
         components.second = 0
 
         return calendar.date(from: components) ?? now
-    }
-
-    // MARK: - Video Size Limit
-
-    /// Check if video size is allowed for upload
-    func canUploadVideoSize(fileSizeBytes: Int64) -> (allowed: Bool, message: String?) {
-        if isPro {
-            return (true, nil)
-        }
-
-        let fileSizeMB = fileSizeBytes / (1024 * 1024)
-
-        if fileSizeMB > SubscriptionService.maxVideoSizeMB {
-            return (false, "Video size (\(fileSizeMB)MB) exceeds the free limit of \(SubscriptionService.maxVideoSizeMB)MB. Upgrade to Pro for unlimited file sizes!")
-        }
-
-        return (true, nil)
     }
 
     // MARK: - Watermark

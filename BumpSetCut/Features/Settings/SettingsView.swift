@@ -164,19 +164,13 @@ private extension SettingsView {
                 } else {
                     // Free tier limits
                     VStack(spacing: BSCSpacing.sm) {
-                        if let remaining = subscriptionService.remainingProcessingCredits() {
+                        if let remaining = subscriptionService.remainingProcessingMinutes() {
                             LimitRow(
                                 icon: "waveform",
                                 title: "Weekly Processing",
-                                value: "\(remaining) of \(SubscriptionService.weeklyProcessingLimit) remaining"
+                                value: "\(Int(remaining)) min of \(Int(SubscriptionService.weeklyProcessingDurationMinutes)) min remaining"
                             )
                         }
-
-                        LimitRow(
-                            icon: "arrow.up.doc",
-                            title: "Max Video Size",
-                            value: "\(SubscriptionService.maxVideoSizeMB)MB"
-                        )
 
                         LimitRow(
                             icon: "wifi",

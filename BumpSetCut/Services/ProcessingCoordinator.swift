@@ -6,6 +6,7 @@
 //  Owns the processing task so progress is visible from any screen.
 //
 
+import AVFoundation
 import Foundation
 import Observation
 import os
@@ -125,6 +126,10 @@ final class ProcessingCoordinator {
                     _ = try await processor.processVideo(videoURL, videoId: videoId)
 
                     // Mark video as processed
+                    // Get video duration for processing history
+                    let asset = AVURLAsset(url: videoURL)
+                    let durationSeconds: Double = (try? await CMTimeGetSeconds(asset.load(.duration))) ?? 0
+
                     await MainActor.run {
                         if let match = mediaStore.getAllVideos().first(where: { $0.id == videoId }) {
                             if let metadataSize = match.getCurrentMetadataSize() {
@@ -133,7 +138,7 @@ final class ProcessingCoordinator {
                                     metadataFileSize: metadataSize,
                                     volleyballType: volleyballType
                                 )
-                                SubscriptionService.shared.recordVideoProcessing()
+                                SubscriptionService.shared.recordVideoProcessing(durationSeconds: durationSeconds)
                             }
                         }
                     }
