@@ -455,3 +455,37 @@ extension MetadataStore {
         return selections
     }
 }
+
+// MARK: - Game Review Persistence
+
+extension MetadataStore {
+
+    private func gameReviewURL(for videoId: UUID) -> URL {
+        metadataDirectory.appendingPathComponent("\(videoId.uuidString)_game_review.json")
+    }
+
+    /// Save game review state for a video.
+    func saveGameReview(_ state: GameReviewState, for videoId: UUID) throws {
+        let url = gameReviewURL(for: videoId)
+        try createMetadataDirectoryIfNeeded()
+        let data = try jsonEncoder.encode(state)
+        try data.write(to: url, options: .atomic)
+    }
+
+    /// Load previously saved game review state. Returns nil if none saved.
+    func loadGameReview(for videoId: UUID) -> GameReviewState? {
+        let url = gameReviewURL(for: videoId)
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let state = try? jsonDecoder.decode(GameReviewState.self, from: data) else {
+            return nil
+        }
+        return state
+    }
+
+    /// Delete game review state for a video.
+    func deleteGameReview(for videoId: UUID) {
+        let url = gameReviewURL(for: videoId)
+        try? fileManager.removeItem(at: url)
+    }
+}

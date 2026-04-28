@@ -365,19 +365,13 @@ final class VideoProcessor {
 
         let asset = AVURLAsset(url: url)
 
-        // Use configured volleyball type if already set, otherwise detect it
-        let sportType: VolleyballType
-        if let configuredType = volleyballType {
-            sportType = configuredType
-            print("🏐 Using configured sport type: \(sportType.displayName)")
-            eventLog.log(.sportDetected, detail: "configured=\(sportType.displayName)")
-        } else {
-            let (detectedType, confidence) = try await SportDetector.detectSport(from: asset)
-            print("🏐 Auto-detected sport: \(detectedType.displayName) (confidence: \(String(format: "%.1f%%", confidence * 100)))")
-            sportType = detectedType
+        // Use configured volleyball type if set, otherwise default to beach
+        let sportType: VolleyballType = volleyballType ?? .beach
+        if volleyballType == nil {
             configure(for: sportType)
-            eventLog.log(.sportDetected, detail: "detected=\(detectedType.displayName), confidence=\(String(format: "%.1f%%", confidence * 100))")
         }
+        print("🏐 Using sport type: \(sportType.displayName)")
+        eventLog.log(.sportDetected, detail: "type=\(sportType.displayName)")
 
         // Recreate stage objects with sport-specific config
         self.gate = BallisticsGate(config: config)
@@ -680,13 +674,42 @@ final class VideoProcessor {
             let avgTrajLen = segmentTrajectories.isEmpty ? 0.0 :
                 segmentTrajectories.reduce(0.0) { $0 + $1.duration } / Double(segmentTrajectories.count)
 
+            // Compute ball size trend from the first detections of this rally.
+            // The serve is the opening action, so the initial ball trajectory
+            // tells us direction: growing bbox = approaching (far served),
+            // shrinking bbox = receding (near served).
+            let maxInitialSamples = 10
+            var trendPoints: [(time: Double, area: Double)] = []
+            for track in tracker.tracks {
+                for pos in track.positionsWithSize {
+                    let t = CMTimeGetSeconds(pos.time)
+                    if t >= rangeStart && t <= rangeEnd && pos.bboxSize.width > 0 && pos.bboxSize.height > 0 {
+                        trendPoints.append((time: t - rangeStart, area: Double(pos.bboxSize.width * pos.bboxSize.height)))
+                    }
+                }
+            }
+            trendPoints.sort { $0.time < $1.time }
+            trendPoints = Array(trendPoints.prefix(maxInitialSamples))
+            let ballSizeTrend: Double? = {
+                guard trendPoints.count >= 3 else { return nil }
+                let n = Double(trendPoints.count)
+                let sumX = trendPoints.reduce(0.0) { $0 + $1.time }
+                let sumY = trendPoints.reduce(0.0) { $0 + $1.area }
+                let sumXY = trendPoints.reduce(0.0) { $0 + $1.time * $1.area }
+                let sumX2 = trendPoints.reduce(0.0) { $0 + $1.time * $1.time }
+                let denom = n * sumX2 - sumX * sumX
+                guard abs(denom) > 1e-12 else { return nil }
+                return (n * sumXY - sumX * sumY) / denom
+            }()
+
             return RallySegment(
                 startTime: range.start,
                 endTime: CMTimeRangeGetEnd(range),
                 confidence: segmentConfidence,
                 quality: segmentQuality,
                 detectionCount: segmentPhysics.count,
-                averageTrajectoryLength: avgTrajLen
+                averageTrajectoryLength: avgTrajLen,
+                ballSizeTrend: ballSizeTrend
             )
         }
 

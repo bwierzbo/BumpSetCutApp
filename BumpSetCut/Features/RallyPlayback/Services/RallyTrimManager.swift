@@ -48,12 +48,24 @@ final class RallyTrimManager {
         isTrimmingMode = true
     }
 
-    func confirmTrim(rallyIndex: Int, videoId: UUID, metadataStore: MetadataStore) {
+    @discardableResult
+    func confirmTrim(rallyIndex: Int, videoId: UUID, metadataStore: MetadataStore) -> RallyTrimAdjustment? {
+        let previous = trimAdjustments[rallyIndex]
         trimAdjustments[rallyIndex] = RallyTrimAdjustment(
             before: currentTrimBefore, after: currentTrimAfter
         )
         try? metadataStore.saveTrimAdjustments(trimAdjustments, for: videoId)
         isTrimmingMode = false
+        return previous
+    }
+
+    func restoreTrimAdjustment(_ adjustment: RallyTrimAdjustment?, for rallyIndex: Int, videoId: UUID, metadataStore: MetadataStore) {
+        if let adjustment {
+            trimAdjustments[rallyIndex] = adjustment
+        } else {
+            trimAdjustments.removeValue(forKey: rallyIndex)
+        }
+        try? metadataStore.saveTrimAdjustments(trimAdjustments, for: videoId)
     }
 
     func cancelTrim(rallyIndex: Int) {

@@ -67,6 +67,7 @@ struct LibraryView: View {
                 viewModel.refresh()
             }
             .onAppear {
+                viewModel.folderManager.loadInitialContentsIfNeeded()
                 withAnimation(.bscSpring.delay(0.1)) {
                     hasAppeared = true
                 }

@@ -194,27 +194,33 @@ struct KalmanState {
 final class KalmanBallTracker {
 
     struct TrackedBall {
-        private var _positions: [(CGPoint, CMTime)] = []
+        private var _positions: [(CGPoint, CGSize, CMTime)] = []
         private let maxPositions: Int
 
         /// Kalman filter state
         var kalmanState: KalmanState
 
-        var positions: [(CGPoint, CMTime)] { _positions }
+        /// Backward-compatible positions without bbox size
+        var positions: [(CGPoint, CMTime)] { _positions.map { ($0.0, $0.2) } }
+
+        /// Positions with bbox size for serve inference
+        var positionsWithSize: [(center: CGPoint, bboxSize: CGSize, time: CMTime)] {
+            _positions.map { (center: $0.0, bboxSize: $0.1, time: $0.2) }
+        }
 
         var age: Int { _positions.count }
-        var last: (CGPoint, CMTime)? { _positions.last }
-        var first: (CGPoint, CMTime)? { _positions.first }
+        var last: (CGPoint, CMTime)? { _positions.last.map { ($0.0, $0.2) } }
+        var first: (CGPoint, CMTime)? { _positions.first.map { ($0.0, $0.2) } }
 
         var netDisplacement: CGFloat {
             guard let s = first?.0, let e = last?.0 else { return 0 }
             return hypot(e.x - s.x, e.y - s.y)
         }
 
-        init(position: CGPoint, timestamp: CMTime, config: ProcessorConfig, maxPositions: Int = 100) {
+        init(position: CGPoint, bboxSize: CGSize = .zero, timestamp: CMTime, config: ProcessorConfig, maxPositions: Int = 100) {
             self.maxPositions = maxPositions
             self.kalmanState = KalmanState(position: position, timestamp: timestamp, config: config)
-            _positions.append((position, timestamp))
+            _positions.append((position, bboxSize, timestamp))
         }
 
         mutating func predict(to timestamp: CMTime, config: ProcessorConfig) {
@@ -224,9 +230,9 @@ final class KalmanBallTracker {
             kalmanState.timestamp = timestamp
         }
 
-        mutating func update(measurement: CGPoint, timestamp: CMTime, config: ProcessorConfig) {
+        mutating func update(measurement: CGPoint, bboxSize: CGSize = .zero, timestamp: CMTime, config: ProcessorConfig) {
             kalmanState.update(measurement: measurement, timestamp: timestamp, config: config)
-            _positions.append((measurement, timestamp))
+            _positions.append((measurement, bboxSize, timestamp))
             // Enforce sliding window
             if _positions.count > maxPositions {
                 _positions.removeFirst(_positions.count - maxPositions)
@@ -302,9 +308,11 @@ final class KalmanBallTracker {
             tracks[i].predict(to: frameTime, config: config)
         }
 
-        // Precompute centers
-        let centers: [(pt: CGPoint, ts: CMTime)] = detections.map { det in
-            (pt: rectCenter(det.bbox), ts: det.timestamp)
+        // Precompute centers and bbox sizes
+        let centers: [(pt: CGPoint, bboxSize: CGSize, ts: CMTime)] = detections.map { det in
+            (pt: rectCenter(det.bbox),
+             bboxSize: CGSize(width: det.bbox.width, height: det.bbox.height),
+             ts: det.timestamp)
         }
 
         // Associate using sorted Mahalanobis distance (globally optimal greedy).
@@ -327,6 +335,7 @@ final class KalmanBallTracker {
         for c in candidates {
             guard !claimedTracks.contains(c.trackIdx), !claimedDets.contains(c.detIdx) else { continue }
             tracks[c.trackIdx].update(measurement: centers[c.detIdx].pt,
+                                      bboxSize: centers[c.detIdx].bboxSize,
                                       timestamp: centers[c.detIdx].ts,
                                       config: config)
             claimedTracks.insert(c.trackIdx)
@@ -339,6 +348,7 @@ final class KalmanBallTracker {
                 let maxPositions = config.enableMemoryLimits ? config.maxTrackPositions : 1000
                 let newTrack = TrackedBall(
                     position: det.pt,
+                    bboxSize: det.bboxSize,
                     timestamp: det.ts,
                     config: config,
                     maxPositions: maxPositions

@@ -73,6 +73,23 @@
             ReferencedContainer = "container:BumpSetCut.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "--prefill-library"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--skip-onboarding"
+            isEnabled = "NO">
+         </CommandLineArgument>
+      </CommandLineArguments>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "PREFILL_VIDEOS_DIR"
+            value = "$(SRCROOT)/BumpSetCutUITests/TestData"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
       <StoreKitConfigurationFileReference
          identifier = "../../BumpSetCut/Resources/Configuration.storekit">
       </StoreKitConfigurationFileReference>

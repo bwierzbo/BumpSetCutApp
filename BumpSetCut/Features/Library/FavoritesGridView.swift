@@ -76,6 +76,9 @@ struct FavoritesGridView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(!folderManager.isAtLibraryRoot)
         .toolbar { toolbarContent }
+        .onAppear {
+            folderManager.loadInitialContentsIfNeeded()
+        }
         .onChange(of: mediaStore.contentVersion) { _, _ in
             folderManager.refreshContents()
         }

@@ -7,7 +7,7 @@ import Observation
 @Observable
 final class ProcessVideoViewModel {
     // MARK: - Dependencies
-    let videoURL: URL
+    var videoURL: URL
     let mediaStore: MediaStore
     let folderPath: String
     let onComplete: () -> Void
@@ -23,6 +23,10 @@ final class ProcessVideoViewModel {
     // Review navigation
     var showRallyPlayer: Bool = false
     var showGameReview: Bool = false
+
+    // Pre-trim state
+    var showPreTrim: Bool = false
+    var pendingDebugModeForTrim: Bool = false
 
     // Pending save state - holds temp URL until user selects destination folder
     var pendingSaveURL: URL? = nil

@@ -218,8 +218,9 @@ struct RallySegment: Codable, Identifiable {
     let quality: Double
     let detectionCount: Int
     let averageTrajectoryLength: Double
+    let ballSizeTrend: Double?
 
-    init(startTime: CMTime, endTime: CMTime, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double) {
+    init(startTime: CMTime, endTime: CMTime, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double, ballSizeTrend: Double? = nil) {
         self.id = UUID()
         self.startTime = CMTimeGetSeconds(startTime)
         self.endTime = CMTimeGetSeconds(endTime)
@@ -227,6 +228,23 @@ struct RallySegment: Codable, Identifiable {
         self.quality = quality
         self.detectionCount = detectionCount
         self.averageTrajectoryLength = averageTrajectoryLength
+        self.ballSizeTrend = ballSizeTrend
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        startTime = try container.decode(Double.self, forKey: .startTime)
+        endTime = try container.decode(Double.self, forKey: .endTime)
+        confidence = try container.decode(Double.self, forKey: .confidence)
+        quality = try container.decode(Double.self, forKey: .quality)
+        detectionCount = try container.decode(Int.self, forKey: .detectionCount)
+        averageTrajectoryLength = try container.decode(Double.self, forKey: .averageTrajectoryLength)
+        ballSizeTrend = try container.decodeIfPresent(Double.self, forKey: .ballSizeTrend)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, startTime, endTime, confidence, quality, detectionCount, averageTrajectoryLength, ballSizeTrend
     }
 
     var duration: Double {
@@ -252,12 +270,13 @@ struct RallySegment: Codable, Identifiable {
             confidence: confidence,
             quality: quality,
             detectionCount: detectionCount,
-            averageTrajectoryLength: averageTrajectoryLength
+            averageTrajectoryLength: averageTrajectoryLength,
+            ballSizeTrend: ballSizeTrend
         )
     }
 
     /// Initializer accepting raw seconds (for adjusted times)
-    init(startTimeSeconds: Double, endTimeSeconds: Double, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double) {
+    init(startTimeSeconds: Double, endTimeSeconds: Double, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double, ballSizeTrend: Double? = nil) {
         self.id = UUID()
         self.startTime = startTimeSeconds
         self.endTime = endTimeSeconds
@@ -265,6 +284,7 @@ struct RallySegment: Codable, Identifiable {
         self.quality = quality
         self.detectionCount = detectionCount
         self.averageTrajectoryLength = averageTrajectoryLength
+        self.ballSizeTrend = ballSizeTrend
     }
 }
 

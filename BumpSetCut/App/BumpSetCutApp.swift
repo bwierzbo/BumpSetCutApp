@@ -36,6 +36,14 @@ import AVFoundation
             }
         }
 
+        // Dev convenience: prefill library with sample videos
+        if CommandLine.arguments.contains("--prefill-library") {
+            UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+            AppSettings.shared.hasCompletedOnboarding = true
+            UserDefaults.standard.set(true, forKey: "hasSeenRallyTips")
+            AppSettings.shared.hasSeenRallyTips = true
+        }
+
         // Clear stale Keychain data on fresh install / reinstall
         if !UserDefaults.standard.bool(forKey: "hasLaunchedBefore") {
             try? KeychainHelper.delete(for: "auth_token")

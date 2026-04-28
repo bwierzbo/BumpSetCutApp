@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import AVFoundation
 import Observation
 
 // MARK: - Library Type
@@ -68,8 +69,8 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
     var customName: String?
     var folderPath: String
     let createdDate: Date
-    let fileSize: Int64
-    let duration: TimeInterval?
+    var fileSize: Int64
+    var duration: TimeInterval?
     
     // Debug data fields
     var debugSessionId: UUID?
@@ -416,6 +417,40 @@ struct FolderManifest: Codable {
 
         // UI Testing: inject test video from the test runner
         injectTestVideoIfNeeded()
+
+        // Dev convenience: prefill library with sample videos
+        prefillLibraryIfNeeded()
+    }
+
+    /// When running with --prefill-library, symlink all videos from PREFILL_VIDEOS_DIR into the library.
+    private func prefillLibraryIfNeeded() {
+        guard CommandLine.arguments.contains("--prefill-library"),
+              let dirPath = ProcessInfo.processInfo.environment["PREFILL_VIDEOS_DIR"],
+              FileManager.default.fileExists(atPath: dirPath) else { return }
+
+        let sourceDir = URL(fileURLWithPath: dirPath)
+        let savedDir = baseDirectory.appendingPathComponent(LibraryType.saved.rootPath)
+        try? FileManager.default.createDirectory(at: savedDir, withIntermediateDirectories: true)
+
+        let validExtensions: Set<String> = ["mov", "mp4", "m4v"]
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: sourceDir, includingPropertiesForKeys: nil) else { return }
+
+        for fileURL in contents where validExtensions.contains(fileURL.pathExtension.lowercased()) {
+            let destURL = savedDir.appendingPathComponent(fileURL.lastPathComponent)
+
+            // Symlink (not copy) to avoid wasting disk space
+            if !FileManager.default.fileExists(atPath: destURL.path) {
+                try? FileManager.default.createSymbolicLink(at: destURL, withDestinationURL: fileURL)
+            }
+
+            // Add to manifest if not already there
+            let videoKey = fileURL.lastPathComponent
+            if manifest.videos[videoKey] == nil {
+                let name = fileURL.deletingPathExtension().lastPathComponent
+                _ = addVideo(at: destURL, toFolder: LibraryType.saved.rootPath, customName: name)
+            }
+        }
     }
 
     /// When running UI tests, symlink the test video into storage and add it to the manifest.
@@ -780,6 +815,63 @@ extension MediaStore {
         return true
     }
 
+    /// Replace a video's file on disk with a new file (e.g. after trimming).
+    /// Updates fileSize and duration in the manifest.
+    func replaceVideoFile(id: UUID, withFileAt newURL: URL) -> Bool {
+        guard var video = manifest.videos.values.first(where: { $0.id == id }) else {
+            print("❌ replaceVideoFile: Video with ID \(id) not found")
+            return false
+        }
+
+        let videoKey = video.fileName
+        let destinationURL = baseDirectory
+            .appendingPathComponent(video.folderPath)
+            .appendingPathComponent(video.fileName)
+
+        let fileManager = FileManager.default
+
+        do {
+            // Remove original file
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+
+            // Move trimmed file to original path
+            try fileManager.moveItem(at: newURL, to: destinationURL)
+
+            // Update file size
+            if let attributes = try? fileManager.attributesOfItem(atPath: destinationURL.path),
+               let newSize = attributes[.size] as? Int64 {
+                video.fileSize = newSize
+            }
+
+            // Update duration from the new file
+            Task {
+                let asset = AVURLAsset(url: destinationURL)
+                if let duration = try? await asset.load(.duration) {
+                    let durationSeconds = CMTimeGetSeconds(duration)
+                    if durationSeconds > 0 && !durationSeconds.isNaN {
+                        self.updateVideoDuration(id: id, duration: durationSeconds)
+                    }
+                }
+            }
+
+            manifest.videos[videoKey] = video
+            saveManifest()
+            print("✅ replaceVideoFile: Replaced \(videoKey) (new size: \(video.fileSize) bytes)")
+            return true
+        } catch {
+            print("❌ replaceVideoFile: \(error)")
+            return false
+        }
+    }
+
+    private func updateVideoDuration(id: UUID, duration: TimeInterval) {
+        guard let videoKey = manifest.videos.first(where: { $0.value.id == id })?.key else { return }
+        manifest.videos[videoKey]?.duration = duration
+        saveManifest()
+    }
+
     func addProcessedVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, originalVideoId: UUID, volleyballType: VolleyballType? = nil) -> Bool {
         let videoKey = url.lastPathComponent
         print("📹 MediaStore.addProcessedVideo called:")
@@ -1075,11 +1167,7 @@ extension MediaStore {
     }
 
     func getVideos(in folderPath: String = "") -> [VideoMetadata] {
-        print("🔍 MediaStore.getVideos called for folderPath: '\(folderPath)'")
-        print("   Total videos in manifest: \(manifest.videos.count)")
-
         let matchingFolderVideos = manifest.videos.values.filter { $0.folderPath == folderPath }
-        print("   Videos matching folder path: \(matchingFolderVideos.count)")
 
         // Batch file existence check: one directory listing instead of N file checks
         let folderURL = folderPath.isEmpty
@@ -1091,23 +1179,12 @@ extension MediaStore {
             let contents = try FileManager.default.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: nil)
             existingFiles = Set(contents.map { $0.lastPathComponent })
         } catch {
-            print("   ⚠️ Could not list directory contents: \(error)")
             existingFiles = []
         }
 
-        let result = matchingFolderVideos
-            .filter { video in
-                let exists = existingFiles.contains(video.fileName)
-                if !exists {
-                    print("   ⚠️ Video file not found: \(video.fileName)")
-                }
-                return exists
-            }
+        return matchingFolderVideos
+            .filter { existingFiles.contains($0.fileName) }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-
-        print("   Final filtered videos: \(result.count)")
-        print("   Video names: \(result.map { $0.displayName })")
-        return result
     }
     
     func searchVideos(query: String) -> [VideoMetadata] {

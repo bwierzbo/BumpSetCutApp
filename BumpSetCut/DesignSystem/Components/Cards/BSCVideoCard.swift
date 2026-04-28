@@ -32,6 +32,7 @@ struct BSCVideoCard: View {
     @State private var showingRenameDialog = false
     @State private var showingMoveDialog = false
     @State private var showingGameReview = false
+    @State private var showingViewerChoiceSheet = false
     @State private var isPressed = false
 
     // MARK: - Body
@@ -55,7 +56,7 @@ struct BSCVideoCard: View {
             // "View Rallies" button: Always show rally viewer (ignores library type)
             RallyPlayerView(videoMetadata: video, mediaStore: mediaStore)
         }
-        .sheet(isPresented: $showingGameReview) {
+        .fullScreenCover(isPresented: $showingGameReview) {
             GameReviewFactory(videoMetadata: video)
         }
         .sheet(isPresented: $showingProcessVideo) {
@@ -88,6 +89,21 @@ struct BSCVideoCard: View {
                 },
                 onCancel: { showingMoveDialog = false }
             )
+        }
+        .sheet(isPresented: $showingViewerChoiceSheet) {
+            ViewerChoiceSheet(video: video, mediaStore: mediaStore) { choice in
+                showingViewerChoiceSheet = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    switch choice {
+                    case .rallyViewer:
+                        showingRallyViewer = true
+                    case .gameReview:
+                        showingGameReview = true
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
         .alert("Delete Video", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -256,7 +272,7 @@ struct BSCVideoCard: View {
             .fill(Color.black.opacity(0.6))
             .frame(width: 36, height: 36)
             .overlay(
-                Image(systemName: !video.processedVideoIds.isEmpty ? "play.rectangle.fill" : "play.fill")
+                Image(systemName: "play.fill")
                     .font(.system(size: 14))
                     .foregroundColor(.white)
             )
@@ -414,14 +430,14 @@ struct BSCVideoCard: View {
 
     private var quickViewRalliesButton: some View {
         Button {
-            showingRallyViewer = true
+            showingViewerChoiceSheet = true
         } label: {
-            Image(systemName: "play.rectangle.fill")
+            Image(systemName: "play.fill")
                 .font(.system(size: 16))
                 .foregroundColor(.bscStatusProcessed)
                 .frame(width: 32, height: 32)
         }
-        .accessibilityLabel("View Rallies")
+        .accessibilityLabel("View Processed Rallies")
     }
 
     private var quickDeleteButton: some View {
@@ -491,8 +507,6 @@ struct BSCVideoCard: View {
     private func handleTap() {
         if isSelectable {
             onSelectionToggle?()
-        } else if !video.processedVideoIds.isEmpty {
-            showingRallyViewer = true
         } else {
             showingVideoPlayer = true
         }
@@ -544,6 +558,74 @@ struct BSCVideoCard: View {
         }
         label += ", \(formatFileSize(video.fileSize))"
         return label
+    }
+}
+
+// MARK: - Viewer Choice Sheet
+struct ViewerChoiceSheet: View {
+    enum Choice {
+        case rallyViewer
+        case gameReview
+    }
+
+    let video: VideoMetadata
+    let mediaStore: MediaStore
+    let onChoice: (Choice) -> Void
+
+    private var rallyCount: Int {
+        guard let metadata = try? MetadataStore().loadMetadata(for: video.id) else { return 0 }
+        return metadata.rallyCount
+    }
+
+    var body: some View {
+        VStack(spacing: BSCSpacing.xl) {
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(Color.bscSuccess.opacity(0.15))
+                    .frame(width: 72, height: 72)
+
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 40))
+                    .foregroundColor(.bscSuccess)
+            }
+            .padding(.top, BSCSpacing.xl)
+
+            // Title + subtitle
+            VStack(spacing: BSCSpacing.sm) {
+                Text("Your Rallies Are Done Processing")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.bscTextPrimary)
+                    .multilineTextAlignment(.center)
+
+                if rallyCount > 0 {
+                    Text("\(rallyCount) \(rallyCount == 1 ? "rally" : "rallies") detected")
+                        .font(.system(size: 15))
+                        .foregroundColor(.bscTextSecondary)
+                }
+            }
+
+            // Choice buttons
+            VStack(spacing: BSCSpacing.md) {
+                BSCButton(title: "View Rallies", icon: "play.fill", style: .primary, size: .large) {
+                    onChoice(.rallyViewer)
+                }
+
+                BSCButton(title: "Game Review", icon: "sportscourt", style: .secondary, size: .large) {
+                    onChoice(.gameReview)
+                }
+            }
+            .padding(.horizontal, BSCSpacing.lg)
+
+            Text("View Rallies plays rallies back-to-back\nGame Review tracks score rally by rally")
+                .font(.system(size: 12))
+                .foregroundColor(.bscTextTertiary)
+                .multilineTextAlignment(.center)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color.bscBackground)
     }
 }
 

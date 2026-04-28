@@ -155,6 +155,26 @@ struct ProcessVideoView: View {
                 dismiss()
             }
         }
+        .fullScreenCover(isPresented: $viewModel.showPreTrim) {
+            PreTrimView(
+                videoURL: viewModel.videoURL,
+                onSkip: {
+                    viewModel.showPreTrim = false
+                    viewModel.startProcessing(isDebugMode: viewModel.pendingDebugModeForTrim)
+                },
+                onTrimmed: { trimmedURL in
+                    viewModel.showPreTrim = false
+                    // Replace the original file on disk with the trimmed version
+                    if let videoId = viewModel.currentVideoMetadata?.id {
+                        let replaced = viewModel.mediaStore.replaceVideoFile(id: videoId, withFileAt: trimmedURL)
+                        if replaced {
+                            viewModel.loadCurrentVideoMetadata()
+                        }
+                    }
+                    viewModel.startProcessing(isDebugMode: viewModel.pendingDebugModeForTrim)
+                }
+            )
+        }
     }
 }
 
@@ -410,20 +430,21 @@ private extension ProcessVideoView {
         VStack(spacing: BSCSpacing.lg) {
             ZStack {
                 Circle()
-                    .fill(Color.bscBlue.opacity(0.15))
+                    .fill(Color.bscSuccess.opacity(0.15))
                     .frame(width: 80, height: 80)
 
-                Image(systemName: "play.circle.fill")
+                Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 48))
-                    .foregroundColor(.bscBlue)
+                    .foregroundColor(.bscSuccess)
             }
 
             VStack(spacing: BSCSpacing.xs) {
-                Text("Rallies Detected!")
+                Text("Your Rallies Are Done Processing")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(.bscTextPrimary)
+                    .multilineTextAlignment(.center)
 
-                Text("Tap below to view the detected rallies")
+                Text("Choose how you want to view them")
                     .font(.system(size: 14))
                     .foregroundColor(.bscTextSecondary)
             }
@@ -571,9 +592,10 @@ private extension ProcessVideoView {
                 .bscGlass(cornerRadius: BSCRadius.md, padding: 0)
             }
 
-            // AI Processing - Primary
+            // AI Processing - Primary (shows trim screen first)
             BSCButton(title: "Start AI Processing", icon: "brain.head.profile", style: .primary, size: .large) {
-                viewModel.startProcessing(isDebugMode: false)
+                viewModel.pendingDebugModeForTrim = false
+                viewModel.showPreTrim = true
             }
             .accessibilityIdentifier(AccessibilityID.Process.startButton)
             .disabled(viewModel.isAnotherVideoProcessing)
@@ -582,7 +604,8 @@ private extension ProcessVideoView {
             if AppSettings.shared.enableDebugFeatures {
                 // Debug Processing - Secondary (only when debug features enabled in Settings)
                 BSCButton(title: "Debug Processing", icon: "ladybug", style: .secondary, size: .medium) {
-                    viewModel.startProcessing(isDebugMode: true)
+                    viewModel.pendingDebugModeForTrim = true
+                    viewModel.showPreTrim = true
                 }
                 .disabled(viewModel.isAnotherVideoProcessing)
                 .opacity(viewModel.isAnotherVideoProcessing ? 0.5 : 1.0)

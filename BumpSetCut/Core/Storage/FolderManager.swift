@@ -53,6 +53,8 @@ class FolderManager {
 
     static let maxDepth = 1  // Simplified: only root-level folders, no nesting
 
+    private var hasLoadedInitialContents = false
+
     init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
         self.mediaStore = mediaStore
         self.libraryType = libraryType
@@ -61,7 +63,12 @@ class FolderManager {
         let rootPath = libraryType.rootPath
         self.historyStack = [rootPath]
         self.currentPath = rootPath
+    }
 
+    /// Load contents on first access — avoids work when NavigationLink eagerly creates destinations
+    func loadInitialContentsIfNeeded() {
+        guard !hasLoadedInitialContents else { return }
+        hasLoadedInitialContents = true
         loadContents()
     }
     
@@ -77,7 +84,6 @@ class FolderManager {
         let targetPath = path ?? currentPath
 
         isLoading = true
-        print("🔄 FolderManager.loadContents called for path: '\(targetPath)'")
 
         // Already on MainActor, update directly
         self.folders = mediaStore.getFolders(in: targetPath)
@@ -85,8 +91,6 @@ class FolderManager {
         self.currentPath = targetPath
         self.isLoading = false
 
-        print("✅ FolderManager loaded: \(self.folders.count) folders, \(self.videos.count) videos")
-        print("   Video names: \(self.videos.map { $0.displayName })")
         logger.debug("Loaded contents for path: \(targetPath.isEmpty ? "root" : targetPath) - \(self.folders.count) folders, \(self.videos.count) videos")
     }
     

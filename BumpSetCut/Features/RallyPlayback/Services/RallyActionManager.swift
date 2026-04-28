@@ -96,10 +96,25 @@ final class RallyActionManager {
         return feedback
     }
 
+    /// Records a trim action so it can be undone.
+    func registerTrimAction(rallyIndex: Int, previousTrim: RallyTrimAdjustment?) {
+        let result = RallyActionResult(trimRallyIndex: rallyIndex, previousTrim: previousTrim)
+        actionHistory.append(result)
+
+        actionFeedback = RallyActionFeedback(type: .trim, message: "Trim Applied")
+        showActionFeedback = true
+    }
+
     /// Pops the last action from history and reverses it.
     /// Returns the undone action so the VM can handle navigation, or nil if nothing to undo.
     func undoLast() -> RallyActionResult? {
         guard !isPerformingAction, let action = actionHistory.popLast() else { return nil }
+
+        if action.isTrimAction {
+            actionFeedback = RallyActionFeedback(type: .undo, message: "Trim Undone")
+            showActionFeedback = true
+            return action
+        }
 
         switch action.action {
         case .save:
