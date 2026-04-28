@@ -921,11 +921,10 @@ final class VideoProcessor {
         var totalVerticalMotion = 0.0
 
         for trajectory in trajectories {
-            // These would ideally come from the classification details or be calculated from trajectory points
-            totalVelocityConsistency += 0.8 // Placeholder
+            totalVelocityConsistency += velocityConsistencyScore(for: trajectory.points)
             totalAccelerationPattern += trajectory.rSquared
             totalSmoothness += trajectory.quality
-            totalVerticalMotion += 0.7 // Placeholder
+            totalVerticalMotion += verticalMotionScore(for: trajectory.points)
         }
 
         let count = Double(trajectories.count)
@@ -942,6 +941,34 @@ final class VideoProcessor {
             verticalMotionScore: verticalMotionScore,
             overallCoherence: overallCoherence
         )
+    }
+
+    /// 0–1 (higher = more consistent). Coefficient of variation of point velocities,
+    /// inverted and clamped so callers can average it directly into a coherence score.
+    private func velocityConsistencyScore(for points: [ProcessingTrajectoryPoint]) -> Double {
+        let velocities = points.map(\.velocity).filter { $0.isFinite && $0 > 0 }
+        guard velocities.count >= 2 else { return 0 }
+        let mean = velocities.reduce(0, +) / Double(velocities.count)
+        guard mean > 0 else { return 0 }
+        let variance = velocities.map { pow($0 - mean, 2) }.reduce(0, +) / Double(velocities.count)
+        let cv = sqrt(variance) / mean
+        return max(0, min(1, 1 - cv))
+    }
+
+    /// 0–1 (higher = more vertical motion). Ratio of summed |dy| to total path length —
+    /// rallies are vertical (set, spike, dig) so a high score means a plausible ball path.
+    private func verticalMotionScore(for points: [ProcessingTrajectoryPoint]) -> Double {
+        guard points.count >= 2 else { return 0 }
+        var verticalDistance = 0.0
+        var totalDistance = 0.0
+        for i in 1..<points.count {
+            let dx = Double(points[i].position.x - points[i - 1].position.x)
+            let dy = Double(points[i].position.y - points[i - 1].position.y)
+            verticalDistance += abs(dy)
+            totalDistance += sqrt(dx * dx + dy * dy)
+        }
+        guard totalDistance > 0 else { return 0 }
+        return min(1, verticalDistance / totalDistance)
     }
 
     private func calculateProcessingOverhead(processingDuration: TimeInterval, videoDuration: TimeInterval) -> Double {
