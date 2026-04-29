@@ -56,9 +56,26 @@ struct CommentsSheet: View {
 
                 Divider()
 
+                // Send-error banner (transient — clears on next send attempt)
+                if viewModel.sendError != nil {
+                    HStack(spacing: BSCSpacing.xs) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.bscError)
+                        Text("Couldn't send comment. Try again.")
+                            .font(.system(size: 12))
+                            .foregroundColor(.bscError)
+                        Spacer()
+                    }
+                    .padding(.horizontal, BSCSpacing.md)
+                    .padding(.vertical, BSCSpacing.xs)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
                 // Input bar
                 inputBar
             }
+            .animation(.easeInOut(duration: 0.2), value: viewModel.sendError != nil)
             .background(Color.bscBackground)
             .navigationTitle("Comments")
             .navigationBarTitleDisplayMode(.inline)
