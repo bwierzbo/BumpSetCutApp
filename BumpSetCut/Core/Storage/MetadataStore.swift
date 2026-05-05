@@ -132,9 +132,6 @@ extension MetadataStore {
         let backupURL = backupURL(for: metadata.videoId)
         let temporaryURL = temporaryURL(for: metadata.videoId)
 
-        print("MetadataStore: Saving metadata for video \(metadata.videoId)")
-        print("MetadataStore: Target URL: \(metadataURL.path)")
-
         do {
             // Ensure directory exists
             try createMetadataDirectoryIfNeeded()
@@ -153,7 +150,7 @@ extension MetadataStore {
             // Cleanup old backup after successful write
             try? fileManager.removeItem(at: backupURL)
 
-            print("MetadataStore: Successfully saved metadata (\(jsonData.count) bytes)")
+            print("MetadataStore: saved \(metadata.videoId) (\(jsonData.count) bytes)")
 
         } catch let error as MetadataStoreError {
             throw error
@@ -165,9 +162,6 @@ extension MetadataStore {
     /// Load metadata with error handling and validation
     func loadMetadata(for videoId: UUID) throws -> ProcessingMetadata {
         let metadataURL = metadataURL(for: videoId)
-
-        print("MetadataStore: Loading metadata for video \(videoId)")
-        print("MetadataStore: Source URL: \(metadataURL.path)")
 
         guard fileManager.fileExists(atPath: metadataURL.path) else {
             throw MetadataStoreError.metadataNotFound(videoId: videoId)
@@ -194,7 +188,6 @@ extension MetadataStore {
                 )
             }
 
-            print("MetadataStore: Successfully loaded metadata (\(jsonData.count) bytes)")
             return metadata
 
         } catch let error as MetadataStoreError {
@@ -210,8 +203,6 @@ extension MetadataStore {
     func deleteMetadata(for videoId: UUID) throws {
         let metadataURL = metadataURL(for: videoId)
         let backupURL = backupURL(for: videoId)
-
-        print("MetadataStore: Deleting metadata for video \(videoId)")
 
         guard fileManager.fileExists(atPath: metadataURL.path) else {
             throw MetadataStoreError.metadataNotFound(videoId: videoId)

@@ -45,17 +45,14 @@ struct StorageManager {
     static func verifyStorageIntegrity() {
         let baseDir = getPersistentStorageDirectory()
         let fileManager = FileManager.default
-        
-        print("StorageManager: Verifying storage at: \(baseDir.path)")
-        print("StorageManager: Directory exists: \(fileManager.fileExists(atPath: baseDir.path))")
-        
-        if fileManager.fileExists(atPath: baseDir.path) {
-            do {
-                let contents = try fileManager.contentsOfDirectory(atPath: baseDir.path)
-                print("StorageManager: Directory contents: \(contents)")
-            } catch {
-                print("StorageManager: Error reading directory: \(error)")
-            }
+
+        guard fileManager.fileExists(atPath: baseDir.path) else {
+            print("StorageManager: ⚠️ Storage directory missing at \(baseDir.path)")
+            return
+        }
+
+        if (try? fileManager.contentsOfDirectory(atPath: baseDir.path)) == nil {
+            print("StorageManager: ⚠️ Failed to read storage directory \(baseDir.path)")
         }
     }
 }
@@ -388,14 +385,12 @@ struct FolderManifest: Codable {
         
         // Create base directory if it doesn't exist
         try? fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true, attributes: nil)
-        print("MediaStore: Base directory: \(baseDirectory.path)")
-        print("MediaStore: Manifest URL: \(manifestURL.path)")
-        
+
         // Load or create manifest
         if let data = try? Data(contentsOf: manifestURL),
            let loadedManifest = try? JSONDecoder().decode(FolderManifest.self, from: data) {
             self.manifest = loadedManifest
-            print("MediaStore: Loaded manifest with \(manifest.videos.count) videos and \(manifest.folders.count) folders")
+            print("MediaStore: Loaded \(manifest.videos.count) videos, \(manifest.folders.count) folders")
         } else {
             self.manifest = FolderManifest()
             print("MediaStore: Created new manifest")
@@ -789,19 +784,13 @@ extension MediaStore {
 extension MediaStore {
     /// Mark a video as having processing metadata after rally detection completes
     func markVideoAsProcessed(videoId: UUID, metadataFileSize: Int64, volleyballType: VolleyballType? = nil) -> Bool {
-        print("📹 MediaStore.markVideoAsProcessed called:")
-        print("   - VideoId: \(videoId)")
-        print("   - MetadataFileSize: \(metadataFileSize) bytes")
-
         // Find the video
         guard var video = manifest.videos.values.first(where: { $0.id == videoId }) else {
-            print("❌ Video with ID \(videoId) not found")
+            print("❌ MediaStore.markVideoAsProcessed: Video with ID \(videoId) not found")
             return false
         }
 
         let videoKey = video.fileName
-        print("   - Video: \(video.displayName)")
-        print("   - Folder: \(video.folderPath)")
 
         // Update metadata tracking
         video.updateMetadataTracking(fileSize: metadataFileSize)
@@ -811,7 +800,7 @@ extension MediaStore {
         manifest.videos[videoKey] = video
 
         saveManifest()
-        print("✅ Video marked as processed with metadata")
+        print("📹 MediaStore: marked \(video.displayName) processed (\(metadataFileSize) bytes)")
         return true
     }
 
@@ -874,21 +863,14 @@ extension MediaStore {
 
     func addProcessedVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, originalVideoId: UUID, volleyballType: VolleyballType? = nil) -> Bool {
         let videoKey = url.lastPathComponent
-        print("📹 MediaStore.addProcessedVideo called:")
-        print("   - URL: \(url)")
-        print("   - FolderPath: '\(folderPath)'")
-        print("   - CustomName: '\(customName ?? "nil")'")
-        print("   - OriginalVideoId: \(originalVideoId)")
-        print("   - VideoKey: '\(videoKey)'")
 
         // Get file attributes
         let fileManager = FileManager.default
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
               let fileSize = attributes[.size] as? Int64 else {
-            print("❌ Failed to get file attributes for: \(url.path)")
+            print("❌ MediaStore.addProcessedVideo: failed to read attributes for \(url.path)")
             return false
         }
-        print("✅ File attributes retrieved, size: \(fileSize) bytes")
 
         var videoMetadata = VideoMetadata(
             originalURL: url,

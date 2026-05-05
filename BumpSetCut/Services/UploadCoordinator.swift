@@ -275,8 +275,6 @@ extension UploadCoordinator {
         // Use file-based transfer only - never load entire video into memory
         let start = CFAbsoluteTimeGetCurrent()
         if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
-            print("⏱️ loadTransferable took \(String(format: "%.1f", elapsed))s")
             return movie.url
         }
 
@@ -303,13 +301,7 @@ extension UploadCoordinator {
             )
 
             // Move file (O(1) rename on same filesystem, avoids full copy)
-            let moveStart = CFAbsoluteTimeGetCurrent()
             try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
-            print("⏱️ moveItem took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - moveStart))s")
-
-            // Get file size for display
-            let fileSize = (try? FileManager.default.attributesOfItem(atPath: destinationURL.path)[.size] as? Int64) ?? 0
-            print("📦 File size: \(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))")
 
             // Add to MediaStore (default to beach volleyball)
             let success = mediaStore.addVideo(
@@ -320,14 +312,12 @@ extension UploadCoordinator {
             )
 
             if success {
-                print("✅ Video added to MediaStore: \(fileName)")
                 logger.info("Video upload completed: \(fileName)")
                 // Track for post-upload naming
                 await MainActor.run {
                     recentlyUploadedFileNames.append(fileName)
                 }
             } else {
-                print("❌ Failed to add video to MediaStore")
                 logger.error("Failed to add video to MediaStore: \(fileName)")
             }
 
@@ -341,26 +331,19 @@ extension UploadCoordinator {
             } else {
                 logger.error("Failed to save video: \(error.localizedDescription)")
             }
-            print("❌ Save error: \(error)")
         }
     }
     
     private func handleUploadCompletion() async {
-        print("🎉 All uploads completed, showing naming dialog")
-
         // Show naming dialog for each uploaded video
         for fileName in recentlyUploadedFileNames {
             await showPostUploadNamingDialog(for: fileName)
         }
 
-        print("🎉 Naming complete, showing completion state")
-
         await MainActor.run {
             showCompleted = true
             recentlyUploadedFileNames.removeAll()
-
             // Notify LibraryView to refresh its contents
-            print("📢 Sending upload completion notification")
             uploadCompletedSubject.send()
         }
 
@@ -368,7 +351,6 @@ extension UploadCoordinator {
         try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
 
         await MainActor.run {
-            print("⏰ Auto-dismissing upload completion")
             isUploadInProgress = false
             showCompleted = false
         }
@@ -417,18 +399,14 @@ extension UploadCoordinator {
     }
     
     func completeUploadFlow() {
-        print("🔚 UploadCoordinator.completeUploadFlow() called")
-        print("🔚 Setting isUploadInProgress = false, showCompleted = false")
-        
         // Update UI state immediately for responsiveness
         isUploadInProgress = false
         showCompleted = false
-        
+
         // Move the cleanup to a background task
         Task {
             uploadManager.clearCompleted()
             await MainActor.run {
-                print("🔚 Upload flow completion finished")
                 self.logger.info("Upload flow completed by user action")
             }
         }

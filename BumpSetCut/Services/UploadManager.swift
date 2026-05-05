@@ -85,12 +85,8 @@ class UploadManager: ObservableObject {
     private let logger = Logger(subsystem: "BumpSetCut", category: "UploadManager")
     
     @Published var uploadItems: [UploadItem] = []
-    var isActive: Bool { 
-        let active = !uploadItems.isEmpty && !isComplete
-        if !uploadItems.isEmpty {
-            print("🔍 UploadManager.isActive: items=\(uploadItems.count), isComplete=\(isComplete), active=\(active)")
-        }
-        return active
+    var isActive: Bool {
+        !uploadItems.isEmpty && !isComplete
     }
     var isComplete: Bool { uploadItems.allSatisfy { 
         switch $0.status {
@@ -189,7 +185,6 @@ class UploadManager: ObservableObject {
     // MARK: - Private Upload Implementation
     
     private func performUpload(item: UploadItem, customName: String?, folderPath: String?) async {
-        print("🔧 Starting performUpload for: \(item.originalFileName)")
         do {
             // Update final name and destination
             if let customName = customName {
