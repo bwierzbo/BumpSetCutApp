@@ -70,21 +70,17 @@ struct UploadStatusBar: View {
     @State private var uploadedVideoURL: URL?
 
     var body: some View {
-        let _ = print("🔄 UploadStatusBar.body called - isUploadInProgress=\(uploadCoordinator.isUploadInProgress)")
-
-        return Group {
+        Group {
             if uploadCoordinator.isUploadInProgress {
-                let _ = print("✅ Progress bar should be visible!")
-                
                 VStack(spacing: 24) {
                     createHeaderView()
-                    
+
                     if uploadCoordinator.showCompleted {
                         createCompletedView()
                     } else {
                         createUploadingView(progress: 0.0) // Progress not used anymore
                     }
-                    
+
                     if uploadCoordinator.showCompleted {
                         createActionButtons()
                     } else {
@@ -97,7 +93,6 @@ struct UploadStatusBar: View {
                 .padding(.horizontal, BSCSpacing.lg)
                 .padding(.bottom, BSCSpacing.lg)
             } else {
-                let _ = print("❌ Progress bar should NOT be visible")
                 EmptyView()
             }
         }
