@@ -170,6 +170,12 @@ final class RallyPlayerViewModel {
     // MARK: - Loading
 
     func loadRallies() async {
+        // Idempotent: already loaded once for this video — keep current playback state.
+        // Rotation and other view re-eval cycles must not seek back to the start.
+        if processingMetadata != nil, case .loaded = loadingState {
+            return
+        }
+
         loadingState = .loading
 
         do {

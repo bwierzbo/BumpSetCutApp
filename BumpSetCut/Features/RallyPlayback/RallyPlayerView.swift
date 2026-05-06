@@ -121,7 +121,7 @@ struct RallyPlayerView: View {
                 )
             }
         }
-        .task {
+        .task(id: videoMetadata.id) {
             await viewModel.loadRallies()
         }
         .onAppear {
