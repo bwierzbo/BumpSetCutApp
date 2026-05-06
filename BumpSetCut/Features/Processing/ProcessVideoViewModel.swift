@@ -22,7 +22,6 @@ final class ProcessVideoViewModel {
 
     // Review navigation
     var showRallyPlayer: Bool = false
-    var showGameReview: Bool = false
 
     // Pre-trim state
     var showPreTrim: Bool = false
@@ -322,7 +321,6 @@ final class ProcessVideoViewModel {
                     loadCurrentVideoMetadata()
                     coordinator.reset()
                 }
-                // Don't auto-open rally player — let user choose between Rally Viewer and Game Review
             } catch {
                 print("❌ confirmSaveToFolder: error: \(error)")
                 await MainActor.run {
