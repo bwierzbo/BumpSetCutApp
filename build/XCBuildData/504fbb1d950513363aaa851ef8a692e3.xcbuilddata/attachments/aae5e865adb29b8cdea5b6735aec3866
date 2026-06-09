@@ -1,4 +1,0 @@
-module MijickPopups {
-header "MijickPopups-Swift.h"
-export *
-}

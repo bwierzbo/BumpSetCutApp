@@ -1,4 +1,0 @@
-module MijickTimer {
-header "MijickTimer-Swift.h"
-export *
-}

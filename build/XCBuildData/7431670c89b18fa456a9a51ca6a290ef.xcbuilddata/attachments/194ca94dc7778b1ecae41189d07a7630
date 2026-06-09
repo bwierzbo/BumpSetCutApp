@@ -1,4 +1,0 @@
-module MijickCamera {
-header "MijickCamera-Swift.h"
-export *
-}
