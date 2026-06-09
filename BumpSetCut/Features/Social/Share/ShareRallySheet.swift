@@ -17,6 +17,7 @@ struct ShareRallySheet: View {
     @State private var loopObservers: [Int: Any] = [:]
     @State private var carouselSelection: Int = 0
     @State private var showAuthGate = false
+    @State private var showLocationPicker = false
     @FocusState private var isCaptionFocused: Bool
 
     private let preloadRadius = 4
@@ -51,6 +52,9 @@ struct ShareRallySheet: View {
                         // Caption with hashtags
                         captionField
 
+                        // Location tag
+                        locationField
+
                         // Post options
                         postOptions
 
@@ -59,11 +63,13 @@ struct ShareRallySheet: View {
 
                         // Rally info for selected rally
                         rallyInfo
-
-                        // Upload state
-                        uploadStateView
                     }
                     .padding(BSCSpacing.lg)
+                }
+
+                // Blocking upload overlay (modal — user waits until done)
+                if viewModel.state != .idle {
+                    uploadOverlay
                 }
             }
             .navigationTitle("Share Rally")
@@ -74,11 +80,13 @@ struct ShareRallySheet: View {
                         viewModel.cancel()
                         dismiss()
                     }
+                    .disabled(isUploadBusy)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     postButton
                 }
             }
+            .interactiveDismissDisabled(isUploadBusy)
         }
         .onAppear {
             carouselSelection = viewModel.selectedPage
@@ -307,6 +315,58 @@ struct ShareRallySheet: View {
         }
     }
 
+    // MARK: - Location
+
+    private var locationField: some View {
+        Button {
+            isCaptionFocused = false
+            showLocationPicker = true
+        } label: {
+            HStack(spacing: BSCSpacing.sm) {
+                Image(systemName: "mappin.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(viewModel.pickedLocation == nil ? .bscTextSecondary : .bscPrimary)
+
+                if let location = viewModel.pickedLocation {
+                    Text(location.name)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.bscTextPrimary)
+                        .lineLimit(1)
+                } else {
+                    Text("Add location")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.bscTextSecondary)
+                }
+
+                Spacer()
+
+                if viewModel.pickedLocation != nil {
+                    Button {
+                        viewModel.pickedLocation = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.bscTextTertiary)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.bscTextTertiary)
+                }
+            }
+            .padding(BSCSpacing.sm)
+            .background(Color.bscSurfaceGlass)
+            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showLocationPicker) {
+            LocationPickerView { picked in
+                viewModel.pickedLocation = picked
+            }
+        }
+    }
+
     // MARK: - Post Options
 
     private var postOptions: some View {
@@ -445,6 +505,45 @@ struct ShareRallySheet: View {
     }
 
     // MARK: - Upload State
+
+    /// True while an upload is in flight (and during the brief success state) —
+    /// used to block Cancel / swipe-to-dismiss so the user waits it out.
+    private var isUploadBusy: Bool {
+        switch viewModel.state {
+        case .uploading, .processing, .complete: return true
+        case .idle, .failed: return false
+        }
+    }
+
+    /// Full-screen blocking modal shown during posting. Reuses `uploadStateView`
+    /// for the per-state content inside a centered card.
+    private var uploadOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    // Only a failed upload can be dismissed (back to editing) by tapping out.
+                    if case .failed = viewModel.state { viewModel.cancel() }
+                }
+
+            VStack(spacing: BSCSpacing.md) {
+                uploadStateView
+            }
+            .frame(maxWidth: 280)
+            .padding(BSCSpacing.xl)
+            .background(
+                RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
+                    .fill(Color.bscBackgroundElevated)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
+                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+            .padding(BSCSpacing.xl)
+        }
+        .transition(.opacity)
+    }
 
     @ViewBuilder
     private var uploadStateView: some View {

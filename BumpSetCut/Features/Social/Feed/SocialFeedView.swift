@@ -49,14 +49,13 @@ struct SocialFeedView: View {
                 Spacer()
             }
         }
+        // Full-screen video is a dark context: keeps letterbox bars black and chrome
+        // readable in light mode. Semantic tokens inside resolve to their dark variants.
+        .environment(\.colorScheme, .dark)
         .task {
             await viewModel.loadFeed()
         }
-        .sheet(item: $selectedHighlightForComments) { highlight in
-            CommentsSheet(highlight: highlight)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
+        .commentsPanel(item: $selectedHighlightForComments)
         .sheet(item: $selectedProfileId) { profile in
             NavigationStack {
                 ProfileView(userId: profile.id)
@@ -89,16 +88,16 @@ struct SocialFeedView: View {
         }
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $currentIndex)
-        .ignoresSafeArea()
+        // Full-bleed top/sides only — respect the bottom safe area so the
+        // horizontal carousel ends above the tab bar instead of under it
+        // (the tab bar swallows swipes in that strip).
+        .ignoresSafeArea(edges: [.top, .horizontal])
     }
 
     private func highlightCard(index: Int, highlight: Highlight) -> some View {
         let isOwner = highlight.authorId == authService.currentUser?.id
         let deleteAction: (() -> Void)? = isOwner ? {
             Task { await viewModel.deleteHighlight(highlight) }
-        } : nil
-        let pollVoteAction: ((String, String) -> Void)? = authService.isAuthenticated ? { pollId, optionId in
-            Task { await viewModel.votePoll(highlightId: highlight.id, pollId: pollId, optionId: optionId) }
         } : nil
 
         return HighlightCardView(
@@ -114,8 +113,10 @@ struct SocialFeedView: View {
                 selectedProfileId = ProfileID(id: authorId)
             },
             onDelete: deleteAction,
-            onPollVote: pollVoteAction,
-            additionalBottomInset: 49
+            onLocation: { location in
+                navigationState.pendingSearchQuery = location
+            },
+            extendsUnderBottomSafeArea: false
         )
     }
 
@@ -135,7 +136,7 @@ struct SocialFeedView: View {
                 } label: {
                     Text(tab.rawValue)
                         .font(.system(size: 15, weight: selectedTab == tab ? .bold : .medium))
-                        .foregroundColor(selectedTab == tab ? .white : .white.opacity(0.6))
+                        .foregroundColor(selectedTab == tab ? .bscOnMedia : .bscOnMediaSecondary)
                         .padding(.vertical, BSCSpacing.sm)
                         .padding(.horizontal, BSCSpacing.md)
                 }
@@ -144,7 +145,7 @@ struct SocialFeedView: View {
         }
         .padding(.vertical, BSCSpacing.xs)
         .padding(.horizontal, BSCSpacing.sm)
-        .background(.ultraThinMaterial.opacity(0.8))
+        .background(Color.bscMediaScrim)
         .clipShape(Capsule())
         .padding(.top, BSCSpacing.md)
     }

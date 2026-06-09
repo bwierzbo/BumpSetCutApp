@@ -35,6 +35,9 @@ struct MainTabView: View {
     @State private var showLowStorageBanner = false
     @State private var lowStorageAvailable: Int64 = 0
     @State private var lowStorageDismissed = false
+    // Deep link (bumpsetcut://highlight/<id>) presentation
+    @State private var deepLinkedHighlight: Highlight?
+    @State private var deepLinkedComments: Highlight?
     private var processingCoordinator = ProcessingCoordinator.shared
 
     @Environment(AuthenticationService.self) private var authService
@@ -120,6 +123,11 @@ struct MainTabView: View {
                 selectedTab = .feed
             }
         }
+        .onChange(of: navigationState.pendingSearchQuery) { _, query in
+            if query != nil {
+                selectedTab = .search
+            }
+        }
         .onAppear { checkStorage() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { checkStorage() }
@@ -137,9 +145,61 @@ struct MainTabView: View {
                 }
             }
         }
+        .onOpenURL { url in handleDeepLink(url) }
+        .fullScreenCover(item: $deepLinkedHighlight) { highlight in
+            deepLinkHighlightView(highlight)
+                .commentsPanel(item: $deepLinkedComments)
+        }
+    }
+
+    // MARK: - Deep Links
+
+    /// Handle `bumpsetcut://highlight/<id>` by fetching the post and presenting it.
+    private func handleDeepLink(_ url: URL) {
+        guard url.scheme == "bumpsetcut", url.host == "highlight" else { return }
+        let id = url.lastPathComponent
+        guard !id.isEmpty, id != "highlight" else { return }
+        Task {
+            if let highlight: Highlight = try? await SupabaseAPIClient.shared.request(.getHighlight(id: id)) {
+                deepLinkedHighlight = highlight
+            }
+        }
+    }
+
+    /// Full-screen viewer for a deep-linked highlight (mirrors Search's detail).
+    private func deepLinkHighlightView(_ highlight: Highlight) -> some View {
+        ZStack(alignment: .topTrailing) {
+            HighlightCardView(
+                highlight: highlight,
+                onLike: {},
+                onComment: {
+                    deepLinkedComments = highlight
+                },
+                onProfile: { _ in }
+            )
+
+            Button {
+                deepLinkedHighlight = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundColor(.white.opacity(0.85))
+                    .shadow(radius: 4)
+            }
+            .padding(BSCSpacing.md)
+        }
     }
 
     // MARK: - Processing Progress Pill
+
+    /// Subtitle for the processing pill — shows a live ETA once enough progress
+    /// has accrued, otherwise the "keep app open" reminder with the video name.
+    private var processingETASubtitle: String {
+        if let remaining = processingCoordinator.estimatedSecondsRemaining, remaining > 1 {
+            return "\(ProcessingTimeEstimator.formatEstimate(remaining)) left \u{2022} keep app open"
+        }
+        return "Keep app open \u{2022} \(processingCoordinator.videoName)"
+    }
 
     private var processingPill: some View {
         Button {
@@ -189,7 +249,7 @@ struct MainTabView: View {
                                 .foregroundColor(.bscWarning)
                         }
 
-                        Text("Keep app open \u{2022} \(processingCoordinator.videoName)")
+                        Text(processingETASubtitle)
                             .font(.system(size: 11))
                             .foregroundColor(.bscTextTertiary)
                             .lineLimit(1)

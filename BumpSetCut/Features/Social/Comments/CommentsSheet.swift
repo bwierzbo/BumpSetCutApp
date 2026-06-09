@@ -9,17 +9,43 @@ import SwiftUI
 
 struct CommentsSheet: View {
     let highlight: Highlight
+    var onClose: () -> Void = {}
+    var onHeaderDrag: (CGFloat) -> Void = { _ in }
+    var onHeaderDragEnd: (CGFloat) -> Void = { _ in }
     @State private var viewModel: CommentsViewModel
     @FocusState private var isCommentFocused: Bool
+    @Environment(AuthenticationService.self) private var authService
 
-    init(highlight: Highlight) {
+    init(highlight: Highlight,
+         onClose: @escaping () -> Void = {},
+         onHeaderDrag: @escaping (CGFloat) -> Void = { _ in },
+         onHeaderDragEnd: @escaping (CGFloat) -> Void = { _ in }) {
+        self.onClose = onClose
+        self.onHeaderDrag = onHeaderDrag
+        self.onHeaderDragEnd = onHeaderDragEnd
         self.highlight = highlight
-        _viewModel = State(initialValue: CommentsViewModel(highlightId: highlight.id))
+        _viewModel = State(initialValue: CommentsViewModel(highlight: highlight))
     }
 
     var body: some View {
-        NavigationStack {
             VStack(spacing: 0) {
+                panelHeader
+
+                // Pinned poll (when this post has one)
+                if let poll = viewModel.poll {
+                    PollView(
+                        poll: poll,
+                        isAuthenticated: authService.isAuthenticated,
+                        onVote: { optionId in
+                            Task { await viewModel.votePoll(optionId: optionId) }
+                        }
+                    )
+                    .padding(.horizontal, BSCSpacing.md)
+                    .padding(.top, BSCSpacing.md)
+                    .padding(.bottom, BSCSpacing.sm)
+                    Divider()
+                }
+
                 // Comments list
                 if viewModel.isLoading && viewModel.comments.isEmpty {
                     Spacer()
@@ -77,12 +103,44 @@ struct CommentsSheet: View {
             }
             .animation(.easeInOut(duration: 0.2), value: viewModel.sendError != nil)
             .background(Color.bscBackground)
-            .navigationTitle("Comments")
-            .navigationBarTitleDisplayMode(.inline)
+            .task {
+                await viewModel.loadMyPollVote()
+                await viewModel.loadComments()
+            }
+    }
+
+    // MARK: - Panel Header
+
+    private var panelHeader: some View {
+        VStack(spacing: BSCSpacing.sm) {
+            Capsule()
+                .fill(Color.bscTextTertiary.opacity(0.5))
+                .frame(width: 36, height: 5)
+
+            HStack {
+                Text("Comments")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.bscTextPrimary)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.bscTextSecondary)
+                }
+                .accessibilityLabel("Close comments")
+            }
+            .padding(.horizontal, BSCSpacing.md)
         }
-        .task {
-            await viewModel.loadComments()
-        }
+        .padding(.top, BSCSpacing.sm)
+        .padding(.bottom, BSCSpacing.xs)
+        // Drag-to-dismiss is confined to the header so it never swallows taps
+        // on the poll/comments/input below.
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 5)
+                .onChanged { onHeaderDrag($0.translation.height) }
+                .onEnded { onHeaderDragEnd($0.translation.height) }
+        )
     }
 
     // MARK: - Comment Row
@@ -159,7 +217,6 @@ struct CommentsSheet: View {
                 .background(Color.bscSurfaceGlass)
                 .clipShape(Capsule())
                 .focused($isCommentFocused)
-                .onAppear { isCommentFocused = true }
                 .accessibilityIdentifier(AccessibilityID.Comments.inputField)
 
             Button {

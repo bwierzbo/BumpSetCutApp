@@ -10,8 +10,33 @@ final class HomeViewModel {
     private let metadataStore: MetadataStore
 
     var totalRallies: Int = 0
-    var processedVideos: Int = 0
+    /// Total dead time removed across all processed videos (source length − rally time).
+    var totalTimeCutSeconds: Double = 0
     var isLoading: Bool = false
+
+    /// Compact display of total time cut, scaling up through units:
+    /// "45s" → "38m" → "2h 14m" → "3d 4h" → "1y 23d".
+    var timeCutDisplay: String {
+        let total = Int(totalTimeCutSeconds.rounded())
+        let minute = 60
+        let hour = 3600
+        let day = 86_400
+        let year = 365 * day
+
+        if total >= year {
+            return "\(total / year)y \((total % year) / day)d"
+        }
+        if total >= day {
+            return "\(total / day)d \((total % day) / hour)h"
+        }
+        if total >= hour {
+            return "\(total / hour)h \((total % hour) / minute)m"
+        }
+        if total >= minute {
+            return "\(total / minute)m"
+        }
+        return "\(total)s"
+    }
 
     // MARK: - Initialization
     init(mediaStore: MediaStore, metadataStore: MetadataStore) {
@@ -29,27 +54,21 @@ final class HomeViewModel {
     private func loadStats() {
         isLoading = true
 
-        // Count saved videos that have been processed
-        processedVideos = mediaStore.getAllVideos(in: .saved).filter { !$0.processedVideoIds.isEmpty }.count
-
-        // Count rallies from metadata (from all videos with metadata)
-        totalRallies = countTotalRallies()
-
-        isLoading = false
-    }
-
-    private func countTotalRallies() -> Int {
-        var count = 0
-
-        for video in mediaStore.getAllVideos() {
-            if video.hasProcessingMetadata {
-                if let metadata = try? metadataStore.loadMetadata(for: video.id) {
-                    count += metadata.rallySegments.count
-                }
+        // Single pass over videos with metadata: count rallies and sum dead time removed.
+        var rallyCount = 0
+        var timeCut: Double = 0
+        for video in mediaStore.getAllVideos() where video.hasProcessingMetadata {
+            guard let metadata = try? metadataStore.loadMetadata(for: video.id) else { continue }
+            rallyCount += metadata.rallySegments.count
+            // Dead time removed = source length − kept rally time (when source length is known).
+            if let duration = video.duration, duration > 0 {
+                timeCut += max(0, duration - metadata.totalRallyDuration)
             }
         }
+        totalRallies = rallyCount
+        totalTimeCutSeconds = timeCut
 
-        return count
+        isLoading = false
     }
 }
 
@@ -76,9 +95,9 @@ extension HomeViewModel {
                     color: .bscPrimary
                 ),
                 StatItem(
-                    icon: "checkmark.seal.fill",
-                    value: "\(processedVideos)",
-                    label: "Processed",
+                    icon: "scissors",
+                    value: timeCutDisplay,
+                    label: "Time Cut",
                     color: .bscTeal
                 ),
                 StatItem(
@@ -112,9 +131,9 @@ extension HomeViewModel {
                     color: .bscPrimary
                 ),
                 StatItem(
-                    icon: "checkmark.seal.fill",
-                    value: "\(processedVideos)",
-                    label: "Processed",
+                    icon: "scissors",
+                    value: timeCutDisplay,
+                    label: "Time Cut",
                     color: .bscTeal
                 ),
                 StatItem(

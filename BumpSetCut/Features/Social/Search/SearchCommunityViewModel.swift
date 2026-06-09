@@ -22,6 +22,7 @@ final class SearchCommunityViewModel {
     private(set) var users: [UserProfile] = []
     private(set) var highlights: [Highlight] = []
     private(set) var trendingTags: [String] = []
+    private(set) var recentSearches: [String] = []
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
     private(set) var hasMorePages = true
@@ -32,8 +33,46 @@ final class SearchCommunityViewModel {
     private let apiClient: any APIClient
     private var debounceTask: Task<Void, Never>?
 
+    private static let recentsKey = "recent_searches"
+    private static let maxRecents = 12
+
     init(apiClient: (any APIClient)? = nil) {
         self.apiClient = apiClient ?? SupabaseAPIClient.shared
+        recentSearches = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
+    }
+
+    // MARK: - Recent Searches
+
+    /// Save a committed search term to the top of the recents list.
+    func recordSearch(_ raw: String) {
+        let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        recentSearches.removeAll { $0.caseInsensitiveCompare(query) == .orderedSame }
+        recentSearches.insert(query, at: 0)
+        if recentSearches.count > Self.maxRecents {
+            recentSearches = Array(recentSearches.prefix(Self.maxRecents))
+        }
+        persistRecents()
+    }
+
+    func selectRecent(_ query: String) {
+        searchText = query
+        recordSearch(query)
+        searchTextChanged()
+    }
+
+    func removeRecent(_ query: String) {
+        recentSearches.removeAll { $0 == query }
+        persistRecents()
+    }
+
+    func clearRecents() {
+        recentSearches = []
+        persistRecents()
+    }
+
+    private func persistRecents() {
+        UserDefaults.standard.set(recentSearches, forKey: Self.recentsKey)
     }
 
     // MARK: - Debounced Search

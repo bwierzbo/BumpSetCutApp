@@ -12,6 +12,8 @@ struct AuthGateView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: AuthGateViewModel?
     @State private var showForgotPassword = false
+    @State private var isPasswordVisible = false
+    @State private var isConfirmPasswordVisible = false
 
     var onSkip: (() -> Void)? = nil
 
@@ -20,8 +22,10 @@ struct AuthGateView: View {
             Color.bscBackground
                 .ignoresSafeArea()
 
-            VStack(spacing: BSCSpacing.xl) {
-                Spacer()
+            GeometryReader { geo in
+              ScrollView {
+                VStack(spacing: BSCSpacing.xl) {
+                Spacer(minLength: BSCSpacing.xl)
 
                 // App icon
                 ZStack {
@@ -48,7 +52,7 @@ struct AuthGateView: View {
                 }
                 .padding(.horizontal, BSCSpacing.lg)
 
-                Spacer()
+                Spacer(minLength: BSCSpacing.lg)
 
                 // Actions
                 VStack(spacing: BSCSpacing.md) {
@@ -73,7 +77,7 @@ struct AuthGateView: View {
                         } label: {
                             Text(viewModel?.isSignUpMode == true ? "Sign Up" : "Sign In")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.black)
+                                .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 50)
                                 .background(Color.bscPrimary)
@@ -116,6 +120,11 @@ struct AuthGateView: View {
                 }
                 .padding(.horizontal, BSCSpacing.xl)
                 .padding(.bottom, BSCSpacing.huge)
+                }
+                .frame(maxWidth: .infinity, minHeight: geo.size.height)
+              }
+              .scrollBounceBehavior(.basedOnSize)
+              .scrollDismissesKeyboard(.interactively)
             }
         }
         .onAppear {
@@ -142,57 +151,68 @@ struct AuthGateView: View {
     // MARK: - Email Form
 
     private var emailForm: some View {
-        VStack(spacing: BSCSpacing.sm) {
+        VStack(spacing: BSCSpacing.md) {
             if viewModel?.isSignUpMode == true {
-                HStack {
-                    TextField("Username", text: Binding(
-                        get: { viewModel?.username ?? "" },
-                        set: { viewModel?.username = $0 }
-                    ))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textContentType(.oneTimeCode)
-                    .accessibilityIdentifier(AccessibilityID.AuthGate.usernameField)
-                    .onChange(of: viewModel?.username ?? "") { _, _ in
-                        viewModel?.usernameChanged()
-                    }
-
-                    // Availability indicator
-                    Group {
-                        if viewModel?.isCheckingUsername == true {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .tint(.bscPrimary)
-                        } else if viewModel?.isUsernameAvailable == true {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.bscSuccess)
-                                .font(.system(size: 16))
-                        } else if viewModel?.isUsernameAvailable == false {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.bscError)
-                                .font(.system(size: 16))
+                fieldContainer {
+                    HStack {
+                        TextField("Username", text: Binding(
+                            get: { viewModel?.username ?? "" },
+                            set: { viewModel?.username = $0 }
+                        ))
+                        .font(.system(size: 17))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textContentType(.oneTimeCode)
+                        .accessibilityIdentifier(AccessibilityID.AuthGate.usernameField)
+                        .onChange(of: viewModel?.username ?? "") { _, _ in
+                            viewModel?.usernameChanged()
                         }
+
+                        // Availability indicator
+                        Group {
+                            if viewModel?.isCheckingUsername == true {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                    .tint(.bscPrimary)
+                            } else if viewModel?.isUsernameAvailable == true {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.bscSuccess)
+                                    .font(.system(size: 18))
+                            } else if viewModel?.isUsernameAvailable == false {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.bscError)
+                                    .font(.system(size: 18))
+                            }
+                        }
+                        .frame(width: 22)
                     }
-                    .frame(width: 20)
                 }
             }
 
-            TextField("Email", text: Binding(
-                get: { viewModel?.email ?? "" },
-                set: { viewModel?.email = $0 }
-            ))
-            .textContentType(.emailAddress)
-            .keyboardType(.emailAddress)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .accessibilityIdentifier(AccessibilityID.AuthGate.emailField)
+            fieldContainer {
+                TextField("Email", text: Binding(
+                    get: { viewModel?.email ?? "" },
+                    set: { viewModel?.email = $0 }
+                ))
+                .font(.system(size: 17))
+                .textContentType(.emailAddress)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier(AccessibilityID.AuthGate.emailField)
+            }
 
-            SecureField("Password", text: Binding(
-                get: { viewModel?.password ?? "" },
-                set: { viewModel?.password = $0 }
-            ))
-            .textContentType(.oneTimeCode)
-            .accessibilityIdentifier(AccessibilityID.AuthGate.passwordField)
+            fieldContainer {
+                passwordField(
+                    placeholder: "Password",
+                    text: Binding(
+                        get: { viewModel?.password ?? "" },
+                        set: { viewModel?.password = $0 }
+                    ),
+                    isVisible: $isPasswordVisible,
+                    accessibilityID: AccessibilityID.AuthGate.passwordField
+                )
+            }
 
             // Password requirements (sign-up only)
             if viewModel?.isSignUpMode == true, let vm = viewModel, !vm.password.isEmpty {
@@ -202,17 +222,23 @@ struct AuthGateView: View {
                     passwordReq("One number", met: vm.hasNumber)
                     passwordReq("One symbol", met: vm.hasSymbol)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, BSCSpacing.xxs)
             }
 
             // Confirm password (sign-up only)
             if viewModel?.isSignUpMode == true {
-                SecureField("Confirm Password", text: Binding(
-                    get: { viewModel?.confirmPassword ?? "" },
-                    set: { viewModel?.confirmPassword = $0 }
-                ))
-                .textContentType(.oneTimeCode)
-                .accessibilityIdentifier(AccessibilityID.AuthGate.confirmPasswordField)
+                fieldContainer {
+                    passwordField(
+                        placeholder: "Confirm Password",
+                        text: Binding(
+                            get: { viewModel?.confirmPassword ?? "" },
+                            set: { viewModel?.confirmPassword = $0 }
+                        ),
+                        isVisible: $isConfirmPasswordVisible,
+                        accessibilityID: AccessibilityID.AuthGate.confirmPasswordField
+                    )
+                }
 
                 if let vm = viewModel, !vm.confirmPassword.isEmpty {
                     HStack(spacing: BSCSpacing.xs) {
@@ -222,6 +248,7 @@ struct AuthGateView: View {
                         Text(vm.passwordsMatch ? "Passwords match" : "Passwords do not match")
                             .font(.system(size: 12))
                             .foregroundColor(vm.passwordsMatch ? .bscTextSecondary : .bscError)
+                        Spacer()
                     }
                 }
             }
@@ -234,7 +261,7 @@ struct AuthGateView: View {
                         showForgotPassword = true
                     } label: {
                         Text("Forgot password?")
-                            .font(.system(size: 13))
+                            .font(.system(size: 14))
                             .foregroundColor(.bscPrimary)
                     }
                     .buttonStyle(.plain)
@@ -242,7 +269,54 @@ struct AuthGateView: View {
                 }
             }
         }
-        .textFieldStyle(.roundedBorder)
+    }
+
+    // MARK: - Field Building Blocks
+
+    /// Larger rounded "bubble" container shared by all auth fields.
+    private func fieldContainer<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, BSCSpacing.md)
+            .padding(.vertical, 14)
+            .background(Color.bscBackgroundElevated)
+            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+            )
+    }
+
+    /// Password field with a show/hide eye toggle.
+    private func passwordField(
+        placeholder: String,
+        text: Binding<String>,
+        isVisible: Binding<Bool>,
+        accessibilityID: String
+    ) -> some View {
+        HStack(spacing: BSCSpacing.sm) {
+            Group {
+                if isVisible.wrappedValue {
+                    TextField(placeholder, text: text)
+                } else {
+                    SecureField(placeholder, text: text)
+                }
+            }
+            .font(.system(size: 17))
+            .textContentType(.oneTimeCode)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .accessibilityIdentifier(accessibilityID)
+
+            Button {
+                isVisible.wrappedValue.toggle()
+            } label: {
+                Image(systemName: isVisible.wrappedValue ? "eye.slash" : "eye")
+                    .font(.system(size: 17))
+                    .foregroundColor(.bscTextTertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isVisible.wrappedValue ? "Hide password" : "Show password")
+        }
     }
 
     private func passwordReq(_ label: String, met: Bool) -> some View {

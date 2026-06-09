@@ -141,34 +141,6 @@ final class SocialFeedViewModel {
 
     // MARK: - Poll Voting
 
-    func votePoll(highlightId: String, pollId: String, optionId: String) async {
-        guard let highlightIndex = highlights.firstIndex(where: { $0.id == highlightId }),
-              var poll = highlights[highlightIndex].poll else { return }
-
-        // Optimistic update
-        if let optIndex = poll.options.firstIndex(where: { $0.id == optionId }) {
-            poll.options[optIndex].voteCount += 1
-            poll.totalVotes += 1
-            poll.myVoteOptionId = optionId
-            highlights[highlightIndex].poll = poll
-        }
-
-        do {
-            let userId = try await SupabaseConfig.client.auth.session.user.id.uuidString.lowercased()
-            let vote = PollVoteUpload(pollId: pollId, optionId: optionId, userId: userId)
-            let _: EmptyResponse = try await apiClient.request(.votePoll(vote))
-        } catch {
-            // Revert on failure
-            if var revertPoll = highlights[highlightIndex].poll,
-               let optIndex = revertPoll.options.firstIndex(where: { $0.id == optionId }) {
-                revertPoll.options[optIndex].voteCount -= 1
-                revertPoll.totalVotes -= 1
-                revertPoll.myVoteOptionId = nil
-                highlights[highlightIndex].poll = revertPoll
-            }
-        }
-    }
-
     func enrichPollVotes() async {
         // Only enrich if user is authenticated
         guard (try? await SupabaseConfig.client.auth.session) != nil else { return }

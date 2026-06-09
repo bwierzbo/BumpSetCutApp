@@ -11,4 +11,6 @@ import Observation
 @Observable
 final class AppNavigationState {
     var postedHighlight: Highlight?
+    /// Set to route to the Search tab pre-filled with this query (e.g. tapping a post's location).
+    var pendingSearchQuery: String?
 }

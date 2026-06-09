@@ -82,7 +82,7 @@ extension Color {
     static let bscBackgroundMuted = Color(light: Color(hex: "#F0F0F3"), dark: Color(hex: "#141416"))
 
     /// Glass effect base - For frosted glass panels
-    static let bscSurfaceGlass = Color(light: Color.black.opacity(0.04), dark: Color.white.opacity(0.05))
+    static let bscSurfaceGlass = Color(light: Color.black.opacity(0.08), dark: Color.white.opacity(0.05))
 
     /// Glass border - Subtle definition
     static let bscSurfaceBorder = Color(light: Color.black.opacity(0.08), dark: Color.white.opacity(0.08))
@@ -90,8 +90,24 @@ extension Color {
     /// Glass highlight - Top edge shine
     static let bscSurfaceHighlight = Color(light: Color.black.opacity(0.06), dark: Color.white.opacity(0.12))
 
-    /// Media background - Full-bleed behind video players (white in light, black in dark)
-    static let bscMediaBackground = Color(light: .white, dark: .black)
+    /// Media background - Full-bleed behind video players. Dark by design in all
+    /// appearances: full-screen video is a dark context (letterbox bars stay black in
+    /// light mode), matching TikTok/Reels/Photos. Themes can redefine this token.
+    static let bscMediaBackground = Color(hex: "#0D0D0E")
+}
+
+// MARK: - Media Overlay Colors (chrome drawn over full-screen video)
+extension Color {
+    /// Primary chrome (text/icons) over media — always light for contrast on the dark
+    /// media surface. Named token so future themes can restyle media overlays in one place.
+    static let bscOnMedia = Color.white
+
+    /// Secondary chrome over media (timestamps, inactive labels).
+    static let bscOnMediaSecondary = Color.white.opacity(0.7)
+
+    /// Scrim fill for pills/badges/gradients over media to guarantee chrome contrast
+    /// even on bright video frames.
+    static let bscMediaScrim = Color.black.opacity(0.45)
 }
 
 // MARK: - Text Colors (Adaptive)

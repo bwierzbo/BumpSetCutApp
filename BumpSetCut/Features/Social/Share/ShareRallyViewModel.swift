@@ -46,6 +46,7 @@ struct RallyShareInfo {
 final class ShareRallyViewModel {
     var caption: String = ""
     var hideLikes: Bool = false
+    var pickedLocation: PickedLocation?
     var selectedPage: Int
     var postAllSaved: Bool
     private(set) var state: ShareState = .idle
@@ -232,7 +233,10 @@ final class ShareRallyViewModel {
                     hideLikes: hideLikes,
                     localVideoId: videoId,
                     localRallyIndex: rallyIndex,
-                    rallyMetadata: metadata
+                    rallyMetadata: metadata,
+                    locationName: pickedLocation?.name,
+                    latitude: pickedLocation?.latitude,
+                    longitude: pickedLocation?.longitude
                 )
 
                 var highlight: Highlight = try await apiClient.request(.createHighlight(upload))
@@ -318,7 +322,10 @@ final class ShareRallyViewModel {
                     videoUrls: uploadedURLs.count > 1 ? uploadedURLs : nil,
                     localVideoId: videoId,
                     localRallyIndex: nil,
-                    rallyMetadata: firstMetadata
+                    rallyMetadata: firstMetadata,
+                    locationName: pickedLocation?.name,
+                    latitude: pickedLocation?.latitude,
+                    longitude: pickedLocation?.longitude
                 )
 
                 var highlight: Highlight = try await apiClient.request(.createHighlight(upload))

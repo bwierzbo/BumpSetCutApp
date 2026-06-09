@@ -13,12 +13,12 @@ struct ProfileHighlightFeedView: View {
     let startIndex: Int
     let isOwnProfile: Bool
     let onLike: (Highlight) -> Void
-    let onComment: (Highlight) -> Void
     let onDelete: ((Highlight) -> Void)?
     let onDismiss: () -> Void
 
     @State private var currentIndex: Int?
     @State private var hasScrolledToStart = false
+    @State private var commentsHighlight: Highlight?
 
     var body: some View {
         ZStack {
@@ -31,7 +31,7 @@ struct ProfileHighlightFeedView: View {
                             highlight: highlight,
                             isActive: currentIndex == index,
                             onLike: { onLike(highlight) },
-                            onComment: { onComment(highlight) },
+                            onComment: { commentsHighlight = highlight },
                             onProfile: { _ in },
                             onDelete: isOwnProfile ? { onDelete?(highlight) } : nil
                         )
@@ -56,7 +56,7 @@ struct ProfileHighlightFeedView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 28))
-                            .foregroundColor(.white.opacity(0.8))
+                            .foregroundColor(.bscOnMedia.opacity(0.8))
                             .shadow(radius: 4)
                     }
                 }
@@ -66,11 +66,15 @@ struct ProfileHighlightFeedView: View {
                 Spacer()
             }
         }
+        // Full-screen video is a dark context regardless of system appearance.
+        .environment(\.colorScheme, .dark)
         .onAppear {
             if !hasScrolledToStart {
                 currentIndex = startIndex
                 hasScrolledToStart = true
             }
         }
+        // Comments overlay the post instead of dismissing it.
+        .commentsPanel(item: $commentsHighlight)
     }
 }

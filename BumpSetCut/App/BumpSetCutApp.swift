@@ -68,6 +68,11 @@ import AVFoundation
                     }
                 }
                 .preferredColorScheme(appSettings.appearanceMode.colorScheme)
+                // Free the audio session as the keyboard comes up so text entry
+                // isn't stalled by audio routing. No-op while video is playing.
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                    AudioSessionManager.deactivateIfIdle()
+                }
                 .task {
                     await authService.restoreSession()
                 }
@@ -95,15 +100,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     static var orientationLock = UIInterfaceOrientationMask.all
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Configure audio session for video playback with audio
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [])
-            try AVAudioSession.sharedInstance().setActive(true)
-            print("✅ Audio session configured for video playback")
-        } catch {
-            print("❌ Failed to configure audio session: \(error)")
-        }
-
+        // Configure the audio category for video playback, but do NOT activate
+        // the session here. Holding a `.playback` session active app-wide stalls
+        // keyboard presentation by seconds on real devices. AVPlayer activates
+        // the session on demand when it plays; we release it on keyboard-show.
+        AudioSessionManager.configureCategory()
         return true
     }
 

@@ -136,6 +136,14 @@ struct HomeView: View {
         } message: {
             Text(uploadCoordinator?.storageWarningMessage ?? "Not enough storage space")
         }
+        .alert("Import Failed", isPresented: Binding(
+            get: { uploadCoordinator?.showImportError ?? false },
+            set: { uploadCoordinator?.showImportError = $0 }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(uploadCoordinator?.importErrorMessage ?? "The video couldn't be imported from Photos.")
+        }
         .alert("Name Your Video", isPresented: Binding(
             get: { uploadCoordinator?.showNamingDialog ?? false },
             set: { if !$0 && (uploadCoordinator?.showNamingDialog ?? false) { uploadCoordinator?.completeNaming(customName: nil) } }
@@ -182,10 +190,19 @@ struct HomeView: View {
                         .font(.system(size: 18, weight: .bold))
                         .foregroundColor(.bscTextPrimary)
                 } else {
-                    // Progress state
-                    ProgressView()
-                        .scaleEffect(1.3)
-                        .tint(.bscPrimary)
+                    // Progress state — determinate bar when the import reports progress
+                    // (Photos picker, incl. iCloud download), indeterminate otherwise.
+                    if let fraction = coordinator.importProgress {
+                        ProgressView(value: fraction)
+                            .progressViewStyle(.linear)
+                            .tint(.bscPrimary)
+                            .frame(width: 200)
+                            .animation(.bscSpring, value: fraction)
+                    } else {
+                        ProgressView()
+                            .scaleEffect(1.3)
+                            .tint(.bscPrimary)
+                    }
 
                     VStack(spacing: BSCSpacing.sm) {
                         if !coordinator.uploadProgressText.isEmpty {
@@ -198,17 +215,26 @@ struct HomeView: View {
                                 .foregroundColor(.bscTextPrimary)
                         }
 
+                        if let fraction = coordinator.importProgress {
+                            Text("\(Int(fraction * 100))%")
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundColor(.bscTextTertiary)
+                        }
+
                         if !coordinator.currentFileSize.isEmpty {
                             Text(coordinator.currentFileSize)
                                 .font(.system(size: 12))
                                 .foregroundColor(.bscTextTertiary)
                         }
+                    }
 
-                        if coordinator.elapsedTime > 2 {
-                            Text(formatElapsedTime(coordinator.elapsedTime))
-                                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                .foregroundColor(.bscTextTertiary)
+                    if coordinator.importProgress != nil {
+                        Button("Cancel") {
+                            coordinator.cancelImport()
                         }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.bscTextSecondary)
+                        .padding(.top, BSCSpacing.xs)
                     }
                 }
             }
@@ -226,12 +252,6 @@ struct HomeView: View {
             .transition(.scale(scale: 0.9).combined(with: .opacity))
         }
         .animation(.bscSpring, value: coordinator.showCompleted)
-    }
-
-    private func formatElapsedTime(_ seconds: TimeInterval) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
     }
 
     // MARK: - Portrait Layout

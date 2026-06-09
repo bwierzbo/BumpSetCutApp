@@ -160,4 +160,7 @@ struct HighlightUpload: Codable {
     var localVideoId: UUID?
     var localRallyIndex: Int?
     let rallyMetadata: RallyHighlightMetadata
+    var locationName: String?
+    var latitude: Double?
+    var longitude: Double?
 }

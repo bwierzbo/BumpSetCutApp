@@ -12,6 +12,7 @@ struct SearchCommunityView: View {
     @State private var selectedHighlight: Highlight?
     @State private var selectedHighlightForComments: Highlight?
     @Environment(AuthenticationService.self) private var authService
+    @Environment(AppNavigationState.self) private var navigationState
 
     private let gridColumns = Array(
         repeating: GridItem(.flexible(), spacing: BSCSpacing.xs),
@@ -32,6 +33,11 @@ struct SearchCommunityView: View {
         }
         .navigationTitle("Search")
         .navigationBarTitleDisplayMode(.inline)
+        // Declared on the stable root (not inside the results list) so re-renders
+        // don't deactivate an active push and pop the profile back.
+        .navigationDestination(for: String.self) { userId in
+            ProfileView(userId: userId)
+        }
         .searchable(text: $viewModel.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search users or posts")
         .searchScopes($viewModel.searchScope) {
             ForEach(SearchScope.allCases, id: \.self) { scope in
@@ -41,19 +47,22 @@ struct SearchCommunityView: View {
         .onChange(of: viewModel.searchText) { _, _ in
             viewModel.searchTextChanged()
         }
+        .onSubmit(of: .search) {
+            viewModel.recordSearch(viewModel.searchText)
+        }
         .onChange(of: viewModel.searchScope) { _, _ in
             viewModel.scopeChanged()
         }
+        .onChange(of: navigationState.pendingSearchQuery) { _, query in
+            consumePendingSearch(query)
+        }
         .task {
             await viewModel.loadTrendingTags()
+            consumePendingSearch(navigationState.pendingSearchQuery)
         }
         .fullScreenCover(item: $selectedHighlight) { highlight in
             highlightDetail(highlight)
-        }
-        .sheet(item: $selectedHighlightForComments) { highlight in
-            CommentsSheet(highlight: highlight)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .commentsPanel(item: $selectedHighlightForComments)
         }
     }
 
@@ -61,35 +70,102 @@ struct SearchCommunityView: View {
         viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Apply a query routed in from elsewhere (e.g. tapping a post's location).
+    private func consumePendingSearch(_ query: String?) {
+        guard let query, !query.isEmpty else { return }
+        viewModel.searchScope = .posts
+        viewModel.searchText = query
+        navigationState.pendingSearchQuery = nil
+    }
+
     // MARK: - Trending Tags
 
     private var trendingSection: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: BSCSpacing.md) {
-                if !viewModel.trendingTags.isEmpty {
-                    Text("Trending")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.bscTextPrimary)
-                        .padding(.horizontal, BSCSpacing.lg)
-                        .padding(.top, BSCSpacing.md)
-                        .accessibilityIdentifier(AccessibilityID.Search.trendingSection)
+            VStack(alignment: .leading, spacing: BSCSpacing.lg) {
+                recentSearchesSection
 
-                    FlowLayout(spacing: BSCSpacing.sm) {
-                        ForEach(viewModel.trendingTags, id: \.self) { tag in
-                            Button {
-                                viewModel.selectTrendingTag(tag)
-                            } label: {
-                                Text("#\(tag)")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(.bscPrimary)
-                                    .padding(.horizontal, BSCSpacing.md)
-                                    .padding(.vertical, BSCSpacing.sm)
-                                    .background(Color.bscSurfaceGlass)
-                                    .clipShape(Capsule())
+                if !viewModel.trendingTags.isEmpty {
+                    VStack(alignment: .leading, spacing: BSCSpacing.sm) {
+                        Text("Trending")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.bscTextPrimary)
+                            .padding(.horizontal, BSCSpacing.lg)
+                            .accessibilityIdentifier(AccessibilityID.Search.trendingSection)
+
+                        FlowLayout(spacing: BSCSpacing.sm) {
+                            ForEach(viewModel.trendingTags, id: \.self) { tag in
+                                Button {
+                                    viewModel.selectTrendingTag(tag)
+                                } label: {
+                                    Text("#\(tag)")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(.bscPrimary)
+                                        .padding(.horizontal, BSCSpacing.md)
+                                        .padding(.vertical, BSCSpacing.sm)
+                                        .background(Color.bscSurfaceGlass)
+                                        .clipShape(Capsule())
+                                }
                             }
                         }
+                        .padding(.horizontal, BSCSpacing.lg)
+                    }
+                }
+            }
+            .padding(.top, BSCSpacing.md)
+        }
+    }
+
+    // MARK: - Recent Searches
+
+    @ViewBuilder
+    private var recentSearchesSection: some View {
+        if !viewModel.recentSearches.isEmpty {
+            VStack(alignment: .leading, spacing: BSCSpacing.xs) {
+                HStack {
+                    Text("Recent")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.bscTextPrimary)
+                    Spacer()
+                    Button("Clear") {
+                        withAnimation { viewModel.clearRecents() }
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.bscPrimary)
+                }
+                .padding(.horizontal, BSCSpacing.lg)
+                .padding(.bottom, BSCSpacing.xs)
+
+                ForEach(viewModel.recentSearches, id: \.self) { term in
+                    HStack(spacing: BSCSpacing.md) {
+                        Button {
+                            viewModel.selectRecent(term)
+                        } label: {
+                            HStack(spacing: BSCSpacing.md) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 15))
+                                    .foregroundColor(.bscTextTertiary)
+                                Text(term)
+                                    .font(.system(size: 15))
+                                    .foregroundColor(.bscTextPrimary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            withAnimation { viewModel.removeRecent(term) }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.bscTextTertiary)
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, BSCSpacing.lg)
+                    .padding(.vertical, BSCSpacing.sm)
                 }
             }
         }
@@ -139,9 +215,6 @@ struct SearchCommunityView: View {
                     }
                 }
             }
-        }
-        .navigationDestination(for: String.self) { userId in
-            ProfileView(userId: userId)
         }
     }
 
@@ -195,6 +268,7 @@ struct SearchCommunityView: View {
                 LazyVGrid(columns: gridColumns, spacing: BSCSpacing.xs) {
                     ForEach(viewModel.highlights) { highlight in
                         Button {
+                            viewModel.recordSearch(viewModel.searchText)
                             selectedHighlight = highlight
                         } label: {
                             postGridCell(highlight)
@@ -272,10 +346,7 @@ struct SearchCommunityView: View {
                 highlight: highlight,
                 onLike: {},
                 onComment: {
-                    selectedHighlight = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        selectedHighlightForComments = highlight
-                    }
+                    selectedHighlightForComments = highlight
                 },
                 onProfile: { _ in }
             )

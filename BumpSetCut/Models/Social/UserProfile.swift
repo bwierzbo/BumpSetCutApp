@@ -61,7 +61,12 @@ struct UserProfile: Codable, Identifiable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, username, avatarURL, bio, teamName
+        case id, username, bio, teamName
         case followersCount, followingCount, highlightsCount, privacyLevel, createdAt
+        // The Supabase decoder uses `.convertFromSnakeCase`, which turns the
+        // `avatar_url` column into `avatarUrl` (Foundation lowercases acronyms).
+        // That never matches an `avatarURL` key, so pin the raw value or the
+        // avatar silently decodes to nil everywhere.
+        case avatarURL = "avatarUrl"
     }
 }

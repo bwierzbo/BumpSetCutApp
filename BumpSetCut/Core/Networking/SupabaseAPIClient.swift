@@ -4,11 +4,10 @@ import Supabase
 // MARK: - Helper Types
 
 struct FollowRow: Decodable {
+    // No custom CodingKeys: the decoder's `.convertFromSnakeCase` strategy maps
+    // `following_id` → `followingId` automatically. Pinning the raw value to
+    // "following_id" would never match the already-converted key and break decode.
     let followingId: String
-
-    enum CodingKeys: String, CodingKey {
-        case followingId = "following_id"
-    }
 }
 
 struct FollowerWrapper: Decodable {
@@ -134,7 +133,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let response: T = try await supabase
                 .from("highlights")
                 .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
-                .or("caption.ilike.%\(query)%,tags.cs.{\(query)}")
+                .or("caption.ilike.%\(query)%,tags.cs.{\(query)},location_name.ilike.%\(query)%")
                 .order("created_at", ascending: false)
                 .range(from: from, to: to)
                 .execute()

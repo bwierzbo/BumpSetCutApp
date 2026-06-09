@@ -9,6 +9,8 @@ import SwiftUI
 import PhotosUI
 
 struct EditProfileView: View {
+    var onSaved: () -> Void = {}
+
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.dismiss) private var dismiss
 
@@ -22,6 +24,8 @@ struct EditProfileView: View {
     // Avatar state
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var avatarImage: UIImage?
+    @State private var pendingAvatarImage: UIImage?
+    @State private var showAvatarConfirm = false
     @State private var isUploadingAvatar = false
 
     private var currentAvatarURL: URL? {
@@ -88,6 +92,18 @@ struct EditProfileView: View {
             guard let item else { return }
             Task { await loadPhoto(from: item) }
         }
+        .alert("Use this photo?", isPresented: $showAvatarConfirm) {
+            Button("Use Photo") {
+                avatarImage = pendingAvatarImage
+                pendingAvatarImage = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingAvatarImage = nil
+                selectedPhotoItem = nil
+            }
+        } message: {
+            Text("Set this as your new profile picture? It'll be saved when you tap Save.")
+        }
         .onAppear {
             if let user = authService.currentUser {
                 username = user.username
@@ -104,8 +120,8 @@ struct EditProfileView: View {
         VStack(spacing: BSCSpacing.sm) {
             PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                 ZStack(alignment: .bottomTrailing) {
-                    if let avatarImage {
-                        Image(uiImage: avatarImage)
+                    if let preview = pendingAvatarImage ?? avatarImage {
+                        Image(uiImage: preview)
                             .resizable()
                             .scaledToFill()
                             .frame(width: 90, height: 90)
@@ -150,7 +166,8 @@ struct EditProfileView: View {
         guard let data = try? await item.loadTransferable(type: Data.self),
               let image = UIImage(data: data) else { return }
         await MainActor.run {
-            avatarImage = image
+            pendingAvatarImage = image
+            showAvatarConfirm = true
         }
     }
 
@@ -181,6 +198,7 @@ struct EditProfileView: View {
 
                 let updated: UserProfile = try await SupabaseAPIClient.shared.request(.updateProfile(update))
                 authService.updateLocalProfile(updated)
+                onSaved()
                 dismiss()
             } catch {
                 isUploadingAvatar = false

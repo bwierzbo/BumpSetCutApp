@@ -462,9 +462,10 @@ private extension SettingsView {
                     .buttonStyle(.plain)
                     .disabled(isDeletingAccount)
                     .accessibilityHint("Permanently deletes your account and data")
-                    .alert("Delete Account", isPresented: $showDeleteConfirmation) {
-                        Button("Cancel", role: .cancel) { }
-                        Button("Delete", role: .destructive) {
+                    .sheet(isPresented: $showDeleteConfirmation) {
+                        DeleteAccountConfirmationView(
+                            username: authService.currentUser?.username ?? ""
+                        ) {
                             Task {
                                 isDeletingAccount = true
                                 deleteError = nil
@@ -476,8 +477,6 @@ private extension SettingsView {
                                 isDeletingAccount = false
                             }
                         }
-                    } message: {
-                        Text("This will permanently delete your account and all associated data. This cannot be undone.")
                     }
                     .alert("Delete Failed", isPresented: .init(
                         get: { deleteError != nil },
@@ -808,6 +807,89 @@ private struct BSCStatusRow: View {
                     .foregroundColor(isEnabled ? .bscSuccess : .bscTextTertiary)
             }
         }
+    }
+}
+
+// MARK: - Delete Account Confirmation
+
+/// Requires the user to type their exact username before the destructive action
+/// is enabled — guards against accidental account deletion.
+private struct DeleteAccountConfirmationView: View {
+    let username: String
+    let onConfirm: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var typed = ""
+
+    private var matches: Bool {
+        !username.isEmpty && typed.trimmingCharacters(in: .whitespacesAndNewlines) == username
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: BSCSpacing.lg) {
+                ZStack {
+                    Circle()
+                        .fill(Color.bscError.opacity(0.15))
+                        .frame(width: 64, height: 64)
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(.bscError)
+                }
+                .padding(.top, BSCSpacing.xl)
+
+                Text("Delete Account")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(.bscTextPrimary)
+
+                Text("This permanently deletes your account and all associated data. This cannot be undone.")
+                    .font(.system(size: 15))
+                    .foregroundColor(.bscTextSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, BSCSpacing.lg)
+
+                VStack(alignment: .leading, spacing: BSCSpacing.xs) {
+                    (Text("Type ").foregroundColor(.bscTextSecondary)
+                     + Text(username).fontWeight(.bold).foregroundColor(.bscTextPrimary)
+                     + Text(" to confirm").foregroundColor(.bscTextSecondary))
+                        .font(.system(size: 13))
+
+                    TextField("Username", text: $typed)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textContentType(.username)
+                        .submitLabel(.done)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .padding(.horizontal, BSCSpacing.lg)
+                .padding(.top, BSCSpacing.sm)
+
+                Button {
+                    onConfirm()
+                    dismiss()
+                } label: {
+                    Text("Delete Account")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(matches ? Color.bscError : Color.bscError.opacity(0.4))
+                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+                }
+                .disabled(!matches)
+                .padding(.horizontal, BSCSpacing.lg)
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.bscBackground.ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

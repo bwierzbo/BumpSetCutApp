@@ -10,12 +10,13 @@ import SwiftUI
 struct ProfileView: View {
     @State private var viewModel: ProfileViewModel
     @State private var selectedHighlightIndex: Int?
-    @State private var selectedHighlightForComments: Highlight?
     @State private var highlightToDelete: Highlight?
     @State private var showReportSheet = false
     @State private var showBlockAlert = false
     @State private var showCopiedToast = false
+    @State private var showingSettings = false
     @Environment(AuthenticationService.self) private var authService
+    @Environment(AppSettings.self) private var appSettings
     @Environment(\.dismiss) private var dismiss
 
     init(userId: String) {
@@ -58,13 +59,13 @@ struct ProfileView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, BSCSpacing.lg)
                         .padding(.vertical, BSCSpacing.sm)
-                        .background(Color.bscSurfaceGlass, in: Capsule())
+                        .background(Color.black.opacity(0.8), in: Capsule())
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .padding(.bottom, BSCSpacing.xl)
                 }
             }
         }
-        .navigationTitle(viewModel.profile?.username ?? "Profile")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.loadProfile()
@@ -81,12 +82,6 @@ struct ProfileView: View {
                     onLike: { highlight in
                         Task { await viewModel.toggleLike(for: highlight) }
                     },
-                    onComment: { highlight in
-                        selectedHighlightIndex = nil
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                            selectedHighlightForComments = highlight
-                        }
-                    },
                     onDelete: isOwnProfile ? { highlight in
                         selectedHighlightIndex = nil
                         Task { await viewModel.deleteHighlight(highlight) }
@@ -94,20 +89,6 @@ struct ProfileView: View {
                     onDismiss: { selectedHighlightIndex = nil }
                 )
             }
-        }
-        .sheet(item: $selectedHighlightForComments) { highlight in
-            CommentsSheet(highlight: highlight)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .alert("Sign Out?", isPresented: $showSignOutConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Sign Out", role: .destructive) {
-                authService.signOut()
-                dismiss()
-            }
-        } message: {
-            Text("Are you sure you want to sign out?")
         }
         .alert("Delete Post?", isPresented: Binding(
             get: { highlightToDelete != nil },
@@ -124,7 +105,14 @@ struct ProfileView: View {
             Text("This post will be permanently removed.")
         }
         .toolbar {
-            if !isOwnProfile {
+            if isOwnProfile {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    BSCIconButton(icon: "gearshape.fill", style: .glass, size: .compact) {
+                        showingSettings = true
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            } else {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button(role: .destructive) {
@@ -144,6 +132,10 @@ struct ProfileView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+                .environment(appSettings)
         }
         .sheet(isPresented: $showReportSheet) {
             ReportContentSheet(
@@ -244,13 +236,13 @@ struct ProfileView: View {
 
     // MARK: - Actions
 
-    @State private var showSignOutConfirmation = false
-
     private func actionButtons(_ profile: UserProfile) -> some View {
         HStack(spacing: BSCSpacing.sm) {
             if isOwnProfile {
                 NavigationLink {
-                    EditProfileView()
+                    EditProfileView(onSaved: {
+                        Task { await viewModel.loadProfile() }
+                    })
                 } label: {
                     Text("Edit Profile")
                         .font(.system(size: 14, weight: .semibold))
@@ -259,21 +251,12 @@ struct ProfileView: View {
                         .padding(.vertical, BSCSpacing.sm)
                         .background(Color.bscSurfaceGlass)
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                                .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+                        )
                 }
                 .accessibilityIdentifier(AccessibilityID.Profile.editProfileButton)
-
-                Button {
-                    showSignOutConfirmation = true
-                } label: {
-                    Text("Sign Out")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.bscError)
-                        .padding(.vertical, BSCSpacing.sm)
-                        .padding(.horizontal, BSCSpacing.md)
-                        .background(Color.bscSurfaceGlass)
-                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
-                }
-                .accessibilityIdentifier(AccessibilityID.Profile.signOutButton)
             } else {
                 Button {
                     UINotificationFeedbackGenerator.success()

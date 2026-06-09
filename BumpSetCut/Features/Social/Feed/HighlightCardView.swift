@@ -16,8 +16,11 @@ struct HighlightCardView: View {
     let onComment: () -> Void
     let onProfile: (String) -> Void
     var onDelete: (() -> Void)?
-    var onPollVote: ((String, String) -> Void)?
-    var additionalBottomInset: CGFloat = 0
+    var onLocation: ((String) -> Void)?
+    /// Whether the card is laid out edge-to-edge under the bottom safe area
+    /// (profile/search full-bleed contexts). False in the main feed, where the
+    /// card ends above the tab bar so bottom chrome hugs the card's edge.
+    var extendsUnderBottomSafeArea: Bool = true
 
     @State private var playerPool: [Int: AVPlayer] = [:]
     @State private var loopObservers: [Int: Any] = [:]
@@ -36,6 +39,25 @@ struct HighlightCardView: View {
     private var videoURLs: [URL] { highlight.allVideoURLs }
     private var isMultiVideo: Bool { videoURLs.count > 1 }
     private var currentPlayer: AVPlayer? { playerPool[currentVideoPage] }
+
+    /// Real device safe-area insets. The card lives in a `.ignoresSafeArea()` scroll
+    /// context, so the local GeometryReader reports `.zero` — read the key window
+    /// instead so overlay chrome clears the notch/Dynamic Island (esp. in landscape).
+    private var deviceSafeArea: EdgeInsets {
+        let insets = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }?
+            .safeAreaInsets ?? .zero
+        return EdgeInsets(top: insets.top, leading: insets.left,
+                          bottom: insets.bottom, trailing: insets.right)
+    }
+
+    /// Bottom clearance for chrome: the device inset when the card underlaps
+    /// the bottom safe area, zero when the card already ends above the tab bar.
+    private var bottomChromeInset: CGFloat {
+        extendsUnderBottomSafeArea ? deviceSafeArea.bottom : 0
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -84,7 +106,7 @@ struct HighlightCardView: View {
                 if showLikeHeart {
                     Image(systemName: "heart.fill")
                         .font(.system(size: 80))
-                        .foregroundColor(.white)
+                        .foregroundColor(.bscOnMedia)
                         .shadow(color: .black.opacity(0.3), radius: 8)
                         .transition(.scale.combined(with: .opacity))
                         .allowsHitTesting(false)
@@ -97,21 +119,36 @@ struct HighlightCardView: View {
                         HStack(spacing: 6) {
                             ForEach(0..<videoURLs.count, id: \.self) { i in
                                 Circle()
-                                    .fill(i == currentVideoPage ? Color.white : Color.white.opacity(0.35))
+                                    .fill(i == currentVideoPage ? Color.bscOnMedia : Color.bscOnMedia.opacity(0.35))
                                     .frame(width: 7, height: 7)
                             }
                         }
                         .padding(.horizontal, BSCSpacing.md)
                         .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.black.opacity(0.45)))
-                        .padding(.bottom, geo.safeAreaInsets.bottom + BSCSpacing.huge + BSCSpacing.md + additionalBottomInset)
+                        .background(Capsule().fill(Color.bscMediaScrim))
+                        // Sit just above the bottom edge in landscape; clear the
+                        // controls in portrait.
+                        .padding(.bottom, geo.size.width > geo.size.height
+                            ? bottomChromeInset + BSCSpacing.md
+                            : bottomChromeInset + BSCSpacing.huge + BSCSpacing.md)
                     }
                     .allowsHitTesting(false)
                 }
 
+                // Bottom scrim so white chrome stays legible over bright video frames
+                LinearGradient(
+                    colors: [.clear, Color.bscMediaScrim],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
                 // Overlay controls
-                overlayControls(bottomInset: geo.safeAreaInsets.bottom)
+                overlayControls(safeArea: deviceSafeArea)
             }
+            // Full-screen video is a dark context regardless of system appearance.
+            .environment(\.colorScheme, .dark)
         }
         .alert("Delete Post?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -159,7 +196,7 @@ struct HighlightCardView: View {
 
     // MARK: - Overlay Controls
 
-    private func overlayControls(bottomInset: CGFloat) -> some View {
+    private func overlayControls(safeArea: EdgeInsets) -> some View {
         VStack {
             Spacer()
 
@@ -175,38 +212,64 @@ struct HighlightCardView: View {
 
                             Text(highlight.author?.username ?? "Unknown")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(.bscOnMedia)
                         }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("View profile of \(highlight.author?.username ?? "user")")
 
+                    // Location tag
+                    if let location = highlight.locationName, !location.isEmpty {
+                        Button {
+                            onLocation?(location)
+                        } label: {
+                            HStack(spacing: BSCSpacing.xxs) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.system(size: 12))
+                                Text(location)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .lineLimit(1)
+                            }
+                            .foregroundColor(.bscOnMedia)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(onLocation == nil)
+                        .accessibilityLabel("Played at \(location)")
+                    }
+
                     // Caption
                     if let caption = highlight.caption, !caption.isEmpty {
                         Text(caption)
                             .font(.system(size: 14))
-                            .foregroundColor(.white)
+                            .foregroundColor(.bscOnMedia)
                             .lineLimit(2)
                     }
 
-                    // Poll
-                    if let poll = highlight.poll {
-                        PollView(
-                            poll: poll,
-                            isAuthor: onDelete != nil,
-                            isAuthenticated: onPollVote != nil,
-                            onVote: { optionId in
-                                onPollVote?(poll.id, optionId)
+                    // Poll — voting happens in the comments sheet (tap to open)
+                    if highlight.poll != nil {
+                        Button {
+                            onComment()
+                        } label: {
+                            HStack(spacing: BSCSpacing.xxs) {
+                                Image(systemName: "chart.bar.fill")
+                                    .font(.system(size: 11))
+                                Text("Vote in poll")
+                                    .font(.system(size: 13, weight: .semibold))
                             }
-                        )
+                            .foregroundColor(.bscOnMedia)
+                            .padding(.horizontal, BSCSpacing.sm)
+                            .padding(.vertical, BSCSpacing.xxs)
+                            .background(Color.bscMediaScrim, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     // Rally metadata
                     Label("\(String(format: "%.1f", highlight.rallyMetadata.duration))s", systemImage: "timer")
                         .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(.bscOnMediaSecondary)
                 }
-                .padding(.leading, BSCSpacing.md)
+                .padding(.leading, BSCSpacing.md + safeArea.leading)
 
                 Spacer()
 
@@ -238,7 +301,7 @@ struct HighlightCardView: View {
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 22))
-                            .foregroundColor(.white)
+                            .foregroundColor(.bscOnMedia)
                             .frame(width: 44, height: 32)
                             .shadow(color: .black.opacity(0.4), radius: 4)
                     }
@@ -256,7 +319,7 @@ struct HighlightCardView: View {
                             if !highlight.hideLikes {
                                 Text(formatCount(highlight.likesCount))
                                     .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(.bscOnMedia)
                             }
                         }
                     }
@@ -272,35 +335,40 @@ struct HighlightCardView: View {
                         VStack(spacing: 4) {
                             Image(systemName: "bubble.right")
                                 .font(.system(size: 26))
-                                .foregroundColor(.white)
+                                .foregroundColor(.bscOnMedia)
 
                             Text(formatCount(highlight.commentsCount))
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.white)
+                                .foregroundColor(.bscOnMedia)
                         }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Comments")
                     .accessibilityHint("\(highlight.commentsCount) comments")
 
-                    // Share
-                    ShareLink(item: highlight.videoURL) {
+                    // Share — deep link that opens this post in the app
+                    ShareLink(
+                        item: highlight.deepLinkURL,
+                        message: Text("Check out this rally on BumpSetCut")
+                    ) {
                         VStack(spacing: 4) {
                             Image(systemName: "arrowshape.turn.up.right")
                                 .font(.system(size: 26))
-                                .foregroundColor(.white)
+                                .foregroundColor(.bscOnMedia)
 
                             Text("Share")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.white)
+                                .foregroundColor(.bscOnMedia)
                         }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Share highlight")
                 }
-                .padding(.trailing, BSCSpacing.md)
+                .padding(.trailing, BSCSpacing.md + safeArea.trailing)
             }
-            .padding(.bottom, bottomInset + BSCSpacing.huge + additionalBottomInset)
+            .padding(.bottom, bottomChromeInset + BSCSpacing.huge)
+            // Halo so chrome stays crisp over bright video frames, not just over the scrim.
+            .shadow(color: .black.opacity(0.5), radius: 3)
         }
     }
 
@@ -452,22 +520,27 @@ struct HighlightCardView: View {
         // Create players for pages in the window
         for pageIndex in visibleRange {
             guard pageIndex < videoURLs.count else { continue }
+            let isActivePage = (pageIndex == activePage)
             if playerPool[pageIndex] == nil {
                 let url = videoURLs[pageIndex]
                 let avPlayer = makeLoopingPlayer(url: url, pageIndex: pageIndex)
 
-                if pageIndex == activePage && !isPaused {
+                if isActivePage && !isPaused {
+                    avPlayer.seek(to: .zero)
                     avPlayer.play()
                 } else {
                     avPlayer.pause()
                 }
                 playerPool[pageIndex] = avPlayer
             } else {
-                // Player exists — play/pause based on active page
-                if pageIndex == activePage && !isPaused {
-                    playerPool[pageIndex]?.play()
+                // The active page restarts from the beginning; off-screen pages
+                // pause and rewind so they replay from the start next time too.
+                if isActivePage {
+                    playerPool[pageIndex]?.seek(to: .zero)
+                    if !isPaused { playerPool[pageIndex]?.play() }
                 } else {
                     playerPool[pageIndex]?.pause()
+                    playerPool[pageIndex]?.seek(to: .zero)
                 }
             }
         }

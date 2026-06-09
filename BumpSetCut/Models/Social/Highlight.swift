@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 // MARK: - Rally Highlight Metadata
 
@@ -32,6 +33,17 @@ struct Highlight: Codable, Identifiable, Hashable {
     var localVideoId: UUID?
     var localRallyIndex: Int?
 
+    // Location where the rally was played (park/court), tagged at post time.
+    var locationName: String?
+    var latitude: Double?
+    var longitude: Double?
+
+    /// Map coordinate, available only when both latitude and longitude are present.
+    var locationCoordinate: CLLocationCoordinate2D? {
+        guard let latitude, let longitude else { return nil }
+        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
     /// All video URLs for this highlight (supports multi-rally posts).
     var allVideoURLs: [URL] {
         if let urls = videoUrls, !urls.isEmpty {
@@ -53,12 +65,18 @@ struct Highlight: Codable, Identifiable, Hashable {
         thumbnailURL
     }
 
+    /// Deep link that opens this highlight in the app (`bumpsetcut://highlight/<id>`).
+    var deepLinkURL: URL {
+        URL(string: "bumpsetcut://highlight/\(id)") ?? videoURL
+    }
+
     init(id: String, authorId: String, author: UserProfile? = nil, muxPlaybackId: String,
          thumbnailURL: URL? = nil, caption: String? = nil, tags: [String] = [],
          rallyMetadata: RallyHighlightMetadata, likesCount: Int = 0, commentsCount: Int = 0,
          isLikedByMe: Bool = false, createdAt: Date = Date(),
          hideLikes: Bool = false, videoUrls: [String]? = nil, poll: Poll? = nil,
-         localVideoId: UUID? = nil, localRallyIndex: Int? = nil) {
+         localVideoId: UUID? = nil, localRallyIndex: Int? = nil,
+         locationName: String? = nil, latitude: Double? = nil, longitude: Double? = nil) {
         self.id = id
         self.authorId = authorId
         self.author = author
@@ -76,6 +94,9 @@ struct Highlight: Codable, Identifiable, Hashable {
         self.poll = poll
         self.localVideoId = localVideoId
         self.localRallyIndex = localRallyIndex
+        self.locationName = locationName
+        self.latitude = latitude
+        self.longitude = longitude
     }
 
     init(from decoder: Decoder) throws {
@@ -97,11 +118,19 @@ struct Highlight: Codable, Identifiable, Hashable {
         poll = try container.decodeIfPresent(Poll.self, forKey: .poll)
         localVideoId = try container.decodeIfPresent(UUID.self, forKey: .localVideoId)
         localRallyIndex = try container.decodeIfPresent(Int.self, forKey: .localRallyIndex)
+        locationName = try container.decodeIfPresent(String.self, forKey: .locationName)
+        latitude = try container.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try container.decodeIfPresent(Double.self, forKey: .longitude)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, authorId, author, muxPlaybackId, thumbnailURL, caption, tags
+        case id, authorId, author, muxPlaybackId, caption, tags
         case rallyMetadata, likesCount, commentsCount, isLikedByMe, createdAt
         case hideLikes, videoUrls, poll, localVideoId, localRallyIndex
+        case locationName, latitude, longitude
+        // `.convertFromSnakeCase` decodes `thumbnail_url` as `thumbnailUrl`, which
+        // never matches a `thumbnailURL` key — pin the raw value so server
+        // thumbnails actually decode instead of silently becoming nil.
+        case thumbnailURL = "thumbnailUrl"
     }
 }

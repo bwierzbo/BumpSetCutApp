@@ -2,91 +2,118 @@ import SwiftUI
 
 struct PollView: View {
     let poll: Poll
-    let isAuthor: Bool
     let isAuthenticated: Bool
     let onVote: (String) -> Void
 
     private var hasVoted: Bool { poll.myVoteOptionId != nil }
-    private var showResults: Bool { hasVoted || isAuthor }
+    // Everyone (including the poll's author) votes first, then sees results.
+    private var showResults: Bool { hasVoted }
 
     var body: some View {
         VStack(alignment: .leading, spacing: BSCSpacing.sm) {
             Text(poll.question)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.white)
-                .lineLimit(2)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.bscTextPrimary)
+                .lineLimit(3)
 
             ForEach(poll.options.sorted { $0.sortOrder < $1.sortOrder }) { option in
-                if showResults {
-                    resultBar(option: option)
-                } else {
-                    voteButton(option: option)
-                }
+                optionRow(option: option)
             }
 
-            Text("\(poll.totalVotes) vote\(poll.totalVotes == 1 ? "" : "s")")
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.6))
+            Text("\(poll.totalVotes) vote\(poll.totalVotes == 1 ? "" : "s") \u{00B7} tap to \(hasVoted ? "change" : "vote")")
+                .font(.system(size: 12))
+                .foregroundColor(.bscTextSecondary)
         }
-        .padding(BSCSpacing.sm)
-        .frame(maxWidth: 260)
-        .background(.ultraThinMaterial.opacity(0.7))
+        .padding(BSCSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.bscSurfaceGlass)
         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+        )
+        // Animate the buttons↔results swap and bar fills when the vote changes.
+        .animation(.snappy(duration: 0.28), value: poll.myVoteOptionId)
+        .animation(.snappy(duration: 0.28), value: poll.totalVotes)
     }
 
-    // MARK: - Vote Button (pre-vote)
+    // MARK: - Option Row (tappable to vote or change vote)
 
-    private func voteButton(option: PollOption) -> some View {
+    private func optionRow(option: PollOption) -> some View {
         Button {
             guard isAuthenticated else { return }
+            UIImpactFeedbackGenerator.light()
             onVote(option.id)
         } label: {
-            Text(option.text)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, BSCSpacing.sm)
-                .padding(.vertical, BSCSpacing.xs)
-                .background(
-                    RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
-                        .stroke(Color.white.opacity(0.5), lineWidth: 1)
-                )
+            if showResults {
+                resultBarLabel(option: option)
+            } else {
+                voteButtonLabel(option: option)
+            }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PollOptionButtonStyle())
+        .disabled(!isAuthenticated)
     }
 
-    // MARK: - Result Bar (post-vote / author)
+    private func voteButtonLabel(option: PollOption) -> some View {
+        Text(option.text)
+            .font(.system(size: 14, weight: .medium))
+            .foregroundColor(.bscPrimary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, BSCSpacing.md)
+            .padding(.vertical, BSCSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
+                    .stroke(Color.bscPrimary.opacity(0.5), lineWidth: 1)
+            )
+    }
 
-    private func resultBar(option: PollOption) -> some View {
+    private func resultBarLabel(option: PollOption) -> some View {
         let fraction = poll.totalVotes > 0 ? Double(option.voteCount) / Double(poll.totalVotes) : 0
         let percentage = Int(fraction * 100)
         let isMyVote = option.id == poll.myVoteOptionId
 
         return HStack(spacing: BSCSpacing.xs) {
+            if isMyVote {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(.bscPrimary)
+            }
             Text(option.text)
-                .font(.system(size: 13, weight: isMyVote ? .bold : .medium))
-                .foregroundColor(.white)
+                .font(.system(size: 14, weight: isMyVote ? .bold : .medium))
+                .foregroundColor(.bscTextPrimary)
                 .lineLimit(1)
 
             Spacer()
 
             Text("\(percentage)%")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(isMyVote ? .bscPrimary : .white.opacity(0.8))
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(isMyVote ? .bscPrimary : .bscTextSecondary)
         }
-        .padding(.horizontal, BSCSpacing.sm)
-        .padding(.vertical, BSCSpacing.xs)
+        .padding(.horizontal, BSCSpacing.md)
+        .padding(.vertical, BSCSpacing.sm)
         .background(
             GeometryReader { geo in
                 RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
-                    .fill(isMyVote ? Color.bscPrimary.opacity(0.4) : Color.white.opacity(0.15))
+                    .fill(isMyVote ? Color.bscPrimary.opacity(0.3) : Color.bscPrimary.opacity(0.12))
                     .frame(width: geo.size.width * fraction)
             }
         )
         .background(
             RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(Color.bscSurfaceGlass)
         )
+    }
+}
+
+// MARK: - Press Feedback
+
+private struct PollOptionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .animation(.snappy(duration: 0.12), value: configuration.isPressed)
     }
 }

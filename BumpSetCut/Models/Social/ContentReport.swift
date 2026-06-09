@@ -130,21 +130,10 @@ struct ContentReport: Codable, Identifiable {
     let createdAt: Date
     let updatedAt: Date
 
-    enum CodingKeys: String, CodingKey {
-        case id
-        case reporterId = "reporter_id"
-        case reportedType = "reported_type"
-        case reportedId = "reported_id"
-        case reportedUserId = "reported_user_id"
-        case reportType = "report_type"
-        case description
-        case status
-        case reviewedAt = "reviewed_at"
-        case reviewedBy = "reviewed_by"
-        case moderatorNotes = "moderator_notes"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
+    // Keys are intentionally camelCase: the shared Supabase coder applies
+    // `.convertFromSnakeCase`/`.convertToSnakeCase`, so explicit snake_case raw
+    // values would NOT match (the strategy transforms the payload key first) and
+    // would throw `keyNotFound` on decode. Stay consistent with the other models.
 }
 
 // MARK: - Create Report Request
@@ -155,14 +144,7 @@ struct CreateReportRequest: Codable {
     let reportedUserId: UUID?
     let reportType: ReportType
     let description: String?
-
-    enum CodingKeys: String, CodingKey {
-        case reportedType = "reported_type"
-        case reportedId = "reported_id"
-        case reportedUserId = "reported_user_id"
-        case reportType = "report_type"
-        case description
-    }
+    // camelCase keys; the shared coder snake_cases them on encode (see ContentReport).
 }
 
 // MARK: - User Block Model
@@ -173,14 +155,7 @@ struct UserBlock: Codable, Identifiable {
     let blockedId: UUID
     let reason: String?
     let createdAt: Date
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case blockerId = "blocker_id"
-        case blockedId = "blocked_id"
-        case reason
-        case createdAt = "created_at"
-    }
+    // camelCase keys; the shared coder snake_cases them (see ContentReport).
 }
 
 // MARK: - Create Block Request
@@ -188,9 +163,5 @@ struct UserBlock: Codable, Identifiable {
 struct CreateBlockRequest: Codable {
     let blockedId: UUID
     let reason: String?
-
-    enum CodingKeys: String, CodingKey {
-        case blockedId = "blocked_id"
-        case reason
-    }
+    // camelCase keys; the shared coder snake_cases them on encode (see ContentReport).
 }
