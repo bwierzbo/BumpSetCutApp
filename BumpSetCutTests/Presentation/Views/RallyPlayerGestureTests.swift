@@ -72,7 +72,7 @@ final class RallyPlayerGestureTests: XCTestCase {
         let videoMetadata = createSampleVideoMetadata()
 
         // Verify view initialization
-        let rallyPlayerView = RallyPlayerView(videoMetadata: videoMetadata)
+        let rallyPlayerView = RallyPlayerView(videoMetadata: videoMetadata, mediaStore: MediaStore())
         XCTAssertNotNil(rallyPlayerView, "RallyPlayerView should initialize")
 
         // Simulate callback invocation (since we can't easily test SwiftUI gestures directly)
@@ -245,7 +245,7 @@ final class RallyPlayerGestureTests: XCTestCase {
 
         // Simulate frame extraction triggered by peek progress
         let videoMetadata = createSampleVideoMetadata()
-        let rallyPlayerView = RallyPlayerView(videoMetadata: videoMetadata)
+        let rallyPlayerView = RallyPlayerView(videoMetadata: videoMetadata, mediaStore: MediaStore())
         XCTAssertNotNil(rallyPlayerView)
 
         // Test frame extraction for different videos

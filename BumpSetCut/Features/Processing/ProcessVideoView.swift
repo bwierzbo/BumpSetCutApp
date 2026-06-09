@@ -91,6 +91,15 @@ struct ProcessVideoView: View {
         } message: {
             Text(viewModel.storageWarningMessage)
         }
+        .alert("Weekly Limit Reached", isPresented: $viewModel.showProcessingLimit) {
+            Button("Upgrade to Pro") { viewModel.showPaywall = true }
+            Button("Not Now", role: .cancel) {}
+        } message: {
+            Text(viewModel.processingLimitMessage)
+        }
+        .sheet(isPresented: $viewModel.showPaywall) {
+            PaywallView()
+        }
         .sheet(isPresented: $viewModel.showingFolderPicker) {
             ProcessedFolderSelectionSheet(
                 mediaStore: viewModel.mediaStore,
@@ -566,6 +575,17 @@ private extension ProcessVideoView {
                 .padding(BSCSpacing.md)
                 .frame(maxWidth: .infinity)
                 .bscGlass(cornerRadius: BSCRadius.md, padding: 0)
+            }
+
+            // Estimated processing time for the full video (refined on the trim screen)
+            if let duration = viewModel.cachedOriginalDuration ?? viewModel.currentVideoMetadata?.duration,
+               duration > 0 {
+                Label(
+                    "Est. processing: \(ProcessingTimeEstimator.formatEstimate(ProcessingTimeEstimator.estimate(forVideoDuration: duration)))",
+                    systemImage: "clock"
+                )
+                .font(.system(size: 12))
+                .foregroundColor(.bscTextTertiary)
             }
 
             // AI Processing - Primary (shows trim screen first)

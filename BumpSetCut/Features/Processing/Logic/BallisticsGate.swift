@@ -184,7 +184,7 @@ final class BallisticsGate {
         let yMin = ys.min() ?? 0
         let yMax = ys.max() ?? 0
         let spanY = yMax - yMin
-        let minSpan: CGFloat = 0.02
+        let minSpan = config.minProjectileSpanY
 
         var vels: [Double] = []
         vels.reserveCapacity(max(0, ts.count - 1))
@@ -202,10 +202,17 @@ final class BallisticsGate {
 
         let curvatureOK = config.yIncreasingDown ? (fit.a > 0) : (fit.a < 0)
         let aMag = abs(fit.a)
-        let gravityOK = (!config.useGravityBand) || (aMag >= config.gravityMinA && aMag <= config.gravityMaxA)
-        let motionEvidence = hasApex || maxSpeed >= minSpeed
+        // A real parabola has meaningful curvature; a held/carried ball is ~linear
+        // (a ≈ 0). This magnitude floor is the primary held-ball rejection.
+        let curvatureMagOK = aMag >= config.minCurvatureMagnitude
+        // Keep the optional gravity-band upper bound (lower bound is now the floor above).
+        let gravityBandOK = (!config.useGravityBand) || (aMag <= config.gravityMaxA)
+        // Require genuine motion: either real measured speed, or an apex paired with
+        // actual vertical travel (so a noise-induced velocity sign flip on a nearly
+        // stationary ball — tiny span — no longer counts as motion).
+        let motionEvidence = (maxSpeed >= minSpeed) || (hasApex && spanY >= minSpan)
 
-        let accept = r2OK && curvatureOK && gravityOK && (spanY >= minSpan) && motionEvidence
+        let accept = r2OK && curvatureOK && curvatureMagOK && gravityBandOK && (spanY >= minSpan) && motionEvidence
 
         return ValidationResult(
             isValid: accept,

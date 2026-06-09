@@ -100,6 +100,16 @@ struct ProcessorConfig {
     var gravityMinA: CGFloat = 0.002
     var gravityMaxA: CGFloat = 0.060
 
+    /// Minimum curvature magnitude |a| for a track to count as a projectile.
+    /// A held/carried ball moves in a near-straight line (a ≈ 0), which is a
+    /// degenerate parabola that still fits with high R² and a coin-flip curvature
+    /// sign — so this magnitude floor is the real discriminator that rejects a
+    /// ball sitting in a server's hands. Tune up to reject more held-ball clips.
+    var minCurvatureMagnitude: CGFloat = 0.004
+    /// Minimum vertical travel (fraction of frame height) over the fit window.
+    /// A held ball barely moves vertically; a real arc traverses more.
+    var minProjectileSpanY: CGFloat = 0.04
+
     /// Whether Y increases downward in the coordinate space fed to physics (false for Vision's default bottom-left)
     var yIncreasingDown: Bool = false
     

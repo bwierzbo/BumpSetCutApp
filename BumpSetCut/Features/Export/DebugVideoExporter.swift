@@ -342,12 +342,25 @@ final class DebugVideoExporter: ObservableObject {
         // Determine if in rally
         let inRally = currentRally != nil
 
+        // Map persisted physics metrics into the gate result the overlay renders.
+        let validation: BallisticsGate.ValidationResult? = physicsValidation.map { (pv: PhysicsValidationData) in
+            BallisticsGate.ValidationResult(
+                isValid: pv.isValid,
+                rSquared: pv.rSquared,
+                curvatureDirectionValid: pv.curvatureValid,
+                hasMotionEvidence: pv.accelerationValid,
+                positionJumpsValid: pv.positionJumpsValid,
+                confidenceLevel: pv.confidenceLevel
+            )
+        }
+
         return DebugAnnotator.OverlayFrameData(
             detections: detections,
             track: trackedBall,
             isProjectile: isProjectile,
             inRally: inRally,
-            time: time
+            time: time,
+            validation: validation
         )
     }
 

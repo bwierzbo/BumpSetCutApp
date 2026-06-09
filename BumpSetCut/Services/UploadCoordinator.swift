@@ -44,14 +44,23 @@ final class UploadCoordinator {
     var isUploadInProgress = false
     var showCompleted = false
     var uploadProgressText = ""
-    var elapsedTime: TimeInterval = 0
     var currentFileSize: String = ""
+
+    /// Determinate import progress (0...1) for the Photos-picker path, including the
+    /// iCloud download for off-device videos. `nil` means indeterminate (e.g. drag-drop).
+    var importProgress: Double?
 
     // Storage warning
     var showStorageWarning = false
     var storageWarningMessage = ""
 
-    @ObservationIgnored private var elapsedTimer: Timer?
+    // Import failure (network/iCloud download errors, etc.)
+    var showImportError = false
+    var importErrorMessage = ""
+
+    @ObservationIgnored private var importProgressObservation: NSKeyValueObservation?
+    @ObservationIgnored private var importProgressHandle: Progress?
+    @ObservationIgnored private var importWasCancelled = false
 
     // Publisher for notifying when upload is completed
     @ObservationIgnored private let uploadCompletedSubject = PassthroughSubject<Void, Never>()
@@ -77,8 +86,22 @@ final class UploadCoordinator {
 
     func cancelUploadFlow() {
         uploadManager.cancelAllUploads()
-        isUploadInProgress = false
+        cancelImport()
         showCompleted = false
+    }
+
+    /// Cancel an in-flight Photos import (including an ongoing iCloud download).
+    /// The underlying `loadTransferable` resumes with a cancellation error, which
+    /// `processItem` treats as a user cancellation (no error alert).
+    func cancelImport() {
+        importWasCancelled = true
+        importProgressHandle?.cancel()
+        importProgressObservation?.invalidate()
+        importProgressObservation = nil
+        importProgressHandle = nil
+        importProgress = nil
+        uploadProgressText = ""
+        isUploadInProgress = false
     }
 
     var uploadProgress: UploadManager {
@@ -207,17 +230,45 @@ extension UploadCoordinator {
 
     private func processItem(_ item: PhotosPickerItem, destinationFolder: String) async {
         await MainActor.run {
-            elapsedTime = 0
+            importProgress = 0
+            importWasCancelled = false
             recentlyUploadedFileNames.removeAll()
-            startElapsedTimer()
-            uploadProgressText = "Importing from Photos..."
+            uploadProgressText = "Importing from Photos…"
         }
 
-        guard let videoURL = try? await loadVideoToTempFile(from: item, index: 0) else {
-            logger.warning("Failed to load video from Photos")
+        let videoURL: URL?
+        do {
+            videoURL = try await loadVideoToTempFile(from: item, index: 0)
+        } catch {
+            // User cancellation resumes with an error too — don't surface an alert for it.
+            if importWasCancelled {
+                logger.info("Import cancelled by user")
+                return
+            }
+            logger.warning("Failed to import video from Photos: \(error.localizedDescription)")
             await MainActor.run {
-                stopElapsedTimer()
+                importProgress = nil
                 isUploadInProgress = false
+                importErrorMessage = Self.importErrorMessage(for: error)
+                showImportError = true
+            }
+            return
+        }
+
+        // The download may have finished just as the user cancelled — discard the result.
+        if importWasCancelled {
+            if let videoURL { try? FileManager.default.removeItem(at: videoURL) }
+            logger.info("Import cancelled by user")
+            return
+        }
+
+        guard let videoURL else {
+            logger.warning("Photos import returned no file")
+            await MainActor.run {
+                importProgress = nil
+                isUploadInProgress = false
+                importErrorMessage = "The video couldn't be imported from Photos. It may still be downloading from iCloud — open it in the Photos app to finish the download, then try again."
+                showImportError = true
             }
             return
         }
@@ -228,7 +279,7 @@ extension UploadCoordinator {
         let storageCheck = StorageChecker.checkAvailableSpace(requiredBytes: fileSize)
         if !storageCheck.isSufficient {
             await MainActor.run {
-                stopElapsedTimer()
+                importProgress = nil
                 isUploadInProgress = false
                 storageWarningMessage = storageCheck.errorMessage ?? "Not enough storage space"
                 showStorageWarning = true
@@ -246,42 +297,56 @@ extension UploadCoordinator {
 
         await saveVideoFromURL(videoURL, destinationFolder: destinationFolder)
 
-        await MainActor.run {
-            stopElapsedTimer()
-        }
-
         await handleUploadCompletion()
     }
 
-    // MARK: - Timer Management
-
-    private func startElapsedTimer() {
-        elapsedTime = 0
-        elapsedTimer?.invalidate()
-        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.elapsedTime += 1
-            }
-        }
-    }
-
-    private func stopElapsedTimer() {
-        elapsedTimer?.invalidate()
-        elapsedTimer = nil
-    }
-
-    /// Load video from PhotosPickerItem to a temp file (memory efficient for large videos)
+    /// Load video from PhotosPickerItem to a temp file (memory efficient for large videos).
+    ///
+    /// Uses the completion-handler form of `loadTransferable`, which returns a `Progress`
+    /// we can observe. That progress covers the iCloud download for videos not yet on-device,
+    /// so we can drive a determinate bar instead of an opaque spinner. Errors are propagated
+    /// (rather than swallowed) so callers can surface iCloud/network failures to the user.
     private func loadVideoToTempFile(from item: PhotosPickerItem, index: Int) async throws -> URL? {
-        // Use file-based transfer only - never load entire video into memory
         let start = CFAbsoluteTimeGetCurrent()
-        if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-            return movie.url
-        }
+        do {
+            return try await withCheckedThrowingContinuation { continuation in
+                let progress = item.loadTransferable(type: VideoTransferable.self) { result in
+                    Task { @MainActor in
+                        self.importProgressObservation?.invalidate()
+                        self.importProgressObservation = nil
+                        self.importProgressHandle = nil
+                    }
+                    switch result {
+                    case .success(let movie):
+                        continuation.resume(returning: movie?.url)
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+                importProgressHandle = progress
 
-        // If VideoTransferable fails, log and return nil (don't fall back to Data loading)
-        let elapsed = CFAbsoluteTimeGetCurrent() - start
-        logger.warning("VideoTransferable failed for item \(index) after \(String(format: "%.1f", elapsed))s - skipping to avoid memory issues")
-        return nil
+                // Observe download/copy progress (covers iCloud materialization for off-device videos).
+                importProgressObservation = progress.observe(\.fractionCompleted, options: [.initial, .new]) { [weak self] progress, _ in
+                    let fraction = progress.fractionCompleted
+                    Task { @MainActor in
+                        self?.importProgress = fraction
+                    }
+                }
+            }
+        } catch {
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            logger.warning("VideoTransferable failed for item \(index) after \(String(format: "%.1f", elapsed))s: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    /// Map an import error to a user-facing message, calling out the common iCloud/network case.
+    private static func importErrorMessage(for error: Error) -> String {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain || nsError.domain == "CKErrorDomain" {
+            return "This video couldn't be downloaded from iCloud. Check your internet connection, make sure the full video has finished downloading in the Photos app, then try again."
+        }
+        return "The video couldn't be imported from Photos. It may still be downloading from iCloud — open it in the Photos app to finish the download, then try again."
     }
 
     /// Save video from URL to final destination

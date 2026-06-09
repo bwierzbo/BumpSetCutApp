@@ -38,16 +38,21 @@ final class RallyThumbnailCache {
             return await task.value
         }
 
-        // Extract synchronously
-        return await extractThumbnail(for: url)
+        // On-demand fetch for a visible card — high priority so the fallback
+        // frame appears quickly.
+        return await extractThumbnail(for: url, priority: .high)
     }
 
     // MARK: - Preloading
 
-    func preloadThumbnails(for urls: [URL]) {
+    /// Preload thumbnails in the background. Defaults to `.low` priority so the
+    /// bulk decode doesn't compete with the just-started AVPlayer (which caused
+    /// choppy playback for the first few seconds). Callers that need a specific
+    /// frame on screen immediately should use `getThumbnailAsync` instead.
+    func preloadThumbnails(for urls: [URL], priority: ExtractionPriority = .low) {
         for url in urls where thumbnails[url] == nil && preloadTasks[url] == nil {
             let task = Task { @MainActor in
-                await extractThumbnail(for: url)
+                await extractThumbnail(for: url, priority: priority)
             }
             preloadTasks[url] = task
         }
@@ -72,7 +77,7 @@ final class RallyThumbnailCache {
     // MARK: - Extraction
 
     @discardableResult
-    private func extractThumbnail(for url: URL) async -> UIImage? {
+    private func extractThumbnail(for url: URL, priority: ExtractionPriority = .high) async -> UIImage? {
         // Parse rally index from URL fragment (e.g., "#rally_0" -> 0)
         let rallyIndex = parseRallyIndex(from: url)
         let startTime = getRallyStartTime(for: rallyIndex)
@@ -90,7 +95,7 @@ final class RallyThumbnailCache {
             let image = try await FrameExtractor.shared.extractFrame(
                 from: baseURL,
                 at: startTime,
-                priority: .high
+                priority: priority
             )
             print("RallyThumbnailCache: ✅ Successfully extracted thumbnail for rally \(rallyIndex ?? -1)")
             cacheThumbnail(image, for: url)

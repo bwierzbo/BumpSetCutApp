@@ -22,15 +22,27 @@ final class PreTrimViewModel {
     var endTime: Double = 0
     var player: AVPlayer?
     var thumbnails: [UIImage] = []
+    /// Upright display size of the source video (post-preferredTransform).
+    /// Used so the rotation preview matches the bake output's aspect ratio.
+    var displaySize: CGSize?
 
     // MARK: - Export State
     var isExporting: Bool = false
     var exportProgress: Double = 0
     var exportError: String?
 
+    // MARK: - Rotation (degrees)
+    var rotationDegrees: Double = 0
+    let maxRotationDegrees: Double = 10.0
+    let rotationStepDegrees: Double = 0.5
+
     // MARK: - Computed
     var selectionDuration: Double { max(0, endTime - startTime) }
-    var canTrim: Bool { startTime > 0.01 || (videoDuration - endTime) > 0.01 }
+    var canTrim: Bool {
+        startTime > 0.01
+            || (videoDuration - endTime) > 0.01
+            || abs(rotationDegrees) >= 0.01
+    }
 
     private let minSelectionDuration: Double = 3.0
     private let thumbnailCount = 20
@@ -48,6 +60,12 @@ final class PreTrimViewModel {
         videoDuration = duration
         startTime = 0
         endTime = duration
+
+        if let track = try? await asset.loadTracks(withMediaType: .video).first,
+           let natural = try? await track.load(.naturalSize),
+           let preferred = try? await track.load(.preferredTransform) {
+            displaySize = RotationGeometry.uprightSize(naturalSize: natural, preferredTransform: preferred)
+        }
 
         player = AVPlayer(url: videoURL)
         player?.actionAtItemEnd = .pause
@@ -85,6 +103,7 @@ final class PreTrimViewModel {
                 sourceURL: videoURL,
                 startTime: startTime,
                 endTime: endTime,
+                rotationDegrees: rotationDegrees,
                 progressHandler: { [weak self] progress in
                     Task { @MainActor in
                         self?.exportProgress = progress

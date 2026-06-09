@@ -18,6 +18,9 @@ struct RallyPlayerView: View {
     @State private var viewModel: RallyPlayerViewModel
     @State private var showingGestureTips = false
     @State private var rallyIndexToShare: ShareableRallyIndex?
+    /// Rotation captured at the start of a two-finger twist (RotationGesture
+    /// reports angle relative to its own start).
+    @State private var twistBaseRotation: Double?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(AppNavigationState.self) private var navigationState
@@ -120,6 +123,23 @@ struct RallyPlayerView: View {
                     postAllSaved: item.postAllSaved
                 )
             }
+            // Quick share of the current rally via the native share sheet
+            .sheet(isPresented: Binding(
+                get: { viewModel.shareURL != nil },
+                set: { if !$0 { viewModel.shareURL = nil } }
+            )) {
+                if let url = viewModel.shareURL {
+                    ActivityViewController(activityItems: [url])
+                }
+            }
+            .alert("Share Failed", isPresented: Binding(
+                get: { viewModel.shareErrorMessage != nil },
+                set: { if !$0 { viewModel.shareErrorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.shareErrorMessage ?? "Couldn't prepare the clip for sharing.")
+            }
         }
         .task(id: videoMetadata.id) {
             await viewModel.loadRallies()
@@ -152,6 +172,11 @@ struct RallyPlayerView: View {
             ForEach(viewModel.visibleCardIndices, id: \.self) { rallyIndex in
                 let position = viewModel.stackPosition(for: rallyIndex)
                 let url = viewModel.rallyVideoURLs[rallyIndex]
+                // Current card reads live gesture zoom (seeded from the saved
+                // framing, edited by pinch/pan in trim mode); other cards read
+                // their persisted zoom/pan directly.
+                let cardZoom = position == 0 ? viewModel.zoomScale : viewModel.zoom(for: rallyIndex)
+                let cardOffset = position == 0 ? viewModel.zoomOffset : viewModel.panOffset(for: rallyIndex)
 
                 // Unified card - no component swapping for smooth transitions
                 UnifiedRallyCard(
@@ -162,8 +187,10 @@ struct RallyPlayerView: View {
                     previousRallyIndex: viewModel.previousRallyIndex,
                     playerCache: viewModel.playerCache,
                     thumbnailCache: viewModel.thumbnailCache,
-                    zoomScale: position == 0 ? viewModel.zoomScale : 1.0,
-                    zoomOffset: position == 0 ? viewModel.zoomOffset : .zero,
+                    videoDisplaySize: viewModel.videoDisplaySize,
+                    rotationDegrees: viewModel.rotationDegrees(for: rallyIndex),
+                    zoomScale: cardZoom,
+                    zoomOffset: cardOffset,
                     onDoubleTap: position == 0 ? { toggleZoom(cardSize: geometry.size) } : nil
                 )
                 .scaleEffect(scaleForPosition(position))
@@ -199,33 +226,43 @@ struct RallyPlayerView: View {
                     }
                 },
                 onShowTips: { showingGestureTips = true },
-                onShowOverview: { viewModel.showOverviewSheet = true }
+                onShowOverview: { viewModel.showOverviewSheet = true },
+                onShare: { viewModel.shareCurrentRally() },
+                isPreparingShare: viewModel.isPreparingShare
             )
             .zIndex(200)
 
-            // Action buttons (above all cards)
-            RallyActionButtons(
-                isSaved: viewModel.currentRallyIsSaved,
-                isRemoved: viewModel.currentRallyIsRemoved,
-                canUndo: viewModel.canUndo,
-                onRemove: { performAction(.remove) },
-                onUndo: { viewModel.undoLastAction() },
-                onSave: { performAction(.save) }
-            )
-            .zIndex(200)
+            // Action buttons (above all cards) - hidden while trimming or while
+            // the rotation-propagation prompt is up.
+            if !viewModel.isTrimmingMode && !viewModel.isAwaitingPropagationChoice {
+                RallyActionButtons(
+                    isSaved: viewModel.currentRallyIsSaved,
+                    isRemoved: viewModel.currentRallyIsRemoved,
+                    canUndo: viewModel.canUndo,
+                    onRemove: { performAction(.remove) },
+                    onUndo: { viewModel.undoLastAction() },
+                    onSave: { performAction(.save) }
+                )
+                .zIndex(200)
+                .transition(.opacity)
+            }
 
             // Trim overlay
             if viewModel.isTrimmingMode, let segment = currentRallySegment {
                 RallyTrimOverlay(
                     trimBefore: $viewModel.currentTrimBefore,
                     trimAfter: $viewModel.currentTrimAfter,
+                    trimRotation: $viewModel.currentTrimRotation,
+                    trimZoom: $viewModel.currentTrimZoom,
                     rallyStartTime: segment.startTime,
                     rallyEndTime: segment.endTime,
                     videoURL: videoMetadata.originalURL,
                     videoDuration: viewModel.actualVideoDuration,
                     onScrub: { time in viewModel.scrubTo(time: time) },
                     onConfirm: { viewModel.confirmTrim() },
-                    onCancel: { viewModel.cancelTrim() }
+                    onCancel: { viewModel.cancelTrim() },
+                    onResetZoom: { resetTrimZoom() },
+                    showsZoomControl: true
                 )
                 .zIndex(250)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -238,6 +275,18 @@ struct RallyPlayerView: View {
                     isShowing: viewModel.showActionFeedback
                 )
                 .zIndex(300)
+            }
+
+            // Adjustment propagation prompt - video stays paused & dimmed behind it
+            if let pending = viewModel.pendingPropagation {
+                AdjustmentPropagationPrompt(
+                    rotation: pending.rotation,
+                    zoom: pending.zoom,
+                    onYes: { viewModel.resolvePropagation(applyToRest: true) },
+                    onNo: { viewModel.resolvePropagation(applyToRest: false) }
+                )
+                .zIndex(350)
+                .transition(.opacity)
             }
 
             // Gesture tips overlay (highest z-index)
@@ -256,16 +305,36 @@ struct RallyPlayerView: View {
                     .zIndex(500)
             }
         }
-        .gesture(viewModel.isTrimmingMode ? nil : swipeGesture(geometry: geometry))
-        .simultaneousGesture(pinchGesture())
+        // Navigation swipe — disabled while trimming or while the prompt is up.
+        .gesture(interactionBlocked ? nil : swipeGesture(geometry: geometry))
+        // Trim-mode direct manipulation: pinch zoom, twist angle, drag pan.
+        .simultaneousGesture(viewModel.isTrimmingMode ? trimEditGesture(geometry: geometry) : nil)
+        // Free pinch for normal viewing (disabled in trim mode / prompt).
+        .simultaneousGesture(interactionBlocked ? nil : pinchGesture())
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5)
                 .onEnded { _ in
                     guard !viewModel.isTransitioning, !viewModel.isPerformingAction,
-                          !viewModel.isTrimmingMode else { return }
+                          !viewModel.isTrimmingMode, !viewModel.isAwaitingPropagationChoice else { return }
                     viewModel.enterTrimMode()
                 }
         )
+        .onAppear {
+            viewModel.updateCardSize(geometry.size)
+            viewModel.seedZoomForCurrentRally()
+        }
+        .onChange(of: geometry.size) { _, newSize in
+            viewModel.updateCardSize(newSize)
+            if !viewModel.isTrimmingMode {
+                viewModel.seedZoomForCurrentRally()
+            }
+        }
+    }
+
+    /// Swiping/long-pressing is disabled while trimming or while the
+    /// propagation prompt is waiting for an answer.
+    private var interactionBlocked: Bool {
+        viewModel.isTrimmingMode || viewModel.isAwaitingPropagationChoice
     }
 
     // MARK: - Stack Position Helpers
@@ -430,6 +499,58 @@ struct RallyPlayerView: View {
         }
     }
 
+    // MARK: - Trim-Mode Editing (pinch zoom · twist angle · drag pan)
+
+    private func trimEditGesture(geometry: GeometryProxy) -> some Gesture {
+        let zoomLimit: CGFloat = 3.0
+        let angleLimit: Double = 10.0
+
+        let magnify = MagnificationGesture()
+            .onChanged { value in
+                let newScale = min(max(viewModel.baseZoomScale * value, 1.0), zoomLimit)
+                viewModel.zoomScale = newScale
+                viewModel.zoomOffset = clampedOffset(viewModel.zoomOffset, scale: newScale, cardSize: geometry.size)
+            }
+            .onEnded { _ in
+                viewModel.baseZoomScale = viewModel.zoomScale
+                viewModel.baseZoomOffset = viewModel.zoomOffset
+            }
+
+        let twist = RotationGesture()
+            .onChanged { angle in
+                if twistBaseRotation == nil { twistBaseRotation = viewModel.currentTrimRotation }
+                let proposed = (twistBaseRotation ?? 0) + angle.degrees
+                viewModel.currentTrimRotation = min(max(proposed, -angleLimit), angleLimit)
+            }
+            .onEnded { _ in
+                twistBaseRotation = nil
+            }
+
+        let pan = DragGesture()
+            .onChanged { value in
+                let proposed = CGSize(
+                    width: viewModel.baseZoomOffset.width + value.translation.width,
+                    height: viewModel.baseZoomOffset.height + value.translation.height
+                )
+                viewModel.zoomOffset = clampedOffset(proposed, scale: viewModel.zoomScale, cardSize: geometry.size)
+            }
+            .onEnded { _ in
+                viewModel.baseZoomOffset = viewModel.zoomOffset
+            }
+
+        return magnify.simultaneously(with: twist).simultaneously(with: pan)
+    }
+
+    /// Reset the live editing zoom/pan to 1× / centered (overlay reset button).
+    private func resetTrimZoom() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            viewModel.zoomScale = 1.0
+            viewModel.zoomOffset = .zero
+        }
+        viewModel.baseZoomScale = 1.0
+        viewModel.baseZoomOffset = .zero
+    }
+
     /// Clamp pan offset so zoomed content stays visible
     private func clampedOffset(_ offset: CGSize, scale: CGFloat, cardSize: CGSize) -> CGSize {
         let maxX = max(0, (cardSize.width * scale - cardSize.width) / 2)
@@ -516,6 +637,8 @@ struct UnifiedRallyCard: View {
     let previousRallyIndex: Int?  // Track which rally was just current (for seamless transitions)
     let playerCache: RallyPlayerCache
     let thumbnailCache: RallyThumbnailCache
+    var videoDisplaySize: CGSize?
+    var rotationDegrees: Double = 0
     var zoomScale: CGFloat = 1.0
     var zoomOffset: CGSize = .zero
     var onDoubleTap: (() -> Void)?
@@ -534,33 +657,68 @@ struct UnifiedRallyCard: View {
     }
     private var isPreloaded: Bool { position >= -1 && position <= 1 }
 
+    /// Clamp the pan offset to the current zoom so the video can never be pushed
+    /// off-screen (which would expose the black background — the "zoom-out went
+    /// black" bug). At zoom 1.0 the max is 0, forcing a centered frame.
+    private var safeZoomOffset: CGSize {
+        let maxX = max(0, (size.width * zoomScale - size.width) / 2)
+        let maxY = max(0, (size.height * zoomScale - size.height) / 2)
+        return CGSize(
+            width: min(max(zoomOffset.width, -maxX), maxX),
+            height: min(max(zoomOffset.height, -maxY), maxY)
+        )
+    }
+
+    /// The rectangle the video content occupies. In portrait a non-square video
+    /// is letterboxed, so rotation must happen inside this fitted rect (filled,
+    /// not the whole screen-shaped card) to crop & scale like Apple's editor
+    /// instead of tilting the letterbox bars. In landscape the video already
+    /// fills the card, so the rect is the full card.
+    private var videoRect: CGSize {
+        if isPortrait {
+            // Prefer the source video's true display size (reliable, available
+            // immediately); fall back to the thumbnail's size, then the card.
+            let content = videoDisplaySize ?? thumbnail?.size ?? size
+            return RotationGeometry.aspectFitSize(content: content, in: size)
+        }
+        return size
+    }
+
     var body: some View {
-        ZStack {
+        let rect = videoRect
+        return ZStack {
             Color.bscMediaBackground
 
-            // Thumbnail layer - fallback behind the video layer
-            // Match video gravity: .fit in portrait, .fill in landscape
-            if let thumbnail = thumbnail, showThumbnail {
-                Image(uiImage: thumbnail)
-                    .resizable()
-                    .aspectRatio(contentMode: isPortrait ? .fit : .fill)
-            }
+            // Content layer (thumbnail + video) — rotated within the video rect.
+            ZStack {
+                // Thumbnail fallback behind the video layer.
+                if let thumbnail = thumbnail, showThumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
 
-            // Video player layer - always at full opacity for preloaded cards.
-            // AVPlayerLayer has clear background, so it's transparent when no content
-            // and shows the video frame when content is rendered. No opacity toggling
-            // eliminates any flash from layer compositing delays.
-            if isPreloaded, let player = playerCache.getPlayer(for: url) {
-                CustomVideoPlayerView(
-                    player: player,
-                    gravity: isPortrait ? .resizeAspect : .resizeAspectFill,
-                    onReadyForDisplay: { _ in }
-                )
-                .allowsHitTesting(isCurrent)
+                // Video player layer - always at full opacity for preloaded cards.
+                // AVPlayerLayer has clear background, so it's transparent when no content
+                // and shows the video frame when content is rendered. No opacity toggling
+                // eliminates any flash from layer compositing delays.
+                if isPreloaded, let player = playerCache.getPlayer(for: url) {
+                    CustomVideoPlayerView(
+                        player: player,
+                        gravity: .resizeAspectFill,
+                        onReadyForDisplay: { _ in }
+                    )
+                    .allowsHitTesting(isCurrent)
+                }
             }
+            .frame(width: rect.width, height: rect.height)
+            .rotationEffect(.degrees(rotationDegrees))
+            .scaleEffect(RotationGeometry.coverScale(angleDegrees: rotationDegrees, size: rect))
+            .frame(width: rect.width, height: rect.height)
+            .clipped()
         }
         .scaleEffect(zoomScale)
-        .offset(zoomOffset)
+        .offset(safeZoomOffset)
         .frame(width: size.width, height: size.height)
         .clipped()
         .contentShape(Rectangle())

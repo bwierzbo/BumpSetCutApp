@@ -76,7 +76,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
         workflowEvents.append(("create_player", Date(), nil))
 
         let videoMetadata = createSampleVideoMetadata(url: testVideoURLs[0])
-        let rallyPlayerView = RallyPlayerView(videoMetadata: videoMetadata)
+        let rallyPlayerView = RallyPlayerView(videoMetadata: videoMetadata, mediaStore: MediaStore())
 
         XCTAssertNotNil(rallyPlayerView, "Rally player should initialize successfully")
 

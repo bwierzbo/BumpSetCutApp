@@ -59,7 +59,7 @@ final class FrameExtractor {
             frameTime: CMTime(seconds: 0.1, preferredTimescale: 600),
             maximumSize: CGSize(width: 1920, height: 1920),  // Full HD for smooth transitions
             appliesPreferredTrackTransform: true,
-            extractionTimeout: 0.5 // 500ms - increased to allow seeking to specific times
+            extractionTimeout: 1.5 // headroom for seeking into long videos under preload load
         )
     }
 
@@ -270,8 +270,10 @@ final class FrameExtractor {
 
                 imageGenerator.maximumSize = maxSize
                 imageGenerator.appliesPreferredTrackTransform = self.config.appliesPreferredTrackTransform
-                imageGenerator.requestedTimeToleranceBefore = .zero
-                imageGenerator.requestedTimeToleranceAfter = .zero
+                // Thumbnails don't need frame-exact seeks — allow tolerance so seeking
+                // into a long video is fast (zero tolerance was causing timeouts).
+                imageGenerator.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
+                imageGenerator.requestedTimeToleranceAfter = CMTime(seconds: 0.5, preferredTimescale: 600)
 
                 // Adjust timeout based on priority
                 let timeout = priority == .high ? self.config.extractionTimeout * 2 : self.config.extractionTimeout

@@ -19,6 +19,10 @@ final class RallyPlayerViewModel {
     private(set) var processingMetadata: ProcessingMetadata?
     private(set) var rallyVideoURLs: [URL] = []
     private(set) var actualVideoDuration: Double = 0
+    /// Upright display size of the source video (post-preferredTransform).
+    /// All rallies share one source, so this is computed once at load and used
+    /// to letterbox correctly (instead of inferring aspect from the thumbnail).
+    private(set) var videoDisplaySize: CGSize?
     private(set) var isBuffering: Bool = false
 
     // MARK: - Overview & Export State
@@ -65,6 +69,49 @@ final class RallyPlayerViewModel {
     var currentRallyURL: URL? {
         guard currentRallyIndex < rallyVideoURLs.count else { return nil }
         return rallyVideoURLs[currentRallyIndex]
+    }
+
+    // MARK: - Quick Share
+
+    /// Exported temp clip ready to hand to the system share sheet.
+    var shareURL: URL?
+    /// True while the current rally is being exported for sharing.
+    var isPreparingShare = false
+    var shareErrorMessage: String?
+
+    /// Export the current rally segment (trim-aware) to a temp clip and surface it
+    /// for the native share sheet. Rallies are time-ranges in the original video, so
+    /// a quick per-rally export is required before sharing.
+    func shareCurrentRally() {
+        guard !isPreparingShare else { return }
+        let index = currentRallyIndex
+        guard index < rallyVideoURLs.count else { return }
+        let start = effectiveStartTime(for: index)
+        let end = effectiveEndTime(for: index)
+        guard end > start else { return }
+        let originalURL = videoMetadata.originalURL
+        let addWatermark = SubscriptionService.shared.shouldAddWatermark
+
+        isPreparingShare = true
+        Task {
+            do {
+                let asset = AVURLAsset(url: originalURL)
+                let range = CMTimeRange(
+                    start: CMTime(seconds: start, preferredTimescale: 600),
+                    end: CMTime(seconds: end, preferredTimescale: 600)
+                )
+                let temp = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("rally_\(index + 1)_\(UUID().uuidString.prefix(6)).mp4")
+                let url = try await VideoExporter().exportClip(
+                    asset: asset, timeRange: range, to: temp, addWatermark: addWatermark
+                )
+                isPreparingShare = false
+                shareURL = url
+            } catch {
+                isPreparingShare = false
+                shareErrorMessage = error.localizedDescription
+            }
+        }
     }
 
     func stackPosition(for rallyIndex: Int) -> Int {
@@ -159,6 +206,84 @@ final class RallyPlayerViewModel {
         get { trim.currentTrimAfter }
         set { trim.currentTrimAfter = newValue }
     }
+    var currentTrimRotation: Double {
+        get { trim.currentTrimRotation }
+        set { trim.currentTrimRotation = newValue }
+    }
+    var currentTrimZoom: Double {
+        get { trim.currentTrimZoom }
+        set { trim.currentTrimZoom = newValue }
+    }
+    var pendingPropagation: PendingPropagation? {
+        get { trim.pendingPropagation }
+        set { trim.pendingPropagation = newValue }
+    }
+
+    /// Last known rally-card size, kept fresh by the view's GeometryReader.
+    /// Used to denormalize persisted pan (stored as a fraction of card size).
+    private(set) var cardSize: CGSize = .zero
+    func updateCardSize(_ size: CGSize) { cardSize = size }
+
+    /// Rotation (in degrees) to apply at playback for the given rally.
+    /// During trim mode for the current rally, reflects the live edit value.
+    func rotationDegrees(for rallyIndex: Int) -> Double {
+        if isTrimmingMode, rallyIndex == currentRallyIndex {
+            return currentTrimRotation
+        }
+        return trim.rotation(for: rallyIndex)
+    }
+
+    /// Persisted zoom for a rally (used for non-current cards). The current card
+    /// reads live zoom from the gesture state instead.
+    func zoom(for rallyIndex: Int) -> CGFloat {
+        CGFloat(trim.zoom(for: rallyIndex))
+    }
+
+    /// Persisted pan offset (in points) for a rally, denormalized by card size.
+    func panOffset(for rallyIndex: Int) -> CGSize {
+        let pan = trim.pan(for: rallyIndex)
+        return CGSize(width: pan.width * cardSize.width, height: pan.height * cardSize.height)
+    }
+
+    /// Seed the transient gesture zoom from the current rally's persisted
+    /// adjustment, so each rally rests at its saved framing.
+    func seedZoomForCurrentRally() {
+        let scale = zoom(for: currentRallyIndex)
+        let offset = panOffset(for: currentRallyIndex)
+        gesture.seedZoom(scale: scale, offset: offset)
+    }
+
+    /// True while the propagation prompt is showing (video stays paused/dimmed).
+    var isAwaitingPropagationChoice: Bool {
+        trim.pendingPropagation != nil
+    }
+
+    /// Resolve the propagation prompt. When `applyToRest` is true the confirmed
+    /// rotation + zoom + pan are written to this rally and every following one.
+    /// Either way the prompt is dismissed and playback resumes.
+    func resolvePropagation(applyToRest: Bool) {
+        if applyToRest {
+            let i = currentRallyIndex
+            let pan = trim.pan(for: i)
+            let metadataVideoId = videoMetadata.originalVideoId ?? videoMetadata.id
+            trim.applyAdjustmentForward(
+                rotation: trim.rotation(for: i),
+                zoom: trim.zoom(for: i),
+                panX: pan.width,
+                panY: pan.height,
+                fromIndex: i,
+                totalRallies: rallyVideoURLs.count,
+                videoId: metadataVideoId,
+                metadataStore: metadataStore
+            )
+        }
+        trim.clearPendingPropagation()
+
+        // Resume playback now that the user has answered the prompt.
+        seekToCurrentRallyStart()
+        setupRallyLooping()
+        playerCache.play()
+    }
 
     // MARK: - Initialization
 
@@ -189,6 +314,12 @@ final class RallyPlayerViewModel {
             let asset = AVURLAsset(url: videoMetadata.originalURL)
             actualVideoDuration = try await CMTimeGetSeconds(asset.load(.duration))
 
+            if let track = try? await asset.loadTracks(withMediaType: .video).first,
+               let natural = try? await track.load(.naturalSize),
+               let preferred = try? await track.load(.preferredTransform) {
+                videoDisplaySize = RotationGeometry.uprightSize(naturalSize: natural, preferredTransform: preferred)
+            }
+
             guard !metadata.rallySegments.isEmpty else {
                 loadingState = .empty
                 return
@@ -207,6 +338,7 @@ final class RallyPlayerViewModel {
             if !rallyVideoURLs.isEmpty, let url = currentRallyURL {
                 updateVisibleStack()
                 playerCache.setCurrentPlayer(for: url)
+                seedZoomForCurrentRally()
                 seekToCurrentRallyStart()
 
                 let windowIndices = navigation.playerWindowIndices(totalCount: rallyVideoURLs.count)
@@ -312,8 +444,6 @@ final class RallyPlayerViewModel {
     func navigateTo(index: Int, direction: NavigationDirection) {
         guard let targetOffset = navigation.beginTransition(to: index, totalCount: rallyVideoURLs.count, direction: direction) else { return }
 
-        gesture.resetZoom()
-
         // Transfer drag position to swipe offset for seamless animation
         gesture.swipeOffsetY = gesture.dragOffset.height
         gesture.dragOffset = .zero
@@ -323,6 +453,9 @@ final class RallyPlayerViewModel {
         }
 
         navigation.advanceIndex(to: index, totalCount: rallyVideoURLs.count)
+
+        // Rest at the destination rally's saved zoom/pan framing.
+        seedZoomForCurrentRally()
 
         let url = rallyVideoURLs[index]
         playerCache.setCurrentPlayer(for: url)
@@ -355,7 +488,6 @@ final class RallyPlayerViewModel {
 
     func performAction(_ action: RallySwipeAction, direction: RallySwipeDirection, fromDragOffset: CGFloat = 0) {
         actions.setPerformingAction(true)
-        gesture.resetZoom()
         playerCache.pause()
 
         gesture.peekProgress = 0.0
@@ -406,6 +538,7 @@ final class RallyPlayerViewModel {
 
             if canGoNext {
                 navigation.setIndex(currentRallyIndex + 1, totalCount: rallyVideoURLs.count)
+                seedZoomForCurrentRally()
                 let url = rallyVideoURLs[currentRallyIndex]
                 playerCache.setCurrentPlayer(for: url)
                 seekToCurrentRallyStart()
@@ -442,6 +575,8 @@ final class RallyPlayerViewModel {
                     playerCache.setCurrentPlayer(for: url)
                 }
             }
+            // Re-seed zoom from the restored adjustment.
+            seedZoomForCurrentRally()
             seekToCurrentRallyStart()
             setupRallyLooping()
             playerCache.play()
@@ -468,6 +603,7 @@ final class RallyPlayerViewModel {
         }
 
         navigation.setIndex(action.rallyIndex, totalCount: rallyVideoURLs.count)
+        seedZoomForCurrentRally()
 
         if let url = currentRallyURL {
             playerCache.setCurrentPlayer(for: url)
@@ -496,6 +632,8 @@ final class RallyPlayerViewModel {
 
     func enterTrimMode() {
         trim.enterTrimMode(rallyIndex: currentRallyIndex)
+        // Seed the gesture zoom from the saved framing so pinch/pan starts there.
+        seedZoomForCurrentRally()
         playerCache.pause()
         seekToCurrentRallyStart()
     }
@@ -507,6 +645,14 @@ final class RallyPlayerViewModel {
     }
 
     func confirmTrim() {
+        // Capture the live pinch/pan from the gesture state into the trim values
+        // (zoom is size-independent; pan is normalized to card size).
+        trim.currentTrimZoom = Double(gesture.zoomScale)
+        if cardSize.width > 0, cardSize.height > 0 {
+            trim.currentTrimPanX = Double(gesture.zoomOffset.width / cardSize.width)
+            trim.currentTrimPanY = Double(gesture.zoomOffset.height / cardSize.height)
+        }
+
         let metadataVideoId = videoMetadata.originalVideoId ?? videoMetadata.id
         let previousTrim = trim.confirmTrim(rallyIndex: currentRallyIndex, videoId: metadataVideoId, metadataStore: metadataStore)
 
@@ -514,7 +660,12 @@ final class RallyPlayerViewModel {
 
         seekToCurrentRallyStart()
         setupRallyLooping()
-        playerCache.play()
+
+        // If rotation/zoom changed, stay paused on the current frame and let the
+        // propagation prompt drive playback resumption. Otherwise resume now.
+        if trim.pendingPropagation == nil {
+            playerCache.play()
+        }
 
         let dismissTask = Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -526,6 +677,8 @@ final class RallyPlayerViewModel {
 
     func cancelTrim() {
         trim.cancelTrim(rallyIndex: currentRallyIndex)
+        // Restore the gesture zoom to the saved (pre-edit) framing.
+        seedZoomForCurrentRally()
         seekToCurrentRallyStart()
         setupRallyLooping()
         playerCache.play()

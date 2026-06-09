@@ -125,9 +125,23 @@ struct UploadStatusBar: View {
     
     private func createUploadingView(progress: Double) -> some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .scaleEffect(1.5)
-                .progressViewStyle(CircularProgressViewStyle())
+            // Determinate bar when the import reports progress (Photos picker, incl.
+            // iCloud download); indeterminate spinner for drag-drop.
+            if let fraction = uploadCoordinator.importProgress {
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+                    .frame(width: 200)
+                    .animation(.bscSpring, value: fraction)
+
+                Text("\(Int(fraction * 100))%")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundColor(.bscTextSecondary)
+            } else {
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .progressViewStyle(CircularProgressViewStyle())
+            }
 
             // Show progress text from coordinator
             if !uploadCoordinator.uploadProgressText.isEmpty {
@@ -146,31 +160,9 @@ struct UploadStatusBar: View {
                     .font(.subheadline)
                     .foregroundColor(.bscTextSecondary)
             }
-
-            // Show elapsed time
-            if uploadCoordinator.elapsedTime > 2 {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock")
-                        .font(.caption)
-                    Text(formatTime(uploadCoordinator.elapsedTime))
-                        .font(.caption)
-                        .monospacedDigit()
-                }
-                .foregroundColor(.bscTextSecondary)
-            }
         }
     }
 
-    private func formatTime(_ seconds: TimeInterval) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        if mins > 0 {
-            return String(format: "%d:%02d", mins, secs)
-        } else {
-            return "\(secs)s"
-        }
-    }
-    
     private func createCompletedView() -> some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")

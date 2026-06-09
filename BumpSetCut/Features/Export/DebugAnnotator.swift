@@ -31,6 +31,9 @@ final class DebugAnnotator {
         let isProjectile: Bool
         let inRally: Bool
         let time: CMTime
+        // Physics validation metrics for the active track (R², confidence, sub-criteria).
+        // Pass nil when no track is being validated this frame.
+        let validation: BallisticsGate.ValidationResult?
         // Optional: verified trajectory (distinct color). Defaults to nil so existing callers compile.
         let verifiedTrack: KalmanBallTracker.TrackedBall? = nil
     }
@@ -246,23 +249,52 @@ final class DebugAnnotator {
         ctx.saveGState()
         ctx.translateBy(x: 0, y: size.height)
         ctx.scaleBy(x: 1, y: -1)
-        let hud = String(format: "t=%.2fs  det=%d  proj=%@  rally=%@",
-                         data.time.seconds,
-                         data.detections.count,
-                         data.isProjectile ? "Y" : "N",
-                         data.inRally ? "Y" : "N")
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedSystemFont(ofSize: 36, weight: .medium),
-            .foregroundColor: UIColor.white
-        ]
-        let shadowAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedSystemFont(ofSize: 36, weight: .medium),
-            .foregroundColor: UIColor.black
-        ]
-        let textRect = CGRect(x: 10, y: barHeight + 8, width: size.width - 20, height: 50)
         UIGraphicsPushContext(ctx)
-        NSString(string: hud).draw(in: textRect.offsetBy(dx: 1, dy: 1), withAttributes: shadowAttrs)
-        NSString(string: hud).draw(in: textRect, withAttributes: attrs)
+
+        let font = UIFont.monospacedSystemFont(ofSize: 34, weight: .medium)
+        func yn(_ b: Bool) -> UIColor { b ? UIColor.systemGreen : UIColor.systemRed }
+        // Map a 0...1 score to red → yellow → green so R²/confidence read at a glance.
+        func scoreColor(_ s: Double) -> UIColor {
+            let c = max(0, min(1, s))
+            return UIColor(red: CGFloat(min(1, 2 * (1 - c))),
+                           green: CGFloat(min(1, 2 * c)),
+                           blue: 0, alpha: 1)
+        }
+        // Draw colored tokens left-to-right with a black shadow for legibility.
+        func drawTokens(_ tokens: [(String, UIColor)], y: CGFloat) {
+            var x: CGFloat = 10
+            let gap: CGFloat = 18
+            for (text, color) in tokens {
+                let ns = NSString(string: text)
+                let shadow: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.black]
+                let main: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+                ns.draw(at: CGPoint(x: x + 1, y: y + 1), withAttributes: shadow)
+                ns.draw(at: CGPoint(x: x, y: y), withAttributes: main)
+                x += ns.size(withAttributes: main).width + gap
+            }
+        }
+
+        // Line 1 — overall pipeline state.
+        drawTokens([
+            (String(format: "t=%.2fs", data.time.seconds), .white),
+            (String(format: "det=%d", data.detections.count), .white),
+            ("proj=\(data.isProjectile ? "Y" : "N")", yn(data.isProjectile)),
+            ("rally=\(data.inRally ? "Y" : "N")", yn(data.inRally)),
+        ], y: barHeight + 8)
+
+        // Line 2 — physics validation breakdown for the active track.
+        if let v = data.validation {
+            drawTokens([
+                (String(format: "R\u{00B2}=%.2f", v.rSquared), scoreColor(v.rSquared)),
+                (String(format: "conf=%.2f", v.confidenceLevel), scoreColor(v.confidenceLevel)),
+                ("curve=\(v.curvatureDirectionValid ? "Y" : "N")", yn(v.curvatureDirectionValid)),
+                ("motion=\(v.hasMotionEvidence ? "Y" : "N")", yn(v.hasMotionEvidence)),
+                ("jump=\(v.positionJumpsValid ? "Y" : "N")", yn(v.positionJumpsValid)),
+            ], y: barHeight + 8 + 42)
+        } else {
+            drawTokens([("R\u{00B2}=--  conf=--  (no track)", .lightGray)], y: barHeight + 8 + 42)
+        }
+
         UIGraphicsPopContext()
         ctx.restoreGState()
     }

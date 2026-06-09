@@ -35,6 +35,16 @@ final class ProcessingCoordinator {
     var progressPercent: Int { Int(min(1.0, max(0.0, progress)) * 100) }
     var hasResult: Bool { pendingSaveURL != nil || noRalliesDetected || errorMessage != nil }
 
+    /// Live estimate of seconds remaining, derived from actual progress rate.
+    /// `nil` until there's enough progress to extrapolate reliably.
+    var estimatedSecondsRemaining: TimeInterval? {
+        guard isProcessing, let start = processingStartDate, progress > 0.03 else { return nil }
+        let elapsed = Date().timeIntervalSince(start)
+        return max(0, elapsed / progress * (1 - progress))
+    }
+
+    @ObservationIgnored private var processingStartDate: Date?
+
     // MARK: - Processing Context (stored so VM can resume save flow)
     private(set) var videoURL: URL?
     private(set) var mediaStore: MediaStore?
@@ -69,6 +79,7 @@ final class ProcessingCoordinator {
         // Reset state
         self.isProcessing = true
         self.progress = 0.0
+        self.processingStartDate = Date()
         // Use custom display name if available, otherwise fall back to file name
         let fileName = videoURL.lastPathComponent
         if let match = mediaStore.getAllVideos().first(where: { $0.fileName == fileName }) {
@@ -123,24 +134,36 @@ final class ProcessingCoordinator {
                         self.handleCompletion()
                     }
                 } else {
-                    _ = try await processor.processVideo(videoURL, videoId: videoId)
+                    let metadata = try await processor.processVideo(videoURL, videoId: videoId)
 
-                    // Mark video as processed
-                    // Get video duration for processing history
-                    let asset = AVURLAsset(url: videoURL)
-                    let durationSeconds: Double = (try? await CMTimeGetSeconds(asset.load(.duration))) ?? 0
+                    // Calibrate the time estimator from this run's actual wall-clock time
+                    // vs. the source video duration (excludes the slower debug path).
+                    if let start = self.processingStartDate {
+                        let sourceSeconds = (try? await AVURLAsset(url: videoURL).load(.duration))
+                            .map(CMTimeGetSeconds) ?? 0
+                        ProcessingTimeEstimator.record(
+                            videoDuration: sourceSeconds,
+                            elapsed: Date().timeIntervalSince(start)
+                        )
+                    }
+
+                    // Meter weekly usage by exported rally length (what the user actually gets),
+                    // not source video length.
+                    let exportedSeconds = metadata.totalRallyDuration
 
                     await MainActor.run {
-                        if let match = mediaStore.getAllVideos().first(where: { $0.id == videoId }) {
-                            if let metadataSize = match.getCurrentMetadataSize() {
-                                let _ = mediaStore.markVideoAsProcessed(
-                                    videoId: videoId,
-                                    metadataFileSize: metadataSize,
-                                    volleyballType: volleyballType
-                                )
-                                SubscriptionService.shared.recordVideoProcessing(durationSeconds: durationSeconds)
-                            }
+                        // Mark as processed when the metadata sidecar is available (storage tracking).
+                        if let match = mediaStore.getAllVideos().first(where: { $0.id == videoId }),
+                           let metadataSize = match.getCurrentMetadataSize() {
+                            let _ = mediaStore.markVideoAsProcessed(
+                                videoId: videoId,
+                                metadataFileSize: metadataSize,
+                                volleyballType: volleyballType
+                            )
                         }
+                        // Always record usage on a successful process, independent of the
+                        // metadata-size lookup above.
+                        SubscriptionService.shared.recordVideoProcessing(durationSeconds: exportedSeconds)
                     }
 
                     // Create hard link for save flow

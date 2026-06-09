@@ -10,6 +10,8 @@ struct RallyPlayerOverlay: View {
     let onDismiss: () -> Void
     var onShowTips: () -> Void = {}
     var onShowOverview: () -> Void = {}
+    var onShare: () -> Void = {}
+    var isPreparingShare: Bool = false
 
     var body: some View {
         VStack {
@@ -19,8 +21,10 @@ struct RallyPlayerOverlay: View {
 
                 Spacer()
 
-                // Rally counter with status
+                // Rally counter with status + quick actions
                 HStack(spacing: BSCSpacing.sm) {
+                    shareButton
+
                     rallyCounter
 
                     // Help/Tips button
@@ -32,6 +36,34 @@ struct RallyPlayerOverlay: View {
 
             Spacer()
         }
+    }
+
+    // MARK: - Share Button
+    private var shareButton: some View {
+        Button(action: onShare) {
+            Group {
+                if isPreparingShare {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .background(
+                Circle()
+                    .fill(Color.bscSurfaceGlass)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    )
+            )
+        }
+        .disabled(isPreparingShare)
+        .accessibilityLabel("Share rally")
+        .accessibilityIdentifier("rallyPlayer.share")
     }
 
     // MARK: - Help Button

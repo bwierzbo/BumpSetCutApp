@@ -74,7 +74,7 @@ struct GestureTipsOverlay: View {
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "hand.tap.fill")
                             .font(.system(size: 14, weight: .semibold))
-                        Text("Hold to Trim")
+                        Text("Hold to Trim & Adjust Angle")
                             .font(.system(size: 13, weight: .bold))
                     }
                     .foregroundColor(.white)

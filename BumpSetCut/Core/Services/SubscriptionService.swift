@@ -32,16 +32,12 @@ final class SubscriptionService {
         case offlineProcessing = "Offline Processing"
         case unlimitedVideos = "Unlimited Videos"
         case noWatermark = "No Watermark"
-        case prioritySupport = "Priority Support"
-        case advancedSettings = "Advanced Settings"
 
         var icon: String {
             switch self {
             case .offlineProcessing: return "airplane"
             case .unlimitedVideos: return "infinity"
             case .noWatermark: return "eye.slash"
-            case .prioritySupport: return "person.fill.checkmark"
-            case .advancedSettings: return "gearshape.2"
             }
         }
 
@@ -53,10 +49,6 @@ final class SubscriptionService {
                 return "No weekly duration limit on video processing"
             case .noWatermark:
                 return "Remove BumpSetCut branding from exported videos"
-            case .prioritySupport:
-                return "Get help faster with priority customer support"
-            case .advancedSettings:
-                return "Fine-tune detection parameters for your needs"
             }
         }
     }

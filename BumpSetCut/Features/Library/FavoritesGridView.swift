@@ -506,6 +506,8 @@ struct FavoritesFeedView: View {
                     RallyTrimOverlay(
                         trimBefore: $trimBefore,
                         trimAfter: $trimAfter,
+                        trimRotation: .constant(0),
+                        trimZoom: .constant(1),
                         rallyStartTime: 0,
                         rallyEndTime: clipDuration,
                         videoURL: videos[idx].originalURL,
@@ -516,7 +518,9 @@ struct FavoritesFeedView: View {
                             }
                         },
                         onConfirm: { confirmTrim() },
-                        onCancel: { cancelTrim() }
+                        onCancel: { cancelTrim() },
+                        showsAngleControl: false,
+                        showsZoomControl: false
                     )
                     .transition(.opacity)
                 }

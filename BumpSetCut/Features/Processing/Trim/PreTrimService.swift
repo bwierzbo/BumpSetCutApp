@@ -15,12 +15,14 @@ final class PreTrimService {
     ///   - sourceURL: Original video file URL
     ///   - startTime: Start of the desired region (seconds)
     ///   - endTime: End of the desired region (seconds)
+    ///   - rotationDegrees: Rotation to bake into the output (0 = passthrough eligible)
     ///   - progressHandler: Optional callback for export progress (0.0–1.0)
     /// - Returns: Temp URL of the trimmed file
     func exportTrimmedVideo(
         sourceURL: URL,
         startTime: Double,
         endTime: Double,
+        rotationDegrees: Double = 0,
         progressHandler: ((Double) -> Void)? = nil
     ) async throws -> URL {
         let asset = AVURLAsset(url: sourceURL)
@@ -31,13 +33,22 @@ final class PreTrimService {
         let outURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("pretrim_\(UUID().uuidString).mp4")
 
-        // Try passthrough first (fast, no re-encoding)
-        if let result = try? await exportPassthrough(asset: asset, timeRange: timeRange, to: outURL, progressHandler: progressHandler) {
-            return result
+        // Rotation forces the composition path (need a videoComposition to apply transforms)
+        if abs(rotationDegrees) < 0.01 {
+            // Try passthrough first (fast, no re-encoding)
+            if let result = try? await exportPassthrough(asset: asset, timeRange: timeRange, to: outURL, progressHandler: progressHandler) {
+                return result
+            }
         }
 
-        // Fallback: composition-based re-encoding
-        return try await exportWithComposition(asset: asset, timeRange: timeRange, to: outURL, progressHandler: progressHandler)
+        // Composition path (re-encoded). Applies rotation when non-zero.
+        return try await exportWithComposition(
+            asset: asset,
+            timeRange: timeRange,
+            rotationDegrees: rotationDegrees,
+            to: outURL,
+            progressHandler: progressHandler
+        )
     }
 
     // MARK: - Passthrough Export
@@ -88,6 +99,7 @@ final class PreTrimService {
     private func exportWithComposition(
         asset: AVAsset,
         timeRange: CMTimeRange,
+        rotationDegrees: Double,
         to outURL: URL,
         progressHandler: ((Double) -> Void)?
     ) async throws -> URL {
@@ -110,14 +122,49 @@ final class PreTrimService {
             try dstA.insertTimeRange(timeRange, of: srcA, at: .zero)
         }
 
-        // Preserve orientation
-        if let pref = try? await vTrack.load(.preferredTransform) {
-            compV.preferredTransform = pref
+        // Preserve source orientation on the composition track
+        let preferred = (try? await vTrack.load(.preferredTransform)) ?? .identity
+        compV.preferredTransform = preferred
+
+        // Build a videoComposition only when we need to bake in a rotation.
+        // Without one, the exporter honors the track's preferredTransform directly.
+        var videoComposition: AVMutableVideoComposition?
+        if abs(rotationDegrees) >= 0.01 {
+            let naturalSize = try await vTrack.load(.naturalSize)
+            // Render size = the upright (post-preferredTransform) frame size
+            let renderSize = RotationGeometry.uprightSize(naturalSize: naturalSize, preferredTransform: preferred)
+
+            let radians = CGFloat(rotationDegrees * .pi / 180.0)
+            let scale = RotationGeometry.coverScale(angleDegrees: rotationDegrees, size: renderSize)
+            let center = CGPoint(x: renderSize.width / 2, y: renderSize.height / 2)
+
+            // Honor source orientation first (`preferred`), then rotate+scale around the
+            // upright render-frame center. CGAffineTransform builder post-multiplies, so the
+            // sequence below produces: preferred * T(-c) * R * S * T(+c).
+            let layerTransform = preferred
+                .translatedBy(x: -center.x, y: -center.y)
+                .rotated(by: radians)
+                .scaledBy(x: scale, y: scale)
+                .translatedBy(x: center.x, y: center.y)
+
+            let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compV)
+            layerInstruction.setTransform(layerTransform, at: .zero)
+
+            let instruction = AVMutableVideoCompositionInstruction()
+            instruction.timeRange = CMTimeRange(start: .zero, duration: comp.duration)
+            instruction.layerInstructions = [layerInstruction]
+
+            let vc = AVMutableVideoComposition()
+            vc.renderSize = renderSize
+            vc.frameDuration = CMTime(value: 1, timescale: 30)
+            vc.instructions = [instruction]
+            videoComposition = vc
         }
 
         guard let exporter = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetHighestQuality) else {
             throw PreTrimError.exportSessionUnavailable
         }
+        exporter.videoComposition = videoComposition
 
         if #available(iOS 18.0, *) {
             let pollTask = Task.detached { [weak exporter] in

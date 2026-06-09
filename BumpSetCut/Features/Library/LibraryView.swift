@@ -92,6 +92,14 @@ struct LibraryView: View {
             } message: {
                 Text(viewModel.uploadCoordinator.storageWarningMessage)
             }
+            .alert("Import Failed", isPresented: Binding(
+                get: { viewModel.uploadCoordinator.showImportError },
+                set: { viewModel.uploadCoordinator.showImportError = $0 }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.uploadCoordinator.importErrorMessage)
+            }
             .alert("Name Your Video", isPresented: Binding(
                 get: { viewModel.uploadCoordinator.showNamingDialog },
                 set: { if !$0 && viewModel.uploadCoordinator.showNamingDialog { viewModel.uploadCoordinator.completeNaming(customName: nil) } }

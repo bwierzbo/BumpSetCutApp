@@ -73,6 +73,22 @@ struct PreTrimView: View {
                     .foregroundColor(.bscTextSecondary)
                     .padding(.top, BSCSpacing.sm)
 
+                // Estimated processing time (self-calibrating from past runs)
+                if viewModel.selectionDuration > 0 {
+                    Label(
+                        "Est. processing: \(ProcessingTimeEstimator.formatEstimate(ProcessingTimeEstimator.estimate(forVideoDuration: viewModel.selectionDuration)))",
+                        systemImage: "clock"
+                    )
+                    .font(.system(size: 12))
+                    .foregroundColor(.bscTextTertiary)
+                    .padding(.top, BSCSpacing.xxs)
+                }
+
+                // Angle adjustment row
+                angleControl
+                    .padding(.horizontal, BSCSpacing.lg)
+                    .padding(.top, BSCSpacing.md)
+
                 // Action buttons
                 actionButtons
                     .padding(.horizontal, BSCSpacing.xl)
@@ -119,17 +135,35 @@ struct PreTrimView: View {
     // MARK: - Video Player
 
     private func videoPlayerSection(player: AVPlayer) -> some View {
-        CustomVideoPlayerView(
-            player: player,
-            gravity: .resizeAspect,
-            onReadyForDisplay: { _ in }
-        )
-        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
-        .padding(.horizontal, BSCSpacing.lg)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            togglePlayback(player: player)
+        GeometryReader { geo in
+            // Rotate within the video's own rectangle (aspect-fit), so the
+            // preview crops & scales exactly like the baked output instead of
+            // tilting the letterbox bars.
+            let videoRect = RotationGeometry.aspectFitSize(
+                content: viewModel.displaySize ?? geo.size,
+                in: geo.size
+            )
+
+            CustomVideoPlayerView(
+                player: player,
+                gravity: .resizeAspectFill,
+                onReadyForDisplay: { _ in }
+            )
+            .frame(width: videoRect.width, height: videoRect.height)
+            .rotationEffect(.degrees(viewModel.rotationDegrees))
+            .scaleEffect(RotationGeometry.coverScale(
+                angleDegrees: viewModel.rotationDegrees,
+                size: videoRect
+            ))
+            .frame(width: videoRect.width, height: videoRect.height)
+            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
+            .frame(width: geo.size.width, height: geo.size.height)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                togglePlayback(player: player)
+            }
         }
+        .padding(.horizontal, BSCSpacing.lg)
     }
 
     private func togglePlayback(player: AVPlayer) {
@@ -293,6 +327,73 @@ struct PreTrimView: View {
     private func timeForX(_ x: CGFloat, in width: CGFloat) -> Double {
         guard width > 0 else { return 0 }
         return Double(x / width) * viewModel.videoDuration
+    }
+
+    // MARK: - Angle Control
+
+    @ViewBuilder
+    private var angleControl: some View {
+        let max = viewModel.maxRotationDegrees
+        let step = viewModel.rotationStepDegrees
+        let binding = Binding(
+            get: { viewModel.rotationDegrees },
+            set: { viewModel.rotationDegrees = snap(clampDeg($0, max: max), step: step) }
+        )
+
+        HStack(spacing: BSCSpacing.md) {
+            Button {
+                viewModel.rotationDegrees = snap(clampDeg(viewModel.rotationDegrees - step, max: max), step: step)
+            } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 30, height: 30)
+                    .background(Color.white.opacity(0.15))
+                    .clipShape(Circle())
+            }
+
+            Slider(value: binding, in: -max...max, step: step)
+                .tint(.bscPrimary)
+
+            Button {
+                viewModel.rotationDegrees = snap(clampDeg(viewModel.rotationDegrees + step, max: max), step: step)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 30, height: 30)
+                    .background(Color.white.opacity(0.15))
+                    .clipShape(Circle())
+            }
+
+            Text(formatDegrees(viewModel.rotationDegrees))
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundColor(.bscPrimary)
+                .frame(width: 56, alignment: .trailing)
+
+            Button {
+                viewModel.rotationDegrees = 0
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(abs(viewModel.rotationDegrees) < 0.01 ? 0.3 : 0.9))
+                    .frame(width: 30, height: 30)
+            }
+            .disabled(abs(viewModel.rotationDegrees) < 0.01)
+        }
+    }
+
+    private func snap(_ value: Double, step: Double) -> Double {
+        guard step > 0 else { return value }
+        return (value / step).rounded() * step
+    }
+
+    private func clampDeg(_ value: Double, max: Double) -> Double {
+        min(max, Swift.max(-max, value))
+    }
+
+    private func formatDegrees(_ value: Double) -> String {
+        String(format: "%+.1f°", value)
     }
 
     // MARK: - Action Buttons

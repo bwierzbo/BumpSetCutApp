@@ -221,6 +221,7 @@ final class VideoProcessor {
         var lastActiveTrack: KalmanBallTracker.TrackedBall? = nil
         var lastIsProjectile = false
         var lastInRally = false
+        var lastGateResult: BallisticsGate.ValidationResult? = nil
 
         // Reader
         let reader = try AVAssetReader(asset: asset)
@@ -303,6 +304,7 @@ final class VideoProcessor {
                 lastActiveTrack = activeTrack
                 lastIsProjectile = isProjectile
                 lastInRally = inRally
+                lastGateResult = gateResult
             }
 
             // Append annotated frame using the latest available overlay state
@@ -311,7 +313,8 @@ final class VideoProcessor {
                                                 track: lastActiveTrack,
                                                 isProjectile: lastIsProjectile,
                                                 inRally: lastInRally,
-                                                time: pts))
+                                                time: pts,
+                                                validation: lastGateResult))
 
             // Progress (~once per second)
             frameCount += 1

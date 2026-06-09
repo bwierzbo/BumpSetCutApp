@@ -56,6 +56,15 @@ final class RallyGestureState {
         baseZoomOffset = .zero
     }
 
+    /// Set the zoom/pan state directly (no animation). Used to seed the resting
+    /// state of a rally from its persisted adjustment when it becomes current.
+    func seedZoom(scale: CGFloat, offset: CGSize) {
+        zoomScale = scale
+        zoomOffset = offset
+        baseZoomScale = scale
+        baseZoomOffset = offset
+    }
+
     // MARK: - Swipe Methods
 
     func resetSwipeState() {

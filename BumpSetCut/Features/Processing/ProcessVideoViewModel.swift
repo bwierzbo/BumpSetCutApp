@@ -20,6 +20,11 @@ final class ProcessVideoViewModel {
     var showStorageWarning: Bool = false
     var storageWarningMessage: String = ""
 
+    // Weekly processing limit (free tier) — surfaced with an upgrade path
+    var showProcessingLimit: Bool = false
+    var processingLimitMessage: String = ""
+    var showPaywall: Bool = false
+
     // Review navigation
     var showRallyPlayer: Bool = false
 
@@ -260,8 +265,8 @@ final class ProcessVideoViewModel {
         let videoDuration = cachedOriginalDuration ?? currentVideoMetadata?.duration ?? 0
         let processingCheck = SubscriptionService.shared.canProcessVideo(durationSeconds: videoDuration)
         if !processingCheck.allowed {
-            errorMessage = processingCheck.message ?? "Processing limit reached"
-            showError = true
+            processingLimitMessage = processingCheck.message ?? "Processing limit reached"
+            showProcessingLimit = true
             return
         }
 

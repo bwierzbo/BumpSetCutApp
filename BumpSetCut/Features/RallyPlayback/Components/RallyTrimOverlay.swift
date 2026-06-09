@@ -6,6 +6,8 @@ import AVFoundation
 struct RallyTrimOverlay: View {
     @Binding var trimBefore: Double
     @Binding var trimAfter: Double
+    @Binding var trimRotation: Double
+    @Binding var trimZoom: Double
     let rallyStartTime: Double
     let rallyEndTime: Double
     let videoURL: URL
@@ -13,12 +15,17 @@ struct RallyTrimOverlay: View {
     let onScrub: (Double) -> Void
     let onConfirm: () -> Void
     let onCancel: () -> Void
+    var onResetZoom: () -> Void = {}
+    var showsAngleControl: Bool = true
+    var showsZoomControl: Bool = false
 
     private let maxBuffer: Double = 3.0
     private let handleWidth: CGFloat = 14
     private let barHeight: CGFloat = 56
     private let borderThickness: CGFloat = 3
     private let minSelectionDuration: Double = 1.0
+    private let maxRotationDegrees: Double = 10.0
+    private let rotationStepDegrees: Double = 0.5
 
     @State private var thumbnails: [UIImage] = []
     @State private var leftDragBase: Double?
@@ -36,12 +43,21 @@ struct RallyTrimOverlay: View {
 
     var body: some View {
         ZStack {
-            // Dim backdrop (no tap-to-cancel — use Cancel button)
-            Color.black.opacity(0.6)
+            // Dim backdrop — non-interactive so pinch/twist/drag reach the video
+            // behind the overlay. Controls below stay interactive.
+            Color.black.opacity(0.45)
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
 
             VStack(spacing: 0) {
                 Spacer()
+
+                // Gesture hint + zoom readout
+                if showsZoomControl {
+                    zoomHintRow
+                        .padding(.horizontal, BSCSpacing.lg)
+                        .padding(.bottom, BSCSpacing.md)
+                }
 
                 // Cancel / Duration / Done
                 HStack {
@@ -60,6 +76,13 @@ struct RallyTrimOverlay: View {
                 .padding(.horizontal, BSCSpacing.xl)
                 .padding(.bottom, BSCSpacing.md)
 
+                // Angle adjustment row
+                if showsAngleControl {
+                    angleControl
+                        .padding(.horizontal, BSCSpacing.lg)
+                        .padding(.bottom, BSCSpacing.md)
+                }
+
                 // Filmstrip trim bar
                 GeometryReader { geo in
                     trimBar(totalWidth: geo.size.width)
@@ -70,6 +93,99 @@ struct RallyTrimOverlay: View {
             }
         }
         .task { await generateThumbnails() }
+    }
+
+    // MARK: - Zoom Hint / Readout
+
+    @ViewBuilder
+    private var zoomHintRow: some View {
+        HStack(spacing: BSCSpacing.sm) {
+            Image(systemName: "hand.draw")
+                .font(.system(size: 12, weight: .semibold))
+            Text("Pinch zoom · Twist angle · Drag to pan")
+                .font(.system(size: 12, weight: .medium))
+
+            Spacer()
+
+            Text(String(format: "%.1f×", trimZoom))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundColor(.bscPrimary)
+
+            if trimZoom > 1.01 {
+                Button { onResetZoom() } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+            }
+        }
+        .foregroundColor(.white.opacity(0.85))
+    }
+
+    // MARK: - Angle Control
+
+    @ViewBuilder
+    private var angleControl: some View {
+        let max = maxRotationDegrees
+        let step = rotationStepDegrees
+        let binding = Binding(
+            get: { trimRotation },
+            set: { trimRotation = snap(clampDeg($0, max: max), step: step) }
+        )
+
+        HStack(spacing: BSCSpacing.md) {
+            Button {
+                trimRotation = snap(clampDeg(trimRotation - step, max: max), step: step)
+            } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Color.white.opacity(0.15))
+                    .clipShape(Circle())
+            }
+
+            Slider(value: binding, in: -max...max, step: step)
+                .tint(.bscPrimary)
+
+            Button {
+                trimRotation = snap(clampDeg(trimRotation + step, max: max), step: step)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Color.white.opacity(0.15))
+                    .clipShape(Circle())
+            }
+
+            Text(formatDegrees(trimRotation))
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundColor(.bscPrimary)
+                .frame(width: 56, alignment: .trailing)
+
+            Button {
+                trimRotation = 0
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(abs(trimRotation) < 0.01 ? 0.3 : 0.9))
+                    .frame(width: 28, height: 28)
+            }
+            .disabled(abs(trimRotation) < 0.01)
+        }
+    }
+
+    private func snap(_ value: Double, step: Double) -> Double {
+        guard step > 0 else { return value }
+        return (value / step).rounded() * step
+    }
+
+    private func clampDeg(_ value: Double, max: Double) -> Double {
+        min(max, Swift.max(-max, value))
+    }
+
+    private func formatDegrees(_ value: Double) -> String {
+        String(format: "%+.1f°", value)
     }
 
     // MARK: - Trim Bar
@@ -255,13 +371,16 @@ struct RallyTrimOverlay: View {
         RallyTrimOverlay(
             trimBefore: .constant(0.0),
             trimAfter: .constant(0.0),
+            trimRotation: .constant(0.0),
+            trimZoom: .constant(1.4),
             rallyStartTime: 10.0,
             rallyEndTime: 14.2,
             videoURL: URL(fileURLWithPath: "/dev/null"),
             videoDuration: 60.0,
             onScrub: { _ in },
             onConfirm: {},
-            onCancel: {}
+            onCancel: {},
+            showsZoomControl: true
         )
     }
 }
