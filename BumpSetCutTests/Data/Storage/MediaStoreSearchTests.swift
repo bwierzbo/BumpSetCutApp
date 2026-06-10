@@ -11,15 +11,25 @@ import XCTest
 @MainActor
 final class MediaStoreSearchTests: XCTestCase {
     var mediaStore: MediaStore!
-    
+    private var storageDir: URL!
+
     override func setUp() async throws {
         try await super.setUp()
+        // Isolate storage so the shared on-disk library doesn't leak state across
+        // tests/runs (otherwise search results are polluted/empty unpredictably).
+        storageDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MediaStoreSearchTests_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: storageDir, withIntermediateDirectories: true)
+        StorageManager.storageDirectoryOverride = storageDir
         mediaStore = MediaStore()
         await setupTestData()
     }
-    
+
     override func tearDown() async throws {
         mediaStore = nil
+        StorageManager.storageDirectoryOverride = nil
+        if let storageDir { try? FileManager.default.removeItem(at: storageDir) }
+        storageDir = nil
         try await super.tearDown()
     }
     
@@ -61,21 +71,24 @@ final class MediaStoreSearchTests: XCTestCase {
         ]
         
         for (fileName, folderPath, customName, fileSize) in testVideos {
-            let testURL = createTestVideoURL(fileName: fileName, fileSize: Int64(fileSize))
+            let testURL = createTestVideoURL(fileName: fileName, folderPath: folderPath, fileSize: Int64(fileSize))
             _ = mediaStore.addVideo(at: testURL, toFolder: folderPath, customName: customName)
         }
     }
     
-    private func createTestVideoURL(fileName: String, fileSize: Int64) -> URL {
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let testURL = documentsPath.appendingPathComponent(fileName)
-        
-        // Create test file with approximate size
+    private func createTestVideoURL(fileName: String, folderPath: String, fileSize: Int64) -> URL {
+        // searchVideos only returns videos whose file exists at
+        // baseDirectory/folderPath/fileName (a stale-entry guard), so place the test
+        // file exactly there — mirroring where a real import lands in the library.
+        let dir = mediaStore.baseDirectory.appendingPathComponent(folderPath)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let testURL = dir.appendingPathComponent(fileName)
+
         if !FileManager.default.fileExists(atPath: testURL.path) {
             let testData = Data(count: Int(min(fileSize, 1024))) // Don't actually create huge files
             FileManager.default.createFile(atPath: testURL.path, contents: testData, attributes: nil)
         }
-        
+
         return testURL
     }
     
@@ -323,7 +336,7 @@ final class MediaStoreSearchTests: XCTestCase {
         // Add more test data
         for i in 0..<50 {
             let fileName = "performance_test_\(i).mov"
-            let testURL = createTestVideoURL(fileName: fileName, fileSize: 100 * 1024 * 1024)
+            let testURL = createTestVideoURL(fileName: fileName, folderPath: "Sports", fileSize: 100 * 1024 * 1024)
             _ = mediaStore.addVideo(at: testURL, toFolder: "Sports", customName: "Performance Test \(i)")
         }
         
@@ -354,7 +367,7 @@ final class MediaStoreSearchTests: XCTestCase {
     
     func testSearchWithSpecialCharacters() {
         // Add video with special characters
-        let specialURL = createTestVideoURL(fileName: "special-test_file.mov", fileSize: 100 * 1024 * 1024)
+        let specialURL = createTestVideoURL(fileName: "special-test_file.mov", folderPath: "", fileSize: 100 * 1024 * 1024)
         _ = mediaStore.addVideo(at: specialURL, toFolder: "", customName: "Special Test: File (2024)")
         
         let results1 = mediaStore.searchVideos(query: "special-test")
@@ -368,7 +381,7 @@ final class MediaStoreSearchTests: XCTestCase {
     
     func testSearchWithUnicodeCharacters() {
         // Add video with unicode characters
-        let unicodeURL = createTestVideoURL(fileName: "unicode_test.mov", fileSize: 100 * 1024 * 1024)
+        let unicodeURL = createTestVideoURL(fileName: "unicode_test.mov", folderPath: "", fileSize: 100 * 1024 * 1024)
         _ = mediaStore.addVideo(at: unicodeURL, toFolder: "", customName: "Tëst Vidéo with Ünicodé")
         
         let results1 = mediaStore.searchVideos(query: "Tëst")

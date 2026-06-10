@@ -30,7 +30,9 @@ final class MetadataStoreTests: XCTestCase {
 
         print("MetadataStoreTests: Created temp directory: \(tempDirectory.path)")
 
-        // Initialize MetadataStore - we'll need to override the directory for testing
+        // Point storage at the isolated temp dir so MetadataStore reads/writes there
+        // instead of the shared on-disk library (the seam this comment always wanted).
+        StorageManager.storageDirectoryOverride = tempDirectory
         metadataStore = MetadataStore()
         testVideoId = UUID()
 
@@ -38,6 +40,7 @@ final class MetadataStoreTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        StorageManager.storageDirectoryOverride = nil
         // Clean up temp directory
         if let tempDirectory = tempDirectory {
             try? FileManager.default.removeItem(at: tempDirectory)
