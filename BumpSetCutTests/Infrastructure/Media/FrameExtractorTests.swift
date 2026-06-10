@@ -648,6 +648,11 @@ final class FrameExtractorTests: XCTestCase {
 
         frameExtractor.clearCache()
 
+        // Warm the cache once so the concurrent burst below exercises cache HITS.
+        // Without this, 20 simultaneous extractions of the same frame all start before
+        // the first one finishes caching, so the hit rate is ~0 by construction.
+        _ = try await frameExtractor.extractFrame(from: testVideoURL, priority: .normal)
+
         let loadTestIterations = 20
         let startTime = Date()
 
