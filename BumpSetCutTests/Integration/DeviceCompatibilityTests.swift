@@ -519,9 +519,7 @@ final class DeviceCompatibilityTests: XCTestCase {
 
     private func createTestVideoFile() throws -> URL {
         let videoURL = tempDirectory.appendingPathComponent("compatibility_test_\(UUID().uuidString).mp4")
-        let testData = "compatibility test video data".data(using: .utf8)!
-        try testData.write(to: videoURL)
-        return videoURL
+        return try TestVideoFactory.writeVideo(to: videoURL, duration: 1.0)
     }
 
     // MARK: - Supporting Types

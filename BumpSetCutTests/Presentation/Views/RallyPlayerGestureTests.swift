@@ -447,12 +447,8 @@ final class RallyPlayerGestureTests: XCTestCase {
 
     private func createTestVideoFile() throws -> URL {
         let videoURL = tempDirectory.appendingPathComponent("test_\(UUID().uuidString).mp4")
-
-        // Create minimal test file (not a real video, but sufficient for URL-based testing)
-        let testData = "test video data".data(using: .utf8)!
-        try testData.write(to: videoURL)
-
-        return videoURL
+        // Write a REAL playable clip — frame extraction needs an openable asset.
+        return try TestVideoFactory.writeVideo(to: videoURL, duration: 1.0)
     }
 }
 

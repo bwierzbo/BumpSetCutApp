@@ -692,20 +692,12 @@ final class FrameExtractorTests: XCTestCase {
     // MARK: - Helper Methods
 
     private func createTestVideoFile() throws -> URL {
-        print("🔧 Creating synthetic test video file")
-
+        // Previously built an AVMutableComposition but never wrote it to disk, so the
+        // file didn't exist and every extraction failed with "Cannot Open". Write a
+        // real H.264 clip instead.
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let videoURL = documentsURL.appendingPathComponent("test_synthetic_\(UUID().uuidString).mp4")
-
-        // Create a minimal composition for testing
-        let composition = AVMutableComposition()
-        let _ = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
-
-        // This creates a minimal video structure, though it might be empty
-        // In a real test environment, you'd want to use actual test video files
-
-        print("⚠️ Created synthetic video URL: \(videoURL.lastPathComponent)")
-        return videoURL
+        return try TestVideoFactory.writeVideo(to: videoURL, duration: 1.0)
     }
 
     private func createCorruptedVideoFile() throws -> URL {

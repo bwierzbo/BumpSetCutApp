@@ -82,6 +82,11 @@ final class PeekPerformanceTests: XCTestCase {
             frameExtractor.clearCache()
         }
 
+        // Guard against an empty result set: averaging by zero yields NaN and
+        // `Int(NaN)` traps, which would crash the whole test runner rather than
+        // failing this one test.
+        try XCTSkipIf(extractionTimes.isEmpty, "No frames extracted — cannot evaluate timing.")
+
         // Calculate statistics
         let averageTime = extractionTimes.reduce(0, +) / Double(extractionTimes.count)
         let maxTime = extractionTimes.max() ?? 0
@@ -474,12 +479,8 @@ final class PeekPerformanceTests: XCTestCase {
 
     private func createTestVideoFile() throws -> URL {
         let videoURL = tempDirectory.appendingPathComponent("performance_test_\(UUID().uuidString).mp4")
-
-        // Create test file for URL-based testing
-        let testData = "performance test video data".data(using: .utf8)!
-        try testData.write(to: videoURL)
-
-        return videoURL
+        // Write a REAL playable H.264 clip — a text file can't be opened by AVFoundation.
+        return try TestVideoFactory.writeVideo(to: videoURL, duration: 1.0)
     }
 }
 #endif

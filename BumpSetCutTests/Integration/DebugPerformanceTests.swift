@@ -245,13 +245,8 @@ final class DebugPerformanceTests: XCTestCase {
         // Create a simple test video for processing
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let testVideoURL = documentsPath.appendingPathComponent("test_video_\(UUID().uuidString).mp4")
-        
-        // For testing purposes, create a minimal video file
-        // In a real test environment, you would use a proper test video
-        let testData = Data("test video data".utf8)
-        try testData.write(to: testVideoURL)
-        
-        return testVideoURL
+        // Write a REAL playable clip so processing/extraction code paths actually run.
+        return try TestVideoFactory.writeVideo(to: testVideoURL, duration: 1.0)
     }
     
     private func createLargeDebugDataset() -> Data {

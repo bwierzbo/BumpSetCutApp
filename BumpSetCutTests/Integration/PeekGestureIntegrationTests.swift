@@ -506,8 +506,7 @@ final class PeekGestureIntegrationTests: XCTestCase {
 
         for i in 1...count {
             let videoURL = tempDirectory.appendingPathComponent("integration_test_\(i)_\(UUID().uuidString).mp4")
-            let testData = "integration test video data \(i)".data(using: .utf8)!
-            try testData.write(to: videoURL)
+            try TestVideoFactory.writeVideo(to: videoURL, duration: 1.0)
             urls.append(videoURL)
         }
 
