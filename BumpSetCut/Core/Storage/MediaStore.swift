@@ -36,7 +36,13 @@ enum LibraryType: String, Codable, CaseIterable {
 // MARK: - Storage Utilities
 
 struct StorageManager {
+    /// Test seam: when non-nil, overrides the storage location so tests can run
+    /// against an isolated temp directory instead of the shared on-disk library.
+    /// Production never sets this, so the default behavior is unchanged.
+    static var storageDirectoryOverride: URL?
+
     static func getPersistentStorageDirectory() -> URL {
+        if let override = storageDirectoryOverride { return override }
         let fileManager = FileManager.default
         return fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("BumpSetCut", isDirectory: true)

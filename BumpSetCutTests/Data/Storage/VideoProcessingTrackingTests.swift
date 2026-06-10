@@ -21,11 +21,15 @@ final class VideoProcessingTrackingTests: XCTestCase {
         tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try! FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
 
-        // Initialize MediaStore (uses its own persistent storage)
+        // Point MediaStore at the isolated temp dir so it doesn't read/write the
+        // shared on-disk library (state leaked across tests, causing "original not
+        // found" and orphan-tracking failures).
+        StorageManager.storageDirectoryOverride = tempDirectory
         mediaStore = MediaStore()
     }
 
     override func tearDown() {
+        StorageManager.storageDirectoryOverride = nil
         // Clean up temp directory
         try? FileManager.default.removeItem(at: tempDirectory)
         mediaStore = nil
@@ -100,8 +104,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
     func testAddProcessedVideo_CreatesCorrectMetadata() throws {
         // Create a test video file
         let originalVideoPath = tempDirectory.appendingPathComponent("original.mp4")
-        let testData = "test video data".data(using: .utf8)!
-        try testData.write(to: originalVideoPath)
+        try TestVideoFactory.writeVideo(to: originalVideoPath, duration: 1.0)
         
         // Add original video
         let originalAdded = mediaStore.addVideo(at: originalVideoPath, toFolder: "", customName: "Original Test")
@@ -116,8 +119,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
         
         // Create a processed video file
         let processedVideoPath = tempDirectory.appendingPathComponent("processed01 Original Test.mp4")
-        let processedData = "processed video data".data(using: .utf8)!
-        try processedData.write(to: processedVideoPath)
+        try TestVideoFactory.writeVideo(to: processedVideoPath, duration: 1.0)
         
         // Add processed video
         let processedAdded = mediaStore.addProcessedVideo(
@@ -154,8 +156,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
     func testAddProcessedVideo_HandlesMultipleProcessedVersions() throws {
         // Create original video
         let originalVideoPath = tempDirectory.appendingPathComponent("original.mp4")
-        let testData = "test video data".data(using: .utf8)!
-        try testData.write(to: originalVideoPath)
+        try TestVideoFactory.writeVideo(to: originalVideoPath, duration: 1.0)
         
         let originalAdded = mediaStore.addVideo(at: originalVideoPath, toFolder: "", customName: "Multi Test")
         XCTAssertTrue(originalAdded, "Should add original video")
@@ -164,7 +165,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
         
         // Add first processed version
         let processed1Path = tempDirectory.appendingPathComponent("processed01.mp4")
-        try testData.write(to: processed1Path)
+        try TestVideoFactory.writeVideo(to: processed1Path, duration: 1.0)
         
         let processed1Added = mediaStore.addProcessedVideo(
             at: processed1Path,
@@ -176,7 +177,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
         
         // Add second processed version
         let processed2Path = tempDirectory.appendingPathComponent("debug01.mp4")
-        try testData.write(to: processed2Path)
+        try TestVideoFactory.writeVideo(to: processed2Path, duration: 1.0)
         
         let processed2Added = mediaStore.addProcessedVideo(
             at: processed2Path,
@@ -201,8 +202,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
     func testAddProcessedVideo_WithNonExistentOriginal() throws {
         // Create a processed video file
         let processedVideoPath = tempDirectory.appendingPathComponent("orphan.mp4")
-        let testData = "orphan video data".data(using: .utf8)!
-        try testData.write(to: processedVideoPath)
+        try TestVideoFactory.writeVideo(to: processedVideoPath, duration: 1.0)
         
         // Try to add processed video with non-existent original ID
         let fakeOriginalId = UUID()

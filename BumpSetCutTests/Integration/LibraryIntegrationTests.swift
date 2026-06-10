@@ -17,9 +17,19 @@ final class LibraryIntegrationTests: XCTestCase {
     var searchViewModel: SearchViewModel!
     var cancellables: Set<AnyCancellable>!
     
+    private var storageDir: URL!
+
     override func setUp() async throws {
         try await super.setUp()
-        
+
+        // Isolate storage per test so the shared on-disk library doesn't leak
+        // state across tests/runs (the cause of the SavedGames-vs-Volleyball and
+        // count mismatches, and the nil force-unwrap crashes).
+        storageDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibIntegrationTest_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: storageDir, withIntermediateDirectories: true)
+        StorageManager.storageDirectoryOverride = storageDir
+
         // Initialize core components
         mediaStore = MediaStore()
         folderManager = FolderManager(mediaStore: mediaStore)
@@ -41,6 +51,9 @@ final class LibraryIntegrationTests: XCTestCase {
         uploadCoordinator = nil
         folderManager = nil
         mediaStore = nil
+        StorageManager.storageDirectoryOverride = nil
+        if let storageDir { try? FileManager.default.removeItem(at: storageDir) }
+        storageDir = nil
         try await super.tearDown()
         print("=== Integration Test Cleanup Complete ===")
     }
@@ -457,16 +470,16 @@ final class LibraryIntegrationTests: XCTestCase {
         for i in 0..<count {
             let fileName = "integration_test_video_\(i)_\(UUID().uuidString.prefix(8)).mp4"
             let testURL = documentsPath.appendingPathComponent(fileName)
-            
-            // Create minimal test file if it doesn't exist
+
+            // Write a REAL playable clip — addVideo reads duration via AVAsset, which
+            // returns nil for a text file and crashed on the downstream force-unwrap.
             if !FileManager.default.fileExists(atPath: testURL.path) {
-                let testData = "test video data".data(using: .utf8) ?? Data()
-                FileManager.default.createFile(atPath: testURL.path, contents: testData, attributes: nil)
+                _ = try? TestVideoFactory.writeVideo(to: testURL, duration: 1.0)
             }
-            
+
             urls.append(testURL)
         }
-        
+
         return urls
     }
 }
