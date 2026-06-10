@@ -591,10 +591,10 @@ final class PeekEdgeCaseTests: XCTestCase {
     }
 
     private func createTestVideoFile() throws -> URL {
+        // The VALID video used by recovery tests must be openable by AVFoundation;
+        // a text file isn't. (The corrupted/invalid helpers above stay intentionally bad.)
         let videoURL = tempDirectory.appendingPathComponent("edge_test_\(UUID().uuidString).mp4")
-        let testData = "edge case test video data".data(using: .utf8)!
-        try testData.write(to: videoURL)
-        return videoURL
+        return try TestVideoFactory.writeVideo(to: videoURL, duration: 1.0)
     }
 
     private enum CorruptionType {
