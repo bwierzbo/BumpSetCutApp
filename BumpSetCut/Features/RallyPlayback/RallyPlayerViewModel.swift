@@ -93,7 +93,7 @@ final class RallyPlayerViewModel {
         let addWatermark = SubscriptionService.shared.shouldAddWatermark
 
         isPreparingShare = true
-        Task {
+        let shareTask = Task {
             do {
                 let asset = AVURLAsset(url: originalURL)
                 let range = CMTimeRange(
@@ -112,6 +112,10 @@ final class RallyPlayerViewModel {
                 shareErrorMessage = error.localizedDescription
             }
         }
+        // Track so a mid-export dismiss cancels the work via cleanup() instead of
+        // leaving an export running with a strong self capture.
+        activeTasks.append(shareTask)
+        pruneCompletedTasks()
     }
 
     func stackPosition(for rallyIndex: Int) -> Int {
@@ -474,10 +478,14 @@ final class RallyPlayerViewModel {
             await preloadAdjacent()
 
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s
-
+            // Bail if cleanup() cancelled us during the sleep — `try?` swallows the
+            // CancellationError, so without this check a cancelled transition still
+            // mutates navigation/gesture state after the view is gone.
+            if Task.isCancelled { return }
             navigation.completeTransition()
 
             try? await Task.sleep(nanoseconds: 16_000_000)  // ~1 frame
+            if Task.isCancelled { return }
             gesture.swipeOffsetY = 0
         }
         activeTasks.append(navTask)
@@ -609,7 +617,9 @@ final class RallyPlayerViewModel {
             playerCache.setCurrentPlayer(for: url)
             seekToCurrentRallyStart()
             setupRallyLooping()
-            Task { await preloadAdjacent() }
+            let preloadTask = Task { await preloadAdjacent() }
+            activeTasks.append(preloadTask)
+            pruneCompletedTasks()
             playerCache.play()
         }
 
