@@ -130,10 +130,16 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let pageSize = 20
             let from = page * pageSize
             let to = from + pageSize - 1
+            // Strip PostgREST filter metacharacters before interpolating into `.or(...)`.
+            // Characters like , ( ) { } " \ have structural meaning in a filter string
+            // and would otherwise let a crafted query break out and rewrite the WHERE
+            // clause (PostgREST filter injection). `searchUsers` uses the parameterized
+            // `.ilike(pattern:)` API and needs no escaping; this `.or(...)` does.
+            let safeQuery = query.components(separatedBy: CharacterSet(charactersIn: ",(){}\"\\")).joined()
             let response: T = try await supabase
                 .from("highlights")
                 .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
-                .or("caption.ilike.%\(query)%,tags.cs.{\(query)},location_name.ilike.%\(query)%")
+                .or("caption.ilike.%\(safeQuery)%,tags.cs.{\(safeQuery)},location_name.ilike.%\(safeQuery)%")
                 .order("created_at", ascending: false)
                 .range(from: from, to: to)
                 .execute()

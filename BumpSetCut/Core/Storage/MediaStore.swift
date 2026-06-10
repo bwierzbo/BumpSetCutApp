@@ -386,11 +386,23 @@ struct FolderManifest: Codable {
         // Create base directory if it doesn't exist
         try? fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true, attributes: nil)
 
-        // Load or create manifest
-        if let data = try? Data(contentsOf: manifestURL),
-           let loadedManifest = try? JSONDecoder().decode(FolderManifest.self, from: data) {
-            self.manifest = loadedManifest
-            print("MediaStore: Loaded \(manifest.videos.count) videos, \(manifest.folders.count) folders")
+        // Load or create manifest.
+        // CRITICAL: distinguish "file missing" (genuine first launch) from "decode failed"
+        // on an existing file. Conflating them silently resets the user's entire library to
+        // empty AND overwrites the recoverable file. On decode failure we instead back up the
+        // unreadable manifest so it can be recovered, surface the error, then start fresh.
+        if fileManager.fileExists(atPath: manifestURL.path) {
+            do {
+                let data = try Data(contentsOf: manifestURL)
+                self.manifest = try JSONDecoder().decode(FolderManifest.self, from: data)
+                print("MediaStore: Loaded \(manifest.videos.count) videos, \(manifest.folders.count) folders")
+            } catch {
+                let backupURL = baseDirectory.appendingPathComponent("manifest.corrupt-\(Int(Date().timeIntervalSince1970)).json")
+                try? fileManager.copyItem(at: manifestURL, to: backupURL)
+                print("MediaStore: ERROR — manifest exists but failed to decode (\(error)). Backed up to \(backupURL.lastPathComponent) and starting with an empty manifest.")
+                self.manifest = FolderManifest()
+                saveManifest()
+            }
         } else {
             self.manifest = FolderManifest()
             print("MediaStore: Created new manifest")

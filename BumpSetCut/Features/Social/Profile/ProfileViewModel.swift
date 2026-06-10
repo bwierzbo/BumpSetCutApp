@@ -49,7 +49,9 @@ final class ProfileViewModel {
             let rows: [FollowRow] = try await apiClient.request(.checkFollowStatus(userId: userId))
             isFollowing = !rows.isEmpty
         } catch {
-            // Auth failure or network issue — don't break profile loading
+            // Don't break profile loading, but log — a swallowed decode failure here is
+            // exactly how the "always shows Follow" bug hid for so long.
+            print("⚠️ [ProfileViewModel] loadFollowStatus(\(userId)) failed: \(error)")
         }
     }
 
@@ -63,6 +65,7 @@ final class ProfileViewModel {
             }
             return true
         } catch {
+            print("⚠️ [ProfileViewModel] deleteHighlight(\(highlight.id)) failed: \(error)")
             return false
         }
     }

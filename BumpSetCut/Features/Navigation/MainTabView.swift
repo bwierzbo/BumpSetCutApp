@@ -157,8 +157,10 @@ struct MainTabView: View {
     /// Handle `bumpsetcut://highlight/<id>` by fetching the post and presenting it.
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "bumpsetcut", url.host == "highlight" else { return }
+        // Validate the path component is a real UUID before feeding external input to the
+        // backend — never pass arbitrary deep-link strings straight into a query.
         let id = url.lastPathComponent
-        guard !id.isEmpty, id != "highlight" else { return }
+        guard UUID(uuidString: id) != nil else { return }
         Task {
             if let highlight: Highlight = try? await SupabaseAPIClient.shared.request(.getHighlight(id: id)) {
                 deepLinkedHighlight = highlight

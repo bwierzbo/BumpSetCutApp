@@ -61,7 +61,9 @@ final class FollowListViewModel {
             }
             currentPage = 1
         } catch {
-            // Keep empty on failure
+            // Keep empty on failure, but never swallow silently — a decode/network
+            // failure must be visible, not indistinguishable from "no followers".
+            print("⚠️ [FollowListViewModel] loadInitial(\(mode)) failed: \(error)")
         }
 
         isLoading = false
@@ -89,7 +91,7 @@ final class FollowListViewModel {
             }
             currentPage += 1
         } catch {
-            // Silently fail pagination
+            print("⚠️ [FollowListViewModel] loadMore(\(mode)) page \(currentPage) failed: \(error)")
         }
     }
 }

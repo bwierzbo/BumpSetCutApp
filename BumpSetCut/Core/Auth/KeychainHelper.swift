@@ -17,7 +17,9 @@ enum KeychainHelper {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+            // ThisDeviceOnly: tokens never sync to iCloud Keychain or migrate off-device
+            // via encrypted backups, while still being available after first unlock.
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
 
         let status = SecItemAdd(query as CFDictionary, nil)

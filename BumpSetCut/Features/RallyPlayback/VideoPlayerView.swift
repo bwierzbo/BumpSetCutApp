@@ -130,5 +130,14 @@ private extension VideoPlayerView {
     func cleanupPlayer() {
         player?.pause()
         player = nil
+        // Release the audio session activated in setupPlayer. Leaving it active holds the
+        // system audio focus after dismissal, contradicting the app-wide design that avoids
+        // a persistent .playback session (see BumpSetCutApp note) and risking the keyboard
+        // stall regression documented there.
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("⚠️ Warning: Could not deactivate audio session: \(error)")
+        }
     }
 }

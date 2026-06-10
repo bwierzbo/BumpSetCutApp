@@ -94,7 +94,7 @@ final class SocialFeedViewModel {
             currentPage += 1
             await enrichPollVotes()
         } catch {
-            // Silently fail pagination — user can retry by scrolling
+            print("⚠️ [SocialFeedViewModel] loadMore page \(currentPage) failed: \(error)")
         }
     }
 
@@ -112,6 +112,7 @@ final class SocialFeedViewModel {
             highlights.removeAll { $0.id == highlight.id }
             return true
         } catch {
+            print("⚠️ [SocialFeedViewModel] deleteHighlight(\(highlight.id)) failed: \(error)")
             return false
         }
     }

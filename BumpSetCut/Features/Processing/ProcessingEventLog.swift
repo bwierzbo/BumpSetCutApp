@@ -37,10 +37,15 @@ struct ProcessingEvent: Codable, Sendable {
 // MARK: - Processing Event Log
 
 /// Append-only event collector for a single processing run.
-/// Not thread-safe — intended to be used from a single async context.
+/// Thread-safe: the event buffer is guarded by a lock, so the `Sendable` promise is
+/// honored even if the processing pipeline logs from a TaskGroup child or a frame callback.
 final class ProcessingEventLog: @unchecked Sendable {
-    private(set) var events: [ProcessingEvent] = []
+    private let lock = NSLock()
+    private var _events: [ProcessingEvent] = []
     private let startTime: CFAbsoluteTime
+
+    /// Snapshot of the events collected so far.
+    var events: [ProcessingEvent] { lock.withLock { _events } }
 
     init() {
         self.startTime = CFAbsoluteTimeGetCurrent()
@@ -52,12 +57,13 @@ final class ProcessingEventLog: @unchecked Sendable {
     }
 
     func log(_ type: ProcessingEvent.EventType, videoTime: Double? = nil, detail: String? = nil) {
-        events.append(ProcessingEvent(
+        let event = ProcessingEvent(
             timestamp: elapsed,
             videoTime: videoTime,
             type: type,
             detail: detail
-        ))
+        )
+        lock.withLock { _events.append(event) }
     }
 
     /// Convenience: log with CMTime video position.

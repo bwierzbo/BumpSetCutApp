@@ -128,7 +128,7 @@ final class SearchCommunityViewModel {
             }
             currentPage = 1
         } catch {
-            // Keep existing results on error
+            print("⚠️ [SearchCommunityViewModel] performSearch(\(searchScope)) failed: \(error)")
         }
 
         isLoading = false
@@ -162,7 +162,7 @@ final class SearchCommunityViewModel {
             }
             currentPage += 1
         } catch {
-            // Silently fail pagination
+            print("⚠️ [SearchCommunityViewModel] loadMore(\(searchScope)) page \(currentPage) failed: \(error)")
         }
     }
 
@@ -212,7 +212,7 @@ final class SearchCommunityViewModel {
                 followedUserIds.insert(row.followingId)
             }
         } catch {
-            // Auth failure — no follow state available
+            print("⚠️ [SearchCommunityViewModel] checkFollowStatus failed: \(error)")
         }
     }
 
