@@ -15,9 +15,21 @@ xcodebuild -project BumpSetCut.xcodeproj -scheme BumpSetCut build
 # Build for simulator
 xcodebuild -project BumpSetCut.xcodeproj -scheme BumpSetCut \
   -destination 'platform=iOS Simulator,name=iPhone 16 Pro' build
+
+# Run unit + UI tests
+xcodebuild test -project BumpSetCut.xcodeproj -scheme BumpSetCut \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+
+# Lint (requires swiftlint installed: brew install swiftlint)
+swiftlint
 ```
 
-No test framework currently - testing is done manually with sample videos.
+### Testing
+Two XCTest targets exist: **BumpSetCutTests** (unit) and **BumpSetCutUITests** (UI).
+Strongest coverage is the processing/CV domain (Kalman, ballistics, parabolic,
+rally decider, segment builder) and storage/models. Networking, uploads, and most
+view models are under-tested — use the existing `StubAPIClient` to add VM tests.
+Manual testing with sample videos still covers the end-to-end processing pipeline.
 
 ## Architecture
 
