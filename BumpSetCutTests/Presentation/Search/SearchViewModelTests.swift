@@ -14,22 +14,39 @@ final class SearchViewModelTests: XCTestCase {
     var mediaStore: MediaStore!
     var searchViewModel: SearchViewModel!
     var cancellables: Set<AnyCancellable>!
-    
+    private var storageDir: URL!
+
     override func setUp() async throws {
         try await super.setUp()
+        // Saved searches / history persist to shared UserDefaults; clear before the
+        // view model loads them so these tests don't see each other's (or prior runs') state.
+        UserDefaults.standard.removeObject(forKey: "SearchHistory")
+        UserDefaults.standard.removeObject(forKey: "SavedSearches")
+
+        // Isolate on-disk storage so search results aren't polluted across tests.
+        storageDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SearchViewModelTests_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: storageDir, withIntermediateDirectories: true)
+        StorageManager.storageDirectoryOverride = storageDir
+
         mediaStore = MediaStore()
         searchViewModel = SearchViewModel(mediaStore: mediaStore)
         cancellables = Set<AnyCancellable>()
-        
+
         // Add test data
         await setupTestData()
     }
-    
+
     override func tearDown() async throws {
         cancellables.forEach { $0.cancel() }
         cancellables = nil
         searchViewModel = nil
         mediaStore = nil
+        StorageManager.storageDirectoryOverride = nil
+        if let storageDir { try? FileManager.default.removeItem(at: storageDir) }
+        storageDir = nil
+        UserDefaults.standard.removeObject(forKey: "SearchHistory")
+        UserDefaults.standard.removeObject(forKey: "SavedSearches")
         try await super.tearDown()
     }
     
@@ -52,20 +69,22 @@ final class SearchViewModelTests: XCTestCase {
         ]
         
         for (fileName, folderPath, customName) in testVideos {
-            let testURL = createTestVideoURL(fileName: fileName)
+            let testURL = createTestVideoURL(fileName: fileName, folderPath: folderPath)
             _ = mediaStore.addVideo(at: testURL, toFolder: folderPath, customName: customName)
         }
     }
-    
-    private func createTestVideoURL(fileName: String) -> URL {
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let testURL = documentsPath.appendingPathComponent(fileName)
-        
-        // Create empty test file if it doesn't exist
+
+    private func createTestVideoURL(fileName: String, folderPath: String) -> URL {
+        // searchVideos only returns videos whose file exists at
+        // baseDirectory/folderPath/fileName, so place the fixture there.
+        let dir = mediaStore.baseDirectory.appendingPathComponent(folderPath)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let testURL = dir.appendingPathComponent(fileName)
+
         if !FileManager.default.fileExists(atPath: testURL.path) {
-            FileManager.default.createFile(atPath: testURL.path, contents: Data(), attributes: nil)
+            FileManager.default.createFile(atPath: testURL.path, contents: Data([0]), attributes: nil)
         }
-        
+
         return testURL
     }
     
@@ -451,26 +470,19 @@ final class SearchViewModelTests: XCTestCase {
     
     // MARK: - Performance Tests
     
-    func testSearchPerformance() async {
+    func testSearchPerformance() {
         // Add more test data for performance testing
         for i in 0..<100 {
-            let testURL = createTestVideoURL(fileName: "performance_test_\(i).mov")
+            let testURL = createTestVideoURL(fileName: "performance_test_\(i).mov", folderPath: "")
             _ = mediaStore.addVideo(at: testURL, toFolder: "", customName: "Performance Test Video \(i)")
         }
-        
+
+        // Measure the actual O(n) search work directly. The previous form wrapped the
+        // debounced reactive pipeline in measure{} (which repeats the block ~10x); on
+        // repeat iterations searchText didn't change, so the search never re-fired and
+        // the expectation timed out.
         measure {
-            let expectation = XCTestExpectation(description: "Performance search completes")
-            
-            searchViewModel.$searchResults
-                .dropFirst()
-                .sink { results in
-                    expectation.fulfill()
-                }
-                .store(in: &cancellables)
-            
-            searchViewModel.searchText = "performance"
-            
-            wait(for: [expectation], timeout: 1.0)
+            _ = mediaStore.searchVideos(query: "performance")
         }
     }
 }
