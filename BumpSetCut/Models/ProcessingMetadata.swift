@@ -157,6 +157,50 @@ struct ProcessingConfiguration: Codable {
     let minSmoothnessForRolling: Double
     let maxAccelerationForRolling: Double
 
+    /// Backwards-compatible decode: metadata files written before a field existed
+    /// would otherwise fail to decode (all properties are non-optional). Fall back to
+    /// the current ProcessorConfig defaults for any key missing from older JSON.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ProcessorConfig()
+        parabolaMinPoints = try c.decodeIfPresent(Int.self, forKey: .parabolaMinPoints) ?? d.parabolaMinPoints
+        parabolaMinR2 = try c.decodeIfPresent(Double.self, forKey: .parabolaMinR2) ?? d.parabolaMinR2
+        accelConsistencyMaxStd = try c.decodeIfPresent(Double.self, forKey: .accelConsistencyMaxStd) ?? d.accelConsistencyMaxStd
+        minVelocityToConsiderActive = try c.decodeIfPresent(Double.self, forKey: .minVelocityToConsiderActive) ?? Double(d.minVelocityToConsiderActive)
+        projectileWindowSec = try c.decodeIfPresent(Double.self, forKey: .projectileWindowSec) ?? d.projectileWindowSec
+        useGravityBand = try c.decodeIfPresent(Bool.self, forKey: .useGravityBand) ?? d.useGravityBand
+        gravityMinA = try c.decodeIfPresent(Double.self, forKey: .gravityMinA) ?? Double(d.gravityMinA)
+        gravityMaxA = try c.decodeIfPresent(Double.self, forKey: .gravityMaxA) ?? Double(d.gravityMaxA)
+        yIncreasingDown = try c.decodeIfPresent(Bool.self, forKey: .yIncreasingDown) ?? d.yIncreasingDown
+        maxJumpPerFrame = try c.decodeIfPresent(Double.self, forKey: .maxJumpPerFrame) ?? Double(d.maxJumpPerFrame)
+        roiYRadius = try c.decodeIfPresent(Double.self, forKey: .roiYRadius) ?? Double(d.roiYRadius)
+        trackGateRadius = try c.decodeIfPresent(Double.self, forKey: .trackGateRadius) ?? Double(d.trackGateRadius)
+        minTrackAgeForPhysics = try c.decodeIfPresent(Int.self, forKey: .minTrackAgeForPhysics) ?? d.minTrackAgeForPhysics
+        startBuffer = try c.decodeIfPresent(Double.self, forKey: .startBuffer) ?? d.startBuffer
+        endTimeout = try c.decodeIfPresent(Double.self, forKey: .endTimeout) ?? d.endTimeout
+        preroll = try c.decodeIfPresent(Double.self, forKey: .preroll) ?? d.preroll
+        postroll = try c.decodeIfPresent(Double.self, forKey: .postroll) ?? d.postroll
+        minGapToMerge = try c.decodeIfPresent(Double.self, forKey: .minGapToMerge) ?? d.minGapToMerge
+        minSegmentLength = try c.decodeIfPresent(Double.self, forKey: .minSegmentLength) ?? d.minSegmentLength
+        enableEnhancedPhysics = try c.decodeIfPresent(Bool.self, forKey: .enableEnhancedPhysics) ?? d.enableEnhancedPhysics
+        enhancedMinR2 = try c.decodeIfPresent(Double.self, forKey: .enhancedMinR2) ?? d.enhancedMinR2
+        excellentR2Threshold = try c.decodeIfPresent(Double.self, forKey: .excellentR2Threshold) ?? d.excellentR2Threshold
+        goodR2Threshold = try c.decodeIfPresent(Double.self, forKey: .goodR2Threshold) ?? d.goodR2Threshold
+        acceptableR2Threshold = try c.decodeIfPresent(Double.self, forKey: .acceptableR2Threshold) ?? d.acceptableR2Threshold
+        enablePhysicsConstraints = try c.decodeIfPresent(Bool.self, forKey: .enablePhysicsConstraints) ?? d.enablePhysicsConstraints
+        maxAccelerationDeviation = try c.decodeIfPresent(Double.self, forKey: .maxAccelerationDeviation) ?? d.maxAccelerationDeviation
+        velocityConsistencyThreshold = try c.decodeIfPresent(Double.self, forKey: .velocityConsistencyThreshold) ?? d.velocityConsistencyThreshold
+        trajectorySmoothnessThreshold = try c.decodeIfPresent(Double.self, forKey: .trajectorySmoothnessThreshold) ?? d.trajectorySmoothnessThreshold
+        movementClassifierEnabled = try c.decodeIfPresent(Bool.self, forKey: .movementClassifierEnabled) ?? d.movementClassifierEnabled
+        minClassificationConfidence = try c.decodeIfPresent(Double.self, forKey: .minClassificationConfidence) ?? d.minClassificationConfidence
+        airbornePhysicsThreshold = try c.decodeIfPresent(Double.self, forKey: .airbornePhysicsThreshold) ?? d.airbornePhysicsThreshold
+        minAccelerationPattern = try c.decodeIfPresent(Double.self, forKey: .minAccelerationPattern) ?? d.minAccelerationPattern
+        minSmoothnessForAirborne = try c.decodeIfPresent(Double.self, forKey: .minSmoothnessForAirborne) ?? d.minSmoothnessForAirborne
+        maxVerticalMotionForRolling = try c.decodeIfPresent(Double.self, forKey: .maxVerticalMotionForRolling) ?? d.maxVerticalMotionForRolling
+        minSmoothnessForRolling = try c.decodeIfPresent(Double.self, forKey: .minSmoothnessForRolling) ?? d.minSmoothnessForRolling
+        maxAccelerationForRolling = try c.decodeIfPresent(Double.self, forKey: .maxAccelerationForRolling) ?? d.maxAccelerationForRolling
+    }
+
     init(from config: ProcessorConfig) {
         self.parabolaMinPoints = config.parabolaMinPoints
         self.parabolaMinR2 = config.parabolaMinR2

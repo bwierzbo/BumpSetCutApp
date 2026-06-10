@@ -85,8 +85,14 @@ final class MediaStoreSearchTests: XCTestCase {
         let testURL = dir.appendingPathComponent(fileName)
 
         if !FileManager.default.fileExists(atPath: testURL.path) {
-            let testData = Data(count: Int(min(fileSize, 1024))) // Don't actually create huge files
-            FileManager.default.createFile(atPath: testURL.path, contents: testData, attributes: nil)
+            FileManager.default.createFile(atPath: testURL.path, contents: Data([0]), attributes: nil)
+            // Sparse-resize to the declared size so MediaStore records the intended
+            // fileSize (exercised by the size-filter search tests) without actually
+            // writing gigabytes to disk.
+            if let handle = try? FileHandle(forWritingTo: testURL) {
+                try? handle.truncate(atOffset: UInt64(max(0, fileSize)))
+                try? handle.close()
+            }
         }
 
         return testURL

@@ -321,7 +321,9 @@ final class ProcessingMetadataTests: XCTestCase {
         // Test time range
         let timeRange = segment.timeRange
         XCTAssertEqual(CMTimeGetSeconds(timeRange.start), 15.5, accuracy: 0.001, "Time range start should match")
-        XCTAssertEqual(CMTimeGetSeconds(timeRange.duration), 17.3, accuracy: 0.001, "Time range duration should match")
+        // duration is derived from independent Double->CMTime rounding of start/end, so it
+        // can be ~1/600s (one timescale tick) off 17.3 — sub-frame, not a real error.
+        XCTAssertEqual(CMTimeGetSeconds(timeRange.duration), 17.3, accuracy: 0.01, "Time range duration should match")
     }
 
     func testRallySegmentJSONEncoding() throws {

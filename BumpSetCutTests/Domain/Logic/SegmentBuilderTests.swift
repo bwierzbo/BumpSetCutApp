@@ -48,8 +48,9 @@ final class SegmentBuilderTests: XCTestCase {
     func testBasicSegmentWithPrePostRoll() {
         let builder = SegmentBuilder(config: config)
 
-        // Observe active from 5s to 10s (5s rally, above shortSegmentThreshold)
-        for i in 0...150 {
+        // Observe active from 5s to 10s (5s rally, above shortSegmentThreshold).
+        // Loop must run past 10s so the rally actually closes (t = i/30, so i=360 -> 12s).
+        for i in 0...360 {
             let t = Double(i) * (1.0 / 30.0)
             builder.observe(isActive: t >= 5.0 && t <= 10.0, at: time(t))
         }
@@ -77,7 +78,8 @@ final class SegmentBuilderTests: XCTestCase {
 
         // A rally of only 2.0s (below shortSegmentThreshold of 2.5s)
         // Pre-roll should be capped to maxPrerollForShort (0.5s) instead of config.preroll (2.0s)
-        for i in 0...120 {
+        // Loop must run past 7s so the rally closes (i=240 -> t=8s).
+        for i in 0...240 {
             let t = Double(i) * (1.0 / 30.0)
             builder.observe(isActive: t >= 5.0 && t <= 7.0, at: time(t))
         }
@@ -160,20 +162,22 @@ final class SegmentBuilderTests: XCTestCase {
     func testMultipleSegmentsVaryingGaps() {
         let builder = SegmentBuilder(config: config)
 
-        // Three segments with gaps:
-        // A: 2-5s, gap 0.1s (merge), B: 5.1-8s, gap 2.0s (keep separate), C: 10-13s
-        for i in 0...400 {
+        // Three rallies:
+        //   A: 2-5s, B: 5.1-8s (0.1s gap -> merge with A after padding),
+        //   C: 12-15s. C's gap from B must exceed preroll+postroll+minGap
+        //   (2.0+0.5+0.3 = 2.8s) to stay separate, since C's 2.0s pre-roll otherwise
+        //   reaches back into B's post-roll. A 4.0s raw gap clears that. (i=480 -> t=16s)
+        for i in 0...480 {
             let t = Double(i) * (1.0 / 30.0)
             let active = (t >= 2.0 && t <= 5.0) ||
                          (t >= 5.1 && t <= 8.0) ||
-                         (t >= 10.0 && t <= 13.0)
+                         (t >= 12.0 && t <= 15.0)
             builder.observe(isActive: active, at: time(t))
         }
 
         let segments = builder.finalize(until: time(20.0))
 
-        // A and B should merge (gap 0.1s < minGapToMerge 0.3s after padding)
-        // C should be separate (gap ~2.0s >> minGapToMerge)
+        // A and B merge (0.1s gap < minGapToMerge after padding); C stays separate.
         XCTAssertEqual(segments.count, 2,
                        "Should produce 2 segments: A+B merged, C separate")
     }
