@@ -68,7 +68,11 @@ final class ParabolicValidatorTests: XCTestCase {
         let result = validator.validateTrajectory(positions)
         
         XCTAssertFalse(result.isValid, "Linear trajectory should be invalid for projectile motion")
-        XCTAssertLessThan(result.r2Correlation, 0.7, "Linear movement should have poor parabolic correlation")
+        // A line is a *perfect* degenerate quadratic fit (a≈0), so R² is legitimately
+        // ~1.0 — it's the near-zero curvature, not the correlation, that makes it invalid.
+        if let coeffs = result.parabolicCoefficients {
+            XCTAssertLessThan(abs(coeffs.a), 0.001, "Linear movement should have ~zero parabolic curvature")
+        }
         XCTAssertEqual(result.curvatureDirection, .invalid, "Linear movement should have invalid curvature")
     }
     
@@ -304,16 +308,26 @@ final class ParabolicValidatorTests: XCTestCase {
     private func createErraticTrajectory(steps: Int) -> [(CGPoint, CMTime)] {
         var positions: [(CGPoint, CMTime)] = []
         var currentPoint = CGPoint(x: 0, y: 5)
-        
+
+        // Deterministic erratic offsets (was CGFloat.random, which made the
+        // "poor fit / poor velocity consistency" assertions flaky — random points
+        // occasionally fit a parabola well). Magnitudes alternate between tiny and
+        // huge so velocity consistency is reliably poor, and the y path zigzags so the
+        // parabolic R² stays low.
+        let offsets: [(CGFloat, CGFloat)] = [
+            (0.3, 0.4), (8, -12), (0.2, 0.3), (-13, 5), (0.4, -0.2), (9, 11),
+            (0.1, 0.5), (-14, -6), (0.3, 0.2), (10, -10), (0.2, 0.4), (-12, 7),
+            (0.5, -0.3), (11, 9), (0.1, 0.2)
+        ]
+
         for i in 0..<steps {
-            let randomDx = CGFloat.random(in: -2...2)
-            let randomDy = CGFloat.random(in: -2...2)
-            currentPoint = CGPoint(x: currentPoint.x + randomDx, y: currentPoint.y + randomDy)
-            
+            let o = offsets[i % offsets.count]
+            currentPoint = CGPoint(x: currentPoint.x + o.0, y: currentPoint.y + o.1)
+
             let time = CMTimeMakeWithSeconds(Double(i) * 0.1, preferredTimescale: 600)
             positions.append((currentPoint, time))
         }
-        
+
         return positions
     }
 }

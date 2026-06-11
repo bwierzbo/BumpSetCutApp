@@ -123,13 +123,11 @@ struct ParabolicValidator {
         if abs(a) < config.minParabolicCurvature {
             return .invalid
         }
-        
-        switch config.gravityDirection {
-        case .down:
-            return a > 0 ? .upward : .downward
-        case .up:
-            return a > 0 ? .downward : .upward
-        }
+        // Which way the parabola opens is purely geometric — it depends on the sign of
+        // the quadratic coefficient, NOT on the configured gravity direction. (Whether
+        // that opening direction is the *expected* one for the gravity config is decided
+        // separately in validatePhysicsConstraints.)
+        return a > 0 ? .upward : .downward
     }
     
     private func validatePhysicsConstraints(_ fitResult: QuadraticFitResult, _ curvatureDirection: ValidationResult.CurvatureDirection) -> Bool {
