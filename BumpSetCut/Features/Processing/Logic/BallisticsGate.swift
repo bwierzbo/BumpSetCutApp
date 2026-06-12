@@ -212,7 +212,20 @@ final class BallisticsGate {
         // stationary ball — tiny span — no longer counts as motion).
         let motionEvidence = (maxSpeed >= minSpeed) || (hasApex && spanY >= minSpan)
 
-        let accept = r2OK && curvatureOK && curvatureMagOK && gravityBandOK && (spanY >= minSpan) && motionEvidence
+        var accept = r2OK && curvatureOK && curvatureMagOK && gravityBandOK && (spanY >= minSpan) && motionEvidence
+
+        // Rolling-ball veto. A smooth ground roll can fake every numeric check above:
+        // a sloped roll is ~linear and a line is a perfect degenerate parabola (R² ≈ 1);
+        // perspective slope supplies spanY; detection-noise wobble supplies spurious
+        // apexes and curvature beyond the tiny magnitude floor. What a roll can never
+        // fake is a gravity-signature acceleration — the movement classifier keys on
+        // exactly that, so reject windows it confidently identifies as rolling.
+        if accept && config.movementClassifierEnabled {
+            let classification = movementClassifier.classifyMovement(positions: samples)
+            if classification.movementType == .rolling {
+                accept = false
+            }
+        }
 
         return ValidationResult(
             isValid: accept,

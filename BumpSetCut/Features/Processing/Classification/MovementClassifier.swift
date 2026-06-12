@@ -19,7 +19,13 @@ final class MovementClassifier {
     
     /// Classify movement type for a tracked ball trajectory
     func classifyMovement(_ trackedBall: KalmanBallTracker.TrackedBall) -> MovementClassification {
-        guard trackedBall.positions.count >= config.minPointsRequired else {
+        classifyMovement(positions: trackedBall.positions)
+    }
+
+    /// Classify a raw position window (used by BallisticsGate to classify the same
+    /// time-windowed samples its other checks operate on).
+    func classifyMovement(positions: [(CGPoint, CMTime)]) -> MovementClassification {
+        guard positions.count >= config.minPointsRequired else {
             return MovementClassification(
                 movementType: .unknown,
                 confidence: 0.0,
@@ -33,22 +39,20 @@ final class MovementClassifier {
             )
         }
         
-        let details = analyzeTrajectoryDetails(trackedBall)
+        let details = analyzeTrajectoryDetails(positions)
         let movementType = determineMovementType(details)
         let confidence = calculateConfidence(movementType, details)
-        
+
         return MovementClassification(
             movementType: movementType,
             confidence: confidence,
             details: details
         )
     }
-    
+
     // MARK: - Private Analysis Methods
-    
-    private func analyzeTrajectoryDetails(_ trackedBall: KalmanBallTracker.TrackedBall) -> ClassificationDetails {
-        let positions = trackedBall.positions
-        
+
+    private func analyzeTrajectoryDetails(_ positions: [(CGPoint, CMTime)]) -> ClassificationDetails {
         let velocityConsistency = calculateVelocityConsistency(positions)
         let accelerationPattern = calculateAccelerationPattern(positions)
         let smoothnessScore = calculateSmoothnessScore(positions)
