@@ -482,9 +482,20 @@ final class VideoProcessor {
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
             segments.observe(isActive: isActive, at: pts)
 
-            // Log rally state transitions
+            // Log rally state transitions, including gate physics metrics so field
+            // false-positives (rolling/carried balls) can be diagnosed from the event log.
             if isActive && !previousRallyActive {
-                eventLog.log(.rallyStarted, at: pts, detail: "hasBall=\(hasBall), isProjectile=\(isProjectile)")
+                var detail = "hasBall=\(hasBall), isProjectile=\(isProjectile)"
+                if let gr = gateResult {
+                    detail += String(format: ", r2=%.2f", gr.rSquared)
+                    if let sig = gr.gravitySignature {
+                        detail += String(format: ", gravSig=%.2f", sig)
+                    }
+                    if let type = gr.movementType {
+                        detail += ", class=\(type.rawValue)"
+                    }
+                }
+                eventLog.log(.rallyStarted, at: pts, detail: detail)
             } else if !isActive && previousRallyActive {
                 eventLog.log(.rallyEnded, at: pts, detail: "hasBall=\(hasBall), isProjectile=\(isProjectile)")
             }

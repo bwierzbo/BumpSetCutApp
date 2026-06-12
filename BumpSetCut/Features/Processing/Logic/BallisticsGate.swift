@@ -18,6 +18,10 @@ final class BallisticsGate {
         let hasMotionEvidence: Bool
         let positionJumpsValid: Bool
         let confidenceLevel: Double
+        // Populated by the legacy path when the movement-classifier veto runs;
+        // surfaced in rally-start event logs for field diagnosis of false positives.
+        var gravitySignature: Double? = nil
+        var movementType: MovementType? = nil
     }
 
     private let config: ProcessorConfig
@@ -214,15 +218,23 @@ final class BallisticsGate {
 
         var accept = r2OK && curvatureOK && curvatureMagOK && gravityBandOK && (spanY >= minSpan) && motionEvidence
 
-        // Rolling-ball veto. A smooth ground roll can fake every numeric check above:
-        // a sloped roll is ~linear and a line is a perfect degenerate parabola (R² ≈ 1);
-        // perspective slope supplies spanY; detection-noise wobble supplies spurious
-        // apexes and curvature beyond the tiny magnitude floor. What a roll can never
-        // fake is a gravity-signature acceleration — the movement classifier keys on
-        // exactly that, so reject windows it confidently identifies as rolling.
+        // Supported-ball veto. A smooth ground roll or a ball carried/walked across the
+        // court can fake every numeric check above: a sloped path is ~linear and a line is
+        // a perfect degenerate parabola (R² ≈ 1); perspective slope supplies spanY;
+        // noise wobble or walking bob supplies spurious apexes and curvature beyond the
+        // tiny magnitude floor. What a supported ball can never fake is a gravity
+        // signature: free flight has sustained, consistently-downward acceleration, while
+        // rolled/carried balls have negligible or direction-alternating acceleration.
+        // Require the signature itself rather than vetoing specific class labels —
+        // real-world rolls/carries land in .carried or .unknown as often as .rolling.
+        var gravitySignature: Double? = nil
+        var movementType: MovementType? = nil
         if accept && config.movementClassifierEnabled {
             let classification = movementClassifier.classifyMovement(positions: samples)
-            if classification.movementType == .rolling {
+            gravitySignature = classification.details.accelerationPattern
+            movementType = classification.movementType
+            if classification.movementType == .rolling ||
+               classification.details.accelerationPattern < config.minGravitySignature {
                 accept = false
             }
         }
@@ -233,7 +245,9 @@ final class BallisticsGate {
             curvatureDirectionValid: curvatureOK,
             hasMotionEvidence: motionEvidence,
             positionJumpsValid: true,
-            confidenceLevel: accept ? min(1.0, fit.r2) : 0
+            confidenceLevel: accept ? min(1.0, fit.r2) : 0,
+            gravitySignature: gravitySignature,
+            movementType: movementType
         )
     }
     
