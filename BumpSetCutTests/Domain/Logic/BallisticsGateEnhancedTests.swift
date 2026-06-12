@@ -448,8 +448,12 @@ final class BallisticsGateEnhancedTests: XCTestCase {
         for i in 0..<steps {
             let t = Double(i) * timeStep
             let x = startPoint.x + initialVelocity.dx * CGFloat(t)
-            let y = startPoint.y + initialVelocity.dy * CGFloat(t) + CGFloat(0.5 * gravity * t * t)
-            
+            // Production runs with yIncreasingDown = false, so a valid projectile's
+            // vertical fit has NEGATIVE curvature (a < 0). The old fixtures added gravity
+            // (a > 0), the opposite convention, so the gate correctly rejected them.
+            // Subtract to match the coordinate convention the real pipeline uses.
+            let y = startPoint.y + initialVelocity.dy * CGFloat(t) - CGFloat(0.5 * gravity * t * t)
+
             let time = CMTimeMakeWithSeconds(t, preferredTimescale: 600)
             positions.append((CGPoint(x: x, y: y), time))
         }
