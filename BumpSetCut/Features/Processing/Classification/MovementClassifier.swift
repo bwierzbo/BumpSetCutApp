@@ -97,52 +97,60 @@ final class MovementClassifier {
         return min(1.0, coefficientOfVariation)
     }
     
+    /// Gravity-likeness of the acceleration: high when the trajectory has a meaningful,
+    /// consistently-directed acceleration (gravity), low when acceleration is negligible
+    /// (constant-velocity straight line) OR points in erratically changing directions
+    /// (a bumped/zigzag ball).
+    ///
+    /// The previous implementation measured only the *consistency of acceleration
+    /// magnitude*, which scored a constant-velocity line (zero acceleration → zero
+    /// variance) as a perfect 1.0 while a real but gentle serve (small, slightly noisy
+    /// acceleration) scored 0.0 — exactly backwards. Direction alignment + a meaningful-
+    /// magnitude gate fixes that without depending on coordinate orientation (it uses
+    /// the acceleration vectors directly, so y-up vs y-down is irrelevant).
     private func calculateAccelerationPattern(_ positions: [(CGPoint, CMTime)]) -> Double {
         guard positions.count >= 4 else { return 0.0 }
-        
-        var accelerations: [Double] = []
-        
+
+        var accelVectors: [CGVector] = []
+
         for i in 2..<positions.count {
             let (p1, t1) = positions[i-2]
             let (p2, t2) = positions[i-1]
             let (p3, t3) = positions[i]
-            
+
             let dt1 = CMTimeGetSeconds(CMTimeSubtract(t2, t1))
             let dt2 = CMTimeGetSeconds(CMTimeSubtract(t3, t2))
             guard dt1 > 0 && dt2 > 0 else { continue }
-            
-            // Calculate velocities
-            let v1 = CGVector(
-                dx: (p2.x - p1.x) / CGFloat(dt1),
-                dy: (p2.y - p1.y) / CGFloat(dt1)
-            )
-            let v2 = CGVector(
-                dx: (p3.x - p2.x) / CGFloat(dt2),
-                dy: (p3.y - p2.y) / CGFloat(dt2)
-            )
-            
-            // Calculate acceleration
+
+            let v1 = CGVector(dx: (p2.x - p1.x) / CGFloat(dt1), dy: (p2.y - p1.y) / CGFloat(dt1))
+            let v2 = CGVector(dx: (p3.x - p2.x) / CGFloat(dt2), dy: (p3.y - p2.y) / CGFloat(dt2))
+
             let dtAvg = (dt1 + dt2) / 2.0
-            let accel = CGVector(
+            accelVectors.append(CGVector(
                 dx: (v2.dx - v1.dx) / CGFloat(dtAvg),
                 dy: (v2.dy - v1.dy) / CGFloat(dtAvg)
-            )
-            
-            let magnitude = sqrt(Double(accel.dx * accel.dx + accel.dy * accel.dy))
-            accelerations.append(magnitude)
+            ))
         }
-        
-        guard !accelerations.isEmpty else { return 0.0 }
-        
-        // Parabolic motion should have relatively consistent downward acceleration
-        let mean = accelerations.reduce(0, +) / Double(accelerations.count)
-        let variance = accelerations.reduce(0) { sum, a in
-            let diff = a - mean
-            return sum + diff * diff
-        } / Double(accelerations.count)
-        
-        let consistency = 1.0 - min(1.0, sqrt(variance) / max(0.001, mean))
-        return max(0.0, consistency)
+
+        guard !accelVectors.isEmpty else { return 0.0 }
+
+        let magnitudes = accelVectors.map { sqrt(Double($0.dx * $0.dx + $0.dy * $0.dy)) }
+        let meanMagnitude = magnitudes.reduce(0, +) / Double(magnitudes.count)
+
+        // Gate on meaningful acceleration: a constant-velocity path has ~zero
+        // acceleration and is NOT a projectile, regardless of how "consistent" that
+        // zero is. Coordinates are normalized (0-1), so this is a small absolute floor.
+        guard meanMagnitude >= config.minMeaningfulAcceleration else { return 0.0 }
+
+        // Direction alignment: gravity acceleration points consistently one way, so the
+        // mean acceleration vector's magnitude ≈ the mean of the magnitudes. Erratic
+        // (oscillating) acceleration cancels out, shrinking the mean-vector magnitude.
+        let sumX = accelVectors.reduce(0.0) { $0 + Double($1.dx) }
+        let sumY = accelVectors.reduce(0.0) { $0 + Double($1.dy) }
+        let meanVectorMagnitude = sqrt(sumX * sumX + sumY * sumY) / Double(accelVectors.count)
+        let alignment = meanVectorMagnitude / max(0.0001, meanMagnitude)
+
+        return max(0.0, min(1.0, alignment))
     }
     
     private func calculateSmoothnessScore(_ positions: [(CGPoint, CMTime)]) -> Double {
@@ -205,10 +213,14 @@ final class MovementClassifier {
             return .airborne
         }
         
-        // Rolling: Low vertical motion, high smoothness but poor acceleration pattern
+        // Rolling: low vertical motion, smooth, poor acceleration pattern — AND actually
+        // moving with a consistent velocity (a stationary blob also has ~zero acceleration
+        // and high smoothness, but its velocity is degenerate/inconsistent → that's carried,
+        // not rolling).
         if details.verticalMotionScore < config.maxVerticalForRolling &&
            details.smoothnessScore >= config.minSmoothnessForRolling &&
-           details.accelerationPattern < config.maxAccelerationForRolling {
+           details.accelerationPattern < config.maxAccelerationForRolling &&
+           details.velocityConsistency < config.minInconsistencyForCarried {
             return .rolling
         }
         
@@ -261,6 +273,10 @@ struct ClassificationConfig {
     var airborneThreshold: Double = 0.7
     var minAccelerationPattern: Double = 0.6
     var minSmoothness: Double = 0.6
+    // Minimum mean acceleration magnitude (normalized coords) for a trajectory to count
+    // as having a gravity signature. Below this it's treated as constant-velocity (a
+    // straight line / rolling), never airborne.
+    var minMeaningfulAcceleration: Double = 0.05
 
     // Rolling thresholds
     var maxVerticalForRolling: Double = 0.3
