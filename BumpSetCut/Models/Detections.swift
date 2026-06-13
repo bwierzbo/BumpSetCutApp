@@ -174,11 +174,12 @@ struct ProcessorConfig {
     var movementClassifierEnabled: Bool = true
     var minClassificationConfidence: Double = 0.7
 
-    /// Minimum gravity-signature (direction-aligned acceleration) score for a window to
-    /// count as projectile evidence in the rally gate. Free flight always shows sustained,
-    /// consistently-downward acceleration (synthetic flights score 0.84–1.0); supported
-    /// balls — rolled, carried, walked — show negligible or direction-alternating
-    /// acceleration (≈0.0–0.1). Used only when movementClassifierEnabled is true.
+    /// Gravity-signature (direction-aligned acceleration) floor used by the rally gate's
+    /// supported-ball veto. Only applied to FLAT windows (vertical-motion score below
+    /// maxVerticalMotionForRolling) so it can't veto an arcing serve/rally whose
+    /// instantaneous signature dips at the impulsive start or a mid-rally contact. Free
+    /// flight scores high (synthetic ~0.84–1.0); a low, supported ball scores ~0.0–0.1.
+    /// Used only when movementClassifierEnabled is true.
     var minGravitySignature: Double = 0.3
     
     /// Airborne detection parameters

@@ -218,23 +218,28 @@ final class BallisticsGate {
 
         var accept = r2OK && curvatureOK && curvatureMagOK && gravityBandOK && (spanY >= minSpan) && motionEvidence
 
-        // Supported-ball veto. A smooth ground roll or a ball carried/walked across the
-        // court can fake every numeric check above: a sloped path is ~linear and a line is
-        // a perfect degenerate parabola (R² ≈ 1); perspective slope supplies spanY;
-        // noise wobble or walking bob supplies spurious apexes and curvature beyond the
-        // tiny magnitude floor. What a supported ball can never fake is a gravity
-        // signature: free flight has sustained, consistently-downward acceleration, while
-        // rolled/carried balls have negligible or direction-alternating acceleration.
-        // Require the signature itself rather than vetoing specific class labels —
-        // real-world rolls/carries land in .carried or .unknown as often as .rolling.
+        // Supported-ball veto. A ground roll fakes every numeric check above: a sloped
+        // path is ~linear and a line is a perfect degenerate parabola (R² ≈ 1); perspective
+        // slope supplies spanY; noise wobble supplies spurious apexes and curvature beyond
+        // the tiny magnitude floor.
+        //
+        // The veto fires only when the motion is BOTH flat (little vertical travel) AND
+        // lacks a gravity signature (no sustained, consistently-downward acceleration).
+        // That pair is specific to a supported ball staying near the floor. Crucially it
+        // never touches a serve or rally: those arc, so their vertical-motion score is high
+        // and the flat gate is false — even at the impulsive serve start or a mid-rally
+        // contact, where the instantaneous gravity signature briefly dips. (A raw signature
+        // floor alone wrongly vetoed those and split rallies.) The explicit .rolling label
+        // is OR'd in as it already implies low-vertical, no-gravity motion.
         var gravitySignature: Double? = nil
         var movementType: MovementType? = nil
         if accept && config.movementClassifierEnabled {
             let classification = movementClassifier.classifyMovement(positions: samples)
             gravitySignature = classification.details.accelerationPattern
             movementType = classification.movementType
-            if classification.movementType == .rolling ||
-               classification.details.accelerationPattern < config.minGravitySignature {
+            let isFlat = classification.details.verticalMotionScore < config.maxVerticalMotionForRolling
+            let noGravity = classification.details.accelerationPattern < config.minGravitySignature
+            if classification.movementType == .rolling || (isFlat && noGravity) {
                 accept = false
             }
         }
