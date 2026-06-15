@@ -12,6 +12,7 @@ struct ProcessVideoView: View {
     // MARK: - Properties
     @State private var viewModel: ProcessVideoViewModel
     @State private var hasAppeared = false
+    @State private var showReprocessConfirm = false
     @Environment(\.dismiss) private var dismiss
 
     init(videoURL: URL, mediaStore: MediaStore, folderPath: String, onComplete: @escaping () -> Void) {
@@ -667,10 +668,26 @@ private extension ProcessVideoView {
     }
 
     var reviewModeButtons: some View {
-        BSCButton(title: "View Rallies", icon: "play.fill", style: .primary, size: .large) {
-            viewModel.showRallyPlayer = true
+        VStack(spacing: BSCSpacing.md) {
+            BSCButton(title: "View Rallies", icon: "play.fill", style: .primary, size: .large) {
+                viewModel.showRallyPlayer = true
+            }
+            .accessibilityIdentifier(AccessibilityID.Process.viewRallies)
+
+            // Dev tool (gated behind Debug Features): re-run detection on the full video
+            // after updating the model. Deletes the current rallies first.
+            if AppSettings.shared.enableDebugFeatures {
+                BSCButton(title: "Reprocess Video", icon: "arrow.clockwise", style: .secondary, size: .medium) {
+                    showReprocessConfirm = true
+                }
+                .confirmationDialog("Reprocess this video?", isPresented: $showReprocessConfirm, titleVisibility: .visible) {
+                    Button("Delete rallies & reprocess", role: .destructive) { viewModel.reprocess() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This deletes the current rallies and runs detection again on the full video.")
+                }
+            }
         }
-        .accessibilityIdentifier(AccessibilityID.Process.viewRallies)
     }
 }
 

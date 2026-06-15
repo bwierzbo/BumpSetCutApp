@@ -33,37 +33,6 @@ enum LibraryType: String, Codable, CaseIterable {
     }
 }
 
-// MARK: - Storage Utilities
-
-struct StorageManager {
-    /// Test seam: when non-nil, overrides the storage location so tests can run
-    /// against an isolated temp directory instead of the shared on-disk library.
-    /// Production never sets this, so the default behavior is unchanged.
-    static var storageDirectoryOverride: URL?
-
-    static func getPersistentStorageDirectory() -> URL {
-        if let override = storageDirectoryOverride { return override }
-        let fileManager = FileManager.default
-        return fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("BumpSetCut", isDirectory: true)
-    }
-    
-    static func verifyStorageIntegrity() {
-        let baseDir = getPersistentStorageDirectory()
-        let fileManager = FileManager.default
-
-        guard fileManager.fileExists(atPath: baseDir.path) else {
-            print("StorageManager: ⚠️ Storage directory missing at \(baseDir.path)")
-            return
-        }
-
-        if (try? fileManager.contentsOfDirectory(atPath: baseDir.path)) == nil {
-            print("StorageManager: ⚠️ Failed to read storage directory \(baseDir.path)")
-        }
-    }
-}
-
-
 // MARK: - Video Metadata Models
 
 struct VideoMetadata: Codable, Identifiable, Hashable {
@@ -91,9 +60,6 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
     var hasProcessingMetadata: Bool = false
     var metadataCreatedDate: Date?
     var metadataFileSize: Int64?
-
-    // Volleyball type (nil for legacy videos)
-    var volleyballType: VolleyballType?
 
     // Favorite source tracking (for syncing unfavorite back to rally player)
     var sourceVideoId: UUID?
@@ -127,9 +93,6 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         hasProcessingMetadata = try container.decodeIfPresent(Bool.self, forKey: .hasProcessingMetadata) ?? false
         metadataCreatedDate = try container.decodeIfPresent(Date.self, forKey: .metadataCreatedDate)
         metadataFileSize = try container.decodeIfPresent(Int64.self, forKey: .metadataFileSize)
-
-        // Volleyball type with default for backwards compatibility
-        volleyballType = try container.decodeIfPresent(VolleyballType.self, forKey: .volleyballType)
 
         // Favorite source tracking with defaults for backwards compatibility
         sourceVideoId = try container.decodeIfPresent(UUID.self, forKey: .sourceVideoId)
@@ -165,9 +128,6 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         try container.encodeIfPresent(metadataCreatedDate, forKey: .metadataCreatedDate)
         try container.encodeIfPresent(metadataFileSize, forKey: .metadataFileSize)
 
-        // Volleyball type
-        try container.encodeIfPresent(volleyballType, forKey: .volleyballType)
-
         // Favorite source tracking
         try container.encodeIfPresent(sourceVideoId, forKey: .sourceVideoId)
         try container.encodeIfPresent(sourceRallyIndex, forKey: .sourceRallyIndex)
@@ -179,7 +139,6 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         case debugSessionId, debugDataPath, debugCollectionDate, debugDataSize
         case isProcessed, processedDate, originalVideoId, processedVideoIds
         case hasProcessingMetadata, metadataCreatedDate, metadataFileSize
-        case volleyballType
         case sourceVideoId, sourceRallyIndex
     }
     
@@ -224,7 +183,7 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         return fileManager.fileExists(atPath: metadataPath)
     }
     
-    init(originalURL: URL, customName: String?, folderPath: String, createdDate: Date, fileSize: Int64, duration: TimeInterval?, volleyballType: VolleyballType? = nil) {
+    init(originalURL: URL, customName: String?, folderPath: String, createdDate: Date, fileSize: Int64, duration: TimeInterval?) {
         self.id = UUID()
         self.fileName = originalURL.lastPathComponent
         self.customName = customName
@@ -232,7 +191,6 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.createdDate = createdDate
         self.fileSize = fileSize
         self.duration = duration
-        self.volleyballType = volleyballType
         self.debugSessionId = nil
         self.debugDataPath = nil
         self.debugCollectionDate = nil
@@ -267,11 +225,10 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.hasProcessingMetadata = false
         self.metadataCreatedDate = nil
         self.metadataFileSize = nil
-        self.volleyballType = nil
         self.sourceVideoId = nil
         self.sourceRallyIndex = nil
     }
-    
+
     // Debug data management methods
     mutating func attachDebugData(sessionId: UUID, dataPath: String, size: Int64) {
         self.debugSessionId = sessionId
@@ -801,7 +758,28 @@ extension MediaStore {
 
 extension MediaStore {
     /// Mark a video as having processing metadata after rally detection completes
-    func markVideoAsProcessed(videoId: UUID, metadataFileSize: Int64, volleyballType: VolleyballType? = nil) -> Bool {
+    /// Reset a video's processing state so it can be processed again (reprocess flow).
+    /// Clears the metadata-tracking flags and processed-version links in the manifest so
+    /// `canBeProcessed`/`hasMetadata` return to their pre-processing values. The caller is
+    /// responsible for deleting the metadata sidecar itself (MetadataStore.deleteMetadata).
+    @discardableResult
+    func resetProcessingState(videoId: UUID) -> Bool {
+        guard var video = manifest.videos.values.first(where: { $0.id == videoId }) else {
+            print("❌ MediaStore.resetProcessingState: Video \(videoId) not found")
+            return false
+        }
+        let videoKey = video.fileName
+        video.clearMetadataTracking()
+        video.isProcessed = false
+        video.processedDate = nil
+        video.processedVideoIds = []
+        manifest.videos[videoKey] = video
+        saveManifest()
+        print("📹 MediaStore: reset processing state for \(video.displayName)")
+        return true
+    }
+
+    func markVideoAsProcessed(videoId: UUID, metadataFileSize: Int64) -> Bool {
         // Find the video
         guard var video = manifest.videos.values.first(where: { $0.id == videoId }) else {
             print("❌ MediaStore.markVideoAsProcessed: Video with ID \(videoId) not found")
@@ -812,9 +790,6 @@ extension MediaStore {
 
         // Update metadata tracking
         video.updateMetadataTracking(fileSize: metadataFileSize)
-        if let volleyballType {
-            video.volleyballType = volleyballType
-        }
         manifest.videos[videoKey] = video
 
         saveManifest()
@@ -879,7 +854,7 @@ extension MediaStore {
         saveManifest()
     }
 
-    func addProcessedVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, originalVideoId: UUID, volleyballType: VolleyballType? = nil) -> Bool {
+    func addProcessedVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, originalVideoId: UUID) -> Bool {
         let videoKey = url.lastPathComponent
 
         // Get file attributes
@@ -903,7 +878,6 @@ extension MediaStore {
         videoMetadata.isProcessed = true
         videoMetadata.processedDate = Date()
         videoMetadata.originalVideoId = originalVideoId
-        videoMetadata.volleyballType = volleyballType
 
         manifest.videos[videoKey] = videoMetadata
         print("✅ Processed video metadata added to manifest with key: '\(videoKey)'")
@@ -937,7 +911,7 @@ extension MediaStore {
         return true
     }
     
-    func addVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, volleyballType: VolleyballType? = nil, sourceVideoId: UUID? = nil, sourceRallyIndex: Int? = nil) -> Bool {
+    func addVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, sourceVideoId: UUID? = nil, sourceRallyIndex: Int? = nil) -> Bool {
         let videoKey = url.lastPathComponent
         print("📹 MediaStore.addVideo called:")
         print("   - URL: \(url)")
@@ -960,8 +934,7 @@ extension MediaStore {
             folderPath: folderPath,
             createdDate: attributes[.creationDate] as? Date ?? Date(),
             fileSize: fileSize,
-            duration: nil, // Can be populated later if needed
-            volleyballType: volleyballType
+            duration: nil // Can be populated later if needed
         )
         videoMetadata.sourceVideoId = sourceVideoId
         videoMetadata.sourceRallyIndex = sourceRallyIndex

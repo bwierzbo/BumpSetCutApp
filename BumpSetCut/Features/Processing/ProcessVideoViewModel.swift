@@ -13,7 +13,6 @@ final class ProcessVideoViewModel {
     let onComplete: () -> Void
 
     // MARK: - State
-    var selectedVolleyballType: VolleyballType = .beach
     var currentVideoMetadata: VideoMetadata? = nil
     var showError: Bool = false
     var errorMessage: String = ""
@@ -205,7 +204,6 @@ final class ProcessVideoViewModel {
         // Search all videos in the manifest by filename (covers all folders including nested subfolders)
         if let match = mediaStore.getAllVideos().first(where: { $0.fileName == fileName }) {
             currentVideoMetadata = match
-            selectedVolleyballType = match.volleyballType ?? .beach
             // Load duration from AVAsset if metadata doesn't have it
             if match.duration == nil || match.duration == 0 {
                 loadVideoDuration()
@@ -253,6 +251,19 @@ final class ProcessVideoViewModel {
         coordinator.cancelProcessing()
     }
 
+    /// Reprocess flow (dev tool): delete the current rally metadata and run detection
+    /// again on the full source video. Lifetime stats are idempotent per videoId, so the
+    /// original run's contribution stays and this run won't double-count. Favorites that
+    /// referenced the old rally indices are not cleaned up — fine for model iteration.
+    func reprocess() {
+        guard let videoId = currentVideoMetadata?.id else { return }
+        try? MetadataStore().deleteMetadata(for: videoId)
+        mediaStore.resetProcessingState(videoId: videoId)
+        noRalliesDetected = false
+        loadCurrentVideoMetadata()
+        startProcessing(isDebugMode: false)
+    }
+
     func startProcessing(isDebugMode: Bool) {
         // Block concurrent processing — only one video at a time
         if coordinator.isProcessing, coordinator.videoURL != videoURL {
@@ -295,7 +306,6 @@ final class ProcessVideoViewModel {
         coordinator.startProcessing(
             videoURL: videoURL,
             mediaStore: mediaStore,
-            volleyballType: selectedVolleyballType,
             videoId: currentVideoMetadata?.id ?? UUID(),
             isDebugMode: isDebugMode
         )
@@ -361,7 +371,7 @@ final class ProcessVideoViewModel {
         print("✅ saveProcessedVideo: file moved to \(processedFileName)")
 
         let originalVideoId = currentVideoMetadata?.id ?? UUID()
-        let success = mediaStore.addProcessedVideo(at: finalURL, toFolder: destinationFolder, customName: processedName, originalVideoId: originalVideoId, volleyballType: selectedVolleyballType)
+        let success = mediaStore.addProcessedVideo(at: finalURL, toFolder: destinationFolder, customName: processedName, originalVideoId: originalVideoId)
         print(success ? "✅ saveProcessedVideo: added to manifest" : "❌ saveProcessedVideo: addProcessedVideo returned false")
 
         if isDebugMode, success, let debugger = debugData {
