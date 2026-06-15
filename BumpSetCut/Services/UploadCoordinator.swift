@@ -223,7 +223,6 @@ extension UploadCoordinator {
         }
 
         Task {
-            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms for UI to show overlay
             await processItem(item, destinationFolder: destinationFolder)
         }
     }
@@ -368,12 +367,11 @@ extension UploadCoordinator {
             // Move file (O(1) rename on same filesystem, avoids full copy)
             try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
 
-            // Add to MediaStore (default to beach volleyball)
+            // Add to MediaStore
             let success = mediaStore.addVideo(
                 at: destinationURL,
                 toFolder: destinationFolder,
-                customName: nil,
-                volleyballType: .beach
+                customName: nil
             )
 
             if success {

@@ -70,7 +70,8 @@ struct HomeView: View {
             isPresented: $showingPhotoPicker,
             selection: $selectedPhotoItems,
             maxSelectionCount: 1,
-            matching: .videos
+            matching: .videos,
+            preferredItemEncoding: .current // deliver original bytes; avoid slow re-encode on import
         )
         .onChange(of: selectedPhotoItems) { _, items in
             if let item = items.first {
@@ -812,7 +813,8 @@ struct UnprocessedVideoPickerSheet: View {
                 isPresented: $showingImportPicker,
                 selection: $selectedImportItems,
                 maxSelectionCount: 1,
-                matching: .videos
+                matching: .videos,
+                preferredItemEncoding: .current // deliver original bytes; avoid slow re-encode on import
             )
             .onChange(of: selectedImportItems) { _, items in
                 guard let item = items.first else { return }
