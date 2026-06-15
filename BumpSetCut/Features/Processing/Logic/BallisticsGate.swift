@@ -18,10 +18,13 @@ final class BallisticsGate {
         let hasMotionEvidence: Bool
         let positionJumpsValid: Bool
         let confidenceLevel: Double
-        // Populated by the legacy path when the movement-classifier veto runs;
-        // surfaced in rally-start event logs for field diagnosis of false positives.
+        // Populated by the legacy path whenever there are enough samples to
+        // classify — now set even on rejected frames, for diagnosis.
         var gravitySignature: Double? = nil
         var movementType: MovementType? = nil
+        // Human-readable reason this frame was NOT accepted as a projectile
+        // (nil when accepted). Diagnostic only.
+        var rejectionReason: String? = nil
     }
 
     private let config: ProcessorConfig
@@ -111,19 +114,31 @@ final class BallisticsGate {
     
     /// Legacy projectile validation method (original implementation)
     private func validateProjectileLegacy(_ track: KalmanBallTracker.TrackedBall) -> ValidationResult {
-        let insufficient = ValidationResult(isValid: false, rSquared: 0, curvatureDirectionValid: false,
-                                            hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
+        func reject(_ reason: String, positionJumpsValid: Bool = true, rSquared: Double = 0,
+                    grav: Double? = nil, type: MovementType? = nil,
+                    curvatureValid: Bool = false, motion: Bool = false) -> ValidationResult {
+            ValidationResult(isValid: false, rSquared: rSquared, curvatureDirectionValid: curvatureValid,
+                             hasMotionEvidence: motion, positionJumpsValid: positionJumpsValid,
+                             confidenceLevel: 0, gravitySignature: grav, movementType: type,
+                             rejectionReason: reason)
+        }
 
-        let allSamples = track.positions
+        let allSamples = config.useSmoothedTrack ? track.smoothedPositions : track.positions
         guard allSamples.count >= config.parabolaMinPoints,
-              let lastSample = allSamples.last else { return insufficient }
+              let lastSample = allSamples.last else { return reject("too few points") }
 
         let windowSec = max(0.1, config.projectileWindowSec)
         let endT = lastSample.1
         let cutoff = CMTimeSubtract(endT, CMTimeMakeWithSeconds(windowSec, preferredTimescale: 600))
         let samples = allSamples.filter { CMTimeCompare($0.1, cutoff) >= 0 }
         guard samples.count >= config.parabolaMinPoints,
-              let firstSample = samples.first else { return insufficient }
+              let firstSample = samples.first else { return reject("too few points in window") }
+
+        // Classify up front so gravity signature + movement class are available on
+        // EVERY return below — accepted or rejected — for diagnosis.
+        let classification = movementClassifier.classifyMovement(positions: samples)
+        let grav = classification.details.accelerationPattern
+        let mType = classification.movementType
 
         let t0 = firstSample.1
         var ts: [Double] = []
@@ -148,8 +163,7 @@ final class BallisticsGate {
             if jump > config.maxJumpPerFrame { jumpsValid = false }
         }
         if !jumpsValid {
-            return ValidationResult(isValid: false, rSquared: 0, curvatureDirectionValid: false,
-                                    hasMotionEvidence: false, positionJumpsValid: false, confidenceLevel: 0)
+            return reject("position jump too big", positionJumpsValid: false, grav: grav, type: mType)
         }
 
         // 2) Predict last Y from prior trajectory and gate by ROI
@@ -173,14 +187,13 @@ final class BallisticsGate {
                 let yPred = fitPrev.a * CGFloat(tLast * tLast) + fitPrev.b * CGFloat(tLast) + fitPrev.c
                 let yErr = abs(yPred - (ys.last ?? yPred))
                 if yErr > config.roiYRadius {
-                    return ValidationResult(isValid: false, rSquared: 0, curvatureDirectionValid: false,
-                                            hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
+                    return reject("off predicted path (ROI)", grav: grav, type: mType)
                 }
             }
         }
 
         let points = zip(ts, ys).map { CGPoint(x: CGFloat($0.0), y: $0.1) }
-        guard let fit = fitQuadratic(points: points) else { return insufficient }
+        guard let fit = fitQuadratic(points: points) else { return reject("no parabola fit", grav: grav, type: mType) }
 
         let minR2 = max(0.0, config.parabolaMinR2)
         let r2OK = fit.r2 >= minR2
@@ -216,7 +229,17 @@ final class BallisticsGate {
         // stationary ball — tiny span — no longer counts as motion).
         let motionEvidence = (maxSpeed >= minSpeed) || (hasApex && spanY >= minSpan)
 
-        var accept = r2OK && curvatureOK && curvatureMagOK && gravityBandOK && (spanY >= minSpan) && motionEvidence
+        // Collect the specific failed checks so a rejected frame can say why.
+        var fails: [String] = []
+        if !r2OK { fails.append("low R² (\(String(format: "%.2f", fit.r2))<\(String(format: "%.2f", minR2)))") }
+        if !curvatureOK { fails.append("curvature direction") }
+        if !curvatureMagOK { fails.append("curvature too small") }
+        if !gravityBandOK { fails.append("curvature > gravity band") }
+        if spanY < minSpan { fails.append("low vertical span") }
+        if !motionEvidence { fails.append("no motion") }
+
+        var accept = fails.isEmpty
+        var reason: String? = accept ? nil : fails.joined(separator: ", ")
 
         // Supported-ball veto. A ground roll fakes every numeric check above: a sloped
         // path is ~linear and a line is a perfect degenerate parabola (R² ≈ 1); perspective
@@ -225,22 +248,36 @@ final class BallisticsGate {
         //
         // The veto fires only when the motion is BOTH flat (little vertical travel) AND
         // lacks a gravity signature (no sustained, consistently-downward acceleration).
-        // That pair is specific to a supported ball staying near the floor. Crucially it
-        // never touches a serve or rally: those arc, so their vertical-motion score is high
-        // and the flat gate is false — even at the impulsive serve start or a mid-rally
-        // contact, where the instantaneous gravity signature briefly dips. (A raw signature
-        // floor alone wrongly vetoed those and split rallies.) The explicit .rolling label
-        // is OR'd in as it already implies low-vertical, no-gravity motion.
-        var gravitySignature: Double? = nil
-        var movementType: MovementType? = nil
         if accept && config.movementClassifierEnabled {
-            let classification = movementClassifier.classifyMovement(positions: samples)
-            gravitySignature = classification.details.accelerationPattern
-            movementType = classification.movementType
             let isFlat = classification.details.verticalMotionScore < config.maxVerticalMotionForRolling
-            let noGravity = classification.details.accelerationPattern < config.minGravitySignature
-            if classification.movementType == .rolling || (isFlat && noGravity) {
-                accept = false
+            let noGravity = grav < config.minGravitySignature
+            let isCarried = config.vetoCarriedMovement && mType == .carried
+            if mType == .rolling {
+                accept = false; reason = "veto: rolling"
+            } else if isCarried {
+                accept = false; reason = "veto: carried"
+            } else if isFlat && noGravity {
+                accept = false; reason = "veto: flat + no gravity"
+            }
+        }
+
+        // Doubling-back veto. A pickup/scoop traces a loop: it goes sideways and
+        // returns near its horizontal start. A real ball in play travels across,
+        // so its horizontal motion is roughly monotonic (net ≈ excursion). The
+        // short-window parabola checks can't see the loop; this looks over a
+        // longer lookback at horizontal travel-vs-return.
+        if accept && config.enableLoopRejection {
+            let loopCutoff = CMTimeSubtract(endT, CMTimeMakeWithSeconds(config.loopCheckWindowSec, preferredTimescale: 600))
+            let loopXs = allSamples.filter { CMTimeCompare($0.1, loopCutoff) >= 0 }.map { $0.0.x }
+            if loopXs.count >= 4, let xMin = loopXs.min(), let xMax = loopXs.max(),
+               let xFirst = loopXs.first, let xLast = loopXs.last {
+                let excursion = xMax - xMin
+                let net = abs(xLast - xFirst)
+                if excursion >= CGFloat(config.loopMinExcursion),
+                   net <= excursion * CGFloat(config.loopReturnRatio) {
+                    accept = false
+                    reason = "doubling back (loop)"
+                }
             }
         }
 
@@ -251,8 +288,9 @@ final class BallisticsGate {
             hasMotionEvidence: motionEvidence,
             positionJumpsValid: true,
             confidenceLevel: accept ? min(1.0, fit.r2) : 0,
-            gravitySignature: gravitySignature,
-            movementType: movementType
+            gravitySignature: grav,
+            movementType: mType,
+            rejectionReason: reason
         )
     }
     

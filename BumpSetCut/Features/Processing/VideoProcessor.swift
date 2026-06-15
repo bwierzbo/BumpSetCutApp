@@ -9,7 +9,6 @@ import Foundation
 import AVFoundation
 import Vision
 import CoreMedia
-import UIKit
 
 @Observable
 final class VideoProcessor {
@@ -22,23 +21,20 @@ final class VideoProcessor {
 
     // MARK: - Config + deps
     var config = ProcessorConfig()
-    private(set) var volleyballType: VolleyballType?
+
+    /// Max seconds since a track's last real detection for it to still count as
+    /// a live ball. Large enough to ride out brief occlusions (a few frames),
+    /// small enough that a ball that has left the frame stops driving the rally.
+    private let maxTrackStalenessSec: Double = 0.3
 
     private var detector = YOLODetector()
     private var gate = BallisticsGate(config: ProcessorConfig())
     private var decider = RallyDecider(config: ProcessorConfig())
     private var segments = SegmentBuilder(config: ProcessorConfig())
 
-    /// Reconfigure the processor for a specific volleyball type.
-    func configure(for type: VolleyballType) {
-        volleyballType = type
-        config = ProcessorConfig.configFor(type)
-        detector = YOLODetector(modelName: type.modelName)
-        gate = BallisticsGate(config: config)
-        decider = RallyDecider(config: config)
-        segments = SegmentBuilder(config: config)
-    }
+    #if os(iOS)
     private let exporter = VideoExporter()
+    #endif
     private var metadataStore: MetadataStore?
 
     // Background execution protection
@@ -55,12 +51,47 @@ final class VideoProcessor {
     var trajectoryDebugger: TrajectoryDebugger?
     private var metricsCollector: MetricsCollector?
 
+    // MARK: - Frame evidence capture (for offline replay/evaluation tools)
+
+    /// One processed frame's rally-evidence signals plus the raw visual data
+    /// needed to draw a detection/trajectory overlay. Replaying the signal
+    /// fields through RallyDecider/SegmentBuilder reproduces segmentation
+    /// exactly for any post-detection config, without re-running detection.
+    struct FrameEvidence {
+        let time: Double          // PTS in seconds
+        let hasBall: Bool
+        let isProjectile: Bool
+        /// Kept volleyball detections this frame, as Vision-normalized bboxes
+        /// (origin bottom-left, [0,1]). Empty when nothing was detected.
+        let detections: [CGRect]
+        /// Center of the freshest active track this frame (normalized), or nil
+        /// when no track was active. Successive points form the ball trail.
+        let trackPoint: CGPoint?
+        /// Physics-gate readouts for the active track this frame (nil when no
+        /// track was validated). These are what distinguish a real arc from a
+        /// carried/held ball: rSquared stays high even for a straight carry,
+        /// so gravitySignature + movementType are the real discriminators.
+        let rSquared: Double?
+        let gravitySignature: Double?
+        let movementType: MovementType?
+        let gateConfidence: Double?
+        /// Why the gate did NOT accept this frame as a projectile (nil when it did).
+        let rejectionReason: String?
+    }
+
+    /// Off by default: evidence costs memory proportional to frame count, so
+    /// only evaluation tools (RallyLab) opt in.
+    var collectFrameEvidence = false
+    private(set) var frameEvidence: [FrameEvidence] = []
+    private(set) var lastVideoDurationSec: Double = 0
+
     // MARK: - Entry point (now generates metadata instead of video files)
     func processVideo(_ url: URL, videoId: UUID) async throws -> ProcessingMetadata {
         // Delegate to metadata processing method
         return try await processVideoMetadata(url, videoId: videoId)
     }
 
+    #if os(iOS)
     // MARK: - Legacy video export method (for backward compatibility if needed)
     func processVideoLegacy(_ url: URL) async throws -> URL {
         await MainActor.run {
@@ -112,15 +143,15 @@ final class VideoProcessor {
 
             // Detect → track
             let dets = detector.detect(in: pix, at: pts)
-            tracker.update(with: dets)
+            tracker.update(with: dets, at: pts)
 
             // Pick the freshest track (the one updated this frame if possible)
             let activeTrack: KalmanBallTracker.TrackedBall? = tracker.tracks
                 .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
                 .first
 
-            // Gate by physics + fallback to raw detection presence
-            let gateResult = activeTrack.map { gate.validateProjectile($0) }
+            // Gate by physics on a recent track only (skip stale ghost tracks)
+            let gateResult = freshTrack(activeTrack, now: pts).map { gate.validateProjectile($0) }
             let isProjectile = gateResult?.isValid ?? false
             let hasBall = !dets.isEmpty
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
@@ -260,15 +291,15 @@ final class VideoProcessor {
             if shouldProcess {
                 // Detect → track
                 let dets = detector.detect(in: pix, at: pts)
-                tracker.update(with: dets)
+                tracker.update(with: dets, at: pts)
 
                 // Pick the freshest track
                 let activeTrack: KalmanBallTracker.TrackedBall? = tracker.tracks
                     .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
                     .first
 
-                // Gate by physics + raw detection presence (debug-friendly)
-                let gateResult = activeTrack.map { gate.validateProjectile($0) }
+                // Gate by physics on a recent track only (skip stale ghost tracks)
+                let gateResult = freshTrack(activeTrack, now: pts).map { gate.validateProjectile($0) }
                 let isProjectile = gateResult?.isValid ?? false
                 let hasBall = !dets.isEmpty
                 let inRally = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
@@ -345,6 +376,7 @@ final class VideoProcessor {
         }
         return out
     }
+    #endif
 
     // MARK: - Metadata path (production mode with metadata generation)
     func processVideoMetadata(_ url: URL, videoId: UUID) async throws -> ProcessingMetadata {
@@ -355,31 +387,23 @@ final class VideoProcessor {
             }
         }
 
-        // Check analysis mode from settings
-        let useThoroughAnalysis = await MainActor.run { AppSettings.shared.useThoroughAnalysis }
-        print("📊 Analysis mode: \(useThoroughAnalysis ? "Thorough" : "Quick")")
+        frameEvidence.removeAll()
+        lastVideoDurationSec = 0
 
         let startTime = Date()
         let eventLog = ProcessingEventLog()
-        eventLog.log(.processingStarted, detail: "videoId=\(videoId), mode=\(useThoroughAnalysis ? "thorough" : "quick")")
+        eventLog.log(.processingStarted, detail: "videoId=\(videoId)")
 
         // Initialize metadata store on main actor
         self.metadataStore = await MainActor.run { MetadataStore() }
 
         let asset = AVURLAsset(url: url)
 
-        // Use configured volleyball type if set, otherwise default to beach
-        let sportType: VolleyballType = volleyballType ?? .beach
-        if volleyballType == nil {
-            configure(for: sportType)
-        }
-        print("🏐 Using sport type: \(sportType.displayName)")
-        eventLog.log(.sportDetected, detail: "type=\(sportType.displayName)")
-
-        // Recreate stage objects with sport-specific config
+        // Recreate stage objects with current config
         self.gate = BallisticsGate(config: config)
         self.decider = RallyDecider(config: config)
         self.segments = SegmentBuilder(config: config)
+        detector.minConfidence = VNConfidence(config.detectionConfidence)
 
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             await MainActor.run { isProcessing = false; backgroundGuard.end() }
@@ -388,6 +412,7 @@ final class VideoProcessor {
 
         let duration = try await asset.load(.duration)
         let fps = max(10, Int(try await track.load(.nominalFrameRate)))
+        lastVideoDurationSec = CMTimeGetSeconds(duration)
 
         // Reader
         let reader = try AVAssetReader(asset: asset)
@@ -444,14 +469,11 @@ final class VideoProcessor {
             let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
             rawFrameIndex += 1
 
-            // Dynamic stride: only in thorough mode
-            let shouldProcess: Bool
-            if useThoroughAnalysis {
-                let recommendedStride = tracker.recommendedStride(currentTime: pts)
-                shouldProcess = (rawFrameIndex == 1) || (rawFrameIndex % recommendedStride == 0)
-            } else {
-                shouldProcess = true  // Quick mode: process every frame
-            }
+            // Single processing path: a dynamic stride skips frames (denser
+            // while tracking a ball, sparser when idle) so we never run
+            // detection on every frame.
+            let recommendedStride = tracker.recommendedStride(currentTime: pts)
+            let shouldProcess = (rawFrameIndex == 1) || (rawFrameIndex % recommendedStride == 0)
 
             // Skip detection/tracking on non-processed frames
             guard shouldProcess else {
@@ -462,7 +484,7 @@ final class VideoProcessor {
 
             // Detect → track
             let dets = detector.detect(in: pix, at: pts)
-            tracker.update(with: dets)
+            tracker.update(with: dets, at: pts)
 
             // Update detection statistics
             totalDetections += dets.count
@@ -475,12 +497,36 @@ final class VideoProcessor {
                 .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
                 .first
 
-            // Gate by physics + fallback to raw detection presence
-            let gateResult = activeTrack.map { gate.validateProjectile($0) }
+            // Gate by physics, but only on a track whose last real detection is
+            // recent. A stale "ghost" track (ball left frame, position frozen)
+            // still holds its last valid arc, which would re-validate as a
+            // projectile with R²≈1 forever; the freshness check rejects it.
+            let gateResult = freshTrack(activeTrack, now: pts).map { gate.validateProjectile($0) }
             let isProjectile = gateResult?.isValid ?? false
             let hasBall = !dets.isEmpty
-            let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
+            // Ball height (Vision y, 1.0 = top) for sky-ball grace: the tracked
+            // ball, or the highest detection this frame.
+            let ballY = activeTrack?.positions.last?.0.y ?? dets.map { $0.bbox.midY }.max()
+            let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts, ballY: ballY)
             segments.observe(isActive: isActive, at: pts)
+
+            if collectFrameEvidence {
+                let trailPoint = config.useSmoothedTrack
+                    ? activeTrack?.smoothedPositions.last?.0
+                    : activeTrack?.positions.last?.0
+                frameEvidence.append(FrameEvidence(
+                    time: CMTimeGetSeconds(pts),
+                    hasBall: hasBall,
+                    isProjectile: isProjectile,
+                    detections: dets.map { $0.bbox },
+                    trackPoint: trailPoint,
+                    rSquared: gateResult?.rSquared,
+                    gravitySignature: gateResult?.gravitySignature,
+                    movementType: gateResult?.movementType,
+                    gateConfidence: gateResult?.confidenceLevel,
+                    rejectionReason: gateResult?.rejectionReason
+                ))
+            }
 
             // Log rally state transitions, including gate physics metrics so field
             // false-positives (rolling/carried balls) can be diagnosed from the event log.
@@ -512,8 +558,8 @@ final class VideoProcessor {
                 physicsValidFrameCount += 1
             }
 
-            // Collect trajectory data only in thorough mode
-            if useThoroughAnalysis, let track = activeTrack {
+            // Collect trajectory/classification/physics data for metadata.
+            if let track = activeTrack {
                 // Calculate metrics for this track segment
                 let (rSquared, velocity, acceleration) = calculateTrackMetrics(track)
                 if rSquared > 0 {
@@ -624,14 +670,10 @@ final class VideoProcessor {
         // Log processing statistics
         let processedFrames = rawFrameIndex - skippedFrames
         let skipRate = rawFrameIndex > 0 ? (Double(skippedFrames) / Double(rawFrameIndex)) * 100 : 0
-        if useThoroughAnalysis {
-            print("⚡ Thorough mode - Dynamic stride statistics:")
-            print("   - Total frames: \(rawFrameIndex)")
-            print("   - Processed frames: \(processedFrames)")
-            print("   - Skipped frames: \(skippedFrames) (\(String(format: "%.1f", skipRate))%)")
-        } else {
-            print("🚀 Quick mode - Processed all \(rawFrameIndex) frames")
-        }
+        print("⚡ Dynamic stride statistics:")
+        print("   - Total frames: \(rawFrameIndex)")
+        print("   - Processed frames: \(processedFrames)")
+        print("   - Skipped frames: \(skippedFrames) (\(String(format: "%.1f", skipRate))%)")
 
         print("🔍 Metadata: Segment finalization results:")
         print("   - Total keep ranges: \(keep.count)")
@@ -778,7 +820,6 @@ final class VideoProcessor {
             trajectories: trajectoryDataCollection,
             classifications: classificationResults,
             physics: physicsValidationData,
-            volleyballType: volleyballType,
             performance: performanceMetrics,
             eventLog: eventLog.allEvents
         )
@@ -807,6 +848,15 @@ final class VideoProcessor {
     }
 
     // MARK: - Helper methods for metadata calculation
+
+    /// Returns the track only when its most recent detection is within
+    /// `maxTrackStalenessSec` of `now`; otherwise nil. Rejects stale ghost
+    /// tracks whose frozen arc would otherwise keep validating as a projectile.
+    private func freshTrack(_ track: KalmanBallTracker.TrackedBall?, now: CMTime) -> KalmanBallTracker.TrackedBall? {
+        guard let track, let lastTime = track.positions.last?.1 else { return nil }
+        let staleness = CMTimeGetSeconds(CMTimeSubtract(now, lastTime))
+        return staleness <= maxTrackStalenessSec ? track : nil
+    }
 
     private func calculateTrackMetrics(_ track: KalmanBallTracker.TrackedBall) -> (rSquared: Double, velocity: Double, acceleration: Double) {
         guard track.positions.count >= 3 else {

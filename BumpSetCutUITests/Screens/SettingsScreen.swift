@@ -18,10 +18,6 @@ struct SettingsScreen {
         app.descendants(matching: .any)["settings.analytics"]
     }
 
-    var thoroughAnalysisToggle: XCUIElement {
-        app.descendants(matching: .any)["settings.thoroughAnalysis"]
-    }
-
     var themeLightButton: XCUIElement {
         app.descendants(matching: .any)["settings.theme.light"]
     }

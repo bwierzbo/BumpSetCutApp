@@ -26,6 +26,11 @@ final class YOLODetector {
 
     private let modelName: String
 
+    /// Minimum confidence for a "volleyball" detection. Defaults to the
+    /// historical hard-coded value; VideoProcessor overrides it from
+    /// ProcessorConfig.detectionConfidence so it can be tuned per run.
+    var minConfidence: VNConfidence = 0.70
+
     private struct StaticCell {
         var lastPoint: CGPoint
         var lastTimeSec: Double
@@ -107,7 +112,6 @@ final class YOLODetector {
         let base: [DetectionResult] = results.compactMap { (obs) -> DetectionResult? in
             guard let top = obs.labels.first else { return nil }
             let ident = top.identifier.lowercased()
-            let minConfidence: VNConfidence = 0.70
             guard ident == "volleyball", top.confidence >= minConfidence else { return nil }
             return DetectionResult(bbox: obs.boundingBox, confidence: top.confidence, timestamp: time)
         }

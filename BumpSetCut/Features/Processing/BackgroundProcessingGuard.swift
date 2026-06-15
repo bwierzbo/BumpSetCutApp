@@ -1,3 +1,4 @@
+#if os(iOS)
 import UIKit
 
 /// Protects long-running processing from immediate suspension when the app is backgrounded.
@@ -47,3 +48,18 @@ final class BackgroundProcessingGuard {
         }
     }
 }
+#else
+
+/// macOS has no background-task suspension model, so the guard is a no-op there.
+/// Keeps VideoProcessor's call sites identical across platforms.
+final class BackgroundProcessingGuard {
+    @MainActor
+    func begin(onExpiring: @escaping @MainActor () -> Void) {}
+
+    @MainActor
+    func setCancellationHandler(_ handler: @escaping @MainActor () -> Void) {}
+
+    @MainActor
+    func end() {}
+}
+#endif
