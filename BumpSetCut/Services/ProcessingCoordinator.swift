@@ -48,7 +48,6 @@ final class ProcessingCoordinator {
     // MARK: - Processing Context (stored so VM can resume save flow)
     private(set) var videoURL: URL?
     private(set) var mediaStore: MediaStore?
-    private(set) var volleyballType: VolleyballType = .beach
     private(set) var videoId: UUID?
 
     // MARK: - Private
@@ -63,7 +62,6 @@ final class ProcessingCoordinator {
     func startProcessing(
         videoURL: URL,
         mediaStore: MediaStore,
-        volleyballType: VolleyballType,
         videoId: UUID,
         isDebugMode: Bool
     ) {
@@ -73,7 +71,6 @@ final class ProcessingCoordinator {
         // Store context
         self.videoURL = videoURL
         self.mediaStore = mediaStore
-        self.volleyballType = volleyballType
         self.videoId = videoId
 
         // Reset state
@@ -97,7 +94,6 @@ final class ProcessingCoordinator {
 
         // Create fresh processor
         self.processor = VideoProcessor()
-        self.processor.configure(for: volleyballType)
 
         currentTask = Task { [weak self] in
             guard let self else { return }
@@ -136,11 +132,12 @@ final class ProcessingCoordinator {
                 } else {
                     let metadata = try await processor.processVideo(videoURL, videoId: videoId)
 
+                    let sourceSeconds = (try? await AVURLAsset(url: videoURL).load(.duration))
+                        .map(CMTimeGetSeconds) ?? 0
+
                     // Calibrate the time estimator from this run's actual wall-clock time
                     // vs. the source video duration (excludes the slower debug path).
                     if let start = self.processingStartDate {
-                        let sourceSeconds = (try? await AVURLAsset(url: videoURL).load(.duration))
-                            .map(CMTimeGetSeconds) ?? 0
                         ProcessingTimeEstimator.record(
                             videoDuration: sourceSeconds,
                             elapsed: Date().timeIntervalSince(start)
@@ -152,13 +149,23 @@ final class ProcessingCoordinator {
                     let exportedSeconds = metadata.totalRallyDuration
 
                     await MainActor.run {
+                        // Lifetime stats: accumulate dead time removed + rallies for this
+                        // video. Idempotent per videoId, and persists across deletions.
+                        let cut = max(0, sourceSeconds - exportedSeconds)
+                        LifetimeStatsStore.shared.record(
+                            videoId: videoId,
+                            timeCutSeconds: cut,
+                            rallyCount: metadata.rallyCount
+                        )
+                    }
+
+                    await MainActor.run {
                         // Mark as processed when the metadata sidecar is available (storage tracking).
                         if let match = mediaStore.getAllVideos().first(where: { $0.id == videoId }),
                            let metadataSize = match.getCurrentMetadataSize() {
                             let _ = mediaStore.markVideoAsProcessed(
                                 videoId: videoId,
-                                metadataFileSize: metadataSize,
-                                volleyballType: volleyballType
+                                metadataFileSize: metadataSize
                             )
                         }
                         // Always record usage on a successful process, independent of the

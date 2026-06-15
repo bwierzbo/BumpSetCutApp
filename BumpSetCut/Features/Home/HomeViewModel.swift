@@ -54,19 +54,25 @@ final class HomeViewModel {
     private func loadStats() {
         isLoading = true
 
-        // Single pass over videos with metadata: count rallies and sum dead time removed.
-        var rallyCount = 0
-        var timeCut: Double = 0
-        for video in mediaStore.getAllVideos() where video.hasProcessingMetadata {
-            guard let metadata = try? metadataStore.loadMetadata(for: video.id) else { continue }
-            rallyCount += metadata.rallySegments.count
-            // Dead time removed = source length − kept rally time (when source length is known).
-            if let duration = video.duration, duration > 0 {
-                timeCut += max(0, duration - metadata.totalRallyDuration)
-            }
-        }
-        totalRallies = rallyCount
-        totalTimeCutSeconds = timeCut
+        // Lifetime stats are cumulative and persist across deletions. New processing runs
+        // add to them at completion (ProcessingCoordinator). The one-time seed below
+        // backfills the total for users upgrading from the old live-sum behavior, computed
+        // from whatever processed videos are still on the device.
+        let contributions: [(videoId: UUID, timeCutSeconds: Double, rallyCount: Int)] =
+            mediaStore.getAllVideos()
+                .filter { $0.hasProcessingMetadata }
+                .compactMap { video in
+                    guard let metadata = try? metadataStore.loadMetadata(for: video.id) else { return nil }
+                    let cut: Double = {
+                        guard let duration = video.duration, duration > 0 else { return 0 }
+                        return max(0, duration - metadata.totalRallyDuration)
+                    }()
+                    return (video.id, cut, metadata.rallySegments.count)
+                }
+        LifetimeStatsStore.shared.seedIfNeeded(from: contributions)
+
+        totalRallies = LifetimeStatsStore.shared.totalRallies
+        totalTimeCutSeconds = LifetimeStatsStore.shared.totalTimeCutSeconds
 
         isLoading = false
     }
