@@ -31,6 +31,7 @@ struct BSCVideoCard: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingRenameDialog = false
     @State private var showingMoveDialog = false
+    @State private var showingReprocessConfirm = false
     @State private var isPressed = false
 
     // MARK: - Body
@@ -90,6 +91,12 @@ struct BSCVideoCard: View {
             Button("Delete", role: .destructive) { onDelete() }
         } message: {
             Text("Are you sure you want to delete this video? This action cannot be undone.")
+        }
+        .confirmationDialog("Reprocess this video?", isPresented: $showingReprocessConfirm, titleVisibility: .visible) {
+            Button("Delete rallies & reprocess", role: .destructive) { reprocessVideo() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This deletes the current rallies and runs detection again on the full video.")
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabelText)
@@ -444,6 +451,17 @@ struct BSCVideoCard: View {
             Divider()
         }
 
+        // Dev tool (gated behind Debug Features): delete the current rallies and
+        // re-run detection on the full video with the current pipeline.
+        if AppSettings.shared.enableDebugFeatures && video.hasMetadata {
+            Button {
+                showingReprocessConfirm = true
+            } label: {
+                Label("Reprocess", systemImage: "arrow.clockwise")
+            }
+            Divider()
+        }
+
         if video.canBeProcessed {
             Button {
                 showingProcessVideo = true
@@ -485,6 +503,22 @@ struct BSCVideoCard: View {
         } else {
             showingVideoPlayer = true
         }
+    }
+
+    /// Delete the current rally metadata and re-run detection on the full source
+    /// video with the current pipeline (dev tool). Progress is shown by the
+    /// app-wide ProcessingCoordinator.
+    private func reprocessVideo() {
+        let videoId = video.id
+        try? MetadataStore().deleteMetadata(for: videoId)
+        mediaStore.resetProcessingState(videoId: videoId)
+        ProcessingCoordinator.shared.startProcessing(
+            videoURL: video.originalURL,
+            mediaStore: mediaStore,
+            videoId: videoId,
+            isDebugMode: false
+        )
+        onRefresh()
     }
 
     private func generateThumbnail() {
