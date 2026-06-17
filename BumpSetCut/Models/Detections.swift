@@ -205,6 +205,20 @@ struct ProcessorConfig {
     /// doesn't skew the jump/ROI/curvature checks. (tuned on in RallyLab 2026-06-14)
     var useSmoothedTrack: Bool = true
 
+    // MARK: - Multi-track trajectory selection
+    /// With multiple courts, several balls are tracked at once. The rally follows
+    /// the highest-scoring *valid* trajectory (quality-first). These tune the
+    /// tiebreakers that pick the main-court ball when arcs are close in quality.
+
+    /// How much a track's relative ball size (bigger = closer = main court) adds to
+    /// its selection score. Small, so it only decides near-ties — a clearly better
+    /// (even distant) arc still wins. 0 = ignore size.
+    var trajectorySizeTiebreak: Double = 0.10
+    /// Hysteresis margin: keep the currently-selected trajectory unless another
+    /// track beats its score by more than this, to stop the rally flickering
+    /// between courts frame to frame.
+    var trajectorySelectionStickiness: Double = 0.10
+
     /// When true, reject a track that "doubles back" — makes a meaningful sideways
     /// excursion but returns near its horizontal start (a pickup/scoop loop). A
     /// real ball in play travels across; a loop comes back. Catches loops the

@@ -153,6 +153,16 @@ final class RallyLabModel {
     var loopReturnRatio: Double = 0.5 {
         didSet { markDetectionDirty(loopReturnRatio, oldValue) }
     }
+    /// Multi-court selection: how much a candidate's relative ball size adds to its
+    /// score (quality-first; higher favors the bigger/closer main-court ball on ties).
+    var trajectorySizeTiebreak: Double = 0.10 {
+        didSet { markDetectionDirty(trajectorySizeTiebreak, oldValue) }
+    }
+    /// Multi-court selection: keep the current trajectory unless another beats it by
+    /// this score margin (higher = stickier, less flicker between courts).
+    var trajectorySelectionStickiness: Double = 0.10 {
+        didSet { markDetectionDirty(trajectorySelectionStickiness, oldValue) }
+    }
 
     private func markDetectionDirty(_ new: Double, _ old: Double) {
         guard new != old, !evidence.isEmpty else { return }
@@ -235,6 +245,8 @@ final class RallyLabModel {
         activeTrackingStride = Double(preset.activeTrackingStride)
         enableLoopRejection = preset.enableLoopRejection
         loopReturnRatio = preset.loopReturnRatio
+        trajectorySizeTiebreak = preset.trajectorySizeTiebreak
+        trajectorySelectionStickiness = preset.trajectorySelectionStickiness
         startBuffer = preset.startBuffer
         endTimeout = preset.endTimeout
         projDropGracePeriod = Double(preset.projDropGracePeriod)
@@ -264,6 +276,8 @@ final class RallyLabModel {
         cfg.activeTrackingStride = Int(activeTrackingStride.rounded())
         cfg.enableLoopRejection = enableLoopRejection
         cfg.loopReturnRatio = loopReturnRatio
+        cfg.trajectorySizeTiebreak = trajectorySizeTiebreak
+        cfg.trajectorySelectionStickiness = trajectorySelectionStickiness
         cfg.startBuffer = startBuffer
         cfg.endTimeout = endTimeout
         cfg.projDropGracePeriod = Int(projDropGracePeriod.rounded())
@@ -299,6 +313,8 @@ final class RallyLabModel {
           activeTrackingStride = \(Int(activeTrackingStride.rounded()))
           enableLoopRejection = \(enableLoopRejection)
           loopReturnRatio = \(f(loopReturnRatio))
+          trajectorySizeTiebreak = \(f(trajectorySizeTiebreak))
+          trajectorySelectionStickiness = \(f(trajectorySelectionStickiness))
           startBuffer = \(f(startBuffer))
           endTimeout = \(f(endTimeout))
           projDropGracePeriod = \(Int(projDropGracePeriod.rounded()))

@@ -48,6 +48,51 @@ struct DetectionOverlayView: View {
                 }
             }
 
+            // Multi-court candidate visualization. The selected trajectory is the
+            // gravity-colored trail above; here we show every OTHER candidate the
+            // selector saw this frame as a dim grey trail + its own ROI circle, so
+            // a far-court ball that lost selection is visible (and you can see its
+            // score). Each track's ROI is the Kalman association gate that keeps
+            // the balls on separate tracks in the first place.
+            let selectedId = frames.last?.candidates.first(where: { $0.isSelected })?.id
+
+            // Dim grey trails for each non-selected candidate across the window.
+            var trailsById: [UUID: [CGPoint]] = [:]
+            for frame in frames {
+                for cand in frame.candidates where cand.id != selectedId {
+                    trailsById[cand.id, default: []].append(Self.point(cand.point, turns: turns, in: fit))
+                }
+            }
+            for pts in trailsById.values where pts.count >= 2 {
+                var path = Path()
+                path.move(to: pts[0])
+                for p in pts.dropFirst() { path.addLine(to: p) }
+                ctx.stroke(path, with: .color(.white.opacity(0.25)),
+                           style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+            }
+
+            // ROI circles + score labels for the latest frame's candidates.
+            if let latest = frames.last {
+                let roiScale = min(fit.width, fit.height)
+                for cand in latest.candidates {
+                    let c = Self.point(cand.point, turns: turns, in: fit)
+                    let r = max(6, cand.roiRadius * roiScale)
+                    let circle = CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
+                    let roiColor: Color = cand.isSelected
+                        ? .green.opacity(0.9)
+                        : (cand.isProjectile ? .orange.opacity(0.6) : .white.opacity(0.3))
+                    ctx.stroke(Path(ellipseIn: circle), with: .color(roiColor),
+                               style: StrokeStyle(lineWidth: cand.isSelected ? 2 : 1,
+                                                  dash: cand.isSelected ? [] : [4, 3]))
+                    if !cand.isSelected {
+                        let label = Text(String(format: "%.2f", cand.score))
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.8))
+                        ctx.draw(label, at: CGPoint(x: c.x + 4, y: c.y - 4), anchor: .bottomLeading)
+                    }
+                }
+            }
+
             // Current detections (latest frame only): yellow box + the model's
             // confidence for that box drawn just above it.
             if let latest = frames.last {

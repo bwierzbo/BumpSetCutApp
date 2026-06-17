@@ -209,6 +209,10 @@ struct InspectorPane: View {
                     slider("loopReturnRatio", value: $model.loopReturnRatio, in: 0.1...0.9, format: "%.2f",
                            info: "Reject when net horizontal travel is ≤ this fraction of the side-to-side excursion — i.e. the ball came at least this far back. Lower = stricter (only near-complete loops rejected); higher = catches partial doubling-back too (riskier for real plays).")
                 }
+                slider("sizeTiebreak", value: $model.trajectorySizeTiebreak, in: 0...0.5, format: "%.2f",
+                       info: "Multi-court selection: how much a candidate's relative ball size adds to its score. Selection is quality-first (confidence + gravity); this only breaks near-ties. Higher favors the bigger/closer main-court ball over a smaller far-court ball. 0 = size never matters.")
+                slider("selStickiness", value: $model.trajectorySelectionStickiness, in: 0...0.5, format: "%.2f",
+                       info: "Multi-court selection: keep the currently-selected trajectory unless another candidate beats its score by more than this margin. Higher = stickier (less flicker between courts); lower = switches to the best ball more eagerly. Stale tracks are dropped regardless once the ball leaves.")
                 if model.detectionConfigDirty {
                     HStack(spacing: 6) {
                         Label("Detection settings changed — re-run to apply.",

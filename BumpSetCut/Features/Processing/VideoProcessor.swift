@@ -27,6 +27,10 @@ final class VideoProcessor {
     /// small enough that a ball that has left the frame stops driving the rally.
     private let maxTrackStalenessSec: Double = 0.3
 
+    /// Identity of the track currently driving the rally, for selection stickiness
+    /// across frames. Reset per video.
+    private var selectedTrackId: UUID?
+
     private var detector = YOLODetector()
     private var gate = BallisticsGate(config: ProcessorConfig())
     private var decider = RallyDecider(config: ProcessorConfig())
@@ -64,6 +68,17 @@ final class VideoProcessor {
         let confidence: Float
     }
 
+    /// One candidate trajectory considered for the rally this frame (multi-court).
+    /// Lets RallyLab draw every candidate trail and show why one was selected.
+    struct TrackCandidate {
+        let id: UUID
+        let point: CGPoint        // current normalized position (Vision coords)
+        let score: Double         // selection score (quality + size/age tiebreaks)
+        let isProjectile: Bool    // passed the gate this frame
+        let isSelected: Bool      // the track driving the rally
+        let roiRadius: CGFloat    // association-gate ROI radius (normalized units)
+    }
+
     struct FrameEvidence {
         let time: Double          // PTS in seconds
         let hasBall: Bool
@@ -84,6 +99,8 @@ final class VideoProcessor {
         let movementType: MovementType?
         /// Why the gate did NOT accept this frame as a projectile (nil when it did).
         let rejectionReason: String?
+        /// All candidate trajectories this frame (multi-court), for visualization.
+        let candidates: [TrackCandidate]
     }
 
     /// Off by default: evidence costs memory proportional to frame count, so
@@ -132,6 +149,7 @@ final class VideoProcessor {
         // Reset state
         decider.reset()
         segments.reset()
+        selectedTrackId = nil
 
         var frameCount = 0
         let totalFramesEstimate = Int(duration.seconds * Double(fps))
@@ -152,13 +170,8 @@ final class VideoProcessor {
             let dets = detector.detect(in: pix, at: pts)
             tracker.update(with: dets, at: pts)
 
-            // Pick the freshest track (the one updated this frame if possible)
-            let activeTrack: KalmanBallTracker.TrackedBall? = tracker.tracks
-                .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
-                .first
-
-            // Gate by physics on a recent track only (skip stale ghost tracks)
-            let gateResult = freshTrack(activeTrack, now: pts).map { gate.validateProjectile($0) }
+            // Best rally trajectory across courts (quality-first, sticky).
+            let gateResult = bestTrack(now: pts, tracker: tracker).gate
             let isProjectile = gateResult?.isValid ?? false
             let hasBall = !dets.isEmpty
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
@@ -241,6 +254,7 @@ final class VideoProcessor {
         self.gate = BallisticsGate(config: config)
         self.decider = RallyDecider(config: config)
         decider.reset()
+        selectedTrackId = nil
 
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
@@ -300,13 +314,10 @@ final class VideoProcessor {
                 let dets = detector.detect(in: pix, at: pts)
                 tracker.update(with: dets, at: pts)
 
-                // Pick the freshest track
-                let activeTrack: KalmanBallTracker.TrackedBall? = tracker.tracks
-                    .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
-                    .first
-
-                // Gate by physics on a recent track only (skip stale ghost tracks)
-                let gateResult = freshTrack(activeTrack, now: pts).map { gate.validateProjectile($0) }
+                // Best rally trajectory across courts (quality-first, sticky).
+                let selection = bestTrack(now: pts, tracker: tracker)
+                let activeTrack = selection.track
+                let gateResult = selection.gate
                 let isProjectile = gateResult?.isValid ?? false
                 let hasBall = !dets.isEmpty
                 let inRally = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
@@ -431,6 +442,7 @@ final class VideoProcessor {
         // Reset state
         decider.reset()
         segments.reset()
+        selectedTrackId = nil
 
         // Metadata collection variables
         var frameCount = 0
@@ -499,20 +511,16 @@ final class VideoProcessor {
                 detectionFrameCount += 1
             }
 
-            // Pick the freshest track (the one updated this frame if possible)
-            let activeTrack: KalmanBallTracker.TrackedBall? = tracker.tracks
-                .sorted { ($0.positions.last?.1 ?? .zero) > ($1.positions.last?.1 ?? .zero) }
-                .first
-
-            // Gate by physics, but only on a track whose last real detection is
-            // recent. A stale "ghost" track (ball left frame, position frozen)
-            // still holds its last valid arc, which would re-validate as a
-            // projectile with R²≈1 forever; the freshness check rejects it.
-            let gateResult = freshTrack(activeTrack, now: pts).map { gate.validateProjectile($0) }
+            // Multi-court selection: validate all fresh tracks and pick the best
+            // rally trajectory (quality-first, sticky), instead of the freshest —
+            // so a ball on another court can't hijack the rally.
+            let selection = bestTrack(now: pts, tracker: tracker)
+            let activeTrack = selection.track
+            let gateResult = selection.gate
             let isProjectile = gateResult?.isValid ?? false
             let hasBall = !dets.isEmpty
-            // Ball height (Vision y, 1.0 = top) for sky-ball grace: the tracked
-            // ball, or the highest detection this frame.
+            // Ball height (Vision y, 1.0 = top) for sky-ball grace: the selected
+            // tracked ball, or the highest detection this frame.
             let ballY = activeTrack?.positions.last?.0.y ?? dets.map { $0.bbox.midY }.max()
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts, ballY: ballY)
             segments.observe(isActive: isActive, at: pts)
@@ -530,7 +538,8 @@ final class VideoProcessor {
                     rSquared: gateResult?.rSquared,
                     gravitySignature: gateResult?.gravitySignature,
                     movementType: gateResult?.movementType,
-                    rejectionReason: gateResult?.rejectionReason
+                    rejectionReason: gateResult?.rejectionReason,
+                    candidates: selection.candidates
                 ))
             }
 
@@ -862,6 +871,67 @@ final class VideoProcessor {
         guard let track, let lastTime = track.positions.last?.1 else { return nil }
         let staleness = CMTimeGetSeconds(CMTimeSubtract(now, lastTime))
         return staleness <= maxTrackStalenessSec ? track : nil
+    }
+
+    /// Multi-court trajectory selection. Validates every fresh track, scores the
+    /// valid ones (quality-first, with small ball-size + age tiebreakers), and
+    /// picks the best — sticking with the currently-selected trajectory unless
+    /// another beats it by `trajectorySelectionStickiness`. Returns the selected
+    /// track + its gate result, plus all candidates (for RallyLab visualization).
+    /// Runs the gate once per fresh track (typically 2–4); heavier only if many
+    /// balls are on screen at once.
+    private func bestTrack(now: CMTime, tracker: KalmanBallTracker)
+        -> (track: KalmanBallTracker.TrackedBall?, gate: BallisticsGate.ValidationResult?, candidates: [TrackCandidate]) {
+
+        let fresh = tracker.tracks.filter { t in
+            guard let last = t.positions.last?.1 else { return false }
+            return CMTimeGetSeconds(CMTimeSubtract(now, last)) <= maxTrackStalenessSec
+        }
+        guard !fresh.isEmpty else { selectedTrackId = nil; return (nil, nil, []) }
+
+        // Validate every fresh track once.
+        let evaluated: [(track: KalmanBallTracker.TrackedBall, gate: BallisticsGate.ValidationResult, roi: CGFloat)] =
+            fresh.map { ($0, gate.validateProjectile($0), $0.associationRadius(config: config)) }
+
+        // Score only VALID candidates (quality-first + size/age tiebreakers).
+        let valid = evaluated.filter { $0.gate.isValid }
+        let maxArea = valid.map { $0.track.meanBboxArea() }.max() ?? 0
+        let ageRef = 12.0
+        func score(_ e: (track: KalmanBallTracker.TrackedBall, gate: BallisticsGate.ValidationResult, roi: CGFloat)) -> Double {
+            let quality = 0.5 * e.gate.confidenceLevel + 0.5 * (e.gate.gravitySignature ?? 0)
+            let sizeScore = maxArea > 0 ? Double(e.track.meanBboxArea() / maxArea) : 0
+            let ageScore = min(1.0, Double(e.track.age) / ageRef)
+            return quality + config.trajectorySizeTiebreak * sizeScore + 0.05 * ageScore
+        }
+        let scored = valid.map { (e: $0, score: score($0)) }
+
+        // Select best, with stickiness toward the currently-selected track.
+        var selected: (track: KalmanBallTracker.TrackedBall, gate: BallisticsGate.ValidationResult)?
+        if let best = scored.max(by: { $0.score < $1.score }) {
+            if let stuck = scored.first(where: { $0.e.track.id == selectedTrackId }),
+               stuck.score >= best.score - config.trajectorySelectionStickiness {
+                selected = (stuck.e.track, stuck.e.gate)
+            } else {
+                selected = (best.e.track, best.e.gate)
+            }
+        }
+        selectedTrackId = selected?.track.id
+
+        // Candidates for visualization: every fresh track (valid or not).
+        let scoreById = Dictionary(scored.map { ($0.e.track.id, $0.score) }, uniquingKeysWith: { a, _ in a })
+        let candidates: [TrackCandidate] = evaluated.compactMap { e in
+            let pt = config.useSmoothedTrack ? e.track.smoothedPositions.last?.0 : e.track.positions.last?.0
+            guard let pt else { return nil }
+            return TrackCandidate(
+                id: e.track.id,
+                point: pt,
+                score: scoreById[e.track.id] ?? 0,
+                isProjectile: e.gate.isValid,
+                isSelected: e.track.id == selectedTrackId,
+                roiRadius: e.roi
+            )
+        }
+        return (selected?.track, selected?.gate, candidates)
     }
 
     private func calculateTrackMetrics(_ track: KalmanBallTracker.TrackedBall) -> (rSquared: Double, velocity: Double, acceleration: Double) {

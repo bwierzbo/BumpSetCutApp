@@ -194,12 +194,38 @@ struct KalmanState {
 final class KalmanBallTracker {
 
     struct TrackedBall {
+        /// Stable identity for the life of this track — set once, preserved as the
+        /// array element is mutated in place each frame. Lets the selector follow a
+        /// chosen trajectory across frames (stickiness) and lets RallyLab draw each
+        /// candidate's trail.
+        let id = UUID()
+
         // (raw measurement, Kalman-filtered position, bbox size, timestamp)
         private var _positions: [(CGPoint, CGPoint, CGSize, CMTime)] = []
         private let maxPositions: Int
 
         /// Kalman filter state
         var kalmanState: KalmanState
+
+        /// Mean bbox area over recent positions (normalized units²). A far-court
+        /// ball is smaller; used as a tiebreaker when ranking candidate tracks.
+        func meanBboxArea(lastN: Int = 12) -> CGFloat {
+            let areas = _positions.suffix(lastN).map { $0.2.width * $0.2.height }
+            guard !areas.isEmpty else { return 0 }
+            return areas.reduce(0, +) / CGFloat(areas.count)
+        }
+
+        /// Approximate spatial ROI radius (normalized units) of this track's
+        /// association gate: a detection within ~this distance of the predicted
+        /// position is matched to this track; one outside it starts a new track.
+        /// Derived from the Kalman position covariance × the gate sigma, so it's
+        /// the actual region this trajectory "owns." Visualized in RallyLab.
+        func associationRadius(config: ProcessorConfig) -> CGFloat {
+            let R = config.kalmanMeasurementNoise * config.kalmanMeasurementNoise
+            let varX = kalmanState.P[0][0] + R
+            let varY = kalmanState.P[1][1] + R
+            return config.kalmanGateThresholdSigma * sqrt(max(0, (varX + varY) / 2))
+        }
 
         /// Raw detection-center positions (what the model reported each frame).
         var positions: [(CGPoint, CMTime)] { _positions.map { ($0.0, $0.3) } }
