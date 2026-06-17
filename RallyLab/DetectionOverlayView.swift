@@ -48,11 +48,17 @@ struct DetectionOverlayView: View {
                 }
             }
 
-            // Current detections (latest frame only) as yellow boxes.
+            // Current detections (latest frame only): yellow box + the model's
+            // confidence for that box drawn just above it.
             if let latest = frames.last {
-                for bbox in latest.detections {
-                    let rect = Self.rect(bbox, turns: turns, in: fit)
+                for det in latest.detections {
+                    let rect = Self.rect(det.bbox, turns: turns, in: fit)
                     ctx.stroke(Path(rect), with: .color(.yellow), lineWidth: 2)
+                    let label = Text(String(format: "%.2f", Double(det.confidence)))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.yellow)
+                    ctx.draw(label, at: CGPoint(x: rect.minX, y: max(fit.minY, rect.minY - 2)),
+                             anchor: .bottomLeading)
                 }
                 // Marker on the active track point.
                 if let tp = latest.trackPoint {
@@ -86,8 +92,9 @@ struct DetectionOverlayView: View {
         if let type = latest.movementType {
             lines.append(("class \(type.displayName)", type == .airborne ? .green : .red))
         }
-        if let conf = latest.gateConfidence {
-            lines.append((String(format: "conf %.2f", conf), scoreColor(conf)))
+        if let ballConf = latest.detections.map(\.confidence).max() {
+            // YOLO model confidence that the box is a volleyball.
+            lines.append((String(format: "ball %.2f", Double(ballConf)), scoreColor(Double(ballConf))))
         }
         lines.append(("projectile \(latest.isProjectile ? "YES" : "no")",
                       latest.isProjectile ? .green : .secondary))

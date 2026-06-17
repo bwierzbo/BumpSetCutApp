@@ -37,7 +37,7 @@ final class RallyDecider {
     // Segmenting state
     private var rallyStartTime: CMTime?
 
-    init(config: ProcessorConfig, minRallySec: Double = 1.6764) {
+    init(config: ProcessorConfig, minRallySec: Double = 1.1653) {
         self.config = config
         self.minRallySec = minRallySec
     }

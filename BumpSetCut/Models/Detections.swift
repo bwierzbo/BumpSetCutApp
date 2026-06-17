@@ -62,13 +62,13 @@ struct ProcessorConfig {
     // Physics gating. Defaults are the tuning the app has always shipped (the
     // former "beach" preset — the only one ever used in production); there is
     // no longer a per-sport config.
-    var parabolaMinPoints: Int = 8
+    var parabolaMinPoints: Int = 4
     var parabolaMinR2: Double = 0.80
     var accelConsistencyMaxStd: Double = 1.0
     var minVelocityToConsiderActive: CGFloat = 0.6
     
     /// Time window (seconds) to collect samples for projectile fit (time-based instead of fixed count)
-    var projectileWindowSec: Double = 0.45
+    var projectileWindowSec: Double = 0.7452
     /// Optional gravity band on quadratic curvature 'a' (normalized units); disabled by default
     var useGravityBand: Bool = false
     var gravityMinA: CGFloat = 0.002
@@ -95,7 +95,7 @@ struct ProcessorConfig {
     /// Lower it to surface marginal detections (more recall, more noise),
     /// raise it to keep only confident hits. Default mirrors the historical
     /// hard-coded threshold in YOLODetector.
-    var detectionConfidence: Double = 0.70
+    var detectionConfidence: Double = 0.6021
 
     // Tracking association
     /// Gate radius for associating detections to existing tracks (normalized units)
@@ -125,8 +125,8 @@ struct ProcessorConfig {
     var kalmanGateThresholdSigma: CGFloat = 3.0
     
     // Rally detection (tuned in RallyLab 2026-06-14)
-    var startBuffer: Double = 0.2203
-    var endTimeout: Double = 1.8142
+    var startBuffer: Double = 0.1685
+    var endTimeout: Double = 0.3978
 
     /// Sky-ball grace: when the ball was last seen above this normalized height
     /// (Vision coords, 1.0 = top of frame), it likely left the top of view on a
@@ -136,13 +136,13 @@ struct ProcessorConfig {
     var skyBallTimeout: Double = 2.0
     /// Number of consecutive non-projectile frames allowed before resetting projRunStart.
     /// Prevents a single dropped detection from restarting the start-buffer clock.
-    var projDropGracePeriod: Int = 3
+    var projDropGracePeriod: Int = 5
 
     // Export trimming (tuned in RallyLab 2026-06-14)
     var preroll: Double = 2.0
     var postroll: Double = 0.5
-    var minGapToMerge: Double = 1.6727
-    var minSegmentLength: Double = 2.0801
+    var minGapToMerge: Double = 1.3513
+    var minSegmentLength: Double = 2.6131
     
     // MARK: - Enhanced Physics Validation (Issue #21)
     
@@ -186,6 +186,13 @@ struct ProcessorConfig {
     var maxAccelerationForRolling: Double = 0.4
     var minInconsistencyForCarried: Double = 0.6
     var maxSmoothnessForCarried: Double = 0.4
+
+    /// Reference curvature for the gravity signature: the fitted parabola's |a|
+    /// (its vertical-acceleration term) at which gravity reads ~1.0. Computed
+    /// from a least-squares fit (robust), not noisy frame-to-frame acceleration.
+    /// Lower = clean arcs saturate to full gravity sooner; tune so real arcs read
+    /// high and straight/carried paths (a≈0) read low.
+    var gravityReferenceCurvature: Double = 0.02
 
     /// When true, the rally gate also vetoes any track the movement classifier
     /// labels `.carried` (jumpy / inconsistent motion — e.g. a player picking up

@@ -57,13 +57,21 @@ final class VideoProcessor {
     /// needed to draw a detection/trajectory overlay. Replaying the signal
     /// fields through RallyDecider/SegmentBuilder reproduces segmentation
     /// exactly for any post-detection config, without re-running detection.
+    /// A kept volleyball detection: its Vision-normalized bbox plus the YOLO
+    /// model confidence for that box.
+    struct BallDetection {
+        let bbox: CGRect
+        let confidence: Float
+    }
+
     struct FrameEvidence {
         let time: Double          // PTS in seconds
         let hasBall: Bool
         let isProjectile: Bool
-        /// Kept volleyball detections this frame, as Vision-normalized bboxes
-        /// (origin bottom-left, [0,1]). Empty when nothing was detected.
-        let detections: [CGRect]
+        /// Kept volleyball detections this frame (Vision-normalized bboxes,
+        /// origin bottom-left, [0,1]) with their model confidences. Empty when
+        /// nothing was detected.
+        let detections: [BallDetection]
         /// Center of the freshest active track this frame (normalized), or nil
         /// when no track was active. Successive points form the ball trail.
         let trackPoint: CGPoint?
@@ -74,7 +82,6 @@ final class VideoProcessor {
         let rSquared: Double?
         let gravitySignature: Double?
         let movementType: MovementType?
-        let gateConfidence: Double?
         /// Why the gate did NOT accept this frame as a projectile (nil when it did).
         let rejectionReason: String?
     }
@@ -518,12 +525,11 @@ final class VideoProcessor {
                     time: CMTimeGetSeconds(pts),
                     hasBall: hasBall,
                     isProjectile: isProjectile,
-                    detections: dets.map { $0.bbox },
+                    detections: dets.map { BallDetection(bbox: $0.bbox, confidence: $0.confidence) },
                     trackPoint: trailPoint,
                     rSquared: gateResult?.rSquared,
                     gravitySignature: gateResult?.gravitySignature,
                     movementType: gateResult?.movementType,
-                    gateConfidence: gateResult?.confidenceLevel,
                     rejectionReason: gateResult?.rejectionReason
                 ))
             }

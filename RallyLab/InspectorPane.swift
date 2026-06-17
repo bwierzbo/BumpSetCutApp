@@ -159,6 +159,8 @@ struct InspectorPane: View {
                        info: "Minimum YOLO confidence to keep a volleyball detection. Lower surfaces marginal/noisier detections (more recall); higher keeps only confident hits. Changes what the model detects, so it needs a re-run.")
                 slider("minGravitySig", value: $model.minGravitySignature, in: 0...1.0, format: "%.2f",
                        info: "Minimum gravity signature (consistent downward acceleration) to accept a ball as free flight. Carried/rolled balls score near 0; raise to veto more of them. The veto only fires when this AND the flatness test below both trip.")
+                slider("gravRefCurve", value: $model.gravityReferenceCurvature, in: 0.005...0.1, format: "%.3f",
+                       info: "Calibrates the gravity signature: the fitted parabola's curvature |a| at which gravity reads 1.0. The signature is now from a least-squares fit (robust), not noisy frame-to-frame acceleration. LOWER this if real arcs read too low (they'll saturate to green sooner); raise it if straight/carried paths read too high. Watch the HUD gravity value on a known-good arc and dial until it's near 1.0.")
                 slider("maxVertForRoll", value: $model.maxVerticalMotionForRolling, in: 0...1.0, format: "%.2f",
                        info: "How flat the motion must be for the supported-ball veto (veto = flat AND low-gravity). Raising it makes the veto rely mostly on gravity, so it catches balls carried with bobbing — but risks vetoing real plays at serve/contact where gravity briefly dips. Watch the score when you raise it.")
                 slider("minCurvature", value: $model.minCurvatureMagnitude, in: 0...0.02, format: "%.3f",
@@ -167,6 +169,10 @@ struct InspectorPane: View {
                        info: "Minimum vertical travel (fraction of frame height) over the fit window for a ball to count as a projectile. Filters out balls that barely move vertically.")
                 slider("parabolaMinR2", value: $model.parabolaMinR2, in: 0.5...0.98, format: "%.2f",
                        info: "Minimum parabola fit quality (R²) to accept a projectile. Jumpy/erratic motion (like a player picking up a ball) fits a clean arc poorly, so raising this rejects it — at the risk of also dropping noisy real arcs. The most direct dial for 'require smooth arc motion'.")
+                slider("minPoints", value: $model.parabolaMinPoints, in: 3...12, step: 1, format: "%.0f",
+                       info: "Minimum detection points required within the fit window before the gate will judge the motion. LOWER this to relax the 'too few points in window' rejection — useful when the ball is detected only sparsely (e.g. a new model with thinner coverage). Too low and the parabola fit gets noisy.")
+                slider("fitWindow", value: $model.projectileWindowSec, in: 0.2...1.2, format: "%.2fs",
+                       info: "How many seconds of recent track history the gate fits its parabola over. WIDENING it gathers more points (also relaxes 'too few points in window'), but blends in older motion that may not match the current arc.")
                 slider("activeStride", value: $model.activeTrackingStride, in: 1...5, step: 1, format: "%.0f",
                        info: "Frames processed while actively tracking a ball: 1 = every frame (densest, most stable gate), 2 = every other, etc. Higher saves compute during rallies but under-samples the gate's parabola window and can make the projectile decision flicker. Keep at 1 unless processing is too slow.")
                 Toggle(isOn: $model.vetoCarriedMovement) {

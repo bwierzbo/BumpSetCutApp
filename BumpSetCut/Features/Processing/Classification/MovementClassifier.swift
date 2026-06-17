@@ -101,60 +101,29 @@ final class MovementClassifier {
         return min(1.0, coefficientOfVariation)
     }
     
-    /// Gravity-likeness of the acceleration: high when the trajectory has a meaningful,
-    /// consistently-directed acceleration (gravity), low when acceleration is negligible
-    /// (constant-velocity straight line) OR points in erratically changing directions
-    /// (a bumped/zigzag ball).
+    /// Gravity-likeness of the motion, from the curvature of a least-squares
+    /// parabola fit of vertical position over time. Gravity is a constant
+    /// acceleration, which shows up as the quadratic's `a` (curvature) term.
     ///
-    /// The previous implementation measured only the *consistency of acceleration
-    /// magnitude*, which scored a constant-velocity line (zero acceleration → zero
-    /// variance) as a perfect 1.0 while a real but gentle serve (small, slightly noisy
-    /// acceleration) scored 0.0 — exactly backwards. Direction alignment + a meaningful-
-    /// magnitude gate fixes that without depending on coordinate orientation (it uses
-    /// the acceleration vectors directly, so y-up vs y-down is irrelevant).
+    /// This replaces a frame-to-frame second-difference estimate, which amplified
+    /// position noise so badly that even a textbook arc (R²≈1) scored ~0.15. A
+    /// least-squares fit is robust to that jitter: a real arc has meaningful,
+    /// well-fit curvature → high; a straight/carried path has a≈0 → low.
     private func calculateAccelerationPattern(_ positions: [(CGPoint, CMTime)]) -> Double {
-        guard positions.count >= 4 else { return 0.0 }
+        guard positions.count >= 4, let t0 = positions.first?.1 else { return 0.0 }
 
-        var accelVectors: [CGVector] = []
-
-        for i in 2..<positions.count {
-            let (p1, t1) = positions[i-2]
-            let (p2, t2) = positions[i-1]
-            let (p3, t3) = positions[i]
-
-            let dt1 = CMTimeGetSeconds(CMTimeSubtract(t2, t1))
-            let dt2 = CMTimeGetSeconds(CMTimeSubtract(t3, t2))
-            guard dt1 > 0 && dt2 > 0 else { continue }
-
-            let v1 = CGVector(dx: (p2.x - p1.x) / CGFloat(dt1), dy: (p2.y - p1.y) / CGFloat(dt1))
-            let v2 = CGVector(dx: (p3.x - p2.x) / CGFloat(dt2), dy: (p3.y - p2.y) / CGFloat(dt2))
-
-            let dtAvg = (dt1 + dt2) / 2.0
-            accelVectors.append(CGVector(
-                dx: (v2.dx - v1.dx) / CGFloat(dtAvg),
-                dy: (v2.dy - v1.dy) / CGFloat(dtAvg)
-            ))
+        // Fit y(t); use raw seconds for t so curvature scale matches the gate.
+        let pts: [CGPoint] = positions.map { (p, tm) in
+            CGPoint(x: CGFloat(CMTimeGetSeconds(CMTimeSubtract(tm, t0))), y: p.y)
         }
+        guard let fit = fitQuadratic(points: pts) else { return 0.0 }
 
-        guard !accelVectors.isEmpty else { return 0.0 }
-
-        let magnitudes = accelVectors.map { sqrt(Double($0.dx * $0.dx + $0.dy * $0.dy)) }
-        let meanMagnitude = magnitudes.reduce(0, +) / Double(magnitudes.count)
-
-        // Gate on meaningful acceleration: a constant-velocity path has ~zero
-        // acceleration and is NOT a projectile, regardless of how "consistent" that
-        // zero is. Coordinates are normalized (0-1), so this is a small absolute floor.
-        guard meanMagnitude >= config.minMeaningfulAcceleration else { return 0.0 }
-
-        // Direction alignment: gravity acceleration points consistently one way, so the
-        // mean acceleration vector's magnitude ≈ the mean of the magnitudes. Erratic
-        // (oscillating) acceleration cancels out, shrinking the mean-vector magnitude.
-        let sumX = accelVectors.reduce(0.0) { $0 + Double($1.dx) }
-        let sumY = accelVectors.reduce(0.0) { $0 + Double($1.dy) }
-        let meanVectorMagnitude = sqrt(sumX * sumX + sumY * sumY) / Double(accelVectors.count)
-        let alignment = meanVectorMagnitude / max(0.0001, meanMagnitude)
-
-        return max(0.0, min(1.0, alignment))
+        // Curvature magnitude normalized by the reference (saturates to 1), then
+        // weighted by fit quality so a noisy fit can't masquerade as strong gravity.
+        let curvature = abs(Double(fit.a))
+        let magnitude = min(1.0, curvature / max(1e-6, config.gravityReferenceCurvature))
+        let quality = max(0.0, min(1.0, fit.r2))
+        return magnitude * quality
     }
     
     private func calculateSmoothnessScore(_ positions: [(CGPoint, CMTime)]) -> Double {
@@ -281,6 +250,8 @@ struct ClassificationConfig {
     // as having a gravity signature. Below this it's treated as constant-velocity (a
     // straight line / rolling), never airborne.
     var minMeaningfulAcceleration: Double = 0.05
+    // Reference curvature for the fit-based gravity signature (|a| → ~1.0).
+    var gravityReferenceCurvature: Double = 0.02
 
     // Rolling thresholds
     var maxVerticalForRolling: Double = 0.3
@@ -302,5 +273,6 @@ struct ClassificationConfig {
         self.maxAccelerationForRolling = config.maxAccelerationForRolling
         self.minInconsistencyForCarried = config.minInconsistencyForCarried
         self.maxSmoothnessForCarried = config.maxSmoothnessForCarried
+        self.gravityReferenceCurvature = config.gravityReferenceCurvature
     }
 }

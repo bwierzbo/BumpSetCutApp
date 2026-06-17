@@ -90,6 +90,11 @@ final class RallyLabModel {
     var minGravitySignature: Double = 0.3 {
         didSet { markDetectionDirty(minGravitySignature, oldValue) }
     }
+    /// Curvature at which the (fit-based) gravity signature reads ~1.0. Lower so
+    /// real arcs saturate to full gravity sooner.
+    var gravityReferenceCurvature: Double = 0.02 {
+        didSet { markDetectionDirty(gravityReferenceCurvature, oldValue) }
+    }
     /// "Flat" threshold: the veto only fires when vertical-motion score is below
     /// this. Raise to treat more motion as flat (more aggressive veto).
     var maxVerticalMotionForRolling: Double = 0.3 {
@@ -107,6 +112,16 @@ final class RallyLabModel {
     /// jumpy/erratic motion that fits a clean arc poorly.
     var parabolaMinR2: Double = 0.80 {
         didSet { markDetectionDirty(parabolaMinR2, oldValue) }
+    }
+    /// Min detection points required in the fit window. Lower to relax the
+    /// "too few points in window" rejection (accept sparser tracks).
+    var parabolaMinPoints: Double = 8 {
+        didSet { markDetectionDirty(parabolaMinPoints, oldValue) }
+    }
+    /// Seconds of recent track history the gate fits over. Widen to gather more
+    /// points (also relaxes "too few points in window").
+    var projectileWindowSec: Double = 0.45 {
+        didSet { markDetectionDirty(projectileWindowSec, oldValue) }
     }
     /// Also veto tracks the classifier labels `.carried` (jumpy pickups).
     var vetoCarriedMovement: Bool = false {
@@ -208,10 +223,13 @@ final class RallyLabModel {
         let preset = ProcessorConfig()
         detectionConfidence = preset.detectionConfidence
         minGravitySignature = preset.minGravitySignature
+        gravityReferenceCurvature = preset.gravityReferenceCurvature
         maxVerticalMotionForRolling = preset.maxVerticalMotionForRolling
         minCurvatureMagnitude = Double(preset.minCurvatureMagnitude)
         minProjectileSpanY = Double(preset.minProjectileSpanY)
         parabolaMinR2 = preset.parabolaMinR2
+        parabolaMinPoints = Double(preset.parabolaMinPoints)
+        projectileWindowSec = preset.projectileWindowSec
         vetoCarriedMovement = preset.vetoCarriedMovement
         useSmoothedTrack = preset.useSmoothedTrack
         activeTrackingStride = Double(preset.activeTrackingStride)
@@ -220,7 +238,7 @@ final class RallyLabModel {
         startBuffer = preset.startBuffer
         endTimeout = preset.endTimeout
         projDropGracePeriod = Double(preset.projDropGracePeriod)
-        minRallySec = 1.6764  // RallyDecider's production default
+        minRallySec = 1.1653  // RallyDecider's production default
         minGapToMerge = preset.minGapToMerge
         minSegmentLength = preset.minSegmentLength
         preroll = preset.preroll
@@ -234,10 +252,13 @@ final class RallyLabModel {
         var cfg = ProcessorConfig()
         cfg.detectionConfidence = detectionConfidence
         cfg.minGravitySignature = minGravitySignature
+        cfg.gravityReferenceCurvature = gravityReferenceCurvature
         cfg.maxVerticalMotionForRolling = maxVerticalMotionForRolling
         cfg.minCurvatureMagnitude = CGFloat(minCurvatureMagnitude)
         cfg.minProjectileSpanY = CGFloat(minProjectileSpanY)
         cfg.parabolaMinR2 = parabolaMinR2
+        cfg.parabolaMinPoints = Int(parabolaMinPoints.rounded())
+        cfg.projectileWindowSec = projectileWindowSec
         cfg.vetoCarriedMovement = vetoCarriedMovement
         cfg.useSmoothedTrack = useSmoothedTrack
         cfg.activeTrackingStride = Int(activeTrackingStride.rounded())
@@ -266,10 +287,13 @@ final class RallyLabModel {
         ProcessorConfig:
           detectionConfidence = \(f(detectionConfidence))
           minGravitySignature = \(f(minGravitySignature))
+          gravityReferenceCurvature = \(f(gravityReferenceCurvature))
           maxVerticalMotionForRolling = \(f(maxVerticalMotionForRolling))
           minCurvatureMagnitude = \(f(minCurvatureMagnitude))
           minProjectileSpanY = \(f(minProjectileSpanY))
           parabolaMinR2 = \(f(parabolaMinR2))
+          parabolaMinPoints = \(Int(parabolaMinPoints.rounded()))
+          projectileWindowSec = \(f(projectileWindowSec))
           vetoCarriedMovement = \(vetoCarriedMovement)
           useSmoothedTrack = \(useSmoothedTrack)
           activeTrackingStride = \(Int(activeTrackingStride.rounded()))
