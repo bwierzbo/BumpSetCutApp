@@ -8,34 +8,6 @@
 import CoreGraphics
 import CoreMedia
 
-// MARK: - Volleyball Type
-
-enum VolleyballType: String, Codable, CaseIterable {
-    case beach = "beach"
-    case indoor = "indoor"
-
-    var displayName: String {
-        switch self {
-        case .beach: return "Beach"
-        case .indoor: return "Indoor"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .beach: return "sun.max.fill"
-        case .indoor: return "building.2.fill"
-        }
-    }
-
-    var modelName: String {
-        switch self {
-        case .beach: return "bestv2"
-        case .indoor: return "indoor_v1"
-        }
-    }
-}
-
 struct DetectionResult {
     let bbox: CGRect
     let confidence: Float
@@ -87,14 +59,16 @@ enum ProcessingError: Error, LocalizedError {
 }
 
 struct ProcessorConfig {
-    // Physics gating (tighter)
-    var parabolaMinPoints: Int = 8
-    var parabolaMinR2: Double = 0.85
+    // Physics gating. Defaults are the tuning the app has always shipped (the
+    // former "beach" preset — the only one ever used in production); there is
+    // no longer a per-sport config.
+    var parabolaMinPoints: Int = 4
+    var parabolaMinR2: Double = 0.80
     var accelConsistencyMaxStd: Double = 1.0
     var minVelocityToConsiderActive: CGFloat = 0.6
     
     /// Time window (seconds) to collect samples for projectile fit (time-based instead of fixed count)
-    var projectileWindowSec: Double = 0.45
+    var projectileWindowSec: Double = 0.7452
     /// Optional gravity band on quadratic curvature 'a' (normalized units); disabled by default
     var useGravityBand: Bool = false
     var gravityMinA: CGFloat = 0.002
@@ -114,21 +88,33 @@ struct ProcessorConfig {
     var yIncreasingDown: Bool = false
     
     // Physics gating (ROI/coherence)
-    var maxJumpPerFrame: CGFloat = 0.08   // normalized; reject if center jumps >8% per frame
-    var roiYRadius: CGFloat = 0.04        // normalized; last Y must be within ±4% of predicted path
+    var maxJumpPerFrame: CGFloat = 0.10   // normalized; reject if center jumps >10% per frame
+    var roiYRadius: CGFloat = 0.06        // normalized; last Y must be within ±6% of predicted path
+
+    /// Minimum YOLO confidence for a "volleyball" detection to be kept.
+    /// Lower it to surface marginal detections (more recall, more noise),
+    /// raise it to keep only confident hits. Default mirrors the historical
+    /// hard-coded threshold in YOLODetector.
+    var detectionConfidence: Double = 0.6021
 
     // Tracking association
     /// Gate radius for associating detections to existing tracks (normalized units)
-    var trackGateRadius: CGFloat = 0.05
+    var trackGateRadius: CGFloat = 0.07
     /// Minimum track age (frames) before it can influence physics gating
     var minTrackAgeForPhysics: Int = 5
+
+    /// Frame stride used while a ball is actively tracked: 1 = process every
+    /// frame (densest sampling for the parabola fit), 2 = every other, etc.
+    /// Higher saves compute during rallies but under-samples the gate's fit
+    /// window and can make the projectile decision flicker. (tuned in RallyLab)
+    var activeTrackingStride: Int = 2
 
     // MARK: - Kalman Filter Configuration
 
     /// Process noise for position (how much position changes unexpectedly)
-    var kalmanProcessNoisePosition: CGFloat = 0.0001
+    var kalmanProcessNoisePosition: CGFloat = 0.0003
     /// Process noise for velocity (how much velocity changes between frames)
-    var kalmanProcessNoiseVelocity: CGFloat = 0.001
+    var kalmanProcessNoiseVelocity: CGFloat = 0.003
     /// Measurement noise (detection uncertainty from YOLO)
     var kalmanMeasurementNoise: CGFloat = 0.01
     /// Initial position uncertainty
@@ -138,18 +124,25 @@ struct ProcessorConfig {
     /// Mahalanobis distance threshold for gating (in standard deviations)
     var kalmanGateThresholdSigma: CGFloat = 3.0
     
-    // Rally detection
-    var startBuffer: Double = 0.3
-    var endTimeout: Double = 1.0
+    // Rally detection (tuned in RallyLab 2026-06-14)
+    var startBuffer: Double = 0.1685
+    var endTimeout: Double = 0.3978
+
+    /// Sky-ball grace: when the ball was last seen above this normalized height
+    /// (Vision coords, 1.0 = top of frame), it likely left the top of view on a
+    /// high arc, so the rally is kept alive for `skyBallTimeout` instead of the
+    /// normal no-ball timeout, giving it time to come back down.
+    var skyBallTopThreshold: CGFloat = 0.85
+    var skyBallTimeout: Double = 2.0
     /// Number of consecutive non-projectile frames allowed before resetting projRunStart.
     /// Prevents a single dropped detection from restarting the start-buffer clock.
-    var projDropGracePeriod: Int = 2
-    
-    // Export trimming
+    var projDropGracePeriod: Int = 5
+
+    // Export trimming (tuned in RallyLab 2026-06-14)
     var preroll: Double = 2.0
     var postroll: Double = 0.5
-    var minGapToMerge: Double = 0.3
-    var minSegmentLength: Double = 0.5
+    var minGapToMerge: Double = 1.3513
+    var minSegmentLength: Double = 2.6131
     
     // MARK: - Enhanced Physics Validation (Issue #21)
     
@@ -157,10 +150,10 @@ struct ProcessorConfig {
     var enableEnhancedPhysics: Bool = false  // Temporarily disabled to fix processing issues
     
     /// Enhanced R² correlation thresholds for trajectory quality
-    var enhancedMinR2: Double = 0.85
+    var enhancedMinR2: Double = 0.75
     var excellentR2Threshold: Double = 0.95
     var goodR2Threshold: Double = 0.85
-    var acceptableR2Threshold: Double = 0.70
+    var acceptableR2Threshold: Double = 0.60
     
     /// Physics constraint parameters
     var enablePhysicsConstraints: Bool = true
@@ -193,6 +186,40 @@ struct ProcessorConfig {
     var maxAccelerationForRolling: Double = 0.4
     var minInconsistencyForCarried: Double = 0.6
     var maxSmoothnessForCarried: Double = 0.4
+
+    /// Reference curvature for the gravity signature: the fitted parabola's |a|
+    /// (its vertical-acceleration term) at which gravity reads ~1.0. Computed
+    /// from a least-squares fit (robust), not noisy frame-to-frame acceleration.
+    /// Lower = clean arcs saturate to full gravity sooner; tune so real arcs read
+    /// high and straight/carried paths (a≈0) read low.
+    var gravityReferenceCurvature: Double = 0.02
+
+    /// When true, the rally gate also vetoes any track the movement classifier
+    /// labels `.carried` (jumpy / inconsistent motion — e.g. a player picking up
+    /// a ball), not just `.rolling` or the flat+no-gravity case.
+    /// (enabled in RallyLab/app for pickup-rejection testing 2026-06-14)
+    var vetoCarriedMovement: Bool = true
+
+    /// When true, the gate runs its checks on the Kalman-FILTERED track positions
+    /// instead of the raw detection centers, so single-frame detection jitter
+    /// doesn't skew the jump/ROI/curvature checks. (tuned on in RallyLab 2026-06-14)
+    var useSmoothedTrack: Bool = true
+
+    /// When true, reject a track that "doubles back" — makes a meaningful sideways
+    /// excursion but returns near its horizontal start (a pickup/scoop loop). A
+    /// real ball in play travels across; a loop comes back. Catches loops the
+    /// short-window parabola checks can't see, regardless of the movement class.
+    /// (enabled in RallyLab/app for pickup-rejection testing 2026-06-14)
+    var enableLoopRejection: Bool = true
+    /// Lookback (seconds) over which the doubling-back is measured — long enough
+    /// to span a full pickup loop.
+    var loopCheckWindowSec: Double = 1.0
+    /// Reject when net horizontal displacement ≤ this fraction of the horizontal
+    /// excursion (i.e. the ball returned at least this far back). Lower = stricter.
+    var loopReturnRatio: Double = 0.5
+    /// Minimum horizontal excursion (fraction of frame width) before the loop
+    /// check applies — keeps it from flagging near-vertical tosses or tiny motion.
+    var loopMinExcursion: Double = 0.05
     
     // MARK: - Quality Scoring (Issue #21)
     
@@ -300,28 +327,6 @@ struct ProcessorConfig {
         }
     }
     
-    /// Returns a config preset tuned for the given volleyball type.
-    static func configFor(_ type: VolleyballType) -> ProcessorConfig {
-        var config = ProcessorConfig()
-        switch type {
-        case .indoor:
-            // Indoor: tighter physics, faster rally pacing, stricter confidence (current defaults)
-            break
-        case .beach:
-            // Beach: looser R², wider tracking gates, longer timeouts, higher process noise (wind tolerance)
-            config.parabolaMinR2 = 0.80
-            config.trackGateRadius = 0.07
-            config.endTimeout = 1.5
-            config.kalmanProcessNoisePosition = 0.0003
-            config.kalmanProcessNoiseVelocity = 0.003
-            config.maxJumpPerFrame = 0.10
-            config.roiYRadius = 0.06
-            config.enhancedMinR2 = 0.75
-            config.acceptableR2Threshold = 0.60
-        }
-        return config
-    }
-
     /// Reset to default values (for testing/optimization)
     mutating func resetToDefaults() {
         self = ProcessorConfig()

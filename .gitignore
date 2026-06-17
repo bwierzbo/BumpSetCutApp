@@ -36,3 +36,6 @@ supabase/.temp/
 .claude/plans/
 .claude/plan.md
 .claude/plan-*.md
+
+# RallyLab test artifacts
+BumpSetCut/Resources/ML/test.png

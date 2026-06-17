@@ -37,7 +37,6 @@ enum AccessibilityID {
     enum Settings {
         static let done = "settings.done"
         static let analytics = "settings.analytics"
-        static let thoroughAnalysis = "settings.thoroughAnalysis"
         static let themeLight = "settings.theme.light"
         static let themeDark = "settings.theme.dark"
         static let themeSystem = "settings.theme.system"

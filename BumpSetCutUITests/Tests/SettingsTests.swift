@@ -52,11 +52,6 @@ final class SettingsTests: BSCUITestCase {
         settings.themeSystemButton.tap()
     }
 
-    func testThoroughAnalysisToggleIsTappable() {
-        XCTAssertTrue(settings.thoroughAnalysisToggle.waitForExistence(timeout: 3))
-        settings.thoroughAnalysisToggle.tap()
-    }
-
     func testAnalyticsToggleIsTappable() {
         XCTAssertTrue(settings.analyticsToggle.waitForExistence(timeout: 3))
         settings.analyticsToggle.tap()

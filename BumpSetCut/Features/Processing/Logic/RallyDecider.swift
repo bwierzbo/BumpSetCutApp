@@ -26,6 +26,9 @@ final class RallyDecider {
     private var lastProjectile: CMTime?
     private var projRunStart: CMTime?
     private var projDropCount: Int = 0
+    /// Normalized vertical position (Vision coords, 1.0 = top) of the ball the
+    /// last frame it was seen — used to grant sky-ball grace when it exits the top.
+    private var lastBallY: CGFloat?
 
     // Sliding window buffers (timestamps)
     private var ballTimes: [CMTime] = []
@@ -34,7 +37,7 @@ final class RallyDecider {
     // Segmenting state
     private var rallyStartTime: CMTime?
 
-    init(config: ProcessorConfig, minRallySec: Double = 3.0) {
+    init(config: ProcessorConfig, minRallySec: Double = 1.1653) {
         self.config = config
         self.minRallySec = minRallySec
     }
@@ -48,6 +51,7 @@ final class RallyDecider {
         projDropCount = 0
         ballTimes.removeAll()
         rallyStartTime = nil
+        lastBallY = nil
     }
 
     /// Update with latest signals.
@@ -55,13 +59,16 @@ final class RallyDecider {
     ///   - hasBall: true when model saw a volleyball this frame
     ///   - isProjectile: true when trajectory looks like a projectile
     ///   - timestamp: current PTS
+    ///   - ballY: normalized vertical position of the ball this frame (Vision
+    ///     coords, 1.0 = top of frame), when known — used for sky-ball grace.
     /// - Returns: current in-rally state
-    func update(hasBall: Bool, isProjectile: Bool, timestamp: CMTime) -> Bool {
+    func update(hasBall: Bool, isProjectile: Bool, timestamp: CMTime, ballY: CGFloat? = nil) -> Bool {
         let now = timestamp
 
         if hasBall {
             lastAnyBall = now
             ballTimes.append(now)
+            if let ballY { lastBallY = ballY }
         }
         if isProjectile {
             lastProjectile = now
@@ -126,8 +133,18 @@ final class RallyDecider {
         if timeSince(lastProjectile, now: now) <= 1.0 {
             return false
         }
-        // Hard end if we haven't seen *any* ball for a bit
+
         let noBallFor = timeSince(lastAnyBall, now: now)
+
+        // Sky-ball grace: the ball was last seen near the top of the frame, so it
+        // likely left the top of view on a high arc (sky ball / high dig). Give it
+        // the longer sky-ball timeout to come back down before ending; skip the
+        // normal hard/soft ends, which would cut it off early.
+        if (lastBallY ?? 0) >= config.skyBallTopThreshold {
+            return noBallFor >= config.skyBallTimeout
+        }
+
+        // Hard end if we haven't seen *any* ball for a bit
         if noBallFor >= min(0.8, config.endTimeout) { return true }
 
         // Softer end: if we haven't seen projectile in a while and ball rate is low

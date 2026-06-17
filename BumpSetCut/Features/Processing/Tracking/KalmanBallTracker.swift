@@ -194,23 +194,28 @@ struct KalmanState {
 final class KalmanBallTracker {
 
     struct TrackedBall {
-        private var _positions: [(CGPoint, CGSize, CMTime)] = []
+        // (raw measurement, Kalman-filtered position, bbox size, timestamp)
+        private var _positions: [(CGPoint, CGPoint, CGSize, CMTime)] = []
         private let maxPositions: Int
 
         /// Kalman filter state
         var kalmanState: KalmanState
 
-        /// Backward-compatible positions without bbox size
-        var positions: [(CGPoint, CMTime)] { _positions.map { ($0.0, $0.2) } }
+        /// Raw detection-center positions (what the model reported each frame).
+        var positions: [(CGPoint, CMTime)] { _positions.map { ($0.0, $0.3) } }
+
+        /// Kalman-filtered positions — the same path smoothed against single-frame
+        /// detection noise. Used by the gate when `useSmoothedTrack` is on.
+        var smoothedPositions: [(CGPoint, CMTime)] { _positions.map { ($0.1, $0.3) } }
 
         /// Positions with bbox size for serve inference
         var positionsWithSize: [(center: CGPoint, bboxSize: CGSize, time: CMTime)] {
-            _positions.map { (center: $0.0, bboxSize: $0.1, time: $0.2) }
+            _positions.map { (center: $0.0, bboxSize: $0.2, time: $0.3) }
         }
 
         var age: Int { _positions.count }
-        var last: (CGPoint, CMTime)? { _positions.last.map { ($0.0, $0.2) } }
-        var first: (CGPoint, CMTime)? { _positions.first.map { ($0.0, $0.2) } }
+        var last: (CGPoint, CMTime)? { _positions.last.map { ($0.0, $0.3) } }
+        var first: (CGPoint, CMTime)? { _positions.first.map { ($0.0, $0.3) } }
 
         var netDisplacement: CGFloat {
             guard let s = first?.0, let e = last?.0 else { return 0 }
@@ -220,7 +225,7 @@ final class KalmanBallTracker {
         init(position: CGPoint, bboxSize: CGSize = .zero, timestamp: CMTime, config: ProcessorConfig, maxPositions: Int = 100) {
             self.maxPositions = maxPositions
             self.kalmanState = KalmanState(position: position, timestamp: timestamp, config: config)
-            _positions.append((position, bboxSize, timestamp))
+            _positions.append((position, position, bboxSize, timestamp))
         }
 
         mutating func predict(to timestamp: CMTime, config: ProcessorConfig) {
@@ -232,7 +237,8 @@ final class KalmanBallTracker {
 
         mutating func update(measurement: CGPoint, bboxSize: CGSize = .zero, timestamp: CMTime, config: ProcessorConfig) {
             kalmanState.update(measurement: measurement, timestamp: timestamp, config: config)
-            _positions.append((measurement, bboxSize, timestamp))
+            // Store both the raw measurement and the post-update filtered estimate.
+            _positions.append((measurement, kalmanState.position, bboxSize, timestamp))
             // Enforce sliding window
             if _positions.count > maxPositions {
                 _positions.removeFirst(_positions.count - maxPositions)
@@ -275,37 +281,47 @@ final class KalmanBallTracker {
 
     /// Recommended frame stride based on current tracking state
     func recommendedStride(currentTime: CMTime) -> Int {
-        // If actively tracking, process every frame
+        // Actively tracking a ball: process every frame by default. The physics
+        // gate fits a parabola over a fixed-time window and needs enough samples
+        // in it; skipping frames here under-samples the arc and makes the gate
+        // flicker. Configurable via `activeTrackingStride`. Frame-skipping for
+        // idle stretches is handled below.
         if hasActiveTrack {
-            return 1
+            return max(1, config.activeTrackingStride)
         }
 
         // If recently lost track, use moderate stride
         let timeSinceLost = timeSinceLastDetection(currentTime: currentTime)
         if timeSinceLost < 1.0 {
-            return 2
+            return 3
         }
 
         // No recent detections, can skip more frames
-        return 3
+        return 4
     }
 
     /// Update tracker with detections for the current frame timestamp.
-    /// - Important: `DetectionResult.bbox` is expected to be normalized.
-    func update(with detections: [DetectionResult]) {
-        guard let frameTime = detections.first?.timestamp else {
-            // No detections: predict all tracks forward
+    /// - Parameters:
+    ///   - detections: this frame's detections (`bbox` expected normalized).
+    ///   - currentTime: the frame's PTS. Pass this so tracks can be aged out
+    ///     even on frames with **no** detections — otherwise a track frozen at
+    ///     the ball's last in-frame position survives indefinitely while the
+    ///     ball is out of view, and its stale arc keeps re-validating as a
+    ///     projectile. Falls back to the detections' timestamp when omitted.
+    func update(with detections: [DetectionResult], at currentTime: CMTime? = nil) {
+        guard let frameTime = currentTime ?? detections.first?.timestamp else {
+            // No detections and no clock supplied — nothing we can age or associate.
             return
         }
 
-        // Update last detection time for dynamic stride
         if !detections.isEmpty {
+            // Update last detection time for dynamic stride
             lastDetectionTime = frameTime
-        }
 
-        // Predict all tracks to current frame time
-        for i in tracks.indices {
-            tracks[i].predict(to: frameTime, config: config)
+            // Predict all tracks to current frame time
+            for i in tracks.indices {
+                tracks[i].predict(to: frameTime, config: config)
+            }
         }
 
         // Precompute centers and bbox sizes

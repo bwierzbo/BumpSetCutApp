@@ -62,17 +62,6 @@ enum AppTheme: String, CaseIterable, Identifiable {
         }
     }
 
-    // MARK: - Processing Settings
-
-    /// Use thorough analysis with dynamic frame stride, trajectory tracking,
-    /// classification, and quality metrics. When OFF, uses quick mode that
-    /// just detects rallies without extra analysis.
-    var useThoroughAnalysis: Bool {
-        didSet {
-            UserDefaults.standard.set(useThoroughAnalysis, forKey: "useThoroughAnalysis")
-        }
-    }
-
     // MARK: - Onboarding State
 
     /// Whether user has completed the app onboarding tutorial
@@ -105,9 +94,6 @@ enum AppTheme: String, CaseIterable, Identifiable {
         #endif
 
         self.enableAnalytics = UserDefaults.standard.object(forKey: "enableAnalytics") as? Bool ?? true
-
-        // Processing settings - default to thorough analysis
-        self.useThoroughAnalysis = UserDefaults.standard.object(forKey: "useThoroughAnalysis") as? Bool ?? true
 
         // Onboarding state
         self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
