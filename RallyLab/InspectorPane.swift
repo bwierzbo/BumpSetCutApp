@@ -213,6 +213,8 @@ struct InspectorPane: View {
                        info: "Multi-court selection: how much a candidate's relative ball size adds to its score. Selection is quality-first (confidence + gravity); this only breaks near-ties. Higher favors the bigger/closer main-court ball over a smaller far-court ball. 0 = size never matters.")
                 slider("selStickiness", value: $model.trajectorySelectionStickiness, in: 0...0.5, format: "%.2f",
                        info: "Multi-court selection: keep the currently-selected trajectory unless another candidate beats its score by more than this margin. Higher = stickier (less flicker between courts); lower = switches to the best ball more eagerly. Stale tracks are dropped regardless once the ball leaves.")
+                slider("roiScale", value: $model.trajectoryRoiScale, in: 1...12, step: 0.5, format: "%.1f",
+                       info: "Display only: the candidate ROI circle is drawn at the detected ball's size × this scale. Adjust to make the per-trajectory ROI bigger or smaller in the overlay. Doesn't affect detection, tracking, or selection — just redraws (no re-run needed).")
                 if model.detectionConfigDirty {
                     HStack(spacing: 6) {
                         Label("Detection settings changed — re-run to apply.",

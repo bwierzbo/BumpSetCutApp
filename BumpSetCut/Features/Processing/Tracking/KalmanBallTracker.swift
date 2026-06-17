@@ -215,18 +215,6 @@ final class KalmanBallTracker {
             return areas.reduce(0, +) / CGFloat(areas.count)
         }
 
-        /// Approximate spatial ROI radius (normalized units) of this track's
-        /// association gate: a detection within ~this distance of the predicted
-        /// position is matched to this track; one outside it starts a new track.
-        /// Derived from the Kalman position covariance × the gate sigma, so it's
-        /// the actual region this trajectory "owns." Visualized in RallyLab.
-        func associationRadius(config: ProcessorConfig) -> CGFloat {
-            let R = config.kalmanMeasurementNoise * config.kalmanMeasurementNoise
-            let varX = kalmanState.P[0][0] + R
-            let varY = kalmanState.P[1][1] + R
-            return config.kalmanGateThresholdSigma * sqrt(max(0, (varX + varY) / 2))
-        }
-
         /// Raw detection-center positions (what the model reported each frame).
         var positions: [(CGPoint, CMTime)] { _positions.map { ($0.0, $0.3) } }
 

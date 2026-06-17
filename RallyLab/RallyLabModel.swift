@@ -184,6 +184,10 @@ final class RallyLabModel {
     var skyBallTimeout: Double = 2.5 { didSet { recomputePredictionsAndScore() } }
     var skyBallTopThreshold: Double = 0.85 { didSet { recomputePredictionsAndScore() } }
 
+    /// Display-only: the candidate ROI circle is drawn with radius = ball size ×
+    /// this scale. Changing it just redraws the overlay (no re-run / re-score).
+    var trajectoryRoiScale: Double = 3.0
+
     // MARK: - Sweep
 
     /// One config the sweep surfaced, scored against the labels. `score` is the

@@ -25,6 +25,7 @@ struct DetectionOverlayView: View {
         let frames = model.overlayFrames(at: time, window: trailWindow)
         let displaySize = model.videoDisplaySize
         let turns = model.videoRotationQuarterTurns
+        let roiScaleFactor = model.trajectoryRoiScale
 
         Canvas { ctx, size in
             let fit = Self.fittedRect(content: displaySize, in: size)
@@ -71,12 +72,14 @@ struct DetectionOverlayView: View {
                            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
 
-            // ROI circles + score labels for the latest frame's candidates.
+            // ROI circles + score labels for the latest frame's candidates. The
+            // radius tracks the detected ball's size (× the adjustable display
+            // scale), mapped from normalized units into the fitted video rect.
             if let latest = frames.last {
-                let roiScale = min(fit.width, fit.height)
+                let roiPixels = min(fit.width, fit.height)
                 for cand in latest.candidates {
                     let c = Self.point(cand.point, turns: turns, in: fit)
-                    let r = max(6, cand.roiRadius * roiScale)
+                    let r = max(6, cand.ballSize * roiScaleFactor * roiPixels)
                     let circle = CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
                     let roiColor: Color = cand.isSelected
                         ? .green.opacity(0.9)

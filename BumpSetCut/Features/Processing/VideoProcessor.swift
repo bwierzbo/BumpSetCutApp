@@ -76,7 +76,8 @@ final class VideoProcessor {
         let score: Double         // selection score (quality + size/age tiebreaks)
         let isProjectile: Bool    // passed the gate this frame
         let isSelected: Bool      // the track driving the rally
-        let roiRadius: CGFloat    // association-gate ROI radius (normalized units)
+        let ballSize: CGFloat     // detected ball's mean side length (normalized);
+                                  // RallyLab draws the ROI as this × a display scale
     }
 
     struct FrameEvidence {
@@ -889,15 +890,16 @@ final class VideoProcessor {
         }
         guard !fresh.isEmpty else { selectedTrackId = nil; return (nil, nil, []) }
 
-        // Validate every fresh track once.
-        let evaluated: [(track: KalmanBallTracker.TrackedBall, gate: BallisticsGate.ValidationResult, roi: CGFloat)] =
-            fresh.map { ($0, gate.validateProjectile($0), $0.associationRadius(config: config)) }
+        // Validate every fresh track once. `size` is the ball's mean bbox side
+        // length (√area) — RallyLab scales it into the drawn ROI radius.
+        let evaluated: [(track: KalmanBallTracker.TrackedBall, gate: BallisticsGate.ValidationResult, size: CGFloat)] =
+            fresh.map { ($0, gate.validateProjectile($0), sqrt(max(0, $0.meanBboxArea()))) }
 
         // Score only VALID candidates (quality-first + size/age tiebreakers).
         let valid = evaluated.filter { $0.gate.isValid }
         let maxArea = valid.map { $0.track.meanBboxArea() }.max() ?? 0
         let ageRef = 12.0
-        func score(_ e: (track: KalmanBallTracker.TrackedBall, gate: BallisticsGate.ValidationResult, roi: CGFloat)) -> Double {
+        func score(_ e: (track: KalmanBallTracker.TrackedBall, gate: BallisticsGate.ValidationResult, size: CGFloat)) -> Double {
             let quality = 0.5 * e.gate.confidenceLevel + 0.5 * (e.gate.gravitySignature ?? 0)
             let sizeScore = maxArea > 0 ? Double(e.track.meanBboxArea() / maxArea) : 0
             let ageScore = min(1.0, Double(e.track.age) / ageRef)
@@ -928,7 +930,7 @@ final class VideoProcessor {
                 score: scoreById[e.track.id] ?? 0,
                 isProjectile: e.gate.isValid,
                 isSelected: e.track.id == selectedTrackId,
-                roiRadius: e.roi
+                ballSize: e.size
             )
         }
         return (selected?.track, selected?.gate, candidates)
