@@ -77,7 +77,10 @@ final class VideoProcessor {
         let isProjectile: Bool    // passed the gate this frame
         let isSelected: Bool      // the track driving the rally
         let ballSize: CGFloat     // detected ball's mean side length (normalized);
-                                  // RallyLab draws the ROI as this × a display scale
+                                  // used for size-trend / serve-signature analysis
+        let roiRadius: CGFloat    // the track's actual association ROI radius
+                                  // (normalized) — RallyLab draws this exactly, so
+                                  // the drawn circle IS the real association gate
     }
 
     struct FrameEvidence {
@@ -815,7 +818,8 @@ final class VideoProcessor {
                 score: scoreById[e.track.id] ?? 0,
                 isProjectile: e.gate.isValid,
                 isSelected: e.track.id == selectedTrackId,
-                ballSize: e.size
+                ballSize: e.size,
+                roiRadius: e.track.roiRadius(config: config)
             )
         }
         return (selected?.track, selected?.gate, candidates)

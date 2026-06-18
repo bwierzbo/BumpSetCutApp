@@ -378,19 +378,18 @@ Once features are stable (post-C/D), replace hand-weights with a small trained m
   overkill until the feature set and labels are mature.
 - **Effort:** ongoing. **Risk:** medium, but premature now.
 
-### Approach F — Finish the ball-sized association gate (targeted)
-Complete the started work: switch the tracker's association from Mahalanobis to the
-Euclidean **ball-sized spatial gate** (`roiRadius`), delete `kalmanGateThresholdSigma`
-and `mahalanobisDistance`, so the RallyLab ROI drawing *is* the real gate.
-- **Pros:** removes the visual-vs-real ROI confusion; one intuitive knob
-  (`trajectoryRoiScale`); simpler tracker.
-- **Cons:** Mahalanobis adapts to track uncertainty (a virtue for fast/occluded
-  balls) that a fixed ball-sized radius loses; needs A/B on multi-court clips to
-  confirm IDs don't churn. Could instead be resolved the *opposite* way — keep
-  Mahalanobis, delete `roiRadius`/`trajectoryRoiScale`, and draw the covariance
-  ellipse in RallyLab.
-- **Effort:** ~1 day. **Risk:** medium (tracking behavior change). **Decision still
-  open** — pick one direction and make the drawing match the gate.
+### Approach F — Ball-sized association gate ✅ DONE (2026-06-18)
+Switched the tracker's association from the covariance Mahalanobis gate to a
+Euclidean **ball-sized spatial gate** (`roiRadius` = ballSize × `trajectoryRoiScale`);
+`existsStrongerNeighbor` uses the same gate. Deleted `kalmanGateThresholdSigma` and
+`mahalanobisDistance`. `TrackCandidate` now carries the real `roiRadius` and
+RallyLab draws it directly, so **the visualized ROI is exactly the live gate**, with
+`trajectoryRoiScale` as the single association knob.
+- **Outcome:** removed the visual-vs-real ROI confusion; one intuitive knob; simpler
+  tracker. App + RallyLab build green.
+- **Watch:** a fixed ball-sized radius loses the uncertainty-adaptivity Mahalanobis
+  gave fast/occluded balls. Validate on multi-court clips that IDs don't churn; if a
+  fast ball outruns its ROI, raise `trajectoryRoiScale`.
 
 ---
 

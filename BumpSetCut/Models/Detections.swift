@@ -123,9 +123,7 @@ struct ProcessorConfig {
     var kalmanInitialPositionUncertainty: CGFloat = 0.05
     /// Initial velocity uncertainty
     var kalmanInitialVelocityUncertainty: CGFloat = 0.1
-    /// Mahalanobis distance threshold for gating (in standard deviations)
-    var kalmanGateThresholdSigma: CGFloat = 3.0
-    
+
     // Rally detection (tuned in RallyLab 2026-06-14)
     var startBuffer: Double = 0.1685
     var endTimeout: Double = 0.3978

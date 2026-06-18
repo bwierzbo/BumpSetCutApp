@@ -159,31 +159,6 @@ struct KalmanState {
         P = newP
     }
 
-    /// Mahalanobis distance for gating
-    func mahalanobisDistance(to point: CGPoint, config: ProcessorConfig) -> CGFloat {
-        let innovX = point.x - x
-        let innovY = point.y - y
-
-        // S = H*P*H^T + R (use position covariance)
-        let R = config.kalmanMeasurementNoise * config.kalmanMeasurementNoise
-        let S00 = P[0][0] + R
-        let S01 = P[0][1]
-        let S10 = P[1][0]
-        let S11 = P[1][1] + R
-
-        // S^-1
-        let detS = S00 * S11 - S01 * S10
-        guard abs(detS) > 1e-10 else { return .greatestFiniteMagnitude }
-        let invS00 = S11 / detS
-        let invS01 = -S01 / detS
-        let invS11 = S00 / detS
-
-        // d² = innovation^T * S^-1 * innovation
-        let d2 = innovX * (invS00 * innovX + invS01 * innovY) +
-                 innovY * (invS01 * innovX + invS11 * innovY)
-
-        return sqrt(max(0, d2))
-    }
 }
 
 // MARK: - Kalman Ball Tracker
@@ -358,20 +333,23 @@ final class KalmanBallTracker {
              ts: det.timestamp)
         }
 
-        // Associate using sorted Mahalanobis distance (globally optimal greedy).
-        // Build all valid (track, detection) candidate pairs, sort by ascending
-        // distance, then assign greedily. This eliminates ordering bias that
-        // causes ID switches when multiple balls are visible.
-        var candidates: [(trackIdx: Int, detIdx: Int, mahal: CGFloat)] = []
+        // Associate using the ball-sized spatial ROI (globally optimal greedy).
+        // A detection within the track's roiRadius (≈ ballSize × trajectoryRoiScale)
+        // of its predicted position is a candidate; build all valid (track,
+        // detection) pairs, sort by ascending Euclidean distance, assign greedily.
+        // This eliminates ordering bias that causes ID switches when multiple balls
+        // are visible, and makes the association gate exactly the ROI circle RallyLab
+        // draws — tune it with `trajectoryRoiScale`.
+        var candidates: [(trackIdx: Int, detIdx: Int, dist: CGFloat)] = []
         for (detIdx, det) in centers.enumerated() {
             for (trackIdx, track) in tracks.enumerated() {
-                let mahal = track.kalmanState.mahalanobisDistance(to: det.pt, config: config)
-                if mahal <= config.kalmanGateThresholdSigma {
-                    candidates.append((trackIdx: trackIdx, detIdx: detIdx, mahal: mahal))
+                let dist = hypot(det.pt.x - track.kalmanState.x, det.pt.y - track.kalmanState.y)
+                if dist <= track.roiRadius(config: config) {
+                    candidates.append((trackIdx: trackIdx, detIdx: detIdx, dist: dist))
                 }
             }
         }
-        candidates.sort { $0.mahal < $1.mahal }
+        candidates.sort { $0.dist < $1.dist }
 
         var claimedTracks = Set<Int>()
         var claimedDets = Set<Int>()
@@ -409,11 +387,12 @@ final class KalmanBallTracker {
 
     // MARK: - Helpers
 
-    /// Checks whether there is an existing longer-lived track within the gate radius.
+    /// Checks whether there is an existing longer-lived track whose ball-sized ROI
+    /// already covers this point (so a new detection there belongs to it, not a new track).
     private func existsStrongerNeighbor(near point: CGPoint) -> Bool {
         for track in tracks {
-            let mahal = track.kalmanState.mahalanobisDistance(to: point, config: config)
-            if mahal <= config.kalmanGateThresholdSigma, track.age >= config.minTrackAgeForPhysics {
+            let dist = hypot(point.x - track.kalmanState.x, point.y - track.kalmanState.y)
+            if dist <= track.roiRadius(config: config), track.age >= config.minTrackAgeForPhysics {
                 return true
             }
         }
