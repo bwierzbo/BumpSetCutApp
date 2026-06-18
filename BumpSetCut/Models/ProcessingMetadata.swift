@@ -94,13 +94,11 @@ struct ProcessingConfiguration: Codable {
     // Physics gating (tighter)
     let parabolaMinPoints: Int
     let parabolaMinR2: Double
-    let accelConsistencyMaxStd: Double
     let minVelocityToConsiderActive: Double
 
     // Time window (seconds) to collect samples for projectile fit
     let projectileWindowSec: Double
     let useGravityBand: Bool
-    let gravityMinA: Double
     let gravityMaxA: Double
 
     // Y coordinate system
@@ -111,7 +109,6 @@ struct ProcessingConfiguration: Codable {
     let roiYRadius: Double
 
     // Tracking association
-    let trackGateRadius: Double
     let minTrackAgeForPhysics: Int
 
     // Rally detection
@@ -123,19 +120,6 @@ struct ProcessingConfiguration: Codable {
     let postroll: Double
     let minGapToMerge: Double
     let minSegmentLength: Double
-
-    // Enhanced Physics Validation
-    let enableEnhancedPhysics: Bool
-    let enhancedMinR2: Double
-    let excellentR2Threshold: Double
-    let goodR2Threshold: Double
-    let acceptableR2Threshold: Double
-
-    // Physics constraint parameters
-    let enablePhysicsConstraints: Bool
-    let maxAccelerationDeviation: Double
-    let velocityConsistencyThreshold: Double
-    let trajectorySmoothnessThreshold: Double
 
     // Movement Classification
     let movementClassifierEnabled: Bool
@@ -159,16 +143,13 @@ struct ProcessingConfiguration: Codable {
         let d = ProcessorConfig()
         parabolaMinPoints = try c.decodeIfPresent(Int.self, forKey: .parabolaMinPoints) ?? d.parabolaMinPoints
         parabolaMinR2 = try c.decodeIfPresent(Double.self, forKey: .parabolaMinR2) ?? d.parabolaMinR2
-        accelConsistencyMaxStd = try c.decodeIfPresent(Double.self, forKey: .accelConsistencyMaxStd) ?? d.accelConsistencyMaxStd
         minVelocityToConsiderActive = try c.decodeIfPresent(Double.self, forKey: .minVelocityToConsiderActive) ?? Double(d.minVelocityToConsiderActive)
         projectileWindowSec = try c.decodeIfPresent(Double.self, forKey: .projectileWindowSec) ?? d.projectileWindowSec
         useGravityBand = try c.decodeIfPresent(Bool.self, forKey: .useGravityBand) ?? d.useGravityBand
-        gravityMinA = try c.decodeIfPresent(Double.self, forKey: .gravityMinA) ?? Double(d.gravityMinA)
         gravityMaxA = try c.decodeIfPresent(Double.self, forKey: .gravityMaxA) ?? Double(d.gravityMaxA)
         yIncreasingDown = try c.decodeIfPresent(Bool.self, forKey: .yIncreasingDown) ?? d.yIncreasingDown
         maxJumpPerFrame = try c.decodeIfPresent(Double.self, forKey: .maxJumpPerFrame) ?? Double(d.maxJumpPerFrame)
         roiYRadius = try c.decodeIfPresent(Double.self, forKey: .roiYRadius) ?? Double(d.roiYRadius)
-        trackGateRadius = try c.decodeIfPresent(Double.self, forKey: .trackGateRadius) ?? Double(d.trackGateRadius)
         minTrackAgeForPhysics = try c.decodeIfPresent(Int.self, forKey: .minTrackAgeForPhysics) ?? d.minTrackAgeForPhysics
         startBuffer = try c.decodeIfPresent(Double.self, forKey: .startBuffer) ?? d.startBuffer
         endTimeout = try c.decodeIfPresent(Double.self, forKey: .endTimeout) ?? d.endTimeout
@@ -176,15 +157,6 @@ struct ProcessingConfiguration: Codable {
         postroll = try c.decodeIfPresent(Double.self, forKey: .postroll) ?? d.postroll
         minGapToMerge = try c.decodeIfPresent(Double.self, forKey: .minGapToMerge) ?? d.minGapToMerge
         minSegmentLength = try c.decodeIfPresent(Double.self, forKey: .minSegmentLength) ?? d.minSegmentLength
-        enableEnhancedPhysics = try c.decodeIfPresent(Bool.self, forKey: .enableEnhancedPhysics) ?? d.enableEnhancedPhysics
-        enhancedMinR2 = try c.decodeIfPresent(Double.self, forKey: .enhancedMinR2) ?? d.enhancedMinR2
-        excellentR2Threshold = try c.decodeIfPresent(Double.self, forKey: .excellentR2Threshold) ?? d.excellentR2Threshold
-        goodR2Threshold = try c.decodeIfPresent(Double.self, forKey: .goodR2Threshold) ?? d.goodR2Threshold
-        acceptableR2Threshold = try c.decodeIfPresent(Double.self, forKey: .acceptableR2Threshold) ?? d.acceptableR2Threshold
-        enablePhysicsConstraints = try c.decodeIfPresent(Bool.self, forKey: .enablePhysicsConstraints) ?? d.enablePhysicsConstraints
-        maxAccelerationDeviation = try c.decodeIfPresent(Double.self, forKey: .maxAccelerationDeviation) ?? d.maxAccelerationDeviation
-        velocityConsistencyThreshold = try c.decodeIfPresent(Double.self, forKey: .velocityConsistencyThreshold) ?? d.velocityConsistencyThreshold
-        trajectorySmoothnessThreshold = try c.decodeIfPresent(Double.self, forKey: .trajectorySmoothnessThreshold) ?? d.trajectorySmoothnessThreshold
         movementClassifierEnabled = try c.decodeIfPresent(Bool.self, forKey: .movementClassifierEnabled) ?? d.movementClassifierEnabled
         minClassificationConfidence = try c.decodeIfPresent(Double.self, forKey: .minClassificationConfidence) ?? d.minClassificationConfidence
         airbornePhysicsThreshold = try c.decodeIfPresent(Double.self, forKey: .airbornePhysicsThreshold) ?? d.airbornePhysicsThreshold
@@ -198,12 +170,10 @@ struct ProcessingConfiguration: Codable {
     init(from config: ProcessorConfig) {
         self.parabolaMinPoints = config.parabolaMinPoints
         self.parabolaMinR2 = config.parabolaMinR2
-        self.accelConsistencyMaxStd = config.accelConsistencyMaxStd
         self.minVelocityToConsiderActive = Double(config.minVelocityToConsiderActive)
 
         self.projectileWindowSec = config.projectileWindowSec
         self.useGravityBand = config.useGravityBand
-        self.gravityMinA = Double(config.gravityMinA)
         self.gravityMaxA = Double(config.gravityMaxA)
 
         self.yIncreasingDown = config.yIncreasingDown
@@ -211,7 +181,6 @@ struct ProcessingConfiguration: Codable {
         self.maxJumpPerFrame = Double(config.maxJumpPerFrame)
         self.roiYRadius = Double(config.roiYRadius)
 
-        self.trackGateRadius = Double(config.trackGateRadius)
         self.minTrackAgeForPhysics = config.minTrackAgeForPhysics
 
         self.startBuffer = config.startBuffer
@@ -221,17 +190,6 @@ struct ProcessingConfiguration: Codable {
         self.postroll = config.postroll
         self.minGapToMerge = config.minGapToMerge
         self.minSegmentLength = config.minSegmentLength
-
-        self.enableEnhancedPhysics = config.enableEnhancedPhysics
-        self.enhancedMinR2 = config.enhancedMinR2
-        self.excellentR2Threshold = config.excellentR2Threshold
-        self.goodR2Threshold = config.goodR2Threshold
-        self.acceptableR2Threshold = config.acceptableR2Threshold
-
-        self.enablePhysicsConstraints = config.enablePhysicsConstraints
-        self.maxAccelerationDeviation = config.maxAccelerationDeviation
-        self.velocityConsistencyThreshold = config.velocityConsistencyThreshold
-        self.trajectorySmoothnessThreshold = config.trajectorySmoothnessThreshold
 
         self.movementClassifierEnabled = config.movementClassifierEnabled
         self.minClassificationConfidence = config.minClassificationConfidence

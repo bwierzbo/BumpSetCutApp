@@ -44,11 +44,9 @@ final class TrajectoryDebugger {
     // MARK: - Dependencies
     
     private let metricsCollector: MetricsCollector
-    private let parameterOptimizer: ParameterOptimizer?
-    
-    init(metricsCollector: MetricsCollector, parameterOptimizer: ParameterOptimizer? = nil) {
+
+    init(metricsCollector: MetricsCollector) {
         self.metricsCollector = metricsCollector
-        self.parameterOptimizer = parameterOptimizer
     }
 
     /// Configure memory limits from ProcessorConfig
@@ -245,29 +243,6 @@ final class TrajectoryDebugger {
         )
     }
     
-    // MARK: - Parameter Tuning Integration
-    
-    func tunParametersWithRealTimeFeedback(parameters: [String: Any]) -> ParameterTuningResult {
-        guard parameterOptimizer != nil else {
-            return ParameterTuningResult(success: false, message: "Parameter optimizer not available")
-        }
-        
-        _ = calculateRecentAccuracy()
-        _ = calculateRecentPerformance()
-        
-        // Apply parameters temporarily
-        let originalConfig = ProcessorConfig()
-        let testConfig = originalConfig.withModifications(parameters)
-        
-        return ParameterTuningResult(
-            success: true,
-            message: "Parameters applied successfully",
-            accuracyChange: 0.0, // Will be calculated after processing
-            performanceImpact: 0.0, // Will be calculated after processing
-            recommendations: generateParameterRecommendations(testConfig)
-        )
-    }
-    
     // MARK: - Private Helper Methods
     
     private func clearVisualizationData() {
@@ -316,14 +291,6 @@ final class TrajectoryDebugger {
         return Double(validClassifications.count) / Double(recentClassifications.count)
     }
     
-    private func calculateRecentPerformance() -> Double {
-        let recentMetrics = performanceMetrics.suffix(10)
-        guard !recentMetrics.isEmpty else { return 0 }
-        
-        let averageFPS = recentMetrics.compactMap { $0.framesPerSecond }.reduce(0, +) / Double(recentMetrics.count)
-        return averageFPS
-    }
-    
     private func getClassificationBreakdown() -> [MovementType: Int] {
         var breakdown: [MovementType: Int] = [:]
         
@@ -356,23 +323,6 @@ final class TrajectoryDebugger {
         )
     }
     
-    private func generateParameterRecommendations(_ config: ProcessorConfig) -> [String] {
-        var recommendations: [String] = []
-        
-        if config.enhancedMinR2 < 0.8 {
-            recommendations.append("Consider increasing R² threshold for better trajectory quality")
-        }
-        
-        if config.minClassificationConfidence < 0.7 {
-            recommendations.append("Increase classification confidence for more reliable detection")
-        }
-        
-        if config.enableMetricsCollection && config.metricsCollectionSamplingRate > 0.5 {
-            recommendations.append("High sampling rate may impact performance - consider reducing")
-        }
-        
-        return recommendations
-    }
 }
 
 // MARK: - Debug Mode

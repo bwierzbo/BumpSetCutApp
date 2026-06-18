@@ -64,14 +64,12 @@ struct ProcessorConfig {
     // no longer a per-sport config.
     var parabolaMinPoints: Int = 4
     var parabolaMinR2: Double = 0.80
-    var accelConsistencyMaxStd: Double = 1.0
     var minVelocityToConsiderActive: CGFloat = 0.6
     
     /// Time window (seconds) to collect samples for projectile fit (time-based instead of fixed count)
     var projectileWindowSec: Double = 0.7452
     /// Optional gravity band on quadratic curvature 'a' (normalized units); disabled by default
     var useGravityBand: Bool = false
-    var gravityMinA: CGFloat = 0.002
     var gravityMaxA: CGFloat = 0.060
 
     /// Minimum curvature magnitude |a| for a track to count as a projectile.
@@ -98,8 +96,6 @@ struct ProcessorConfig {
     var detectionConfidence: Double = 0.6021
 
     // Tracking association
-    /// Gate radius for associating detections to existing tracks (normalized units)
-    var trackGateRadius: CGFloat = 0.07
     /// Minimum track age (frames) before it can influence physics gating
     var minTrackAgeForPhysics: Int = 5
 
@@ -143,24 +139,7 @@ struct ProcessorConfig {
     var postroll: Double = 0.5
     var minGapToMerge: Double = 1.3513
     var minSegmentLength: Double = 2.6131
-    
-    // MARK: - Enhanced Physics Validation (Issue #21)
-    
-    /// Enhanced physics validation toggle
-    var enableEnhancedPhysics: Bool = false  // Temporarily disabled to fix processing issues
-    
-    /// Enhanced R² correlation thresholds for trajectory quality
-    var enhancedMinR2: Double = 0.75
-    var excellentR2Threshold: Double = 0.95
-    var goodR2Threshold: Double = 0.85
-    var acceptableR2Threshold: Double = 0.60
-    
-    /// Physics constraint parameters
-    var enablePhysicsConstraints: Bool = true
-    var maxAccelerationDeviation: Double = 2.0
-    var velocityConsistencyThreshold: Double = 0.5
-    var trajectorySmoothnessThreshold: Double = 0.6
-    
+
     // MARK: - Movement Classification (Issue #21)
     
     /// Movement classifier confidence thresholds
@@ -234,32 +213,12 @@ struct ProcessorConfig {
     /// Minimum horizontal excursion (fraction of frame width) before the loop
     /// check applies — keeps it from flagging near-vertical tosses or tiny motion.
     var loopMinExcursion: Double = 0.05
-    
-    // MARK: - Quality Scoring (Issue #21)
-    
-    /// Quality score thresholds
-    var enableQualityScoring: Bool = true
-    var minQualityScore: Double = 0.6
-    var excellentQualityThreshold: Double = 0.8
-    var goodQualityThreshold: Double = 0.7
-    
-    /// Quality scoring weights
-    var velocityConsistencyWeight: Double = 0.25
-    var accelerationPatternWeight: Double = 0.35
-    var smoothnessWeight: Double = 0.25
-    var verticalMotionWeight: Double = 0.15
-    
+
     // MARK: - Metrics Collection (Issue #23)
-    
+
     /// Metrics collection toggles
     var enableMetricsCollection: Bool = false  // Default off for production
     var metricsCollectionSamplingRate: Double = 0.1  // 10% sampling
-    var enableAccuracyMetrics: Bool = false
-    var enablePerformanceMetrics: Bool = true
-    
-    /// Performance monitoring thresholds
-    var maxProcessingOverheadPercent: Double = 5.0
-    var performanceAlertThreshold: Double = 10.0
 
     // MARK: - Memory Management (Issue #25)
 
@@ -275,52 +234,18 @@ struct ProcessorConfig {
     var maxDebugPhysicsValidation: Int = 500
     var maxDebugPerformanceMetrics: Int = 200
 
-    /// Memory pressure detection
-    var enableMemoryPressureDetection: Bool = true
-    var memoryPressureThresholdMB: Double = 512.0
-    var reduceQualityUnderMemoryPressure: Bool = true
-    
-    // MARK: - Parameter Optimization (Issue #24)
-    
-    /// Optimization framework settings
-    var enableParameterOptimization: Bool = false
-    var optimizationMode: String = "disabled"  // "disabled", "grid", "random", "bayesian"
-    var maxOptimizationTimeHours: Double = 24.0
-    
-    /// A/B testing parameters
-    var enableABTesting: Bool = false
-    var abTestingSplitRatio: Double = 0.5
-    var statisticalSignificanceLevel: Double = 0.05
-    var minimumSampleSize: Int = 30
-    
     // MARK: - Validation & Safety
     
     /// Parameter validation
     func validate() throws {
-        // R² thresholds validation
-        guard enhancedMinR2 >= 0.0 && enhancedMinR2 <= 1.0 else {
-            throw ConfigurationError.invalidParameter("enhancedMinR2 must be between 0.0 and 1.0")
-        }
-        
         // Classification confidence validation
         guard minClassificationConfidence >= 0.0 && minClassificationConfidence <= 1.0 else {
             throw ConfigurationError.invalidParameter("minClassificationConfidence must be between 0.0 and 1.0")
         }
         
-        // Quality score weights must sum approximately to 1.0
-        let weightSum = velocityConsistencyWeight + accelerationPatternWeight + smoothnessWeight + verticalMotionWeight
-        guard abs(weightSum - 1.0) < 0.01 else {
-            throw ConfigurationError.invalidParameter("Quality scoring weights must sum to 1.0")
-        }
-        
         // Sampling rate validation
         guard metricsCollectionSamplingRate >= 0.0 && metricsCollectionSamplingRate <= 1.0 else {
             throw ConfigurationError.invalidParameter("metricsCollectionSamplingRate must be between 0.0 and 1.0")
-        }
-        
-        // Performance threshold validation
-        guard maxProcessingOverheadPercent > 0 && maxProcessingOverheadPercent <= 100 else {
-            throw ConfigurationError.invalidParameter("maxProcessingOverheadPercent must be between 0 and 100")
         }
 
         // Memory management validation
@@ -336,9 +261,6 @@ struct ProcessorConfig {
         guard maxTrackPositions > 0 && maxTrackPositions <= 1000 else {
             throw ConfigurationError.invalidParameter("maxTrackPositions must be between 1 and 1000")
         }
-        guard memoryPressureThresholdMB > 0 && memoryPressureThresholdMB <= 2048 else {
-            throw ConfigurationError.invalidParameter("memoryPressureThresholdMB must be between 1 and 2048")
-        }
     }
     
     /// Reset to default values (for testing/optimization)
@@ -352,11 +274,8 @@ struct ProcessorConfig {
         
         for (key, value) in modifications {
             switch key {
-            case "enhancedMinR2": config.enhancedMinR2 = value as? Double ?? config.enhancedMinR2
             case "minClassificationConfidence": config.minClassificationConfidence = value as? Double ?? config.minClassificationConfidence
             case "airbornePhysicsThreshold": config.airbornePhysicsThreshold = value as? Double ?? config.airbornePhysicsThreshold
-            case "minQualityScore": config.minQualityScore = value as? Double ?? config.minQualityScore
-            case "enableEnhancedPhysics": config.enableEnhancedPhysics = value as? Bool ?? config.enableEnhancedPhysics
             case "enableMetricsCollection": config.enableMetricsCollection = value as? Bool ?? config.enableMetricsCollection
             case "metricsCollectionSamplingRate": config.metricsCollectionSamplingRate = value as? Double ?? config.metricsCollectionSamplingRate
             default:

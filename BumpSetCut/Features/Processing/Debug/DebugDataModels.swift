@@ -322,24 +322,6 @@ struct PerformanceSummary: Codable {
     }
 }
 
-// MARK: - Parameter Tuning
-
-struct ParameterTuningResult: Codable {
-    let success: Bool
-    let message: String
-    let accuracyChange: Double?
-    let performanceImpact: Double?
-    let recommendations: [String]
-    
-    init(success: Bool, message: String, accuracyChange: Double? = nil, performanceImpact: Double? = nil, recommendations: [String] = []) {
-        self.success = success
-        self.message = message
-        self.accuracyChange = accuracyChange
-        self.performanceImpact = performanceImpact
-        self.recommendations = recommendations
-    }
-}
-
 // MARK: - Physics Validation Result (Mock for Debug)
 
 struct PhysicsValidationResult {
