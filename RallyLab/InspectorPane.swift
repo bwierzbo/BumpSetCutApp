@@ -151,7 +151,7 @@ struct InspectorPane: View {
     /// One rally as a stacked contribution bar: fill length = total score, each
     /// colored segment = a feature's weighted share, so you see the score AND what
     /// drove it at a glance. Click the index to seek.
-    private func rallyBar(index: Int, entry: (rally: Interval, score: RallyLabModel.RallyScore?)) -> some View {
+    private func rallyBar(index: Int, entry: (rally: Interval, score: RallyScore?)) -> some View {
         HStack(spacing: 8) {
             Button { model.seek(to: entry.rally.start) } label: {
                 Text("\(index + 1)")

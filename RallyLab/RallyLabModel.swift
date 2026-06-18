@@ -52,43 +52,21 @@ final class RallyLabModel {
     private(set) var paddedPredictions: [Interval] = []
     private(set) var score: ScoringResult?
 
-    /// Serve-signature readout for one predicted rally (Phase A — measurement only,
-    /// no gating). A serve travels down the court (camera behind the baseline), so
-    /// the ball's apparent size should change consistently over the opening window;
-    /// a carried/held ball stays roughly flat. `normalizedSlope` is the per-second
-    /// fractional size change (signed: + = approaching/growing, − = receding);
-    /// `monotonicity` is the fraction of steps moving in the dominant direction
-    /// (~0.5 = noise, 1.0 = perfectly consistent).
-    struct ServeSignature {
-        let normalizedSlope: Double
-        let monotonicity: Double
-        let sampleCount: Int
-    }
-    /// Opening window (seconds from a rally's start) the serve signature is measured over.
-    let serveWindowSec: Double = 0.6
-
-    /// Weighted rally-likelihood breakdown for one predicted rally (Phase B-1 —
-    /// flag-only, nothing is filtered). Each feature is 0…1, higher = more
-    /// rally-like; `total` is their weighted average (serve dropped when the
-    /// opening window is a skyball top-exit, since its size trend is unreliable).
-    struct RallyScore {
-        let serve: Double         // depth/size trend over the opening window
-        let travel: Double        // how much court the ball covered (spatial extent)
-        let continuity: Double    // fraction of segment frames with a ball
-        let sizeDynamics: Double  // size variability — a held ball barely changes
-        let skyball: Bool         // opening window reached the top of frame
-        let total: Double
-    }
-
-    // Rally-score weights (flag-only; recompute live, no re-run needed).
+    // Rally-score feature weights (live RallyLab tunables). The serve-signature /
+    // rally-score math lives in the shared `RallyScorer` (production target) so
+    // RallyLab and the pipeline compute byte-identical numbers.
     var serveWeight: Double = 0.40
     var travelWeight: Double = 0.25
     var continuityWeight: Double = 0.20
     var sizeWeight: Double = 0.15
-    // Normalization references: the feature value at which each score saturates to 1.
-    private let serveSlopeRef = 0.5    // |fractional size change / s|
-    private let travelRef = 0.35       // normalized track spatial extent
-    private let sizeCVRef = 0.25       // size coefficient of variation
+
+    /// Scorer built from the live weights + the skyball threshold, delegating the
+    /// serve-signature / rally-score math to the shared production type.
+    private var scorer: RallyScorer {
+        RallyScorer(serveWeight: serveWeight, travelWeight: travelWeight,
+                    continuityWeight: continuityWeight, sizeWeight: sizeWeight,
+                    skyBallTopThreshold: skyBallTopThreshold)
+    }
 
     private(set) var activeProcessor: VideoProcessor?
     var isProcessing: Bool { activeProcessor != nil }
@@ -670,159 +648,19 @@ final class RallyLabModel {
         )
     }
 
-    // MARK: - Serve signature (Phase A: measure only)
-
-    /// Each predicted rally paired with its serve signature, for eyeballing
-    /// whether real serves separate from carries/false rallies by size trend.
-    var serveSignatures: [(rally: Interval, sig: ServeSignature?)] {
-        rawPredictions.map { ($0, serveSignature(for: $0)) }
-    }
-
-    /// Size trend over the opening window of a predicted rally, computed from the
-    /// captured evidence. Size source per frame: the raw detection nearest the
-    /// selected track (truest trend), falling back to the selected candidate's
-    /// smoothed mean size, then the largest detection. Side length (√area) is used
-    /// so the value scales linearly with apparent size. nil if too few samples.
-    func serveSignature(for rally: Interval) -> ServeSignature? {
-        guard !evidence.isEmpty else { return nil }
-        let windowEnd = rally.start + serveWindowSec
-        var pts: [(t: Double, size: Double)] = []
-        for f in evidence where f.time >= rally.start && f.time <= windowEnd {
-            let size: Double?
-            if let sel = f.candidates.first(where: { $0.isSelected }) {
-                if let near = f.detections.min(by: {
-                    hypot($0.bbox.midX - sel.point.x, $0.bbox.midY - sel.point.y)
-                        < hypot($1.bbox.midX - sel.point.x, $1.bbox.midY - sel.point.y)
-                }) {
-                    size = sqrt(Double(near.bbox.width * near.bbox.height))
-                } else if sel.ballSize > 0 {
-                    size = Double(sel.ballSize)
-                } else { size = nil }
-            } else if let maxDet = f.detections.map({ sqrt(Double($0.bbox.width * $0.bbox.height)) }).max(),
-                      maxDet > 0 {
-                size = maxDet
-            } else { size = nil }
-            if let s = size, s > 0 { pts.append((t: f.time - rally.start, size: s)) }
-        }
-        guard pts.count >= 3 else { return nil }
-        let n = Double(pts.count)
-        let sumX = pts.reduce(0.0) { $0 + $1.t }
-        let sumY = pts.reduce(0.0) { $0 + $1.size }
-        let sumXY = pts.reduce(0.0) { $0 + $1.t * $1.size }
-        let sumX2 = pts.reduce(0.0) { $0 + $1.t * $1.t }
-        let denom = n * sumX2 - sumX * sumX
-        guard abs(denom) > 1e-12 else { return nil }
-        let slope = (n * sumXY - sumX * sumY) / denom
-        let mean = sumY / n
-        guard mean > 1e-9 else { return nil }
-        // Monotonicity: fraction of consecutive steps moving in the slope's direction.
-        var agree = 0, total = 0
-        for i in 1..<pts.count {
-            let d = pts[i].size - pts[i - 1].size
-            if d == 0 { continue }
-            total += 1
-            if (d > 0) == (slope > 0) { agree += 1 }
-        }
-        let mono = total > 0 ? Double(agree) / Double(total) : 0
-        return ServeSignature(normalizedSlope: slope / mean, monotonicity: mono, sampleCount: pts.count)
-    }
-
-    // MARK: - Rally score (Phase B-1: weighted, flag-only)
+    // MARK: - Rally score (delegates to the shared RallyScorer)
 
     /// Each predicted rally paired with its weighted rally-likelihood breakdown,
-    /// for the inspector table.
+    /// for the inspector table. Computed by the shared `RallyScorer` so RallyLab
+    /// and the production pipeline produce identical numbers.
     var rallyScores: [(rally: Interval, score: RallyScore?)] {
-        rawPredictions.map { ($0, rallyScore(for: $0)) }
+        let s = scorer
+        return rawPredictions.map { ($0, s.rallyScore(start: $0.start, end: $0.end, in: evidence)) }
     }
 
-    /// Combine the orthogonal features into a single rally-likelihood score for a
-    /// predicted rally. Features are computed from captured evidence over the
-    /// segment; serve uses the opening-window signature. Flag-only — callers
-    /// display it, nothing in the pipeline consumes it yet.
-    func rallyScore(for rally: Interval) -> RallyScore? {
-        guard !evidence.isEmpty else { return nil }
-        let frames = evidence.filter { $0.time >= rally.start && $0.time <= rally.end }
-        guard !frames.isEmpty else { return nil }
-
-        // Continuity: fraction of segment frames that actually saw a ball.
-        let continuity = Double(frames.filter { $0.hasBall }.count) / Double(frames.count)
-
-        // Selected-track points + raw sizes over the segment.
-        var pts: [CGPoint] = []
-        var sizes: [Double] = []
-        for f in frames {
-            guard let sel = f.candidates.first(where: { $0.isSelected }) else { continue }
-            pts.append(sel.point)
-            if let near = f.detections.min(by: {
-                hypot($0.bbox.midX - sel.point.x, $0.bbox.midY - sel.point.y)
-                    < hypot($1.bbox.midX - sel.point.x, $1.bbox.midY - sel.point.y)
-            }) {
-                sizes.append(sqrt(Double(near.bbox.width * near.bbox.height)))
-            } else if sel.ballSize > 0 {
-                sizes.append(Double(sel.ballSize))
-            }
-        }
-
-        // Travel: spatial extent the ball covered (both axes — depth shows as
-        // vertical motion for a baseline camera, so we don't restrict to horizontal).
-        let travel: Double = {
-            guard pts.count >= 2 else { return 0 }
-            let xs = pts.map { Double($0.x) }, ys = pts.map { Double($0.y) }
-            let dx = (xs.max() ?? 0) - (xs.min() ?? 0)
-            let dy = (ys.max() ?? 0) - (ys.min() ?? 0)
-            return min(1, hypot(dx, dy) / travelRef)
-        }()
-
-        // Size dynamics: coefficient of variation. A flying ball changes apparent
-        // size; a carried/held ball barely does.
-        let sizeDynamics: Double = {
-            guard sizes.count >= 3 else { return 0 }
-            let mean = sizes.reduce(0, +) / Double(sizes.count)
-            guard mean > 1e-9 else { return 0 }
-            let varc = sizes.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(sizes.count)
-            return min(1, (sqrt(varc) / mean) / sizeCVRef)
-        }()
-
-        // Serve: graded opening-window depth trend (magnitude × consistency).
-        let serve: Double = {
-            guard let s = serveSignature(for: rally) else { return 0 }
-            return min(1, abs(s.normalizedSlope) / serveSlopeRef) * s.monotonicity
-        }()
-
-        // Skyball: the ball reached the top of frame within the opening window —
-        // its size trend is unreliable, so drop serve from the average (bypass).
-        let windowEnd = rally.start + serveWindowSec
-        let skyball = frames.contains {
-            $0.time <= windowEnd && Double($0.trackPoint?.y ?? 0) >= skyBallTopThreshold
-        }
-
-        var feats: [(v: Double, w: Double)] = [
-            (travel, travelWeight),
-            (continuity, continuityWeight),
-            (sizeDynamics, sizeWeight),
-        ]
-        if !skyball { feats.append((serve, serveWeight)) }
-        let wsum = feats.reduce(0) { $0 + $1.w }
-        let total = wsum > 1e-9 ? feats.reduce(0) { $0 + $1.v * $1.w } / wsum : 0
-
-        return RallyScore(serve: serve, travel: travel, continuity: continuity,
-                          sizeDynamics: sizeDynamics, skyball: skyball, total: total)
-    }
-
-    /// Per-feature weighted contributions for a score, normalized so they sum to
-    /// `total` — drives the stacked contribution bar. Serve weight is zeroed on a
-    /// skyball (its term is bypassed), matching `rallyScore`. Order is stable so
-    /// the bar's colors stay consistent across rallies.
+    /// Per-feature weighted contributions for a score (drives the stacked bar).
     func contributions(_ s: RallyScore) -> [(name: String, value: Double)] {
-        let raw: [(String, Double, Double)] = [
-            ("serve", s.serve, s.skyball ? 0 : serveWeight),
-            ("travel", s.travel, travelWeight),
-            ("continuity", s.continuity, continuityWeight),
-            ("sizeDyn", s.sizeDynamics, sizeWeight),
-        ]
-        let wsum = raw.reduce(0) { $0 + $1.2 }
-        guard wsum > 1e-9 else { return raw.map { ($0.0, 0) } }
-        return raw.map { ($0.0, $0.1 * $0.2 / wsum) }
+        scorer.contributions(s)
     }
 
     // MARK: - Parameter sweep
