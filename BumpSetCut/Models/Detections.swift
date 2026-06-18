@@ -95,6 +95,12 @@ struct ProcessorConfig {
     /// hard-coded threshold in YOLODetector.
     var detectionConfidence: Double = 0.6021
 
+    /// Letterbox frames into the model (`.scaleFit`) instead of stretching them
+    /// (`.scaleFill`). Preserves aspect ratio so the ball stays round, matching
+    /// YOLO training preprocessing — can recover confidence on non-square / 0.5x
+    /// ultrawide footage. Off by default; A/B it in RallyLab before flipping.
+    var useScaleFitLetterbox: Bool = false
+
     // Tracking association
     /// Minimum track age (frames) before it can influence physics gating
     var minTrackAgeForPhysics: Int = 5
@@ -197,6 +203,14 @@ struct ProcessorConfig {
     /// track beats its score by more than this, to stop the rally flickering
     /// between courts frame to frame.
     var trajectorySelectionStickiness: Double = 0.10
+    /// Each track owns a spatial association ROI of radius `ballSize × this`
+    /// (ballSize = the detection's mean bbox side length) around its predicted
+    /// position: a detection inside is matched to the track, one outside starts
+    /// its own track — that's how a ball on another court stays separate. This is
+    /// the actual association gate AND what RallyLab draws, so they always agree.
+    /// Bigger = more forgiving association (fast balls, sparse detection) but
+    /// nearby courts can merge; too small = ID churn when a ball moves quickly.
+    var trajectoryRoiScale: Double = 3.0
 
     /// When true, reject a track that "doubles back" — makes a meaningful sideways
     /// excursion but returns near its horizontal start (a pickup/scoop loop). A

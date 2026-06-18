@@ -131,6 +131,9 @@ struct ContentView: View {
             Toggle("Overlay", isOn: $model.showOverlay)
                 .toggleStyle(.checkbox)
                 .disabled(model.evidence.isEmpty)
+            Toggle("ROI", isOn: $model.showROI)
+                .toggleStyle(.checkbox)
+                .disabled(model.evidence.isEmpty || !model.showOverlay)
         }
     }
 

@@ -26,6 +26,7 @@ struct DetectionOverlayView: View {
         let displaySize = model.videoDisplaySize
         let turns = model.videoRotationQuarterTurns
         let roiScaleFactor = model.trajectoryRoiScale
+        let showROI = model.showROI
 
         Canvas { ctx, size in
             let fit = Self.fittedRect(content: displaySize, in: size)
@@ -75,7 +76,7 @@ struct DetectionOverlayView: View {
             // ROI circles + score labels for the latest frame's candidates. The
             // radius tracks the detected ball's size (× the adjustable display
             // scale), mapped from normalized units into the fitted video rect.
-            if let latest = frames.last {
+            if showROI, let latest = frames.last {
                 let roiPixels = min(fit.width, fit.height)
                 for cand in latest.candidates {
                     let c = Self.point(cand.point, turns: turns, in: fit)

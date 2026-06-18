@@ -31,6 +31,13 @@ final class YOLODetector {
     /// ProcessorConfig.detectionConfidence so it can be tuned per run.
     var minConfidence: VNConfidence = 0.70
 
+    /// When true, frames are letterboxed into the model input (`.scaleFit`,
+    /// aspect preserved + padding) instead of stretched (`.scaleFill`). Letterbox
+    /// keeps the ball round — matching YOLO's training preprocessing — which can
+    /// recover confidence on non-square / ultrawide (0.5x) footage. VideoProcessor
+    /// sets it from ProcessorConfig.useScaleFitLetterbox.
+    var useScaleFitLetterbox: Bool = false
+
     private struct StaticCell {
         var lastPoint: CGPoint
         var lastTimeSec: Double
@@ -93,9 +100,13 @@ final class YOLODetector {
         guard let model = model else { return [] }
         
         let request = VNCoreMLRequest(model: model)
-        request.imageCropAndScaleOption = .scaleFill
+        request.imageCropAndScaleOption = useScaleFitLetterbox ? .scaleFit : .scaleFill
         request.preferBackgroundProcessing = false
-        
+
+        // Source frame size — needed to undo letterbox padding in the raw-tensor path.
+        let srcW = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
+        let srcH = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
         do {
             try handler.perform([request])
@@ -115,7 +126,7 @@ final class YOLODetector {
         } else if let feature = request.results?
                     .first(where: { $0 is VNCoreMLFeatureValueObservation }) as? VNCoreMLFeatureValueObservation,
                   let array = feature.featureValue.multiArrayValue {
-            base = decodeRawDetections(array, time: time)
+            base = decodeRawDetections(array, time: time, srcW: srcW, srcH: srcH)
         } else {
             return []
         }
@@ -156,12 +167,22 @@ final class YOLODetector {
     /// Expected shape [1, N, 6] with each row [x1, y1, x2, y2, confidence, class]
     /// in the model's input pixel space, top-left origin. Converts to
     /// Vision-normalized bottom-left bboxes so the rest of the pipeline is unchanged.
-    private func decodeRawDetections(_ array: MLMultiArray, time: CMTime) -> [DetectionResult] {
+    private func decodeRawDetections(_ array: MLMultiArray, time: CMTime, srcW: CGFloat, srcH: CGFloat) -> [DetectionResult] {
         guard array.dataType == .float32, array.shape.count == 3 else { return [] }
         let n = array.shape[1].intValue
         let cols = array.shape[2].intValue
         guard cols >= 6, n > 0 else { return [] }
         let ptr = array.dataPointer.assumingMemoryBound(to: Float32.self)
+
+        // Letterbox geometry (.scaleFit): the model ran on a padded square where the
+        // frame occupies a centered (srcW*s × srcH*s) region with padX/padY bars.
+        // We undo it to map input-pixel boxes back to original-frame normalized coords.
+        // For .scaleFill there is no padding and each axis maps independently (current behavior).
+        let inW = modelInputWidth, inH = modelInputHeight
+        let letterbox = useScaleFitLetterbox && srcW > 0 && srcH > 0
+        let s = letterbox ? min(inW / srcW, inH / srcH) : 0
+        let padX = letterbox ? (inW - srcW * s) / 2 : 0
+        let padY = letterbox ? (inH - srcH * s) / 2 : 0
 
         var out: [DetectionResult] = []
         out.reserveCapacity(n)
@@ -170,14 +191,24 @@ final class YOLODetector {
             let x1 = ptr[b + 0], y1 = ptr[b + 1], x2 = ptr[b + 2], y2 = ptr[b + 3]
             let conf = ptr[b + 4]
             guard conf >= minConfidence, x2 > x1, y2 > y1 else { continue }
-            // Coords may be normalized [0,1] or in input pixels — detect by scale.
+            // Coords may be normalized [0,1] or in input pixels — detect by scale,
+            // then express in input-pixel space (0…inW / 0…inH).
             let isNormalized = max(max(x1, y1), max(x2, y2)) <= 1.5
-            let sx = isNormalized ? 1 : Float(modelInputWidth)
-            let sy = isNormalized ? 1 : Float(modelInputHeight)
-            let nx1 = x1 / sx, nx2 = x2 / sx, ny1 = y1 / sy, ny2 = y2 / sy
+            let px1 = isNormalized ? CGFloat(x1) * inW : CGFloat(x1)
+            let px2 = isNormalized ? CGFloat(x2) * inW : CGFloat(x2)
+            let py1 = isNormalized ? CGFloat(y1) * inH : CGFloat(y1)
+            let py2 = isNormalized ? CGFloat(y2) * inH : CGFloat(y2)
+            // Input-pixel → original-frame normalized (top-left, y down).
+            let nx1, nx2, ny1, ny2: CGFloat
+            if letterbox {
+                nx1 = (px1 - padX) / (srcW * s); nx2 = (px2 - padX) / (srcW * s)
+                ny1 = (py1 - padY) / (srcH * s); ny2 = (py2 - padY) / (srcH * s)
+            } else {
+                nx1 = px1 / inW; nx2 = px2 / inW
+                ny1 = py1 / inH; ny2 = py2 / inH
+            }
             // YOLO top-left (y down) → Vision bottom-left (y up).
-            let rect = CGRect(x: CGFloat(nx1), y: CGFloat(1 - ny2),
-                              width: CGFloat(nx2 - nx1), height: CGFloat(ny2 - ny1))
+            let rect = CGRect(x: nx1, y: 1 - ny2, width: nx2 - nx1, height: ny2 - ny1)
             out.append(DetectionResult(bbox: rect, confidence: conf, timestamp: time))
         }
         #if DEBUG

@@ -307,6 +307,7 @@ final class VideoProcessor {
         self.decider = RallyDecider(config: config)
         self.segments = SegmentBuilder(config: config)
         detector.minConfidence = VNConfidence(config.detectionConfidence)
+        detector.useScaleFitLetterbox = config.useScaleFitLetterbox
 
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             await MainActor.run { isProcessing = false; backgroundGuard.end() }

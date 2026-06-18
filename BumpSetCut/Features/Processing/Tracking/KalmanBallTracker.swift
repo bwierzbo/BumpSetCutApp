@@ -215,6 +215,19 @@ final class KalmanBallTracker {
             return areas.reduce(0, +) / CGFloat(areas.count)
         }
 
+        /// Spatial association ROI radius (normalized): the detected ball's mean
+        /// side length (√area) × `config.trajectoryRoiScale`. A detection within
+        /// this distance of the predicted position is matched to this track; one
+        /// outside starts its own. Floored so a near-zero bbox can't collapse the
+        /// gate. This is both the real association gate and what RallyLab draws.
+        func roiRadius(config: ProcessorConfig) -> CGFloat {
+            let side = sqrt(max(0, meanBboxArea()))
+            return max(Self.roiMinRadius, side * CGFloat(config.trajectoryRoiScale))
+        }
+        /// Floor for the spatial gate so a degenerate (tiny/zero) bbox still leaves
+        /// a usable association region (~2% of the normalized frame).
+        private static let roiMinRadius: CGFloat = 0.02
+
         /// Raw detection-center positions (what the model reported each frame).
         var positions: [(CGPoint, CMTime)] { _positions.map { ($0.0, $0.3) } }
 

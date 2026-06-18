@@ -16,6 +16,7 @@ struct InspectorPane: View {
             VStack(alignment: .leading, spacing: 14) {
                 pipelineSection
                 scoreSection
+                rallyScoreSection
                 labelsSection
                 configSection
                 sweepSection
@@ -80,6 +81,115 @@ struct InspectorPane: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(4)
+            }
+        }
+    }
+
+    // MARK: - Rally score (Phase B-1: weighted, flag-only)
+
+    private func scoreColor(_ v: Double) -> Color {
+        v >= 0.6 ? .green : (v >= 0.4 ? .orange : .red)
+    }
+
+    private var rallyScoreSection: some View {
+        GroupBox("Rally Score (weighted · flag-only)") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Per predicted rally: a weighted blend of orthogonal signals (serve depth-trend, court travel, ball continuity, size variability). Higher = more rally-like. Nothing is filtered — this is for eyeballing separation against your labels before any gating.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("Weights (live):")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                slider("w·serve", value: $model.serveWeight, in: 0...1, format: "%.2f",
+                       info: "Weight on the serve depth-trend (opening-window size change × consistency). Bypassed automatically for skyball top-exits.")
+                slider("w·travel", value: $model.travelWeight, in: 0...1, format: "%.2f",
+                       info: "Weight on how much court the ball covered (spatial extent of the selected track, both axes). A held/stationary ball covers little; a rally covers a lot.")
+                slider("w·continuity", value: $model.continuityWeight, in: 0...1, format: "%.2f",
+                       info: "Weight on the fraction of segment frames that saw a ball. Penalizes flaky/phantom tracks vs solid sustained ones.")
+                slider("w·sizeDyn", value: $model.sizeWeight, in: 0...1, format: "%.2f",
+                       info: "Weight on size variability (coefficient of variation) over the segment. A flying ball changes apparent size; a carried/held ball barely does. Overlaps the serve signal somewhat.")
+
+                Divider()
+
+                if model.rawPredictions.isEmpty {
+                    Text("Run the pipeline to see per-rally scores.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    // Legend: which color is which feature in the stacked bars.
+                    HStack(spacing: 10) {
+                        ForEach(Self.featureOrder, id: \.self) { name in
+                            HStack(spacing: 3) {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(Self.featureColors[name] ?? .gray)
+                                    .frame(width: 9, height: 9)
+                                Text(name).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(spacing: 4) {
+                        ForEach(Array(model.rallyScores.enumerated()), id: \.offset) { idx, entry in
+                            rallyBar(index: idx, entry: entry)
+                        }
+                    }
+                }
+            }
+            .padding(4)
+        }
+    }
+
+    private static let featureOrder = ["serve", "travel", "continuity", "sizeDyn"]
+    private static let featureColors: [String: Color] = [
+        "serve": .blue, "travel": .purple, "continuity": .teal, "sizeDyn": .pink,
+    ]
+
+    /// One rally as a stacked contribution bar: fill length = total score, each
+    /// colored segment = a feature's weighted share, so you see the score AND what
+    /// drove it at a glance. Click the index to seek.
+    private func rallyBar(index: Int, entry: (rally: Interval, score: RallyLabModel.RallyScore?)) -> some View {
+        HStack(spacing: 8) {
+            Button { model.seek(to: entry.rally.start) } label: {
+                Text("\(index + 1)")
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(width: 18, alignment: .trailing)
+            }
+            .buttonStyle(.plain)
+            Text(String(format: "%.1fs", entry.rally.start))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 40, alignment: .leading)
+
+            if let s = entry.score {
+                GeometryReader { geo in
+                    HStack(spacing: 0) {
+                        ForEach(Array(model.contributions(s).enumerated()), id: \.offset) { _, c in
+                            Rectangle()
+                                .fill(Self.featureColors[c.name] ?? .gray)
+                                .frame(width: max(0, geo.size.width * c.value))
+                        }
+                        Rectangle().fill(Color.gray.opacity(0.15))
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+                .frame(height: 14)
+
+                Text(String(format: "%.2f", s.total))
+                    .font(.system(.caption, design: .monospaced).bold())
+                    .foregroundStyle(scoreColor(s.total))
+                    .frame(width: 32, alignment: .trailing)
+                if s.skyball {
+                    Image(systemName: "arrow.up.to.line").font(.caption2).foregroundStyle(.blue)
+                        .help("Skyball top-exit — serve term bypassed.")
+                }
+            } else {
+                Text("too few samples")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -157,6 +267,16 @@ struct InspectorPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 slider("detectionConf", value: $model.detectionConfidence, in: 0.1...0.95, format: "%.2f",
                        info: "Minimum YOLO confidence to keep a volleyball detection. Lower surfaces marginal/noisier detections (more recall); higher keeps only confident hits. Changes what the model detects, so it needs a re-run.")
+                Toggle(isOn: $model.useScaleFitLetterbox) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle").font(.caption2).foregroundStyle(.tertiary)
+                        Text("letterbox input (scaleFit)")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Feed frames to the model letterboxed (aspect preserved + padding) instead of stretched to the square input. Keeps the ball round — matching YOLO's training preprocessing — which can recover confidence on non-square / ultrawide (0.5x) footage where stretching distorts the ball into an ellipse. Re-run to apply, then compare the confidence labels on the same frames. Affects all videos if adopted as default.")
                 slider("minGravitySig", value: $model.minGravitySignature, in: 0...1.0, format: "%.2f",
                        info: "Minimum gravity signature (consistent downward acceleration) to accept a ball as free flight. Carried/rolled balls score near 0; raise to veto more of them. The veto only fires when this AND the flatness test below both trip.")
                 slider("gravRefCurve", value: $model.gravityReferenceCurvature, in: 0.005...0.1, format: "%.3f",
