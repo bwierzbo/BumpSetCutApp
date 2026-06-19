@@ -92,12 +92,25 @@ struct InspectorPane: View {
     }
 
     private var rallyScoreSection: some View {
-        GroupBox("Rally Score (weighted · flag-only)") {
+        GroupBox("Rally Score (weighted verdict)") {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Per predicted rally: a weighted blend of orthogonal signals (serve depth-trend, court travel, ball continuity, size variability). Higher = more rally-like. Nothing is filtered — this is for eyeballing separation against your labels before any gating.")
+                Text("Per decided rally: a weighted blend of orthogonal signals (serve depth-trend, court travel, ball continuity, size variability). Higher = more rally-like. Turn the gate on to DROP rallies below the threshold and re-score against your labels.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                Toggle(isOn: $model.enableRallyScoreGate) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle").font(.caption2).foregroundStyle(.tertiary)
+                        Text("gate: drop rallies below threshold")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("When on, any decided rally whose total score is below the threshold is dropped, and the F1/precision/recall update live. Rallies the scorer can't evaluate (too few samples) are kept. This is the per-segment verdict that replaces dense per-frame physics vetoes — validate the threshold here before enabling it in production.")
+                slider("minConfidence", value: $model.rallyScoreMinConfidence, in: 0...1, format: "%.2f",
+                       info: "Minimum rally-score (0…1) to keep a rally when the gate is on. Raise to drop more borderline/false rallies (precision↑, recall↓). Watch precision/recall as you sweep it.")
 
                 Text("Weights (live):")
                     .font(.caption2).foregroundStyle(.secondary)

@@ -226,6 +226,23 @@ struct ProcessorConfig {
     /// check applies — keeps it from flagging near-vertical tosses or tiny motion.
     var loopMinExcursion: Double = 0.05
 
+    // MARK: - Rally-score verdict (per-segment confidence gate)
+    /// When true, each decided rally is scored by `RallyScorer` (serve depth-trend +
+    /// court travel + ball continuity + size dynamics) and dropped if its score is
+    /// below `rallyScoreMinConfidence`. This is the per-segment verdict that replaces
+    /// dense per-frame physics vetoes with one interpretable confidence. Off by
+    /// default; validate the threshold against labeled F1 in RallyLab before enabling.
+    var enableRallyScoreGate: Bool = false
+    /// Minimum rally-score (0…1) to keep a rally when the gate is on. Higher = stricter
+    /// (drops more borderline/false rallies, risks dropping weak real ones).
+    var rallyScoreMinConfidence: Double = 0.45
+    /// Feature weights for the rally score (need not sum to 1; the score normalizes
+    /// by total weight). Shared by the gate and RallyLab's display so they agree.
+    var rallyScoreServeWeight: Double = 0.40
+    var rallyScoreTravelWeight: Double = 0.25
+    var rallyScoreContinuityWeight: Double = 0.20
+    var rallyScoreSizeWeight: Double = 0.15
+
     // MARK: - Metrics Collection (Issue #23)
 
     /// Metrics collection toggles

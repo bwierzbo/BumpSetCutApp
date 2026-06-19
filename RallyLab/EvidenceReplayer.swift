@@ -44,8 +44,27 @@ enum EvidenceReplayer {
         }
 
         let ranges = builder.finalize(until: CMTimeMakeWithSeconds(duration, preferredTimescale: 600))
-        return ranges.map {
+        var intervals = ranges.map {
             Interval(start: CMTimeGetSeconds($0.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd($0)))
         }
+
+        // Per-segment rally-score verdict: drop rallies whose confidence is below
+        // the threshold. Re-scorable here with no re-detection. Uses the shared
+        // RallyScorer over the captured evidence so it matches the inspector's numbers.
+        if cfg.enableRallyScoreGate {
+            let scorer = RallyScorer(
+                serveWeight: cfg.rallyScoreServeWeight,
+                travelWeight: cfg.rallyScoreTravelWeight,
+                continuityWeight: cfg.rallyScoreContinuityWeight,
+                sizeWeight: cfg.rallyScoreSizeWeight,
+                skyBallTopThreshold: Double(cfg.skyBallTopThreshold))
+            intervals = intervals.filter { iv in
+                let total = scorer.rallyScore(start: iv.start, end: iv.end, in: evidence)?.total
+                // Keep rallies the scorer can't evaluate (too few samples) — the gate
+                // only drops rallies it can confidently score below the threshold.
+                return (total ?? 1.0) >= cfg.rallyScoreMinConfidence
+            }
+        }
+        return intervals
     }
 }

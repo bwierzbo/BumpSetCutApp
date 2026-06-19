@@ -215,6 +215,11 @@ final class RallyLabModel {
     var skyBallTimeout: Double = 2.5 { didSet { recomputePredictionsAndScore() } }
     var skyBallTopThreshold: Double = 0.85 { didSet { recomputePredictionsAndScore() } }
 
+    /// Per-segment rally-score gate: when on, drop decided rallies whose RallyScorer
+    /// confidence is below `rallyScoreMinConfidence`. Re-scores live (no re-run).
+    var enableRallyScoreGate: Bool = false { didSet { recomputePredictionsAndScore() } }
+    var rallyScoreMinConfidence: Double = 0.45 { didSet { recomputePredictionsAndScore() } }
+
     /// Display-only: the candidate ROI circle is drawn with radius = ball size ×
     /// this scale. Changing it just redraws the overlay (no re-run / re-score).
     var trajectoryRoiScale: Double = 3.0
@@ -292,6 +297,12 @@ final class RallyLabModel {
         preroll = preset.preroll
         skyBallTimeout = preset.skyBallTimeout
         skyBallTopThreshold = Double(preset.skyBallTopThreshold)
+        enableRallyScoreGate = preset.enableRallyScoreGate
+        rallyScoreMinConfidence = preset.rallyScoreMinConfidence
+        serveWeight = preset.rallyScoreServeWeight
+        travelWeight = preset.rallyScoreTravelWeight
+        continuityWeight = preset.rallyScoreContinuityWeight
+        sizeWeight = preset.rallyScoreSizeWeight
     }
 
     /// Default config with the panel's tunables applied — used for pipeline
@@ -323,6 +334,12 @@ final class RallyLabModel {
         cfg.preroll = preroll
         cfg.skyBallTimeout = skyBallTimeout
         cfg.skyBallTopThreshold = CGFloat(skyBallTopThreshold)
+        cfg.enableRallyScoreGate = enableRallyScoreGate
+        cfg.rallyScoreMinConfidence = rallyScoreMinConfidence
+        cfg.rallyScoreServeWeight = serveWeight
+        cfg.rallyScoreTravelWeight = travelWeight
+        cfg.rallyScoreContinuityWeight = continuityWeight
+        cfg.rallyScoreSizeWeight = sizeWeight
         return cfg
     }
 
@@ -361,6 +378,12 @@ final class RallyLabModel {
           preroll = \(f(preroll))
           skyBallTimeout = \(f(skyBallTimeout))
           skyBallTopThreshold = \(f(skyBallTopThreshold))
+          enableRallyScoreGate = \(enableRallyScoreGate)
+          rallyScoreMinConfidence = \(f(rallyScoreMinConfidence))
+          rallyScoreServeWeight = \(f(serveWeight))
+          rallyScoreTravelWeight = \(f(travelWeight))
+          rallyScoreContinuityWeight = \(f(continuityWeight))
+          rallyScoreSizeWeight = \(f(sizeWeight))
         RallyDecider:
           minRallySec = \(f(minRallySec))
         """
