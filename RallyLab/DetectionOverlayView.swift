@@ -174,44 +174,15 @@ struct DetectionOverlayView: View {
         return Color(red: min(1, 2 * (1 - c)), green: min(1, 2 * c), blue: 0)
     }
 
-    // MARK: - Coordinate mapping
+    // MARK: - Coordinate mapping (delegates to shared OverlayGeometry)
 
-    /// Aspect-fit `content` inside `container`, centered (matches AVKit's
-    /// default video gravity), returning the letterboxed content rect.
     private static func fittedRect(content: CGSize, in container: CGSize) -> CGRect {
-        guard content.width > 0, content.height > 0 else {
-            return CGRect(origin: .zero, size: container)
-        }
-        let scale = min(container.width / content.width, container.height / content.height)
-        let w = content.width * scale
-        let h = content.height * scale
-        return CGRect(x: (container.width - w) / 2, y: (container.height - h) / 2, width: w, height: h)
+        OverlayGeometry.fittedRect(content: content, in: container)
     }
-
-    /// Raw normalized point (origin bottom-left) → oriented top-left normalized,
-    /// applying the player's clockwise quarter-turns.
-    private static func orientNormalized(_ p: CGPoint, turns: Int) -> CGPoint {
-        // Vision origin is bottom-left; flip Y to a top-left raw space first.
-        let raw = CGPoint(x: p.x, y: 1 - p.y)
-        switch ((turns % 4) + 4) % 4 {
-        case 1: return CGPoint(x: 1 - raw.y, y: raw.x)
-        case 2: return CGPoint(x: 1 - raw.x, y: 1 - raw.y)
-        case 3: return CGPoint(x: raw.y, y: 1 - raw.x)
-        default: return raw
-        }
-    }
-
     private static func point(_ p: CGPoint, turns: Int, in fit: CGRect) -> CGPoint {
-        let o = orientNormalized(p, turns: turns)
-        return CGPoint(x: fit.minX + o.x * fit.width, y: fit.minY + o.y * fit.height)
+        OverlayGeometry.point(p, turns: turns, in: fit)
     }
-
     private static func rect(_ bbox: CGRect, turns: Int, in fit: CGRect) -> CGRect {
-        // Transform both corners and take the bounding box, since rotation
-        // swaps which corner is top-left.
-        let a = point(CGPoint(x: bbox.minX, y: bbox.minY), turns: turns, in: fit)
-        let b = point(CGPoint(x: bbox.maxX, y: bbox.maxY), turns: turns, in: fit)
-        return CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
-                      width: abs(a.x - b.x), height: abs(a.y - b.y))
+        OverlayGeometry.rect(bbox, turns: turns, in: fit)
     }
 }

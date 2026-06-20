@@ -12,11 +12,11 @@ struct ContentView: View {
     @State private var showingImporter = false
 
     var body: some View {
-        HSplitView {
-            playerColumn
-                .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
-            InspectorPane(model: model)
-                .frame(minWidth: 360, idealWidth: 400, maxWidth: 480)
+        TabView {
+            pipelineTab
+                .tabItem { Label("Pipeline", systemImage: "gearshape") }
+            NetTabView(model: model)
+                .tabItem { Label("Net", systemImage: "rectangle.split.3x1") }
         }
         .frame(minWidth: 1040, minHeight: 680)
         .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.movie, .video]) { result in
@@ -24,6 +24,15 @@ struct ContentView: View {
         }
         .background(VideoDropView(model: model))
         .task { model.restoreLastSession() }
+    }
+
+    private var pipelineTab: some View {
+        HSplitView {
+            playerColumn
+                .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+            InspectorPane(model: model)
+                .frame(minWidth: 360, idealWidth: 400, maxWidth: 480)
+        }
     }
 
     private var playerColumn: some View {

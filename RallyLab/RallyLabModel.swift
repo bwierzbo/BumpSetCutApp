@@ -20,6 +20,24 @@ struct EditableRally: Identifiable, Equatable {
     var end: Double
 }
 
+/// One sampled frame for net detection: the upright frame image, its time, and the
+/// best net box found in it (Vision-normalized, origin bottom-left), if any.
+struct NetSample: Identifiable {
+    let id = UUID()
+    let time: Double
+    let image: CGImage
+    let box: CGRect?
+    let confidence: Float?
+}
+
+/// Aggregated net location across the sampled frames.
+struct NetResult {
+    let aggregatedBox: CGRect      // Vision-normalized, origin bottom-left
+    let framesDetected: Int
+    let totalSamples: Int
+    let meanConfidence: Double
+}
+
 @MainActor
 @Observable
 final class RallyLabModel {
@@ -86,6 +104,20 @@ final class RallyLabModel {
     /// Clockwise quarter-turns (0–3) the player applies vs the raw frame the
     /// detector saw, so overlay coordinates can be rotated to match.
     private(set) var videoRotationQuarterTurns: Int = 0
+
+    // MARK: - Net detection
+    /// Number of frames to sample across the video for net detection.
+    var netSampleCount: Double = 8
+    /// Minimum net-model confidence to keep a detection.
+    var netConfidence: Double = 0.5
+    /// Letterbox (.scaleFit) vs stretch (.scaleFill) when feeding the net model.
+    /// Default OFF (stretch): the net model was trained on stretched inputs, which
+    /// gives a tight box. Applied on the next Detect Net.
+    var netLetterbox: Bool = false
+    private(set) var isDetectingNet = false
+    private(set) var netStatus = "Load a video, then Detect Net."
+    private(set) var netSamples: [NetSample] = []
+    private(set) var netResult: NetResult?
 
     /// Detections affect the captured evidence, so changing the confidence
     /// threshold needs a fresh pipeline run; this flags that the on-screen
@@ -565,6 +597,69 @@ final class RallyLabModel {
             status = "Found \(url.lastPathComponent) but couldn't decode it: \(error.localizedDescription)"
         }
         recomputeScore()
+    }
+
+    // MARK: - Net detection
+
+    /// Samples `netSampleCount` upright frames across the video, runs the net model
+    /// on each, and aggregates a single net location (median box). Self-contained —
+    /// does not touch the rally pipeline.
+    func detectNet() async {
+        guard let url = videoURL, !isDetectingNet else { return }
+        isDetectingNet = true
+        netStatus = "Sampling \(Int(netSampleCount)) frames…"
+        netSamples = []
+        netResult = nil
+        defer { isDetectingNet = false }
+
+        let asset = AVURLAsset(url: url)
+        let dur = duration > 0 ? duration : ((try? await asset.load(.duration).seconds) ?? 0)
+        guard dur > 0 else { netStatus = "Couldn't read the video duration."; return }
+
+        let detector = NetDetector()
+        detector.minConfidence = Float(netConfidence)
+        detector.useScaleFitLetterbox = netLetterbox
+        guard detector.isLoaded else { netStatus = "Net model (net.mlpackage) not found in the app bundle."; return }
+
+        let gen = AVAssetImageGenerator(asset: asset)
+        gen.appliesPreferredTrackTransform = true      // upright frames
+        gen.maximumSize = CGSize(width: 1280, height: 1280)
+        gen.requestedTimeToleranceBefore = CMTime(seconds: 0.3, preferredTimescale: 600)
+        gen.requestedTimeToleranceAfter = CMTime(seconds: 0.3, preferredTimescale: 600)
+
+        let count = max(2, Int(netSampleCount.rounded()))
+        var samples: [NetSample] = []
+        for i in 0..<count {
+            // Spread across the middle 90% to skip black intro/outro frames.
+            let frac = count == 1 ? 0.5 : 0.05 + 0.9 * Double(i) / Double(count - 1)
+            let t = CMTime(seconds: frac * dur, preferredTimescale: 600)
+            guard let cg = try? await gen.image(at: t).image else { continue }
+            let best = detector.detect(in: cg).first
+            samples.append(NetSample(time: frac * dur, image: cg, box: best?.rect, confidence: best?.confidence))
+            netStatus = "Detecting net… \(samples.count)/\(count)"
+        }
+
+        netSamples = samples
+        let boxes = samples.compactMap { $0.box }
+        guard !boxes.isEmpty else {
+            netStatus = "No net detected in \(samples.count) sampled frames. Try lowering the confidence."
+            return
+        }
+        let mean = samples.compactMap { $0.confidence }.map(Double.init)
+        netResult = NetResult(aggregatedBox: Self.medianBox(boxes),
+                              framesDetected: boxes.count, totalSamples: samples.count,
+                              meanConfidence: mean.isEmpty ? 0 : mean.reduce(0, +) / Double(mean.count))
+        netStatus = "Net found in \(boxes.count)/\(samples.count) frames · mean conf \(String(format: "%.2f", netResult!.meanConfidence))."
+    }
+
+    /// Per-component median of a set of boxes — robust to the odd bad frame.
+    private static func medianBox(_ boxes: [CGRect]) -> CGRect {
+        func med(_ xs: [CGFloat]) -> CGFloat {
+            let s = xs.sorted(); let n = s.count
+            return n == 0 ? 0 : (n % 2 == 1 ? s[n/2] : (s[n/2 - 1] + s[n/2]) / 2)
+        }
+        return CGRect(x: med(boxes.map { $0.minX }), y: med(boxes.map { $0.minY }),
+                      width: med(boxes.map { $0.width }), height: med(boxes.map { $0.height }))
     }
 
     // MARK: - Pipeline

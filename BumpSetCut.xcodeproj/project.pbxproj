@@ -48,7 +48,9 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				App/AppSettings.swift,
+				Core/ML/NetDetector.swift,
 				Core/ML/YOLODetector.swift,
+				Core/ML/YOLORawDecode.swift,
 				Core/Storage/MetadataStore.swift,
 				Core/Storage/StorageManager.swift,
 				"Core/Utilities/CMTime+Helpers.swift",
@@ -72,6 +74,7 @@
 				Models/ProcessingMetadata.swift,
 				Resources/ML/bestv2.mlpackage,
 				Resources/ML/bestv3.mlpackage,
+				Resources/ML/net.mlpackage,
 				Services/MetricsCollector.swift,
 			);
 			target = RA11AB012E1C86F400000001 /* RallyLab */;
