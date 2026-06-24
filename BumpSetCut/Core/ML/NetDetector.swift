@@ -55,12 +55,23 @@ final class NetDetector {
     /// Detect nets in an upright CGImage. Returns Vision-normalized boxes (origin
     /// bottom-left, [0,1]) sorted by descending confidence, deduped with NMS.
     func detect(in cgImage: CGImage) -> [(rect: CGRect, confidence: Float)] {
+        detect(handler: VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:]),
+               srcSize: CGSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    /// Detect nets in a raw CVPixelBuffer — used by the dense ball+net pass so the
+    /// net shares the ball detector's raw-frame coordinate space.
+    func detect(in pixelBuffer: CVPixelBuffer) -> [(rect: CGRect, confidence: Float)] {
+        let w = CVPixelBufferGetWidth(pixelBuffer), h = CVPixelBufferGetHeight(pixelBuffer)
+        return detect(handler: VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:]),
+                      srcSize: CGSize(width: w, height: h))
+    }
+
+    private func detect(handler: VNImageRequestHandler, srcSize: CGSize) -> [(rect: CGRect, confidence: Float)] {
         guard let model = model else { return [] }
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = useScaleFitLetterbox ? .scaleFit : .scaleFill
-        let srcSize = CGSize(width: cgImage.width, height: cgImage.height)
 
-        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
         do {
             try handler.perform([request])
         } catch {
