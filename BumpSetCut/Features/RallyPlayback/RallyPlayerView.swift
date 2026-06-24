@@ -263,14 +263,18 @@ struct RallyPlayerView: View {
                         Button {
                             showReportMistake = true
                         } label: {
-                            Image(systemName: "flag")
+                            Image(systemName: viewModel.currentVideoIsReported ? "flag.fill" : "flag")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(viewModel.currentVideoIsReported ? .bscOrange : .white)
                                 .padding(10)
                                 .background(Color.black.opacity(0.35))
                                 .clipShape(Circle())
+                                .overlay(
+                                    Circle().stroke(Color.bscOrange,
+                                                    lineWidth: viewModel.currentVideoIsReported ? 1.5 : 0)
+                                )
                         }
-                        .accessibilityLabel("Report a detection mistake")
+                        .accessibilityLabel(viewModel.currentVideoIsReported ? "Video reported" : "Report a detection mistake")
                         .padding(.trailing, BSCSpacing.lg)
                         .padding(.bottom, 120)
                     }

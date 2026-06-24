@@ -498,21 +498,28 @@ final class RallyPlayerViewModel {
     /// "report a mistake" affordance in the rally UI.
     var isFlywheelEnabled: Bool { AppSettings.shared.enableDataFlywheel }
 
+    /// Whether the user has reported any rally in this video — drives the flag
+    /// indicator, which stays lit across the whole video once reported.
+    var currentVideoIsReported: Bool {
+        FlywheelCaptureService.shared.reportedCount(
+            videoId: videoMetadata.originalVideoId ?? videoMetadata.id
+        ) > 0
+    }
+
     /// Report the current rally as a model mistake (explicit opt-in contribution).
     func reportCurrentRallyMistake(reason: String?) {
+        let videoId = videoMetadata.originalVideoId ?? videoMetadata.id
+        // Mark immediately so the indicator flips on sheet dismiss.
+        FlywheelCaptureService.shared.markRallyReported(videoId: videoId, rallyIndex: currentRallyIndex)
         stageFlywheelCorrection(rallyIndex: currentRallyIndex, trigger: .reported, reason: reason)
     }
 
     /// Stage a flywheel contribution for a corrected/reported rally. No-op unless
     /// opted in or the rally has no backing segment.
     private func stageFlywheelCorrection(rallyIndex: Int, trigger: FlywheelTrigger, reason: String? = nil) {
-        print("🪁 Flywheel[VM]: correction requested trigger=\(trigger.rawValue) rally=\(rallyIndex) optedIn=\(AppSettings.shared.enableDataFlywheel)")
-        guard AppSettings.shared.enableDataFlywheel else { print("🪁 Flywheel[VM]: skip — opted out"); return }
+        guard AppSettings.shared.enableDataFlywheel else { return }
         guard let segments = processingMetadata?.rallySegments,
-              rallyIndex >= 0, rallyIndex < segments.count else {
-            print("🪁 Flywheel[VM]: skip — no segment for rally \(rallyIndex) (segments=\(processingMetadata?.rallySegments.count ?? -1))")
-            return
-        }
+              rallyIndex >= 0, rallyIndex < segments.count else { return }
         let segment = segments[rallyIndex]
         let videoId = videoMetadata.originalVideoId ?? videoMetadata.id
         let originalURL = videoMetadata.originalURL

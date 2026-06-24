@@ -26,6 +26,9 @@ final class FlywheelCaptureService {
     private(set) var pendingCount: Int = 0
     private(set) var lifetimeContributedCount: Int = 0
     private(set) var isDraining = false
+    /// Rallies the user has explicitly reported, as "videoId#rallyIndex" keys.
+    /// Drives the "reported" indicator and survives app restarts.
+    private(set) var reportedRallies: Set<String> = []
 
     // MARK: - Tuning
 
@@ -53,6 +56,7 @@ final class FlywheelCaptureService {
     private let stagingDirectory: URL
     private let indexURL: URL
     private let uploadedVideosURL: URL
+    private let reportedURL: URL
     private let lifetimeKey = "flywheelLifetimeContributed"
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -91,6 +95,7 @@ final class FlywheelCaptureService {
         self.stagingDirectory = base
         self.indexURL = base.appendingPathComponent("flywheel_index.json")
         self.uploadedVideosURL = base.appendingPathComponent("flywheel_uploaded_videos.json")
+        self.reportedURL = base.appendingPathComponent("flywheel_reported.json")
 
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
@@ -102,6 +107,27 @@ final class FlywheelCaptureService {
         self.lifetimeContributedCount = UserDefaults.standard.integer(forKey: lifetimeKey)
         loadIndex()
         loadUploadedVideos()
+        loadReported()
+    }
+
+    // MARK: - Reported indicator
+
+    private static func reportKey(_ videoId: UUID, _ rallyIndex: Int) -> String {
+        "\(videoId.uuidString)#\(rallyIndex)"
+    }
+
+    /// Record that the user reported a rally (drives the UI indicator).
+    func markRallyReported(videoId: UUID, rallyIndex: Int) {
+        let key = Self.reportKey(videoId, rallyIndex)
+        guard !reportedRallies.contains(key) else { return }
+        reportedRallies.insert(key)
+        persistReported()
+    }
+
+    /// How many rallies in a video the user has reported.
+    func reportedCount(videoId: UUID) -> Int {
+        let prefix = "\(videoId.uuidString)#"
+        return reportedRallies.reduce(0) { $0 + ($1.hasPrefix(prefix) ? 1 : 0) }
     }
 
     // MARK: - Passive capture (processing time)
@@ -132,12 +158,10 @@ final class FlywheelCaptureService {
     /// No-op unless the user has opted in.
     func stageCorrection(videoId: UUID, rallyIndex: Int, segment: RallySegment,
                          trigger: FlywheelTrigger, reason: String? = nil, originalURL: URL) async {
-        print("🪁 Flywheel: stageCorrection trigger=\(trigger.rawValue) rally=\(rallyIndex) optedIn=\(AppSettings.shared.enableDataFlywheel) reason=\(reason ?? "nil")")
-        guard AppSettings.shared.enableDataFlywheel else { print("🪁 Flywheel: skip stage — opted out"); return }
-        guard staged.count < maxPendingContributions else { print("🪁 Flywheel: skip stage — pending cap (\(staged.count))"); return }
+        guard AppSettings.shared.enableDataFlywheel else { return }
+        guard staged.count < maxPendingContributions else { return }
 
         let evidence = metadataStore.loadFrameEvidence(for: videoId)
-        print("🪁 Flywheel: loaded \(evidence.count) evidence frames for video \(videoId)")
         await stage(videoId: videoId, rallyIndex: rallyIndex, segment: segment,
                     trigger: trigger, reason: reason, originalURL: originalURL, evidence: evidence)
         triggerDrain()
@@ -148,10 +172,7 @@ final class FlywheelCaptureService {
     /// Upload staged contributions and remove the local copies on success.
     /// Failures (offline / unauthenticated) are kept for the next attempt.
     func drain(using client: any APIClient) async {
-        guard AppSettings.shared.enableDataFlywheel else { print("🪁 Flywheel: drain skip — opted out"); return }
-        guard !isDraining else { print("🪁 Flywheel: drain skip — already draining"); return }
-        guard !staged.isEmpty else { print("🪁 Flywheel: drain skip — nothing pending"); return }
-        print("🪁 Flywheel: draining \(staged.count) pending…")
+        guard AppSettings.shared.enableDataFlywheel, !isDraining, !staged.isEmpty else { return }
         isDraining = true
         defer { isDraining = false }
 
@@ -165,11 +186,9 @@ final class FlywheelCaptureService {
             // Event-only repeats legitimately have no frames; only drop when frames
             // were expected but their files vanished.
             if !contribution.frameFileNames.isEmpty && frameURLs.isEmpty {
-                print("🪁 Flywheel: dropping orphaned record — frames missing for video \(contribution.videoId)")
                 continue
             }
             do {
-                print("🪁 Flywheel: uploading video=\(contribution.videoId) events=\(contribution.flagEvents.count) frames=\(frameURLs.count)…")
                 try await client.submitFlywheelContribution(contribution, frameURLs: frameURLs, progress: { _ in })
                 frameURLs.forEach { try? fileManager.removeItem(at: $0) }
                 if !contribution.frameFileNames.isEmpty {
@@ -177,10 +196,9 @@ final class FlywheelCaptureService {
                     persistUploadedVideos()
                 }
                 uploaded += 1
-                print("🪁 Flywheel: uploaded video=\(contribution.videoId) ✅")
             } catch {
+                // Keep failed items for the next attempt (offline / unauthenticated).
                 remaining.append(contribution)
-                print("🪁 Flywheel: upload FAILED video=\(contribution.videoId): \(error)")
             }
         }
 
@@ -192,7 +210,6 @@ final class FlywheelCaptureService {
             lifetimeContributedCount += uploaded
             UserDefaults.standard.set(lifetimeContributedCount, forKey: lifetimeKey)
         }
-        print("🪁 Flywheel: drain done — uploaded=\(uploaded) stillPending=\(remaining.count)")
     }
 
     // MARK: - Clear
@@ -227,14 +244,13 @@ final class FlywheelCaptureService {
     // MARK: - Private
 
     private func triggerDrain() {
-        print("🪁 Flywheel: triggerDrain (pending=\(staged.count))")
         Task { await drain(using: SupabaseAPIClient.shared) }
     }
 
     private func stage(videoId: UUID, rallyIndex: Int, segment: RallySegment,
                        trigger: FlywheelTrigger, reason: String?, originalURL: URL,
                        evidence: [StoredFrameEvidence]) async {
-        guard segment.endTime > segment.startTime else { print("🪁 Flywheel: skip stage — empty segment [\(segment.startTime)-\(segment.endTime)]"); return }
+        guard segment.endTime > segment.startTime else { return }
 
         let event = FlywheelFlagEvent(rallyIndex: rallyIndex, trigger: trigger.rawValue, reason: reason, at: Date())
 
@@ -243,7 +259,6 @@ final class FlywheelCaptureService {
         if let idx = staged.firstIndex(where: { $0.videoId == videoId }) {
             staged[idx].flagEvents.append(event)
             persistIndex()
-            print("🪁 Flywheel: appended flag to staged video \(videoId) — events=\(staged[idx].flagEvents.count)")
             return
         }
 
@@ -257,14 +272,9 @@ final class FlywheelCaptureService {
         let frameNames: [String]
         if framesUploadedVideos.contains(videoId) {
             frameNames = []
-            print("🪁 Flywheel: frames already uploaded for video \(videoId) — staging event-only flag")
         } else {
-            print("🪁 Flywheel: extracting frames rally=\(rallyIndex) from \(originalURL.lastPathComponent)")
             frameNames = await extractFrames(from: originalURL, contributionId: id)
-            guard !frameNames.isEmpty else {
-                print("🪁 Flywheel: skip stage — no frames extracted for rally \(rallyIndex)")
-                return
-            }
+            guard !frameNames.isEmpty else { return }
         }
 
         let contribution = FlywheelContribution(
@@ -290,7 +300,6 @@ final class FlywheelCaptureService {
         staged.append(contribution)
         pendingCount = staged.count
         persistIndex()
-        print("🪁 Flywheel: staged \(frameNames.count) frames (\(sliced.count) evidence) — pending=\(staged.count)")
     }
 
     // MARK: - Frame extraction
@@ -304,7 +313,7 @@ final class FlywheelCaptureService {
         do {
             durationSec = CMTimeGetSeconds(try await asset.load(.duration))
         } catch {
-            print("🪁 Flywheel: couldn't load duration: \(error)")
+            print("Flywheel: couldn't load video duration: \(error)")
             return []
         }
         guard durationSec > 0 else { return [] }
@@ -340,10 +349,9 @@ final class FlywheelCaptureService {
                 try data.write(to: stagingDirectory.appendingPathComponent(name), options: .atomic)
                 names.append(name)
             } catch {
-                print("🪁 Flywheel: frame extract failed at \(String(format: "%.2f", t))s: \(error)")
+                print("Flywheel: frame extract failed at \(String(format: "%.2f", t))s: \(error)")
             }
         }
-        print("🪁 Flywheel: extracted \(names.count)/\(count) frames over \(String(format: "%.1f", durationSec))s")
         return names
     }
 
@@ -382,5 +390,23 @@ final class FlywheelCaptureService {
             return
         }
         framesUploadedVideos = loaded
+    }
+
+    private func persistReported() {
+        do {
+            let data = try encoder.encode(reportedRallies)
+            try data.write(to: reportedURL, options: .atomic)
+        } catch {
+            print("Flywheel: failed to persist reported: \(error)")
+        }
+    }
+
+    private func loadReported() {
+        guard fileManager.fileExists(atPath: reportedURL.path),
+              let data = try? Data(contentsOf: reportedURL),
+              let loaded = try? decoder.decode(Set<String>.self, from: data) else {
+            return
+        }
+        reportedRallies = loaded
     }
 }
