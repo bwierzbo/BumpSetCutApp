@@ -39,6 +39,13 @@ final class FlywheelCaptureService {
     private let maxPendingContributions = 50
     /// Pad the evidence window slightly past the segment edges.
     private let evidenceMarginSec = 0.25
+    /// Full-resolution stills sampled evenly across the WHOLE source video (not
+    /// just the rally) so annotating them lets the model generalize to the rest
+    /// of the footage. Native resolution; count scales with video length, clamped.
+    private let minFrames = 20
+    private let maxFrames = 50
+    private let frameIntervalSec = 2.0   // aim for ~one frame per 2s of source
+    private let frameJpegQuality: CGFloat = 0.9
 
     // MARK: - Storage
 
@@ -119,10 +126,12 @@ final class FlywheelCaptureService {
     /// No-op unless the user has opted in.
     func stageCorrection(videoId: UUID, rallyIndex: Int, segment: RallySegment,
                          trigger: FlywheelTrigger, reason: String? = nil, originalURL: URL) async {
-        guard AppSettings.shared.enableDataFlywheel else { return }
-        guard staged.count < maxPendingContributions else { return }
+        print("🪁 Flywheel: stageCorrection trigger=\(trigger.rawValue) rally=\(rallyIndex) optedIn=\(AppSettings.shared.enableDataFlywheel) reason=\(reason ?? "nil")")
+        guard AppSettings.shared.enableDataFlywheel else { print("🪁 Flywheel: skip stage — opted out"); return }
+        guard staged.count < maxPendingContributions else { print("🪁 Flywheel: skip stage — pending cap (\(staged.count))"); return }
 
         let evidence = metadataStore.loadFrameEvidence(for: videoId)
+        print("🪁 Flywheel: loaded \(evidence.count) evidence frames for video \(videoId)")
         await stage(videoId: videoId, rallyIndex: rallyIndex, segment: segment,
                     trigger: trigger, reason: reason, originalURL: originalURL, evidence: evidence)
         triggerDrain()
@@ -133,7 +142,10 @@ final class FlywheelCaptureService {
     /// Upload staged contributions and remove the local copies on success.
     /// Failures (offline / unauthenticated) are kept for the next attempt.
     func drain(using client: any APIClient) async {
-        guard AppSettings.shared.enableDataFlywheel, !isDraining, !staged.isEmpty else { return }
+        guard AppSettings.shared.enableDataFlywheel else { print("🪁 Flywheel: drain skip — opted out"); return }
+        guard !isDraining else { print("🪁 Flywheel: drain skip — already draining"); return }
+        guard !staged.isEmpty else { print("🪁 Flywheel: drain skip — nothing pending"); return }
+        print("🪁 Flywheel: draining \(staged.count) pending…")
         isDraining = true
         defer { isDraining = false }
 
@@ -141,17 +153,23 @@ final class FlywheelCaptureService {
         var uploaded = 0
 
         for contribution in staged {
-            let clipURL = stagingDirectory.appendingPathComponent(contribution.clipFileName)
-            guard fileManager.fileExists(atPath: clipURL.path) else {
-                // Clip went missing — drop the orphaned record.
+            let frameURLs = contribution.frameFileNames
+                .map { stagingDirectory.appendingPathComponent($0) }
+                .filter { fileManager.fileExists(atPath: $0.path) }
+            guard !frameURLs.isEmpty else {
+                // Frames went missing — drop the orphaned record.
+                print("🪁 Flywheel: dropping orphaned record — frames missing for rally \(contribution.rallyIndex)")
                 continue
             }
             do {
-                try await client.submitFlywheelContribution(contribution, clipURL: clipURL, progress: { _ in })
-                try? fileManager.removeItem(at: clipURL)
+                print("🪁 Flywheel: uploading rally=\(contribution.rallyIndex) trigger=\(contribution.trigger.rawValue) frames=\(frameURLs.count)…")
+                try await client.submitFlywheelContribution(contribution, frameURLs: frameURLs, progress: { _ in })
+                frameURLs.forEach { try? fileManager.removeItem(at: $0) }
                 uploaded += 1
+                print("🪁 Flywheel: uploaded rally=\(contribution.rallyIndex) ✅")
             } catch {
                 remaining.append(contribution)
+                print("🪁 Flywheel: upload FAILED rally=\(contribution.rallyIndex): \(error)")
             }
         }
 
@@ -163,6 +181,7 @@ final class FlywheelCaptureService {
             lifetimeContributedCount += uploaded
             UserDefaults.standard.set(lifetimeContributedCount, forKey: lifetimeKey)
         }
+        print("🪁 Flywheel: drain done — uploaded=\(uploaded) stillPending=\(remaining.count)")
     }
 
     // MARK: - Clear
@@ -171,8 +190,9 @@ final class FlywheelCaptureService {
     /// manual "clear pending" in Settings.
     func clearPending() {
         for contribution in staged {
-            let clipURL = stagingDirectory.appendingPathComponent(contribution.clipFileName)
-            try? fileManager.removeItem(at: clipURL)
+            for name in contribution.frameFileNames {
+                try? fileManager.removeItem(at: stagingDirectory.appendingPathComponent(name))
+            }
         }
         staged.removeAll()
         pendingCount = 0
@@ -196,6 +216,7 @@ final class FlywheelCaptureService {
     // MARK: - Private
 
     private func triggerDrain() {
+        print("🪁 Flywheel: triggerDrain (pending=\(staged.count))")
         Task { await drain(using: SupabaseAPIClient.shared) }
     }
 
@@ -203,30 +224,22 @@ final class FlywheelCaptureService {
                        trigger: FlywheelTrigger, reason: String?, originalURL: URL,
                        evidence: [StoredFrameEvidence]) async {
         let dedupeKey = "\(videoId.uuidString)#\(rallyIndex)#\(trigger.rawValue)"
-        guard !staged.contains(where: { $0.dedupeKey == dedupeKey }) else { return }
-        guard segment.endTime > segment.startTime else { return }
+        guard !staged.contains(where: { $0.dedupeKey == dedupeKey }) else { print("🪁 Flywheel: skip stage — already staged \(dedupeKey)"); return }
+        guard segment.endTime > segment.startTime else { print("🪁 Flywheel: skip stage — empty segment [\(segment.startTime)-\(segment.endTime)]"); return }
 
         let id = UUID()
-        let clipFileName = "\(id.uuidString).mp4"
-        let clipURL = stagingDirectory.appendingPathComponent(clipFileName)
-
-        // Export the raw model segment (no watermark, no user trim) — we want
-        // exactly the frames the detector ran on.
-        do {
-            let asset = AVURLAsset(url: originalURL)
-            let range = CMTimeRange(
-                start: CMTime(seconds: segment.startTime, preferredTimescale: 600),
-                end: CMTime(seconds: segment.endTime, preferredTimescale: 600)
-            )
-            _ = try await VideoExporter().exportClip(asset: asset, timeRange: range, to: clipURL, addWatermark: false)
-        } catch {
-            print("Flywheel: clip export failed for rally \(rallyIndex): \(error)")
-            return
-        }
-
         let sliced = evidence.filter {
             $0.time >= segment.startTime - evidenceMarginSec &&
             $0.time <= segment.endTime + evidenceMarginSec
+        }
+
+        // Sample full-resolution stills across the whole source video (the
+        // annotation input) instead of a heavy clip.
+        print("🪁 Flywheel: extracting frames rally=\(rallyIndex) from \(originalURL.lastPathComponent)")
+        let frameNames = await extractFrames(from: originalURL, contributionId: id)
+        guard !frameNames.isEmpty else {
+            print("🪁 Flywheel: skip stage — no frames extracted for rally \(rallyIndex)")
+            return
         }
 
         let contribution = FlywheelContribution(
@@ -237,7 +250,7 @@ final class FlywheelCaptureService {
             endTime: segment.endTime,
             trigger: trigger,
             userReason: reason,
-            clipFileName: clipFileName,
+            frameFileNames: frameNames,
             evidence: sliced,
             rallyConfidence: segment.confidence,
             rallyQuality: segment.quality,
@@ -251,6 +264,61 @@ final class FlywheelCaptureService {
         staged.append(contribution)
         pendingCount = staged.count
         persistIndex()
+        print("🪁 Flywheel: staged \(frameNames.count) frames (\(sliced.count) evidence) — pending=\(staged.count)")
+    }
+
+    // MARK: - Frame extraction
+
+    /// Sample full-resolution JPEG stills evenly across the entire source video.
+    /// Count scales with duration (~one per `frameIntervalSec`), clamped to
+    /// [minFrames, maxFrames]. Returns the staged file names (empty on failure).
+    private func extractFrames(from originalURL: URL, contributionId: UUID) async -> [String] {
+        let asset = AVURLAsset(url: originalURL)
+        let durationSec: Double
+        do {
+            durationSec = CMTimeGetSeconds(try await asset.load(.duration))
+        } catch {
+            print("🪁 Flywheel: couldn't load duration: \(error)")
+            return []
+        }
+        guard durationSec > 0 else { return [] }
+
+        let count = min(maxFrames, max(minFrames, Int((durationSec / frameIntervalSec).rounded())))
+        // Spread across the interior of the video (avoid the very first/last frame).
+        let times: [Double] = (0..<count).map { i in
+            durationSec * (Double(i) + 0.5) / Double(count)
+        }
+
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true          // correct orientation
+        generator.requestedTimeToleranceBefore = .zero           // exact frames
+        generator.requestedTimeToleranceAfter = .zero
+        // No maximumSize → native full resolution (1080p / 2K / 4K as source).
+
+        var names: [String] = []
+        for (i, t) in times.enumerated() {
+            let cmTime = CMTime(seconds: t, preferredTimescale: 600)
+            do {
+                let cgImage: CGImage
+                if #available(iOS 16.0, *) {
+                    cgImage = try await generator.image(at: cmTime).image
+                } else {
+                    cgImage = try generator.copyCGImage(at: cmTime, actualTime: nil)
+                }
+                #if canImport(UIKit)
+                guard let data = UIImage(cgImage: cgImage).jpegData(compressionQuality: frameJpegQuality) else { continue }
+                #else
+                continue
+                #endif
+                let name = "\(contributionId.uuidString)_f\(String(format: "%03d", i)).jpg"
+                try data.write(to: stagingDirectory.appendingPathComponent(name), options: .atomic)
+                names.append(name)
+            } catch {
+                print("🪁 Flywheel: frame extract failed at \(String(format: "%.2f", t))s: \(error)")
+            }
+        }
+        print("🪁 Flywheel: extracted \(names.count)/\(count) frames over \(String(format: "%.1f", durationSec))s")
+        return names
     }
 
     private func persistIndex() {

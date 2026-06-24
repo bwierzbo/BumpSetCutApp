@@ -474,12 +474,23 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
 
     // MARK: - Data Flywheel
 
-    nonisolated func submitFlywheelContribution(_ contribution: FlywheelContribution, clipURL: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+    nonisolated func submitFlywheelContribution(_ contribution: FlywheelContribution, frameURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws {
         let userId = try await currentUserId()
-        // Private bucket — keep the object path; the bucket is read only by the
-        // ML service role, so there's no public URL.
-        let objectPath = try await streamUpload(fileURL: clipURL, bucket: "training-data", progress: progress)
-        let upload = FlywheelContributionUpload(userId: userId, contribution: contribution, clipUrl: objectPath)
+        // Upload each full-res still into the private bucket under the user's
+        // folder: {userId}/{contributionId}/fNN.jpg (the leading folder satisfies
+        // the RLS owner check). Frames are small, so a simple data upload is fine.
+        var objectPaths: [String] = []
+        let total = max(frameURLs.count, 1)
+        for (i, url) in frameURLs.enumerated() {
+            let data = try Data(contentsOf: url)
+            let path = "\(userId)/\(contribution.id.uuidString)/f\(String(format: "%02d", i)).jpg"
+            try await supabase.storage.from("training-data").upload(
+                path, data: data, options: .init(contentType: "image/jpeg", upsert: true)
+            )
+            objectPaths.append(path)
+            progress(Double(i + 1) / Double(total))
+        }
+        let upload = FlywheelContributionUpload(userId: userId, contribution: contribution, frameUrls: objectPaths)
         try await supabase
             .from("flywheel_contributions")
             .insert(upload)

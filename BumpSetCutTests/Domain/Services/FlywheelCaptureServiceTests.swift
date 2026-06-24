@@ -3,8 +3,8 @@
 //  BumpSetCutTests
 //
 //  Unit tests for the data-flywheel capture service: evidence scoping, the
-//  upload-payload mapping, and drain behavior (success removes the local clip,
-//  failure keeps it, opt-out short-circuits).
+//  upload-payload mapping, and drain behavior (success removes the local frames,
+//  failure keeps them, opt-out short-circuits).
 //
 
 import XCTest
@@ -35,7 +35,7 @@ final class FlywheelCaptureServiceTests: XCTestCase {
         AppSettings.shared.enableDataFlywheel = false
     }
 
-    private func makeContribution(clipFileName: String) -> FlywheelContribution {
+    private func makeContribution(frameFileNames: [String]) -> FlywheelContribution {
         FlywheelContribution(
             id: UUID(),
             videoId: UUID(),
@@ -44,7 +44,7 @@ final class FlywheelCaptureServiceTests: XCTestCase {
             endTime: 3.0,
             trigger: .lowScore,
             userReason: nil,
-            clipFileName: clipFileName,
+            frameFileNames: frameFileNames,
             evidence: [],
             rallyConfidence: 0.3,
             rallyQuality: 0.2,
@@ -56,18 +56,25 @@ final class FlywheelCaptureServiceTests: XCTestCase {
         )
     }
 
-    /// Seed a staged contribution (index + dummy clip) so a fresh service loads it.
-    private func seedStaged(clipFileName: String) throws -> FlywheelContribution {
-        let contribution = makeContribution(clipFileName: clipFileName)
-        FileManager.default.createFile(
-            atPath: stagingDir.appendingPathComponent(clipFileName).path,
-            contents: Data("dummy".utf8)
-        )
+    /// Seed a staged contribution (index + dummy frame files) so a fresh service loads it.
+    @discardableResult
+    private func seedStaged(frameFileNames: [String]) throws -> FlywheelContribution {
+        let contribution = makeContribution(frameFileNames: frameFileNames)
+        for name in frameFileNames {
+            FileManager.default.createFile(
+                atPath: stagingDir.appendingPathComponent(name).path,
+                contents: Data("dummy-jpeg".utf8)
+            )
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode([contribution])
         try data.write(to: indexURL, options: .atomic)
         return contribution
+    }
+
+    private func framesExist(_ names: [String]) -> Bool {
+        names.allSatisfy { FileManager.default.fileExists(atPath: stagingDir.appendingPathComponent($0).path) }
     }
 
     // MARK: - scopedEvidence
@@ -96,7 +103,7 @@ final class FlywheelCaptureServiceTests: XCTestCase {
         let scoped = FlywheelCaptureService.scopedEvidence(frames, segments: [segment], margin: 0.25)
 
         XCTAssertEqual(scoped.count, 1)
-        let kept = try? XCTUnwrap(scoped.first)
+        let kept = scoped.first
         XCTAssertEqual(kept?.time, 5.0)
         XCTAssertTrue(kept?.isProjectile ?? false)
         XCTAssertEqual(kept?.detections.count, 1)
@@ -115,24 +122,25 @@ final class FlywheelCaptureServiceTests: XCTestCase {
     // MARK: - Upload payload mapping
 
     func testUploadPayloadMapsContributionFields() {
-        let contribution = makeContribution(clipFileName: "x.mp4")
+        let contribution = makeContribution(frameFileNames: ["a.jpg", "b.jpg"])
         let upload = FlywheelContributionUpload(
-            userId: "user-123", contribution: contribution, clipUrl: "user-123/x.mp4")
+            userId: "user-123", contribution: contribution,
+            frameUrls: ["user-123/x/f00.jpg", "user-123/x/f01.jpg"])
 
         XCTAssertEqual(upload.userId, "user-123")
         XCTAssertEqual(upload.localVideoId, contribution.videoId)
         XCTAssertEqual(upload.rallyIndex, 0)
-        XCTAssertEqual(upload.clipUrl, "user-123/x.mp4")
+        XCTAssertEqual(upload.frameUrls, ["user-123/x/f00.jpg", "user-123/x/f01.jpg"])
         XCTAssertEqual(upload.triggerType, "low_score")
         XCTAssertEqual(upload.rallyConfidence, 0.3, accuracy: 0.0001)
     }
 
     // MARK: - Drain
 
-    func testDrainSuccessRemovesClipAndCountsContribution() async throws {
+    func testDrainSuccessRemovesFramesAndCountsContribution() async throws {
         AppSettings.shared.enableDataFlywheel = true
-        let clipName = "\(UUID().uuidString).mp4"
-        _ = try seedStaged(clipFileName: clipName)
+        let frames = ["\(UUID().uuidString)_f00.jpg", "\(UUID().uuidString)_f01.jpg"]
+        try seedStaged(frameFileNames: frames)
 
         let service = FlywheelCaptureService()
         XCTAssertEqual(service.pendingCount, 1)
@@ -144,28 +152,26 @@ final class FlywheelCaptureServiceTests: XCTestCase {
         XCTAssertEqual(client.submitCount, 1)
         XCTAssertEqual(service.pendingCount, 0)
         XCTAssertEqual(service.lifetimeContributedCount, baseline + 1)
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: stagingDir.appendingPathComponent(clipName).path))
+        XCTAssertFalse(framesExist(frames))
     }
 
-    func testDrainFailureKeepsClipStaged() async throws {
+    func testDrainFailureKeepsFramesStaged() async throws {
         AppSettings.shared.enableDataFlywheel = true
-        let clipName = "\(UUID().uuidString).mp4"
-        _ = try seedStaged(clipFileName: clipName)
+        let frames = ["\(UUID().uuidString)_f00.jpg"]
+        try seedStaged(frameFileNames: frames)
 
         let service = FlywheelCaptureService()
         let client = MockFlywheelClient(shouldSucceed: false)
         await service.drain(using: client)
 
         XCTAssertEqual(service.pendingCount, 1)
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: stagingDir.appendingPathComponent(clipName).path))
+        XCTAssertTrue(framesExist(frames))
     }
 
     func testDrainShortCircuitsWhenOptedOut() async throws {
         AppSettings.shared.enableDataFlywheel = false
-        let clipName = "\(UUID().uuidString).mp4"
-        _ = try seedStaged(clipFileName: clipName)
+        let frames = ["\(UUID().uuidString)_f00.jpg"]
+        try seedStaged(frameFileNames: frames)
 
         let service = FlywheelCaptureService()
         let client = MockFlywheelClient(shouldSucceed: true)
@@ -177,15 +183,14 @@ final class FlywheelCaptureServiceTests: XCTestCase {
 
     func testClearPendingRemovesEverything() async throws {
         AppSettings.shared.enableDataFlywheel = true
-        let clipName = "\(UUID().uuidString).mp4"
-        _ = try seedStaged(clipFileName: clipName)
+        let frames = ["\(UUID().uuidString)_f00.jpg", "\(UUID().uuidString)_f01.jpg"]
+        try seedStaged(frameFileNames: frames)
 
         let service = FlywheelCaptureService()
         service.clearPending()
 
         XCTAssertEqual(service.pendingCount, 0)
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: stagingDir.appendingPathComponent(clipName).path))
+        XCTAssertFalse(framesExist(frames))
     }
 }
 
@@ -205,7 +210,7 @@ private final class MockFlywheelClient: APIClient, @unchecked Sendable {
         throw APIError.serverError(statusCode: 501, message: "not used")
     }
 
-    func submitFlywheelContribution(_ contribution: FlywheelContribution, clipURL: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+    func submitFlywheelContribution(_ contribution: FlywheelContribution, frameURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws {
         submitCount += 1
         if !shouldSucceed { throw APIError.networkUnavailable }
     }

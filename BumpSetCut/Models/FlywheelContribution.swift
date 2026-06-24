@@ -93,7 +93,8 @@ struct FlywheelContribution: Codable, Identifiable {
     let endTime: Double
     let trigger: FlywheelTrigger
     let userReason: String?
-    let clipFileName: String
+    /// Local staged JPEG frame files (full-res annotation stills), in order.
+    let frameFileNames: [String]
     let evidence: [StoredFrameEvidence]
     let rallyConfidence: Double
     let rallyQuality: Double
@@ -115,7 +116,8 @@ struct FlywheelContributionUpload: Codable {
     let userId: String
     let localVideoId: UUID
     let rallyIndex: Int
-    let clipUrl: String
+    /// Storage object paths of the uploaded frames, in order.
+    let frameUrls: [String]
     let triggerType: String
     let userReason: String?
     let evidence: [StoredFrameEvidence]
@@ -126,11 +128,11 @@ struct FlywheelContributionUpload: Codable {
     let deviceModel: String
     let consentVersion: String
 
-    init(userId: String, contribution: FlywheelContribution, clipUrl: String) {
+    init(userId: String, contribution: FlywheelContribution, frameUrls: [String]) {
         self.userId = userId
         self.localVideoId = contribution.videoId
         self.rallyIndex = contribution.rallyIndex
-        self.clipUrl = clipUrl
+        self.frameUrls = frameUrls
         self.triggerType = contribution.trigger.rawValue
         self.userReason = contribution.userReason
         self.evidence = contribution.evidence

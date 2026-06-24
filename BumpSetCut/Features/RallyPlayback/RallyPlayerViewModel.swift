@@ -506,9 +506,13 @@ final class RallyPlayerViewModel {
     /// Stage a flywheel contribution for a corrected/reported rally. No-op unless
     /// opted in or the rally has no backing segment.
     private func stageFlywheelCorrection(rallyIndex: Int, trigger: FlywheelTrigger, reason: String? = nil) {
-        guard AppSettings.shared.enableDataFlywheel else { return }
+        print("🪁 Flywheel[VM]: correction requested trigger=\(trigger.rawValue) rally=\(rallyIndex) optedIn=\(AppSettings.shared.enableDataFlywheel)")
+        guard AppSettings.shared.enableDataFlywheel else { print("🪁 Flywheel[VM]: skip — opted out"); return }
         guard let segments = processingMetadata?.rallySegments,
-              rallyIndex >= 0, rallyIndex < segments.count else { return }
+              rallyIndex >= 0, rallyIndex < segments.count else {
+            print("🪁 Flywheel[VM]: skip — no segment for rally \(rallyIndex) (segments=\(processingMetadata?.rallySegments.count ?? -1))")
+            return
+        }
         let segment = segments[rallyIndex]
         let videoId = videoMetadata.originalVideoId ?? videoMetadata.id
         let originalURL = videoMetadata.originalURL
