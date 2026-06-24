@@ -51,7 +51,7 @@ final class YOLODetector {
     private var modelInputWidth: CGFloat = 960
     private var modelInputHeight: CGFloat = 960
 
-    init(modelName: String = "bestv3") {
+    init(modelName: String = "ball_v2_small") {
         self.modelName = modelName
         loadModel()
     }
