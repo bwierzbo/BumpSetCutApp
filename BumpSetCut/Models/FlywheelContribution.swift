@@ -30,6 +30,18 @@ enum FlywheelTrigger: String, Codable {
     case reported = "reported"         // explicit "report a mistake"
 }
 
+// MARK: - Flag Event
+
+/// One time the user (or passive capture) flagged a rally in a video. Whole-video
+/// frames are uploaded once per video; each additional flag just appends one of
+/// these and bumps the server-side count.
+struct FlywheelFlagEvent: Codable {
+    let rallyIndex: Int
+    let trigger: String
+    let reason: String?
+    let at: Date
+}
+
 // MARK: - Stored Frame Evidence
 
 /// Codable mirror of one row of `VideoProcessor.FrameEvidence`, trimmed to the
@@ -94,7 +106,10 @@ struct FlywheelContribution: Codable, Identifiable {
     let trigger: FlywheelTrigger
     let userReason: String?
     /// Local staged JPEG frame files (full-res annotation stills), in order.
+    /// Empty for "repeat" flags on a video whose frames were already uploaded.
     let frameFileNames: [String]
+    /// Every flag accumulated for this video while staged (sent together on drain).
+    var flagEvents: [FlywheelFlagEvent]
     let evidence: [StoredFrameEvidence]
     let rallyConfidence: Double
     let rallyQuality: Double
@@ -103,44 +118,41 @@ struct FlywheelContribution: Codable, Identifiable {
     let deviceModel: String
     let consentVersion: String
     let createdAt: Date
-
-    /// Stable key for deduping passive captures of the same rally.
-    var dedupeKey: String { "\(videoId.uuidString)#\(rallyIndex)#\(trigger.rawValue)" }
 }
 
-// MARK: - Upload Payload
+// MARK: - RPC Params
 
-/// Row inserted into `flywheel_contributions`. Encoded with the Supabase
-/// snake_case strategy (camelCase here → snake_case columns).
-struct FlywheelContributionUpload: Codable {
-    let userId: String
-    let localVideoId: UUID
-    let rallyIndex: Int
-    /// Storage object paths of the uploaded frames, in order.
-    let frameUrls: [String]
-    let triggerType: String
-    let userReason: String?
-    let evidence: [StoredFrameEvidence]
-    let rallyConfidence: Double
-    let rallyQuality: Double
-    let appVersion: String
-    let osVersion: String
-    let deviceModel: String
-    let consentVersion: String
+/// Arguments for the `record_flywheel_flag` RPC (insert-or-increment). The user
+/// id is resolved server-side via `auth.uid()`, so it's not sent. Keys map to the
+/// function's `p_*` argument names via the Supabase snake_case encoder.
+struct FlywheelFlagRPCParams: Encodable {
+    let pLocalVideoId: UUID
+    let pRallyIndex: Int
+    let pTrigger: String
+    let pReason: String?
+    let pFrameUrls: [String]
+    let pEvidence: [StoredFrameEvidence]
+    let pRallyConfidence: Double
+    let pRallyQuality: Double
+    let pAppVersion: String
+    let pOsVersion: String
+    let pDeviceModel: String
+    let pConsentVersion: String
+    let pEvents: [FlywheelFlagEvent]
 
-    init(userId: String, contribution: FlywheelContribution, frameUrls: [String]) {
-        self.userId = userId
-        self.localVideoId = contribution.videoId
-        self.rallyIndex = contribution.rallyIndex
-        self.frameUrls = frameUrls
-        self.triggerType = contribution.trigger.rawValue
-        self.userReason = contribution.userReason
-        self.evidence = contribution.evidence
-        self.rallyConfidence = contribution.rallyConfidence
-        self.rallyQuality = contribution.rallyQuality
-        self.appVersion = contribution.appVersion
-        self.osVersion = contribution.osVersion
-        self.deviceModel = contribution.deviceModel
-        self.consentVersion = contribution.consentVersion
+    init(contribution: FlywheelContribution, frameUrls: [String]) {
+        self.pLocalVideoId = contribution.videoId
+        self.pRallyIndex = contribution.rallyIndex
+        self.pTrigger = contribution.trigger.rawValue
+        self.pReason = contribution.userReason
+        self.pFrameUrls = frameUrls
+        self.pEvidence = contribution.evidence
+        self.pRallyConfidence = contribution.rallyConfidence
+        self.pRallyQuality = contribution.rallyQuality
+        self.pAppVersion = contribution.appVersion
+        self.pOsVersion = contribution.osVersion
+        self.pDeviceModel = contribution.deviceModel
+        self.pConsentVersion = contribution.consentVersion
+        self.pEvents = contribution.flagEvents
     }
 }

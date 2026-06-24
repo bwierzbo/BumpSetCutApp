@@ -45,6 +45,8 @@ final class FlywheelCaptureServiceTests: XCTestCase {
             trigger: .lowScore,
             userReason: nil,
             frameFileNames: frameFileNames,
+            flagEvents: [FlywheelFlagEvent(rallyIndex: 0, trigger: "low_score", reason: nil,
+                                           at: Date(timeIntervalSince1970: 1_700_000_000))],
             evidence: [],
             rallyConfidence: 0.3,
             rallyQuality: 0.2,
@@ -121,18 +123,18 @@ final class FlywheelCaptureServiceTests: XCTestCase {
 
     // MARK: - Upload payload mapping
 
-    func testUploadPayloadMapsContributionFields() {
+    func testRPCParamsMapContributionFields() {
         let contribution = makeContribution(frameFileNames: ["a.jpg", "b.jpg"])
-        let upload = FlywheelContributionUpload(
-            userId: "user-123", contribution: contribution,
-            frameUrls: ["user-123/x/f00.jpg", "user-123/x/f01.jpg"])
+        let params = FlywheelFlagRPCParams(
+            contribution: contribution, frameUrls: ["u/x/f000.jpg", "u/x/f001.jpg"])
 
-        XCTAssertEqual(upload.userId, "user-123")
-        XCTAssertEqual(upload.localVideoId, contribution.videoId)
-        XCTAssertEqual(upload.rallyIndex, 0)
-        XCTAssertEqual(upload.frameUrls, ["user-123/x/f00.jpg", "user-123/x/f01.jpg"])
-        XCTAssertEqual(upload.triggerType, "low_score")
-        XCTAssertEqual(upload.rallyConfidence, 0.3, accuracy: 0.0001)
+        XCTAssertEqual(params.pLocalVideoId, contribution.videoId)
+        XCTAssertEqual(params.pRallyIndex, 0)
+        XCTAssertEqual(params.pFrameUrls, ["u/x/f000.jpg", "u/x/f001.jpg"])
+        XCTAssertEqual(params.pTrigger, "low_score")
+        XCTAssertEqual(params.pRallyConfidence, 0.3, accuracy: 0.0001)
+        XCTAssertEqual(params.pEvents.count, 1)
+        XCTAssertEqual(params.pEvents.first?.rallyIndex, 0)
     }
 
     // MARK: - Drain

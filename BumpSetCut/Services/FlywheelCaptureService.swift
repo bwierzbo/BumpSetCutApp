@@ -52,12 +52,16 @@ final class FlywheelCaptureService {
     private let fileManager = FileManager.default
     private let stagingDirectory: URL
     private let indexURL: URL
+    private let uploadedVideosURL: URL
     private let lifetimeKey = "flywheelLifetimeContributed"
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let metadataStore = MetadataStore()
 
     private var staged: [FlywheelContribution] = []
+    /// Videos whose whole-video frames are already on the server — later flags on
+    /// these only send an event (no frame re-upload).
+    private var framesUploadedVideos: Set<UUID> = []
 
     // MARK: - Device info (stamped onto each contribution)
 
@@ -86,6 +90,7 @@ final class FlywheelCaptureService {
             .appendingPathComponent("Flywheel", isDirectory: true)
         self.stagingDirectory = base
         self.indexURL = base.appendingPathComponent("flywheel_index.json")
+        self.uploadedVideosURL = base.appendingPathComponent("flywheel_uploaded_videos.json")
 
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
@@ -96,6 +101,7 @@ final class FlywheelCaptureService {
 
         self.lifetimeContributedCount = UserDefaults.standard.integer(forKey: lifetimeKey)
         loadIndex()
+        loadUploadedVideos()
     }
 
     // MARK: - Passive capture (processing time)
@@ -156,20 +162,25 @@ final class FlywheelCaptureService {
             let frameURLs = contribution.frameFileNames
                 .map { stagingDirectory.appendingPathComponent($0) }
                 .filter { fileManager.fileExists(atPath: $0.path) }
-            guard !frameURLs.isEmpty else {
-                // Frames went missing — drop the orphaned record.
-                print("🪁 Flywheel: dropping orphaned record — frames missing for rally \(contribution.rallyIndex)")
+            // Event-only repeats legitimately have no frames; only drop when frames
+            // were expected but their files vanished.
+            if !contribution.frameFileNames.isEmpty && frameURLs.isEmpty {
+                print("🪁 Flywheel: dropping orphaned record — frames missing for video \(contribution.videoId)")
                 continue
             }
             do {
-                print("🪁 Flywheel: uploading rally=\(contribution.rallyIndex) trigger=\(contribution.trigger.rawValue) frames=\(frameURLs.count)…")
+                print("🪁 Flywheel: uploading video=\(contribution.videoId) events=\(contribution.flagEvents.count) frames=\(frameURLs.count)…")
                 try await client.submitFlywheelContribution(contribution, frameURLs: frameURLs, progress: { _ in })
                 frameURLs.forEach { try? fileManager.removeItem(at: $0) }
+                if !contribution.frameFileNames.isEmpty {
+                    framesUploadedVideos.insert(contribution.videoId)
+                    persistUploadedVideos()
+                }
                 uploaded += 1
-                print("🪁 Flywheel: uploaded rally=\(contribution.rallyIndex) ✅")
+                print("🪁 Flywheel: uploaded video=\(contribution.videoId) ✅")
             } catch {
                 remaining.append(contribution)
-                print("🪁 Flywheel: upload FAILED rally=\(contribution.rallyIndex): \(error)")
+                print("🪁 Flywheel: upload FAILED video=\(contribution.videoId): \(error)")
             }
         }
 
@@ -223,9 +234,18 @@ final class FlywheelCaptureService {
     private func stage(videoId: UUID, rallyIndex: Int, segment: RallySegment,
                        trigger: FlywheelTrigger, reason: String?, originalURL: URL,
                        evidence: [StoredFrameEvidence]) async {
-        let dedupeKey = "\(videoId.uuidString)#\(rallyIndex)#\(trigger.rawValue)"
-        guard !staged.contains(where: { $0.dedupeKey == dedupeKey }) else { print("🪁 Flywheel: skip stage — already staged \(dedupeKey)"); return }
         guard segment.endTime > segment.startTime else { print("🪁 Flywheel: skip stage — empty segment [\(segment.startTime)-\(segment.endTime)]"); return }
+
+        let event = FlywheelFlagEvent(rallyIndex: rallyIndex, trigger: trigger.rawValue, reason: reason, at: Date())
+
+        // Already staged for this video → just record the extra flag (frames are
+        // whole-video, so one set covers every rally). No re-extraction.
+        if let idx = staged.firstIndex(where: { $0.videoId == videoId }) {
+            staged[idx].flagEvents.append(event)
+            persistIndex()
+            print("🪁 Flywheel: appended flag to staged video \(videoId) — events=\(staged[idx].flagEvents.count)")
+            return
+        }
 
         let id = UUID()
         let sliced = evidence.filter {
@@ -233,13 +253,18 @@ final class FlywheelCaptureService {
             $0.time <= segment.endTime + evidenceMarginSec
         }
 
-        // Sample full-resolution stills across the whole source video (the
-        // annotation input) instead of a heavy clip.
-        print("🪁 Flywheel: extracting frames rally=\(rallyIndex) from \(originalURL.lastPathComponent)")
-        let frameNames = await extractFrames(from: originalURL, contributionId: id)
-        guard !frameNames.isEmpty else {
-            print("🪁 Flywheel: skip stage — no frames extracted for rally \(rallyIndex)")
-            return
+        // Frames already on the server → stage an event-only repeat (no frames).
+        let frameNames: [String]
+        if framesUploadedVideos.contains(videoId) {
+            frameNames = []
+            print("🪁 Flywheel: frames already uploaded for video \(videoId) — staging event-only flag")
+        } else {
+            print("🪁 Flywheel: extracting frames rally=\(rallyIndex) from \(originalURL.lastPathComponent)")
+            frameNames = await extractFrames(from: originalURL, contributionId: id)
+            guard !frameNames.isEmpty else {
+                print("🪁 Flywheel: skip stage — no frames extracted for rally \(rallyIndex)")
+                return
+            }
         }
 
         let contribution = FlywheelContribution(
@@ -251,6 +276,7 @@ final class FlywheelCaptureService {
             trigger: trigger,
             userReason: reason,
             frameFileNames: frameNames,
+            flagEvents: [event],
             evidence: sliced,
             rallyConfidence: segment.confidence,
             rallyQuality: segment.quality,
@@ -338,5 +364,23 @@ final class FlywheelCaptureService {
         }
         staged = loaded
         pendingCount = staged.count
+    }
+
+    private func persistUploadedVideos() {
+        do {
+            let data = try encoder.encode(framesUploadedVideos)
+            try data.write(to: uploadedVideosURL, options: .atomic)
+        } catch {
+            print("Flywheel: failed to persist uploaded videos: \(error)")
+        }
+    }
+
+    private func loadUploadedVideos() {
+        guard fileManager.fileExists(atPath: uploadedVideosURL.path),
+              let data = try? Data(contentsOf: uploadedVideosURL),
+              let loaded = try? decoder.decode(Set<UUID>.self, from: data) else {
+            return
+        }
+        framesUploadedVideos = loaded
     }
 }
