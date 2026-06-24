@@ -38,6 +38,14 @@ struct NetResult {
     let meanConfidence: Double
 }
 
+/// One pipeline's predictions + score in a side-by-side comparison.
+struct ComparisonResult: Identifiable {
+    let id = UUID()
+    let pipelineName: String
+    let raw: [Interval]
+    let score: ScoringResult
+}
+
 @MainActor
 @Observable
 final class RallyLabModel {
@@ -118,6 +126,24 @@ final class RallyLabModel {
     private(set) var netStatus = "Load a video, then Detect Net."
     private(set) var netSamples: [NetSample] = []
     private(set) var netResult: NetResult?
+
+    // MARK: - Pipeline comparison
+    var pipelineAId = "standard"
+    var pipelineBId = "scoregate"
+    private(set) var isComparing = false
+    private(set) var compareStatus = "Pick two pipelines and Run Comparison."
+    private(set) var comparisonA: ComparisonResult?
+    private(set) var comparisonB: ComparisonResult?
+
+    // MARK: - Deterministic FSM (Phase 1)
+    var fsmStride: Double = 2
+    var fsmBallConfidence: Double = 0.4
+    var fsmLostTimeout: Double = 1.2
+    var fsmMinRally: Double = 0.6
+    var fsmMotionThreshold: Double = 0.004
+    private(set) var isRunningFSM = false
+    private(set) var fsmStatus = "Load a video, then Detect & Analyze."
+    private(set) var engineResult: EngineResult?
 
     /// Detections affect the captured evidence, so changing the confidence
     /// threshold needs a fresh pipeline run; this flags that the on-screen
@@ -660,6 +686,75 @@ final class RallyLabModel {
         }
         return CGRect(x: med(boxes.map { $0.minX }), y: med(boxes.map { $0.minY }),
                       width: med(boxes.map { $0.width }), height: med(boxes.map { $0.height }))
+    }
+
+    // MARK: - Deterministic FSM (Phase 1)
+
+    /// Runs the dense ball+net detection pass + the deterministic engine, storing
+    /// the full result for the Phase 1 debug tab (summary, timeline, live overlay).
+    func runDeterministic() async {
+        guard let url = videoURL, !isRunningFSM else { return }
+        isRunningFSM = true
+        fsmStatus = "Sampling ball + net (this runs detection over the whole video)…"
+        engineResult = nil
+        defer { isRunningFSM = false }
+        do {
+            let (samples, net) = try await BallNetSampler.sample(
+                url: url, strideN: Int(fsmStride.rounded()), ballConfidence: Float(fsmBallConfidence))
+            guard let net else { fsmStatus = "No net detected — can't build court geometry."; return }
+            var cfg = EngineConfig()
+            cfg.ballConfidence = Float(fsmBallConfidence)
+            cfg.lostTimeoutSec = fsmLostTimeout
+            cfg.minRallySec = fsmMinRally
+            cfg.motionThreshold = CGFloat(fsmMotionThreshold)
+            let result = DeterministicRallyEngine(config: cfg).run(samples: samples, net: net)
+            engineResult = result
+            fsmStatus = "\(result.rallies.count) rallies · \(samples.count) frames · net conf \(String(format: "%.2f", net.confidence))."
+        } catch is CancellationError {
+            fsmStatus = "Cancelled."
+        } catch {
+            fsmStatus = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Pipeline comparison
+
+    /// Runs the two selected pipelines over the loaded video and scores each against
+    /// the hand labels, for a side-by-side A/B. Each pipeline does its own detection,
+    /// so this is heavier than the live re-score in the Pipeline tab.
+    func runComparison() async {
+        guard let url = videoURL, !isComparing else { return }
+        guard !labels.isEmpty else {
+            compareStatus = "Add ground-truth labels in the Pipeline tab to score against."
+            return
+        }
+        isComparing = true
+        defer { isComparing = false }
+        comparisonA = nil
+        comparisonB = nil
+
+        let base = currentConfig()
+        let truth = labels.map { Interval(start: $0.start, end: $0.end) }
+        let dur = duration
+
+        func run(_ id: String) async -> ComparisonResult? {
+            guard let p = PipelineRegistry.pipeline(id: id) else { return nil }
+            compareStatus = "Running \(p.name)…"
+            do {
+                let r = try await p.run(url: url, duration: dur, baseConfig: base, minRallySec: minRallySec)
+                let s = RallySegmentationScorer.score(predicted: r.rawPredictions, groundTruth: truth)
+                return ComparisonResult(pipelineName: p.name, raw: r.rawPredictions, score: s)
+            } catch is CancellationError {
+                return nil
+            } catch {
+                compareStatus = "\(p.name) failed: \(error.localizedDescription)"
+                return nil
+            }
+        }
+
+        comparisonA = await run(pipelineAId)
+        comparisonB = await run(pipelineBId)
+        if comparisonA != nil || comparisonB != nil { compareStatus = "Comparison done." }
     }
 
     // MARK: - Pipeline

@@ -17,6 +17,10 @@ struct ContentView: View {
                 .tabItem { Label("Pipeline", systemImage: "gearshape") }
             NetTabView(model: model)
                 .tabItem { Label("Net", systemImage: "rectangle.split.3x1") }
+            CompareTabView(model: model)
+                .tabItem { Label("Compare", systemImage: "square.split.2x1") }
+            FSMTabView(model: model)
+                .tabItem { Label("Phase 1", systemImage: "point.topleft.down.curvedto.point.bottomright.up") }
         }
         .frame(minWidth: 1040, minHeight: 680)
         .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.movie, .video]) { result in
