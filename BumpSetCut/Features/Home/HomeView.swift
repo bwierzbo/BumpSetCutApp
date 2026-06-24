@@ -825,7 +825,6 @@ struct UnprocessedVideoPickerSheet: View {
                 ProcessVideoView(
                     videoURL: video.url,
                     mediaStore: mediaStore,
-                    folderPath: LibraryType.saved.rootPath,
                     onComplete: { dismiss() }
                 )
             }
@@ -905,7 +904,6 @@ struct UnprocessedVideoPickerSheet: View {
         return ProcessVideoView(
             videoURL: videoURL,
             mediaStore: mediaStore,
-            folderPath: video.folderPath,
             onComplete: { dismiss() }
         )
     }

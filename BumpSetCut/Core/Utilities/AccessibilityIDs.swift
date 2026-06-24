@@ -125,7 +125,6 @@ enum AccessibilityID {
     enum Process {
         static let startButton = "process.startButton"
         static let cancelButton = "process.cancelButton"
-        static let saveToLibrary = "process.saveToLibrary"
         static let viewRallies = "process.viewRallies"
         static let doneButton = "process.doneButton"
     }

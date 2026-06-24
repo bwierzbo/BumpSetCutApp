@@ -139,7 +139,6 @@ struct MainTabView: View {
                     ProcessVideoView(
                         videoURL: videoURL,
                         mediaStore: store,
-                        folderPath: LibraryType.processed.rootPath,
                         onComplete: { showProcessingView = false }
                     )
                 }

@@ -155,8 +155,11 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
     }
 
     var canBeProcessed: Bool {
-        // Can only process original videos that don't already have processed versions
-        return isOriginalVideo && processedVideoIds.isEmpty
+        // Can only process original videos that haven't been processed yet. Processing
+        // now annotates the original in place (rally metadata), so a video that already
+        // has metadata is "processed" even without a separate processed-copy entry.
+        // `processedVideoIds` still guards legacy libraries that have processed copies.
+        return isOriginalVideo && processedVideoIds.isEmpty && !hasMetadata
     }
     
     var originalURL: URL {

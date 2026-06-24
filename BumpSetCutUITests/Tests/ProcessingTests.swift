@@ -59,18 +59,21 @@ final class ProcessingTests: VideoTestCase {
         waitForProcessingComplete(timeout: 180)
     }
 
-    /// This test runs real ML inference. After processing, taps "Save to Library".
-    func testSaveAfterProcessing() {
+    /// This test runs real ML inference. Processing now auto-saves into the original
+    /// video's folder — there is no destination prompt — and lands on the stats screen.
+    func testAutoSaveAfterProcessing() {
         processScreen.startButton.tap()
         waitForProcessingComplete(timeout: 180)
 
-        // Tap "Save to Library"
-        XCTAssertTrue(processScreen.saveToLibraryButton.waitForExistence(timeout: 5), "'Save to Library' button should appear")
-        processScreen.saveToLibraryButton.tap()
-
-        // Folder picker should appear with "Choose Destination"
-        let folderPicker = app.staticTexts["Choose Destination"]
-        XCTAssertTrue(folderPicker.waitForExistence(timeout: 5), "Folder picker should appear after tapping Save")
+        // No "Save to Library" step — the stats screen with "View Rallies" appears directly.
+        XCTAssertTrue(
+            processScreen.viewRalliesButton.waitForExistence(timeout: 10),
+            "'View Rallies' should appear after auto-save"
+        )
+        XCTAssertFalse(
+            app.buttons["Save to Library"].exists,
+            "No 'Save to Library' button should appear — saving is automatic"
+        )
     }
 
     // MARK: - Additional Processing Tests
@@ -94,28 +97,26 @@ final class ProcessingTests: VideoTestCase {
         XCTAssertTrue(ralliesText.waitForExistence(timeout: 5), "Rally count should be displayed after processing")
     }
 
-    func testViewRalliesButtonAfterSave() {
+    func testViewRalliesOpensPlayer() {
         processScreen.startButton.tap()
         waitForProcessingComplete(timeout: 180)
 
-        // Save the processed video
-        XCTAssertTrue(processScreen.saveToLibraryButton.waitForExistence(timeout: 5))
-        processScreen.saveToLibraryButton.tap()
+        // Processing auto-saves and lands on the stats screen with "View Rallies".
+        XCTAssertTrue(
+            processScreen.viewRalliesButton.waitForExistence(timeout: 10),
+            "'View Rallies' button should appear after auto-save"
+        )
+        processScreen.viewRalliesButton.tap()
 
-        let saveButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Save to'")).firstMatch
-        XCTAssertTrue(saveButton.waitForExistence(timeout: 5))
-        saveButton.tap()
-
-        // After save, the app auto-opens the rally player.
-        // Dismiss it by tapping the back button.
+        // The rally player should open.
         let rallyPlayer = RallyPlayerScreen(app: app)
-        XCTAssertTrue(rallyPlayer.rallyCounter.waitForExistence(timeout: 15), "Rally player should auto-open after save")
+        XCTAssertTrue(rallyPlayer.rallyCounter.waitForExistence(timeout: 15), "Rally player should open from 'View Rallies'")
         rallyPlayer.backButton.tap()
 
-        // Now on processing view with .hasMetadata state — "View Rallies" should be visible
+        // Back on the stats screen — "View Rallies" remains visible.
         XCTAssertTrue(
             processScreen.viewRalliesButton.waitForExistence(timeout: 5),
-            "'View Rallies' button should appear for processed video"
+            "'View Rallies' button should still be visible after dismissing the player"
         )
     }
 
@@ -123,48 +124,24 @@ final class ProcessingTests: VideoTestCase {
         processScreen.startButton.tap()
         waitForProcessingComplete(timeout: 180)
 
-        // Save first
-        if processScreen.saveToLibraryButton.waitForExistence(timeout: 5) {
-            processScreen.saveToLibraryButton.tap()
+        // Processing auto-saves and lands on the stats screen with a "Done" button.
+        XCTAssertTrue(processScreen.doneButton.waitForExistence(timeout: 10), "'Done' button should appear after auto-save")
+        processScreen.doneButton.tap()
 
-            let saveButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Save to'")).firstMatch
-            if saveButton.waitForExistence(timeout: 3) {
-                saveButton.tap()
-            }
-        }
-
-        // Done button should appear in complete state
-        if processScreen.doneButton.waitForExistence(timeout: 5) {
-            processScreen.doneButton.tap()
-
-            // Should dismiss back to library or home
-            let libraryExists = app.staticTexts["Test Rally Video"].waitForExistence(timeout: 5)
-            let homeExists = app.descendants(matching: .any)["home.viewLibrary"].firstMatch.waitForExistence(timeout: 5)
-            XCTAssertTrue(libraryExists || homeExists, "Should navigate back after tapping Done")
-        }
+        // Should dismiss back to library or home
+        let libraryExists = app.staticTexts["Test Rally Video"].waitForExistence(timeout: 5)
+        let homeExists = app.descendants(matching: .any)["home.viewLibrary"].firstMatch.waitForExistence(timeout: 5)
+        XCTAssertTrue(libraryExists || homeExists, "Should navigate back after tapping Done")
     }
 
     func testReprocessingBlocked() {
         processScreen.startButton.tap()
         waitForProcessingComplete(timeout: 180)
 
-        // Save the processed video
-        XCTAssertTrue(processScreen.saveToLibraryButton.waitForExistence(timeout: 5))
-        processScreen.saveToLibraryButton.tap()
-
-        let saveButton = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Save to'")).firstMatch
-        XCTAssertTrue(saveButton.waitForExistence(timeout: 5))
-        saveButton.tap()
-
-        // After save, the app auto-opens the rally player. Dismiss it.
-        let rallyPlayer = RallyPlayerScreen(app: app)
-        if rallyPlayer.rallyCounter.waitForExistence(timeout: 15) {
-            rallyPlayer.backButton.tap()
-        }
-
-        // Back on processing view — "View Rallies" should be visible, NOT the start button
+        // Processing auto-saves and lands on the stats screen.
+        // "View Rallies" should be visible, NOT the start button.
         XCTAssertTrue(
-            processScreen.viewRalliesButton.waitForExistence(timeout: 5),
+            processScreen.viewRalliesButton.waitForExistence(timeout: 10),
             "'View Rallies' should appear instead of Start for processed video"
         )
         // Start button should NOT appear for already-processed video

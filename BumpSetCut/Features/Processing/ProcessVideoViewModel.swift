@@ -9,7 +9,6 @@ final class ProcessVideoViewModel {
     // MARK: - Dependencies
     var videoURL: URL
     let mediaStore: MediaStore
-    let folderPath: String
     let onComplete: () -> Void
 
     // MARK: - State
@@ -31,12 +30,10 @@ final class ProcessVideoViewModel {
     var showPreTrim: Bool = false
     var pendingDebugModeForTrim: Bool = false
 
-    // Pending save state - holds temp URL until user selects destination folder
+    // Pending save state - holds temp URL while the processed video is auto-saved
     var pendingSaveURL: URL? = nil
     var pendingIsDebugMode: Bool = false
     var pendingDebugData: TrajectoryDebugger? = nil
-    var showingFolderPicker: Bool = false
-    var selectedProcessedFolder: String = LibraryType.processed.rootPath
 
     // No rallies detected flag
     var noRalliesDetected: Bool = false
@@ -190,10 +187,9 @@ final class ProcessVideoViewModel {
     }
 
     // MARK: - Initialization
-    init(videoURL: URL, mediaStore: MediaStore, folderPath: String, onComplete: @escaping () -> Void) {
+    init(videoURL: URL, mediaStore: MediaStore, onComplete: @escaping () -> Void) {
         self.videoURL = videoURL
         self.mediaStore = mediaStore
-        self.folderPath = folderPath
         self.onComplete = onComplete
     }
 
@@ -239,11 +235,20 @@ final class ProcessVideoViewModel {
         } else if results.noRallies {
             noRalliesDetected = true
         } else if let saveURL = results.saveURL {
+            // Debug mode exports a distinct annotated video — save it alongside the
+            // original, into the original video's folder (no destination prompt).
             pendingSaveURL = saveURL
             pendingIsDebugMode = results.isDebugMode
             pendingDebugData = results.debugData
             loadCurrentVideoMetadata()
-            // Don't show folder picker yet — show summary first
+            saveProcessedVideoToOriginalFolder()
+        } else {
+            // Normal processing: rally metadata was written onto the original video
+            // in place. There is no separate file to save — just refresh so the
+            // original surfaces its rallies, then clear the coordinator.
+            loadCurrentVideoMetadata()
+            coordinator.reset()
+            onComplete()
         }
     }
 
@@ -311,33 +316,34 @@ final class ProcessVideoViewModel {
         )
     }
 
-    /// Called after user selects a folder in the folder picker
-    func confirmSaveToFolder(_ folderPath: String) {
+    /// Auto-save the processed video into the original video's folder. A processed video
+    /// always lives alongside its source — there is no destination prompt.
+    private func saveProcessedVideoToOriginalFolder() {
         guard let tempURL = pendingSaveURL else {
-            print("⚠️ confirmSaveToFolder: no pendingSaveURL")
+            print("⚠️ saveProcessedVideoToOriginalFolder: no pendingSaveURL")
             return
         }
 
-        print("📁 confirmSaveToFolder: saving to '\(folderPath)'")
+        let destinationFolder = currentVideoMetadata?.folderPath ?? ""
+        print("📁 saveProcessedVideoToOriginalFolder: saving to '\(destinationFolder)'")
         Task {
             do {
                 try await saveProcessedVideo(
                     tempProcessedURL: tempURL,
                     isDebugMode: pendingIsDebugMode,
                     debugData: pendingDebugData,
-                    destinationFolder: folderPath
+                    destinationFolder: destinationFolder
                 )
-                print("✅ confirmSaveToFolder: save succeeded")
+                print("✅ saveProcessedVideoToOriginalFolder: save succeeded")
 
                 await MainActor.run {
                     pendingSaveURL = nil
                     pendingDebugData = nil
-                    showingFolderPicker = false
                     loadCurrentVideoMetadata()
                     coordinator.reset()
                 }
             } catch {
-                print("❌ confirmSaveToFolder: error: \(error)")
+                print("❌ saveProcessedVideoToOriginalFolder: error: \(error)")
                 await MainActor.run {
                     errorMessage = error.localizedDescription
                     showError = true
@@ -346,14 +352,11 @@ final class ProcessVideoViewModel {
         }
     }
 
+    /// Save a distinct annotated export (debug mode only). Normal processing has no
+    /// separate file to save — it annotates the original in place.
     private func saveProcessedVideo(tempProcessedURL: URL, isDebugMode: Bool, debugData: TrajectoryDebugger?, destinationFolder: String) async throws {
         let originalDisplayName = getVideoDisplayName()
-        let processedName: String
-        if isDebugMode {
-            processedName = getNextProcessedVideoName(originalDisplayName: originalDisplayName, prefix: "Debug", inFolder: destinationFolder)
-        } else {
-            processedName = getUniqueVideoName(originalDisplayName: originalDisplayName, inFolder: destinationFolder)
-        }
+        let processedName = getNextProcessedVideoName(originalDisplayName: originalDisplayName, prefix: "Debug", inFolder: destinationFolder)
         let ext = videoURL.pathExtension.isEmpty ? "mp4" : videoURL.pathExtension
         let processedFileName = "\(processedName).\(ext)"
 
@@ -397,23 +400,6 @@ final class ProcessVideoViewModel {
         }
 
         return videoURL.deletingPathExtension().lastPathComponent
-    }
-
-    private func getUniqueVideoName(originalDisplayName: String, inFolder destinationFolder: String) -> String {
-        let sanitized = sanitizeFilename(originalDisplayName)
-        let videosInFolder = mediaStore.getVideos(in: destinationFolder)
-        let existingNames = Set(videosInFolder.map { $0.displayName })
-
-        if !existingNames.contains(sanitized) {
-            return sanitized
-        }
-
-        // Name conflict — append incrementing number
-        var counter = 2
-        while existingNames.contains("\(sanitized) \(counter)") {
-            counter += 1
-        }
-        return "\(sanitized) \(counter)"
     }
 
     private func getNextProcessedVideoName(originalDisplayName: String, prefix: String, inFolder destinationFolder: String) -> String {

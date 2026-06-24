@@ -60,7 +60,6 @@ struct BSCVideoCard: View {
                 ProcessVideoView(
                     videoURL: video.originalURL,
                     mediaStore: mediaStore,
-                    folderPath: LibraryType.processed.rootPath,  // Always save to ProcessedGames
                     onComplete: onRefresh
                 )
             }
@@ -127,7 +126,7 @@ struct BSCVideoCard: View {
             menuButton
 
             // Quick action buttons
-            if !video.processedVideoIds.isEmpty {
+            if hasRallies {
                 quickViewRalliesButton
             } else if video.canBeProcessed {
                 quickProcessButton
@@ -330,8 +329,14 @@ struct BSCVideoCard: View {
         }
     }
 
+    /// True when this video has rally metadata to view. Processing annotates the
+    /// original in place, so the original carries its own rallies — there is no
+    /// separate processed file. (Legacy processed-copy entries lack their own
+    /// metadata and are covered by `video.isProcessed` where a badge is needed.)
+    private var hasRallies: Bool { video.hasMetadata }
+
     private var statusIconName: String {
-        if video.isProcessed || !video.processedVideoIds.isEmpty {
+        if video.isProcessed || hasRallies {
             return "checkmark.seal.fill"
         } else {
             return "video.circle"
@@ -339,7 +344,7 @@ struct BSCVideoCard: View {
     }
 
     private var statusText: String {
-        if video.isProcessed || !video.processedVideoIds.isEmpty {
+        if video.isProcessed || hasRallies {
             return "Processed"
         } else {
             return "Unprocessed"
@@ -347,7 +352,7 @@ struct BSCVideoCard: View {
     }
 
     private var statusColor: Color {
-        if video.isProcessed || !video.processedVideoIds.isEmpty {
+        if video.isProcessed || hasRallies {
             return .bscStatusProcessed
         } else {
             return .bscStatusOriginal
@@ -442,7 +447,7 @@ struct BSCVideoCard: View {
     // MARK: - Context Menu
     @ViewBuilder
     private var contextMenuContent: some View {
-        if !video.processedVideoIds.isEmpty {
+        if hasRallies {
             Button {
                 showingRallyViewer = true
             } label: {

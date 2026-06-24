@@ -18,10 +18,6 @@ struct ProcessScreen {
         app.buttons["process.cancelButton"]
     }
 
-    var saveToLibraryButton: XCUIElement {
-        app.buttons["process.saveToLibrary"]
-    }
-
     var viewRalliesButton: XCUIElement {
         app.buttons["process.viewRallies"]
     }

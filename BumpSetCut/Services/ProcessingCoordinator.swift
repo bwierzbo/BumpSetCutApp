@@ -193,14 +193,12 @@ final class ProcessingCoordinator {
                         videoId: videoId, metadata: metadata, originalURL: videoURL
                     )
 
-                    // Create hard link for save flow
-                    let ext = videoURL.pathExtension.isEmpty ? "mp4" : videoURL.pathExtension
-                    let linkURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("Processed_\(UUID().uuidString).\(ext)")
-                    try FileManager.default.linkItem(at: videoURL, to: linkURL)
-
+                    // Normal processing annotates the original video with rally
+                    // metadata in place — it does not produce a separate output file.
+                    // (Debug mode is the only path that exports a distinct annotated
+                    // video; see the isDebugMode branch above.) So there's nothing to
+                    // save here: the original now carries its rallies.
                     await MainActor.run {
-                        self.pendingSaveURL = linkURL
                         self.handleCompletion()
                     }
                 }
