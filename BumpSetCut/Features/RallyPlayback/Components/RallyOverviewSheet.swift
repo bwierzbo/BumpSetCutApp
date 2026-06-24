@@ -17,12 +17,18 @@ struct RallyOverviewSheet: View {
     let onDismiss: () -> Void
 
     @State private var appeared = false
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
-    private let columns = [
-        GridItem(.flexible(), spacing: BSCSpacing.md),
-        GridItem(.flexible(), spacing: BSCSpacing.md),
-        GridItem(.flexible(), spacing: BSCSpacing.md)
-    ]
+    // Compact height (e.g. iPhone landscape): condense chrome so the grid stays visible.
+    private var isCompactHeight: Bool { verticalSizeClass == .compact }
+
+    private var columns: [GridItem] {
+        let count = isCompactHeight ? 5 : 3
+        return Array(
+            repeating: GridItem(.flexible(), spacing: BSCSpacing.md),
+            count: count
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,10 +37,14 @@ struct RallyOverviewSheet: View {
                 .fill(Color.white.opacity(0.3))
                 .frame(width: 36, height: 5)
                 .padding(.top, BSCSpacing.sm)
-                .padding(.bottom, BSCSpacing.md)
+                .padding(.bottom, isCompactHeight ? BSCSpacing.xs : BSCSpacing.md)
 
             // Header
-            headerSection
+            if isCompactHeight {
+                compactHeaderSection
+            } else {
+                headerSection
+            }
 
             // Thumbnail grid
             ScrollView {
@@ -58,6 +68,70 @@ struct RallyOverviewSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.hidden)
         .onAppear { appeared = true }
+    }
+
+    // MARK: - Compact Header (landscape)
+
+    private var compactHeaderSection: some View {
+        HStack(spacing: BSCSpacing.md) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(Color.bscSuccess)
+
+            // Inline stats
+            HStack(spacing: BSCSpacing.md) {
+                statPill(count: savedRallies.count, label: "saved", color: .bscSuccess)
+                statPill(count: removedRallies.count, label: "removed", color: .bscError)
+                if !favoritedRallies.isEmpty {
+                    statPill(count: favoritedRallies.count, label: "favorited", color: .bscPrimary)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            // Quick select/deselect actions
+            Button {
+                onSaveAll()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("Save All")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundColor(.bscSuccess)
+                .padding(.horizontal, BSCSpacing.md)
+                .padding(.vertical, BSCSpacing.xs)
+                .background(Color.bscSuccess.opacity(0.15))
+                .clipShape(Capsule())
+            }
+            .disabled(savedRallies.count == rallyVideoURLs.count)
+            .opacity(savedRallies.count == rallyVideoURLs.count ? 0.4 : 1.0)
+
+            Button {
+                onDeselectAll()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("Clear All")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundColor(.bscTextSecondary)
+                .padding(.horizontal, BSCSpacing.md)
+                .padding(.vertical, BSCSpacing.xs)
+                .background(Color.bscSurfaceGlass)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+                )
+            }
+            .disabled(savedRallies.isEmpty && removedRallies.isEmpty)
+            .opacity(savedRallies.isEmpty && removedRallies.isEmpty ? 0.4 : 1.0)
+        }
+        .padding(.horizontal, BSCSpacing.lg)
+        .padding(.bottom, BSCSpacing.sm)
     }
 
     // MARK: - Header
@@ -161,6 +235,86 @@ struct RallyOverviewSheet: View {
     // MARK: - Bottom Actions
 
     private var bottomActions: some View {
+        Group {
+            if isCompactHeight {
+                compactBottomActions
+            } else {
+                regularBottomActions
+            }
+        }
+        .padding(.horizontal, BSCSpacing.lg)
+        .padding(.top, BSCSpacing.md)
+        .padding(.bottom, BSCSpacing.lg)
+        .background(Color.bscBackground)
+    }
+
+    private var compactBottomActions: some View {
+        HStack(spacing: BSCSpacing.md) {
+            if !savedRallies.isEmpty {
+                // Export to Camera Roll
+                Button(action: onExport) {
+                    HStack(spacing: BSCSpacing.sm) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("Export \(savedRallies.count)")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, BSCSpacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                            .fill(LinearGradient.bscPrimaryGradient)
+                    )
+                }
+
+                // Post to Community
+                Button {
+                    if let firstSaved = savedRallies.sorted().first {
+                        onPostToCommunity(firstSaved, savedRallies.count > 1)
+                    }
+                } label: {
+                    HStack(spacing: BSCSpacing.sm) {
+                        Image(systemName: savedRallies.count > 1 ? "square.stack.fill" : "paperplane.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(savedRallies.count > 1 ? "Post \(savedRallies.count)" : "Post")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, BSCSpacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                            .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                            .fill(Color.bscBackgroundElevated)
+                    )
+                }
+            }
+
+            // Done
+            Button(action: onDismiss) {
+                HStack(spacing: BSCSpacing.sm) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("Done")
+                        .font(.system(size: 15, weight: .semibold))
+                }
+                .foregroundColor(.bscTextPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, BSCSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                        .fill(Color.bscSurfaceGlass)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                                .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+                        )
+                )
+            }
+        }
+    }
+
+    private var regularBottomActions: some View {
         VStack(spacing: BSCSpacing.md) {
             if !savedRallies.isEmpty {
                 // Export to Camera Roll
@@ -226,10 +380,6 @@ struct RallyOverviewSheet: View {
                 )
             }
         }
-        .padding(.horizontal, BSCSpacing.lg)
-        .padding(.top, BSCSpacing.md)
-        .padding(.bottom, BSCSpacing.lg)
-        .background(Color.bscBackground)
     }
 }
 
