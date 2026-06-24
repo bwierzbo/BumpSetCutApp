@@ -483,7 +483,11 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         let total = max(frameURLs.count, 1)
         for (i, url) in frameURLs.enumerated() {
             let data = try Data(contentsOf: url)
-            let path = "\(userId)/\(contribution.id.uuidString)/f\(String(format: "%03d", i)).jpg"
+            // Keep the meaningful basename (rally_NN / random_NN), drop the local
+            // contributionId prefix.
+            let baseName = url.lastPathComponent
+                .replacingOccurrences(of: "\(contribution.id.uuidString)_", with: "")
+            let path = "\(userId)/\(contribution.id.uuidString)/\(baseName)"
             try await supabase.storage.from("training-data").upload(
                 path, data: data, options: .init(contentType: "image/jpeg", upsert: true)
             )

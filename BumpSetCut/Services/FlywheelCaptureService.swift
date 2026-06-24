@@ -42,12 +42,11 @@ final class FlywheelCaptureService {
     private let maxPendingContributions = 50
     /// Pad the evidence window slightly past the segment edges.
     private let evidenceMarginSec = 0.25
-    /// Full-resolution stills sampled evenly across the WHOLE source video (not
-    /// just the rally) so annotating them lets the model generalize to the rest
-    /// of the footage. Native resolution; count scales with video length, clamped.
-    private let minFrames = 20
-    private let maxFrames = 50
-    private let frameIntervalSec = 2.0   // aim for ~one frame per 2s of source
+    /// Full-resolution stills, native resolution: a dense set across the flagged
+    /// rally (the hard examples) plus a random set across the whole video (scene
+    /// diversity so the model generalizes to the rest of the footage).
+    private let rallyFrameCount = 25
+    private let randomFrameCount = 25
     private let frameJpegQuality: CGFloat = 0.9
 
     // MARK: - Storage
@@ -273,7 +272,7 @@ final class FlywheelCaptureService {
         if framesUploadedVideos.contains(videoId) {
             frameNames = []
         } else {
-            frameNames = await extractFrames(from: originalURL, contributionId: id)
+            frameNames = await extractFrames(from: originalURL, segment: segment, contributionId: id)
             guard !frameNames.isEmpty else { return }
         }
 
@@ -304,10 +303,12 @@ final class FlywheelCaptureService {
 
     // MARK: - Frame extraction
 
-    /// Sample full-resolution JPEG stills evenly across the entire source video.
-    /// Count scales with duration (~one per `frameIntervalSec`), clamped to
-    /// [minFrames, maxFrames]. Returns the staged file names (empty on failure).
-    private func extractFrames(from originalURL: URL, contributionId: UUID) async -> [String] {
+    /// Full-resolution JPEG stills: `rallyFrameCount` densely across the flagged
+    /// rally window, plus `randomFrameCount` at random across the whole video.
+    /// Files are named `{id}_rally_NN.jpg` / `{id}_random_NN.jpg` so the rally
+    /// (hard-example) frames stay distinguishable for annotation. Returns the
+    /// staged file names (empty on failure).
+    private func extractFrames(from originalURL: URL, segment: RallySegment, contributionId: UUID) async -> [String] {
         let asset = AVURLAsset(url: originalURL)
         let durationSec: Double
         do {
@@ -318,11 +319,14 @@ final class FlywheelCaptureService {
         }
         guard durationSec > 0 else { return [] }
 
-        let count = min(maxFrames, max(minFrames, Int((durationSec / frameIntervalSec).rounded())))
-        // Spread across the interior of the video (avoid the very first/last frame).
-        let times: [Double] = (0..<count).map { i in
-            durationSec * (Double(i) + 0.5) / Double(count)
-        }
+        // Dense across the rally + random across the whole video.
+        let rallyStart = max(0, segment.startTime)
+        let rallyEnd = min(durationSec, segment.endTime)
+        let rallyTimes = evenTimes(from: rallyStart, to: rallyEnd, count: rallyFrameCount)
+        let randomTimes = (0..<randomFrameCount).map { _ in Double.random(in: 0..<durationSec) }
+        let plan: [(time: Double, label: String, index: Int)] =
+            rallyTimes.enumerated().map { ($0.element, "rally", $0.offset) } +
+            randomTimes.enumerated().map { ($0.element, "random", $0.offset) }
 
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true          // correct orientation
@@ -331,8 +335,8 @@ final class FlywheelCaptureService {
         // No maximumSize → native full resolution (1080p / 2K / 4K as source).
 
         var names: [String] = []
-        for (i, t) in times.enumerated() {
-            let cmTime = CMTime(seconds: t, preferredTimescale: 600)
+        for item in plan {
+            let cmTime = CMTime(seconds: item.time, preferredTimescale: 600)
             do {
                 let cgImage: CGImage
                 if #available(iOS 16.0, *) {
@@ -345,14 +349,23 @@ final class FlywheelCaptureService {
                 #else
                 continue
                 #endif
-                let name = "\(contributionId.uuidString)_f\(String(format: "%03d", i)).jpg"
+                let name = "\(contributionId.uuidString)_\(item.label)_\(String(format: "%02d", item.index)).jpg"
                 try data.write(to: stagingDirectory.appendingPathComponent(name), options: .atomic)
                 names.append(name)
             } catch {
-                print("Flywheel: frame extract failed at \(String(format: "%.2f", t))s: \(error)")
+                print("Flywheel: frame extract failed at \(String(format: "%.2f", item.time))s: \(error)")
             }
         }
         return names
+    }
+
+    /// `count` evenly-spaced timestamps across [a, b].
+    private func evenTimes(from a: Double, to b: Double, count n: Int) -> [Double] {
+        guard n > 0 else { return [] }
+        guard b > a else { return [a] }
+        if n == 1 { return [(a + b) / 2] }
+        let step = (b - a) / Double(n - 1)
+        return (0..<n).map { a + Double($0) * step }
     }
 
     private func persistIndex() {
