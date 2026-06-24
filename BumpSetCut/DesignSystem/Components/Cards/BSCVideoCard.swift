@@ -326,7 +326,20 @@ struct BSCVideoCard: View {
             Text(statusText)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(statusColor)
+            if isReported {
+                Image(systemName: "flag.fill")
+                    .font(.caption2)
+                    .foregroundColor(.bscOrange)
+                    .accessibilityLabel("Reported to improve detection")
+            }
         }
+    }
+
+    /// True when the user has reported a detection mistake in this video
+    /// (data flywheel). Only shown while contributions are enabled.
+    private var isReported: Bool {
+        AppSettings.shared.enableDataFlywheel &&
+        FlywheelCaptureService.shared.reportedCount(videoId: video.originalVideoId ?? video.id) > 0
     }
 
     /// True when this video has rally metadata to view. Processing annotates the
