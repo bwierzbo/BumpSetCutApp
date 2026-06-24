@@ -492,6 +492,36 @@ final class RallyPlayerViewModel {
         pruneCompletedTasks()
     }
 
+    // MARK: - Data Flywheel
+
+    /// True when the user has opted into contributing training data — gates the
+    /// "report a mistake" affordance in the rally UI.
+    var isFlywheelEnabled: Bool { AppSettings.shared.enableDataFlywheel }
+
+    /// Report the current rally as a model mistake (explicit opt-in contribution).
+    func reportCurrentRallyMistake(reason: String?) {
+        stageFlywheelCorrection(rallyIndex: currentRallyIndex, trigger: .reported, reason: reason)
+    }
+
+    /// Stage a flywheel contribution for a corrected/reported rally. No-op unless
+    /// opted in or the rally has no backing segment.
+    private func stageFlywheelCorrection(rallyIndex: Int, trigger: FlywheelTrigger, reason: String? = nil) {
+        guard AppSettings.shared.enableDataFlywheel else { return }
+        guard let segments = processingMetadata?.rallySegments,
+              rallyIndex >= 0, rallyIndex < segments.count else { return }
+        let segment = segments[rallyIndex]
+        let videoId = videoMetadata.originalVideoId ?? videoMetadata.id
+        let originalURL = videoMetadata.originalURL
+        let task = Task {
+            await FlywheelCaptureService.shared.stageCorrection(
+                videoId: videoId, rallyIndex: rallyIndex, segment: segment,
+                trigger: trigger, reason: reason, originalURL: originalURL
+            )
+        }
+        activeTasks.append(task)
+        pruneCompletedTasks()
+    }
+
     // MARK: - Actions
 
     func performAction(_ action: RallySwipeAction, direction: RallySwipeDirection, fromDragOffset: CGFloat = 0) {
@@ -528,6 +558,11 @@ final class RallyPlayerViewModel {
         }
 
         let _ = actions.registerAction(action, rallyIndex: currentRallyIndex, direction: direction)
+
+        // Data flywheel: a removed rally is a strong "model got it wrong" signal.
+        if action == .remove {
+            stageFlywheelCorrection(rallyIndex: currentRallyIndex, trigger: .userRemoved)
+        }
 
         let dismissTask = Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -667,6 +702,9 @@ final class RallyPlayerViewModel {
         let previousTrim = trim.confirmTrim(rallyIndex: currentRallyIndex, videoId: metadataVideoId, metadataStore: metadataStore)
 
         actions.registerTrimAction(rallyIndex: currentRallyIndex, previousTrim: previousTrim)
+
+        // Data flywheel: a trim corrects the model's rally boundaries.
+        stageFlywheelCorrection(rallyIndex: currentRallyIndex, trigger: .userTrimmed)
 
         seekToCurrentRallyStart()
         setupRallyLooping()

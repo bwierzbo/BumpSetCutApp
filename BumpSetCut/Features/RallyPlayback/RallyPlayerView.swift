@@ -17,6 +17,7 @@ struct RallyPlayerView: View {
 
     @State private var viewModel: RallyPlayerViewModel
     @State private var showingGestureTips = false
+    @State private var showReportMistake = false
     @State private var rallyIndexToShare: ShareableRallyIndex?
     /// Rotation captured at the start of a two-finger twist (RotationGesture
     /// reports angle relative to its own start).
@@ -140,6 +141,12 @@ struct RallyPlayerView: View {
             } message: {
                 Text(viewModel.shareErrorMessage ?? "Couldn't prepare the clip for sharing.")
             }
+            .sheet(isPresented: $showReportMistake) {
+                ReportMistakeSheet { reason in
+                    viewModel.reportCurrentRallyMistake(reason: reason)
+                }
+                .presentationDetents([.medium])
+            }
         }
         .task(id: videoMetadata.id) {
             await viewModel.loadRallies()
@@ -243,6 +250,31 @@ struct RallyPlayerView: View {
                     onUndo: { viewModel.undoLastAction() },
                     onSave: { performAction(.save) }
                 )
+                .zIndex(200)
+                .transition(.opacity)
+            }
+
+            // Report-a-mistake affordance (data flywheel, opted-in users only)
+            if viewModel.isFlywheelEnabled && !viewModel.isTrimmingMode && !viewModel.isAwaitingPropagationChoice {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button {
+                            showReportMistake = true
+                        } label: {
+                            Image(systemName: "flag")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(10)
+                                .background(Color.black.opacity(0.35))
+                                .clipShape(Circle())
+                        }
+                        .accessibilityLabel("Report a detection mistake")
+                        .padding(.trailing, BSCSpacing.lg)
+                        .padding(.bottom, 120)
+                    }
+                }
                 .zIndex(200)
                 .transition(.opacity)
             }

@@ -94,6 +94,9 @@ final class ProcessingCoordinator {
 
         // Create fresh processor
         self.processor = VideoProcessor()
+        // Data flywheel: collect per-frame evidence only for opted-in users, so
+        // borderline rallies can be staged for relabeling after processing.
+        self.processor.collectFrameEvidence = AppSettings.shared.enableDataFlywheel
 
         currentTask = Task { [weak self] in
             guard let self else { return }
@@ -172,6 +175,23 @@ final class ProcessingCoordinator {
                         // metadata-size lookup above.
                         SubscriptionService.shared.recordVideoProcessing(durationSeconds: exportedSeconds)
                     }
+
+                    // Data flywheel (opted-in users only): persist the detector's
+                    // per-frame evidence scoped to rally windows, then stage the
+                    // borderline-confidence rallies for relabeling.
+                    let collectedEvidence = self.processor.frameEvidence
+                    await MainActor.run {
+                        guard AppSettings.shared.enableDataFlywheel else { return }
+                        let stored = FlywheelCaptureService.scopedEvidence(
+                            collectedEvidence, segments: metadata.rallySegments
+                        )
+                        if !stored.isEmpty {
+                            try? MetadataStore().saveFrameEvidence(stored, for: videoId)
+                        }
+                    }
+                    await FlywheelCaptureService.shared.stagePassiveContributions(
+                        videoId: videoId, metadata: metadata, originalURL: videoURL
+                    )
 
                     // Create hard link for save flow
                     let ext = videoURL.pathExtension.isEmpty ? "mp4" : videoURL.pathExtension

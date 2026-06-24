@@ -80,6 +80,7 @@ import AVFoundation
                     if isConnected {
                         Task {
                             await offlineQueue.drain(using: SupabaseAPIClient.shared)
+                            await FlywheelCaptureService.shared.drain(using: SupabaseAPIClient.shared)
                         }
                     }
                 }

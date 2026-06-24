@@ -62,6 +62,31 @@ enum AppTheme: String, CaseIterable, Identifiable {
         }
     }
 
+    // MARK: - Data Flywheel
+
+    /// Opt in to contribute clips of rallies the detector struggled with (plus
+    /// the detector's per-frame evidence) so the model can be retrained. Off by
+    /// default; only flipped true after the consent sheet is accepted.
+    var enableDataFlywheel: Bool {
+        didSet {
+            UserDefaults.standard.set(enableDataFlywheel, forKey: "enableDataFlywheel")
+        }
+    }
+
+    /// Which version of the consent copy the user agreed to (empty until opted in).
+    var flywheelConsentVersion: String {
+        didSet {
+            UserDefaults.standard.set(flywheelConsentVersion, forKey: "flywheelConsentVersion")
+        }
+    }
+
+    /// When the user opted in (nil until opted in).
+    var flywheelOptInDate: Date? {
+        didSet {
+            UserDefaults.standard.set(flywheelOptInDate, forKey: "flywheelOptInDate")
+        }
+    }
+
     // MARK: - Onboarding State
 
     /// Whether user has completed the app onboarding tutorial
@@ -94,6 +119,11 @@ enum AppTheme: String, CaseIterable, Identifiable {
         #endif
 
         self.enableAnalytics = UserDefaults.standard.object(forKey: "enableAnalytics") as? Bool ?? true
+
+        // Data flywheel (opt-in, default off)
+        self.enableDataFlywheel = UserDefaults.standard.bool(forKey: "enableDataFlywheel")
+        self.flywheelConsentVersion = UserDefaults.standard.string(forKey: "flywheelConsentVersion") ?? ""
+        self.flywheelOptInDate = UserDefaults.standard.object(forKey: "flywheelOptInDate") as? Date
 
         // Onboarding state
         self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")

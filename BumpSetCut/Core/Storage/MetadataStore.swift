@@ -446,3 +446,41 @@ extension MetadataStore {
         return selections
     }
 }
+
+// MARK: - Frame Evidence Persistence (Data Flywheel)
+
+extension MetadataStore {
+
+    private func evidenceURL(for videoId: UUID) -> URL {
+        metadataDirectory.appendingPathComponent("\(videoId.uuidString)_evidence.json")
+    }
+
+    /// Persist the detector's per-frame evidence for a processed video so the
+    /// data flywheel can build training contributions later (including at review
+    /// time, in a different session). Only written for opted-in users; scope it
+    /// to interesting frames before calling to keep the file small.
+    func saveFrameEvidence(_ evidence: [StoredFrameEvidence], for videoId: UUID) throws {
+        let url = evidenceURL(for: videoId)
+        try createMetadataDirectoryIfNeeded()
+        let data = try jsonEncoder.encode(evidence)
+        try data.write(to: url, options: .atomic)
+    }
+
+    /// Load persisted frame evidence for a video. Returns empty if none saved
+    /// (e.g. the video was processed before opt-in).
+    func loadFrameEvidence(for videoId: UUID) -> [StoredFrameEvidence] {
+        let url = evidenceURL(for: videoId)
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let evidence = try? jsonDecoder.decode([StoredFrameEvidence].self, from: data) else {
+            return []
+        }
+        return evidence
+    }
+
+    /// Remove the evidence sidecar (e.g. when the user opts out or the video is deleted).
+    func deleteFrameEvidence(for videoId: UUID) {
+        let url = evidenceURL(for: videoId)
+        try? fileManager.removeItem(at: url)
+    }
+}

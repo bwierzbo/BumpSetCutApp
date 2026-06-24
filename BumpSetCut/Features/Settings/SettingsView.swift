@@ -15,6 +15,8 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var hasAppeared = false
     @State private var showPaywall = false
+    @State private var showFlywheelConsent = false
+    @State private var flywheelService = FlywheelCaptureService.shared
     @State private var showDeleteConfirmation = false
     @State private var isDeletingAccount = false
     @State private var deleteError: String?
@@ -57,6 +59,12 @@ struct SettingsView: View {
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
                             .animation(.bscSpring.delay(0.25), value: hasAppeared)
+
+                        // Data flywheel (opt-in model improvement)
+                        dataFlywheelSection
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 20)
+                            .animation(.bscSpring.delay(0.27), value: hasAppeared)
 
                         // Social & Privacy section
                         socialPrivacySection
@@ -108,6 +116,17 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
+            }
+            .sheet(isPresented: $showFlywheelConsent) {
+                FlywheelConsentSheet(
+                    onAccept: {
+                        appSettings.flywheelConsentVersion = FlywheelConsent.currentVersion
+                        appSettings.flywheelOptInDate = Date()
+                        appSettings.enableDataFlywheel = true
+                        showFlywheelConsent = false
+                    },
+                    onCancel: { showFlywheelConsent = false }
+                )
             }
         }
     }
@@ -363,6 +382,64 @@ private extension SettingsView {
                 isOn: $appSettings.enableAnalytics
             )
             .accessibilityIdentifier(AccessibilityID.Settings.analytics)
+        }
+    }
+}
+
+// MARK: - Data Flywheel Section
+private extension SettingsView {
+    var dataFlywheelSection: some View {
+        // Intercept turning the toggle ON to require consent; turning OFF disables
+        // immediately and clears anything still staged for upload.
+        let toggle = Binding<Bool>(
+            get: { appSettings.enableDataFlywheel },
+            set: { newValue in
+                if newValue {
+                    showFlywheelConsent = true
+                } else {
+                    appSettings.enableDataFlywheel = false
+                    flywheelService.clearPending()
+                }
+            }
+        )
+
+        return BSCSettingsSection(title: "Improve Detection", icon: "wand.and.stars", iconColor: .bscPrimary) {
+            VStack(spacing: BSCSpacing.md) {
+                BSCSettingsToggle(
+                    title: "Contribute Training Clips",
+                    subtitle: "Share clips of rallies the model struggled with so detection can improve",
+                    icon: "brain.head.profile",
+                    isOn: toggle
+                )
+
+                if appSettings.enableDataFlywheel {
+                    Divider().background(Color.bscSurfaceBorder)
+
+                    HStack {
+                        Text("Contributed")
+                            .font(.system(size: 14))
+                            .foregroundColor(.bscTextSecondary)
+                        Spacer()
+                        Text("\(flywheelService.lifetimeContributedCount)")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.bscTextPrimary)
+                    }
+
+                    if flywheelService.pendingCount > 0 {
+                        HStack {
+                            Text("Pending upload")
+                                .font(.system(size: 14))
+                                .foregroundColor(.bscTextSecondary)
+                            Spacer()
+                            Button("Clear (\(flywheelService.pendingCount))") {
+                                flywheelService.clearPending()
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.bscPrimary)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -861,6 +938,82 @@ private struct DeleteAccountConfirmationView: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+// MARK: - Flywheel Consent Sheet
+
+struct FlywheelConsentSheet: View {
+    let onAccept: () -> Void
+    let onCancel: () -> Void
+
+    private let bullets: [(icon: String, text: String)] = [
+        ("scissors", "We upload short clips of rallies the model struggled with — not your whole library."),
+        ("chart.bar.doc.horizontal", "Each clip includes the detector's per-frame data so the frames can be relabeled."),
+        ("person.crop.circle.badge.checkmark", "Clips are tied to your account and used only to improve detection."),
+        ("hand.raised", "You can turn this off any time; pending clips are deleted when you do.")
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.bscBackground.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: BSCSpacing.lg) {
+                        VStack(alignment: .leading, spacing: BSCSpacing.xs) {
+                            Text("Help Improve Detection")
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundColor(.bscTextPrimary)
+                            Text("Contribute training clips so the volleyball model gets better over time.")
+                                .font(.system(size: 15))
+                                .foregroundColor(.bscTextSecondary)
+                        }
+
+                        VStack(alignment: .leading, spacing: BSCSpacing.md) {
+                            ForEach(bullets, id: \.icon) { bullet in
+                                HStack(alignment: .top, spacing: BSCSpacing.md) {
+                                    Image(systemName: bullet.icon)
+                                        .font(.system(size: 16))
+                                        .foregroundColor(.bscPrimary)
+                                        .frame(width: 24)
+                                    Text(bullet.text)
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.bscTextPrimary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+
+                        Link("Privacy Policy", destination: URL(string: "https://bumpsetcut.com/privacy")!)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.bscPrimary)
+
+                        Button {
+                            onAccept()
+                        } label: {
+                            Text("Turn On Contributions")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, BSCSpacing.md)
+                                .background(Color.bscPrimary)
+                                .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+                        }
+                        .padding(.top, BSCSpacing.sm)
+                    }
+                    .padding(BSCSpacing.lg)
+                }
+            }
+            .navigationTitle("Data Flywheel")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel() }
+                        .foregroundColor(.bscTextSecondary)
+                }
+            }
+        }
     }
 }
 

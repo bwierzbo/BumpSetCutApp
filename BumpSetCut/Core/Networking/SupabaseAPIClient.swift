@@ -468,6 +468,29 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
     // MARK: - Upload
 
     nonisolated func upload(fileURL: URL, to endpoint: APIEndpoint, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        let fileName = try await streamUpload(fileURL: fileURL, bucket: "videos", progress: progress)
+        return try supabase.storage.from("videos").getPublicURL(path: fileName)
+    }
+
+    // MARK: - Data Flywheel
+
+    nonisolated func submitFlywheelContribution(_ contribution: FlywheelContribution, clipURL: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+        let userId = try await currentUserId()
+        // Private bucket — keep the object path; the bucket is read only by the
+        // ML service role, so there's no public URL.
+        let objectPath = try await streamUpload(fileURL: clipURL, bucket: "training-data", progress: progress)
+        let upload = FlywheelContributionUpload(userId: userId, contribution: contribution, clipUrl: objectPath)
+        try await supabase
+            .from("flywheel_contributions")
+            .insert(upload)
+            .execute()
+    }
+
+    /// Stream a file to a Supabase Storage bucket via chunked multipart (never
+    /// loads the video into memory). Returns the bucket-relative object path
+    /// (`{userId}/{uuid}.mp4`). Shared by the public `videos` upload and the
+    /// private `training-data` flywheel upload.
+    private nonisolated func streamUpload(fileURL: URL, bucket: String, progress: @escaping @Sendable (Double) -> Void) async throws -> String {
         let userId = try await currentUserId()
         let fileName = "\(userId)/\(UUID().uuidString).mp4"
 
@@ -475,9 +498,9 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         let session = try await supabase.auth.session
         let accessToken = session.accessToken
 
-        // Build the storage upload URL: {projectURL}/storage/v1/object/videos/{fileName}
+        // Build the storage upload URL: {projectURL}/storage/v1/object/{bucket}/{fileName}
         let storageURL = SupabaseConfig.projectURL
-            .appendingPathComponent("storage/v1/object/videos")
+            .appendingPathComponent("storage/v1/object/\(bucket)")
             .appendingPathComponent(fileName)
 
         // Write multipart form data to a temp file (streams video, never loads into memory)
@@ -517,9 +540,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         }
 
         progress(1.0)
-
-        let publicURL = try supabase.storage.from("videos").getPublicURL(path: fileName)
-        return publicURL
+        return fileName
     }
 
     // MARK: - Multipart File Writer
