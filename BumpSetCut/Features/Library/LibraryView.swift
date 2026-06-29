@@ -307,10 +307,13 @@ private extension LibraryView {
 
             if viewModel.viewMode == .grid {
                 foldersGrid(geometry: geometry)
+                    .transition(.opacity)
             } else {
                 foldersList
+                    .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.25), value: viewModel.viewMode)
     }
 
     var foldersList: some View {
@@ -389,10 +392,13 @@ private extension LibraryView {
 
             if viewModel.viewMode == .grid {
                 videosGrid(geometry: geometry)
+                    .transition(.opacity)
             } else {
                 videosList
+                    .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.25), value: viewModel.viewMode)
     }
 
     var videosList: some View {

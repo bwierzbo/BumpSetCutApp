@@ -23,6 +23,7 @@ struct VideoThumbnailView: View {
                     switch phase {
                     case .success(let image):
                         image.resizable().aspectRatio(contentMode: contentMode)
+                            .transition(.opacity)
                     case .failure:
                         fallbackView
                     default:
@@ -33,10 +34,14 @@ struct VideoThumbnailView: View {
                 Image(uiImage: generatedImage)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
+                    .transition(.opacity)
             } else {
                 fallbackView
+                    .transition(.opacity)
             }
         }
+        // Fade the generated/loaded thumbnail in over the placeholder instead of snapping.
+        .animation(.easeInOut(duration: 0.3), value: generatedImage != nil)
         .task(id: videoURL) {
             await generateThumbnail()
         }

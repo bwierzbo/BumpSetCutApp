@@ -172,14 +172,20 @@ struct BSCVideoCard: View {
     // MARK: - Thumbnail Views
     @ViewBuilder
     private var thumbnailView: some View {
-        if let thumbnail = thumbnail {
-            Image(uiImage: thumbnail)
-                .resizable()
-                .scaledToFill()
-        } else {
-            // Skeleton loader with shimmer effect
-            BSCSkeletonView()
+        ZStack {
+            if let thumbnail = thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+            } else {
+                // Skeleton loader with shimmer effect
+                BSCSkeletonView()
+                    .transition(.opacity)
+            }
         }
+        // Crossfade the skeleton out as the generated thumbnail fades in.
+        .animation(.easeInOut(duration: 0.3), value: thumbnail != nil)
     }
 
     private var thumbnailGradientOverlay: some View {
