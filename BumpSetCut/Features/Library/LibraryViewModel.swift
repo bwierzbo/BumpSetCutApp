@@ -125,9 +125,9 @@ final class LibraryViewModel {
                 let folderVideos = folderManager.store.getVideos(in: folder.path)
                 switch videoFilter {
                 case .processed:
-                    return folderVideos.contains { $0.hasMetadata }
+                    return folderVideos.contains { $0.hasProcessingMetadata }
                 case .unprocessed:
-                    return folderVideos.contains { !$0.hasMetadata }
+                    return folderVideos.contains { !$0.hasProcessingMetadata }
                 case .all:
                     return true
                 }
@@ -163,9 +163,9 @@ final class LibraryViewModel {
             case .all:
                 break
             case .processed:
-                videos = videos.filter { $0.hasMetadata }
+                videos = videos.filter { $0.hasProcessingMetadata }
             case .unprocessed:
-                videos = videos.filter { !$0.hasMetadata }
+                videos = videos.filter { !$0.hasProcessingMetadata }
             }
         }
 

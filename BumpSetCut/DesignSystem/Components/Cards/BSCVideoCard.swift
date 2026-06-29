@@ -352,7 +352,9 @@ struct BSCVideoCard: View {
     /// original in place, so the original carries its own rallies — there is no
     /// separate processed file. (Legacy processed-copy entries lack their own
     /// metadata and are covered by `video.isProcessed` where a badge is needed.)
-    private var hasRallies: Bool { video.hasMetadata }
+    // Uses the manifest's cached flag (kept authoritative on processing/reset) so
+    // card rendering doesn't hit the filesystem on every body evaluation.
+    private var hasRallies: Bool { video.hasProcessingMetadata }
 
     private var statusIconName: String {
         if video.isProcessed || hasRallies {
@@ -477,7 +479,7 @@ struct BSCVideoCard: View {
 
         // Dev tool (gated behind Debug Features): delete the current rallies and
         // re-run detection on the full video with the current pipeline.
-        if AppSettings.shared.enableDebugFeatures && video.hasMetadata {
+        if AppSettings.shared.enableDebugFeatures && video.hasProcessingMetadata {
             Button {
                 showingReprocessConfirm = true
             } label: {

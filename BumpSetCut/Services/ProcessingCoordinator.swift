@@ -163,12 +163,14 @@ final class ProcessingCoordinator {
                     }
 
                     await MainActor.run {
-                        // Mark as processed when the metadata sidecar is available (storage tracking).
-                        if let match = mediaStore.getAllVideos().first(where: { $0.id == videoId }),
-                           let metadataSize = match.getCurrentMetadataSize() {
+                        // Mark as processed on success so the manifest's
+                        // hasProcessingMetadata flag stays authoritative (UI relies on it
+                        // instead of a per-render disk check). Always mark when the video
+                        // exists; the size is best-effort storage tracking only.
+                        if let match = mediaStore.getAllVideos().first(where: { $0.id == videoId }) {
                             let _ = mediaStore.markVideoAsProcessed(
                                 videoId: videoId,
-                                metadataFileSize: metadataSize
+                                metadataFileSize: match.getCurrentMetadataSize() ?? 0
                             )
                         }
                         // Always record usage on a successful process, independent of the
