@@ -375,24 +375,25 @@ struct FolderManifest: Codable {
             saveManifest()
         }
         
-        // Verify storage integrity
-        StorageManager.verifyStorageIntegrity()
-
-        // Ensure library roots exist and run migration if needed
+        // Ensure library roots exist and run migration if needed. These are kept
+        // synchronous: roots must exist before the first read, and the migrations
+        // are one-time (cheap no-ops after the first launch).
         ensureLibraryRootsExist()
         migrateToSeparateLibraries()
 
         // Migrate processed videos to set hasProcessingMetadata flag
         migrateProcessedVideos()
 
-        // Clean up stale entries
-        cleanupStaleEntries()
-
         // UI Testing: inject test video from the test runner
         injectTestVideoIfNeeded()
 
         // Dev convenience: prefill library with sample videos
         prefillLibraryIfNeeded()
+
+        // Storage integrity check + stale-entry cleanup do a per-file existence
+        // scan that used to block launch. Defer them off the main thread so the
+        // library renders immediately; the UI refreshes if anything is reconciled.
+        Task { await reconcileStorageOffMain() }
     }
 
     /// When running with --prefill-library, symlink all videos from PREFILL_VIDEOS_DIR into the library.
@@ -544,9 +545,7 @@ struct FolderManifest: Codable {
     
     func cleanupStaleEntries() {
         let fileManager = FileManager.default
-        var needsSave = false
-        
-        // Remove videos whose files no longer exist
+
         let staleVideoKeys = manifest.videos.keys.filter { key in
             guard let video = manifest.videos[key] else { return true }
             let videoPath = baseDirectory
@@ -554,14 +553,25 @@ struct FolderManifest: Codable {
                 .appendingPathComponent(video.fileName)
             return !fileManager.fileExists(atPath: videoPath.path)
         }
-        
-        for key in staleVideoKeys {
+        let staleFolderKeys = manifest.folders.keys.filter { folderPath in
+            let folderURL = baseDirectory.appendingPathComponent(folderPath, isDirectory: true)
+            return !fileManager.fileExists(atPath: folderURL.path)
+        }
+
+        applyStaleRemovals(videoKeys: Array(staleVideoKeys), folderKeys: Array(staleFolderKeys))
+    }
+
+    /// Apply already-computed stale removals to the manifest. Shared by the
+    /// synchronous `cleanupStaleEntries()` and the deferred launch reconcile.
+    private func applyStaleRemovals(videoKeys: [String], folderKeys: [String]) {
+        var needsSave = false
+
+        for key in videoKeys {
             if let video = manifest.videos[key] {
                 print("Removing stale video entry: \(video.displayName) (file not found)")
                 manifest.videos.removeValue(forKey: key)
                 needsSave = true
-                
-                // Update folder video count
+
                 if !video.folderPath.isEmpty,
                    var folderMetadata = manifest.folders[video.folderPath] {
                     folderMetadata.videoCount = max(0, folderMetadata.videoCount - 1)
@@ -569,24 +579,46 @@ struct FolderManifest: Codable {
                 }
             }
         }
-        
-        // Remove folders whose directories no longer exist
-        let staleFolderKeys = manifest.folders.keys.filter { folderPath in
-            let folderURL = baseDirectory.appendingPathComponent(folderPath, isDirectory: true)
-            return !fileManager.fileExists(atPath: folderURL.path)
-        }
-        
-        for key in staleFolderKeys {
+
+        for key in folderKeys {
             if let folder = manifest.folders[key] {
                 print("Removing stale folder entry: \(folder.name) (directory not found)")
                 manifest.folders.removeValue(forKey: key)
                 needsSave = true
             }
         }
-        
-        if needsSave {
-            saveManifest()
+
+        if needsSave { saveManifest() }
+    }
+
+    /// Launch-time storage reconciliation, kept off the main thread. The library
+    /// renders immediately from the loaded manifest; the (potentially large)
+    /// per-file existence scan runs on a background executor, then stale entries
+    /// are removed on the main actor and the UI is refreshed via contentVersion.
+    func reconcileStorageOffMain() async {
+        StorageManager.verifyStorageIntegrity()
+
+        // Snapshot the paths on the main actor (manifest is main-actor state)...
+        let videoSnapshot: [(key: String, path: String)] = manifest.videos.map { key, video in
+            (key, baseDirectory
+                .appendingPathComponent(video.folderPath)
+                .appendingPathComponent(video.fileName).path)
         }
+        let folderSnapshot: [(key: String, path: String)] = manifest.folders.keys.map { key in
+            (key, baseDirectory.appendingPathComponent(key, isDirectory: true).path)
+        }
+
+        // ...then do the filesystem scan off the main thread.
+        let (staleVideoKeys, staleFolderKeys) = await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            let videos = videoSnapshot.filter { !fileManager.fileExists(atPath: $0.path) }.map(\.key)
+            let folders = folderSnapshot.filter { !fileManager.fileExists(atPath: $0.path) }.map(\.key)
+            return (videos, folders)
+        }.value
+
+        guard !staleVideoKeys.isEmpty || !staleFolderKeys.isEmpty else { return }
+        applyStaleRemovals(videoKeys: staleVideoKeys, folderKeys: staleFolderKeys)
+        contentVersion += 1
     }
 }
 
