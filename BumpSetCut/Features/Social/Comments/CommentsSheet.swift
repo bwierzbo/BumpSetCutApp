@@ -169,6 +169,7 @@ struct CommentsSheet: View {
 
                 // Like button
                 Button {
+                    UIImpactFeedbackGenerator.light()
                     Task { await viewModel.toggleCommentLike(comment) }
                 } label: {
                     HStack(spacing: 2) {
@@ -220,11 +221,26 @@ struct CommentsSheet: View {
                 .accessibilityIdentifier(AccessibilityID.Comments.inputField)
 
             Button {
-                Task { await viewModel.sendComment() }
+                Task {
+                    let countBefore = viewModel.comments.count
+                    await viewModel.sendComment()
+                    if viewModel.comments.count > countBefore {
+                        UINotificationFeedbackGenerator.success()
+                    }
+                }
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30))
-                    .foregroundColor(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .bscTextTertiary : .bscPrimary)
+                ZStack {
+                    if viewModel.isSending {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.bscPrimary)
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundColor(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .bscTextTertiary : .bscPrimary)
+                    }
+                }
+                .frame(width: 30, height: 30)
             }
             .disabled(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isSending)
             .accessibilityIdentifier(AccessibilityID.Comments.sendButton)

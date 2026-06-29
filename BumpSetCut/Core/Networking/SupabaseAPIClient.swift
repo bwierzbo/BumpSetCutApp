@@ -30,6 +30,11 @@ struct PollVoteRow: Decodable {
     let optionId: String
 }
 
+struct CommentLikeRow: Decodable {
+    // `.convertFromSnakeCase` maps comment_id → commentId automatically.
+    let commentId: String
+}
+
 
 // MARK: - Supabase API Client
 
@@ -180,7 +185,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let pageSize = 20
             let from = page * pageSize
             let to = from + pageSize - 1
-            let response: T = try await supabase
+            var comments: [Comment] = try await supabase
                 .from("comments")
                 .select("*, author:profiles(*)")
                 .eq("highlight_id", value: highlightId)
@@ -188,7 +193,24 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .range(from: from, to: to)
                 .execute()
                 .value
-            return response
+
+            // PostgREST embeds can't express a "liked by me" filter, so annotate
+            // the current user's likes with one follow-up query. Skipped when
+            // unauthenticated (comments are viewable without auth).
+            if let myId = try? await currentUserId(), !comments.isEmpty {
+                let likedRows: [CommentLikeRow] = try await supabase
+                    .from("comment_likes")
+                    .select("comment_id")
+                    .eq("user_id", value: myId)
+                    .in("comment_id", values: comments.map(\.id))
+                    .execute()
+                    .value
+                let likedIds = Set(likedRows.map(\.commentId))
+                for i in comments.indices where likedIds.contains(comments[i].id) {
+                    comments[i].isLikedByMe = true
+                }
+            }
+            return try safeCast(comments)
 
         case .addComment(let highlightId, let text):
             let userId = try await currentUserId()
@@ -206,6 +228,24 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .from("comments")
                 .delete()
                 .eq("id", value: id)
+                .execute()
+            return try safeCast(EmptyResponse())
+
+        case .likeComment(let id):
+            let userId = try await currentUserId()
+            try await supabase
+                .from("comment_likes")
+                .insert(["comment_id": id, "user_id": userId])
+                .execute()
+            return try safeCast(EmptyResponse())
+
+        case .unlikeComment(let id):
+            let userId = try await currentUserId()
+            try await supabase
+                .from("comment_likes")
+                .delete()
+                .eq("comment_id", value: id)
+                .eq("user_id", value: userId)
                 .execute()
             return try safeCast(EmptyResponse())
 
