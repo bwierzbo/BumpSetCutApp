@@ -12,9 +12,15 @@ struct BSCFolderCard: View {
     // MARK: - Properties
     let folder: FolderMetadata
     let displayMode: DisplayMode
+    /// Highlights the card as an active drop zone while a video is dragged over it.
+    var isDropTargeted: Bool = false
     let onTap: () -> Void
     let onRename: (String) -> Void
     let onDelete: () -> Void
+
+    private var cornerRadius: CGFloat {
+        displayMode == .list ? BSCRadius.md : BSCRadius.xl
+    }
 
     @State private var showingRenameDialog = false
     @State private var showingDeleteConfirmation = false
@@ -35,8 +41,14 @@ struct BSCFolderCard: View {
         .onTapGesture {
             onTap()
         }
-        .scaleEffect(isPressed ? 0.97 : 1.0)
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.bscPrimary, lineWidth: 2.5)
+                .opacity(isDropTargeted ? 1 : 0)
+        )
+        .scaleEffect(isDropTargeted ? 1.04 : (isPressed ? 0.97 : 1.0))
         .animation(.bscBounce, value: isPressed)
+        .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
         .onLongPressGesture(minimumDuration: 0.1, pressing: { pressing in
             isPressed = pressing
         }, perform: {})

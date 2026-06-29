@@ -250,7 +250,7 @@ final class ShareRallyViewModel {
             } catch is CancellationError {
                 state = .idle
             } catch {
-                state = .failed(error.localizedDescription)
+                state = .failed(Self.uploadErrorMessage(for: error))
             }
         }
     }
@@ -339,9 +339,41 @@ final class ShareRallyViewModel {
             } catch is CancellationError {
                 state = .idle
             } catch {
-                state = .failed(error.localizedDescription)
+                state = .failed(Self.uploadErrorMessage(for: error))
             }
         }
+    }
+
+    // MARK: - Error Mapping
+
+    /// Turn a raw upload error into an actionable, user-facing message so the retry
+    /// screen tells people *how* to fix it (connection vs. sign-in vs. server).
+    static func uploadErrorMessage(for error: Error) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return "No internet connection. Check your connection and try again."
+            case .timedOut:
+                return "The upload timed out. Check your connection and try again."
+            default:
+                break
+            }
+        }
+        if let apiError = error as? APIError {
+            switch apiError {
+            case .unauthorized:
+                return "Your session expired. Please sign in again."
+            case .networkUnavailable:
+                return "No internet connection. Check your connection and try again."
+            case .rateLimited:
+                return "Too many requests. Please wait a moment and try again."
+            case .serverError:
+                return "Something went wrong on our end. Please try again."
+            default:
+                break
+            }
+        }
+        return "Upload failed. Please try again."
     }
 
     // MARK: - Poll Creation

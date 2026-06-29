@@ -16,6 +16,8 @@ struct LibraryView: View {
     @State private var showingPhotoPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var videoNameInput = ""
+    // Path of the folder currently under an active video drag (drop-zone highlight).
+    @State private var dropTargetFolderPath: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
@@ -322,6 +324,7 @@ private extension LibraryView {
                 BSCFolderCard(
                     folder: folder,
                     displayMode: .list,
+                    isDropTargeted: dropTargetFolderPath == folder.path,
                     onTap: {
                         withAnimation(.bscSpring) {
                             viewModel.navigateToFolder(folder.path)
@@ -341,6 +344,8 @@ private extension LibraryView {
                         try await viewModel.moveVideo(video, to: folder.path)
                     }
                     return true
+                } isTargeted: { targeted in
+                    updateDropTarget(folder.path, targeted: targeted)
                 }
             }
         }
@@ -355,6 +360,7 @@ private extension LibraryView {
                 BSCFolderCard(
                     folder: folder,
                     displayMode: .grid,
+                    isDropTargeted: dropTargetFolderPath == folder.path,
                     onTap: {
                         withAnimation(.bscSpring) {
                             viewModel.navigateToFolder(folder.path)
@@ -374,8 +380,19 @@ private extension LibraryView {
                         try await viewModel.moveVideo(video, to: folder.path)
                     }
                     return true
+                } isTargeted: { targeted in
+                    updateDropTarget(folder.path, targeted: targeted)
                 }
             }
+        }
+    }
+
+    /// Track which folder is under an active drag so its card can highlight.
+    private func updateDropTarget(_ path: String, targeted: Bool) {
+        if targeted {
+            dropTargetFolderPath = path
+        } else if dropTargetFolderPath == path {
+            dropTargetFolderPath = nil
         }
     }
 }
