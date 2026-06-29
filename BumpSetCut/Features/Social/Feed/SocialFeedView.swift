@@ -53,7 +53,12 @@ struct SocialFeedView: View {
         // readable in light mode. Semantic tokens inside resolve to their dark variants.
         .environment(\.colorScheme, .dark)
         .task {
-            await viewModel.loadFeed()
+            // Only load on first appearance — reloading on every tab return would
+            // discard pagination and snap the feed back to the top. Pull-to-refresh
+            // and the For You/Following switch still force a fresh load.
+            if viewModel.highlights.isEmpty {
+                await viewModel.loadFeed()
+            }
         }
         .commentsPanel(item: $selectedHighlightForComments)
         .sheet(item: $selectedProfileId) { profile in

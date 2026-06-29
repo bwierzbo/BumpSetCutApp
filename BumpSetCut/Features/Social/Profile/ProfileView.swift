@@ -68,7 +68,12 @@ struct ProfileView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            await viewModel.loadProfile()
+            // Load once per instance. Avoids re-fetching (and scrolling the grid
+            // back to top) when the profile tab reappears after a tab switch.
+            // Pull-to-refresh still forces a reload.
+            if viewModel.highlights.isEmpty {
+                await viewModel.loadProfile()
+            }
         }
         .fullScreenCover(isPresented: Binding(
             get: { selectedHighlightIndex != nil },

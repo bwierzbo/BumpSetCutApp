@@ -92,15 +92,13 @@ struct RallyExportProgress: View {
                 .multilineTextAlignment(.center)
 
             if exportStatus == .exporting {
-                if exportType == .individual {
-                    Text("\(exportedCount) of \(savedRallies.count) rallies")
-                        .font(.body)
-                        .foregroundColor(.bscTextSecondary)
-                } else {
-                    Text("\(Int(exportProgress * 100))%")
-                        .font(.body)
-                        .foregroundColor(.bscTextSecondary)
-                }
+                // Both modes surface a percentage so progress reads consistently;
+                // individual export also shows the rally count.
+                Text(exportType == .individual
+                     ? "\(exportedCount) of \(savedRallies.count) rallies · \(Int(exportProgress * 100))%"
+                     : "Combining rallies · \(Int(exportProgress * 100))%")
+                    .font(.body)
+                    .foregroundColor(.bscTextSecondary)
             }
         }
     }
