@@ -20,8 +20,15 @@ final class LibraryViewModel {
     let libraryType: LibraryType
 
     // MARK: - State
-    var sortOption: ContentSortOption = .name
-    var viewMode: ViewMode = .list
+    // Persisted across launches so the user's chosen sort/view sticks.
+    private static let sortOptionKey = "library.sortOption"
+    private static let viewModeKey = "library.viewMode"
+    var sortOption: ContentSortOption = .name {
+        didSet { UserDefaults.standard.set(sortOption.rawValue, forKey: Self.sortOptionKey) }
+    }
+    var viewMode: ViewMode = .list {
+        didSet { UserDefaults.standard.set(viewMode.rawValue, forKey: Self.viewModeKey) }
+    }
     var searchText: String = ""
     var showingCreateFolder: Bool = false
     var newFolderName: String = ""
@@ -179,6 +186,16 @@ final class LibraryViewModel {
         self.folderManager = FolderManager(mediaStore: mediaStore, libraryType: libraryType)
         self.uploadCoordinator = UploadCoordinator(mediaStore: mediaStore)
         self.searchViewModel = SearchViewModel(mediaStore: mediaStore)
+
+        // Restore the persisted sort + view mode (defaults stand if none saved).
+        if let raw = UserDefaults.standard.string(forKey: Self.sortOptionKey),
+           let saved = ContentSortOption(rawValue: raw) {
+            self.sortOption = saved
+        }
+        if let raw = UserDefaults.standard.string(forKey: Self.viewModeKey),
+           let saved = ViewMode(rawValue: raw) {
+            self.viewMode = saved
+        }
     }
 
     // MARK: - Actions
@@ -211,26 +228,32 @@ final class LibraryViewModel {
             showingCreateFolder = false
             newFolderName = ""
         }
+        UINotificationFeedbackGenerator.success()
     }
 
     func deleteFolder(_ folder: FolderMetadata) async throws {
         try await folderManager.deleteFolder(folder)
+        UINotificationFeedbackGenerator.success()
     }
 
     func renameFolder(_ folder: FolderMetadata, to newName: String) async throws {
         try await folderManager.renameFolder(folder, to: newName)
+        UINotificationFeedbackGenerator.success()
     }
 
     func deleteVideo(_ video: VideoMetadata) async throws {
         try await folderManager.deleteVideo(video)
+        UINotificationFeedbackGenerator.success()
     }
 
     func renameVideo(_ video: VideoMetadata, to newName: String) async throws {
         try await folderManager.renameVideo(video, to: newName)
+        UINotificationFeedbackGenerator.success()
     }
 
     func moveVideo(_ video: VideoMetadata, to targetFolder: String) async throws {
         try await folderManager.moveVideoToFolder(video, targetFolderPath: targetFolder)
+        UINotificationFeedbackGenerator.success()
     }
 
     func clearSearch() {
