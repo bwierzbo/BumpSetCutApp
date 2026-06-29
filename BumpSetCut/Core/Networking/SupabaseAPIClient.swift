@@ -30,6 +30,12 @@ struct PollVoteRow: Decodable {
     let optionId: String
 }
 
+struct MyPollVoteRow: Decodable {
+    // `.convertFromSnakeCase` maps poll_id → pollId, option_id → optionId.
+    let pollId: String
+    let optionId: String
+}
+
 struct CommentLikeRow: Decodable {
     // `.convertFromSnakeCase` maps comment_id → commentId automatically.
     let commentId: String
@@ -484,6 +490,18 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .eq("poll_id", value: pollId)
                 .eq("user_id", value: userId)
                 .limit(1)
+                .execute()
+                .value
+            return try safeCast(rows)
+
+        case .getMyPollVotes(let pollIds):
+            guard !pollIds.isEmpty else { return try safeCast([MyPollVoteRow]()) }
+            let userId = try await currentUserId()
+            let rows: [MyPollVoteRow] = try await supabase
+                .from("poll_votes")
+                .select("poll_id, option_id")
+                .eq("user_id", value: userId)
+                .in("poll_id", values: pollIds)
                 .execute()
                 .value
             return try safeCast(rows)

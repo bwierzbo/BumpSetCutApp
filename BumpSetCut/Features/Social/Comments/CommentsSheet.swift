@@ -104,8 +104,10 @@ struct CommentsSheet: View {
             .animation(.easeInOut(duration: 0.2), value: viewModel.sendError != nil)
             .background(Color.bscBackground)
             .task {
-                await viewModel.loadMyPollVote()
-                await viewModel.loadComments()
+                // Poll vote and comments are independent — load them concurrently.
+                async let pollVote: Void = viewModel.loadMyPollVote()
+                async let comments: Void = viewModel.loadComments()
+                _ = await (pollVote, comments)
             }
     }
 

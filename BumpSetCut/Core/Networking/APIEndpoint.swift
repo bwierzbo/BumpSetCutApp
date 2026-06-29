@@ -63,6 +63,7 @@ enum APIEndpoint {
     case createPollOptions(pollId: String, options: [PollOptionUpload])
     case votePoll(PollVoteUpload)
     case getMyPollVote(pollId: String)
+    case getMyPollVotes(pollIds: [String])
     case deletePollVote(pollId: String)
 
     // Upload
@@ -107,6 +108,7 @@ enum APIEndpoint {
         case .createPollOptions(let pollId, _): return "/polls/\(pollId)/options"
         case .votePoll: return "/poll_votes"
         case .getMyPollVote(let pollId): return "/polls/\(pollId)/my-vote"
+        case .getMyPollVotes: return "/poll_votes/mine"
         case .deletePollVote(let pollId): return "/polls/\(pollId)/my-vote"
         case .createUploadURL: return "/uploads"
         }
