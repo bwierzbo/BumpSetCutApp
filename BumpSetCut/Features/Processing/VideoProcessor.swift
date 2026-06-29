@@ -36,6 +36,12 @@ final class VideoProcessor {
     private var decider = RallyDecider(config: ProcessorConfig())
     private var segments = SegmentBuilder(config: ProcessorConfig())
 
+    // Net detection (for off-court / under-net rules). The net is stationary, so a
+    // single pre-pass samples it across the video (same spread as RallyLab's Net
+    // tab) and freezes one box for the whole run. Reset per video.
+    private var netDetector: NetDetector?
+    private var detectedNet: DetectedNet?
+
     #if os(iOS)
     private let exporter = VideoExporter()
     #endif
@@ -66,6 +72,9 @@ final class VideoProcessor {
     struct BallDetection {
         let bbox: CGRect
         let confidence: Float
+        /// Dropped before tracking because it sits laterally beyond the net posts
+        /// (an adjacent court's ball). Drawn dimmed in RallyLab.
+        let isOffCourt: Bool
     }
 
     /// One candidate trajectory considered for the rally this frame (multi-court).
@@ -76,11 +85,20 @@ final class VideoProcessor {
         let score: Double         // selection score (quality + size/age tiebreaks)
         let isProjectile: Bool    // passed the gate this frame
         let isSelected: Bool      // the track driving the rally
+        let isCourtExcluded: Bool // physics-valid but dropped by the multi-court
+                                  // gate (too small = far court, or too far from the
+                                  // locked court) — i.e. a "non-court" ball
         let ballSize: CGFloat     // detected ball's mean side length (normalized);
                                   // used for size-trend / serve-signature analysis
         let roiRadius: CGFloat    // the track's actual association ROI radius
                                   // (normalized) — RallyLab draws this exactly, so
                                   // the drawn circle IS the real association gate
+        // This candidate's OWN gate verdict, so RallyLab can explain why ANY
+        // trajectory isn't a rally — not just the one that was selected.
+        let rSquared: Double?
+        let gravitySignature: Double?
+        let movementType: MovementType?
+        let rejectionReason: String?
     }
 
     struct FrameEvidence {
@@ -105,6 +123,9 @@ final class VideoProcessor {
         let rejectionReason: String?
         /// All candidate trajectories this frame (multi-court), for visualization.
         let candidates: [TrackCandidate]
+        /// The fixed per-video net once sampled (nil until frozen / if none found).
+        /// Lets RallyLab draw the net band and the off-court boundary lines.
+        let detectedNet: DetectedNet?
     }
 
     /// Off by default: evidence costs memory proportional to frame count, so
@@ -311,6 +332,13 @@ final class VideoProcessor {
         self.segments = SegmentBuilder(config: config)
         detector.minConfidence = VNConfidence(config.detectionConfidence)
         detector.useScaleFitLetterbox = config.useScaleFitLetterbox
+        detector.adaptiveLetterbox = config.adaptiveLetterbox
+        detector.adaptiveWideRatio = config.adaptiveLetterboxWideRatio
+        if config.enableUnderNetRejection || config.enableOffCourtRejection {
+            if netDetector == nil { netDetector = NetDetector() }   // cache the model across videos
+            netDetector?.minConfidence = config.netDetectionConfidence
+            netDetector?.useScaleFitLetterbox = config.netUseScaleFitLetterbox
+        }
 
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             await MainActor.run { isProcessing = false; backgroundGuard.end() }
@@ -332,6 +360,16 @@ final class VideoProcessor {
         decider.reset()
         segments.reset()
         selectedTrackId = nil
+        gate.net = nil
+
+        // Net pre-pass: sample the net across the whole video (same spread as
+        // RallyLab's Net tab) and freeze one box, BEFORE the main loop so the
+        // off-court / under-net rules have it from the first frame.
+        detectedNet = nil
+        if config.enableUnderNetRejection || config.enableOffCourtRejection {
+            detectedNet = await sampleNetAcrossVideo(asset: asset, durationSec: lastVideoDurationSec)
+            gate.net = detectedNet
+        }
 
         // Metadata collection variables
         var frameCount = 0
@@ -368,6 +406,9 @@ final class VideoProcessor {
         var skippedFrames = 0
         var previousRallyActive = false
 
+        // Per-frame ball heights (Vision y), for the above-net multi-contact rule.
+        var ballHeights: [(t: Double, y: CGFloat)] = []
+
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
 
@@ -390,13 +431,26 @@ final class VideoProcessor {
                 continue
             }
 
-            // Detect → track
+            // Detect.
             let dets = detector.detect(in: pix, at: pts)
-            tracker.update(with: dets, at: pts)
 
-            // Update detection statistics
-            totalDetections += dets.count
-            if !dets.isEmpty {
+            // Off-court rejection: drop detections laterally beyond the net posts
+            // (an adjacent court's ball) BEFORE tracking, so they can't form a track
+            // or get pulled into the rally trajectory. `courtDets` feeds the tracker;
+            // `dets` is kept whole for the overlay (off-court ones flagged below).
+            let courtBoundsX: ClosedRange<CGFloat>? = (config.enableOffCourtRejection ? detectedNet : nil)
+                .map { (($0.box.minX - config.offCourtMarginX)...($0.box.maxX + config.offCourtMarginX)) }
+            let courtDets: [DetectionResult]
+            if let b = courtBoundsX {
+                courtDets = dets.filter { b.contains($0.bbox.midX) }
+            } else {
+                courtDets = dets
+            }
+            tracker.update(with: courtDets, at: pts)
+
+            // Update detection statistics (court-eligible detections only)
+            totalDetections += courtDets.count
+            if !courtDets.isEmpty {
                 detectionFrameCount += 1
             }
 
@@ -407,10 +461,11 @@ final class VideoProcessor {
             let activeTrack = selection.track
             let gateResult = selection.gate
             let isProjectile = gateResult?.isValid ?? false
-            let hasBall = !dets.isEmpty
+            let hasBall = !courtDets.isEmpty
             // Ball height (Vision y, 1.0 = top) for sky-ball grace: the selected
-            // tracked ball, or the highest detection this frame.
-            let ballY = activeTrack?.positions.last?.0.y ?? dets.map { $0.bbox.midY }.max()
+            // tracked ball, or the highest court-eligible detection this frame.
+            let ballY = activeTrack?.positions.last?.0.y ?? courtDets.map { $0.bbox.midY }.max()
+            if let ballY { ballHeights.append((CMTimeGetSeconds(pts), ballY)) }
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts, ballY: ballY)
             segments.observe(isActive: isActive, at: pts)
 
@@ -422,13 +477,17 @@ final class VideoProcessor {
                     time: CMTimeGetSeconds(pts),
                     hasBall: hasBall,
                     isProjectile: isProjectile,
-                    detections: dets.map { BallDetection(bbox: $0.bbox, confidence: $0.confidence) },
+                    detections: dets.map { det in
+                        BallDetection(bbox: det.bbox, confidence: det.confidence,
+                                      isOffCourt: courtBoundsX.map { !$0.contains(det.bbox.midX) } ?? false)
+                    },
                     trackPoint: trailPoint,
                     rSquared: gateResult?.rSquared,
                     gravitySignature: gateResult?.gravitySignature,
                     movementType: gateResult?.movementType,
                     rejectionReason: gateResult?.rejectionReason,
-                    candidates: selection.candidates
+                    candidates: selection.candidates,
+                    detectedNet: detectedNet
                 ))
             }
 
@@ -568,7 +627,26 @@ final class VideoProcessor {
             throw ProcessingError.assetReaderFailed(reader.error)
         }
 
-        let keep = segments.finalize(until: duration)
+        var keep = segments.finalize(until: duration)
+
+        // Above-net rule: drop a multi-contact rally that never sends the ball above
+        // this net's top edge (a background/other-court rally). Single arcs exempt.
+        if config.enableAboveNetRequirement, let net = detectedNet {
+            let netTopY = net.box.maxY - config.aboveNetMarginY
+            let before = keep.count
+            keep = keep.filter { range in
+                let s = CMTimeGetSeconds(range.start)
+                let e = CMTimeGetSeconds(CMTimeRangeGetEnd(range))
+                let ys = ballHeights.filter { $0.t >= s && $0.t <= e }.map { $0.y }
+                return Self.rallyClearsNetTop(ySamples: ys, netTopY: netTopY,
+                                              arcProminence: config.aboveNetArcProminence)
+            }
+            if keep.count != before {
+                eventLog.log(.segmentFinalized,
+                             detail: "aboveNetRule dropped \(before - keep.count) multi-contact rally(s) that never cleared the net top")
+            }
+        }
+
         eventLog.log(.segmentFinalized, detail: "keepRanges=\(keep.count), videoDuration=\(String(format: "%.2f", CMTimeGetSeconds(duration)))s")
 
         // Log processing statistics
@@ -783,8 +861,44 @@ final class VideoProcessor {
         let evaluated: [(track: KalmanBallTracker.TrackedBall, gate: BallisticsGate.ValidationResult, size: CGFloat)] =
             fresh.map { ($0, gate.validateProjectile($0), sqrt(max(0, $0.meanBboxArea()))) }
 
+        func currentPoint(_ t: KalmanBallTracker.TrackedBall) -> CGPoint? {
+            config.useSmoothedTrack ? t.smoothedPositions.last?.0 : t.positions.last?.0
+        }
+
         // Score only VALID candidates (quality-first + size/age tiebreakers).
-        let valid = evaluated.filter { $0.gate.isValid }
+        var valid = evaluated.filter { $0.gate.isValid }
+        // Physics-valid tracks before the multi-court gate; anything dropped below
+        // is a "non-court" ball (far/other court), flagged for RallyLab.
+        let physicsValidIds = Set(valid.map { $0.track.id })
+
+        // Hard size gate: drop fresh balls much smaller than the biggest one — a
+        // far / other-court ball. The biggest always survives (ratio 1.0).
+        if config.multiCourtSizeGateEnabled, config.multiCourtMinSizeRatio > 0,
+           let maxSize = valid.map({ $0.size }).max(), maxSize > 0 {
+            let minSize = maxSize * CGFloat(config.multiCourtMinSizeRatio)
+            valid = valid.filter { $0.size >= minSize }
+        }
+
+        // Absolute size floor: drop any ball smaller than this regardless of the
+        // other balls present — a back/other-FIELD ball is physically small in
+        // frame. Catches the case the relative gate can't: when the far ball is the
+        // only fresh one (this court's ball already left), so it's the "biggest".
+        if config.multiCourtMinBallSize > 0 {
+            valid = valid.filter { $0.size >= config.multiCourtMinBallSize }
+        }
+
+        // Spatial lock: once a rally is locked to a court, drop candidates far from
+        // the currently-selected ball — keeps the rally on one court. Releases when
+        // that ball disappears (selected track no longer fresh/valid).
+        if config.multiCourtSpatialLockEnabled,
+           let selPt = valid.first(where: { $0.track.id == selectedTrackId }).flatMap({ currentPoint($0.track) }) {
+            valid = valid.filter { e in
+                guard let pt = currentPoint(e.track) else { return false }
+                return hypot(pt.x - selPt.x, pt.y - selPt.y) <= config.multiCourtMaxLateralDistance
+            }
+        }
+        // Physics-valid balls the multi-court gate dropped = non-court balls.
+        let nonCourtIds = physicsValidIds.subtracting(valid.map { $0.track.id })
         let maxArea = valid.map { $0.track.meanBboxArea() }.max() ?? 0
         let ageRef = 12.0
         func score(_ e: (track: KalmanBallTracker.TrackedBall, gate: BallisticsGate.ValidationResult, size: CGFloat)) -> Double {
@@ -810,19 +924,95 @@ final class VideoProcessor {
         // Candidates for visualization: every fresh track (valid or not).
         let scoreById = Dictionary(scored.map { ($0.e.track.id, $0.score) }, uniquingKeysWith: { a, _ in a })
         let candidates: [TrackCandidate] = evaluated.compactMap { e in
-            let pt = config.useSmoothedTrack ? e.track.smoothedPositions.last?.0 : e.track.positions.last?.0
-            guard let pt else { return nil }
+            guard let pt = currentPoint(e.track) else { return nil }
+            // A court-excluded candidate passed physics but was dropped by the
+            // multi-court gate; surface that as its reason (the gate itself has none).
+            let reason = nonCourtIds.contains(e.track.id)
+                ? (e.size < config.multiCourtMinBallSize ? "non-court (too small)" : "non-court (size/lateral)")
+                : e.gate.rejectionReason
             return TrackCandidate(
                 id: e.track.id,
                 point: pt,
                 score: scoreById[e.track.id] ?? 0,
                 isProjectile: e.gate.isValid,
                 isSelected: e.track.id == selectedTrackId,
+                isCourtExcluded: nonCourtIds.contains(e.track.id),
                 ballSize: e.size,
-                roiRadius: e.track.roiRadius(config: config)
+                roiRadius: e.track.roiRadius(config: config),
+                rSquared: e.gate.rSquared,
+                gravitySignature: e.gate.gravitySignature,
+                movementType: e.gate.movementType,
+                rejectionReason: reason
             )
         }
         return (selected?.track, selected?.gate, candidates)
+    }
+
+    // MARK: - Net pre-pass
+
+    /// Samples the net across the whole video and returns one median box — the same
+    /// spread-sampling process RallyLab's Net tab uses (N frames over the middle
+    /// 90%, highest-confidence box per frame, component-wise median). Runs in RAW
+    /// frame space (`appliesPreferredTrackTransform = false`) so the net box shares
+    /// the ball detector's coordinate space. Nil if no net is found.
+    private func sampleNetAcrossVideo(asset: AVAsset, durationSec: Double) async -> DetectedNet? {
+        guard durationSec > 0, let netDetector else { return nil }
+        let gen = AVAssetImageGenerator(asset: asset)
+        gen.appliesPreferredTrackTransform = false   // raw frame space (matches ball detector)
+        gen.maximumSize = CGSize(width: 1280, height: 1280)
+        gen.requestedTimeToleranceBefore = CMTime(seconds: 0.3, preferredTimescale: 600)
+        gen.requestedTimeToleranceAfter = CMTime(seconds: 0.3, preferredTimescale: 600)
+
+        let count = max(2, config.netSampleFrameCount)
+        var boxes: [CGRect] = []
+        var confs: [Double] = []
+        for i in 0..<count {
+            // Spread across the middle 90% to skip black intro/outro frames.
+            let frac = count == 1 ? 0.5 : 0.05 + 0.9 * Double(i) / Double(count - 1)
+            let t = CMTime(seconds: frac * durationSec, preferredTimescale: 600)
+            guard let cg = try? await gen.image(at: t).image else { continue }
+            if let best = netDetector.detect(in: cg).first {
+                boxes.append(best.rect)
+                confs.append(Double(best.confidence))
+            }
+        }
+        guard !boxes.isEmpty else { return nil }
+        return DetectedNet(box: BallNetSampler.medianBox(boxes),
+                           confidence: confs.reduce(0, +) / Double(confs.count))
+    }
+
+    // MARK: - Above-net (multi-contact) rule
+
+    /// A rally with multiple ball contacts must clear the net top at least once; a
+    /// single trajectory is exempt. `ySamples` are the ball's Vision-y positions
+    /// over the segment, in time order. `netTopY` should already include any
+    /// leniency margin. Returns true to KEEP the segment.
+    static func rallyClearsNetTop(ySamples: [CGFloat], netTopY: CGFloat,
+                                  arcProminence: CGFloat) -> Bool {
+        guard countArcs(ySamples, prominence: arcProminence) >= 2 else {
+            return true        // single trajectory (or too few samples) → exempt
+        }
+        return ySamples.contains { $0 > netTopY }
+    }
+
+    /// Counts distinct arcs (apexes) in a vertical-position series: each up-then-down
+    /// of at least `prominence` is one arc/contact. A simple hysteresis walk, robust
+    /// to per-sample jitter below the prominence.
+    private static func countArcs(_ ys: [CGFloat], prominence: CGFloat) -> Int {
+        guard ys.count >= 3 else { return ys.isEmpty ? 0 : 1 }
+        var arcs = 0
+        var rising = true
+        var extreme = ys[0]            // running peak while rising, valley while falling
+        for y in ys.dropFirst() {
+            if rising {
+                if y > extreme { extreme = y }
+                else if y < extreme - prominence { arcs += 1; rising = false; extreme = y }
+            } else {
+                if y < extreme { extreme = y }
+                else if y > extreme + prominence { rising = true; extreme = y }
+            }
+        }
+        return arcs
     }
 
     private func calculateTrackMetrics(_ track: KalmanBallTracker.TrackedBall) -> (rSquared: Double, velocity: Double, acceleration: Double) {

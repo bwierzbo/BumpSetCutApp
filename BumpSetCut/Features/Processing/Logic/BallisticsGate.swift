@@ -30,6 +30,11 @@ final class BallisticsGate {
     private let config: ProcessorConfig
     private let movementClassifier: MovementClassifier
 
+    /// Fixed per-video net, when detected. Used by the under-net rejection: a
+    /// trajectory that never rises above the net's bottom edge is a ground roll /
+    /// carry, not a rally. Nil → the rule is skipped.
+    var net: DetectedNet?
+
     init(config: ProcessorConfig) {
         self.config = config
 
@@ -81,6 +86,14 @@ final class BallisticsGate {
         }
         if (ts.last ?? 0) <= 0 {
             ts = (0..<samples.count).map { Double($0) * (1.0 / 30.0) }
+        }
+
+        // 0) Under-net rejection: a ball rolled/carried along the ground to the
+        // other side never arcs over the net. If the trajectory's HIGHEST point
+        // (max Vision y) stays below the net's bottom edge, trash it.
+        if config.enableUnderNetRejection, let net,
+           let maxY = ys.max(), maxY < net.box.minY - config.underNetMarginY {
+            return reject("under net (rolled/carried)", grav: grav, type: mType)
         }
 
         // 1) Reject large per-frame spatial jumps

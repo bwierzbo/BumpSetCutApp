@@ -280,6 +280,16 @@ struct InspectorPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 slider("detectionConf", value: $model.detectionConfidence, in: 0.1...0.95, format: "%.2f",
                        info: "Minimum YOLO confidence to keep a volleyball detection. Lower surfaces marginal/noisier detections (more recall); higher keeps only confident hits. Changes what the model detects, so it needs a re-run.")
+                Toggle(isOn: $model.adaptiveLetterbox) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle").font(.caption2).foregroundStyle(.tertiary)
+                        Text("adaptive letterbox (auto)")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Auto-pick scaleFit vs scaleFill PER FRAME from the source aspect ratio: letterbox portrait / ultrawide footage (where stretching to the square input squishes the ball into an ellipse and the landscape-trained model fails), stretch normal landscape / near-square (mild distortion, bigger ball). Fixes handheld portrait clips with no regression to landscape. When ON it overrides the manual toggle below. Re-run to apply.")
                 Toggle(isOn: $model.useScaleFitLetterbox) {
                     HStack(spacing: 4) {
                         Image(systemName: "info.circle").font(.caption2).foregroundStyle(.tertiary)
@@ -289,7 +299,8 @@ struct InspectorPane: View {
                 }
                 .toggleStyle(.checkbox)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .help("Feed frames to the model letterboxed (aspect preserved + padding) instead of stretched to the square input. Keeps the ball round — matching YOLO's training preprocessing — which can recover confidence on non-square / ultrawide (0.5x) footage where stretching distorts the ball into an ellipse. Re-run to apply, then compare the confidence labels on the same frames. Affects all videos if adopted as default.")
+                .disabled(model.adaptiveLetterbox)
+                .help("Manual override (ignored while adaptive is on): force-feed every frame letterboxed (aspect preserved + padding) instead of stretched. Turn adaptive OFF to A/B this on a single clip. Re-run to apply, then compare the confidence labels on the same frames.")
                 slider("minGravitySig", value: $model.minGravitySignature, in: 0...1.0, format: "%.2f",
                        info: "Minimum gravity signature (consistent downward acceleration) to accept a ball as free flight. Carried/rolled balls score near 0; raise to veto more of them. The veto only fires when this AND the flatness test below both trip.")
                 slider("gravRefCurve", value: $model.gravityReferenceCurvature, in: 0.005...0.1, format: "%.3f",
@@ -348,6 +359,66 @@ struct InspectorPane: View {
                        info: "Multi-court selection: keep the currently-selected trajectory unless another candidate beats its score by more than this margin. Higher = stickier (less flicker between courts); lower = switches to the best ball more eagerly. Stale tracks are dropped regardless once the ball leaves.")
                 slider("roiScale", value: $model.trajectoryRoiScale, in: 1...12, step: 0.5, format: "%.1f",
                        info: "Display only: the candidate ROI circle is drawn at the detected ball's size × this scale. Adjust to make the per-trajectory ROI bigger or smaller in the overlay. Doesn't affect detection, tracking, or selection — just redraws (no re-run needed).")
+                slider("trailLength", value: $model.trailWindowSec, in: 0.25...10, step: 0.25, format: "%.2fs",
+                       info: "Display only: how many seconds of past ball positions the overlay trail shows (the gravity-colored selected trail and the candidate trails). Higher = a longer tail so you can see more of the rally's history. Doesn't affect detection or scoring — just redraws (no re-run needed).")
+                Toggle(isOn: $model.multiCourtSizeGateEnabled) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle").font(.caption2).foregroundStyle(.tertiary)
+                        Text("size gate (drop small/far balls)")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Hard-drop a fresh ball whose side-length is below 'minSizeRatio' × the biggest fresh ball — a far / other-court ball. Unlike sizeTiebreak (a soft score nudge), this excludes a small ball from selection entirely, even if it traces a clean arc. The biggest ball always survives. Dropped balls show RED ('non-court') in the overlay.")
+                if model.multiCourtSizeGateEnabled {
+                    slider("minSizeRatio", value: $model.multiCourtMinSizeRatio, in: 0...1, format: "%.2f",
+                           info: "A fresh ball smaller than this fraction of the biggest fresh ball's side-length is treated as non-court and dropped. 1.0 = keep only the biggest; 0.5 = keep balls at least half its size; 0 = effectively off.")
+                }
+                Toggle(isOn: $model.multiCourtSpatialLockEnabled) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle").font(.caption2).foregroundStyle(.tertiary)
+                        Text("spatial lock (stay on court)")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Once a rally is locked to a court, reject candidates farther than 'maxLateral' from the selected ball — keeps the rally on one court. Releases automatically when the selected ball disappears (occlusion / leaves frame), so re-selection stays free.")
+                if model.multiCourtSpatialLockEnabled {
+                    slider("maxLateral", value: $model.multiCourtMaxLateralDistance, in: 0.05...1.0, format: "%.2f",
+                           info: "The spatial gate: max normalized distance (0–1 of the frame) a candidate may be from the currently-selected ball to stay eligible. Lower = tighter lock to one court (rejects more); higher = allows the rally to jump farther across the frame. Only applies while a selected ball is live.")
+                }
+                slider("minBallSize", value: $model.multiCourtMinBallSize, in: 0...0.1, step: 0.005, format: "%.3f",
+                       info: "Absolute ball-size floor (√area, normalized). A track whose ball is smaller than this can't drive the rally — rejects a far / other-FIELD ball even when it's the only ball on screen (which minSizeRatio can't, since that's relative to the biggest present). The HUD shows 'size' for the selected ball; set this just under this court's smallest real ball. 0 = off.")
+                Toggle(isOn: $model.enableOffCourtRejection) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle").font(.caption2).foregroundStyle(.tertiary)
+                        Text("reject off-court (beyond net posts)")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Drop detections laterally beyond the net posts (an adjacent court's ball) BEFORE tracking, so they can't form a track or be pulled into the rally trajectory. The strongest fix for 'a ball on another court joins the trajectory'. Needs net detection; the magenta lines in the overlay show the court bounds. Off-court detections draw dimmed red.")
+                if model.enableOffCourtRejection {
+                    slider("offCourtMargin", value: $model.offCourtMarginX, in: 0...0.25, format: "%.2f",
+                           info: "Slack beyond each net post (fraction of frame width) before a detection counts as off-court. Higher = more forgiving (allows balls that drift past a post on a wide play); lower = strict to the post line.")
+                }
+                Toggle(isOn: $model.enableUnderNetRejection) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle").font(.caption2).foregroundStyle(.tertiary)
+                        Text("reject under-net (rolled/carried)")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Trash a trajectory whose highest point never rises above the net's bottom edge — a ball rolled or carried along the ground to the other side. Needs net detection (sampled over the first frames of a run); skipped if no net is found. Rejected frames show '✕ under net' in the HUD.")
+                if model.enableUnderNetRejection {
+                    slider("underNetMargin", value: $model.underNetMarginY, in: 0...0.1, format: "%.3f",
+                           info: "Buffer below the net bottom before trashing: a trajectory must peak below (net.minY − this) to be rejected. Higher = more forgiving (only clearly-low rolls rejected), avoids nipping low real digs near the net base.")
+                }
                 if model.detectionConfigDirty {
                     HStack(spacing: 6) {
                         Label("Detection settings changed — re-run to apply.",
@@ -383,6 +454,22 @@ struct InspectorPane: View {
                        info: "How near the top of the frame the ball must be (normalized height, 1.0 = very top) for the sky-ball grace above to apply. Lower = triggers for balls that are only moderately high; higher = only when the ball is right at the top edge.")
                 slider("preroll", value: $model.preroll, in: 0...5.0, format: "%.2fs",
                        info: "Lead-in: how many seconds before the detected start the exported rally clip begins, so it captures the serve/wind-up even when detection is a little late. Shown as the lighter padded block in the timeline; it does NOT change the score (which is measured on the raw pre-padding boundaries).")
+                Toggle(isOn: $model.enableAboveNetRequirement) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle").font(.caption2).foregroundStyle(.tertiary)
+                        Text("require above-net (multi-contact)")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Drop a rally with MULTIPLE ball contacts (≥2 arcs) that never sends the ball above this net's top edge — a background/other-court rally stays low and never clears this net. SINGLE-arc events (e.g. a missed far-side serve) are exempt. The green dashed line in the overlay is the net-top threshold. Needs net detection.")
+                if model.enableAboveNetRequirement {
+                    slider("aboveNetMargin", value: $model.aboveNetMarginY, in: 0...0.2, format: "%.2f",
+                           info: "Leniency below the net top that still counts as 'cleared' (fraction of frame height). Larger = more forgiving (keeps more rallies); 0 = the ball must peak strictly above the net top on some arc.")
+                    slider("arcProminence", value: $model.aboveNetArcProminence, in: 0.01...0.15, format: "%.2f",
+                           info: "Minimum up-then-down amplitude for a peak to count as a distinct arc/contact (fraction of frame height). Higher ignores small bobbles (fewer arcs counted → fewer rallies treated as multi-contact); lower counts subtler contacts.")
+                }
                 Divider()
                 Button {
                     model.copyParameters()

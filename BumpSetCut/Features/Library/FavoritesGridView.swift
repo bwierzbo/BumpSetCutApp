@@ -19,7 +19,8 @@ struct FavoritesGridView: View {
     @State private var showingCreateFolder = false
     @State private var newFolderName = ""
     @State private var moveTarget: VideoMetadata?
-    @State private var sortOption: ContentSortOption = .dateCreated
+    // Persisted across launches (String-backed enum works with @AppStorage).
+    @AppStorage("favorites.sortOption") private var sortOption: ContentSortOption = .dateCreated
     @State private var renameTarget: VideoMetadata?
     @State private var renameText: String = ""
     @Environment(\.dismiss) private var dismiss

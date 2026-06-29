@@ -206,10 +206,21 @@ final class ProcessingCoordinator {
             } catch is CancellationError {
                 await MainActor.run { self.handleCancellation() }
             } catch ProcessingError.noRalliesDetected {
+                // Data flywheel (opted-in users only): a video where the detector
+                // found NO rallies is a hard negative worth relabeling. Persist the
+                // full per-frame evidence, then stage whole-video frame groupings.
+                let collectedEvidence = self.processor.frameEvidence
                 await MainActor.run {
                     self.noRalliesDetected = true
                     self.handleCompletion()
+                    if AppSettings.shared.enableDataFlywheel, !collectedEvidence.isEmpty {
+                        let stored = collectedEvidence.map(StoredFrameEvidence.init)
+                        try? MetadataStore().saveFrameEvidence(stored, for: videoId)
+                    }
                 }
+                await FlywheelCaptureService.shared.stageNoRallyContribution(
+                    videoId: videoId, originalURL: videoURL
+                )
             } catch {
                 await MainActor.run {
                     if StorageChecker.isStorageError(error) {
