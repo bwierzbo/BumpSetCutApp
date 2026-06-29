@@ -56,6 +56,7 @@ struct RallyLoadingView: View {
 /// Shows a buffering indicator while waiting for video to be ready
 struct RallyBufferingOverlay: View {
     @State private var isAnimating = false
+    var message: String = "Buffering..."
 
     var body: some View {
         ZStack {
@@ -70,7 +71,7 @@ struct RallyBufferingOverlay: View {
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                     .scaleEffect(1.5)
 
-                Text("Buffering...")
+                Text(message)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.white)
             }

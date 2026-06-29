@@ -78,6 +78,10 @@ final class RallyPlayerViewModel {
     /// True while the current rally is being exported for sharing.
     var isPreparingShare = false
     var shareErrorMessage: String?
+    /// True while favorited rallies are being exported into the library (can take a
+    /// few seconds), so callers like the back button can show progress instead of
+    /// appearing frozen.
+    var isSavingFavorites = false
 
     /// Export the current rally segment (trim-aware) to a temp clip and surface it
     /// for the native share sheet. Rallies are time-ranges in the original video, so
@@ -536,6 +540,12 @@ final class RallyPlayerViewModel {
     // MARK: - Actions
 
     func performAction(_ action: RallySwipeAction, direction: RallySwipeDirection, fromDragOffset: CGFloat = 0) {
+        // Tactile confirmation the action committed (covers both swipes and button taps).
+        switch action {
+        case .save: UINotificationFeedbackGenerator.success()
+        case .favorite, .remove: UIImpactFeedbackGenerator.medium()
+        }
+
         actions.setPerformingAction(true)
         playerCache.pause()
 
@@ -765,6 +775,9 @@ final class RallyPlayerViewModel {
     func copyFavoritesToLibrary() async {
         guard !favoritedRallies.isEmpty,
               let metadata = processingMetadata else { return }
+
+        isSavingFavorites = true
+        defer { isSavingFavorites = false }
 
         let asset = AVURLAsset(url: videoMetadata.originalURL)
         let exporter = VideoExporter()
