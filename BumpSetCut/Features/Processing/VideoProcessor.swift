@@ -334,7 +334,7 @@ final class VideoProcessor {
         detector.useScaleFitLetterbox = config.useScaleFitLetterbox
         detector.adaptiveLetterbox = config.adaptiveLetterbox
         detector.adaptiveWideRatio = config.adaptiveLetterboxWideRatio
-        if config.enableUnderNetRejection || config.enableOffCourtRejection {
+        if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
             if netDetector == nil { netDetector = NetDetector() }   // cache the model across videos
             netDetector?.minConfidence = config.netDetectionConfidence
             netDetector?.useScaleFitLetterbox = config.netUseScaleFitLetterbox
@@ -366,7 +366,7 @@ final class VideoProcessor {
         // RallyLab's Net tab) and freeze one box, BEFORE the main loop so the
         // off-court / under-net rules have it from the first frame.
         detectedNet = nil
-        if config.enableUnderNetRejection || config.enableOffCourtRejection {
+        if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
             detectedNet = await sampleNetAcrossVideo(asset: asset, durationSec: lastVideoDurationSec)
             gate.net = detectedNet
         }
