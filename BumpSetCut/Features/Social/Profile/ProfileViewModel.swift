@@ -31,28 +31,29 @@ final class ProfileViewModel {
         isLoading = true
         error = nil
 
+        // Profile, highlights and follow-status are independent — fetch them
+        // concurrently instead of as three sequential round-trips.
+        async let profileResult: UserProfile = apiClient.request(.getProfile(userId: userId))
+        async let highlightsResult: [Highlight] = apiClient.request(.getUserHighlights(userId: userId, page: 0))
+        async let followResult: [FollowRow] = apiClient.request(.checkFollowStatus(userId: userId))
+
         do {
-            profile = try await apiClient.request(.getProfile(userId: userId))
-            let page: [Highlight] = try await apiClient.request(.getUserHighlights(userId: userId, page: 0))
-            highlights = page
+            profile = try await profileResult
+            highlights = try await highlightsResult
             currentPage = 1
         } catch {
             self.error = error
         }
 
-        await loadFollowStatus()
-        isLoading = false
-    }
-
-    private func loadFollowStatus() async {
         do {
-            let rows: [FollowRow] = try await apiClient.request(.checkFollowStatus(userId: userId))
-            isFollowing = !rows.isEmpty
+            isFollowing = !(try await followResult).isEmpty
         } catch {
             // Don't break profile loading, but log — a swallowed decode failure here is
             // exactly how the "always shows Follow" bug hid for so long.
             print("⚠️ [ProfileViewModel] loadFollowStatus(\(userId)) failed: \(error)")
         }
+
+        isLoading = false
     }
 
     func deleteHighlight(_ highlight: Highlight) async -> Bool {

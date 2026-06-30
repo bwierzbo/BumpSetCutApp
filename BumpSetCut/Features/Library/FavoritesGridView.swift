@@ -19,7 +19,8 @@ struct FavoritesGridView: View {
     @State private var showingCreateFolder = false
     @State private var newFolderName = ""
     @State private var moveTarget: VideoMetadata?
-    @State private var sortOption: ContentSortOption = .dateCreated
+    // Persisted across launches (String-backed enum works with @AppStorage).
+    @AppStorage("favorites.sortOption") private var sortOption: ContentSortOption = .dateCreated
     @State private var renameTarget: VideoMetadata?
     @State private var renameText: String = ""
     @Environment(\.dismiss) private var dismiss
@@ -424,6 +425,9 @@ struct FavoritesFeedView: View {
     @State private var clipDuration: Double = 0
     @State private var savedTrims: [Int: RallyTrimAdjustment] = [:]
 
+    // One-time discoverability hint for the long-press trim gesture.
+    @State private var showTrimHint = false
+
     var body: some View {
         ZStack {
             Color.bscMediaBackground.ignoresSafeArea()
@@ -500,6 +504,26 @@ struct FavoritesFeedView: View {
                     .accessibilityIdentifier(AccessibilityID.Favorites.feedPauseIcon)
             }
 
+            // One-time "press & hold to trim" hint.
+            if showTrimHint && !isTrimmingMode {
+                VStack {
+                    Spacer()
+                    HStack(spacing: BSCSpacing.xs) {
+                        Image(systemName: "hand.tap.fill")
+                            .font(.system(size: 13))
+                        Text("Press & hold to trim")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, BSCSpacing.md)
+                    .padding(.vertical, BSCSpacing.sm)
+                    .background(.ultraThinMaterial.opacity(0.9), in: Capsule())
+                    .padding(.bottom, 140)
+                    .allowsHitTesting(false)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+
             // Trim overlay
             if isTrimmingMode {
                 if let idx = currentIndex, idx < videos.count {
@@ -531,6 +555,7 @@ struct FavoritesFeedView: View {
                 currentIndex = startIndex
                 hasScrolledToStart = true
             }
+            maybeShowTrimHint()
         }
         .onChange(of: currentIndex) { oldIdx, newIdx in
             if let old = oldIdx { players[old]?.pause() }
@@ -585,6 +610,23 @@ struct FavoritesFeedView: View {
             player.pause()
         }
         withAnimation(.easeInOut(duration: 0.2)) { isPaused.toggle() }
+    }
+
+    // MARK: - Trim Hint
+
+    /// Surface the long-press trim affordance once, then never again.
+    private func maybeShowTrimHint() {
+        guard !videos.isEmpty, !AppSettings.shared.hasSeenFavoritesTrimHint else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            // Mark seen only once the hint actually appears — otherwise a dismissal
+            // within the 0.6s window would burn the one-time hint without showing it.
+            AppSettings.shared.hasSeenFavoritesTrimHint = true
+            withAnimation(.easeInOut(duration: 0.3)) { showTrimHint = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                withAnimation(.easeInOut(duration: 0.3)) { showTrimHint = false }
+            }
+        }
     }
 
     // MARK: - Trim

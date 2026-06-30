@@ -120,11 +120,10 @@ struct HomeView: View {
                 withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                     hasAppeared = true
                 }
-            }
 
-            // Show onboarding on first launch
-            if !appSettings.hasCompletedOnboarding {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                // Present onboarding in the same settle tick so there's no window
+                // where the user can tap Home actions before it appears.
+                if !appSettings.hasCompletedOnboarding {
                     showingOnboarding = true
                 }
             }
@@ -293,8 +292,7 @@ struct HomeView: View {
     private func animatedContent(contentWidth: CGFloat) -> some View {
         if let viewModel = viewModel {
             StatsCard(
-                stats: viewModel.stats(isPro: SubscriptionService.shared.isPro),
-                isLoading: viewModel.isLoading
+                stats: viewModel.stats(isPro: SubscriptionService.shared.isPro)
             )
             .accessibilityIdentifier(AccessibilityID.Home.statsCard)
             .frame(maxWidth: contentWidth)

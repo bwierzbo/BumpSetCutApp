@@ -168,6 +168,14 @@ final class RallyLabModel {
             detectionConfigDirty = true
         }
     }
+    /// Auto-pick scaleFit (portrait/ultrawide) vs scaleFill (landscape) per frame.
+    /// Overrides the manual toggle above when on. Re-run to apply.
+    var adaptiveLetterbox: Bool = true {
+        didSet {
+            guard adaptiveLetterbox != oldValue, !evidence.isEmpty else { return }
+            detectionConfigDirty = true
+        }
+    }
 
     // Physics-gate / supported-ball veto params. Like confidence, these are
     // applied when the gate decides projectile-vs-carried at detection time, so
@@ -252,6 +260,59 @@ final class RallyLabModel {
     var trajectorySelectionStickiness: Double = 0.10 {
         didSet { markDetectionDirty(trajectorySelectionStickiness, oldValue) }
     }
+    /// Multi-court size gate: hard-drop a fresh ball smaller than this fraction of
+    /// the biggest fresh ball (a far/other-court ball).
+    var multiCourtSizeGateEnabled: Bool = true {
+        didSet {
+            guard multiCourtSizeGateEnabled != oldValue, !evidence.isEmpty else { return }
+            detectionConfigDirty = true
+        }
+    }
+    var multiCourtMinSizeRatio: Double = 0.5 {
+        didSet { markDetectionDirty(multiCourtMinSizeRatio, oldValue) }
+    }
+    /// Multi-court spatial lock: once a rally locks to a court, reject candidates
+    /// farther than `multiCourtMaxLateralDistance` from the selected ball.
+    var multiCourtSpatialLockEnabled: Bool = true {
+        didSet {
+            guard multiCourtSpatialLockEnabled != oldValue, !evidence.isEmpty else { return }
+            detectionConfigDirty = true
+        }
+    }
+    var multiCourtMaxLateralDistance: Double = 0.25 {
+        didSet { markDetectionDirty(multiCourtMaxLateralDistance, oldValue) }
+    }
+    /// Absolute minimum ball size (√area, normalized) to drive the rally — rejects a
+    /// far/other-field ball even when it's the only one on screen.
+    var multiCourtMinBallSize: Double = 0.0 {
+        didSet { markDetectionDirty(multiCourtMinBallSize, oldValue) }
+    }
+    /// Off-court rejection: drop detections laterally beyond the net posts (an
+    /// adjacent court's ball) before tracking. Needs net detection.
+    var enableOffCourtRejection: Bool = true {
+        didSet {
+            guard enableOffCourtRejection != oldValue, !evidence.isEmpty else { return }
+            detectionConfigDirty = true
+        }
+    }
+    var offCourtMarginX: Double = 0.05 {
+        didSet { markDetectionDirty(offCourtMarginX, oldValue) }
+    }
+    /// Under-net rejection: trash a trajectory that never rises above the net bottom
+    /// (a ball rolled/carried to the other side). Needs net detection.
+    var enableUnderNetRejection: Bool = true {
+        didSet {
+            guard enableUnderNetRejection != oldValue, !evidence.isEmpty else { return }
+            detectionConfigDirty = true
+        }
+    }
+    var underNetMarginY: Double = 0.02 {
+        didSet { markDetectionDirty(underNetMarginY, oldValue) }
+    }
+    /// Above-net rule (re-scores live from cached evidence — no re-run needed).
+    var enableAboveNetRequirement: Bool = true { didSet { recomputePredictionsAndScore() } }
+    var aboveNetMarginY: Double = 0.0 { didSet { recomputePredictionsAndScore() } }
+    var aboveNetArcProminence: Double = 0.03 { didSet { recomputePredictionsAndScore() } }
 
     private func markDetectionDirty(_ new: Double, _ old: Double) {
         guard new != old, !evidence.isEmpty else { return }
@@ -281,6 +342,10 @@ final class RallyLabModel {
     /// Display-only: the candidate ROI circle is drawn with radius = ball size ×
     /// this scale. Changing it just redraws the overlay (no re-run / re-score).
     var trajectoryRoiScale: Double = 3.0
+
+    /// Display-only: how many seconds of past ball positions the overlay trail
+    /// shows. Just redraws (no re-run / re-score).
+    var trailWindowSec: Double = 1.0
 
     // MARK: - Sweep
 
@@ -331,6 +396,7 @@ final class RallyLabModel {
         let preset = ProcessorConfig()
         detectionConfidence = preset.detectionConfidence
         useScaleFitLetterbox = preset.useScaleFitLetterbox
+        adaptiveLetterbox = preset.adaptiveLetterbox
         minGravitySignature = preset.minGravitySignature
         gravityReferenceCurvature = preset.gravityReferenceCurvature
         maxVerticalMotionForRolling = preset.maxVerticalMotionForRolling
@@ -346,6 +412,18 @@ final class RallyLabModel {
         loopReturnRatio = preset.loopReturnRatio
         trajectorySizeTiebreak = preset.trajectorySizeTiebreak
         trajectorySelectionStickiness = preset.trajectorySelectionStickiness
+        multiCourtSizeGateEnabled = preset.multiCourtSizeGateEnabled
+        multiCourtMinSizeRatio = preset.multiCourtMinSizeRatio
+        multiCourtSpatialLockEnabled = preset.multiCourtSpatialLockEnabled
+        multiCourtMaxLateralDistance = Double(preset.multiCourtMaxLateralDistance)
+        multiCourtMinBallSize = Double(preset.multiCourtMinBallSize)
+        enableOffCourtRejection = preset.enableOffCourtRejection
+        offCourtMarginX = Double(preset.offCourtMarginX)
+        enableUnderNetRejection = preset.enableUnderNetRejection
+        underNetMarginY = Double(preset.underNetMarginY)
+        enableAboveNetRequirement = preset.enableAboveNetRequirement
+        aboveNetMarginY = Double(preset.aboveNetMarginY)
+        aboveNetArcProminence = Double(preset.aboveNetArcProminence)
         startBuffer = preset.startBuffer
         endTimeout = preset.endTimeout
         projDropGracePeriod = Double(preset.projDropGracePeriod)
@@ -369,6 +447,7 @@ final class RallyLabModel {
         var cfg = ProcessorConfig()
         cfg.detectionConfidence = detectionConfidence
         cfg.useScaleFitLetterbox = useScaleFitLetterbox
+        cfg.adaptiveLetterbox = adaptiveLetterbox
         cfg.minGravitySignature = minGravitySignature
         cfg.gravityReferenceCurvature = gravityReferenceCurvature
         cfg.maxVerticalMotionForRolling = maxVerticalMotionForRolling
@@ -384,6 +463,18 @@ final class RallyLabModel {
         cfg.loopReturnRatio = loopReturnRatio
         cfg.trajectorySizeTiebreak = trajectorySizeTiebreak
         cfg.trajectorySelectionStickiness = trajectorySelectionStickiness
+        cfg.multiCourtSizeGateEnabled = multiCourtSizeGateEnabled
+        cfg.multiCourtMinSizeRatio = multiCourtMinSizeRatio
+        cfg.multiCourtSpatialLockEnabled = multiCourtSpatialLockEnabled
+        cfg.multiCourtMaxLateralDistance = CGFloat(multiCourtMaxLateralDistance)
+        cfg.multiCourtMinBallSize = CGFloat(multiCourtMinBallSize)
+        cfg.enableOffCourtRejection = enableOffCourtRejection
+        cfg.offCourtMarginX = CGFloat(offCourtMarginX)
+        cfg.enableUnderNetRejection = enableUnderNetRejection
+        cfg.underNetMarginY = CGFloat(underNetMarginY)
+        cfg.enableAboveNetRequirement = enableAboveNetRequirement
+        cfg.aboveNetMarginY = CGFloat(aboveNetMarginY)
+        cfg.aboveNetArcProminence = CGFloat(aboveNetArcProminence)
         cfg.startBuffer = startBuffer
         cfg.endTimeout = endTimeout
         cfg.projDropGracePeriod = Int(projDropGracePeriod.rounded())
@@ -413,6 +504,7 @@ final class RallyLabModel {
         ProcessorConfig:
           detectionConfidence = \(f(detectionConfidence))
           useScaleFitLetterbox = \(useScaleFitLetterbox)
+          adaptiveLetterbox = \(adaptiveLetterbox)
           minGravitySignature = \(f(minGravitySignature))
           gravityReferenceCurvature = \(f(gravityReferenceCurvature))
           maxVerticalMotionForRolling = \(f(maxVerticalMotionForRolling))
@@ -428,6 +520,18 @@ final class RallyLabModel {
           loopReturnRatio = \(f(loopReturnRatio))
           trajectorySizeTiebreak = \(f(trajectorySizeTiebreak))
           trajectorySelectionStickiness = \(f(trajectorySelectionStickiness))
+          multiCourtSizeGateEnabled = \(multiCourtSizeGateEnabled)
+          multiCourtMinSizeRatio = \(f(multiCourtMinSizeRatio))
+          multiCourtSpatialLockEnabled = \(multiCourtSpatialLockEnabled)
+          multiCourtMaxLateralDistance = \(f(multiCourtMaxLateralDistance))
+          multiCourtMinBallSize = \(f(multiCourtMinBallSize))
+          enableOffCourtRejection = \(enableOffCourtRejection)
+          offCourtMarginX = \(f(offCourtMarginX))
+          enableUnderNetRejection = \(enableUnderNetRejection)
+          underNetMarginY = \(f(underNetMarginY))
+          enableAboveNetRequirement = \(enableAboveNetRequirement)
+          aboveNetMarginY = \(f(aboveNetMarginY))
+          aboveNetArcProminence = \(f(aboveNetArcProminence))
           startBuffer = \(f(startBuffer))
           endTimeout = \(f(endTimeout))
           projDropGracePeriod = \(Int(projDropGracePeriod.rounded()))

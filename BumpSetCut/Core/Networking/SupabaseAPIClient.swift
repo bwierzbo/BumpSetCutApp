@@ -30,6 +30,22 @@ struct PollVoteRow: Decodable {
     let optionId: String
 }
 
+struct MyPollVoteRow: Decodable {
+    // `.convertFromSnakeCase` maps poll_id → pollId, option_id → optionId.
+    let pollId: String
+    let optionId: String
+}
+
+struct CommentLikeRow: Decodable {
+    // `.convertFromSnakeCase` maps comment_id → commentId automatically.
+    let commentId: String
+}
+
+struct HighlightLikeRow: Decodable {
+    // `.convertFromSnakeCase` maps highlight_id → highlightId automatically.
+    let highlightId: String
+}
+
 
 // MARK: - Supabase API Client
 
@@ -51,14 +67,14 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         case .getFeed(let page, let pageSize):
             let from = page * pageSize
             let to = from + pageSize - 1
-            let response: T = try await supabase
+            let highlights: [Highlight] = try await supabase
                 .from("highlights")
                 .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .order("created_at", ascending: false)
                 .range(from: from, to: to)
                 .execute()
                 .value
-            return response
+            return try safeCast(await annotatedWithMyLikes(highlights))
 
         case .getFollowingFeed(let page, let pageSize):
             let myId = try await currentUserId()
@@ -82,7 +98,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 return empty
             }
 
-            let response: T = try await supabase
+            let highlights: [Highlight] = try await supabase
                 .from("highlights")
                 .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .in("author_id", values: followedIds)
@@ -90,13 +106,13 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .range(from: from, to: to)
                 .execute()
                 .value
-            return response
+            return try safeCast(await annotatedWithMyLikes(highlights))
 
         case .getUserHighlights(let userId, let page):
             let pageSize = 20
             let from = page * pageSize
             let to = from + pageSize - 1
-            let response: T = try await supabase
+            let highlights: [Highlight] = try await supabase
                 .from("highlights")
                 .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .eq("author_id", value: userId)
@@ -104,17 +120,17 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .range(from: from, to: to)
                 .execute()
                 .value
-            return response
+            return try safeCast(await annotatedWithMyLikes(highlights))
 
         case .getHighlight(let id):
-            let response: T = try await supabase
+            let highlight: Highlight = try await supabase
                 .from("highlights")
                 .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .eq("id", value: id)
                 .single()
                 .execute()
                 .value
-            return response
+            return try safeCast(await annotatedWithMyLikes([highlight]).first ?? highlight)
 
         case .createHighlight(let upload):
             let response: T = try await supabase
@@ -136,7 +152,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             // clause (PostgREST filter injection). `searchUsers` uses the parameterized
             // `.ilike(pattern:)` API and needs no escaping; this `.or(...)` does.
             let safeQuery = query.components(separatedBy: CharacterSet(charactersIn: ",(){}\"\\")).joined()
-            let response: T = try await supabase
+            let highlights: [Highlight] = try await supabase
                 .from("highlights")
                 .select("*, author:profiles(*), poll:polls(*, options:poll_options(*))")
                 .or("caption.ilike.%\(safeQuery)%,tags.cs.{\(safeQuery)},location_name.ilike.%\(safeQuery)%")
@@ -144,7 +160,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .range(from: from, to: to)
                 .execute()
                 .value
-            return response
+            return try safeCast(await annotatedWithMyLikes(highlights))
 
         case .deleteHighlight(let id):
             try await supabase
@@ -180,7 +196,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let pageSize = 20
             let from = page * pageSize
             let to = from + pageSize - 1
-            let response: T = try await supabase
+            var comments: [Comment] = try await supabase
                 .from("comments")
                 .select("*, author:profiles(*)")
                 .eq("highlight_id", value: highlightId)
@@ -188,7 +204,26 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .range(from: from, to: to)
                 .execute()
                 .value
-            return response
+
+            // PostgREST embeds can't express a "liked by me" filter, so annotate
+            // the current user's likes with one follow-up query. Best-effort (try?):
+            // the heart fill reconciles on the next load, and a hiccup on the new
+            // comment_likes table must not break comment loading itself. Skipped
+            // when unauthenticated (comments are viewable without auth).
+            if let myId = try? await currentUserId(), !comments.isEmpty,
+               let likedRows: [CommentLikeRow] = try? await supabase
+                    .from("comment_likes")
+                    .select("comment_id")
+                    .eq("user_id", value: myId)
+                    .in("comment_id", values: comments.map(\.id))
+                    .execute()
+                    .value {
+                let likedIds = Set(likedRows.map(\.commentId))
+                for i in comments.indices where likedIds.contains(comments[i].id) {
+                    comments[i].isLikedByMe = true
+                }
+            }
+            return try safeCast(comments)
 
         case .addComment(let highlightId, let text):
             let userId = try await currentUserId()
@@ -206,6 +241,24 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .from("comments")
                 .delete()
                 .eq("id", value: id)
+                .execute()
+            return try safeCast(EmptyResponse())
+
+        case .likeComment(let id):
+            let userId = try await currentUserId()
+            try await supabase
+                .from("comment_likes")
+                .insert(["comment_id": id, "user_id": userId])
+                .execute()
+            return try safeCast(EmptyResponse())
+
+        case .unlikeComment(let id):
+            let userId = try await currentUserId()
+            try await supabase
+                .from("comment_likes")
+                .delete()
+                .eq("comment_id", value: id)
+                .eq("user_id", value: userId)
                 .execute()
             return try safeCast(EmptyResponse())
 
@@ -443,6 +496,18 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .value
             return try safeCast(rows)
 
+        case .getMyPollVotes(let pollIds):
+            guard !pollIds.isEmpty else { return try safeCast([MyPollVoteRow]()) }
+            let userId = try await currentUserId()
+            let rows: [MyPollVoteRow] = try await supabase
+                .from("poll_votes")
+                .select("poll_id, option_id")
+                .eq("user_id", value: userId)
+                .in("poll_id", values: pollIds)
+                .execute()
+                .value
+            return try safeCast(rows)
+
         case .deletePollVote(let pollId):
             let userId = try await currentUserId()
             try await supabase
@@ -646,6 +711,29 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             throw APIError.unauthorized
         }
         return user.id.uuidString.lowercased()
+    }
+
+    /// Set `isLikedByMe` on each highlight by looking up the current user's likes.
+    /// PostgREST embeds can't express a "liked by me" flag, so do one follow-up
+    /// query. No-ops when unauthenticated or the input is empty.
+    private func annotatedWithMyLikes(_ highlights: [Highlight]) async -> [Highlight] {
+        guard !highlights.isEmpty, let myId = try? await currentUserId() else { return highlights }
+        guard let rows: [HighlightLikeRow] = try? await supabase
+            .from("likes")
+            .select("highlight_id")
+            .eq("user_id", value: myId)
+            .in("highlight_id", values: highlights.map(\.id))
+            .execute()
+            .value
+        else { return highlights }
+
+        let likedIds = Set(rows.map(\.highlightId))
+        return highlights.map { highlight in
+            guard likedIds.contains(highlight.id) else { return highlight }
+            var liked = highlight
+            liked.isLikedByMe = true
+            return liked
+        }
     }
 }
 

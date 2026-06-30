@@ -99,7 +99,16 @@ struct ProcessorConfig {
     /// (`.scaleFill`). Preserves aspect ratio so the ball stays round, matching
     /// YOLO training preprocessing — can recover confidence on non-square / 0.5x
     /// ultrawide footage. Off by default; A/B it in RallyLab before flipping.
+    /// Ignored when `adaptiveLetterbox` is on.
     var useScaleFitLetterbox: Bool = false
+
+    /// Auto-pick scaleFit vs scaleFill per frame from the source aspect ratio:
+    /// letterbox for portrait / ultrawide (where scaleFill squishes the ball into an
+    /// ellipse and the landscape-trained model fails), stretch for normal landscape
+    /// / near-square. On by default — fixes handheld portrait footage with no
+    /// regression to existing landscape clips. Overrides useScaleFitLetterbox.
+    var adaptiveLetterbox: Bool = true
+    var adaptiveLetterboxWideRatio: CGFloat = 2.0
 
     // Tracking association
     /// Minimum track age (frames) before it can influence physics gating
@@ -201,6 +210,76 @@ struct ProcessorConfig {
     /// track beats its score by more than this, to stop the rally flickering
     /// between courts frame to frame.
     var trajectorySelectionStickiness: Double = 0.10
+
+    /// Hard size gate: drop a fresh track whose ball side-length (√area) is below
+    /// this fraction of the BIGGEST fresh ball's — a far / other-court ball, which
+    /// is smaller because it's farther from the camera. The biggest ball always
+    /// survives (ratio 1.0). 1.0 = keep only the biggest; 0 = disable filtering.
+    /// Unlike `trajectorySizeTiebreak` (a soft score nudge), this excludes a small
+    /// ball from selection entirely even if it traces a clean arc.
+    var multiCourtSizeGateEnabled: Bool = true
+    var multiCourtMinSizeRatio: Double = 0.5
+    /// Absolute minimum ball size (mean bbox side length √area, normalized) for a
+    /// track to drive the rally — independent of the other balls present. A back /
+    /// other-field ball is physically small in frame; this rejects it even when it's
+    /// the only ball on screen (which the relative ratio above can't). 0 = off; tune
+    /// up just under this court's smallest real ball.
+    var multiCourtMinBallSize: CGFloat = 0.0
+    /// Spatial lock: once a rally is locked to a court, reject candidates whose
+    /// current position is more than this normalized Euclidean distance from the
+    /// selected ball — keeps the rally on one court. Only applies while the
+    /// selected track is still live; if it disappears the lock releases and
+    /// re-selection is free anywhere.
+    var multiCourtSpatialLockEnabled: Bool = true
+    var multiCourtMaxLateralDistance: CGFloat = 0.25
+
+    // MARK: - Off-court rejection (net horizontal extent)
+    /// Reject detections whose center falls outside the net's horizontal span (the
+    /// posts define THIS court's width) plus `offCourtMarginX`. A ball on an
+    /// adjacent court is laterally beyond the posts, so this drops it before it can
+    /// form a track or get pulled into the rally trajectory. Needs net detection;
+    /// skipped if no net is found. The strongest discriminator for "another court".
+    var enableOffCourtRejection: Bool = true
+    /// Slack beyond each net post (fraction of frame width) before a detection is
+    /// treated as off-court — allows a wide serve/ball that drifts just past a post.
+    var offCourtMarginX: CGFloat = 0.05
+
+    // MARK: - Above-net requirement (multi-contact rallies)
+    /// A rally with MULTIPLE ball contacts (≥2 arcs) must put the ball above this
+    /// net's top edge (`net.box.maxY`) at least once — a real multi-touch rally on
+    /// this court sends the ball over the net, while a background/other-court rally
+    /// stays low and never clears this net's top in the frame. SINGLE-trajectory
+    /// events (one arc, e.g. a missed far-side serve that never makes it over) are
+    /// EXEMPT, since a lone contact legitimately may not clear the net. Segment-level
+    /// (counts arcs across the rally), so it never rejects the low digs/passes within
+    /// a real rally. Needs net detection.
+    var enableAboveNetRequirement: Bool = true
+    /// Leniency below the net top that still counts as "cleared" (fraction of frame
+    /// height). Larger = more forgiving. The ball must peak above `net.box.maxY -
+    /// aboveNetMarginY` on some arc for a multi-contact rally to be kept.
+    var aboveNetMarginY: CGFloat = 0.0
+    /// Minimum up-then-down amplitude (fraction of frame height) for a peak to count
+    /// as a distinct arc/contact — filters tracking jitter so noise isn't read as
+    /// extra contacts. Two real arcs ⇒ a multi-contact rally subject to the rule.
+    var aboveNetArcProminence: CGFloat = 0.03
+
+    // MARK: - Under-net rejection
+    /// Trash a trajectory whose highest point never rises above the net's bottom
+    /// edge (`net.box.minY`): a ball rolled or carried along the ground to the other
+    /// side never arcs over the net, but its low, near-flat path can otherwise pass
+    /// the physics gate. Needs net detection; skipped if no net is found.
+    var enableUnderNetRejection: Bool = true
+    /// Buffer below the net bottom before trashing — a trajectory must peak below
+    /// `net.box.minY - underNetMarginY` to be rejected (avoids nipping low real digs).
+    var underNetMarginY: CGFloat = 0.02
+    /// Number of processed frames whose net detections are medianed into the fixed
+    /// per-video net box.
+    var netSampleFrameCount: Int = 8
+    /// Minimum confidence for a net detection to be sampled.
+    var netDetectionConfidence: Float = 0.5
+    /// Letterbox (`.scaleFit`) the net detector's input. Off = `.scaleFill` (stretch),
+    /// which the net model was trained on and yields a tighter box.
+    var netUseScaleFitLetterbox: Bool = false
     /// Each track owns a spatial association ROI of radius `ballSize × this`
     /// (ballSize = the detection's mean bbox side length) around its predicted
     /// position: a detection inside is matched to the track, one outside starts

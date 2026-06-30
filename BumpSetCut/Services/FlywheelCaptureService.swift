@@ -26,6 +26,10 @@ final class FlywheelCaptureService {
     private(set) var pendingCount: Int = 0
     private(set) var lifetimeContributedCount: Int = 0
     private(set) var isDraining = false
+    /// Progress (0–1) of the current upload drain, for the upload pill.
+    private(set) var uploadProgress: Double = 0
+    /// Total frames being uploaded in the current drain, for the pill's label.
+    private(set) var uploadFrameTotal: Int = 0
     /// Rallies the user has explicitly reported, as "videoId#rallyIndex" keys.
     /// Drives the "reported" indicator and survives app restarts.
     private(set) var reportedRallies: Set<String> = []
@@ -151,6 +155,34 @@ final class FlywheelCaptureService {
         triggerDrain()
     }
 
+    /// Stage a whole-video frame contribution for a video where the detector found
+    /// NO rallies — a hard negative worth relabeling. Frames are sampled across the
+    /// entire video (there's no rally window), evidence is the full per-frame signal
+    /// saved by the coordinator. No-op unless the user has opted in.
+    func stageNoRallyContribution(videoId: UUID, originalURL: URL) async {
+        guard AppSettings.shared.enableDataFlywheel else { return }
+        guard staged.count < maxPendingContributions else { return }
+
+        let durationSec: Double
+        do {
+            durationSec = CMTimeGetSeconds(try await AVURLAsset(url: originalURL).load(.duration))
+        } catch {
+            print("Flywheel: couldn't load duration for no-rally contribution: \(error)")
+            return
+        }
+        guard durationSec > 0 else { return }
+
+        let evidence = metadataStore.loadFrameEvidence(for: videoId)
+        // A whole-video "segment" makes extractFrames sample evenly + randomly across
+        // the entire video — exactly the grouping we want when there's no rally window.
+        let wholeVideo = RallySegment(startTimeSeconds: 0, endTimeSeconds: durationSec,
+                                      confidence: 0, quality: 0, detectionCount: 0,
+                                      averageTrajectoryLength: 0)
+        await stage(videoId: videoId, rallyIndex: 0, segment: wholeVideo,
+                    trigger: .noRallies, reason: nil, originalURL: originalURL, evidence: evidence)
+        triggerDrain()
+    }
+
     // MARK: - Correction capture (review time)
 
     /// Stage a contribution for a rally the user corrected or reported.
@@ -173,31 +205,56 @@ final class FlywheelCaptureService {
     func drain(using client: any APIClient) async {
         guard AppSettings.shared.enableDataFlywheel, !isDraining, !staged.isEmpty else { return }
         isDraining = true
-        defer { isDraining = false }
+        uploadProgress = 0
+        defer { isDraining = false; uploadProgress = 0; uploadFrameTotal = 0 }
+
+        // Resolve each contribution's on-disk frames once, so we know the total
+        // frame count up front (for the pill) and can report overall progress.
+        let jobs: [(contribution: FlywheelContribution, frameURLs: [URL])] = staged.map { c in
+            let urls = c.frameFileNames
+                .map { stagingDirectory.appendingPathComponent($0) }
+                .filter { fileManager.fileExists(atPath: $0.path) }
+            return (c, urls)
+        }
+        let totalFrames = jobs.reduce(0) { $0 + $1.frameURLs.count }
+        uploadFrameTotal = totalFrames
+        print("📤 Flywheel: uploading \(jobs.count) contribution(s), \(totalFrames) frame(s)…")
 
         var remaining: [FlywheelContribution] = []
         var uploaded = 0
+        var framesDone = 0
 
-        for contribution in staged {
-            let frameURLs = contribution.frameFileNames
-                .map { stagingDirectory.appendingPathComponent($0) }
-                .filter { fileManager.fileExists(atPath: $0.path) }
+        for job in jobs {
+            let contribution = job.contribution
+            let frameURLs = job.frameURLs
             // Event-only repeats legitimately have no frames; only drop when frames
             // were expected but their files vanished.
             if !contribution.frameFileNames.isEmpty && frameURLs.isEmpty {
                 continue
             }
+            let thisCount = frameURLs.count
+            let doneBefore = framesDone
             do {
-                try await client.submitFlywheelContribution(contribution, frameURLs: frameURLs, progress: { _ in })
+                try await client.submitFlywheelContribution(contribution, frameURLs: frameURLs, progress: { [weak self] p in
+                    Task { @MainActor in
+                        guard let self, totalFrames > 0 else { return }
+                        self.uploadProgress = (Double(doneBefore) + p * Double(thisCount)) / Double(totalFrames)
+                    }
+                })
                 frameURLs.forEach { try? fileManager.removeItem(at: $0) }
                 if !contribution.frameFileNames.isEmpty {
                     framesUploadedVideos.insert(contribution.videoId)
                     persistUploadedVideos()
                 }
                 uploaded += 1
+                framesDone += thisCount
+                uploadProgress = totalFrames > 0 ? Double(framesDone) / Double(totalFrames) : 0
+                print("✅ Flywheel: sent \(contribution.trigger.rawValue) data for video \(contribution.videoId.uuidString.prefix(8)) — \(thisCount) frame(s)")
             } catch {
                 // Keep failed items for the next attempt (offline / unauthenticated).
                 remaining.append(contribution)
+                framesDone += thisCount
+                print("⚠️ Flywheel: upload failed (will retry): \(error.localizedDescription)")
             }
         }
 
@@ -209,6 +266,7 @@ final class FlywheelCaptureService {
             lifetimeContributedCount += uploaded
             UserDefaults.standard.set(lifetimeContributedCount, forKey: lifetimeKey)
         }
+        print("📤 Flywheel: drain complete — \(uploaded) sent, \(remaining.count) pending")
     }
 
     // MARK: - Clear

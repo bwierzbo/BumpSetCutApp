@@ -145,16 +145,21 @@ final class SocialFeedViewModel {
     func enrichPollVotes() async {
         // Only enrich if user is authenticated
         guard (try? await SupabaseConfig.client.auth.session) != nil else { return }
+
+        // Collect the polls still missing the user's vote, then fetch them all in
+        // one query instead of one round-trip per poll (was N+1 on the feed).
+        let pollIds = highlights.compactMap { highlight -> String? in
+            guard let poll = highlight.poll, poll.myVoteOptionId == nil else { return nil }
+            return poll.id
+        }
+        guard !pollIds.isEmpty,
+              let rows: [MyPollVoteRow] = try? await apiClient.request(.getMyPollVotes(pollIds: pollIds))
+        else { return }
+
+        let voteByPoll = Dictionary(rows.map { ($0.pollId, $0.optionId) }, uniquingKeysWith: { first, _ in first })
         for i in highlights.indices {
-            guard let poll = highlights[i].poll,
-                  poll.myVoteOptionId == nil else { continue }
-            do {
-                let rows: [PollVoteRow] = try await apiClient.request(.getMyPollVote(pollId: poll.id))
-                if let row = rows.first {
-                    highlights[i].poll?.myVoteOptionId = row.optionId
-                }
-            } catch {
-                // Non-critical — user just won't see their vote highlighted
+            if let pollId = highlights[i].poll?.id, let optionId = voteByPoll[pollId] {
+                highlights[i].poll?.myVoteOptionId = optionId
             }
         }
     }

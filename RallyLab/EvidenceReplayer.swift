@@ -65,6 +65,23 @@ enum EvidenceReplayer {
                 return (total ?? 1.0) >= cfg.rallyScoreMinConfidence
             }
         }
+
+        // Above-net rule: a multi-contact rally must clear the net top once; single
+        // arcs (e.g. a missed far-side serve) are exempt. Uses the net captured in
+        // the evidence (the Net-tab box when injected) so it matches the overlay.
+        if cfg.enableAboveNetRequirement,
+           let net = evidence.lazy.compactMap({ $0.detectedNet }).first {
+            let netTopY = net.box.maxY - cfg.aboveNetMarginY
+            intervals = intervals.filter { iv in
+                let inRange = evidence.filter { $0.time >= iv.start && $0.time <= iv.end }
+                let ys: [CGFloat] = inRange.compactMap { (f) -> CGFloat? in
+                    if let y = f.trackPoint?.y { return y }
+                    return f.detections.filter { !$0.isOffCourt }.map { $0.bbox.midY }.max()
+                }
+                return VideoProcessor.rallyClearsNetTop(ySamples: ys, netTopY: netTopY,
+                                                        arcProminence: cfg.aboveNetArcProminence)
+            }
+        }
         return intervals
     }
 }

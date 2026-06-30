@@ -38,6 +38,8 @@ enum APIEndpoint {
     case addComment(highlightId: String, text: String)
     case deleteComment(id: String)
     case getComments(highlightId: String, page: Int)
+    case likeComment(id: String)
+    case unlikeComment(id: String)
     case follow(userId: String)
     case unfollow(userId: String)
     case getFollowers(userId: String, page: Int)
@@ -61,6 +63,7 @@ enum APIEndpoint {
     case createPollOptions(pollId: String, options: [PollOptionUpload])
     case votePoll(PollVoteUpload)
     case getMyPollVote(pollId: String)
+    case getMyPollVotes(pollIds: [String])
     case deletePollVote(pollId: String)
 
     // Upload
@@ -86,6 +89,8 @@ enum APIEndpoint {
         case .addComment(let highlightId, _): return "/highlights/\(highlightId)/comments"
         case .deleteComment(let id): return "/comments/\(id)"
         case .getComments(let highlightId, _): return "/highlights/\(highlightId)/comments"
+        case .likeComment(let id): return "/comments/\(id)/like"
+        case .unlikeComment(let id): return "/comments/\(id)/like"
         case .follow(let userId): return "/profiles/\(userId)/follow"
         case .unfollow(let userId): return "/profiles/\(userId)/follow"
         case .getFollowers(let userId, _): return "/profiles/\(userId)/followers"
@@ -103,6 +108,7 @@ enum APIEndpoint {
         case .createPollOptions(let pollId, _): return "/polls/\(pollId)/options"
         case .votePoll: return "/poll_votes"
         case .getMyPollVote(let pollId): return "/polls/\(pollId)/my-vote"
+        case .getMyPollVotes: return "/poll_votes/mine"
         case .deletePollVote(let pollId): return "/polls/\(pollId)/my-vote"
         case .createUploadURL: return "/uploads"
         }
@@ -110,7 +116,7 @@ enum APIEndpoint {
 
     var method: HTTPMethod {
         switch self {
-        case .createHighlight, .addComment, .likeHighlight,
+        case .createHighlight, .addComment, .likeHighlight, .likeComment,
              .follow, .createUploadURL, .checkFollowStatusBatch, .createReport, .blockUser,
              .createPoll, .createPollOptions, .votePoll:
             return .post
@@ -118,7 +124,7 @@ enum APIEndpoint {
             return .post
         case .signOut:
             return .post
-        case .deleteAccount, .deleteHighlight, .deleteComment, .unlikeHighlight, .unfollow, .unblockUser, .deletePollVote:
+        case .deleteAccount, .deleteHighlight, .deleteComment, .unlikeHighlight, .unlikeComment, .unfollow, .unblockUser, .deletePollVote:
             return .delete
         case .updateProfile:
             return .patch

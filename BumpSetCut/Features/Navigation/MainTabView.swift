@@ -39,6 +39,7 @@ struct MainTabView: View {
     @State private var deepLinkedHighlight: Highlight?
     @State private var deepLinkedComments: Highlight?
     private var processingCoordinator = ProcessingCoordinator.shared
+    private var flywheelService = FlywheelCaptureService.shared
 
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.scenePhase) private var scenePhase
@@ -104,6 +105,11 @@ struct MainTabView: View {
                     .padding(.bottom, 54) // Above tab bar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(100)
+            } else if flywheelService.isDraining {
+                uploadPill
+                    .padding(.bottom, 54) // Above tab bar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(98)
             } else if showLowStorageBanner {
                 lowStorageBannerView
                     .padding(.bottom, 54) // Above tab bar
@@ -113,6 +119,7 @@ struct MainTabView: View {
         }
         .animation(.bscSpring, value: processingCoordinator.isProcessing)
         .animation(.bscSpring, value: processingCoordinator.showCompletionPill)
+        .animation(.bscSpring, value: flywheelService.isDraining)
         .animation(.bscSpring, value: showLowStorageBanner)
         .environment(navigationState)
         .environment(\.changeTab, { tab in
@@ -200,6 +207,54 @@ struct MainTabView: View {
             return "\(ProcessingTimeEstimator.formatEstimate(remaining)) left \u{2022} keep app open"
         }
         return "Keep app open \u{2022} \(processingCoordinator.videoName)"
+    }
+
+    /// Flywheel upload pill — mirrors the processing pill's style. Shown while
+    /// frames are draining to the server so the user knows not to quit mid-upload.
+    private var uploadPill: some View {
+        HStack(spacing: BSCSpacing.sm) {
+            ZStack {
+                Circle().stroke(Color.bscSurfaceBorder, lineWidth: 2.5).frame(width: 24, height: 24)
+                Circle()
+                    .trim(from: 0, to: flywheelService.uploadProgress)
+                    .stroke(Color.bscPrimary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .frame(width: 24, height: 24)
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.bscPrimary)
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Uploading rally data…")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.bscTextPrimary)
+                Text(flywheelService.uploadFrameTotal > 0
+                     ? "\(flywheelService.uploadFrameTotal) frames · keep the app open"
+                     : "keep the app open")
+                    .font(.system(size: 11))
+                    .foregroundColor(.bscTextTertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+            Text("\(Int(flywheelService.uploadProgress * 100))%")
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .foregroundColor(.bscPrimary)
+        }
+        .padding(.horizontal, BSCSpacing.md)
+        .padding(.vertical, BSCSpacing.sm)
+        .frame(maxWidth: 500)
+        .background(
+            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                .fill(Color.bscBackgroundElevated)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+        .padding(.horizontal, BSCSpacing.lg)
     }
 
     private var processingPill: some View {

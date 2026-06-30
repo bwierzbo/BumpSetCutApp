@@ -340,6 +340,14 @@ struct RallyPlayerView: View {
                 RallyBufferingOverlay()
                     .zIndex(500)
             }
+
+            // Saving favorites overlay — favorite clips export to the library on
+            // exit/export/share, which can take a few seconds. Show progress so the
+            // back button doesn't appear frozen.
+            if viewModel.isSavingFavorites {
+                RallyBufferingOverlay(message: "Saving favorites…")
+                    .zIndex(550)
+            }
         }
         // Navigation swipe — disabled while trimming or while the prompt is up.
         .gesture(interactionBlocked ? nil : swipeGesture(geometry: geometry))
@@ -436,6 +444,8 @@ struct RallyPlayerView: View {
                         let absH = abs(value.translation.height)
                         if absW > 10 || absH > 10 {
                             viewModel.dragAxis = absW >= absH ? .horizontal : .vertical
+                            // Subtle tick the moment the swipe direction is committed.
+                            UIImpactFeedbackGenerator.light()
                         }
                     }
 
@@ -508,8 +518,12 @@ struct RallyPlayerView: View {
     private func pinchGesture() -> some Gesture {
         MagnificationGesture()
             .onChanged { value in
-                let newScale = viewModel.baseZoomScale * value
-                viewModel.zoomScale = min(max(newScale, 1.0), 5.0)
+                let clamped = min(max(viewModel.baseZoomScale * value, 1.0), 5.0)
+                // Tick once when first reaching the zoom cap.
+                if clamped == 5.0 && viewModel.zoomScale < 5.0 {
+                    UIImpactFeedbackGenerator.light()
+                }
+                viewModel.zoomScale = clamped
             }
             .onEnded { value in
                 let newScale = viewModel.baseZoomScale * value
@@ -544,6 +558,10 @@ struct RallyPlayerView: View {
         let magnify = MagnificationGesture()
             .onChanged { value in
                 let newScale = min(max(viewModel.baseZoomScale * value, 1.0), zoomLimit)
+                // Tick once when first reaching the zoom cap.
+                if newScale == zoomLimit && viewModel.zoomScale < zoomLimit {
+                    UIImpactFeedbackGenerator.light()
+                }
                 viewModel.zoomScale = newScale
                 viewModel.zoomOffset = clampedOffset(viewModel.zoomOffset, scale: newScale, cardSize: geometry.size)
             }

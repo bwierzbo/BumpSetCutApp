@@ -28,6 +28,7 @@ enum FlywheelTrigger: String, Codable {
     case userRemoved = "user_removed"  // user swiped a rally away in review
     case userTrimmed = "user_trimmed"  // user corrected the rally's start/end
     case reported = "reported"         // explicit "report a mistake"
+    case noRallies = "no_rallies"      // passive: detector found NO rallies in the video
 }
 
 // MARK: - Flag Event
