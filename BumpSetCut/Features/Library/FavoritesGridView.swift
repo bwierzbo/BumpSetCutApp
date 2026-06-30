@@ -617,9 +617,11 @@ struct FavoritesFeedView: View {
     /// Surface the long-press trim affordance once, then never again.
     private func maybeShowTrimHint() {
         guard !videos.isEmpty, !AppSettings.shared.hasSeenFavoritesTrimHint else { return }
-        AppSettings.shared.hasSeenFavoritesTrimHint = true
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            // Mark seen only once the hint actually appears — otherwise a dismissal
+            // within the 0.6s window would burn the one-time hint without showing it.
+            AppSettings.shared.hasSeenFavoritesTrimHint = true
             withAnimation(.easeInOut(duration: 0.3)) { showTrimHint = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
                 withAnimation(.easeInOut(duration: 0.3)) { showTrimHint = false }

@@ -12,7 +12,6 @@ final class HomeViewModel {
     var totalRallies: Int = 0
     /// Total dead time removed across all processed videos (source length − rally time).
     var totalTimeCutSeconds: Double = 0
-    var isLoading: Bool = false
 
     /// Compact display of total time cut, scaling up through units:
     /// "45s" → "38m" → "2h 14m" → "3d 4h" → "1y 23d".

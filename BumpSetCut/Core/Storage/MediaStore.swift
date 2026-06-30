@@ -564,28 +564,41 @@ struct FolderManifest: Codable {
     /// Apply already-computed stale removals to the manifest. Shared by the
     /// synchronous `cleanupStaleEntries()` and the deferred launch reconcile.
     private func applyStaleRemovals(videoKeys: [String], folderKeys: [String]) {
+        let fileManager = FileManager.default
         var needsSave = false
 
         for key in videoKeys {
-            if let video = manifest.videos[key] {
-                print("Removing stale video entry: \(video.displayName) (file not found)")
-                manifest.videos.removeValue(forKey: key)
-                needsSave = true
+            guard let video = manifest.videos[key] else { continue }
+            // Re-validate against the CURRENT path before deleting. The deferred
+            // reconcile scans paths off the main actor; if the user moved the video
+            // or renamed its folder during that window, the snapshot path is stale
+            // but the file is alive at its new home — removing it would silently
+            // wipe a video the user just moved.
+            let livePath = baseDirectory
+                .appendingPathComponent(video.folderPath)
+                .appendingPathComponent(video.fileName)
+            guard !fileManager.fileExists(atPath: livePath.path) else { continue }
 
-                if !video.folderPath.isEmpty,
-                   var folderMetadata = manifest.folders[video.folderPath] {
-                    folderMetadata.videoCount = max(0, folderMetadata.videoCount - 1)
-                    manifest.folders[video.folderPath] = folderMetadata
-                }
+            print("Removing stale video entry: \(video.displayName) (file not found)")
+            manifest.videos.removeValue(forKey: key)
+            needsSave = true
+
+            if !video.folderPath.isEmpty,
+               var folderMetadata = manifest.folders[video.folderPath] {
+                folderMetadata.videoCount = max(0, folderMetadata.videoCount - 1)
+                manifest.folders[video.folderPath] = folderMetadata
             }
         }
 
         for key in folderKeys {
-            if let folder = manifest.folders[key] {
-                print("Removing stale folder entry: \(folder.name) (directory not found)")
-                manifest.folders.removeValue(forKey: key)
-                needsSave = true
-            }
+            guard let folder = manifest.folders[key] else { continue }
+            // The folder key IS its current path, so recompute and re-check.
+            let liveURL = baseDirectory.appendingPathComponent(key, isDirectory: true)
+            guard !fileManager.fileExists(atPath: liveURL.path) else { continue }
+
+            print("Removing stale folder entry: \(folder.name) (directory not found)")
+            manifest.folders.removeValue(forKey: key)
+            needsSave = true
         }
 
         if needsSave { saveManifest() }

@@ -128,7 +128,11 @@ final class CommentsViewModel {
         poll = current
 
         let didSync = await syncVoteToServer()
-        if !didSync {
+        // Only roll back if the user's selection is still the one THIS call set.
+        // The sync loop coalesces rapid taps (A → B); if a later tap (B) already
+        // moved the selection forward, reverting to this call's snapshot would
+        // silently wipe B's legitimately-displayed vote.
+        if !didSync, poll?.myVoteOptionId == optionId {
             poll = snapshot
         }
     }

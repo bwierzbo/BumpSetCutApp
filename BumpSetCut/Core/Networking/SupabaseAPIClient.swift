@@ -206,16 +206,18 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .value
 
             // PostgREST embeds can't express a "liked by me" filter, so annotate
-            // the current user's likes with one follow-up query. Skipped when
-            // unauthenticated (comments are viewable without auth).
-            if let myId = try? await currentUserId(), !comments.isEmpty {
-                let likedRows: [CommentLikeRow] = try await supabase
+            // the current user's likes with one follow-up query. Best-effort (try?):
+            // the heart fill reconciles on the next load, and a hiccup on the new
+            // comment_likes table must not break comment loading itself. Skipped
+            // when unauthenticated (comments are viewable without auth).
+            if let myId = try? await currentUserId(), !comments.isEmpty,
+               let likedRows: [CommentLikeRow] = try? await supabase
                     .from("comment_likes")
                     .select("comment_id")
                     .eq("user_id", value: myId)
                     .in("comment_id", values: comments.map(\.id))
                     .execute()
-                    .value
+                    .value {
                 let likedIds = Set(likedRows.map(\.commentId))
                 for i in comments.indices where likedIds.contains(comments[i].id) {
                     comments[i].isLikedByMe = true

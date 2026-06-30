@@ -292,8 +292,7 @@ struct HomeView: View {
     private func animatedContent(contentWidth: CGFloat) -> some View {
         if let viewModel = viewModel {
             StatsCard(
-                stats: viewModel.stats(isPro: SubscriptionService.shared.isPro),
-                isLoading: viewModel.isLoading
+                stats: viewModel.stats(isPro: SubscriptionService.shared.isPro)
             )
             .accessibilityIdentifier(AccessibilityID.Home.statsCard)
             .frame(maxWidth: contentWidth)
