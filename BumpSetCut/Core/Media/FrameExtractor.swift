@@ -421,7 +421,9 @@ final class FrameExtractor {
         memoryPressureSource?.setEventHandler { [weak self] in
             guard let self = self else { return }
 
-            let event = self.memoryPressureSource?.mask ?? []
+            // .data is the fired event; .mask is the registration set and would
+            // make every warning read as critical
+            let event = self.memoryPressureSource?.data ?? []
             self.handleMemoryPressure(event: event)
         }
 

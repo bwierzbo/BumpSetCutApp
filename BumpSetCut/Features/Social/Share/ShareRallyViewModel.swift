@@ -171,8 +171,10 @@ final class ShareRallyViewModel {
     }
 
     func retry() {
+        // Re-enter through upload() so a failed batch retries the batch,
+        // not just the currently selected rally
         state = .idle
-        startUpload()
+        upload()
     }
 
     func cancel() {

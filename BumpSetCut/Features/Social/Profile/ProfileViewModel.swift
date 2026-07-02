@@ -85,8 +85,12 @@ final class ProfileViewModel {
                 let _: EmptyResponse = try await apiClient.request(.likeHighlight(id: highlight.id))
             }
         } catch {
-            highlights[index].isLikedByMe = wasLiked
-            highlights[index].likesCount += wasLiked ? 1 : -1
+            // Re-resolve by id — the pre-await index is stale if the array
+            // shrank or reordered while the request was in flight
+            if let idx = highlights.firstIndex(where: { $0.id == highlight.id }) {
+                highlights[idx].isLikedByMe = wasLiked
+                highlights[idx].likesCount += wasLiked ? 1 : -1
+            }
         }
     }
 

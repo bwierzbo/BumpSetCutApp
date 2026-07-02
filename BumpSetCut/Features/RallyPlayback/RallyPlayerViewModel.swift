@@ -773,6 +773,7 @@ final class RallyPlayerViewModel {
     // MARK: - Copy Favorites to Library
 
     func copyFavoritesToLibrary() async {
+        guard !isSavingFavorites else { return }
         guard !favoritedRallies.isEmpty,
               let metadata = processingMetadata else { return }
 
@@ -786,12 +787,23 @@ final class RallyPlayerViewModel {
         let favoritesDir = baseDir.appendingPathComponent(LibraryType.favorites.rootPath, isDirectory: true)
         try? fileManager.createDirectory(at: favoritesDir, withIntermediateDirectories: true)
 
+        // Export, Done, and back navigation all call this — skip rallies already
+        // copied on a previous pass instead of duplicating the clip each time
+        let alreadyCopied = Set(
+            mediaStore.getVideos(in: LibraryType.favorites.rootPath)
+                .filter { $0.sourceVideoId == videoMetadata.id }
+                .compactMap { $0.sourceRallyIndex }
+        )
+
         for index in favoritedRallies.sorted() {
-            guard index < metadata.rallySegments.count else { continue }
-            let segment = metadata.rallySegments[index]
+            guard index < metadata.rallySegments.count, !alreadyCopied.contains(index) else { continue }
             do {
-                let startTime = CMTime(seconds: segment.startTime, preferredTimescale: 600)
-                let endTime = CMTime(seconds: segment.endTime, preferredTimescale: 600)
+                // Respect the user's per-rally trim adjustments
+                let start = effectiveStartTime(for: index)
+                let end = effectiveEndTime(for: index)
+                guard end > start else { continue }
+                let startTime = CMTime(seconds: start, preferredTimescale: 600)
+                let endTime = CMTime(seconds: end, preferredTimescale: 600)
                 let timeRange = CMTimeRange(start: startTime, end: endTime)
 
                 // Export to temp

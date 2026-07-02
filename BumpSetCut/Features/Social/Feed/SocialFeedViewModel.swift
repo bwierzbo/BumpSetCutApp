@@ -134,9 +134,13 @@ final class SocialFeedViewModel {
                 let _: EmptyResponse = try await apiClient.request(.likeHighlight(id: highlight.id))
             }
         } catch {
-            // Revert on failure
-            highlights[index].isLikedByMe = wasLiked
-            highlights[index].likesCount += wasLiked ? 1 : -1
+            // Revert on failure — re-resolve by id; the pre-await index can be
+            // stale (feed switched, post deleted/prepended) and would crash or
+            // corrupt another post's like state
+            if let idx = highlights.firstIndex(where: { $0.id == highlight.id }) {
+                highlights[idx].isLikedByMe = wasLiked
+                highlights[idx].likesCount += wasLiked ? 1 : -1
+            }
         }
     }
 
