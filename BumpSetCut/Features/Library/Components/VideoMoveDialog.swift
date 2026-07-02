@@ -64,16 +64,17 @@ struct VideoMoveDialog: View {
                 // Folder list
                 ScrollView {
                     LazyVStack(spacing: BSCSpacing.xs) {
-                        // Root folder option
+                        // Library root option — folderPath must stay inside the video's
+                        // library ("" would strand the video outside every library view)
                         FolderRowView(
                             icon: "house.fill",
                             iconColor: .bscBlue,
                             name: "Root",
                             subtitle: "Main folder",
-                            isSelected: selectedFolderPath.isEmpty,
-                            isDisabled: false
+                            isSelected: selectedFolderPath == libraryRootPath,
+                            isDisabled: libraryRootPath == currentFolder
                         ) {
-                            selectedFolderPath = ""
+                            selectedFolderPath = libraryRootPath
                         }
 
                         // Other folders
@@ -141,9 +142,15 @@ struct VideoMoveDialog: View {
         selectedFolderPath != currentFolder
     }
 
+    private var libraryRootPath: String {
+        LibraryType.allCases.first {
+            currentFolder == $0.rootPath || currentFolder.hasPrefix($0.rootPath + "/")
+        }?.rootPath ?? LibraryType.saved.rootPath
+    }
+
     private func loadFolders() {
-        // Get all folders from MediaStore
-        let rootFolders = mediaStore.getFolders(in: "")
+        // Only offer destinations inside the video's own library
+        let rootFolders = mediaStore.getFolders(in: libraryRootPath)
         var allFolders = rootFolders
 
         // Recursively get subfolders

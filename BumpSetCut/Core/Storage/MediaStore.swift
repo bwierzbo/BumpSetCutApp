@@ -794,8 +794,10 @@ extension MediaStore {
             manifest.folders.removeValue(forKey: folderKey)
         }
         
-        // Remove child videos
-        let childVideos = manifest.videos.filter { $0.value.folderPath.hasPrefix(path) }
+        // Remove child videos (boundary-aware: "Team" must not match "Team B")
+        let childVideos = manifest.videos.filter {
+            $0.value.folderPath == path || $0.value.folderPath.hasPrefix("\(path)/")
+        }
         for (videoKey, _) in childVideos {
             manifest.videos.removeValue(forKey: videoKey)
         }
@@ -861,13 +863,12 @@ extension MediaStore {
         let fileManager = FileManager.default
 
         do {
-            // Remove original file
             if fileManager.fileExists(atPath: destinationURL.path) {
-                try fileManager.removeItem(at: destinationURL)
+                // Atomic replace — the original survives if installing the new file fails
+                _ = try fileManager.replaceItemAt(destinationURL, withItemAt: newURL)
+            } else {
+                try fileManager.moveItem(at: newURL, to: destinationURL)
             }
-
-            // Move trimmed file to original path
-            try fileManager.moveItem(at: newURL, to: destinationURL)
 
             // Update file size
             if let attributes = try? fileManager.attributesOfItem(atPath: destinationURL.path),

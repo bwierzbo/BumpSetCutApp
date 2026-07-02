@@ -878,18 +878,24 @@ struct UnprocessedVideoPickerSheet: View {
                 return
             }
 
-            // Save to Saved Games root
-            let success = mediaStore.addVideo(at: videoData.url, toFolder: LibraryType.saved.rootPath)
+            // Move the Photos temp file into library storage before registering it —
+            // iOS purges the temp URL, so the manifest must point at our own copy
+            let fileName = "Video_\(DateFormatter.yyyyMMdd_HHmmss.string(from: Date()))_\(UUID().uuidString.prefix(4)).mp4"
+            let destinationURL = StorageManager.getPersistentStorageDirectory()
+                .appendingPathComponent(LibraryType.saved.rootPath)
+                .appendingPathComponent(fileName)
+            try FileManager.default.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.moveItem(at: videoData.url, to: destinationURL)
+
+            let success = mediaStore.addVideo(at: destinationURL, toFolder: LibraryType.saved.rootPath)
 
             await MainActor.run {
                 isImporting = false
                 if success {
-                    // Find the just-added video and navigate to process it
-                    if let added = mediaStore.getAllVideos(in: .saved)
-                        .filter({ $0.canBeProcessed })
-                        .last {
-                        importedVideo = ImportedVideo(url: mediaStore.getVideoURL(for: added))
-                    }
+                    importedVideo = ImportedVideo(url: destinationURL)
                 }
             }
         } catch {
