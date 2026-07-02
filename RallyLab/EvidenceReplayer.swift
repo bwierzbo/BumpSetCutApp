@@ -43,9 +43,12 @@ enum EvidenceReplayer {
             builder.observe(isActive: isActive, at: t)
         }
 
-        let ranges = builder.finalize(until: CMTimeMakeWithSeconds(duration, preferredTimescale: 600))
-        var intervals = ranges.map {
-            Interval(start: CMTimeGetSeconds($0.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd($0)))
+        let built = builder.finalizeWithRaw(until: CMTimeMakeWithSeconds(duration, preferredTimescale: 600))
+        var segs = built.map {
+            (padded: Interval(start: CMTimeGetSeconds($0.padded.start),
+                              end: CMTimeGetSeconds(CMTimeRangeGetEnd($0.padded))),
+             raw: Interval(start: CMTimeGetSeconds($0.raw.start),
+                           end: CMTimeGetSeconds(CMTimeRangeGetEnd($0.raw))))
         }
 
         // Per-segment rally-score verdict: drop rallies whose confidence is below
@@ -58,8 +61,8 @@ enum EvidenceReplayer {
                 continuityWeight: cfg.rallyScoreContinuityWeight,
                 sizeWeight: cfg.rallyScoreSizeWeight,
                 skyBallTopThreshold: Double(cfg.skyBallTopThreshold))
-            intervals = intervals.filter { iv in
-                let total = scorer.rallyScore(start: iv.start, end: iv.end, in: evidence)?.total
+            segs = segs.filter { seg in
+                let total = scorer.rallyScore(start: seg.padded.start, end: seg.padded.end, in: evidence)?.total
                 // Keep rallies the scorer can't evaluate (too few samples) — the gate
                 // only drops rallies it can confidently score below the threshold.
                 return (total ?? 1.0) >= cfg.rallyScoreMinConfidence
@@ -69,11 +72,13 @@ enum EvidenceReplayer {
         // Above-net rule: a multi-contact rally must clear the net top once; single
         // arcs (e.g. a missed far-side serve) are exempt. Uses the net captured in
         // the evidence (the Net-tab box when injected) so it matches the overlay.
+        // Samples over the RAW rally span, matching production — padded ranges pick
+        // up serve-toss motion that reads as an extra arc.
         if cfg.enableAboveNetRequirement,
            let net = evidence.lazy.compactMap({ $0.detectedNet }).first {
             let netTopY = net.box.maxY - cfg.aboveNetMarginY
-            intervals = intervals.filter { iv in
-                let inRange = evidence.filter { $0.time >= iv.start && $0.time <= iv.end }
+            segs = segs.filter { seg in
+                let inRange = evidence.filter { $0.time >= seg.raw.start && $0.time <= seg.raw.end }
                 let ys: [CGFloat] = inRange.compactMap { (f) -> CGFloat? in
                     if let y = f.trackPoint?.y { return y }
                     return f.detections.filter { !$0.isOffCourt }.map { $0.bbox.midY }.max()
@@ -82,6 +87,6 @@ enum EvidenceReplayer {
                                                         arcProminence: cfg.aboveNetArcProminence)
             }
         }
-        return intervals
+        return segs.map { $0.padded }
     }
 }

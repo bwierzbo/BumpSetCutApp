@@ -30,6 +30,10 @@ final class VideoProcessor {
     /// Identity of the track currently driving the rally, for selection stickiness
     /// across frames. Reset per video.
     private var selectedTrackId: UUID?
+    // Consecutive processed frames the selected track has failed the gate while
+    // still fresh — the lock is held through short blips (every ball contact
+    // breaks the parabola fit for a few frames).
+    private var selectedDropCount = 0
 
     private var detector = YOLODetector()
     private var gate = BallisticsGate(config: ProcessorConfig())
@@ -164,6 +168,7 @@ final class VideoProcessor {
         self.decider = RallyDecider(config: config)
         decider.reset()
         selectedTrackId = nil
+        selectedDropCount = 0
 
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
@@ -360,6 +365,7 @@ final class VideoProcessor {
         decider.reset()
         segments.reset()
         selectedTrackId = nil
+        selectedDropCount = 0
         gate.net = nil
 
         // Net pre-pass: sample the net across the whole video (same spread as
@@ -408,6 +414,9 @@ final class VideoProcessor {
 
         // Per-frame ball heights (Vision y), for the above-net multi-contact rule.
         var ballHeights: [(t: Double, y: CGFloat)] = []
+        // Selected-track ball bbox areas for the per-rally serve-direction trend —
+        // tracker.tracks is pruned as tracks go stale, so it can't be read after the loop.
+        var ballSizes: [(t: Double, area: Double)] = []
 
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
@@ -427,6 +436,11 @@ final class VideoProcessor {
             // Skip detection/tracking on non-processed frames
             guard shouldProcess else {
                 skippedFrames += 1
+                // Keep progress advancing through skipped frames (~once per second)
+                if rawFrameIndex % fps == 0 {
+                    let p = min(1.0, Double(rawFrameIndex) / Double(max(totalFramesEstimate, 1)))
+                    await MainActor.run { self.progress = p }
+                }
                 CMSampleBufferInvalidate(sbuf)
                 continue
             }
@@ -466,6 +480,13 @@ final class VideoProcessor {
             // tracked ball, or the highest court-eligible detection this frame.
             let ballY = activeTrack?.positions.last?.0.y ?? courtDets.map { $0.bbox.midY }.max()
             if let ballY { ballHeights.append((CMTimeGetSeconds(pts), ballY)) }
+            if let sized = activeTrack?.positionsWithSize.last,
+               sized.bboxSize.width > 0, sized.bboxSize.height > 0 {
+                let sizeT = CMTimeGetSeconds(sized.time)
+                if ballSizes.last?.t != sizeT {
+                    ballSizes.append((sizeT, Double(sized.bboxSize.width * sized.bboxSize.height)))
+                }
+            }
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts, ballY: ballY)
             segments.observe(isActive: isActive, at: pts)
 
@@ -604,10 +625,11 @@ final class VideoProcessor {
                 }
             }
 
-            // Progress (~once per second)
+            // Progress (~once per second). Use rawFrameIndex — frameCount only counts
+            // stride-processed frames, which made the bar plateau at the skip rate.
             frameCount += 1
-            if frameCount % fps == 0 {
-                let p = min(1.0, max(0.0, Double(frameCount) / Double(max(totalFramesEstimate, 1))))
+            if rawFrameIndex % fps == 0 {
+                let p = min(1.0, max(0.0, Double(rawFrameIndex) / Double(max(totalFramesEstimate, 1))))
                 await MainActor.run { self.progress = p }
                 print(String(format: "[metadata] t=%.2fs det=%d proj=%@ inRally=%@ tracks=%d",
                              CMTimeGetSeconds(pts),
@@ -627,20 +649,24 @@ final class VideoProcessor {
             throw ProcessingError.assetReaderFailed(reader.error)
         }
 
-        var keep = segments.finalize(until: duration)
+        let built = segments.finalizeWithRaw(until: duration)
+        var keep = built.map { $0.padded }
 
         // Above-net rule: drop a multi-contact rally that never sends the ball above
         // this net's top edge (a background/other-court rally). Single arcs exempt.
+        // Sample heights over the RAW rally span — preroll/postroll padding contains
+        // serve-toss/aftermath motion that reads as an extra arc and would revoke the
+        // single-trajectory exemption (RallyLab tunes this rule on raw boundaries).
         if config.enableAboveNetRequirement, let net = detectedNet {
             let netTopY = net.box.maxY - config.aboveNetMarginY
             let before = keep.count
-            keep = keep.filter { range in
-                let s = CMTimeGetSeconds(range.start)
-                let e = CMTimeGetSeconds(CMTimeRangeGetEnd(range))
+            keep = built.filter { seg in
+                let s = CMTimeGetSeconds(seg.raw.start)
+                let e = CMTimeGetSeconds(CMTimeRangeGetEnd(seg.raw))
                 let ys = ballHeights.filter { $0.t >= s && $0.t <= e }.map { $0.y }
                 return Self.rallyClearsNetTop(ySamples: ys, netTopY: netTopY,
                                               arcProminence: config.aboveNetArcProminence)
-            }
+            }.map { $0.padded }
             if keep.count != before {
                 eventLog.log(.segmentFinalized,
                              detail: "aboveNetRule dropped \(before - keep.count) multi-contact rally(s) that never cleared the net top")
@@ -716,18 +742,15 @@ final class VideoProcessor {
             // The serve is the opening action, so the initial ball trajectory
             // tells us direction: growing bbox = approaching (far served),
             // shrinking bbox = receding (near served).
+            // Sampled during the frame loop (ballSizes) — tracker.tracks prunes stale
+            // tracks, so reading it here yielded nil for every rally but the last.
             let maxInitialSamples = 10
-            var trendPoints: [(time: Double, area: Double)] = []
-            for track in tracker.tracks {
-                for pos in track.positionsWithSize {
-                    let t = CMTimeGetSeconds(pos.time)
-                    if t >= rangeStart && t <= rangeEnd && pos.bboxSize.width > 0 && pos.bboxSize.height > 0 {
-                        trendPoints.append((time: t - rangeStart, area: Double(pos.bboxSize.width * pos.bboxSize.height)))
-                    }
-                }
-            }
-            trendPoints.sort { $0.time < $1.time }
-            trendPoints = Array(trendPoints.prefix(maxInitialSamples))
+            let trendPoints: [(time: Double, area: Double)] = Array(
+                ballSizes.lazy
+                    .filter { $0.t >= rangeStart && $0.t <= rangeEnd }
+                    .map { (time: $0.t - rangeStart, area: $0.area) }
+                    .prefix(maxInitialSamples)
+            )
             let ballSizeTrend: Double? = {
                 guard trendPoints.count >= 3 else { return nil }
                 let n = Double(trendPoints.count)
@@ -854,7 +877,11 @@ final class VideoProcessor {
             guard let last = t.positions.last?.1 else { return false }
             return CMTimeGetSeconds(CMTimeSubtract(now, last)) <= maxTrackStalenessSec
         }
-        guard !fresh.isEmpty else { selectedTrackId = nil; return (nil, nil, []) }
+        guard !fresh.isEmpty else {
+            selectedTrackId = nil
+            selectedDropCount = 0
+            return (nil, nil, [])
+        }
 
         // Validate every fresh track once. `size` is the ball's mean bbox side
         // length (√area) — RallyLab scales it into the drawn ROI radius.
@@ -888,10 +915,12 @@ final class VideoProcessor {
         }
 
         // Spatial lock: once a rally is locked to a court, drop candidates far from
-        // the currently-selected ball — keeps the rally on one court. Releases when
-        // that ball disappears (selected track no longer fresh/valid).
+        // the currently-selected ball — keeps the rally on one court. Anchors on the
+        // selected track's latest point even while it transiently fails the gate
+        // (contacts break the fit), so a far ball can't hijack during the blip.
+        // Releases when that ball disappears (selected track no longer fresh).
         if config.multiCourtSpatialLockEnabled,
-           let selPt = valid.first(where: { $0.track.id == selectedTrackId }).flatMap({ currentPoint($0.track) }) {
+           let selPt = evaluated.first(where: { $0.track.id == selectedTrackId }).flatMap({ currentPoint($0.track) }) {
             valid = valid.filter { e in
                 guard let pt = currentPoint(e.track) else { return false }
                 return hypot(pt.x - selPt.x, pt.y - selPt.y) <= config.multiCourtMaxLateralDistance
@@ -919,7 +948,23 @@ final class VideoProcessor {
                 selected = (best.e.track, best.e.gate)
             }
         }
-        selectedTrackId = selected?.track.id
+
+        if let selected {
+            selectedTrackId = selected.track.id
+            selectedDropCount = 0
+        } else if selectedTrackId != nil, fresh.contains(where: { $0.id == selectedTrackId }) {
+            // Selected track is still fresh but gate-invalid this frame — hold the
+            // lock/stickiness through the same blip grace RallyDecider allows,
+            // instead of releasing at the first failed fit.
+            selectedDropCount += 1
+            if selectedDropCount > config.projDropGracePeriod {
+                selectedTrackId = nil
+                selectedDropCount = 0
+            }
+        } else {
+            selectedTrackId = nil
+            selectedDropCount = 0
+        }
 
         // Candidates for visualization: every fresh track (valid or not).
         let scoreById = Dictionary(scored.map { ($0.e.track.id, $0.score) }, uniquingKeysWith: { a, _ in a })
