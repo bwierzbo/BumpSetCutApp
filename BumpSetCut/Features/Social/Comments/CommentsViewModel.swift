@@ -155,8 +155,8 @@ final class CommentsViewModel {
         while let pollId = poll?.id, let target = poll?.myVoteOptionId, target != synced {
             do {
                 let userId = try await SupabaseConfig.client.auth.session.user.id.uuidString.lowercased()
-                // Idempotent: clear any existing vote first, then insert the current choice.
-                let _: EmptyResponse = try await apiClient.request(.deletePollVote(pollId: pollId))
+                // Single atomic upsert on (poll_id, user_id) — the old delete-then-
+                // insert pair could fail between calls and erase the persisted vote
                 let vote = PollVoteUpload(pollId: pollId, optionId: target, userId: userId)
                 let _: EmptyResponse = try await apiClient.request(.votePoll(vote))
                 synced = target

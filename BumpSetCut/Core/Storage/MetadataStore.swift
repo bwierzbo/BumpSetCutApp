@@ -484,3 +484,23 @@ extension MetadataStore {
         try? fileManager.removeItem(at: url)
     }
 }
+
+// MARK: - Full Sidecar Cleanup
+
+extension MetadataStore {
+    /// Remove every sidecar owned by a video: processing metadata (+ backup),
+    /// trim adjustments, review selections, and frame evidence. Missing files
+    /// are fine — call when the video itself is deleted so nothing leaks.
+    func deleteAllSidecars(for videoId: UUID) {
+        let urls = [
+            metadataURL(for: videoId),
+            backupURL(for: videoId),
+            trimURL(for: videoId),
+            reviewSelectionsURL(for: videoId),
+            evidenceURL(for: videoId),
+        ]
+        for url in urls {
+            try? fileManager.removeItem(at: url)
+        }
+    }
+}

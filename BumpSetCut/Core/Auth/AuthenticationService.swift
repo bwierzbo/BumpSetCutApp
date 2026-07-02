@@ -30,20 +30,16 @@ final class AuthenticationService {
     // MARK: - Session Restoration
 
     func restoreSession() async {
-        // Use a timeout to avoid hanging when no session exists
         do {
-            let session = try await withThrowingTaskGroup(of: Session.self) { group in
-                group.addTask {
-                    try await self.supabase.auth.session
-                }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(3))
-                    throw APIError.unauthorized
-                }
-                let result = try await group.next()!
-                group.cancelAll()
-                return result
+            // No stored session → nothing to restore; bail without any network wait.
+            // With a stored session, await auth.session untimed: the only wait is a
+            // legitimate token refresh, and racing it with a fixed timeout signed
+            // out users with valid-but-expired sessions on slow connections.
+            guard supabase.auth.currentSession != nil else {
+                authState = .unauthenticated
+                return
             }
+            let session = try await supabase.auth.session
 
             if session.isExpired {
                 // Session expired, try to refresh

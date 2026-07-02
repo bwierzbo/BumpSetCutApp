@@ -258,7 +258,10 @@ final class FlywheelCaptureService {
             }
         }
 
-        staged = remaining
+        // Merge instead of overwrite: contributions staged while this drain's
+        // uploads were in flight are in `staged` but not in the `jobs` snapshot
+        let drainedIds = Set(jobs.map { $0.contribution.id })
+        staged = remaining + staged.filter { !drainedIds.contains($0.id) }
         pendingCount = staged.count
         persistIndex()
 

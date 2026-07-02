@@ -44,6 +44,9 @@ final class ProcessingCoordinator {
     }
 
     @ObservationIgnored private var processingStartDate: Date?
+    // Run generation: a cancelled run's late callbacks (its CancellationError can
+    // land after a new run started) must not clobber the new run's state
+    @ObservationIgnored private var runGeneration = 0
 
     // MARK: - Processing Context (stored so VM can resume save flow)
     private(set) var videoURL: URL?
@@ -98,6 +101,9 @@ final class ProcessingCoordinator {
         // borderline rallies can be staged for relabeling after processing.
         self.processor.collectFrameEvidence = AppSettings.shared.enableDataFlywheel
 
+        runGeneration += 1
+        let gen = runGeneration
+
         currentTask = Task { [weak self] in
             guard let self else { return }
 
@@ -120,7 +126,7 @@ final class ProcessingCoordinator {
                 processor.setBackgroundCancellationHandler { [weak self] in
                     task?.cancel()
                     Task { @MainActor in
-                        self?.handleCancellation()
+                        self?.handleCancellation(gen: gen)
                     }
                 }
 
@@ -128,9 +134,10 @@ final class ProcessingCoordinator {
                     let tempURL = try await processor.processVideoDebug(videoURL)
                     let debugData = processor.trajectoryDebugger
                     await MainActor.run {
+                        guard gen == self.runGeneration else { return }
                         self.pendingSaveURL = tempURL
                         self.pendingDebugData = debugData
-                        self.handleCompletion()
+                        self.handleCompletion(gen: gen)
                     }
                 } else {
                     let metadata = try await processor.processVideo(videoURL, videoId: videoId)
@@ -201,20 +208,22 @@ final class ProcessingCoordinator {
                     // video; see the isDebugMode branch above.) So there's nothing to
                     // save here: the original now carries its rallies.
                     await MainActor.run {
-                        self.handleCompletion()
+                        self.handleCompletion(gen: gen)
                     }
                 }
 
             } catch is CancellationError {
-                await MainActor.run { self.handleCancellation() }
+                await MainActor.run { self.handleCancellation(gen: gen) }
             } catch ProcessingError.noRalliesDetected {
                 // Data flywheel (opted-in users only): a video where the detector
                 // found NO rallies is a hard negative worth relabeling. Persist the
                 // full per-frame evidence, then stage whole-video frame groupings.
                 let collectedEvidence = self.processor.frameEvidence
                 await MainActor.run {
-                    self.noRalliesDetected = true
-                    self.handleCompletion()
+                    if gen == self.runGeneration {
+                        self.noRalliesDetected = true
+                        self.handleCompletion(gen: gen)
+                    }
                     if AppSettings.shared.enableDataFlywheel, !collectedEvidence.isEmpty {
                         let stored = collectedEvidence.map(StoredFrameEvidence.init)
                         try? MetadataStore().saveFrameEvidence(stored, for: videoId)
@@ -225,12 +234,13 @@ final class ProcessingCoordinator {
                 )
             } catch {
                 await MainActor.run {
+                    guard gen == self.runGeneration else { return }
                     if StorageChecker.isStorageError(error) {
                         self.errorMessage = "Ran out of storage space during processing. Free up space and try again."
                     } else {
                         self.errorMessage = error.localizedDescription
                     }
-                    self.handleCompletion()
+                    self.handleCompletion(gen: gen)
                 }
             }
         }
@@ -239,6 +249,8 @@ final class ProcessingCoordinator {
     // MARK: - Cancel
 
     func cancelProcessing() {
+        // Invalidate the run so its late callbacks become no-ops
+        runGeneration += 1
         currentTask?.cancel()
         currentTask = nil
         isProcessing = false
@@ -276,7 +288,8 @@ final class ProcessingCoordinator {
 
     // MARK: - Private
 
-    private func handleCompletion() {
+    private func handleCompletion(gen: Int) {
+        guard gen == runGeneration else { return }
         isProcessing = false
         progress = 1.0
         didComplete = true
@@ -295,7 +308,8 @@ final class ProcessingCoordinator {
         }
     }
 
-    private func handleCancellation() {
+    private func handleCancellation(gen: Int) {
+        guard gen == runGeneration else { return }
         isProcessing = false
         progress = 0.0
         currentTask = nil

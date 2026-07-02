@@ -798,7 +798,16 @@ extension MediaStore {
         let childVideos = manifest.videos.filter {
             $0.value.folderPath == path || $0.value.folderPath.hasPrefix("\(path)/")
         }
-        for (videoKey, _) in childVideos {
+        let metadataStore = MetadataStore()
+        for (videoKey, video) in childVideos {
+            // Same teardown as deleteVideo: unlink processing relationships (a
+            // dangling processedVideoIds entry blocks reprocessing the original
+            // forever) and drop the video's sidecars and debug data
+            cleanupProcessedVideoRelationships(for: video)
+            metadataStore.deleteAllSidecars(for: video.id)
+            if let debugPath = video.debugDataPath {
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: debugPath))
+            }
             manifest.videos.removeValue(forKey: videoKey)
         }
     }
@@ -1081,6 +1090,12 @@ extension MediaStore {
 
         // Always clean up manifest regardless of file state
         cleanupProcessedVideoRelationships(for: videoMetadata)
+        // Delete sidecars + debug data too, or they leak forever (metadata,
+        // trims, selections, evidence live keyed by video id in ProcessedMetadata/)
+        MetadataStore().deleteAllSidecars(for: videoMetadata.id)
+        if let debugPath = videoMetadata.debugDataPath {
+            try? fileManager.removeItem(at: URL(fileURLWithPath: debugPath))
+        }
         manifest.videos.removeValue(forKey: fileName)
 
         // Update folder video count

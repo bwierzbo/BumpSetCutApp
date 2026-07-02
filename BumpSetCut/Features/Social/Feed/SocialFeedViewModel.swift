@@ -25,6 +25,9 @@ final class SocialFeedViewModel {
 
     private var currentPage = 0
     private let pageSize = 20
+    // Supersedes in-flight loads on tab switch — a dropped-by-guard load left
+    // the previous feed's content displayed under the new tab
+    private var loadGeneration = 0
     private let apiClient: any APIClient
 
     init(apiClient: (any APIClient)? = nil) {
@@ -43,7 +46,8 @@ final class SocialFeedViewModel {
     // MARK: - Loading
 
     func loadFeed() async {
-        guard !isLoading else { return }
+        loadGeneration += 1
+        let gen = loadGeneration
         isLoading = true
         error = nil
         currentPage = 0
@@ -53,6 +57,7 @@ final class SocialFeedViewModel {
                 ? .getFollowingFeed(page: 0, pageSize: pageSize)
                 : .getFeed(page: 0, pageSize: pageSize)
             let page: [Highlight] = try await apiClient.request(endpoint)
+            guard gen == loadGeneration else { return }
             let blocked = ModerationService.shared.blockedUserIds
             highlights = page.filter { highlight in
                 guard let authorUUID = UUID(uuidString: highlight.authorId) else { return true }
@@ -62,12 +67,15 @@ final class SocialFeedViewModel {
             currentPage = 1
             await enrichPollVotes()
         } catch {
+            guard gen == loadGeneration else { return }
             self.error = error
             highlights = []
             hasMorePages = false
         }
 
-        isLoading = false
+        if gen == loadGeneration {
+            isLoading = false
+        }
     }
 
     func loadMoreIfNeeded(currentItem: Highlight) async {
@@ -79,11 +87,14 @@ final class SocialFeedViewModel {
         isLoadingMore = true
         defer { isLoadingMore = false }
 
+        let gen = loadGeneration
         do {
             let endpoint: APIEndpoint = feedType == .following
                 ? .getFollowingFeed(page: currentPage, pageSize: pageSize)
                 : .getFeed(page: currentPage, pageSize: pageSize)
             let page: [Highlight] = try await apiClient.request(endpoint)
+            // A feed switch mid-request supersedes this page
+            guard gen == loadGeneration else { return }
             let blocked = ModerationService.shared.blockedUserIds
             let filtered = page.filter { highlight in
                 guard let authorUUID = UUID(uuidString: highlight.authorId) else { return true }

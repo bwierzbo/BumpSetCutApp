@@ -540,6 +540,10 @@ final class RallyPlayerViewModel {
     // MARK: - Actions
 
     func performAction(_ action: RallySwipeAction, direction: RallySwipeDirection, fromDragOffset: CGFloat = 0) {
+        // A double-tap would register the action twice and advance two rallies,
+        // skipping one unreviewed
+        guard !actions.isPerformingAction else { return }
+
         // Tactile confirmation the action committed (covers both swipes and button taps).
         switch action {
         case .save: UINotificationFeedbackGenerator.success()

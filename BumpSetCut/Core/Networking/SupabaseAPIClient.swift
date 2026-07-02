@@ -478,9 +478,11 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             return response
 
         case .votePoll(let vote):
+            // Atomic vote change: conflict on (poll_id, user_id) updates the row
+            // in place (delete-then-insert left no vote if the insert failed)
             try await supabase
                 .from("poll_votes")
-                .insert(vote)
+                .upsert(vote, onConflict: "poll_id,user_id")
                 .execute()
             return try safeCast(EmptyResponse())
 
@@ -507,16 +509,6 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .execute()
                 .value
             return try safeCast(rows)
-
-        case .deletePollVote(let pollId):
-            let userId = try await currentUserId()
-            try await supabase
-                .from("poll_votes")
-                .delete()
-                .eq("poll_id", value: pollId)
-                .eq("user_id", value: userId)
-                .execute()
-            return try safeCast(EmptyResponse())
 
         // MARK: Auth (handled via Supabase Auth, not DB)
 
@@ -637,17 +629,32 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         outputStream.open()
         defer { outputStream.close() }
 
-        func writeString(_ string: String) {
+        // Write the full buffer or throw — OutputStream.write can return short
+        // counts or -1 (e.g. temp volume full); ignoring that uploaded a
+        // truncated multipart body that the server accepted as a valid video
+        func writeAll(_ pointer: UnsafePointer<UInt8>, count: Int) throws {
+            var written = 0
+            while written < count {
+                let result = outputStream.write(pointer + written, maxLength: count - written)
+                guard result > 0 else {
+                    throw outputStream.streamError
+                        ?? APIError.invalidRequest("Failed writing multipart file to \(outputURL)")
+                }
+                written += result
+            }
+        }
+
+        func writeString(_ string: String) throws {
             let data = Data(string.utf8)
-            _ = data.withUnsafeBytes { buffer in
-                outputStream.write(buffer.baseAddress!.assumingMemoryBound(to: UInt8.self), maxLength: data.count)
+            try data.withUnsafeBytes { buffer in
+                try writeAll(buffer.baseAddress!.assumingMemoryBound(to: UInt8.self), count: data.count)
             }
         }
 
         // Multipart header for the file field
-        writeString("--\(boundary)\r\n")
-        writeString("Content-Disposition: form-data; name=\"\"; filename=\"\(fileName)\"\r\n")
-        writeString("Content-Type: video/mp4\r\n\r\n")
+        try writeString("--\(boundary)\r\n")
+        try writeString("Content-Disposition: form-data; name=\"\"; filename=\"\(fileName)\"\r\n")
+        try writeString("Content-Type: video/mp4\r\n\r\n")
 
         // Stream video file in chunks (64KB at a time)
         guard let inputStream = InputStream(url: fileURL) else {
@@ -663,14 +670,18 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         while inputStream.hasBytesAvailable {
             let bytesRead = inputStream.read(buffer, maxLength: bufferSize)
             if bytesRead > 0 {
-                outputStream.write(buffer, maxLength: bytesRead)
+                try writeAll(buffer, count: bytesRead)
+            } else if bytesRead < 0 {
+                // A mid-stream read failure must fail the upload, not truncate it
+                throw inputStream.streamError
+                    ?? APIError.invalidRequest("Failed reading video file at \(fileURL)")
             } else {
                 break
             }
         }
 
         // Multipart footer
-        writeString("\r\n--\(boundary)--\r\n")
+        try writeString("\r\n--\(boundary)--\r\n")
     }
 
     // MARK: - Avatar Upload

@@ -87,7 +87,12 @@ struct HighlightCardView: View {
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
                         UIImpactFeedbackGenerator.medium()
-                        onLike()
+                        // Like-only (Instagram/TikTok semantics): double-tapping an
+                        // already-liked post must not unlike it while playing the
+                        // "liked" heart animation. The heart button stays a toggle.
+                        if !highlight.isLikedByMe {
+                            onLike()
+                        }
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                             showLikeHeart = true
                         }

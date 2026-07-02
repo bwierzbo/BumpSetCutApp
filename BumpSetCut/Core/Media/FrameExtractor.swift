@@ -9,6 +9,7 @@ import Foundation
 import AVFoundation
 import CoreGraphics
 import UIKit
+import os
 import os.log
 
 /// Infrastructure layer service for extracting video frames with LRU caching
@@ -243,16 +244,17 @@ final class FrameExtractor {
                     return
                 }
 
-                // Thread-safe flag to prevent double-resume
-                let hasResumed = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
-                hasResumed.initialize(to: false)
-                let resumeLock = NSLock()
+                // Thread-safe flag to prevent double-resume (a manual pointer here
+                // was never deallocated — one heap leak per extraction)
+                let hasResumed = OSAllocatedUnfairLock(initialState: false)
 
                 func resumeOnce(with result: Result<UIImage, Error>) {
-                    resumeLock.lock()
-                    defer { resumeLock.unlock() }
-                    guard !hasResumed.pointee else { return }
-                    hasResumed.pointee = true
+                    let shouldResume = hasResumed.withLock { resumed -> Bool in
+                        guard !resumed else { return false }
+                        resumed = true
+                        return true
+                    }
+                    guard shouldResume else { return }
 
                     switch result {
                     case .success(let image):

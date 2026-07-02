@@ -64,7 +64,6 @@ enum APIEndpoint {
     case votePoll(PollVoteUpload)
     case getMyPollVote(pollId: String)
     case getMyPollVotes(pollIds: [String])
-    case deletePollVote(pollId: String)
 
     // Upload
     case createUploadURL
@@ -109,7 +108,6 @@ enum APIEndpoint {
         case .votePoll: return "/poll_votes"
         case .getMyPollVote(let pollId): return "/polls/\(pollId)/my-vote"
         case .getMyPollVotes: return "/poll_votes/mine"
-        case .deletePollVote(let pollId): return "/polls/\(pollId)/my-vote"
         case .createUploadURL: return "/uploads"
         }
     }
@@ -124,7 +122,7 @@ enum APIEndpoint {
             return .post
         case .signOut:
             return .post
-        case .deleteAccount, .deleteHighlight, .deleteComment, .unlikeHighlight, .unlikeComment, .unfollow, .unblockUser, .deletePollVote:
+        case .deleteAccount, .deleteHighlight, .deleteComment, .unlikeHighlight, .unlikeComment, .unfollow, .unblockUser:
             return .delete
         case .updateProfile:
             return .patch
