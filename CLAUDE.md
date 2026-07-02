@@ -8,21 +8,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Commands
 
+All builds go through the canonical script — do NOT hand-write `xcodebuild build` invocations or hardcode simulator names/UDIDs (they rot when Xcode updates):
+
 ```bash
-# Build
-xcodebuild -project BumpSetCut.xcodeproj -scheme BumpSetCut build
+scripts/build.sh            # auto: builds target(s) affected by changed files
+scripts/build.sh ios        # BumpSetCut on a live iPhone simulator
+scripts/build.sh mac        # RallyLab (macOS)
+scripts/build.sh both       # both targets
+scripts/build.sh mac --run  # build RallyLab and relaunch the app
+scripts/build.sh doctor     # print the resolved simulator UDID
 
-# Build for simulator
-xcodebuild -project BumpSetCut.xcodeproj -scheme BumpSetCut \
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' build
-
-# Run unit + UI tests
+# Run unit + UI tests (resolve destination first)
+UDID=$(scripts/build.sh doctor | sed -n 's/^simulator: //p')
 xcodebuild test -project BumpSetCut.xcodeproj -scheme BumpSetCut \
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+  -destination "platform=iOS Simulator,id=$UDID"
 
 # Lint (requires swiftlint installed: brew install swiftlint)
 swiftlint
 ```
+
+Build rules:
+- **Dual-target rule**: BumpSetCut (iOS) and RallyLab (macOS) share the processing pipeline (files listed in RallyLab's `membershipExceptions` in project.pbxproj). Any change to a shared file must build BOTH targets before being declared done — `scripts/build.sh auto` handles this. A shared-file change once silently broke RallyLab for days.
+- `unable to attach DB` build errors mean the Xcode GUI holds the build database — the script retries once; after that ask the user to stop the Xcode build. Don't spam retries.
+- Ignore SourceKit/IDE diagnostics completely ("Cannot find X in scope" after edits is noise) — never mention them; only build output counts.
+- Don't rebuild targets untouched by the change.
+- If a test fails after your changes, use the **preexisting** skill before debugging — ~91 tests fail on a clean tree.
 
 ### Testing
 Two XCTest targets exist: **BumpSetCutTests** (unit) and **BumpSetCutUITests** (UI).
@@ -99,9 +109,27 @@ YOLODetector → KalmanBallTracker → BallisticsGate → RallyDecider → Segme
 - Clean up AVPlayer instances in `onDisappear`
 
 ## CoreML Model
-- **File**: `bestv2.mlpackage` in `Resources/ML/`
-- **Type**: YOLO volleyball detection model
+- **Default ball model**: `ball_v2_small.mlpackage` in `Resources/ML/` (yolo26 raw export; fallbacks: bestv3, bestv2). Net model: `net.mlpackage`. Both apps share `YOLODetector()`.
 - App functions without model but AI features are disabled
+- **New models must be**: (1) added to `Resources/ML/`, (2) added to RallyLab's `membershipExceptions` in project.pbxproj, (3) **committed to git in the same commit that references them** — a pbxproj reference to an uncommitted mlpackage builds locally but breaks Xcode Cloud. Large blobs may need `git config http.postBuffer 524288000` to push.
+
+## CI (Xcode Cloud)
+- `Secrets.swift` is gitignored; `ci_scripts/ci_post_clone.sh` regenerates it from `SUPABASE_URL`/`SUPABASE_ANON_KEY` env vars set in the Xcode Cloud workflow. Any new local-only file the build depends on needs the same treatment, or CI archive breaks with "Cannot find X in scope" while local builds pass.
+
+## Supabase Migrations
+After ANY DDL applied to the live project (`apply_migration`/`execute_sql`):
+1. Commit the SQL as a numbered migration file in the same commit/PR as the app code that uses it — prod DB ahead of unmerged code is a known standing risk; don't widen it.
+2. Verify the app's RPC call matches the function signature exactly (parameter names AND optionality) — omitting a defaulted param causes "Could not find the function ... in the schema cache" at runtime.
+3. Storage uploads with `upsert: true` need an UPDATE policy on the bucket, not just INSERT.
+4. Re-run `get_advisors` (security + performance). Explicit grants survive default-privilege revokes — re-check `anon` execute grants after hardening.
+
+## Product Invariants (each cost a real correction round-trip — don't re-learn them)
+- Processing produces **metadata only**; never create a copy of the original video. Processed output lives with the original.
+- Pipeline philosophy: deterministic rules + FSM + court geometry + ball continuity. NO ML rally classification, NO weighted scoring as the primary mechanism, NO player tracking/pose. Camera is assumed at the endline. Keep physics validation conservative; when touching tracking, sanity-check up/down trajectory direction (historical inversion bug).
+- RallyLab and the iOS app are ONE shared pipeline — a tuning/config change in one must be applied to the other.
+- Lifetime stats (e.g. "time cut") are cumulative and must survive rally/file deletion — never derive them from file existence.
+- Displayed detection confidence = raw YOLO model confidence, never a derived/binary value. Debug overlays must reflect actual algorithm state and be toggleable.
+- The user verifies features on a **physical iPhone**, not the simulator — don't build simulator UI-automation flows for manual verification; add temporary tagged debug logging instead and strip it before commit (see the **device-logs** skill for triaging pasted console output).
 
 ## Sub-Agent Usage
 - Use **code-analyzer** agent for searching code, analyzing bugs, tracing logic
