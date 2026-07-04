@@ -639,8 +639,13 @@ struct FolderManifest: Codable {
 
 extension MediaStore {
     func createFolder(name: String, parentPath: String = "") -> Bool {
+        // Reject path-traversal / illegal names (e.g. "../evil", names containing "/")
+        // so no caller can escape the library root. This is the single choke point;
+        // callers must not construct folder paths without going through here.
+        guard FolderValidationRules.isValidName(name) else { return false }
+
         let folderPath = parentPath.isEmpty ? name : "\(parentPath)/\(name)"
-        
+
         // Check if folder already exists
         if manifest.folders[folderPath] != nil {
             return false
@@ -678,8 +683,10 @@ extension MediaStore {
     }
     
     func renameFolder(at path: String, to newName: String) -> Bool {
+        // Reject path-traversal / illegal names before they reach the filesystem.
+        guard FolderValidationRules.isValidName(newName) else { return false }
         guard var folderMetadata = manifest.folders[path] else { return false }
-        
+
         let parentPath = folderMetadata.parentPath ?? ""
         let newPath = parentPath.isEmpty ? newName : "\(parentPath)/\(newName)"
         
