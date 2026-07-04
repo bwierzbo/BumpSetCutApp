@@ -108,6 +108,11 @@ extension Color {
     /// Scrim fill for pills/badges/gradients over media to guarantee chrome contrast
     /// even on bright video frames.
     static let bscMediaScrim = Color.black.opacity(0.45)
+
+    /// Base color for scrims that need a non-standard opacity. Apply `.opacity(x)`
+    /// to this instead of `Color.black` so themes can restyle every media scrim
+    /// from one place.
+    static let bscMediaScrimBase = Color.black
 }
 
 // MARK: - Text Colors (Adaptive)
