@@ -30,12 +30,12 @@ struct ReportMistakeSheet: View {
                 VStack(spacing: BSCSpacing.lg) {
                     VStack(spacing: BSCSpacing.xs) {
                         Text("What did the model get wrong?")
-                            .font(.system(size: 18, weight: .semibold))
+                            .bscFont(size: 18, weight: .semibold)
                             .foregroundColor(.bscTextPrimary)
                             .multilineTextAlignment(.center)
 
                         Text("This clip and its detection data help improve detection.")
-                            .font(.system(size: 13))
+                            .bscFont(size: 13)
                             .foregroundColor(.bscTextSecondary)
                             .multilineTextAlignment(.center)
                     }
@@ -49,15 +49,15 @@ struct ReportMistakeSheet: View {
                             } label: {
                                 HStack(spacing: BSCSpacing.md) {
                                     Image(systemName: reason.icon)
-                                        .font(.system(size: 18))
+                                        .bscFont(size: 18)
                                         .foregroundColor(.bscPrimary)
                                         .frame(width: 28)
                                     Text(reason.label)
-                                        .font(.system(size: 16, weight: .medium))
+                                        .bscFont(size: 16, weight: .medium)
                                         .foregroundColor(.bscTextPrimary)
                                     Spacer()
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .bscFont(size: 13, weight: .semibold)
                                         .foregroundColor(.bscTextSecondary)
                                 }
                                 .padding(BSCSpacing.md)

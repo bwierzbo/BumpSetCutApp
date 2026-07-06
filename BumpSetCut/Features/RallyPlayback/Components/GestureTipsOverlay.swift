@@ -16,15 +16,15 @@ struct GestureTipsOverlay: View {
     var body: some View {
         ZStack {
             // Semi-transparent background
-            Color.black.opacity(0.9)
+            Color.bscMediaScrimBase.opacity(0.9)
                 .ignoresSafeArea()
                 .opacity(showingContent ? 1 : 0)
 
             VStack(spacing: 40) {
                 // Title
                 Text("Swipe Actions")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(.white)
+                    .bscFont(size: 28, weight: .bold)
+                    .foregroundColor(.bscOnMedia)
                     .opacity(showingContent ? 1 : 0)
                     .offset(y: showingContent ? 0 : -20)
 
@@ -46,21 +46,21 @@ struct GestureTipsOverlay: View {
                         .opacity(showingContent ? 1 : 0)
 
                     // Center card representation
-                    RoundedRectangle(cornerRadius: 16)
+                    RoundedRectangle(cornerRadius: BSCRadius.lg)
                         .fill(Color.bscSurfaceGlass)
                         .frame(width: 90, height: 130)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: BSCRadius.lg)
+                                .stroke(Color.bscOnMedia.opacity(0.2), lineWidth: 1)
                         )
                         .overlay(
                             VStack(spacing: BSCSpacing.sm) {
                                 Image(systemName: "play.fill")
-                                    .font(.system(size: 28))
+                                    .bscFont(size: 28)
                                     .foregroundColor(.bscPrimary)
                                 Text("Rally")
                                     .font(.caption.bold())
-                                    .foregroundColor(.white.opacity(0.7))
+                                    .foregroundColor(.bscOnMediaSecondary)
                             }
                         )
                         .scaleEffect(showingContent ? 1 : 0.8)
@@ -73,11 +73,11 @@ struct GestureTipsOverlay: View {
                     // Hold to trim hint
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "hand.tap.fill")
-                            .font(.system(size: 14, weight: .semibold))
+                            .bscFont(size: 14, weight: .semibold)
                         Text("Hold to Trim & Adjust Angle")
-                            .font(.system(size: 13, weight: .bold))
+                            .bscFont(size: 13, weight: .bold)
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.bscOnMedia)
                     .padding(.horizontal, BSCSpacing.md)
                     .padding(.vertical, BSCSpacing.sm)
                     .background(Color.bscPrimary.opacity(0.25))
@@ -90,11 +90,11 @@ struct GestureTipsOverlay: View {
                     // Tap counter for overview hint
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "square.grid.2x2")
-                            .font(.system(size: 14, weight: .semibold))
+                            .bscFont(size: 14, weight: .semibold)
                         Text("Tap Counter for Overview")
-                            .font(.system(size: 13, weight: .bold))
+                            .bscFont(size: 13, weight: .bold)
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.bscOnMedia)
                     .padding(.horizontal, BSCSpacing.md)
                     .padding(.vertical, BSCSpacing.sm)
                     .background(Color.bscPrimary.opacity(0.25))
@@ -104,13 +104,14 @@ struct GestureTipsOverlay: View {
                             .stroke(Color.bscPrimary.opacity(0.4), lineWidth: 1)
                     )
                 }
+                .accessibilityElement(children: .combine)
                 .opacity(showingContent ? 1 : 0)
                 .offset(y: showingContent ? 0 : 10)
 
                 // Dismiss hint
                 Text("Tap anywhere to continue")
-                    .font(.system(size: 15))
-                    .foregroundColor(.white.opacity(0.5))
+                    .bscFont(size: 15)
+                    .foregroundColor(Color.bscOnMedia.opacity(0.5))
                     .opacity(showingContent ? 1 : 0)
                     .offset(y: showingContent ? 0 : 20)
             }
@@ -118,7 +119,7 @@ struct GestureTipsOverlay: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(.bscQuick) {
                 showingContent = false
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -126,7 +127,7 @@ struct GestureTipsOverlay: View {
             }
         }
         .onAppear {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.1)) {
+            withAnimation(.bscSpring.delay(0.1)) {
                 showingContent = true
             }
         }
@@ -142,6 +143,7 @@ private struct GestureArrow: View {
     let color: Color
 
     @State private var isAnimating = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum ArrowDirection {
         case up, down, left, right
@@ -155,7 +157,7 @@ private struct GestureArrow: View {
 
             // Animated arrow
             Image(systemName: arrowIcon)
-                .font(.system(size: 28, weight: .bold))
+                .bscFont(size: 28, weight: .bold)
                 .foregroundColor(color)
                 .offset(animationOffset)
 
@@ -164,6 +166,7 @@ private struct GestureArrow: View {
             }
         }
         .onAppear {
+            guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
                 isAnimating = true
             }
@@ -173,11 +176,11 @@ private struct GestureArrow: View {
     private var labelView: some View {
         HStack(spacing: BSCSpacing.xs) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
+                .bscFont(size: 12, weight: .semibold)
             Text(label)
-                .font(.system(size: 13, weight: .bold))
+                .bscFont(size: 13, weight: .bold)
         }
-        .foregroundColor(.white)
+        .foregroundColor(.bscOnMedia)
         .padding(.horizontal, BSCSpacing.md)
         .padding(.vertical, BSCSpacing.sm)
         .background(color.opacity(0.25))

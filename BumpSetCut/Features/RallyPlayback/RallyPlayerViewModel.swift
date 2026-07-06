@@ -63,7 +63,6 @@ final class RallyPlayerViewModel {
     var isTransitioning: Bool { navigation.isTransitioning }
     var transitionDirection: NavigationDirection? { navigation.transitionDirection }
     var canGoNext: Bool { navigation.canGoNext(totalCount: rallyVideoURLs.count) }
-    var canGoPrevious: Bool { navigation.canGoPrevious() }
     var totalRallies: Int { rallyVideoURLs.count }
 
     var currentRallyURL: URL? {
@@ -82,6 +81,8 @@ final class RallyPlayerViewModel {
     /// few seconds), so callers like the back button can show progress instead of
     /// appearing frozen.
     var isSavingFavorites = false
+    /// Non-nil when one or more favorite exports failed; drives a toast in the view.
+    var favoritesErrorMessage: String?
 
     /// Export the current rally segment (trim-aware) to a temp clip and surface it
     /// for the native share sheet. Rallies are time-ranges in the original video, so
@@ -412,16 +413,6 @@ final class RallyPlayerViewModel {
 
     // MARK: - Navigation
 
-    func navigateToNext() {
-        guard canGoNext else { return }
-        navigateTo(index: currentRallyIndex + 1, direction: .down)
-    }
-
-    func navigateToPrevious() {
-        guard canGoPrevious else { return }
-        navigateTo(index: currentRallyIndex - 1, direction: .up)
-    }
-
     func jumpToRally(_ index: Int) {
         guard index != currentRallyIndex else { return }
         playerCache.pause()
@@ -456,7 +447,7 @@ final class RallyPlayerViewModel {
         gesture.swipeOffsetY = gesture.dragOffset.height
         gesture.dragOffset = .zero
 
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+        withAnimation(.bscSwipe) {
             gesture.swipeOffsetY = targetOffset
         }
 
@@ -633,6 +624,8 @@ final class RallyPlayerViewModel {
     func undoLastAction() {
         guard let action = actions.undoLast() else { return }
 
+        UIImpactFeedbackGenerator.light()
+
         if action.isTrimAction {
             let metadataVideoId = videoMetadata.originalVideoId ?? videoMetadata.id
             trim.restoreTrimAdjustment(action.previousTrim, for: action.rallyIndex, videoId: metadataVideoId, metadataStore: metadataStore)
@@ -701,6 +694,7 @@ final class RallyPlayerViewModel {
     // MARK: - Trim Mode
 
     func enterTrimMode() {
+        UIImpactFeedbackGenerator.medium()
         trim.enterTrimMode(rallyIndex: currentRallyIndex)
         // Seed the gesture zoom from the saved framing so pinch/pan starts there.
         seedZoomForCurrentRally()
@@ -715,6 +709,7 @@ final class RallyPlayerViewModel {
     }
 
     func confirmTrim() {
+        UINotificationFeedbackGenerator.success()
         // Capture the live pinch/pan from the gesture state into the trim values
         // (zoom is size-independent; pan is normalized to card size).
         trim.currentTrimZoom = Double(gesture.zoomScale)
@@ -799,6 +794,7 @@ final class RallyPlayerViewModel {
                 .compactMap { $0.sourceRallyIndex }
         )
 
+        var failureCount = 0
         for index in favoritedRallies.sorted() {
             guard index < metadata.rallySegments.count, !alreadyCopied.contains(index) else { continue }
             do {
@@ -829,8 +825,13 @@ final class RallyPlayerViewModel {
                     sourceRallyIndex: index
                 )
             } catch {
+                failureCount += 1
                 print("Failed to export favorite rally \(index): \(error)")
             }
+        }
+
+        if failureCount > 0 {
+            favoritesErrorMessage = "\(failureCount) favorite\(failureCount == 1 ? "" : "s") couldn't be saved"
         }
     }
 

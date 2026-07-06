@@ -18,8 +18,8 @@ struct RallyPeekPreview: View {
                         insertion: .scale(scale: 0.95).combined(with: .opacity),
                         removal: .opacity
                     ))
-                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: peekProgress)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: peekDirection)
+                    .animation(.bscSnappy, value: peekProgress)
+                    .animation(.bscSnappy, value: peekDirection)
             }
         }
     }
@@ -28,20 +28,20 @@ struct RallyPeekPreview: View {
         peekFrameContent
             .frame(width: min(geometry.size.width * 0.9, geometry.size.width - 40))
             .aspectRatio(16/9, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg))
             .scaleEffect(calculateStickyNoteScale())
             .rotationEffect(calculateStickyNoteRotation())
             .offset(calculateStickyNoteOffset(direction: direction))
             .opacity(calculateStickyNoteOpacity())
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: peekProgress)
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: videoScale)
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: swipeRotation)
+            .animation(.bscSnappy, value: peekProgress)
+            .animation(.bscSnappy, value: videoScale)
+            .animation(.bscSnappy, value: swipeRotation)
             .zIndex(1.5)
     }
 
     private var peekFrameContent: some View {
         ZStack {
-            Color.black
+            Color.bscMediaBackground
                 .aspectRatio(16/9, contentMode: .fit)
 
             if let image = thumbnail {
@@ -50,9 +50,9 @@ struct RallyPeekPreview: View {
                     .aspectRatio(contentMode: .fill)
                     .clipped()
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: BSCSpacing.sm) {
                     Image(systemName: "video.fill")
-                        .font(.system(size: 30))
+                        .bscFont(size: 30)
                         .foregroundColor(.gray)
 
                     Text("Preview")
@@ -62,8 +62,8 @@ struct RallyPeekPreview: View {
             }
         }
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: BSCRadius.lg)
+                .stroke(Color.bscOnMedia.opacity(0.2), lineWidth: 1)
         )
     }
 
@@ -102,7 +102,7 @@ struct RallyPeekPreview: View {
 #Preview {
     GeometryReader { geometry in
         ZStack {
-            Color.black
+            Color.bscMediaBackground
             RallyPeekPreview(
                 peekProgress: 0.5,
                 peekDirection: .next,

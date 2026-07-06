@@ -44,11 +44,11 @@ struct RallyPlayerOverlay: View {
             Group {
                 if isPreparingShare {
                     ProgressView()
-                        .tint(.white)
+                        .tint(.bscOnMedia)
                 } else {
                     Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white)
+                        .bscFont(size: 16, weight: .medium)
+                        .foregroundColor(.bscOnMedia)
                 }
             }
             .frame(width: 44, height: 44)
@@ -57,7 +57,7 @@ struct RallyPlayerOverlay: View {
                     .fill(Color.bscSurfaceGlass)
                     .overlay(
                         Circle()
-                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                            .stroke(Color.bscOnMedia.opacity(0.2), lineWidth: 1)
                     )
             )
         }
@@ -70,15 +70,15 @@ struct RallyPlayerOverlay: View {
     private var helpButton: some View {
         Button(action: onShowTips) {
             Image(systemName: "questionmark.circle")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.white.opacity(0.7))
+                .bscFont(size: 16, weight: .medium)
+                .foregroundColor(.bscOnMediaSecondary)
                 .frame(width: 44, height: 44)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(0.1))
+                        .fill(Color.bscOnMedia.opacity(0.1))
                         .overlay(
                             Circle()
-                                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                                .stroke(Color.bscOnMedia.opacity(0.15), lineWidth: 1)
                         )
                 )
         }
@@ -91,15 +91,15 @@ struct RallyPlayerOverlay: View {
     private var backButton: some View {
         Button(action: onDismiss) {
             Image(systemName: "chevron.left")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.white)
+                .bscFont(size: 18, weight: .semibold)
+                .foregroundColor(.bscOnMedia)
                 .frame(width: 44, height: 44)
                 .background(
                     Circle()
                         .fill(Color.bscSurfaceGlass)
                         .overlay(
                             Circle()
-                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                                .stroke(Color.bscOnMedia.opacity(0.2), lineWidth: 1)
                         )
                 )
         }
@@ -114,22 +114,27 @@ struct RallyPlayerOverlay: View {
             HStack(spacing: BSCSpacing.xxs) {
                 if isFavorited {
                     Image(systemName: "star.fill")
-                        .font(.system(size: 12, weight: .bold))
+                        .bscFont(size: 12, weight: .bold)
                         .foregroundColor(.bscPrimary)
                 }
 
                 Text("\(currentIndex + 1)")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(.white)
+                    .bscFont(size: 16, weight: .bold)
+                    .foregroundColor(.bscOnMedia)
                     .contentTransition(.numericText())
 
                 Text("/")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.6))
+                    .bscFont(size: 14)
+                    .foregroundColor(Color.bscOnMedia.opacity(0.6))
 
                 Text("\(totalCount)")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white.opacity(0.8))
+                    .bscFont(size: 14, weight: .medium)
+                    .foregroundColor(Color.bscOnMedia.opacity(0.8))
+
+                Image(systemName: "square.grid.2x2")
+                    .bscFont(size: 11, weight: .semibold)
+                    .foregroundColor(.bscOnMediaSecondary)
+                    .padding(.leading, BSCSpacing.xxs)
             }
             .padding(.horizontal, BSCSpacing.lg)
             .padding(.vertical, BSCSpacing.sm)
@@ -145,10 +150,10 @@ struct RallyPlayerOverlay: View {
         .accessibilityLabel("Rally \(currentIndex + 1) of \(totalCount)")
         .accessibilityHint("Tap to see rally overview")
         .accessibilityIdentifier(AccessibilityID.RallyPlayer.counter)
-        .animation(.easeInOut(duration: 0.25), value: currentIndex)
-        .animation(.easeInOut(duration: 0.2), value: isSaved)
-        .animation(.easeInOut(duration: 0.2), value: isRemoved)
-        .animation(.easeInOut(duration: 0.2), value: isFavorited)
+        .animation(.bscStandard, value: currentIndex)
+        .animation(.bscQuick, value: isSaved)
+        .animation(.bscQuick, value: isRemoved)
+        .animation(.bscQuick, value: isFavorited)
     }
 
     private var statusBorderColor: Color {
@@ -159,7 +164,7 @@ struct RallyPlayerOverlay: View {
         } else if isRemoved {
             return .bscError.opacity(0.6)
         } else {
-            return .white.opacity(0.2)
+            return Color.bscOnMedia.opacity(0.2)
         }
     }
 }
@@ -167,7 +172,7 @@ struct RallyPlayerOverlay: View {
 // MARK: - Preview
 #Preview("RallyPlayerOverlay") {
     ZStack {
-        Color.black
+        Color.bscMediaBackground
         RallyPlayerOverlay(
             currentIndex: 2,
             totalCount: 10,

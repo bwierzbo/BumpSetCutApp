@@ -30,6 +30,9 @@ struct RallyTrimOverlay: View {
     @State private var thumbnails: [UIImage] = []
     @State private var leftDragBase: Double?
     @State private var rightDragBase: Double?
+    @State private var leftAtClamp = false
+    @State private var rightAtClamp = false
+    @State private var selectionHaptic = UISelectionFeedbackGenerator()
 
     // Time window visible in the filmstrip
     private var windowStart: Double { max(0, rallyStartTime - maxBuffer) }
@@ -45,7 +48,7 @@ struct RallyTrimOverlay: View {
         ZStack {
             // Dim backdrop — non-interactive so pinch/twist/drag reach the video
             // behind the overlay. Controls below stay interactive.
-            Color.black.opacity(0.45)
+            Color.bscMediaScrim
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
@@ -62,15 +65,15 @@ struct RallyTrimOverlay: View {
                 // Cancel / Duration / Done
                 HStack {
                     Button("Cancel") { onCancel() }
-                        .font(.system(size: 16))
-                        .foregroundColor(.white)
+                        .bscFont(size: 16)
+                        .foregroundColor(.bscOnMedia)
                     Spacer()
                     Text(formatDuration(selectionDuration))
-                        .font(.system(size: 15, weight: .medium, design: .monospaced))
+                        .bscFont(size: 15, weight: .medium, design: .monospaced)
                         .foregroundColor(.bscPrimary)
                     Spacer()
                     Button("Done") { onConfirm() }
-                        .font(.system(size: 16, weight: .semibold))
+                        .bscFont(size: 16, weight: .semibold)
                         .foregroundColor(.bscPrimary)
                 }
                 .padding(.horizontal, BSCSpacing.xl)
@@ -92,6 +95,7 @@ struct RallyTrimOverlay: View {
                 .padding(.bottom, BSCSpacing.huge)
             }
         }
+        .onAppear { selectionHaptic.prepare() }
         .task { await generateThumbnails() }
     }
 
@@ -101,24 +105,24 @@ struct RallyTrimOverlay: View {
     private var zoomHintRow: some View {
         HStack(spacing: BSCSpacing.sm) {
             Image(systemName: "hand.draw")
-                .font(.system(size: 12, weight: .semibold))
+                .bscFont(size: 12, weight: .semibold)
             Text("Pinch zoom · Twist angle · Drag to pan")
-                .font(.system(size: 12, weight: .medium))
+                .bscFont(size: 12, weight: .medium)
 
             Spacer()
 
             Text(String(format: "%.1f×", trimZoom))
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .bscFont(size: 12, weight: .semibold, design: .monospaced)
                 .foregroundColor(.bscPrimary)
 
             if trimZoom > 1.01 {
                 Button { onResetZoom() } label: {
                     Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 12, weight: .semibold))
+                        .bscFont(size: 12, weight: .semibold)
                 }
             }
         }
-        .foregroundColor(.white.opacity(0.85))
+        .foregroundColor(Color.bscOnMedia.opacity(0.85))
     }
 
     // MARK: - Angle Control
@@ -129,50 +133,63 @@ struct RallyTrimOverlay: View {
         let step = rotationStepDegrees
         let binding = Binding(
             get: { trimRotation },
-            set: { trimRotation = snap(clampDeg($0, max: max), step: step) }
+            set: { setRotation(snap(clampDeg($0, max: max), step: step)) }
         )
 
         HStack(spacing: BSCSpacing.md) {
             Button {
-                trimRotation = snap(clampDeg(trimRotation - step, max: max), step: step)
+                setRotation(snap(clampDeg(trimRotation - step, max: max), step: step))
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.white)
+                    .bscFont(size: 13, weight: .bold)
+                    .foregroundColor(.bscOnMedia)
                     .frame(width: 28, height: 28)
-                    .background(Color.white.opacity(0.15))
+                    .background(Color.bscOnMedia.opacity(0.15))
                     .clipShape(Circle())
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
 
             Slider(value: binding, in: -max...max, step: step)
                 .tint(.bscPrimary)
 
             Button {
-                trimRotation = snap(clampDeg(trimRotation + step, max: max), step: step)
+                setRotation(snap(clampDeg(trimRotation + step, max: max), step: step))
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.white)
+                    .bscFont(size: 13, weight: .bold)
+                    .foregroundColor(.bscOnMedia)
                     .frame(width: 28, height: 28)
-                    .background(Color.white.opacity(0.15))
+                    .background(Color.bscOnMedia.opacity(0.15))
                     .clipShape(Circle())
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
 
             Text(formatDegrees(trimRotation))
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .bscFont(size: 13, weight: .medium, design: .monospaced)
                 .foregroundColor(.bscPrimary)
                 .frame(width: 56, alignment: .trailing)
 
             Button {
-                trimRotation = 0
+                setRotation(0)
             } label: {
                 Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white.opacity(abs(trimRotation) < 0.01 ? 0.3 : 0.9))
-                    .frame(width: 28, height: 28)
+                    .bscFont(size: 12, weight: .semibold)
+                    .foregroundColor(Color.bscOnMedia.opacity(abs(trimRotation) < 0.01 ? 0.3 : 0.9))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .disabled(abs(trimRotation) < 0.01)
         }
+    }
+
+    /// Apply a snapped rotation value, ticking when it lands on a new 0.5° step.
+    private func setRotation(_ value: Double) {
+        guard value != trimRotation else { return }
+        selectionHaptic.selectionChanged()
+        selectionHaptic.prepare()
+        trimRotation = value
     }
 
     private func snap(_ value: Double, step: Double) -> Double {
@@ -201,13 +218,13 @@ struct RallyTrimOverlay: View {
 
             // 2. Dim overlay left of selection
             Rectangle()
-                .fill(Color.black.opacity(0.5))
+                .fill(Color.bscMediaScrim)
                 .frame(width: max(0, leftX), height: barHeight)
                 .allowsHitTesting(false)
 
             // 3. Dim overlay right of selection
             Rectangle()
-                .fill(Color.black.opacity(0.5))
+                .fill(Color.bscMediaScrim)
                 .frame(width: max(0, totalWidth - rightX), height: barHeight)
                 .offset(x: rightX)
                 .allowsHitTesting(false)
@@ -227,11 +244,29 @@ struct RallyTrimOverlay: View {
             trimHandle(isLeft: true)
                 .offset(x: leftX - handleHitPadding)
                 .gesture(leftHandleDrag(totalWidth: totalWidth))
+                .accessibilityElement()
+                .accessibilityLabel("Trim start")
+                .accessibilityValue(String(format: "%.1f seconds", effectiveStart))
+                .accessibilityAdjustableAction { direction in
+                    let delta = direction == .increment ? 0.5 : -0.5
+                    let newTime = Swift.max(windowStart, Swift.min(effectiveStart + delta, effectiveEnd - minSelectionDuration))
+                    trimBefore = rallyStartTime - newTime
+                    onScrub(newTime)
+                }
 
             // 6. Right handle (offset accounts for hit padding)
             trimHandle(isLeft: false)
                 .offset(x: rightX - handleWidth - handleHitPadding)
                 .gesture(rightHandleDrag(totalWidth: totalWidth))
+                .accessibilityElement()
+                .accessibilityLabel("Trim end")
+                .accessibilityValue(String(format: "%.1f seconds", effectiveEnd))
+                .accessibilityAdjustableAction { direction in
+                    let delta = direction == .increment ? 0.5 : -0.5
+                    let newTime = Swift.min(windowEnd, Swift.max(effectiveEnd + delta, effectiveStart + minSelectionDuration))
+                    trimAfter = newTime - rallyEndTime
+                    onScrub(newTime)
+                }
         }
         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm))
     }
@@ -242,7 +277,7 @@ struct RallyTrimOverlay: View {
     private func filmstrip(width: CGFloat) -> some View {
         if thumbnails.isEmpty {
             Rectangle()
-                .fill(Color.white.opacity(0.1))
+                .fill(Color.bscOnMedia.opacity(0.1))
                 .frame(width: width, height: barHeight)
         } else {
             HStack(spacing: 0) {
@@ -281,8 +316,8 @@ struct RallyTrimOverlay: View {
             .frame(width: handleWidth, height: barHeight)
             .overlay(
                 Image(systemName: isLeft ? "chevron.compact.left" : "chevron.compact.right")
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundColor(.white)
+                    .bscFont(size: 15, weight: .heavy)
+                    .foregroundColor(.bscOnMedia)
             )
             .allowsHitTesting(false)
         }
@@ -297,10 +332,14 @@ struct RallyTrimOverlay: View {
                 let baseX = xForTime(rallyStartTime - (leftDragBase ?? 0), in: totalWidth)
                 let newTime = timeForX(baseX + value.translation.width, in: totalWidth)
                 let clamped = max(windowStart, min(newTime, effectiveEnd - minSelectionDuration))
+                tickAtClamp(isClamped: clamped != newTime, wasClamped: &leftAtClamp)
                 trimBefore = rallyStartTime - clamped
                 onScrub(clamped)
             }
-            .onEnded { _ in leftDragBase = nil }
+            .onEnded { _ in
+                leftDragBase = nil
+                leftAtClamp = false
+            }
     }
 
     private func rightHandleDrag(totalWidth: CGFloat) -> some Gesture {
@@ -310,10 +349,23 @@ struct RallyTrimOverlay: View {
                 let baseX = xForTime(rallyEndTime + (rightDragBase ?? 0), in: totalWidth)
                 let newTime = timeForX(baseX + value.translation.width, in: totalWidth)
                 let clamped = min(windowEnd, max(newTime, effectiveStart + minSelectionDuration))
+                tickAtClamp(isClamped: clamped != newTime, wasClamped: &rightAtClamp)
                 trimAfter = clamped - rallyEndTime
                 onScrub(clamped)
             }
-            .onEnded { _ in rightDragBase = nil }
+            .onEnded { _ in
+                rightDragBase = nil
+                rightAtClamp = false
+            }
+    }
+
+    /// Tick once when a handle drag first hits its clamp (min duration or window edge).
+    private func tickAtClamp(isClamped: Bool, wasClamped: inout Bool) {
+        if isClamped && !wasClamped {
+            selectionHaptic.selectionChanged()
+            selectionHaptic.prepare()
+        }
+        wasClamped = isClamped
     }
 
     // MARK: - Position Mapping
@@ -367,7 +419,7 @@ struct RallyTrimOverlay: View {
 
 #Preview {
     ZStack {
-        Color.black
+        Color.bscMediaBackground
         RallyTrimOverlay(
             trimBefore: .constant(0.0),
             trimAfter: .constant(0.0),

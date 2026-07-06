@@ -74,7 +74,7 @@ struct RallyExportProgress: View {
         VStack(spacing: BSCSpacing.lg) {
             if exportStatus == .completed {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 60))
+                    .bscFont(size: 60)
                     .foregroundColor(.bscSuccess)
             } else {
                 ProgressView(value: exportProgress)
@@ -143,7 +143,7 @@ struct RallyExportProgress: View {
     private func storageErrorView(message: String) -> some View {
         VStack(spacing: BSCSpacing.xl) {
             Image(systemName: "externaldrive.badge.exclamationmark")
-                .font(.system(size: 60))
+                .bscFont(size: 60)
                 .foregroundColor(.bscWarning)
 
             VStack(spacing: BSCSpacing.sm) {
@@ -169,7 +169,7 @@ struct RallyExportProgress: View {
     private func failedView(errorMessage: String) -> some View {
         VStack(spacing: BSCSpacing.xl) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 60))
+                .bscFont(size: 60)
                 .foregroundColor(.bscError)
 
             VStack(spacing: BSCSpacing.sm) {
@@ -313,6 +313,7 @@ struct RallyExportProgress: View {
                 exportProgress = 1.0
                 exportStatus = .completed
                 isExporting = false
+                UINotificationFeedbackGenerator.success()
             }
 
         } catch is CancellationError {
@@ -333,6 +334,7 @@ struct RallyExportProgress: View {
                     exportStatus = .failed(error.localizedDescription)
                 }
                 isExporting = false
+                UINotificationFeedbackGenerator.error()
             }
         }
 

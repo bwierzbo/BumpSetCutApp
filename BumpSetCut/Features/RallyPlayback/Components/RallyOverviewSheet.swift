@@ -34,7 +34,7 @@ struct RallyOverviewSheet: View {
         VStack(spacing: 0) {
             // Drag indicator
             Capsule()
-                .fill(Color.white.opacity(0.3))
+                .fill(Color.bscOnMedia.opacity(0.3))
                 .frame(width: 36, height: 5)
                 .padding(.top, BSCSpacing.sm)
                 .padding(.bottom, isCompactHeight ? BSCSpacing.xs : BSCSpacing.md)
@@ -50,11 +50,14 @@ struct RallyOverviewSheet: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: BSCSpacing.md) {
                     ForEach(0..<rallyVideoURLs.count, id: \.self) { index in
-                        rallyCell(index: index)
-                            .bscStaggered(index: index)
-                            .onTapGesture {
-                                onSelectRally(index)
-                            }
+                        Button {
+                            UIImpactFeedbackGenerator.light()
+                            onSelectRally(index)
+                        } label: {
+                            rallyCell(index: index)
+                        }
+                        .buttonStyle(RallyCellButtonStyle())
+                        .bscStaggered(index: index)
                     }
                 }
                 .padding(.horizontal, BSCSpacing.lg)
@@ -75,7 +78,7 @@ struct RallyOverviewSheet: View {
     private var compactHeaderSection: some View {
         HStack(spacing: BSCSpacing.md) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 20, weight: .medium))
+                .bscFont(size: 20, weight: .medium)
                 .foregroundStyle(Color.bscSuccess)
 
             // Inline stats
@@ -91,13 +94,14 @@ struct RallyOverviewSheet: View {
 
             // Quick select/deselect actions
             Button {
+                UINotificationFeedbackGenerator.success()
                 onSaveAll()
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: BSCSpacing.xs) {
                     Image(systemName: "heart.fill")
-                        .font(.system(size: 11, weight: .bold))
+                        .bscFont(size: 11, weight: .bold)
                     Text("Save All")
-                        .font(.system(size: 13, weight: .semibold))
+                        .bscFont(size: 13, weight: .semibold)
                 }
                 .foregroundColor(.bscSuccess)
                 .padding(.horizontal, BSCSpacing.md)
@@ -109,13 +113,14 @@ struct RallyOverviewSheet: View {
             .opacity(savedRallies.count == rallyVideoURLs.count ? 0.4 : 1.0)
 
             Button {
+                UIImpactFeedbackGenerator.light()
                 onDeselectAll()
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: BSCSpacing.xs) {
                     Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: 11, weight: .bold))
+                        .bscFont(size: 11, weight: .bold)
                     Text("Clear All")
-                        .font(.system(size: 13, weight: .semibold))
+                        .bscFont(size: 13, weight: .semibold)
                 }
                 .foregroundColor(.bscTextSecondary)
                 .padding(.horizontal, BSCSpacing.md)
@@ -139,12 +144,12 @@ struct RallyOverviewSheet: View {
     private var headerSection: some View {
         VStack(spacing: BSCSpacing.md) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 48, weight: .medium))
+                .bscFont(size: 48, weight: .medium)
                 .foregroundStyle(Color.bscSuccess)
                 .symbolEffect(.bounce, value: appeared)
 
             Text("Review Complete")
-                .font(.system(size: 22, weight: .bold))
+                .bscFont(size: 22, weight: .bold)
                 .foregroundColor(.bscTextPrimary)
 
             // Compact stats pill row
@@ -160,13 +165,14 @@ struct RallyOverviewSheet: View {
             // Quick select/deselect actions
             HStack(spacing: BSCSpacing.md) {
                 Button {
+                    UINotificationFeedbackGenerator.success()
                     onSaveAll()
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: "heart.fill")
-                            .font(.system(size: 11, weight: .bold))
+                            .bscFont(size: 11, weight: .bold)
                         Text("Save All")
-                            .font(.system(size: 13, weight: .semibold))
+                            .bscFont(size: 13, weight: .semibold)
                     }
                     .foregroundColor(.bscSuccess)
                     .padding(.horizontal, BSCSpacing.md)
@@ -178,13 +184,14 @@ struct RallyOverviewSheet: View {
                 .opacity(savedRallies.count == rallyVideoURLs.count ? 0.4 : 1.0)
 
                 Button {
+                    UIImpactFeedbackGenerator.light()
                     onDeselectAll()
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: "arrow.uturn.backward")
-                            .font(.system(size: 11, weight: .bold))
+                            .bscFont(size: 11, weight: .bold)
                         Text("Clear All")
-                            .font(.system(size: 13, weight: .semibold))
+                            .bscFont(size: 13, weight: .semibold)
                     }
                     .foregroundColor(.bscTextSecondary)
                     .padding(.horizontal, BSCSpacing.md)
@@ -209,7 +216,7 @@ struct RallyOverviewSheet: View {
                 .fill(color)
                 .frame(width: 8, height: 8)
             Text("\(count) \(label)")
-                .font(.system(size: 13, weight: .medium))
+                .bscFont(size: 13, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
         }
     }
@@ -255,11 +262,11 @@ struct RallyOverviewSheet: View {
                 Button(action: onExport) {
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "square.and.arrow.down")
-                            .font(.system(size: 15, weight: .semibold))
+                            .bscFont(size: 15, weight: .semibold)
                         Text("Export \(savedRallies.count)")
-                            .font(.system(size: 15, weight: .semibold))
+                            .bscFont(size: 15, weight: .semibold)
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.bscOnMedia)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, BSCSpacing.sm)
                     .background(
@@ -276,16 +283,16 @@ struct RallyOverviewSheet: View {
                 } label: {
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: savedRallies.count > 1 ? "square.stack.fill" : "paperplane.fill")
-                            .font(.system(size: 15, weight: .semibold))
+                            .bscFont(size: 15, weight: .semibold)
                         Text(savedRallies.count > 1 ? "Post \(savedRallies.count)" : "Post")
-                            .font(.system(size: 15, weight: .semibold))
+                            .bscFont(size: 15, weight: .semibold)
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.bscOnMedia)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, BSCSpacing.sm)
                     .background(
                         RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                            .stroke(Color.bscOnMedia.opacity(0.2), lineWidth: 1.5)
                             .fill(Color.bscBackgroundElevated)
                     )
                 }
@@ -295,9 +302,9 @@ struct RallyOverviewSheet: View {
             Button(action: onDismiss) {
                 HStack(spacing: BSCSpacing.sm) {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 15, weight: .semibold))
+                        .bscFont(size: 15, weight: .semibold)
                     Text("Done")
-                        .font(.system(size: 15, weight: .semibold))
+                        .bscFont(size: 15, weight: .semibold)
                 }
                 .foregroundColor(.bscTextPrimary)
                 .frame(maxWidth: .infinity)
@@ -321,11 +328,11 @@ struct RallyOverviewSheet: View {
                 Button(action: onExport) {
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "square.and.arrow.down")
-                            .font(.system(size: 16, weight: .semibold))
+                            .bscFont(size: 16, weight: .semibold)
                         Text("Export \(savedRallies.count) \(savedRallies.count == 1 ? "Rally" : "Rallies")")
-                            .font(.system(size: 16, weight: .semibold))
+                            .bscFont(size: 16, weight: .semibold)
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.bscOnMedia)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, BSCSpacing.md)
                     .background(
@@ -342,18 +349,18 @@ struct RallyOverviewSheet: View {
                 } label: {
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: savedRallies.count > 1 ? "square.stack.fill" : "paperplane.fill")
-                            .font(.system(size: 16, weight: .semibold))
+                            .bscFont(size: 16, weight: .semibold)
                         Text(savedRallies.count > 1
                              ? "Post \(savedRallies.count) Rallies"
                              : "Post to Community")
-                            .font(.system(size: 16, weight: .semibold))
+                            .bscFont(size: 16, weight: .semibold)
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.bscOnMedia)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, BSCSpacing.md)
                     .background(
                         RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                            .stroke(Color.bscOnMedia.opacity(0.2), lineWidth: 1.5)
                             .fill(Color.bscBackgroundElevated)
                     )
                 }
@@ -363,9 +370,9 @@ struct RallyOverviewSheet: View {
             Button(action: onDismiss) {
                 HStack(spacing: BSCSpacing.sm) {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 16, weight: .semibold))
+                        .bscFont(size: 16, weight: .semibold)
                     Text("Done")
-                        .font(.system(size: 16, weight: .semibold))
+                        .bscFont(size: 16, weight: .semibold)
                 }
                 .foregroundColor(.bscTextPrimary)
                 .frame(maxWidth: .infinity)
@@ -404,12 +411,7 @@ private struct RallyOverviewCell: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 } else {
-                    ZStack {
-                        Color.bscSurfaceGlass
-                        ProgressView()
-                            .tint(.white.opacity(0.5))
-                            .scaleEffect(0.8)
-                    }
+                    BSCSkeletonView()
                 }
             }
             .aspectRatio(16/9, contentMode: .fit)
@@ -419,17 +421,17 @@ private struct RallyOverviewCell: View {
                 RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
                     .stroke(borderColor, lineWidth: 2)
             )
-            .shadow(color: .black.opacity(0.2), radius: BSCShadow.sm.radius)
+            .bscShadow(BSCShadow.sm)
 
             // Rally number badge
             Text("\(index + 1)")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(.white)
+                .bscFont(size: 11, weight: .bold)
+                .foregroundColor(.bscOnMedia)
                 .padding(.horizontal, BSCSpacing.sm)
                 .padding(.vertical, BSCSpacing.xxs)
                 .background(
                     Capsule()
-                        .fill(Color.black.opacity(0.7))
+                        .fill(Color.bscMediaScrimBase.opacity(0.7))
                 )
                 .padding(BSCSpacing.xs)
 
@@ -439,9 +441,9 @@ private struct RallyOverviewCell: View {
                     HStack {
                         Spacer()
                         Image(systemName: "star.fill")
-                            .font(.system(size: 14, weight: .bold))
+                            .bscFont(size: 14, weight: .bold)
                             .foregroundColor(.bscPrimary)
-                            .shadow(color: .black.opacity(0.5), radius: 2)
+                            .shadow(color: Color.bscMediaScrimBase.opacity(0.5), radius: 2)
                             .padding(BSCSpacing.xs)
                     }
                     Spacer()
@@ -449,7 +451,6 @@ private struct RallyOverviewCell: View {
             }
         }
         .accessibilityLabel("Rally \(index + 1), \(rallyStatus)")
-        .accessibilityAddTraits(.isButton)
         .onAppear {
             thumbnail = thumbnailCache.getThumbnail(for: url)
         }
@@ -470,7 +471,17 @@ private struct RallyOverviewCell: View {
         if isFavorited { return .bscPrimary.opacity(0.7) }
         if isSaved { return .bscSuccess.opacity(0.7) }
         if isRemoved { return .bscError.opacity(0.7) }
-        return Color.white.opacity(0.1)
+        return Color.bscOnMedia.opacity(0.1)
+    }
+}
+
+// MARK: - Rally Cell Button Style
+
+private struct RallyCellButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(.bscQuick, value: configuration.isPressed)
     }
 }
 
