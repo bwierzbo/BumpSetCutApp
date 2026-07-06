@@ -477,6 +477,12 @@ struct InspectorPane: View {
                     Label("Copy Parameters", systemImage: "doc.on.clipboard")
                 }
                 .help("Copy the current values to the clipboard. Paste them to the assistant to bake in as the shared ProcessorConfig defaults for RallyLab and BumpSetCut.")
+                Button {
+                    model.exportTrainingData()
+                } label: {
+                    Label("Export Training Data", systemImage: "square.and.arrow.up.on.square")
+                }
+                .help("Write per-frame evidence + labels + baseline predictions to <video>.trainingdata.json for scripts/train_rally_classifier.py. Needs a pipeline run and at least one label.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(4)

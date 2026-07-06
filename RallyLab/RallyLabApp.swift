@@ -12,6 +12,12 @@ import SwiftUI
 struct RallyLabApp: App {
     @State private var model = RallyLabModel()
 
+    init() {
+        // `RallyLab --export-training-data [path]` batch-exports classifier
+        // training data and exits (no UI interaction needed).
+        HeadlessTrainingExport.runIfRequested()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)

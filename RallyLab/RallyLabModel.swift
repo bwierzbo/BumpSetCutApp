@@ -551,6 +551,34 @@ final class RallyLabModel {
         """
     }
 
+    /// Write the per-frame evidence + labels + baseline predictions sidecar
+    /// consumed by scripts/train_rally_classifier.py. Requires a pipeline run
+    /// (for evidence) and at least one label (for ground truth).
+    func exportTrainingData() {
+        guard let videoURL else { return }
+        guard !evidence.isEmpty else {
+            status = "Run the pipeline first — the export needs its frame evidence."
+            return
+        }
+        guard !labels.isEmpty else {
+            status = "Label at least one rally before exporting training data."
+            return
+        }
+        let export = TrainingDataExporter.makeExport(
+            videoName: videoURL.lastPathComponent,
+            duration: duration,
+            evidence: evidence,
+            labels: labels.map { Interval(start: $0.start, end: $0.end) },
+            baselineRaw: rawPredictions)
+        let outURL = TrainingDataExporter.exportURL(for: videoURL)
+        do {
+            try TrainingDataExporter.write(export, to: outURL)
+            status = "Exported \(export.frames.count) frames + \(export.labels.count) labels → \(outURL.lastPathComponent)"
+        } catch {
+            status = "Training-data export failed: \(error.localizedDescription)"
+        }
+    }
+
     /// Copy `parametersExport()` to the clipboard.
     func copyParameters() {
         let pasteboard = NSPasteboard.general
