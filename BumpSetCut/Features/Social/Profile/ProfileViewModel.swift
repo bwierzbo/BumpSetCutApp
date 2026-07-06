@@ -16,6 +16,9 @@ final class ProfileViewModel {
     private(set) var isLoading = false
     private(set) var isFollowing = false
     private(set) var error: Error?
+    /// Transient message for a failed background action (e.g. a reverted
+    /// optimistic follow). The view consumes it into a toast and clears it.
+    var actionError: String?
 
     let userId: String
     private let apiClient: any APIClient
@@ -94,8 +97,9 @@ final class ProfileViewModel {
         }
     }
 
-    func toggleFollow() async {
-        guard let profile else { return }
+    @discardableResult
+    func toggleFollow() async -> Bool {
+        guard let profile else { return false }
 
         isFollowing.toggle()
         var updated = profile
@@ -108,11 +112,14 @@ final class ProfileViewModel {
             } else {
                 let _: EmptyResponse = try await apiClient.request(.unfollow(userId: userId))
             }
+            return true
         } catch {
             // Revert
             isFollowing.toggle()
             updated.followersCount += isFollowing ? 1 : -1
             self.profile = updated
+            actionError = "Couldn't update follow"
+            return false
         }
     }
 }

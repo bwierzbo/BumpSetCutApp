@@ -15,6 +15,7 @@ struct ProfileView: View {
     @State private var showBlockAlert = false
     @State private var showCopiedToast = false
     @State private var showingSettings = false
+    @State private var toast: BSCToastMessage?
     @Environment(AuthenticationService.self) private var authService
     @Environment(AppSettings.self) private var appSettings
     @Environment(\.dismiss) private var dismiss
@@ -32,8 +33,7 @@ struct ProfileView: View {
             Color.bscBackground.ignoresSafeArea()
 
             if viewModel.isLoading && viewModel.profile == nil {
-                ProgressView()
-                    .tint(.bscPrimary)
+                loadingSkeleton
             } else if let profile = viewModel.profile {
                 ScrollView {
                     VStack(spacing: BSCSpacing.lg) {
@@ -43,6 +43,9 @@ struct ProfileView: View {
                         highlightsGrid
                     }
                     .padding(.top, BSCSpacing.md)
+                }
+                .refreshable {
+                    await viewModel.loadProfile()
                 }
             } else if viewModel.error != nil {
                 BSCEmptyState.loadFailed(message: viewModel.error?.localizedDescription) {
@@ -55,11 +58,11 @@ struct ProfileView: View {
                 VStack {
                     Spacer()
                     Text("Copied!")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
+                        .bscFont(size: 14, weight: .semibold)
+                        .foregroundColor(.bscOnMedia)
                         .padding(.horizontal, BSCSpacing.lg)
                         .padding(.vertical, BSCSpacing.sm)
-                        .background(Color.black.opacity(0.8), in: Capsule())
+                        .background(Color.bscMediaScrimBase.opacity(0.8), in: Capsule())
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .padding(.bottom, BSCSpacing.xl)
                 }
@@ -67,6 +70,13 @@ struct ProfileView: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .bscToast($toast)
+        .onChange(of: viewModel.actionError) { _, message in
+            if let message {
+                toast = BSCToastMessage(text: message, style: .error)
+                viewModel.actionError = nil
+            }
+        }
         .task {
             // Load once per instance. Avoids re-fetching (and scrolling the grid
             // back to top) when the profile tab reappears after a tab switch.
@@ -89,7 +99,12 @@ struct ProfileView: View {
                     },
                     onDelete: isOwnProfile ? { highlight in
                         selectedHighlightIndex = nil
-                        Task { await viewModel.deleteHighlight(highlight) }
+                        Task {
+                            let deleted = await viewModel.deleteHighlight(highlight)
+                            if !deleted {
+                                toast = BSCToastMessage(text: "Couldn't delete post", style: .error)
+                            }
+                        }
                     } : nil,
                     onDismiss: { selectedHighlightIndex = nil }
                 )
@@ -102,7 +117,12 @@ struct ProfileView: View {
             Button("Cancel", role: .cancel) { highlightToDelete = nil }
             Button("Delete", role: .destructive) {
                 if let highlight = highlightToDelete {
-                    Task { await viewModel.deleteHighlight(highlight) }
+                    Task {
+                        let deleted = await viewModel.deleteHighlight(highlight)
+                        if !deleted {
+                            toast = BSCToastMessage(text: "Couldn't delete post", style: .error)
+                        }
+                    }
                     highlightToDelete = nil
                 }
             }
@@ -132,9 +152,10 @@ struct ProfileView: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(.system(size: 16, weight: .medium))
+                            .bscFont(size: 16, weight: .medium)
                             .foregroundColor(.bscTextSecondary)
                     }
+                    .accessibilityLabel("More options")
                 }
             }
         }
@@ -171,7 +192,7 @@ struct ProfileView: View {
             AvatarView(url: profile.avatarURL, name: profile.username, size: 80)
 
             Text(profile.username)
-                .font(.system(size: 20, weight: .bold))
+                .bscFont(size: 20, weight: .bold)
                 .foregroundColor(.bscTextPrimary)
                 .accessibilityIdentifier(AccessibilityID.Profile.username)
                 .onLongPressGesture {
@@ -185,7 +206,7 @@ struct ProfileView: View {
 
             if let bio = profile.bio, !bio.isEmpty {
                 Text(bio)
-                    .font(.system(size: 14))
+                    .bscFont(size: 14)
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
@@ -195,7 +216,7 @@ struct ProfileView: View {
 
             if let team = profile.teamName, !team.isEmpty {
                 Label(team, systemImage: "person.3")
-                    .font(.system(size: 13))
+                    .bscFont(size: 13)
                     .foregroundColor(.bscTextTertiary)
             }
         }
@@ -230,10 +251,10 @@ struct ProfileView: View {
     private func statItem(count: Int, label: String) -> some View {
         VStack(spacing: 2) {
             Text("\(count)")
-                .font(.system(size: 18, weight: .bold))
+                .bscFont(size: 18, weight: .bold)
                 .foregroundColor(.bscTextPrimary)
             Text(label)
-                .font(.system(size: 12))
+                .bscFont(size: 12)
                 .foregroundColor(.bscTextSecondary)
         }
         .frame(maxWidth: .infinity)
@@ -250,7 +271,7 @@ struct ProfileView: View {
                     })
                 } label: {
                     Text("Edit Profile")
-                        .font(.system(size: 14, weight: .semibold))
+                        .bscFont(size: 14, weight: .semibold)
                         .foregroundColor(.bscTextPrimary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, BSCSpacing.sm)
@@ -264,11 +285,17 @@ struct ProfileView: View {
                 .accessibilityIdentifier(AccessibilityID.Profile.editProfileButton)
             } else {
                 Button {
-                    UINotificationFeedbackGenerator.success()
-                    Task { await viewModel.toggleFollow() }
+                    UIImpactFeedbackGenerator.light()
+                    Task {
+                        let wasFollowing = viewModel.isFollowing
+                        let succeeded = await viewModel.toggleFollow()
+                        if succeeded && !wasFollowing {
+                            UINotificationFeedbackGenerator.success()
+                        }
+                    }
                 } label: {
                     Text(viewModel.isFollowing ? "Following" : "Follow")
-                        .font(.system(size: 14, weight: .semibold))
+                        .bscFont(size: 14, weight: .semibold)
                         .foregroundColor(viewModel.isFollowing ? .bscTextPrimary : .white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, BSCSpacing.sm)
@@ -281,20 +308,61 @@ struct ProfileView: View {
         .padding(.horizontal, BSCSpacing.lg)
     }
 
+    // MARK: - Loading Skeleton
+
+    /// Placeholder mirroring the loaded layout: avatar, name, stats row, grid.
+    private var loadingSkeleton: some View {
+        ScrollView {
+            VStack(spacing: BSCSpacing.lg) {
+                VStack(spacing: BSCSpacing.sm) {
+                    BSCSkeletonView()
+                        .frame(width: 80, height: 80)
+                        .clipShape(Circle())
+                    BSCSkeletonView()
+                        .frame(width: 140, height: 18)
+                        .clipShape(Capsule())
+                }
+
+                HStack(spacing: 0) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        VStack(spacing: BSCSpacing.xs) {
+                            BSCSkeletonView()
+                                .frame(width: 32, height: 16)
+                                .clipShape(Capsule())
+                            BSCSkeletonView()
+                                .frame(width: 64, height: 10)
+                                .clipShape(Capsule())
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.horizontal, BSCSpacing.lg)
+
+                gridSkeleton
+            }
+            .padding(.top, BSCSpacing.md)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading profile")
+    }
+
+    private var gridSkeleton: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: BSCSpacing.xs), count: 3), spacing: BSCSpacing.xs) {
+            ForEach(0..<9, id: \.self) { _ in
+                BSCSkeletonView()
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
+            }
+        }
+        .padding(.horizontal, BSCSpacing.xs)
+    }
+
     // MARK: - Highlights Grid
 
     private var highlightsGrid: some View {
         Group {
             if viewModel.isLoading && viewModel.highlights.isEmpty {
-                // Skeleton loaders
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: BSCSpacing.xs), count: 3), spacing: BSCSpacing.xs) {
-                    ForEach(0..<9, id: \.self) { _ in
-                        BSCSkeletonView()
-                            .aspectRatio(1, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
-                    }
-                }
-                .padding(.horizontal, BSCSpacing.xs)
+                gridSkeleton
             } else if viewModel.highlights.isEmpty {
                 // Empty state
                 BSCEmptyState.noUserHighlights(isOwnProfile: isOwnProfile)
@@ -316,6 +384,25 @@ struct ProfileView: View {
                                 } label: {
                                     Label("Delete Post", systemImage: "trash")
                                 }
+                            }
+                        }
+                        .overlay(alignment: .topLeading) {
+                            if isOwnProfile {
+                                Menu {
+                                    Button(role: .destructive) {
+                                        highlightToDelete = highlight
+                                    } label: {
+                                        Label("Delete Post", systemImage: "trash")
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis")
+                                        .bscFont(size: 12, weight: .semibold)
+                                        .foregroundColor(.bscOnMedia)
+                                        .shadow(color: Color.bscMediaScrimBase.opacity(0.5), radius: 2)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(Rectangle())
+                                }
+                                .accessibilityLabel("Post options")
                             }
                         }
                     }
@@ -342,27 +429,27 @@ struct ProfileView: View {
                 HStack(spacing: 4) {
                     if isMulti {
                         Image(systemName: "square.stack.fill")
-                            .font(.system(size: 9))
+                            .bscFont(size: 9)
                     }
                     HStack(spacing: 2) {
                         Image(systemName: "heart.fill")
-                            .font(.system(size: 9))
+                            .bscFont(size: 9)
                         Text("\(highlight.likesCount)")
-                            .font(.system(size: 9, weight: .medium))
+                            .bscFont(size: 9, weight: .medium)
                     }
                     HStack(spacing: 2) {
                         Image(systemName: "bubble.right.fill")
-                            .font(.system(size: 9))
+                            .bscFont(size: 9)
                         Text("\(highlight.commentsCount)")
-                            .font(.system(size: 9, weight: .medium))
+                            .bscFont(size: 9, weight: .medium)
                     }
                 }
-                .foregroundColor(.white)
+                .foregroundColor(.bscOnMedia)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 3)
-                .background(Color.black.opacity(0.55))
+                .background(Color.bscMediaScrim)
                 .clipShape(Capsule())
-                .padding(4)
+                .padding(BSCSpacing.xs)
 
                 // Top-right: multi-rally badge
                 if isMulti {
@@ -370,9 +457,9 @@ struct ProfileView: View {
                         HStack {
                             Spacer()
                             Image(systemName: "square.stack.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white)
-                                .shadow(color: .black.opacity(0.5), radius: 2)
+                                .bscFont(size: 12)
+                                .foregroundColor(.bscOnMedia)
+                                .shadow(color: Color.bscMediaScrimBase.opacity(0.5), radius: 2)
                                 .padding(6)
                         }
                         Spacer()

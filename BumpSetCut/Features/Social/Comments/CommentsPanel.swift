@@ -36,7 +36,7 @@ private struct CommentsPanelModifier: ViewModifier {
                 ZStack(alignment: landscape ? .trailing : .bottom) {
                     if let highlight = item {
                         // Dim backdrop over the post — tap to dismiss, post stays visible.
-                        Color.black.opacity(0.18)
+                        Color.bscMediaScrimBase.opacity(0.18)
                             .ignoresSafeArea()
                             .contentShape(Rectangle())
                             .onTapGesture { dismiss() }
@@ -48,7 +48,7 @@ private struct CommentsPanelModifier: ViewModifier {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity,
                        alignment: landscape ? .trailing : .bottom)
-                .animation(.snappy(duration: 0.28), value: item != nil)
+                .animation(.bscSnappy, value: item != nil)
             }
             .ignoresSafeArea()
         }
@@ -69,7 +69,7 @@ private struct CommentsPanelModifier: ViewModifier {
                 if !landscape, value > 120 {
                     dismiss()
                 } else {
-                    withAnimation(.snappy(duration: 0.25)) { dragOffset = 0 }
+                    withAnimation(.bscSnappy) { dragOffset = 0 }
                 }
             }
         )
@@ -78,8 +78,8 @@ private struct CommentsPanelModifier: ViewModifier {
         .frame(width: width, height: height, alignment: .top)
         .background(Color.bscBackground)
         .clipShape(landscape
-            ? .rect(topLeadingRadius: 22, bottomLeadingRadius: 22)
-            : .rect(topLeadingRadius: 22, topTrailingRadius: 22))
+            ? .rect(topLeadingRadius: BSCRadius.xl, bottomLeadingRadius: BSCRadius.xl)
+            : .rect(topLeadingRadius: BSCRadius.xl, topTrailingRadius: BSCRadius.xl))
         .offset(y: landscape ? 0 : max(0, dragOffset))
     }
 

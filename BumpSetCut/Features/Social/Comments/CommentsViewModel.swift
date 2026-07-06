@@ -15,6 +15,9 @@ final class CommentsViewModel {
     private(set) var isLoading = false
     private(set) var loadError: Error?
     private(set) var sendError: Error?
+    /// Transient message for a failed background action (e.g. a reverted
+    /// optimistic like or vote). The view consumes it into a toast and clears it.
+    var actionError: String?
     var newCommentText: String = ""
     private(set) var isSending = false
 
@@ -85,6 +88,7 @@ final class CommentsViewModel {
             )
         } catch {
             // Revert on failure. Re-find the index — the list may have changed.
+            actionError = "Couldn't update like"
             guard let i = comments.firstIndex(where: { $0.id == comment.id }) else { return }
             comments[i].isLikedByMe = wasLiked
             comments[i].likesCount = max(0, comments[i].likesCount + (wasLiked ? 1 : -1))
@@ -134,6 +138,7 @@ final class CommentsViewModel {
         // silently wipe B's legitimately-displayed vote.
         if !didSync, poll?.myVoteOptionId == optionId {
             poll = snapshot
+            actionError = "Couldn't record vote"
         }
     }
 

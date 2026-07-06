@@ -160,7 +160,7 @@ struct ShareRallySheet: View {
                     }
                     .clipped()
                     .opacity(isCurrent ? 1.0 : 0.85)
-                    .animation(.easeInOut(duration: 0.2), value: isCurrent)
+                    .animation(.bscQuick, value: isCurrent)
                     .tag(pageIndex)
                 }
             }
@@ -173,11 +173,13 @@ struct ShareRallySheet: View {
                 HStack(spacing: BSCSpacing.xs) {
                     ForEach(viewModel.savedRallyIndices.indices, id: \.self) { i in
                         Circle()
-                            .fill(i == viewModel.selectedPage ? Color.bscPrimary : Color.white.opacity(0.3))
+                            .fill(i == viewModel.selectedPage ? Color.bscPrimary : Color.bscOnMedia.opacity(0.3))
                             .frame(width: 6, height: 6)
-                            .animation(.easeInOut(duration: 0.2), value: viewModel.selectedPage)
+                            .animation(.bscQuick, value: viewModel.selectedPage)
                     }
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Rally \(viewModel.selectedPage + 1) of \(viewModel.savedRallyIndices.count)")
             }
         }
     }
@@ -187,11 +189,11 @@ struct ShareRallySheet: View {
         if viewModel.postAllSaved && viewModel.savedRallyIndices.count > 1 {
             HStack(spacing: 4) {
                 Image(systemName: "square.stack.fill")
-                    .font(.system(size: 11, weight: .bold))
+                    .bscFont(size: 11, weight: .bold)
                 Text("\(viewModel.savedRallyIndices.count) Rallies")
-                    .font(.system(size: 13, weight: .bold))
+                    .bscFont(size: 13, weight: .bold)
             }
-            .foregroundColor(.white)
+            .foregroundColor(.bscOnMedia)
             .padding(.horizontal, BSCSpacing.sm)
             .padding(.vertical, BSCSpacing.xxs)
             .background(Capsule().fill(Color.bscPrimary.opacity(0.85)))
@@ -199,11 +201,11 @@ struct ShareRallySheet: View {
         } else {
             let rallyIndex = viewModel.savedRallyIndices[pageIndex]
             Text("Rally \(rallyIndex + 1)")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(.white)
+                .bscFont(size: 13, weight: .bold)
+                .foregroundColor(.bscOnMedia)
                 .padding(.horizontal, BSCSpacing.sm)
                 .padding(.vertical, BSCSpacing.xxs)
-                .background(Capsule().fill(Color.black.opacity(0.7)))
+                .background(Capsule().fill(Color.bscMediaScrimBase.opacity(0.7)))
                 .padding(BSCSpacing.sm)
         }
     }
@@ -284,12 +286,12 @@ struct ShareRallySheet: View {
     private var captionField: some View {
         VStack(alignment: .leading, spacing: BSCSpacing.xs) {
             Text("Caption")
-                .font(.system(size: 14, weight: .medium))
+                .bscFont(size: 14, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
 
             TextField("Describe this rally... use #hashtags", text: $viewModel.caption, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 16))
+                .bscFont(size: 16)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(3...6)
                 .padding(BSCSpacing.sm)
@@ -302,7 +304,7 @@ struct ShareRallySheet: View {
                     HStack(spacing: BSCSpacing.xs) {
                         ForEach(viewModel.extractedTags, id: \.self) { tag in
                             Text("#\(tag)")
-                                .font(.system(size: 12, weight: .medium))
+                                .bscFont(size: 12, weight: .medium)
                                 .foregroundColor(.bscPrimary)
                                 .padding(.horizontal, BSCSpacing.sm)
                                 .padding(.vertical, BSCSpacing.xxs)
@@ -324,17 +326,17 @@ struct ShareRallySheet: View {
         } label: {
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "mappin.circle.fill")
-                    .font(.system(size: 18))
+                    .bscFont(size: 18)
                     .foregroundColor(viewModel.pickedLocation == nil ? .bscTextSecondary : .bscPrimary)
 
                 if let location = viewModel.pickedLocation {
                     Text(location.name)
-                        .font(.system(size: 14, weight: .medium))
+                        .bscFont(size: 14, weight: .medium)
                         .foregroundColor(.bscTextPrimary)
                         .lineLimit(1)
                 } else {
                     Text("Add location")
-                        .font(.system(size: 14, weight: .medium))
+                        .bscFont(size: 14, weight: .medium)
                         .foregroundColor(.bscTextSecondary)
                 }
 
@@ -345,13 +347,14 @@ struct ShareRallySheet: View {
                         viewModel.pickedLocation = nil
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 16))
+                            .bscFont(size: 16)
                             .foregroundColor(.bscTextTertiary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Remove location")
                 } else {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
+                        .bscFont(size: 12, weight: .semibold)
                         .foregroundColor(.bscTextTertiary)
                 }
             }
@@ -374,14 +377,14 @@ struct ShareRallySheet: View {
             Toggle(isOn: $viewModel.hideLikes) {
                 HStack(spacing: BSCSpacing.sm) {
                     Image(systemName: "heart.slash")
-                        .font(.system(size: 15))
+                        .bscFont(size: 15)
                         .foregroundColor(.bscTextSecondary)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Hide like count")
-                            .font(.system(size: 14, weight: .medium))
+                            .bscFont(size: 14, weight: .medium)
                             .foregroundColor(.bscTextPrimary)
                         Text("Others won't see how many likes this post has")
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                             .foregroundColor(.bscTextTertiary)
                     }
                 }
@@ -400,14 +403,14 @@ struct ShareRallySheet: View {
             Toggle(isOn: $viewModel.includePoll) {
                 HStack(spacing: BSCSpacing.sm) {
                     Image(systemName: "chart.bar.xaxis")
-                        .font(.system(size: 15))
+                        .bscFont(size: 15)
                         .foregroundColor(.bscTextSecondary)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Add a poll")
-                            .font(.system(size: 14, weight: .medium))
+                            .bscFont(size: 14, weight: .medium)
                             .foregroundColor(.bscTextPrimary)
                         Text("Let viewers vote on your rally")
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                             .foregroundColor(.bscTextTertiary)
                     }
                 }
@@ -421,7 +424,7 @@ struct ShareRallySheet: View {
                 VStack(spacing: BSCSpacing.sm) {
                     TextField("Ask a question...", text: $viewModel.pollQuestion)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 15, weight: .medium))
+                        .bscFont(size: 15, weight: .medium)
                         .foregroundColor(.bscTextPrimary)
                         .padding(BSCSpacing.sm)
                         .background(Color.bscSurfaceGlass.opacity(0.5))
@@ -435,7 +438,7 @@ struct ShareRallySheet: View {
 
                             TextField("Option \(index + 1)", text: $viewModel.pollOptions[index])
                                 .textFieldStyle(.plain)
-                                .font(.system(size: 14))
+                                .bscFont(size: 14)
                                 .foregroundColor(.bscTextPrimary)
 
                             if viewModel.pollOptions.count > 2 {
@@ -443,9 +446,10 @@ struct ShareRallySheet: View {
                                     viewModel.removePollOption(at: index)
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 16))
+                                        .bscFont(size: 16)
                                         .foregroundColor(.bscTextTertiary)
                                 }
+                                .accessibilityLabel("Remove option \(index + 1)")
                             }
                         }
                         .padding(.horizontal, BSCSpacing.sm)
@@ -460,9 +464,9 @@ struct ShareRallySheet: View {
                         } label: {
                             HStack(spacing: BSCSpacing.xs) {
                                 Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 14))
+                                    .bscFont(size: 14)
                                 Text("Add option")
-                                    .font(.system(size: 13, weight: .medium))
+                                    .bscFont(size: 13, weight: .medium)
                             }
                             .foregroundColor(.bscPrimary)
                         }
@@ -484,7 +488,7 @@ struct ShareRallySheet: View {
                     Label("\(viewModel.postCount) rallies", systemImage: "square.stack")
                     Label("\(String(format: "%.1f", viewModel.totalDuration))s total", systemImage: "timer")
                 }
-                .font(.system(size: 12))
+                .bscFont(size: 12)
                 .foregroundColor(.bscTextTertiary)
             } else {
                 let meta = viewModel.currentMetadata
@@ -492,12 +496,12 @@ struct ShareRallySheet: View {
                     Label("\(String(format: "%.1f", meta.duration))s", systemImage: "timer")
                     Label("\(meta.detectionCount) detections", systemImage: "eye")
                 }
-                .font(.system(size: 12))
+                .bscFont(size: 12)
                 .foregroundColor(.bscTextTertiary)
 
                 if viewModel.isTooLong {
                     Label("Rally must be under 1 minute to share", systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12, weight: .medium))
+                        .bscFont(size: 12, weight: .medium)
                         .foregroundColor(.bscError)
                 }
             }
@@ -519,7 +523,7 @@ struct ShareRallySheet: View {
     /// for the per-state content inside a centered card.
     private var uploadOverlay: some View {
         ZStack {
-            Color.black.opacity(0.55)
+            Color.bscMediaScrim
                 .ignoresSafeArea()
                 .onTapGesture {
                     // Only a failed upload can be dismissed (back to editing) by tapping out.
@@ -539,7 +543,7 @@ struct ShareRallySheet: View {
                 RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
                     .stroke(Color.bscSurfaceBorder, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+            .shadow(color: Color.bscMediaScrimBase.opacity(0.3), radius: 20, y: 10)
             .padding(BSCSpacing.xl)
         }
         .transition(.opacity)
@@ -558,7 +562,7 @@ struct ShareRallySheet: View {
                 Text(viewModel.postAllSaved && viewModel.postCount > 1
                      ? "Uploading \(viewModel.postCount) rallies... \(Int(progress * 100))%"
                      : "Uploading... \(Int(progress * 100))%")
-                    .font(.system(size: 13))
+                    .bscFont(size: 13)
                     .foregroundColor(.bscTextSecondary)
             }
 
@@ -567,34 +571,34 @@ struct ShareRallySheet: View {
                 ProgressView()
                     .tint(.bscPrimary)
                 Text("Processing...")
-                    .font(.system(size: 13))
+                    .bscFont(size: 13)
                     .foregroundColor(.bscTextSecondary)
             }
 
         case .complete:
             VStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 36))
+                    .bscFont(size: 36)
                     .foregroundColor(.bscSuccess)
                 Text("Shared successfully!")
-                    .font(.system(size: 15, weight: .medium))
+                    .bscFont(size: 15, weight: .medium)
                     .foregroundColor(.bscTextPrimary)
                 Text("Opening in feed...")
-                    .font(.system(size: 13))
+                    .bscFont(size: 13)
                     .foregroundColor(.bscTextSecondary)
             }
 
         case .failed(let message):
             VStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 36))
+                    .bscFont(size: 36)
                     .foregroundColor(.bscError)
                 Text(message)
-                    .font(.system(size: 13))
+                    .bscFont(size: 13)
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                 Button("Retry") { viewModel.retry() }
-                    .font(.system(size: 15, weight: .medium))
+                    .bscFont(size: 15, weight: .medium)
                     .foregroundColor(.bscPrimary)
             }
         }

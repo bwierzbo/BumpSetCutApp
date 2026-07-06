@@ -21,6 +21,10 @@ final class SocialFeedViewModel {
     private(set) var isLoadingMore = false
     private(set) var error: Error?
     private(set) var hasMorePages = true
+    private(set) var loadMoreFailed = false
+    /// Transient message for a failed background action (e.g. a reverted
+    /// optimistic like). The view consumes it into a toast and clears it.
+    var actionError: String?
     var feedType: FeedType = .forYou
 
     private var currentPage = 0
@@ -50,6 +54,7 @@ final class SocialFeedViewModel {
         let gen = loadGeneration
         isLoading = true
         error = nil
+        loadMoreFailed = false
         currentPage = 0
 
         do {
@@ -85,6 +90,7 @@ final class SocialFeedViewModel {
               !isLoadingMore else { return }
 
         isLoadingMore = true
+        loadMoreFailed = false
         defer { isLoadingMore = false }
 
         let gen = loadGeneration
@@ -106,7 +112,15 @@ final class SocialFeedViewModel {
             await enrichPollVotes()
         } catch {
             print("⚠️ [SocialFeedViewModel] loadMore page \(currentPage) failed: \(error)")
+            if gen == loadGeneration {
+                loadMoreFailed = true
+            }
         }
+    }
+
+    func retryLoadMore() async {
+        guard let lastItem = highlights.last else { return }
+        await loadMoreIfNeeded(currentItem: lastItem)
     }
 
     // MARK: - Insert
@@ -152,6 +166,7 @@ final class SocialFeedViewModel {
                 highlights[idx].isLikedByMe = wasLiked
                 highlights[idx].likesCount += wasLiked ? 1 : -1
             }
+            actionError = "Couldn't update like"
         }
     }
 

@@ -91,14 +91,14 @@ struct FollowListView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.username)
-                    .font(.system(size: 15, weight: .semibold))
+                    .bscFont(size: 15, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
             }
 
             Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 12))
+                .bscFont(size: 12)
                 .foregroundColor(.bscTextTertiary)
         }
         .padding(.horizontal, BSCSpacing.lg)

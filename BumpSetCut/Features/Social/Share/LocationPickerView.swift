@@ -90,10 +90,10 @@ struct LocationPickerView: View {
                     Spacer()
                     VStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "mappin.and.ellipse")
-                            .font(.system(size: 36))
+                            .bscFont(size: 36)
                             .foregroundColor(.bscTextTertiary)
                         Text("Search for the park or court you played at")
-                            .font(.system(size: 14))
+                            .bscFont(size: 14)
                             .foregroundColor(.bscTextSecondary)
                             .multilineTextAlignment(.center)
                     }
@@ -113,15 +113,15 @@ struct LocationPickerView: View {
                         } label: {
                             HStack(spacing: BSCSpacing.md) {
                                 Image(systemName: "mappin.circle.fill")
-                                    .font(.system(size: 20))
+                                    .bscFont(size: 20)
                                     .foregroundColor(.bscPrimary)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(result.title)
-                                        .font(.system(size: 16))
+                                        .bscFont(size: 16)
                                         .foregroundColor(.bscTextPrimary)
                                     if !result.subtitle.isEmpty {
                                         Text(result.subtitle)
-                                            .font(.system(size: 13))
+                                            .bscFont(size: 13)
                                             .foregroundColor(.bscTextSecondary)
                                     }
                                 }
