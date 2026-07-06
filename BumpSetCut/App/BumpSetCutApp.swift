@@ -63,7 +63,7 @@ import AVFoundation
                         Button("Done") {
                             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                         }
-                        .font(.system(size: 15, weight: .medium))
+                        .bscFont(size: 15, weight: .medium)
                         .foregroundColor(.bscOrange)
                     }
                 }

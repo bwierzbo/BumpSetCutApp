@@ -41,18 +41,18 @@ struct StatsCard: View {
                     .frame(width: 36, height: 36)
 
                 Image(systemName: stat.icon)
-                    .font(.system(size: 16, weight: .semibold))
+                    .bscFont(size: 16, weight: .semibold)
                     .foregroundColor(stat.color)
             }
 
             // Value
             Text(stat.value)
-                .font(.system(size: 22, weight: .bold))
+                .bscFont(size: 22, weight: .bold)
                 .foregroundColor(.bscTextPrimary)
 
             // Label
             Text(stat.label)
-                .font(.system(size: 10, weight: .medium))
+                .bscFont(size: 10, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
                 .textCase(.uppercase)
         }
@@ -81,7 +81,7 @@ struct StatsCard: View {
                 VStack(spacing: BSCSpacing.sm) {
                     Circle()
                         .fill(Color.bscSurfaceGlass)
-                        .frame(width: 44, height: 44)
+                        .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
 
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color.bscSurfaceGlass)
@@ -115,18 +115,18 @@ struct SingleStatCard: View {
                     .frame(width: 40, height: 40)
 
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
+                    .bscFont(size: 18, weight: .semibold)
                     .foregroundColor(color)
             }
 
             // Text
             VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                 Text(value)
-                    .font(.system(size: 20, weight: .bold))
+                    .bscFont(size: 20, weight: .bold)
                     .foregroundColor(.bscTextPrimary)
 
                 Text(label)
-                    .font(.system(size: 12))
+                    .bscFont(size: 12)
                     .foregroundColor(.bscTextSecondary)
             }
 

@@ -22,11 +22,11 @@ struct VideoMoveDialog: View {
                 // Header
                 VStack(alignment: .leading, spacing: BSCSpacing.sm) {
                     Text("Move Video")
-                        .font(.system(size: 20, weight: .bold))
+                        .bscFont(size: 20, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
 
                     Text("Select destination folder")
-                        .font(.system(size: 13))
+                        .bscFont(size: 13)
                         .foregroundColor(.bscTextSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -36,13 +36,13 @@ struct VideoMoveDialog: View {
                 if !currentFolder.isEmpty {
                     VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                         Text("Current Location:")
-                            .font(.system(size: 12, weight: .medium))
+                            .bscFont(size: 12, weight: .medium)
                             .foregroundColor(.bscTextSecondary)
                             .textCase(.uppercase)
                             .tracking(0.5)
 
                         Text(currentFolder.isEmpty ? "Root" : currentFolder)
-                            .font(.system(size: 14))
+                            .bscFont(size: 14)
                             .foregroundColor(.bscTextPrimary)
                             .padding(.horizontal, BSCSpacing.md)
                             .padding(.vertical, BSCSpacing.sm)
@@ -100,7 +100,7 @@ struct VideoMoveDialog: View {
                         onCancel()
                     } label: {
                         Text("Cancel")
-                            .font(.system(size: 14, weight: .semibold))
+                            .bscFont(size: 14, weight: .semibold)
                             .foregroundColor(.bscTextSecondary)
                             .frame(maxWidth: .infinity)
                             .padding(BSCSpacing.md)
@@ -116,7 +116,7 @@ struct VideoMoveDialog: View {
                         onMove(selectedFolderPath)
                     } label: {
                         Text("Move")
-                            .font(.system(size: 14, weight: .semibold))
+                            .bscFont(size: 14, weight: .semibold)
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(BSCSpacing.md)
@@ -201,7 +201,7 @@ private struct FolderRowView: View {
                         .frame(width: 36, height: 36)
 
                     Image(systemName: icon)
-                        .font(.system(size: 16, weight: .medium))
+                        .bscFont(size: 16, weight: .medium)
                         .foregroundStyle(
                             LinearGradient(
                                 colors: [iconColor, iconColor.opacity(0.7)],
@@ -214,11 +214,11 @@ private struct FolderRowView: View {
 
                 VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                     Text(name)
-                        .font(.system(size: 15, weight: .medium))
+                        .bscFont(size: 15, weight: .medium)
                         .foregroundColor(.bscTextPrimary)
 
                     Text(subtitle)
-                        .font(.system(size: 12))
+                        .bscFont(size: 12)
                         .foregroundColor(.bscTextSecondary)
                 }
 
@@ -226,7 +226,7 @@ private struct FolderRowView: View {
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20))
+                        .bscFont(size: 20)
                         .foregroundColor(.bscBlue)
                 }
             }

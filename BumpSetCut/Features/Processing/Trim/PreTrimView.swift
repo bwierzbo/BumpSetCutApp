@@ -32,7 +32,7 @@ struct PreTrimView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color.bscMediaBackground.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Top bar
@@ -47,7 +47,7 @@ struct PreTrimView: View {
                     videoPlayerSection(player: player)
                 } else {
                     ProgressView()
-                        .tint(.white)
+                        .tint(.bscOnMedia)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
@@ -69,7 +69,7 @@ struct PreTrimView: View {
 
                 // Duration label
                 Text("Duration: \(formatTime(viewModel.selectionDuration))")
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .bscFont(size: 13, weight: .medium, design: .monospaced)
                     .foregroundColor(.bscTextSecondary)
                     .padding(.top, BSCSpacing.sm)
 
@@ -79,7 +79,7 @@ struct PreTrimView: View {
                         "Est. processing: \(ProcessingTimeEstimator.formatEstimate(ProcessingTimeEstimator.estimate(forVideoDuration: viewModel.selectionDuration)))",
                         systemImage: "clock"
                     )
-                    .font(.system(size: 12))
+                    .bscFont(size: 12)
                     .foregroundColor(.bscTextTertiary)
                     .padding(.top, BSCSpacing.xxs)
                 }
@@ -112,23 +112,26 @@ struct PreTrimView: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundColor(.white)
+                    .bscFont(size: 17, weight: .medium)
+                    .foregroundColor(.bscOnMedia)
                     .frame(width: 36, height: 36)
-                    .background(Color.white.opacity(0.15))
+                    .background(Color.bscOnMedia.opacity(0.15))
                     .clipShape(Circle())
+                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
             }
+            .accessibilityLabel("Close")
 
             Spacer()
 
             Text("Trim Video")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(.white)
+                .bscFont(size: 17, weight: .semibold)
+                .foregroundColor(.bscOnMedia)
 
             Spacer()
 
             // Invisible spacer to balance the X button
-            Color.clear.frame(width: 36, height: 36)
+            Color.clear.frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
         }
     }
 
@@ -162,6 +165,9 @@ struct PreTrimView: View {
             .onTapGesture {
                 togglePlayback(player: player)
             }
+            .accessibilityAction(named: "Play or pause") {
+                togglePlayback(player: player)
+            }
         }
         .padding(.horizontal, BSCSpacing.lg)
     }
@@ -185,11 +191,11 @@ struct PreTrimView: View {
     private var timeLabels: some View {
         HStack {
             Text(formatTime(viewModel.startTime))
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .bscFont(size: 13, weight: .medium, design: .monospaced)
                 .foregroundColor(.bscPrimary)
             Spacer()
             Text(formatTime(viewModel.endTime))
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .bscFont(size: 13, weight: .medium, design: .monospaced)
                 .foregroundColor(.bscPrimary)
         }
     }
@@ -207,13 +213,13 @@ struct PreTrimView: View {
 
             // Dim overlay left of selection
             Rectangle()
-                .fill(Color.black.opacity(0.5))
+                .fill(Color.bscMediaScrim)
                 .frame(width: max(0, leftX), height: barHeight)
                 .allowsHitTesting(false)
 
             // Dim overlay right of selection
             Rectangle()
-                .fill(Color.black.opacity(0.5))
+                .fill(Color.bscMediaScrim)
                 .frame(width: max(0, totalWidth - rightX), height: barHeight)
                 .offset(x: rightX)
                 .allowsHitTesting(false)
@@ -233,11 +239,25 @@ struct PreTrimView: View {
             trimHandle(isLeft: true)
                 .offset(x: leftX - handleHitPadding)
                 .gesture(leftHandleDrag(totalWidth: totalWidth))
+                .accessibilityElement()
+                .accessibilityLabel("Trim start")
+                .accessibilityValue(formatTime(viewModel.startTime))
+                .accessibilityAdjustableAction { direction in
+                    let delta = direction == .increment ? 0.5 : -0.5
+                    viewModel.updateStartTime(viewModel.startTime + delta)
+                }
 
             // Right handle
             trimHandle(isLeft: false)
                 .offset(x: rightX - handleWidth - handleHitPadding)
                 .gesture(rightHandleDrag(totalWidth: totalWidth))
+                .accessibilityElement()
+                .accessibilityLabel("Trim end")
+                .accessibilityValue(formatTime(viewModel.endTime))
+                .accessibilityAdjustableAction { direction in
+                    let delta = direction == .increment ? 0.5 : -0.5
+                    viewModel.updateEndTime(viewModel.endTime + delta)
+                }
         }
         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm))
     }
@@ -248,7 +268,7 @@ struct PreTrimView: View {
     private func filmstrip(width: CGFloat) -> some View {
         if viewModel.thumbnails.isEmpty {
             Rectangle()
-                .fill(Color.white.opacity(0.1))
+                .fill(Color.bscOnMedia.opacity(0.1))
                 .frame(width: width, height: barHeight)
         } else {
             HStack(spacing: 0) {
@@ -283,7 +303,7 @@ struct PreTrimView: View {
             .frame(width: handleWidth, height: barHeight)
             .overlay(
                 Image(systemName: isLeft ? "chevron.compact.left" : "chevron.compact.right")
-                    .font(.system(size: 15, weight: .heavy))
+                    .bscFont(size: 15, weight: .heavy)
                     .foregroundColor(.white)
             )
             .allowsHitTesting(false)
@@ -345,29 +365,33 @@ struct PreTrimView: View {
                 viewModel.rotationDegrees = snap(clampDeg(viewModel.rotationDegrees - step, max: max), step: step)
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white)
+                    .bscFont(size: 14, weight: .bold)
+                    .foregroundColor(.bscOnMedia)
                     .frame(width: 30, height: 30)
-                    .background(Color.white.opacity(0.15))
+                    .background(Color.bscOnMedia.opacity(0.15))
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Decrease angle")
 
             Slider(value: binding, in: -max...max, step: step)
                 .tint(.bscPrimary)
+                .accessibilityLabel("Rotation angle")
+                .accessibilityValue(formatDegrees(viewModel.rotationDegrees))
 
             Button {
                 viewModel.rotationDegrees = snap(clampDeg(viewModel.rotationDegrees + step, max: max), step: step)
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white)
+                    .bscFont(size: 14, weight: .bold)
+                    .foregroundColor(.bscOnMedia)
                     .frame(width: 30, height: 30)
-                    .background(Color.white.opacity(0.15))
+                    .background(Color.bscOnMedia.opacity(0.15))
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Increase angle")
 
             Text(formatDegrees(viewModel.rotationDegrees))
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .bscFont(size: 13, weight: .medium, design: .monospaced)
                 .foregroundColor(.bscPrimary)
                 .frame(width: 56, alignment: .trailing)
 
@@ -375,11 +399,12 @@ struct PreTrimView: View {
                 viewModel.rotationDegrees = 0
             } label: {
                 Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white.opacity(abs(viewModel.rotationDegrees) < 0.01 ? 0.3 : 0.9))
+                    .bscFont(size: 13, weight: .semibold)
+                    .foregroundColor(Color.bscOnMedia.opacity(abs(viewModel.rotationDegrees) < 0.01 ? 0.3 : 0.9))
                     .frame(width: 30, height: 30)
             }
             .disabled(abs(viewModel.rotationDegrees) < 0.01)
+            .accessibilityLabel("Reset angle")
         }
     }
 
@@ -406,13 +431,13 @@ struct PreTrimView: View {
                     .tint(.bscPrimary)
 
                 Text("Trimming video... \(Int(viewModel.exportProgress * 100))%")
-                    .font(.system(size: 14, weight: .medium))
+                    .bscFont(size: 14, weight: .medium)
                     .foregroundColor(.bscTextSecondary)
             }
         } else if let error = viewModel.exportError {
             VStack(spacing: BSCSpacing.md) {
                 Text(error)
-                    .font(.system(size: 13))
+                    .bscFont(size: 13)
                     .foregroundColor(.bscError)
                     .multilineTextAlignment(.center)
 

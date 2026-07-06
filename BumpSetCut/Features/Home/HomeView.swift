@@ -117,7 +117,7 @@ struct HomeView: View {
             // Delay animation start to let view finish initial layout
             // This prevents laggy/jumpy intro animation
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                withAnimation(.bscSpring) {
                     hasAppeared = true
                 }
 
@@ -174,7 +174,7 @@ struct HomeView: View {
 
     private func uploadProgressOverlay(_ coordinator: UploadCoordinator) -> some View {
         ZStack {
-            Color.black.opacity(0.5)
+            Color.bscMediaScrim
                 .ignoresSafeArea()
                 .transition(.opacity)
 
@@ -182,12 +182,12 @@ struct HomeView: View {
                 if coordinator.showCompleted {
                     // Completion state
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 44))
+                        .bscFont(size: 44)
                         .foregroundColor(.bscSuccess)
                         .transition(.scale.combined(with: .opacity))
 
                     Text("Upload Complete!")
-                        .font(.system(size: 18, weight: .bold))
+                        .bscFont(size: 18, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
                 } else {
                     // Progress state — determinate bar when the import reports progress
@@ -207,23 +207,23 @@ struct HomeView: View {
                     VStack(spacing: BSCSpacing.sm) {
                         if !coordinator.uploadProgressText.isEmpty {
                             Text(coordinator.uploadProgressText)
-                                .font(.system(size: 16, weight: .semibold))
+                                .bscFont(size: 16, weight: .semibold)
                                 .foregroundColor(.bscTextPrimary)
                         } else {
                             Text("Importing video...")
-                                .font(.system(size: 16, weight: .semibold))
+                                .bscFont(size: 16, weight: .semibold)
                                 .foregroundColor(.bscTextPrimary)
                         }
 
                         if let fraction = coordinator.importProgress {
                             Text("\(Int(fraction * 100))%")
-                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .bscFont(size: 12, weight: .medium, design: .monospaced)
                                 .foregroundColor(.bscTextTertiary)
                         }
 
                         if !coordinator.currentFileSize.isEmpty {
                             Text(coordinator.currentFileSize)
-                                .font(.system(size: 12))
+                                .bscFont(size: 12)
                                 .foregroundColor(.bscTextTertiary)
                         }
                     }
@@ -232,7 +232,7 @@ struct HomeView: View {
                         Button("Cancel") {
                             coordinator.cancelImport()
                         }
-                        .font(.system(size: 14, weight: .semibold))
+                        .bscFont(size: 14, weight: .semibold)
                         .foregroundColor(.bscTextSecondary)
                         .padding(.top, BSCSpacing.xs)
                     }
@@ -248,7 +248,7 @@ struct HomeView: View {
                 RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
                     .stroke(Color.bscSurfaceBorder, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+            .bscShadow(BSCShadow.xl)
             .transition(.scale(scale: 0.9).combined(with: .opacity))
         }
         .animation(.bscSpring, value: coordinator.showCompleted)
@@ -298,10 +298,10 @@ struct HomeView: View {
             .frame(maxWidth: contentWidth)
             .opacity(hasAppeared ? 1 : 0)
             .offset(
-                x: hasAppeared ? 0 : -30,
-                y: hasAppeared ? 0 : -30
+                x: hasAppeared || reduceMotion ? 0 : -30,
+                y: hasAppeared || reduceMotion ? 0 : -30
             )
-            .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.1), value: hasAppeared)
+            .animation(reduceMotion ? .bscStandard : .bscSpring.delay(0.1), value: hasAppeared)
         }
 
         VStack(spacing: BSCSpacing.sm) {
@@ -311,19 +311,19 @@ struct HomeView: View {
         .frame(maxWidth: contentWidth)
         .opacity(hasAppeared ? 1 : 0)
         .offset(
-            x: hasAppeared ? 0 : -40,
-            y: hasAppeared ? 0 : -40
+            x: hasAppeared || reduceMotion ? 0 : -40,
+            y: hasAppeared || reduceMotion ? 0 : -40
         )
-        .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.2), value: hasAppeared)
+        .animation(reduceMotion ? .bscStandard : .bscSpring.delay(0.2), value: hasAppeared)
 
         quickActionsSection
             .frame(maxWidth: contentWidth)
             .opacity(hasAppeared ? 1 : 0)
             .offset(
-                x: hasAppeared ? 0 : -50,
-                y: hasAppeared ? 0 : -50
+                x: hasAppeared || reduceMotion ? 0 : -50,
+                y: hasAppeared || reduceMotion ? 0 : -50
             )
-            .animation(.spring(response: 0.7, dampingFraction: 0.75).delay(0.3), value: hasAppeared)
+            .animation(reduceMotion ? .bscStandard : .bscSpring.delay(0.3), value: hasAppeared)
     }
 
     // MARK: - Background
@@ -366,15 +366,15 @@ struct HomeView: View {
         NavigationLink(destination: LibraryView(mediaStore: mediaStore)) {
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "play.circle.fill")
-                    .font(.system(size: 24, weight: .semibold))
+                    .bscFont(size: 24, weight: .semibold)
 
                 Text("View Library")
-                    .font(.system(size: 18, weight: .bold))
+                    .bscFont(size: 18, weight: .bold)
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 16, weight: .semibold))
+                    .bscFont(size: 16, weight: .semibold)
             }
             .foregroundColor(.bscTextInverse)
             .padding(.vertical, BSCSpacing.lg)
@@ -394,15 +394,15 @@ struct HomeView: View {
         NavigationLink(destination: FavoritesGridView(mediaStore: mediaStore)) {
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "star.fill")
-                    .font(.system(size: 20, weight: .semibold))
+                    .bscFont(size: 20, weight: .semibold)
 
                 Text("Favorite Rallies")
-                    .font(.system(size: 16, weight: .bold))
+                    .bscFont(size: 16, weight: .bold)
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
+                    .bscFont(size: 14, weight: .semibold)
             }
             .foregroundColor(.bscTextPrimary)
             .padding(.vertical, BSCSpacing.md)
@@ -465,11 +465,11 @@ struct HomeView: View {
     ) -> some View {
         VStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 22, weight: .medium))
+                .bscFont(size: 22, weight: .medium)
                 .foregroundColor(color)
 
             Text(title)
-                .font(.system(size: 12, weight: .medium))
+                .bscFont(size: 12, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
         }
         .frame(maxWidth: .infinity)
@@ -551,7 +551,7 @@ struct UploadFolderSelectionSheet: View {
                             onFolderSelected(selectedFolderPath)
                         } label: {
                             Text("Upload to \(selectedFolderPath == LibraryType.saved.rootPath ? "Library" : selectedFolderPath.components(separatedBy: "/").last ?? "Folder")")
-                                .font(.system(size: 16, weight: .bold))
+                                .bscFont(size: 16, weight: .bold)
                                 .foregroundColor(.bscTextInverse)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, BSCSpacing.md)
@@ -563,7 +563,7 @@ struct UploadFolderSelectionSheet: View {
                             showingCreateFolder = true
                         } label: {
                             Text("Create New Folder")
-                                .font(.system(size: 14, weight: .medium))
+                                .bscFont(size: 14, weight: .medium)
                                 .foregroundColor(.bscTextSecondary)
                         }
                     }
@@ -601,18 +601,18 @@ struct UploadFolderSelectionSheet: View {
                         .frame(width: 40, height: 40)
 
                     Image(systemName: icon)
-                        .font(.system(size: 18, weight: .medium))
+                        .bscFont(size: 18, weight: .medium)
                         .foregroundColor(color)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name)
-                        .font(.system(size: 16, weight: .medium))
+                        .bscFont(size: 16, weight: .medium)
                         .foregroundColor(.bscTextPrimary)
 
                     if !path.isEmpty {
                         Text(path)
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                             .foregroundColor(.bscTextTertiary)
                     }
                 }
@@ -621,7 +621,7 @@ struct UploadFolderSelectionSheet: View {
 
                 if selectedFolderPath == path {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 22))
+                        .bscFont(size: 22)
                         .foregroundColor(.bscPrimary)
                 }
             }
@@ -646,7 +646,7 @@ struct UploadFolderSelectionSheet: View {
                 VStack(spacing: BSCSpacing.xl) {
                     VStack(alignment: .leading, spacing: BSCSpacing.sm) {
                         Text("Folder Name")
-                            .font(.system(size: 14, weight: .semibold))
+                            .bscFont(size: 14, weight: .semibold)
                             .foregroundColor(.bscTextSecondary)
                             .textCase(.uppercase)
 
@@ -742,15 +742,15 @@ struct UnprocessedVideoPickerSheet: View {
                         if unprocessedVideos.isEmpty && !isImporting {
                             VStack(spacing: BSCSpacing.lg) {
                                 Image(systemName: "checkmark.seal.fill")
-                                    .font(.system(size: 48))
+                                    .bscFont(size: 48)
                                     .foregroundColor(.bscTeal)
 
                                 Text("All Caught Up!")
-                                    .font(.system(size: 20, weight: .bold))
+                                    .bscFont(size: 20, weight: .bold)
                                     .foregroundColor(.bscTextPrimary)
 
                                 Text("No unprocessed videos. Import a new one above.")
-                                    .font(.system(size: 14))
+                                    .bscFont(size: 14)
                                     .foregroundColor(.bscTextSecondary)
                                     .multilineTextAlignment(.center)
                             }
@@ -762,7 +762,7 @@ struct UnprocessedVideoPickerSheet: View {
                                     .fill(Color.bscSurfaceBorder)
                                     .frame(height: 1)
                                 Text("or select an existing video")
-                                    .font(.system(size: 12, weight: .medium))
+                                    .bscFont(size: 12, weight: .medium)
                                     .foregroundColor(.bscTextTertiary)
                                 Rectangle()
                                     .fill(Color.bscSurfaceBorder)
@@ -783,13 +783,13 @@ struct UnprocessedVideoPickerSheet: View {
                 }
 
                 if isImporting {
-                    Color.black.opacity(0.4).ignoresSafeArea()
+                    Color.bscMediaScrim.ignoresSafeArea()
                     VStack(spacing: BSCSpacing.md) {
                         ProgressView()
                             .tint(.bscPrimary)
                             .scaleEffect(1.2)
                         Text("Importing video...")
-                            .font(.system(size: 14, weight: .medium))
+                            .bscFont(size: 14, weight: .medium)
                             .foregroundColor(.bscTextPrimary)
                     }
                     .padding(BSCSpacing.xl)
@@ -843,20 +843,20 @@ struct UnprocessedVideoPickerSheet: View {
         } label: {
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "square.and.arrow.down.fill")
-                    .font(.system(size: 20, weight: .semibold))
+                    .bscFont(size: 20, weight: .semibold)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Import New Video")
-                        .font(.system(size: 16, weight: .bold))
+                        .bscFont(size: 16, weight: .bold)
                     Text("Add from Photos and process immediately")
-                        .font(.system(size: 12))
+                        .bscFont(size: 12)
                         .opacity(0.8)
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
+                    .bscFont(size: 14, weight: .semibold)
             }
             .foregroundColor(.bscTextInverse)
             .padding(.vertical, BSCSpacing.md)
@@ -924,14 +924,14 @@ struct UnprocessedVideoPickerSheet: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(video.displayName)
-                    .font(.system(size: 15, weight: .medium))
+                    .bscFont(size: 15, weight: .medium)
                     .foregroundColor(.bscTextPrimary)
                     .lineLimit(1)
 
                 HStack(spacing: BSCSpacing.sm) {
                     if let duration = video.duration {
                         Text(formatDuration(duration))
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                             .foregroundColor(.bscTextSecondary)
 
                         Text("\u{2022}")
@@ -939,7 +939,7 @@ struct UnprocessedVideoPickerSheet: View {
                     }
 
                     Text(formatFileSize(video.fileSize))
-                        .font(.system(size: 12))
+                        .bscFont(size: 12)
                         .foregroundColor(.bscTextSecondary)
                 }
             }
@@ -947,7 +947,7 @@ struct UnprocessedVideoPickerSheet: View {
             Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
+                .bscFont(size: 14, weight: .medium)
                 .foregroundColor(.bscTextTertiary)
         }
         .padding(BSCSpacing.md)

@@ -4,6 +4,7 @@ import SwiftUI
 /// Animated hero section with volleyball branding
 struct HeroSection: View {
     @State private var isAnimating = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: BSCSpacing.sm) {
@@ -14,9 +15,10 @@ struct HeroSection: View {
             titleSection
         }
         .onAppear {
+            guard !reduceMotion else { return }
             // Delay floating animation to not conflict with intro animation
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                withAnimation(.bscFloat) {
                     isAnimating = true
                 }
             }
@@ -52,7 +54,7 @@ struct HeroSection: View {
 
             // Volleyball icon
             Image(systemName: "figure.volleyball")
-                .font(.system(size: 38, weight: .medium))
+                .bscFont(size: 38, weight: .medium)
                 .foregroundStyle(LinearGradient.bscPrimaryGradient)
                 .offset(y: isAnimating ? -3 : 0)
         }
@@ -62,11 +64,11 @@ struct HeroSection: View {
     private var titleSection: some View {
         VStack(spacing: 4) {
             Text("BumpSetCut")
-                .font(.system(size: 32, weight: .bold))
+                .bscFont(size: 32, weight: .bold)
                 .foregroundColor(.bscTextPrimary)
 
             Text("Rally Detection AI")
-                .font(.system(size: 13, weight: .medium))
+                .bscFont(size: 13, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
                 .tracking(1.5)
                 .textCase(.uppercase)

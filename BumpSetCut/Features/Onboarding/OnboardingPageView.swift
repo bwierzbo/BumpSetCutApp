@@ -13,6 +13,7 @@ struct OnboardingPageView: View {
     let page: OnboardingPage
     @State private var isAnimating = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
     var body: some View {
@@ -24,7 +25,9 @@ struct OnboardingPageView: View {
             }
         }
         .onAppear {
-            isAnimating = true
+            if !reduceMotion {
+                isAnimating = true
+            }
         }
     }
 
@@ -78,7 +81,7 @@ struct OnboardingPageView: View {
                 .frame(width: size * 0.8, height: size * 0.8)
 
             Image(systemName: page.icon)
-                .font(.system(size: iconSize, weight: .medium))
+                .bscFont(size: iconSize, weight: .medium)
                 .foregroundColor(page.color)
                 .scaleEffect(isAnimating ? 1.05 : 1.0)
         }
@@ -92,12 +95,12 @@ struct OnboardingPageView: View {
     private func textContent(maxWidth: CGFloat) -> some View {
         VStack(spacing: BSCSpacing.sm) {
             Text(page.title)
-                .font(.system(size: isLandscape ? 22 : 28, weight: .bold))
+                .bscFont(size: isLandscape ? 22 : 28, weight: .bold)
                 .foregroundColor(.bscTextPrimary)
                 .multilineTextAlignment(.center)
 
             Text(page.description)
-                .font(.system(size: isLandscape ? 15 : 17))
+                .bscFont(size: isLandscape ? 15 : 17)
                 .foregroundColor(.bscTextSecondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)

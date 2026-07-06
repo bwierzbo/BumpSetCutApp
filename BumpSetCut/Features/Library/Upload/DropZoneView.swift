@@ -35,7 +35,7 @@ struct DropZoneView<Content: View>: View {
                     .overlay(
                         VStack(spacing: BSCSpacing.lg) {
                             Image(systemName: "video.badge.plus")
-                                .font(.system(size: 48))
+                                .bscFont(size: 48)
                                 .foregroundColor(.bscPrimary)
 
                             Text("Drop videos here to upload")
@@ -51,7 +51,7 @@ struct DropZoneView<Content: View>: View {
                         }
                         .padding()
                         .background(Color.bscBackground.opacity(0.9))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                     )
             }
         }
@@ -114,7 +114,7 @@ struct UploadStatusBar: View {
     private func createHeaderView() -> some View {
         VStack(spacing: 12) {
             Image(systemName: "icloud.and.arrow.up")
-                .font(.system(size: 48))
+                .bscFont(size: 48)
                 .foregroundColor(.bscPrimary)
             
             Text("Processing Video")
@@ -166,7 +166,7 @@ struct UploadStatusBar: View {
     private func createCompletedView() -> some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 32))
+                .bscFont(size: 32)
                 .foregroundColor(.bscSuccess)
 
             Text("Upload Complete!")
@@ -182,14 +182,13 @@ struct UploadStatusBar: View {
     
     private func createActionButtons() -> some View {
         Button("Done") {
-            print("✅ Done button pressed")
             uploadCoordinator.completeUploadFlow()
         }
         .frame(maxWidth: .infinity)
         .padding()
         .background(Color.bscSuccess)
         .foregroundColor(.white)
-        .cornerRadius(12)
+        .cornerRadius(BSCRadius.md)
     }
     
     
@@ -230,8 +229,8 @@ struct EnhancedUploadButton: View {
                 Text("Upload Videos")
                     .fontWeight(.medium)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, BSCSpacing.lg)
+            .padding(.vertical, BSCSpacing.sm)
             .background(Color.bscPrimary)
             .foregroundColor(.white)
             .clipShape(Capsule())

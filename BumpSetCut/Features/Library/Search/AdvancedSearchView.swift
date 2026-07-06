@@ -51,12 +51,13 @@ struct AdvancedSearchView: View {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundColor(.bscTextSecondary)
                         }
+                        .accessibilityLabel("Clear search")
                     }
                 }
                 .padding(.horizontal, BSCSpacing.md)
                 .padding(.vertical, BSCSpacing.sm)
                 .background(Color.bscSurfaceGlass)
-                .cornerRadius(10)
+                .cornerRadius(BSCRadius.md)
                 
                 // Filter toggle
                 Button {
@@ -66,6 +67,7 @@ struct AdvancedSearchView: View {
                         .foregroundColor(.bscPrimary)
                         .font(.title2)
                 }
+                .accessibilityLabel("Search filters")
             }
             
             // Filter and sort controls (when expanded)
@@ -106,7 +108,7 @@ struct AdvancedSearchView: View {
                     .padding(.horizontal, BSCSpacing.sm)
                     .padding(.vertical, BSCSpacing.xs)
                     .background(Color.bscPrimary.opacity(0.1))
-                    .cornerRadius(6)
+                    .cornerRadius(BSCRadius.sm)
                 }
 
                 Spacer()
@@ -129,7 +131,7 @@ struct AdvancedSearchView: View {
                     .padding(.horizontal, BSCSpacing.sm)
                     .padding(.vertical, BSCSpacing.xs)
                     .background(Color.bscPrimary.opacity(0.1))
-                    .cornerRadius(6)
+                    .cornerRadius(BSCRadius.sm)
                 }
             }
             
@@ -153,7 +155,7 @@ struct AdvancedSearchView: View {
                     .padding(.horizontal, BSCSpacing.sm)
                     .padding(.vertical, BSCSpacing.xs)
                     .background(Color.bscSuccess.opacity(0.1))
-                    .cornerRadius(6)
+                    .cornerRadius(BSCRadius.sm)
                 }
                 
                 Spacer()
@@ -176,7 +178,7 @@ struct AdvancedSearchView: View {
                     .padding(.horizontal, BSCSpacing.sm)
                     .padding(.vertical, BSCSpacing.xs)
                     .background(Color.bscWarmAccent.opacity(0.1))
-                    .cornerRadius(6)
+                    .cornerRadius(BSCRadius.sm)
                 }
             }
             
@@ -199,7 +201,7 @@ struct AdvancedSearchView: View {
                     .padding(.horizontal, BSCSpacing.sm)
                     .padding(.vertical, BSCSpacing.xs)
                     .background(Color.bscTeal.opacity(0.1))
-                    .cornerRadius(6)
+                    .cornerRadius(BSCRadius.sm)
                 }
                 
                 Spacer()
@@ -217,13 +219,13 @@ struct AdvancedSearchView: View {
                     .padding(.horizontal, BSCSpacing.sm)
                     .padding(.vertical, BSCSpacing.xs)
                     .background(Color.bscError.opacity(0.1))
-                    .cornerRadius(6)
+                    .cornerRadius(BSCRadius.sm)
                 }
             }
         }
         .padding(BSCSpacing.md)
         .background(Color.bscSurfaceGlass)
-        .cornerRadius(10)
+        .cornerRadius(BSCRadius.md)
     }
     
     private var actionButtonsView: some View {
@@ -268,7 +270,7 @@ struct AdvancedSearchView: View {
                 .foregroundColor(.bscSuccess)
             }
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, BSCSpacing.xs)
     }
     
     // MARK: - Quick Filters
@@ -280,7 +282,7 @@ struct AdvancedSearchView: View {
                     quickFilterButton(filter)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, BSCSpacing.lg)
         }
         .padding(.vertical, BSCSpacing.sm)
         .background(Color.bscBackground)
@@ -297,11 +299,11 @@ struct AdvancedSearchView: View {
                 Text(filter.displayName)
             }
             .font(.caption)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, BSCSpacing.md)
             .padding(.vertical, 6)
             .background(isActive ? Color.bscPrimary : Color.bscSurfaceGlass)
             .foregroundColor(isActive ? .white : .bscTextPrimary)
-            .cornerRadius(16)
+            .cornerRadius(BSCRadius.lg)
         }
     }
     
@@ -333,7 +335,7 @@ struct AdvancedSearchView: View {
                             },
                             onNavigateToFolder: onNavigateToFolder
                         )
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, BSCSpacing.lg)
                     }
                 }
                 
@@ -353,7 +355,7 @@ struct AdvancedSearchView: View {
     private var searchPlaceholderView: some View {
         VStack(spacing: 24) {
             Image(systemName: "magnifyingglass.circle")
-                .font(.system(size: 64))
+                .bscFont(size: 64)
                 .foregroundColor(.bscTextTertiary)
 
             VStack(spacing: BSCSpacing.sm) {
@@ -392,7 +394,7 @@ struct AdvancedSearchView: View {
                     Spacer()
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, BSCSpacing.xl)
         }
         .padding(.vertical, 40)
     }
@@ -436,7 +438,7 @@ struct AdvancedSearchView: View {
                                 .font(.caption)
                                 .foregroundColor(.bscTextSecondary)
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, BSCSpacing.sm)
                     }
                     .foregroundColor(.bscTextPrimary)
                 }
@@ -483,8 +485,9 @@ struct AdvancedSearchView: View {
                             Image(systemName: "trash")
                                 .foregroundColor(.bscError)
                         }
+                        .accessibilityLabel("Delete saved search")
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, BSCSpacing.sm)
                 }
             }
         }
@@ -514,7 +517,7 @@ struct AdvancedSearchView: View {
                     Text(searchViewModel.searchText)
                         .padding()
                         .background(Color.bscSurfaceGlass)
-                        .cornerRadius(8)
+                        .cornerRadius(BSCRadius.md)
                 }
                 
                 Spacer()

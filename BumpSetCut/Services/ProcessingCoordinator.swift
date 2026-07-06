@@ -10,6 +10,8 @@ import AVFoundation
 import Foundation
 import Observation
 import os
+import UIKit
+import UserNotifications
 
 @MainActor
 @Observable
@@ -297,6 +299,12 @@ final class ProcessingCoordinator {
         currentTask = nil
         logger.info("Processing completed for \(self.videoName)")
 
+        if noRalliesDetected || errorMessage != nil {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        } else {
+            UINotificationFeedbackGenerator.success()
+        }
+
         // Auto-hide completion pill after 5 seconds if not consumed
         Task {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -310,9 +318,49 @@ final class ProcessingCoordinator {
 
     private func handleCancellation(gen: Int) {
         guard gen == runGeneration else { return }
+        // User-initiated cancels bump runGeneration before cancelling the task, so a
+        // matching generation here means the system cancelled us: background grace
+        // time expired. Surface it — silently discarding minutes of processing looks
+        // like a successful no-op. Guard on isProcessing because the expiry path
+        // reaches here twice (background handler + the task's CancellationError).
+        guard isProcessing else { return }
         isProcessing = false
         progress = 0.0
         currentTask = nil
-        showCompletionPill = false
+        errorMessage = "Processing was interrupted — please start it again."
+        didComplete = true
+        showCompletionPill = true
+        logger.warning("Processing interrupted by background expiry for \(self.videoName)")
+        postInterruptionNotification()
+    }
+
+    /// Local notification for background-expiry interruption, so the user learns
+    /// about it without having to reopen the app and notice the pill.
+    private func postInterruptionNotification() {
+        guard UIApplication.shared.applicationState != .active else { return }
+        let name = videoName
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            switch settings.authorizationStatus {
+            case .notDetermined:
+                // Provisional authorization is granted without a prompt, which is the
+                // only kind that can be requested while backgrounded.
+                guard (try? await center.requestAuthorization(options: [.alert, .sound, .provisional])) == true else { return }
+            case .denied:
+                return
+            default:
+                break
+            }
+            let content = UNMutableNotificationContent()
+            content.title = "Processing was interrupted"
+            content.body = "\(name) couldn't finish in the background. Open BumpSetCut and start it again."
+            let request = UNNotificationRequest(
+                identifier: "processing-interrupted-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            try? await center.add(request)
+        }
     }
 }

@@ -237,7 +237,7 @@ struct LimitRow: View {
             Image(systemName: icon)
                 .font(.caption)
                 .foregroundStyle(Color.bscTextSecondary)
-                .frame(width: 20)
+                .frame(width: BSCIconSize.md)
 
             Text(title)
                 .font(.subheadline)
@@ -306,17 +306,17 @@ private extension SettingsView {
 
                         Image(systemName: appSettings.appearanceMode == .dark ? "moon.fill" :
                                 appSettings.appearanceMode == .light ? "sun.max.fill" : "circle.lefthalf.filled")
-                            .font(.system(size: 16))
+                            .bscFont(size: 16)
                             .foregroundColor(.bscBlue)
                     }
 
                     VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                         Text("Theme")
-                            .font(.system(size: 16, weight: .semibold))
+                            .bscFont(size: 16, weight: .semibold)
                             .foregroundColor(.bscTextPrimary)
 
                         Text("Choose your preferred appearance")
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                             .foregroundColor(.bscTextSecondary)
                     }
 
@@ -327,7 +327,7 @@ private extension SettingsView {
                 HStack(spacing: BSCSpacing.sm) {
                     ForEach(AppTheme.allCases) { theme in
                         Button {
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            withAnimation(.bscStandard) {
                                 appSettings.appearanceMode = theme
                             }
                         } label: {
@@ -345,12 +345,12 @@ private extension SettingsView {
 
                                     Image(systemName: theme == .dark ? "moon.fill" :
                                             theme == .light ? "sun.max.fill" : "circle.lefthalf.filled")
-                                        .font(.system(size: 18))
+                                        .bscFont(size: 18)
                                         .foregroundColor(theme == .dark ? .white : theme == .light ? Color(hex: "#1A1A1C") : .bscBlue)
                                 }
 
                                 Text(theme.rawValue)
-                                    .font(.system(size: 12, weight: appSettings.appearanceMode == theme ? .semibold : .regular))
+                                    .bscFont(size: 12, weight: appSettings.appearanceMode == theme ? .semibold : .regular)
                                     .foregroundColor(appSettings.appearanceMode == theme ? .bscBlue : .bscTextSecondary)
                             }
                             .frame(maxWidth: .infinity)
@@ -417,24 +417,24 @@ private extension SettingsView {
 
                     HStack {
                         Text("Contributed")
-                            .font(.system(size: 14))
+                            .bscFont(size: 14)
                             .foregroundColor(.bscTextSecondary)
                         Spacer()
                         Text("\(flywheelService.lifetimeContributedCount)")
-                            .font(.system(size: 14, weight: .semibold))
+                            .bscFont(size: 14, weight: .semibold)
                             .foregroundColor(.bscTextPrimary)
                     }
 
                     if flywheelService.pendingCount > 0 {
                         HStack {
                             Text("Pending upload")
-                                .font(.system(size: 14))
+                                .bscFont(size: 14)
                                 .foregroundColor(.bscTextSecondary)
                             Spacer()
                             Button("Clear (\(flywheelService.pendingCount))") {
                                 flywheelService.clearPending()
                             }
-                            .font(.system(size: 14, weight: .medium))
+                            .bscFont(size: 14, weight: .medium)
                             .foregroundColor(.bscPrimary)
                         }
                     }
@@ -458,17 +458,17 @@ private extension SettingsView {
                                 .frame(width: 36, height: 36)
 
                             Image(systemName: "person.fill")
-                                .font(.system(size: 16))
+                                .bscFont(size: 16)
                                 .foregroundColor(.bscPrimary)
                         }
 
                         VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                             Text(authService.currentUser?.username ?? "Account")
-                                .font(.system(size: 16, weight: .semibold))
+                                .bscFont(size: 16, weight: .semibold)
                                 .foregroundColor(.bscTextPrimary)
 
                             Text("Signed in")
-                                .font(.system(size: 12))
+                                .bscFont(size: 12)
                                 .foregroundColor(.bscTextSecondary)
                         }
 
@@ -486,7 +486,7 @@ private extension SettingsView {
                             Image(systemName: "rectangle.portrait.and.arrow.right")
                                 .foregroundColor(.bscTextSecondary)
                             Text("Sign Out")
-                                .font(.system(size: 14, weight: .medium))
+                                .bscFont(size: 14, weight: .medium)
                                 .foregroundColor(.bscTextSecondary)
                             Spacer()
                         }
@@ -510,7 +510,7 @@ private extension SettingsView {
                                     .foregroundColor(.bscError)
                             }
                             Text("Delete Account")
-                                .font(.system(size: 14, weight: .medium))
+                                .bscFont(size: 14, weight: .medium)
                                 .foregroundColor(.bscError)
                             Spacer()
                         }
@@ -551,17 +551,17 @@ private extension SettingsView {
                                 .frame(width: 36, height: 36)
 
                             Image(systemName: "person.fill")
-                                .font(.system(size: 16))
+                                .bscFont(size: 16)
                                 .foregroundColor(.bscPrimary)
                         }
 
                         VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                             Text("Not signed in")
-                                .font(.system(size: 16, weight: .semibold))
+                                .bscFont(size: 16, weight: .semibold)
                                 .foregroundColor(.bscTextPrimary)
 
                             Text("Sign in to access community features")
-                                .font(.system(size: 12))
+                                .bscFont(size: 12)
                                 .foregroundColor(.bscTextSecondary)
                         }
 
@@ -695,18 +695,18 @@ private extension SettingsView {
                         .frame(width: 64, height: 64)
 
                     Image(systemName: "figure.volleyball")
-                        .font(.system(size: 28, weight: .medium))
+                        .bscFont(size: 28, weight: .medium)
                         .foregroundColor(.bscPrimary)
                 }
 
                 VStack(spacing: BSCSpacing.xs) {
                     Text("BumpSetCut")
-                        .font(.system(size: 20, weight: .bold))
+                        .bscFont(size: 20, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
                         .accessibilityIdentifier(AccessibilityID.Settings.appName)
 
                     Text("Rally Detection AI")
-                        .font(.system(size: 14))
+                        .bscFont(size: 14)
                         .foregroundColor(.bscTextSecondary)
                 }
 
@@ -714,11 +714,11 @@ private extension SettingsView {
                 HStack(spacing: BSCSpacing.xl) {
                     VStack(spacing: BSCSpacing.xxs) {
                         Text("Version")
-                            .font(.system(size: 11))
+                            .bscFont(size: 11)
                             .foregroundColor(.bscTextTertiary)
                             .textCase(.uppercase)
                         Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
-                            .font(.system(size: 14, weight: .semibold))
+                            .bscFont(size: 14, weight: .semibold)
                             .foregroundColor(.bscTextPrimary)
                     }
                     .accessibilityIdentifier(AccessibilityID.Settings.appVersion)
@@ -729,11 +729,11 @@ private extension SettingsView {
 
                     VStack(spacing: BSCSpacing.xxs) {
                         Text("Build")
-                            .font(.system(size: 11))
+                            .bscFont(size: 11)
                             .foregroundColor(.bscTextTertiary)
                             .textCase(.uppercase)
                         Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
-                            .font(.system(size: 14, weight: .semibold))
+                            .bscFont(size: 14, weight: .semibold)
                             .foregroundColor(.bscTextPrimary)
                     }
                 }
@@ -757,18 +757,18 @@ private struct BSCSettingsSection<Content: View>: View {
             // Header
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: icon)
-                    .font(.system(size: 14, weight: .medium))
+                    .bscFont(size: 14, weight: .medium)
                     .foregroundColor(iconColor)
 
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .bscFont(size: 13, weight: .semibold)
                     .foregroundColor(.bscTextSecondary)
                     .textCase(.uppercase)
                     .tracking(0.5)
 
                 if let subtitle = subtitle {
                     Text("(\(subtitle))")
-                        .font(.system(size: 11))
+                        .bscFont(size: 11)
                         .foregroundColor(.bscTextTertiary)
                 }
             }
@@ -803,18 +803,18 @@ private struct BSCSettingsToggle: View {
                     .frame(width: 36, height: 36)
 
                 Image(systemName: icon)
-                    .font(.system(size: 16))
+                    .bscFont(size: 16)
                     .foregroundColor(.bscBlue)
             }
 
             // Text
             VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold))
+                    .bscFont(size: 16, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
 
                 Text(subtitle)
-                    .font(.system(size: 12))
+                    .bscFont(size: 12)
                     .foregroundColor(.bscTextSecondary)
             }
 
@@ -840,7 +840,7 @@ private struct BSCStatusRow: View {
     var body: some View {
         HStack {
             Text(title)
-                .font(.system(size: 14))
+                .bscFont(size: 14)
                 .foregroundColor(.bscTextSecondary)
 
             Spacer()
@@ -851,7 +851,7 @@ private struct BSCStatusRow: View {
                     .frame(width: 8, height: 8)
 
                 Text(isEnabled ? "Enabled" : "Disabled")
-                    .font(.system(size: 13, weight: .medium))
+                    .bscFont(size: 13, weight: .medium)
                     .foregroundColor(isEnabled ? .bscSuccess : .bscTextTertiary)
             }
         }
@@ -881,17 +881,17 @@ private struct DeleteAccountConfirmationView: View {
                         .fill(Color.bscError.opacity(0.15))
                         .frame(width: 64, height: 64)
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 28))
+                        .bscFont(size: 28)
                         .foregroundColor(.bscError)
                 }
                 .padding(.top, BSCSpacing.xl)
 
                 Text("Delete Account")
-                    .font(.system(size: 22, weight: .bold))
+                    .bscFont(size: 22, weight: .bold)
                     .foregroundColor(.bscTextPrimary)
 
                 Text("This permanently deletes your account and all associated data. This cannot be undone.")
-                    .font(.system(size: 15))
+                    .bscFont(size: 15)
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, BSCSpacing.lg)
@@ -900,7 +900,7 @@ private struct DeleteAccountConfirmationView: View {
                     (Text("Type ").foregroundColor(.bscTextSecondary)
                      + Text(username).fontWeight(.bold).foregroundColor(.bscTextPrimary)
                      + Text(" to confirm").foregroundColor(.bscTextSecondary))
-                        .font(.system(size: 13))
+                        .bscFont(size: 13)
 
                     TextField("Username", text: $typed)
                         .textInputAutocapitalization(.never)
@@ -917,7 +917,7 @@ private struct DeleteAccountConfirmationView: View {
                     dismiss()
                 } label: {
                     Text("Delete Account")
-                        .font(.system(size: 16, weight: .semibold))
+                        .bscFont(size: 16, weight: .semibold)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
@@ -963,10 +963,10 @@ struct FlywheelConsentSheet: View {
                     VStack(alignment: .leading, spacing: BSCSpacing.lg) {
                         VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                             Text("Help Improve Detection")
-                                .font(.system(size: 22, weight: .bold))
+                                .bscFont(size: 22, weight: .bold)
                                 .foregroundColor(.bscTextPrimary)
                             Text("Contribute training clips so the volleyball model gets better over time.")
-                                .font(.system(size: 15))
+                                .bscFont(size: 15)
                                 .foregroundColor(.bscTextSecondary)
                         }
 
@@ -974,11 +974,11 @@ struct FlywheelConsentSheet: View {
                             ForEach(bullets, id: \.icon) { bullet in
                                 HStack(alignment: .top, spacing: BSCSpacing.md) {
                                     Image(systemName: bullet.icon)
-                                        .font(.system(size: 16))
+                                        .bscFont(size: 16)
                                         .foregroundColor(.bscPrimary)
-                                        .frame(width: 24)
+                                        .frame(width: BSCIconSize.lg)
                                     Text(bullet.text)
-                                        .font(.system(size: 14))
+                                        .bscFont(size: 14)
                                         .foregroundColor(.bscTextPrimary)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
@@ -986,14 +986,14 @@ struct FlywheelConsentSheet: View {
                         }
 
                         Link("Privacy Policy", destination: URL(string: "https://bumpsetcut.com/privacy")!)
-                            .font(.system(size: 14, weight: .medium))
+                            .bscFont(size: 14, weight: .medium)
                             .foregroundColor(.bscPrimary)
 
                         Button {
                             onAccept()
                         } label: {
                             Text("Turn On Contributions")
-                                .font(.system(size: 16, weight: .semibold))
+                                .bscFont(size: 16, weight: .semibold)
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, BSCSpacing.md)
