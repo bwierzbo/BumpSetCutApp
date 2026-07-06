@@ -408,7 +408,7 @@ private extension MetadataOverlayView {
         context.draw(
             Text(confidenceText)
                 .font(.caption2.monospacedDigit())
-                .foregroundColor(.white),
+                .foregroundColor(.bscOnMedia),
             at: CGPoint(x: meterPosition.x + meterWidth/2, y: meterPosition.y + meterHeight + 12),
             anchor: .center
         )
@@ -461,7 +461,7 @@ private extension MetadataOverlayView {
         context.draw(
             Text(confidenceText)
                 .font(.caption2.bold().monospacedDigit())
-                .foregroundColor(.white),
+                .foregroundColor(.bscOnMedia),
             at: CGPoint(x: badgePosition.x, y: badgePosition.y - badgeSize/2 - 10),
             anchor: .center
         )
@@ -494,7 +494,7 @@ private extension MetadataOverlayView {
 
         context.fill(
             Path(cursorRect),
-            with: .color(.white.opacity(0.6))
+            with: .color(Color.bscOnMedia.opacity(0.6))
         )
     }
 }
@@ -562,7 +562,7 @@ extension MetadataOverlayView {
         showRallyBoundaries: Binding<Bool>,
         showConfidenceIndicators: Binding<Bool>
     ) -> some View {
-        HStack(spacing: 16) {
+        HStack(spacing: BSCSpacing.lg) {
             Toggle("Trajectories", isOn: showTrajectories)
                 .toggleStyle(.button)
                 .font(.caption)
@@ -575,8 +575,8 @@ extension MetadataOverlayView {
                 .toggleStyle(.button)
                 .font(.caption)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, BSCSpacing.md)
+        .padding(.vertical, BSCSpacing.sm)
         .background(.ultraThinMaterial, in: Capsule())
     }
 }

@@ -185,12 +185,12 @@ struct BSCVideoCard: View {
             }
         }
         // Crossfade the skeleton out as the generated thumbnail fades in.
-        .animation(.easeInOut(duration: 0.3), value: thumbnail != nil)
+        .animation(.bscStandard, value: thumbnail != nil)
     }
 
     private var thumbnailGradientOverlay: some View {
         LinearGradient(
-            colors: [Color.clear, Color.black.opacity(0.3)],
+            colors: [Color.clear, Color.bscMediaScrimBase.opacity(0.3)],
             startPoint: .center,
             endPoint: .bottom
         )
@@ -216,6 +216,7 @@ struct BSCVideoCard: View {
                 .font(.title3)
                 .foregroundColor(isSelected ? .bscPrimary : .bscTextSecondary)
         }
+        .accessibilityLabel(isSelected ? "Deselect video" : "Select video")
     }
 
     private var selectionOverlay: some View {
@@ -227,13 +228,14 @@ struct BSCVideoCard: View {
                 } label: {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
-                        .foregroundColor(isSelected ? .bscPrimary : .white)
+                        .foregroundColor(isSelected ? .bscPrimary : .bscOnMedia)
                         .background(
                             Circle()
-                                .fill(Color.black.opacity(0.6))
+                                .fill(Color.bscMediaScrimBase.opacity(0.6))
                                 .frame(width: 28, height: 28)
                         )
                 }
+                .accessibilityLabel(isSelected ? "Deselect video" : "Select video")
                 .padding(BSCSpacing.sm)
             }
             Spacer()
@@ -247,11 +249,11 @@ struct BSCVideoCard: View {
                 Spacer()
                 if let duration = video.duration {
                     Text(formatDuration(duration))
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.white)
+                        .bscFont(size: 11, weight: .semibold)
+                        .foregroundColor(.bscOnMedia)
                         .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.7))
+                        .padding(.vertical, BSCSpacing.xxs)
+                        .background(Color.bscMediaScrimBase.opacity(0.7))
                         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                         .padding(BSCSpacing.sm)
                 }
@@ -261,13 +263,14 @@ struct BSCVideoCard: View {
 
     private var playButtonOverlay: some View {
         Circle()
-            .fill(Color.black.opacity(0.6))
+            .fill(Color.bscMediaScrimBase.opacity(0.6))
             .frame(width: 36, height: 36)
             .overlay(
                 Image(systemName: "play.fill")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white)
+                    .bscFont(size: 14)
+                    .foregroundColor(.bscOnMedia)
             )
+            .accessibilityHidden(true)
     }
 
     // MARK: - Info Views
@@ -275,7 +278,7 @@ struct BSCVideoCard: View {
         VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
             // Title
             Text(video.displayName)
-                .font(.system(size: 16, weight: .semibold))
+                .bscFont(size: 16, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(1)
 
@@ -301,7 +304,7 @@ struct BSCVideoCard: View {
         VStack(alignment: .leading, spacing: BSCSpacing.xs) {
             // Title
             Text(video.displayName)
-                .font(.system(size: 13, weight: .semibold))
+                .bscFont(size: 13, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -329,8 +332,9 @@ struct BSCVideoCard: View {
             Image(systemName: statusIconName)
                 .font(.caption2)
                 .foregroundColor(statusColor)
+                .accessibilityHidden(true)
             Text(statusText)
-                .font(.system(size: 11, weight: .medium))
+                .bscFont(size: 11, weight: .medium)
                 .foregroundColor(statusColor)
             if isReported {
                 Image(systemName: "flag.fill")
@@ -407,7 +411,7 @@ struct BSCVideoCard: View {
 
     private var extensionBadge: some View {
         Text(video.originalURL.pathExtension.uppercased())
-            .font(.system(size: 10, weight: .medium))
+            .bscFont(size: 10, weight: .medium)
             .foregroundColor(.bscTextTertiary)
             .padding(.horizontal, BSCSpacing.xs)
             .padding(.vertical, BSCSpacing.xxs)
@@ -421,12 +425,15 @@ struct BSCVideoCard: View {
             contextMenuContent
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 16, weight: .medium))
+                .bscFont(size: 16, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
                 .frame(width: 32, height: 32)
                 .background(Color.bscSurfaceGlass)
                 .clipShape(Circle())
+                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
         }
+        .accessibilityLabel("More options")
     }
 
     private var quickProcessButton: some View {
@@ -434,9 +441,11 @@ struct BSCVideoCard: View {
             showingProcessVideo = true
         } label: {
             Image(systemName: "brain.head.profile.fill")
-                .font(.system(size: 16))
+                .bscFont(size: 16)
                 .foregroundColor(.bscPrimary)
                 .frame(width: 32, height: 32)
+                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("Process with AI")
     }
@@ -446,9 +455,11 @@ struct BSCVideoCard: View {
             showingRallyViewer = true
         } label: {
             Image(systemName: "play.fill")
-                .font(.system(size: 16))
+                .bscFont(size: 16)
                 .foregroundColor(.bscStatusProcessed)
                 .frame(width: 32, height: 32)
+                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("View Processed Rallies")
     }
@@ -458,9 +469,11 @@ struct BSCVideoCard: View {
             showingDeleteConfirmation = true
         } label: {
             Image(systemName: "trash.fill")
-                .font(.system(size: 16))
+                .bscFont(size: 16)
                 .foregroundColor(.bscError)
                 .frame(width: 32, height: 32)
+                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("Delete video")
     }

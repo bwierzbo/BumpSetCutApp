@@ -46,12 +46,12 @@ struct BSCErrorState: View {
             // Text content
             VStack(spacing: BSCSpacing.sm) {
                 Text(title)
-                    .font(.system(size: 20, weight: .bold))
+                    .bscFont(size: 20, weight: .bold)
                     .foregroundColor(.bscTextPrimary)
                     .multilineTextAlignment(.center)
 
                 Text(message)
-                    .font(.system(size: 15))
+                    .bscFont(size: 15)
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -90,11 +90,11 @@ struct BSCErrorState: View {
 
             VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .bscFont(size: 14, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
 
                 Text(message)
-                    .font(.system(size: 12))
+                    .bscFont(size: 12)
                     .foregroundColor(.bscTextSecondary)
                     .lineLimit(2)
             }
@@ -106,6 +106,7 @@ struct BSCErrorState: View {
                     icon: "arrow.clockwise",
                     style: .ghost,
                     size: .compact,
+                    accessibilityLabel: retryTitle,
                     action: onRetry
                 )
             }
@@ -115,6 +116,7 @@ struct BSCErrorState: View {
                     icon: "xmark",
                     style: .ghost,
                     size: .compact,
+                    accessibilityLabel: dismissTitle,
                     action: onDismiss
                 )
             }
@@ -134,7 +136,7 @@ struct BSCErrorState: View {
             errorIcon(size: 20)
 
             Text(message)
-                .font(.system(size: 14))
+                .bscFont(size: 14)
                 .foregroundColor(.white)
                 .lineLimit(2)
 
@@ -143,7 +145,7 @@ struct BSCErrorState: View {
             if let onRetry = onRetry {
                 Button(action: onRetry) {
                     Text(retryTitle)
-                        .font(.system(size: 14, weight: .semibold))
+                        .bscFont(size: 14, weight: .semibold)
                         .foregroundColor(.white)
                 }
             }
@@ -151,9 +153,10 @@ struct BSCErrorState: View {
             if let onDismiss = onDismiss {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
+                        .bscFont(size: 14, weight: .semibold)
                         .foregroundColor(.white.opacity(0.8))
                 }
+                .accessibilityLabel(dismissTitle)
             }
         }
         .padding(.horizontal, BSCSpacing.lg)
@@ -182,6 +185,7 @@ struct BSCErrorState: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: size * 0.6, weight: .medium))
                 .foregroundColor(.bscError)
+                .accessibilityHidden(true)
         }
     }
 }

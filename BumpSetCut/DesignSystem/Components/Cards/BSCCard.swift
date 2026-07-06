@@ -206,13 +206,14 @@ struct BSCSectionCard<Content: View>: View {
                 HStack(spacing: BSCSpacing.sm) {
                     if let icon = icon {
                         Image(systemName: icon)
-                            .font(.system(size: BSCIconSize.md, weight: .semibold))
+                            .bscFont(size: BSCIconSize.md, weight: .semibold)
                             .foregroundColor(.bscPrimary)
+                            .accessibilityHidden(true)
                     }
 
                     if let title = title {
                         Text(title)
-                            .font(.system(size: 14, weight: .semibold))
+                            .bscFont(size: 14, weight: .semibold)
                             .foregroundColor(.bscTextSecondary)
                             .textCase(.uppercase)
                     }

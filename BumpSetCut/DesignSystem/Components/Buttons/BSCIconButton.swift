@@ -88,10 +88,10 @@ struct BSCIconButton: View {
         let badgeText = count > 99 ? "99+" : "\(count)"
 
         Text(badgeText)
-            .font(.system(size: 10, weight: .bold))
+            .bscFont(size: 10, weight: .bold)
             .foregroundColor(.white)
             .padding(.horizontal, 5)
-            .padding(.vertical, 2)
+            .padding(.vertical, BSCSpacing.xxs)
             .background(Color.bscError)
             .clipShape(Capsule())
             .offset(x: size.dimension / 3, y: -size.dimension / 3)
@@ -121,7 +121,7 @@ struct BSCIconButton: View {
         case .glass, .solid, .ghost:
             return Color.bscTextPrimary
         case .primary, .destructive, .success:
-            return Color.white
+            return Color.bscOnMedia
         }
     }
 

@@ -18,18 +18,18 @@ struct LoadingStatusBar: View {
     
     var body: some View {
         if isLoading {
-            HStack(spacing: 12) {
+            HStack(spacing: BSCSpacing.md) {
                 ProgressView()
                     .scaleEffect(0.8)
-                
+
                 Text(message)
                     .font(.subheadline)
                     .foregroundColor(.bscTextSecondary)
-                
+
                 Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, BSCSpacing.lg)
+            .padding(.vertical, BSCSpacing.md)
             .background(Color.bscBackground)
             .overlay(
                 Rectangle()
@@ -38,7 +38,7 @@ struct LoadingStatusBar: View {
                 alignment: .top
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
-            .animation(.easeInOut(duration: 0.3), value: isLoading)
+            .animation(.bscStandard, value: isLoading)
         }
     }
 }

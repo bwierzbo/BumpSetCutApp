@@ -41,7 +41,7 @@ struct VideoThumbnailView: View {
             }
         }
         // Fade the generated/loaded thumbnail in over the placeholder instead of snapping.
-        .animation(.easeInOut(duration: 0.3), value: generatedImage != nil)
+        .animation(.bscStandard, value: generatedImage != nil)
         .task(id: videoURL) {
             await generateThumbnail()
         }
@@ -50,9 +50,12 @@ struct VideoThumbnailView: View {
     private var fallbackView: some View {
         ZStack {
             Color.bscSurfaceGlass
+            Circle()
+                .fill(Color.bscMediaScrim)
+                .frame(width: 36, height: 36)
             Image(systemName: "play.fill")
-                .font(.system(size: 20))
-                .foregroundColor(.white.opacity(0.3))
+                .bscFont(size: 20)
+                .foregroundColor(Color.bscOnMedia.opacity(0.6))
         }
     }
 
