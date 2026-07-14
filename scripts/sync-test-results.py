@@ -25,26 +25,27 @@ from pathlib import Path
 def _make_ssl_context():
     """Create an SSL context that works on macOS framework Python."""
     ctx = ssl.create_default_context()
+    if ctx.cert_store_stats().get("x509_ca", 0) > 0:
+        return ctx
     # macOS framework Python may lack certs — try system cert location
     for ca_path in ["/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem"]:
         if os.path.exists(ca_path):
             ctx.load_verify_locations(ca_path)
             return ctx
-    # Last resort: unverified (still better than crashing)
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
+    try:
+        import certifi
+        ctx.load_verify_locations(certifi.where())
+        return ctx
+    except ImportError:
+        pass
+    print(
+        "Error: no CA certificates available for TLS verification.\n"
+        "Fix: pip3 install certifi, or run with a Python that has system certs.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 _SSL_CTX = _make_ssl_context()
-
-DEFAULT_SUPABASE_URL = "https://nodxhfrdefmaksisuylb.supabase.co"
-DEFAULT_SUPABASE_ANON_KEY = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vZHhoZnJkZWZtYWtzaXN1eWxiIiwi"
-    "cm9sZSI6ImFub24iLCJpYXQiOjE3NzA0MTUzMTksImV4cCI6MjA4NTk5MTMxOX0."
-    "mDkABYzOV3NJzgCeFbicUEkG7JTPGr2h_DvGfV8Fi9c"
-)
 
 
 def load_config():
@@ -67,7 +68,16 @@ def load_config():
                 elif k == "NEXT_PUBLIC_SUPABASE_ANON_KEY" and not key:
                     key = v
 
-    return url or DEFAULT_SUPABASE_URL, key or DEFAULT_SUPABASE_ANON_KEY
+    if not url or not key:
+        print(
+            "Error: Supabase credentials not found.\n"
+            "Set SUPABASE_URL and SUPABASE_ANON_KEY in the environment, or ensure\n"
+            "../BumpSetCutWebApp/.env.local defines NEXT_PUBLIC_SUPABASE_URL/_ANON_KEY.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return url, key
 
 
 # --- xcresult extraction ---

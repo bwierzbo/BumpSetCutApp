@@ -359,18 +359,20 @@ struct RallyExportProgress: View {
         exportedURLs.removeAll()
     }
 
-    /// Clean up orphaned rally_* temp files in the Documents directory
+    /// Clean up orphaned rally_*/stitched_rallies_* temp files in tmp, plus
+    /// rally_* files stranded in Documents by older builds that exported there.
     private func cleanupOrphanedRallyFiles() {
-        let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        guard let contents = try? FileManager.default.contentsOfDirectory(at: documentsDir, includingPropertiesForKeys: nil) else { return }
-        for file in contents where file.lastPathComponent.hasPrefix("rally_") && file.pathExtension == "mp4" {
-            try? FileManager.default.removeItem(at: file)
-        }
-        // Also clean stitched temp files in tmp directory
         let tmpDir = FileManager.default.temporaryDirectory
-        guard let tmpContents = try? FileManager.default.contentsOfDirectory(at: tmpDir, includingPropertiesForKeys: nil) else { return }
-        for file in tmpContents where file.lastPathComponent.hasPrefix("stitched_rallies_") && file.pathExtension == "mp4" {
-            try? FileManager.default.removeItem(at: file)
+        if let tmpContents = try? FileManager.default.contentsOfDirectory(at: tmpDir, includingPropertiesForKeys: nil) {
+            for file in tmpContents where (file.lastPathComponent.hasPrefix("rally_") || file.lastPathComponent.hasPrefix("stitched_rallies_")) && file.pathExtension == "mp4" {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+        let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        if let contents = try? FileManager.default.contentsOfDirectory(at: documentsDir, includingPropertiesForKeys: nil) {
+            for file in contents where file.lastPathComponent.hasPrefix("rally_") && file.pathExtension == "mp4" {
+                try? FileManager.default.removeItem(at: file)
+            }
         }
     }
 }

@@ -24,7 +24,8 @@ final class AuthenticationService {
     var needsUsernameSetup: Bool { currentUser?.username.hasPrefix("user_") == true }
 
     private let supabase = SupabaseConfig.client
-    private static let tokenKey = "auth_token"
+    // The supabase-swift SDK persists the session itself; we only cache the profile.
+    // "auth_token" entries written by older builds are cleared on fresh install (BumpSetCutApp).
     private static let userKey = "cached_user"
 
     // MARK: - Session Restoration
@@ -86,13 +87,6 @@ final class AuthenticationService {
                 username: username
             )
 
-            let token = AuthToken(
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
-            )
-
-            try KeychainHelper.save(token, for: Self.tokenKey)
             try KeychainHelper.save(profile, for: Self.userKey)
 
             currentUser = profile
@@ -118,13 +112,6 @@ final class AuthenticationService {
                 userId: session.user.id.uuidString.lowercased()
             )
 
-            let token = AuthToken(
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
-            )
-
-            try KeychainHelper.save(token, for: Self.tokenKey)
             try KeychainHelper.save(profile, for: Self.userKey)
 
             currentUser = profile
@@ -139,15 +126,7 @@ final class AuthenticationService {
 
     func refreshToken() async throws {
         do {
-            let session = try await supabase.auth.refreshSession()
-
-            let refreshed = AuthToken(
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
-            )
-
-            try KeychainHelper.save(refreshed, for: Self.tokenKey)
+            _ = try await supabase.auth.refreshSession()
             authState = .authenticated
         } catch {
             authState = .expired
@@ -213,7 +192,6 @@ final class AuthenticationService {
     // MARK: - Private
 
     private func clearStoredCredentials() {
-        try? KeychainHelper.delete(for: Self.tokenKey)
         try? KeychainHelper.delete(for: Self.userKey)
     }
 

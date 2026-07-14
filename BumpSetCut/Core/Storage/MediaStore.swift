@@ -384,11 +384,13 @@ struct FolderManifest: Codable {
         // Migrate processed videos to set hasProcessingMetadata flag
         migrateProcessedVideos()
 
+        #if DEBUG
         // UI Testing: inject test video from the test runner
         injectTestVideoIfNeeded()
 
         // Dev convenience: prefill library with sample videos
         prefillLibraryIfNeeded()
+        #endif
 
         // Storage integrity check + stale-entry cleanup do a per-file existence
         // scan that used to block launch. Defer them off the main thread so the
@@ -396,6 +398,7 @@ struct FolderManifest: Codable {
         Task { await reconcileStorageOffMain() }
     }
 
+    #if DEBUG
     /// When running with --prefill-library, symlink all videos from PREFILL_VIDEOS_DIR into the library.
     private func prefillLibraryIfNeeded() {
         guard CommandLine.arguments.contains("--prefill-library"),
@@ -522,7 +525,8 @@ struct FolderManifest: Codable {
             print("MediaStore: ❌ Failed to write metadata: \(error)")
         }
     }
-    
+    #endif
+
     private func saveManifest() {
         do {
             manifest.updateModifiedDate()
