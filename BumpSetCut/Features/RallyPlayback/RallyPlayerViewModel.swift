@@ -787,9 +787,11 @@ final class RallyPlayerViewModel {
         try? fileManager.createDirectory(at: favoritesDir, withIntermediateDirectories: true)
 
         // Export, Done, and back navigation all call this — skip rallies already
-        // copied on a previous pass instead of duplicating the clip each time
+        // copied on a previous pass instead of duplicating the clip each time.
+        // Prefix scan, not root-only: clips the user moved into Favorites
+        // subfolders still count as copied.
         let alreadyCopied = Set(
-            mediaStore.getVideos(in: LibraryType.favorites.rootPath)
+            mediaStore.getAllVideos(in: .favorites)
                 .filter { $0.sourceVideoId == videoMetadata.id }
                 .compactMap { $0.sourceRallyIndex }
         )

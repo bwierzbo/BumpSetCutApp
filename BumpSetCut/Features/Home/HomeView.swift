@@ -896,6 +896,10 @@ struct UnprocessedVideoPickerSheet: View {
                 isImporting = false
                 if success {
                     importedVideo = ImportedVideo(url: destinationURL)
+                } else {
+                    // Registration failed — remove the moved copy, or it lingers
+                    // on disk untracked by the manifest with no cleanup path
+                    try? FileManager.default.removeItem(at: destinationURL)
                 }
             }
         } catch {
