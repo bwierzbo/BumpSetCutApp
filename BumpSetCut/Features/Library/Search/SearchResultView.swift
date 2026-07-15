@@ -234,7 +234,7 @@ struct SearchEmptyStateView: View {
                     .foregroundColor(.bscTextSecondary)
             } else {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 48))
+                    .bscFont(size: 48)
                     .foregroundColor(.bscTextTertiary)
 
                 Text("No results found")

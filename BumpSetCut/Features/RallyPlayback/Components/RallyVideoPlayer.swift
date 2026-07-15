@@ -23,7 +23,7 @@ struct RallyVideoPlayer: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            Color.bscMediaBackground
 
             // Show thumbnail as background while video loads
             if let thumbnail = thumbnail {
@@ -66,7 +66,7 @@ struct StandaloneRallyVideoPlayer: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            Color.bscMediaBackground
 
             if let player = playerManager.player {
                 VideoPlayer(player: player)

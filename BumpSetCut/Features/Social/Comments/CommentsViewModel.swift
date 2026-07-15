@@ -15,6 +15,9 @@ final class CommentsViewModel {
     private(set) var isLoading = false
     private(set) var loadError: Error?
     private(set) var sendError: Error?
+    /// Transient message for a failed background action (e.g. a reverted
+    /// optimistic like or vote). The view consumes it into a toast and clears it.
+    var actionError: String?
     var newCommentText: String = ""
     private(set) var isSending = false
 
@@ -74,8 +77,22 @@ final class CommentsViewModel {
     func toggleCommentLike(_ comment: Comment) async {
         guard let index = comments.firstIndex(where: { $0.id == comment.id }) else { return }
         let wasLiked = comments[index].isLikedByMe
+
+        // Optimistic update.
         comments[index].isLikedByMe = !wasLiked
-        comments[index].likesCount += wasLiked ? -1 : 1
+        comments[index].likesCount = max(0, comments[index].likesCount + (wasLiked ? -1 : 1))
+
+        do {
+            let _: EmptyResponse = try await apiClient.request(
+                wasLiked ? .unlikeComment(id: comment.id) : .likeComment(id: comment.id)
+            )
+        } catch {
+            // Revert on failure. Re-find the index — the list may have changed.
+            actionError = "Couldn't update like"
+            guard let i = comments.firstIndex(where: { $0.id == comment.id }) else { return }
+            comments[i].isLikedByMe = wasLiked
+            comments[i].likesCount = max(0, comments[i].likesCount + (wasLiked ? 1 : -1))
+        }
     }
 
     @ObservationIgnored private var isSyncingVote = false
@@ -92,9 +109,14 @@ final class CommentsViewModel {
     /// Cast a vote, or change an existing one. Updates the UI immediately and syncs
     /// the latest selection to the server (coalescing rapid taps), idempotently.
     func votePoll(optionId: String) async {
+        // Defense in depth: an unauthenticated tap must never produce a ghost vote
+        // that shows in the UI but never persists. (PollView also disables the UI.)
+        guard await isAuthenticated() else { return }
         guard var current = poll,
               current.myVoteOptionId != optionId,
               current.options.contains(where: { $0.id == optionId }) else { return }
+
+        let snapshot = poll  // for rollback if the server sync fails
 
         // Optimistic UI — instant, on every tap.
         let previous = current.myVoteOptionId
@@ -109,12 +131,28 @@ final class CommentsViewModel {
         current.myVoteOptionId = optionId
         poll = current
 
-        await syncVoteToServer()
+        let didSync = await syncVoteToServer()
+        // Only roll back if the user's selection is still the one THIS call set.
+        // The sync loop coalesces rapid taps (A → B); if a later tap (B) already
+        // moved the selection forward, reverting to this call's snapshot would
+        // silently wipe B's legitimately-displayed vote.
+        if !didSync, poll?.myVoteOptionId == optionId {
+            poll = snapshot
+            actionError = "Couldn't record vote"
+        }
+    }
+
+    private func isAuthenticated() async -> Bool {
+        (try? await SupabaseConfig.client.auth.session.user) != nil
     }
 
     /// One server sync at a time; loops until the server matches the latest selection.
-    private func syncVoteToServer() async {
-        guard !isSyncingVote else { return }
+    /// Returns `false` if the sync ultimately failed so the caller can roll back.
+    @discardableResult
+    private func syncVoteToServer() async -> Bool {
+        // An in-flight loop will observe the updated `poll.myVoteOptionId` and sync
+        // the latest selection, so a coalesced tap is not itself a failure.
+        guard !isSyncingVote else { return true }
         isSyncingVote = true
         defer { isSyncingVote = false }
 
@@ -122,15 +160,15 @@ final class CommentsViewModel {
         while let pollId = poll?.id, let target = poll?.myVoteOptionId, target != synced {
             do {
                 let userId = try await SupabaseConfig.client.auth.session.user.id.uuidString.lowercased()
-                // Idempotent: clear any existing vote first, then insert the current choice.
-                let _: EmptyResponse = try await apiClient.request(.deletePollVote(pollId: pollId))
+                // Single atomic upsert on (poll_id, user_id) — the old delete-then-
+                // insert pair could fail between calls and erase the persisted vote
                 let vote = PollVoteUpload(pollId: pollId, optionId: target, userId: userId)
                 let _: EmptyResponse = try await apiClient.request(.votePoll(vote))
                 synced = target
             } catch {
-                // Keep the optimistic UI; it reconciles on next feed/poll load.
-                return
+                return false
             }
         }
+        return true
     }
 }

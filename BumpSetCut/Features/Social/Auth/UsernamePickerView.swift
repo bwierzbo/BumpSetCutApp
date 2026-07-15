@@ -26,18 +26,18 @@ struct UsernamePickerView: View {
                         .frame(width: 88, height: 88)
 
                     Image(systemName: "at")
-                        .font(.system(size: 40, weight: .medium))
+                        .bscFont(size: 40, weight: .medium)
                         .foregroundColor(.bscPrimary)
                 }
 
                 // Title
                 VStack(spacing: BSCSpacing.sm) {
                     Text("Choose your username")
-                        .font(.system(size: 28, weight: .bold))
+                        .bscFont(size: 28, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
 
                     Text("This is how others will find and recognize you.")
-                        .font(.system(size: 16))
+                        .bscFont(size: 16)
                         .foregroundColor(.bscTextSecondary)
                         .multilineTextAlignment(.center)
                 }
@@ -47,7 +47,7 @@ struct UsernamePickerView: View {
                 VStack(spacing: BSCSpacing.sm) {
                     HStack(spacing: 0) {
                         Text("@")
-                            .font(.system(size: 18, weight: .medium))
+                            .bscFont(size: 18, weight: .medium)
                             .foregroundColor(.bscTextTertiary)
                             .padding(.leading, BSCSpacing.md)
 
@@ -57,7 +57,7 @@ struct UsernamePickerView: View {
                         ))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .font(.system(size: 18))
+                        .bscFont(size: 18)
                         .foregroundColor(.bscTextPrimary)
                         .padding(.vertical, BSCSpacing.md)
                         .padding(.trailing, BSCSpacing.md)
@@ -91,18 +91,18 @@ struct UsernamePickerView: View {
 
                     // Rules text
                     Text("3-20 characters. Letters, numbers, and underscores only.")
-                        .font(.system(size: 13))
+                        .bscFont(size: 13)
                         .foregroundColor(.bscTextTertiary)
 
                     if viewModel?.isAvailable == false {
                         Text("This username is already taken.")
-                            .font(.system(size: 13))
+                            .bscFont(size: 13)
                             .foregroundColor(.bscError)
                     }
 
                     if let error = viewModel?.errorMessage {
                         Text(error)
-                            .font(.system(size: 13))
+                            .bscFont(size: 13)
                             .foregroundColor(.bscError)
                     }
                 }
@@ -123,7 +123,7 @@ struct UsernamePickerView: View {
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                     } else {
                         Text("Continue")
-                            .font(.system(size: 16, weight: .semibold))
+                            .bscFont(size: 16, weight: .semibold)
                             .foregroundColor(.black)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)

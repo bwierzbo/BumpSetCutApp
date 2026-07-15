@@ -16,6 +16,10 @@ struct LibraryView: View {
     @State private var showingPhotoPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var videoNameInput = ""
+    // Path of the folder currently under an active video drag (drop-zone highlight).
+    @State private var dropTargetFolderPath: String?
+    // Surfaces failures from fire-and-forget library mutations (rename/move/delete).
+    @State private var mutationToast: BSCToastMessage?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
@@ -49,6 +53,7 @@ struct LibraryView: View {
                     statusBars
                 }
             }
+            .bscToast($mutationToast)
             .sheet(isPresented: $viewModel.showingCreateFolder) {
                 createFolderSheet
             }
@@ -211,12 +216,12 @@ private extension LibraryView {
             HStack {
                 VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                     Text(viewModel.title)
-                        .font(.system(size: isLandscape ? 24 : 28, weight: .bold))
+                        .bscFont(size: isLandscape ? 24 : 28, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
 
                     if !viewModel.subtitle.isEmpty {
                         Text(viewModel.subtitle)
-                            .font(.system(size: 13))
+                            .bscFont(size: 13)
                             .foregroundColor(.bscTextSecondary)
                     }
                 }
@@ -239,7 +244,7 @@ private extension LibraryView {
                     }
                 } label: {
                     Text(filter.rawValue)
-                        .font(.system(size: 13, weight: viewModel.videoFilter == filter ? .semibold : .medium))
+                        .bscFont(size: 13, weight: viewModel.videoFilter == filter ? .semibold : .medium)
                         .foregroundColor(viewModel.videoFilter == filter ? .bscTextInverse : .bscTextSecondary)
                         .padding(.horizontal, BSCSpacing.md)
                         .padding(.vertical, BSCSpacing.sm)
@@ -307,10 +312,13 @@ private extension LibraryView {
 
             if viewModel.viewMode == .grid {
                 foldersGrid(geometry: geometry)
+                    .transition(.opacity)
             } else {
                 foldersList
+                    .transition(.opacity)
             }
         }
+        .animation(.bscStandard, value: viewModel.viewMode)
     }
 
     var foldersList: some View {
@@ -319,25 +327,35 @@ private extension LibraryView {
                 BSCFolderCard(
                     folder: folder,
                     displayMode: .list,
+                    isDropTargeted: dropTargetFolderPath == folder.path,
                     onTap: {
                         withAnimation(.bscSpring) {
                             viewModel.navigateToFolder(folder.path)
                         }
                     },
                     onRename: { newName in
-                        Task { try await viewModel.renameFolder(folder, to: newName) }
+                        Task {
+                            do { try await viewModel.renameFolder(folder, to: newName) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename folder", style: .error) }
+                        }
                     },
                     onDelete: {
-                        Task { try await viewModel.deleteFolder(folder) }
+                        Task {
+                            do { try await viewModel.deleteFolder(folder) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't delete folder", style: .error) }
+                        }
                     }
                 )
                 .dropDestination(for: VideoMetadata.self) { videos, _ in
                     // Move dragged video to this folder
                     guard let video = videos.first else { return false }
                     Task {
-                        try await viewModel.moveVideo(video, to: folder.path)
+                        do { try await viewModel.moveVideo(video, to: folder.path) }
+                        catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
                     }
                     return true
+                } isTargeted: { targeted in
+                    updateDropTarget(folder.path, targeted: targeted)
                 }
             }
         }
@@ -352,27 +370,46 @@ private extension LibraryView {
                 BSCFolderCard(
                     folder: folder,
                     displayMode: .grid,
+                    isDropTargeted: dropTargetFolderPath == folder.path,
                     onTap: {
                         withAnimation(.bscSpring) {
                             viewModel.navigateToFolder(folder.path)
                         }
                     },
                     onRename: { newName in
-                        Task { try await viewModel.renameFolder(folder, to: newName) }
+                        Task {
+                            do { try await viewModel.renameFolder(folder, to: newName) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename folder", style: .error) }
+                        }
                     },
                     onDelete: {
-                        Task { try await viewModel.deleteFolder(folder) }
+                        Task {
+                            do { try await viewModel.deleteFolder(folder) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't delete folder", style: .error) }
+                        }
                     }
                 )
                 .dropDestination(for: VideoMetadata.self) { videos, _ in
                     // Move dragged video to this folder
                     guard let video = videos.first else { return false }
                     Task {
-                        try await viewModel.moveVideo(video, to: folder.path)
+                        do { try await viewModel.moveVideo(video, to: folder.path) }
+                        catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
                     }
                     return true
+                } isTargeted: { targeted in
+                    updateDropTarget(folder.path, targeted: targeted)
                 }
             }
+        }
+    }
+
+    /// Track which folder is under an active drag so its card can highlight.
+    private func updateDropTarget(_ path: String, targeted: Bool) {
+        if targeted {
+            dropTargetFolderPath = path
+        } else if dropTargetFolderPath == path {
+            dropTargetFolderPath = nil
         }
     }
 }
@@ -389,10 +426,13 @@ private extension LibraryView {
 
             if viewModel.viewMode == .grid {
                 videosGrid(geometry: geometry)
+                    .transition(.opacity)
             } else {
                 videosList
+                    .transition(.opacity)
             }
         }
+        .animation(.bscStandard, value: viewModel.viewMode)
     }
 
     var videosList: some View {
@@ -403,14 +443,23 @@ private extension LibraryView {
                     mediaStore: viewModel.folderManager.store,
                     displayMode: .list,
                     onDelete: {
-                        Task { try await viewModel.deleteVideo(video) }
+                        Task {
+                            do { try await viewModel.deleteVideo(video) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't delete video", style: .error) }
+                        }
                     },
                     onRefresh: { viewModel.refresh() },
                     onRename: { newName in
-                        Task { try await viewModel.renameVideo(video, to: newName) }
+                        Task {
+                            do { try await viewModel.renameVideo(video, to: newName) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename video", style: .error) }
+                        }
                     },
                     onMove: { targetFolder in
-                        Task { try await viewModel.moveVideo(video, to: targetFolder) }
+                        Task {
+                            do { try await viewModel.moveVideo(video, to: targetFolder) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
+                        }
                     },
 
                 )
@@ -430,14 +479,23 @@ private extension LibraryView {
                     mediaStore: viewModel.folderManager.store,
                     displayMode: .grid,
                     onDelete: {
-                        Task { try await viewModel.deleteVideo(video) }
+                        Task {
+                            do { try await viewModel.deleteVideo(video) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't delete video", style: .error) }
+                        }
                     },
                     onRefresh: { viewModel.refresh() },
                     onRename: { newName in
-                        Task { try await viewModel.renameVideo(video, to: newName) }
+                        Task {
+                            do { try await viewModel.renameVideo(video, to: newName) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename video", style: .error) }
+                        }
                     },
                     onMove: { targetFolder in
-                        Task { try await viewModel.moveVideo(video, to: targetFolder) }
+                        Task {
+                            do { try await viewModel.moveVideo(video, to: targetFolder) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
+                        }
                     },
 
                 )
@@ -448,7 +506,7 @@ private extension LibraryView {
 
     func sectionHeader(_ title: String, isLandscape: Bool) -> some View {
         Text(title)
-            .font(.system(size: isLandscape ? 14 : 16, weight: .semibold))
+            .bscFont(size: isLandscape ? 14 : 16, weight: .semibold)
             .foregroundColor(.bscTextSecondary)
             .textCase(.uppercase)
             .tracking(0.5)
@@ -476,7 +534,7 @@ private extension LibraryView {
         // Custom back button when inside a folder
         if !viewModel.isAtRoot {
             ToolbarItem(placement: .navigationBarLeading) {
-                BSCIconButton(icon: "chevron.left", style: .ghost, size: .compact) {
+                BSCIconButton(icon: "chevron.left", style: .ghost, size: .compact, accessibilityLabel: "Back") {
                     withAnimation(.bscSpring) {
                         viewModel.navigateToParent()
                     }
@@ -506,9 +564,9 @@ private extension LibraryView {
                     }
                 } label: {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 16, weight: .medium))
+                        .bscFont(size: 16, weight: .medium)
                         .foregroundColor(.bscTextSecondary)
-                        .frame(width: 32, height: 32)
+                        .frame(width: BSCIconSize.xl, height: BSCIconSize.xl)
                 }
                 .accessibilityLabel("Sort and view options")
                 .accessibilityIdentifier(AccessibilityID.Library.sortMenu)
@@ -541,7 +599,7 @@ private extension LibraryView {
             VStack(spacing: BSCSpacing.xl) {
                 VStack(alignment: .leading, spacing: BSCSpacing.sm) {
                     Text("Folder Name")
-                        .font(.system(size: 14, weight: .semibold))
+                        .bscFont(size: 14, weight: .semibold)
                         .foregroundColor(.bscTextSecondary)
                         .textCase(.uppercase)
                         .tracking(0.5)
@@ -583,7 +641,13 @@ private extension LibraryView {
 
     func createFolder() {
         Task {
-            try await viewModel.createFolder()
+            do {
+                try await viewModel.createFolder()
+            } catch {
+                viewModel.showingCreateFolder = false
+                viewModel.newFolderName = ""
+                mutationToast = BSCToastMessage(text: "Couldn't create folder", style: .error)
+            }
         }
     }
 }

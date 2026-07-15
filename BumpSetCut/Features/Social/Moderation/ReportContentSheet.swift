@@ -29,7 +29,7 @@ struct ReportContentSheet: View {
                     // Header
                     VStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "exclamationmark.shield.fill")
-                            .font(.system(size: 48))
+                            .bscFont(size: 48)
                             .foregroundStyle(Color.bscError)
 
                         Text("Report \(contentType.displayName)")
@@ -176,24 +176,24 @@ struct ReportTypeButton: View {
             HStack(spacing: BSCSpacing.md) {
                 Image(systemName: type.icon)
                     .font(.title3)
-                    .foregroundStyle(isSelected ? .white : Color.bscError)
+                    .foregroundStyle(isSelected ? Color.bscOnMedia : Color.bscError)
                     .frame(width: 32)
 
                 VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                     Text(type.displayName)
                         .font(.headline)
-                        .foregroundStyle(isSelected ? .white : Color.bscTextPrimary)
+                        .foregroundStyle(isSelected ? Color.bscOnMedia : Color.bscTextPrimary)
 
                     Text(type.description)
                         .font(.caption)
-                        .foregroundStyle(isSelected ? .white.opacity(0.8) : Color.bscTextSecondary)
+                        .foregroundStyle(isSelected ? Color.bscOnMedia.opacity(0.8) : Color.bscTextSecondary)
                 }
 
                 Spacer()
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.bscOnMedia)
                 }
             }
             .padding()

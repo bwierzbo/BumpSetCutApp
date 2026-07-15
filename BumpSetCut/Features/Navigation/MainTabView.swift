@@ -39,6 +39,7 @@ struct MainTabView: View {
     @State private var deepLinkedHighlight: Highlight?
     @State private var deepLinkedComments: Highlight?
     private var processingCoordinator = ProcessingCoordinator.shared
+    private var flywheelService = FlywheelCaptureService.shared
 
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.scenePhase) private var scenePhase
@@ -104,6 +105,11 @@ struct MainTabView: View {
                     .padding(.bottom, 54) // Above tab bar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(100)
+            } else if flywheelService.isDraining {
+                uploadPill
+                    .padding(.bottom, 54) // Above tab bar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(98)
             } else if showLowStorageBanner {
                 lowStorageBannerView
                     .padding(.bottom, 54) // Above tab bar
@@ -113,6 +119,7 @@ struct MainTabView: View {
         }
         .animation(.bscSpring, value: processingCoordinator.isProcessing)
         .animation(.bscSpring, value: processingCoordinator.showCompletionPill)
+        .animation(.bscSpring, value: flywheelService.isDraining)
         .animation(.bscSpring, value: showLowStorageBanner)
         .environment(navigationState)
         .environment(\.changeTab, { tab in
@@ -183,10 +190,11 @@ struct MainTabView: View {
                 deepLinkedHighlight = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundColor(.white.opacity(0.85))
-                    .shadow(radius: 4)
+                    .bscFont(size: 28)
+                    .foregroundColor(Color.bscOnMedia.opacity(0.85))
+                    .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 4)
             }
+            .accessibilityLabel("Close")
             .padding(BSCSpacing.md)
         }
     }
@@ -202,56 +210,112 @@ struct MainTabView: View {
         return "Keep app open \u{2022} \(processingCoordinator.videoName)"
     }
 
+    /// Flywheel upload pill — mirrors the processing pill's style. Shown while
+    /// frames are draining to the server so the user knows not to quit mid-upload.
+    private var uploadPill: some View {
+        HStack(spacing: BSCSpacing.sm) {
+            ZStack {
+                Circle().stroke(Color.bscSurfaceBorder, lineWidth: 2.5).frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
+                Circle()
+                    .trim(from: 0, to: flywheelService.uploadProgress)
+                    .stroke(Color.bscPrimary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: "arrow.up")
+                    .bscFont(size: 9, weight: .bold)
+                    .foregroundColor(.bscPrimary)
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Uploading rally data…")
+                    .bscFont(size: 13, weight: .semibold)
+                    .foregroundColor(.bscTextPrimary)
+                Text(flywheelService.uploadFrameTotal > 0
+                     ? "\(flywheelService.uploadFrameTotal) frames · keep the app open"
+                     : "keep the app open")
+                    .bscFont(size: 11)
+                    .foregroundColor(.bscTextTertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+            Text("\(Int(flywheelService.uploadProgress * 100))%")
+                .bscFont(size: 14, weight: .bold, design: .monospaced)
+                .foregroundColor(.bscPrimary)
+        }
+        .padding(.horizontal, BSCSpacing.md)
+        .padding(.vertical, BSCSpacing.sm)
+        .frame(maxWidth: 500)
+        .background(
+            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                .fill(Color.bscBackgroundElevated)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+        )
+        .bscShadow(BSCShadow.md)
+        .padding(.horizontal, BSCSpacing.lg)
+    }
+
     private var processingPill: some View {
         Button {
-            print("🔘 Processing pill tapped — videoURL=\(processingCoordinator.videoURL?.lastPathComponent ?? "nil"), showProcessingView=\(showProcessingView)")
             if processingCoordinator.videoURL != nil {
                 showProcessingView = true
             } else {
-                print("⚠️ Pill tap: videoURL is nil, switching to home tab")
                 selectedTab = .home
             }
         } label: {
             HStack(spacing: BSCSpacing.sm) {
                 if processingCoordinator.didComplete {
                     // Completion state
-                    Image(systemName: processingCoordinator.noRalliesDetected ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(processingCoordinator.noRalliesDetected ? .bscTextSecondary : .bscSuccess)
+                    if processingCoordinator.errorMessage != nil {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .bscFont(size: 20)
+                            .foregroundColor(.bscError)
 
-                    Text(processingCoordinator.noRalliesDetected ? "No rallies found" : "Processing complete!")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.bscTextPrimary)
+                        Text("Processing failed")
+                            .bscFont(size: 13, weight: .semibold)
+                            .foregroundColor(.bscTextPrimary)
+                    } else {
+                        Image(systemName: processingCoordinator.noRalliesDetected ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                            .bscFont(size: 20)
+                            .foregroundColor(processingCoordinator.noRalliesDetected ? .bscTextSecondary : .bscSuccess)
+
+                        Text(processingCoordinator.noRalliesDetected ? "No rallies found" : "Processing complete!")
+                            .bscFont(size: 13, weight: .semibold)
+                            .foregroundColor(.bscTextPrimary)
+                    }
                 } else {
                     // Progress ring
                     ZStack {
                         Circle()
                             .stroke(Color.bscSurfaceBorder, lineWidth: 2.5)
-                            .frame(width: 24, height: 24)
+                            .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
 
                         Circle()
                             .trim(from: 0, to: processingCoordinator.progress)
                             .stroke(Color.bscPrimary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                            .frame(width: 24, height: 24)
+                            .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
                             .rotationEffect(.degrees(-90))
 
                         Text("\(processingCoordinator.progressPercent)")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .bscFont(size: 8, weight: .bold, design: .monospaced)
                             .foregroundColor(.bscPrimary)
                     }
 
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: BSCSpacing.xxs) {
                             Text("Processing...")
-                                .font(.system(size: 13, weight: .semibold))
+                                .bscFont(size: 13, weight: .semibold)
                                 .foregroundColor(.bscTextPrimary)
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 9))
+                                .bscFont(size: 9)
                                 .foregroundColor(.bscWarning)
                         }
 
                         Text(processingETASubtitle)
-                            .font(.system(size: 11))
+                            .bscFont(size: 11)
                             .foregroundColor(.bscTextTertiary)
                             .lineLimit(1)
                     }
@@ -259,7 +323,7 @@ struct MainTabView: View {
                     Spacer()
 
                     Text("\(processingCoordinator.progressPercent)%")
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .bscFont(size: 14, weight: .bold, design: .monospaced)
                         .foregroundColor(.bscPrimary)
                 }
             }
@@ -274,7 +338,7 @@ struct MainTabView: View {
                 RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
                     .stroke(Color.bscSurfaceBorder, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+            .bscShadow(BSCShadow.md)
             .padding(.horizontal, BSCSpacing.lg)
         }
         .buttonStyle(.plain)
@@ -285,11 +349,11 @@ struct MainTabView: View {
     private var lowStorageBannerView: some View {
         HStack(spacing: BSCSpacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 16))
+                .bscFont(size: 16)
                 .foregroundColor(.bscWarning)
 
             Text("Storage nearly full — \(StorageChecker.formatBytes(lowStorageAvailable)) remaining. Free up space to avoid issues.")
-                .font(.system(size: 12, weight: .medium))
+                .bscFont(size: 12, weight: .medium)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(2)
 
@@ -302,9 +366,10 @@ struct MainTabView: View {
                 }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
+                    .bscFont(size: 12, weight: .bold)
                     .foregroundColor(.bscTextSecondary)
             }
+            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, BSCSpacing.md)
         .padding(.vertical, BSCSpacing.sm)
@@ -317,7 +382,7 @@ struct MainTabView: View {
             RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
                 .stroke(Color.bscWarning.opacity(0.4), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+        .bscShadow(BSCShadow.md)
         .padding(.horizontal, BSCSpacing.lg)
     }
 

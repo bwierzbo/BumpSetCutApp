@@ -40,8 +40,8 @@ struct VideoPlayerView: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 30))
-                    .foregroundStyle(.white.opacity(0.8), .black.opacity(0.3))
+                    .bscFont(size: 30)
+                    .foregroundStyle(Color.bscOnMedia.opacity(0.8), Color.bscMediaScrimBase.opacity(0.3))
             }
             .padding()
         }
@@ -70,7 +70,7 @@ struct VideoPlayerView: View {
                 if pulledFarEnough || flickedDown {
                     dismiss()
                 } else {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    withAnimation(.bscSnappy) {
                         dragOffset = .zero
                     }
                 }
@@ -94,11 +94,11 @@ private extension VideoPlayerView {
     }
 
     func createLoadingView() -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: BSCSpacing.lg) {
             ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                .progressViewStyle(CircularProgressViewStyle(tint: .bscOnMedia))
             Text("Loading video...")
-                .foregroundColor(.white)
+                .foregroundColor(.bscOnMedia)
                 .font(.caption)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -375,26 +375,30 @@ struct FolderManifest: Codable {
             saveManifest()
         }
         
-        // Verify storage integrity
-        StorageManager.verifyStorageIntegrity()
-
-        // Ensure library roots exist and run migration if needed
+        // Ensure library roots exist and run migration if needed. These are kept
+        // synchronous: roots must exist before the first read, and the migrations
+        // are one-time (cheap no-ops after the first launch).
         ensureLibraryRootsExist()
         migrateToSeparateLibraries()
 
         // Migrate processed videos to set hasProcessingMetadata flag
         migrateProcessedVideos()
 
-        // Clean up stale entries
-        cleanupStaleEntries()
-
+        #if DEBUG
         // UI Testing: inject test video from the test runner
         injectTestVideoIfNeeded()
 
         // Dev convenience: prefill library with sample videos
         prefillLibraryIfNeeded()
+        #endif
+
+        // Storage integrity check + stale-entry cleanup do a per-file existence
+        // scan that used to block launch. Defer them off the main thread so the
+        // library renders immediately; the UI refreshes if anything is reconciled.
+        Task { await reconcileStorageOffMain() }
     }
 
+    #if DEBUG
     /// When running with --prefill-library, symlink all videos from PREFILL_VIDEOS_DIR into the library.
     private func prefillLibraryIfNeeded() {
         guard CommandLine.arguments.contains("--prefill-library"),
@@ -521,7 +525,8 @@ struct FolderManifest: Codable {
             print("MediaStore: ❌ Failed to write metadata: \(error)")
         }
     }
-    
+    #endif
+
     private func saveManifest() {
         do {
             manifest.updateModifiedDate()
@@ -544,9 +549,7 @@ struct FolderManifest: Codable {
     
     func cleanupStaleEntries() {
         let fileManager = FileManager.default
-        var needsSave = false
-        
-        // Remove videos whose files no longer exist
+
         let staleVideoKeys = manifest.videos.keys.filter { key in
             guard let video = manifest.videos[key] else { return true }
             let videoPath = baseDirectory
@@ -554,39 +557,85 @@ struct FolderManifest: Codable {
                 .appendingPathComponent(video.fileName)
             return !fileManager.fileExists(atPath: videoPath.path)
         }
-        
-        for key in staleVideoKeys {
-            if let video = manifest.videos[key] {
-                print("Removing stale video entry: \(video.displayName) (file not found)")
-                manifest.videos.removeValue(forKey: key)
-                needsSave = true
-                
-                // Update folder video count
-                if !video.folderPath.isEmpty,
-                   var folderMetadata = manifest.folders[video.folderPath] {
-                    folderMetadata.videoCount = max(0, folderMetadata.videoCount - 1)
-                    manifest.folders[video.folderPath] = folderMetadata
-                }
-            }
-        }
-        
-        // Remove folders whose directories no longer exist
         let staleFolderKeys = manifest.folders.keys.filter { folderPath in
             let folderURL = baseDirectory.appendingPathComponent(folderPath, isDirectory: true)
             return !fileManager.fileExists(atPath: folderURL.path)
         }
-        
-        for key in staleFolderKeys {
-            if let folder = manifest.folders[key] {
-                print("Removing stale folder entry: \(folder.name) (directory not found)")
-                manifest.folders.removeValue(forKey: key)
-                needsSave = true
+
+        applyStaleRemovals(videoKeys: Array(staleVideoKeys), folderKeys: Array(staleFolderKeys))
+    }
+
+    /// Apply already-computed stale removals to the manifest. Shared by the
+    /// synchronous `cleanupStaleEntries()` and the deferred launch reconcile.
+    private func applyStaleRemovals(videoKeys: [String], folderKeys: [String]) {
+        let fileManager = FileManager.default
+        var needsSave = false
+
+        for key in videoKeys {
+            guard let video = manifest.videos[key] else { continue }
+            // Re-validate against the CURRENT path before deleting. The deferred
+            // reconcile scans paths off the main actor; if the user moved the video
+            // or renamed its folder during that window, the snapshot path is stale
+            // but the file is alive at its new home — removing it would silently
+            // wipe a video the user just moved.
+            let livePath = baseDirectory
+                .appendingPathComponent(video.folderPath)
+                .appendingPathComponent(video.fileName)
+            guard !fileManager.fileExists(atPath: livePath.path) else { continue }
+
+            print("Removing stale video entry: \(video.displayName) (file not found)")
+            manifest.videos.removeValue(forKey: key)
+            needsSave = true
+
+            if !video.folderPath.isEmpty,
+               var folderMetadata = manifest.folders[video.folderPath] {
+                folderMetadata.videoCount = max(0, folderMetadata.videoCount - 1)
+                manifest.folders[video.folderPath] = folderMetadata
             }
         }
-        
-        if needsSave {
-            saveManifest()
+
+        for key in folderKeys {
+            guard let folder = manifest.folders[key] else { continue }
+            // The folder key IS its current path, so recompute and re-check.
+            let liveURL = baseDirectory.appendingPathComponent(key, isDirectory: true)
+            guard !fileManager.fileExists(atPath: liveURL.path) else { continue }
+
+            print("Removing stale folder entry: \(folder.name) (directory not found)")
+            manifest.folders.removeValue(forKey: key)
+            needsSave = true
         }
+
+        if needsSave { saveManifest() }
+    }
+
+    /// Launch-time storage reconciliation, kept off the main thread. The library
+    /// renders immediately from the loaded manifest; the (potentially large)
+    /// per-file existence scan runs on a background executor, then stale entries
+    /// are removed on the main actor and the UI is refreshed via contentVersion.
+    func reconcileStorageOffMain() async {
+        StorageManager.verifyStorageIntegrity()
+
+        // Snapshot the paths on the main actor (manifest is main-actor state)...
+        let videoSnapshot: [(key: String, path: String)] = manifest.videos.map { key, video in
+            (key, baseDirectory
+                .appendingPathComponent(video.folderPath)
+                .appendingPathComponent(video.fileName).path)
+        }
+        let folderSnapshot: [(key: String, path: String)] = manifest.folders.keys.map { key in
+            (key, baseDirectory.appendingPathComponent(key, isDirectory: true).path)
+        }
+
+        // ...then do the filesystem scan off the main thread.
+        let (staleVideoKeys, staleFolderKeys) = await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            let videos = videoSnapshot.filter { !fileManager.fileExists(atPath: $0.path) }.map(\.key)
+            let folders = folderSnapshot.filter { !fileManager.fileExists(atPath: $0.path) }.map(\.key)
+            return (videos, folders)
+        }.value
+
+        guard !staleVideoKeys.isEmpty || !staleFolderKeys.isEmpty else { return }
+        applyStaleRemovals(videoKeys: staleVideoKeys, folderKeys: staleFolderKeys)
+        contentVersion += 1
     }
 }
 
@@ -594,8 +643,13 @@ struct FolderManifest: Codable {
 
 extension MediaStore {
     func createFolder(name: String, parentPath: String = "") -> Bool {
+        // Reject path-traversal / illegal names (e.g. "../evil", names containing "/")
+        // so no caller can escape the library root. This is the single choke point;
+        // callers must not construct folder paths without going through here.
+        guard FolderValidationRules.isValidName(name) else { return false }
+
         let folderPath = parentPath.isEmpty ? name : "\(parentPath)/\(name)"
-        
+
         // Check if folder already exists
         if manifest.folders[folderPath] != nil {
             return false
@@ -633,8 +687,10 @@ extension MediaStore {
     }
     
     func renameFolder(at path: String, to newName: String) -> Bool {
+        // Reject path-traversal / illegal names before they reach the filesystem.
+        guard FolderValidationRules.isValidName(newName) else { return false }
         guard var folderMetadata = manifest.folders[path] else { return false }
-        
+
         let parentPath = folderMetadata.parentPath ?? ""
         let newPath = parentPath.isEmpty ? newName : "\(parentPath)/\(newName)"
         
@@ -749,9 +805,20 @@ extension MediaStore {
             manifest.folders.removeValue(forKey: folderKey)
         }
         
-        // Remove child videos
-        let childVideos = manifest.videos.filter { $0.value.folderPath.hasPrefix(path) }
-        for (videoKey, _) in childVideos {
+        // Remove child videos (boundary-aware: "Team" must not match "Team B")
+        let childVideos = manifest.videos.filter {
+            $0.value.folderPath == path || $0.value.folderPath.hasPrefix("\(path)/")
+        }
+        let metadataStore = MetadataStore()
+        for (videoKey, video) in childVideos {
+            // Same teardown as deleteVideo: unlink processing relationships (a
+            // dangling processedVideoIds entry blocks reprocessing the original
+            // forever) and drop the video's sidecars and debug data
+            cleanupProcessedVideoRelationships(for: video)
+            metadataStore.deleteAllSidecars(for: video.id)
+            if let debugPath = video.debugDataPath {
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: debugPath))
+            }
             manifest.videos.removeValue(forKey: videoKey)
         }
     }
@@ -816,13 +883,12 @@ extension MediaStore {
         let fileManager = FileManager.default
 
         do {
-            // Remove original file
             if fileManager.fileExists(atPath: destinationURL.path) {
-                try fileManager.removeItem(at: destinationURL)
+                // Atomic replace — the original survives if installing the new file fails
+                _ = try fileManager.replaceItemAt(destinationURL, withItemAt: newURL)
+            } else {
+                try fileManager.moveItem(at: newURL, to: destinationURL)
             }
-
-            // Move trimmed file to original path
-            try fileManager.moveItem(at: newURL, to: destinationURL)
 
             // Update file size
             if let attributes = try? fileManager.attributesOfItem(atPath: destinationURL.path),
@@ -1035,6 +1101,12 @@ extension MediaStore {
 
         // Always clean up manifest regardless of file state
         cleanupProcessedVideoRelationships(for: videoMetadata)
+        // Delete sidecars + debug data too, or they leak forever (metadata,
+        // trims, selections, evidence live keyed by video id in ProcessedMetadata/)
+        MetadataStore().deleteAllSidecars(for: videoMetadata.id)
+        if let debugPath = videoMetadata.debugDataPath {
+            try? fileManager.removeItem(at: URL(fileURLWithPath: debugPath))
+        }
         manifest.videos.removeValue(forKey: fileName)
 
         // Update folder video count

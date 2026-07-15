@@ -61,6 +61,9 @@ final class UploadCoordinator {
     @ObservationIgnored private var importProgressObservation: NSKeyValueObservation?
     @ObservationIgnored private var importProgressHandle: Progress?
     @ObservationIgnored private var importWasCancelled = false
+    // Ties loadTransferable callbacks to the import that created them — a cancelled
+    // import's late completion must not tear down a newer import's progress/handle
+    @ObservationIgnored private var importGeneration = 0
 
     // Publisher for notifying when upload is completed
     @ObservationIgnored private let uploadCompletedSubject = PassthroughSubject<Void, Never>()
@@ -95,6 +98,7 @@ final class UploadCoordinator {
     /// `processItem` treats as a user cancellation (no error alert).
     func cancelImport() {
         importWasCancelled = true
+        importGeneration += 1
         importProgressHandle?.cancel()
         importProgressObservation?.invalidate()
         importProgressObservation = nil
@@ -166,16 +170,18 @@ struct DropViewDelegate: DropDelegate {
             uploadCoordinator.isUploadInProgress = true
         }
 
-        await uploadCoordinator.uploadManager.addUpload(
+        // Start exactly the item we created — `uploadItems.last` after the await
+        // could be another drop's item, double-starting one and orphaning the other
+        let uploadItem = await uploadCoordinator.uploadManager.addUpload(
             url: tempURL,
             fileName: url.lastPathComponent,
             destinationFolderPath: destinationFolder
         )
+        await uploadCoordinator.uploadManager.startUpload(item: uploadItem).value
 
-        // Start upload immediately for dropped files
-        if let uploadItem = uploadCoordinator.uploadManager.uploadItems.last {
-            uploadCoordinator.uploadManager.startUpload(item: uploadItem)
-        }
+        // Drive the same completion flow as the picker path — without it
+        // isUploadInProgress stayed true and the upload overlay never dismissed
+        await uploadCoordinator.handleUploadCompletion()
     }
 }
 
@@ -308,9 +314,13 @@ extension UploadCoordinator {
     private func loadVideoToTempFile(from item: PhotosPickerItem, index: Int) async throws -> URL? {
         let start = CFAbsoluteTimeGetCurrent()
         do {
+            importGeneration += 1
+            let gen = importGeneration
             return try await withCheckedThrowingContinuation { continuation in
                 let progress = item.loadTransferable(type: VideoTransferable.self) { result in
                     Task { @MainActor in
+                        // Only tear down state still owned by this import
+                        guard gen == self.importGeneration else { return }
                         self.importProgressObservation?.invalidate()
                         self.importProgressObservation = nil
                         self.importProgressHandle = nil
@@ -328,7 +338,8 @@ extension UploadCoordinator {
                 importProgressObservation = progress.observe(\.fractionCompleted, options: [.initial, .new]) { [weak self] progress, _ in
                     let fraction = progress.fractionCompleted
                     Task { @MainActor in
-                        self?.importProgress = fraction
+                        guard let self, gen == self.importGeneration else { return }
+                        self.importProgress = fraction
                     }
                 }
             }
@@ -397,7 +408,7 @@ extension UploadCoordinator {
         }
     }
     
-    private func handleUploadCompletion() async {
+    func handleUploadCompletion() async {
         // Show naming dialog for each uploaded video
         for fileName in recentlyUploadedFileNames {
             await showPostUploadNamingDialog(for: fileName)

@@ -48,7 +48,7 @@ final class RallyGestureState {
     // MARK: - Zoom Methods
 
     func resetZoom() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(.bscSnappy) {
             zoomScale = 1.0
             zoomOffset = .zero
         }
@@ -68,7 +68,7 @@ final class RallyGestureState {
     // MARK: - Swipe Methods
 
     func resetSwipeState() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(.bscSnappy) {
             swipeOffset = 0
             swipeOffsetY = 0
             swipeRotation = 0
@@ -95,7 +95,7 @@ final class RallyGestureState {
     }
 
     func resetPeekProgress() {
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+        withAnimation(.bscBounce) {
             peekProgress = 0.0
             currentPeekDirection = nil
             peekThumbnail = nil

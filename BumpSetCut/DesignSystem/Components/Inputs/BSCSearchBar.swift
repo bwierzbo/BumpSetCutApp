@@ -19,12 +19,13 @@ struct BSCSearchBar: View {
             HStack(spacing: BSCSpacing.sm) {
                 // Search icon
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 16, weight: .medium))
+                    .bscFont(size: 16, weight: .medium)
                     .foregroundColor(isFocused ? .bscPrimary : .bscTextSecondary)
+                    .accessibilityHidden(true)
 
                 // Text field
                 TextField(placeholder, text: $text)
-                    .font(.system(size: 16))
+                    .bscFont(size: 16)
                     .foregroundColor(.bscTextPrimary)
                     .focused($isFocused)
                     .submitLabel(.search)
@@ -40,9 +41,10 @@ struct BSCSearchBar: View {
                         }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 16))
+                            .bscFont(size: 16)
                             .foregroundColor(.bscTextTertiary)
                     }
+                    .accessibilityLabel("Clear search")
                     .transition(.scale.combined(with: .opacity))
                 }
             }
@@ -69,7 +71,7 @@ struct BSCSearchBar: View {
                     }
                 } label: {
                     Text("Cancel")
-                        .font(.system(size: 16))
+                        .bscFont(size: 16)
                         .foregroundColor(.bscPrimary)
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -102,9 +104,10 @@ struct BSCTextField: View {
                 // Leading icon
                 if let icon = icon {
                     Image(systemName: icon)
-                        .font(.system(size: 16, weight: .medium))
+                        .bscFont(size: 16, weight: .medium)
                         .foregroundColor(isFocused ? .bscPrimary : .bscTextSecondary)
-                        .frame(width: 24)
+                        .frame(width: BSCIconSize.lg)
+                        .accessibilityHidden(true)
                 }
 
                 // Text field
@@ -115,7 +118,7 @@ struct BSCTextField: View {
                         TextField(placeholder, text: $text)
                     }
                 }
-                .font(.system(size: 16))
+                .bscFont(size: 16)
                 .foregroundColor(.bscTextPrimary)
                 .focused($isFocused)
                 .onSubmit {
@@ -136,9 +139,10 @@ struct BSCTextField: View {
             if let errorMessage = errorMessage {
                 HStack(spacing: BSCSpacing.xs) {
                     Image(systemName: "exclamationmark.circle.fill")
-                        .font(.system(size: 12))
+                        .bscFont(size: 12)
+                        .accessibilityHidden(true)
                     Text(errorMessage)
-                        .font(.system(size: 12))
+                        .bscFont(size: 12)
                 }
                 .foregroundColor(.bscError)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -175,7 +179,7 @@ struct BSCTextArea: View {
             // Placeholder
             if text.isEmpty {
                 Text(placeholder)
-                    .font(.system(size: 16))
+                    .bscFont(size: 16)
                     .foregroundColor(.bscTextTertiary)
                     .padding(.horizontal, BSCSpacing.lg)
                     .padding(.vertical, BSCSpacing.md)
@@ -183,7 +187,7 @@ struct BSCTextArea: View {
 
             // Text editor
             TextEditor(text: $text)
-                .font(.system(size: 16))
+                .bscFont(size: 16)
                 .foregroundColor(.bscTextPrimary)
                 .scrollContentBackground(.hidden)
                 .padding(.horizontal, BSCSpacing.md)

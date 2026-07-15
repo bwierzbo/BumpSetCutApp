@@ -103,6 +103,13 @@ enum AppTheme: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Whether user has seen the "press & hold to trim" hint in the favorites feed
+    var hasSeenFavoritesTrimHint: Bool {
+        didSet {
+            UserDefaults.standard.set(hasSeenFavoritesTrimHint, forKey: "hasSeenFavoritesTrimHint")
+        }
+    }
+
 
     private init() {
         // Appearance
@@ -128,6 +135,7 @@ enum AppTheme: String, CaseIterable, Identifiable {
         // Onboarding state
         self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
         self.hasSeenRallyTips = UserDefaults.standard.bool(forKey: "hasSeenRallyTips")
+        self.hasSeenFavoritesTrimHint = UserDefaults.standard.bool(forKey: "hasSeenFavoritesTrimHint")
 
         print("🎛️ AppSettings initialized")
     }

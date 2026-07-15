@@ -103,18 +103,6 @@ enum BSCDuration {
 
 // MARK: - Animation View Modifiers
 extension View {
-    /// Apply press effect - Scale down when pressed
-    func bscPressEffect(isPressed: Bool) -> some View {
-        scaleEffect(isPressed ? 0.97 : 1.0)
-            .animation(.bscQuick, value: isPressed)
-    }
-
-    /// Apply bounce effect - Spring scale animation
-    func bscBounceEffect(isActive: Bool) -> some View {
-        scaleEffect(isActive ? 1.05 : 1.0)
-            .animation(.bscBounce, value: isActive)
-    }
-
     /// Apply floating effect - Gentle up/down motion
     func bscFloatingEffect() -> some View {
         modifier(FloatingModifier())
@@ -133,13 +121,16 @@ extension View {
 
 // MARK: - Floating Animation Modifier
 private struct FloatingModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isFloating = false
 
     func body(content: Content) -> some View {
         content
             .offset(y: isFloating ? -8 : 0)
-            .animation(.bscFloat, value: isFloating)
-            .onAppear { isFloating = true }
+            .animation(reduceMotion ? nil : .bscFloat, value: isFloating)
+            .onAppear {
+                if !reduceMotion { isFloating = true }
+            }
             .onDisappear { isFloating = false }  // Stop animation when off-screen to save battery
     }
 }
@@ -148,6 +139,7 @@ private struct FloatingModifier: ViewModifier {
 private struct PulseGlowModifier: ViewModifier {
     let color: Color
     let isActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
 
     func body(content: Content) -> some View {
@@ -158,15 +150,15 @@ private struct PulseGlowModifier: ViewModifier {
                 x: 0,
                 y: 0
             )
-            .animation(.bscPulse, value: isPulsing)
+            .animation(reduceMotion ? nil : .bscPulse, value: isPulsing)
             .onAppear {
-                if isActive { isPulsing = true }
+                if isActive && !reduceMotion { isPulsing = true }
             }
             .onDisappear {
                 isPulsing = false  // Stop pulsing when off-screen to save battery
             }
             .onChange(of: isActive) { _, newValue in
-                isPulsing = newValue
+                isPulsing = newValue && !reduceMotion
             }
     }
 }
@@ -175,14 +167,15 @@ private struct PulseGlowModifier: ViewModifier {
 private struct StaggeredAppearanceModifier: ViewModifier {
     let index: Int
     let baseDelay: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hasAppeared = false
 
     func body(content: Content) -> some View {
         content
             .opacity(hasAppeared ? 1 : 0)
-            .offset(y: hasAppeared ? 0 : 20)
+            .offset(y: hasAppeared || reduceMotion ? 0 : 20)
             .animation(
-                .bscSpring.delay(Double(index) * baseDelay),
+                reduceMotion ? .bscStandard : .bscSpring.delay(Double(index) * baseDelay),
                 value: hasAppeared
             )
             .onAppear {
@@ -200,12 +193,13 @@ extension View {
 
 private struct ShimmerModifier: ViewModifier {
     let isActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: CGFloat = 0
 
     func body(content: Content) -> some View {
         content
             .overlay {
-                if isActive {
+                if isActive && !reduceMotion {
                     LinearGradient(
                         colors: [
                             .clear,
@@ -220,6 +214,7 @@ private struct ShimmerModifier: ViewModifier {
                 }
             }
             .onAppear {
+                guard !reduceMotion else { return }
                 withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
                     phase = 400
                 }

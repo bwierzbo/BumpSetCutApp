@@ -24,26 +24,23 @@ final class AuthenticationService {
     var needsUsernameSetup: Bool { currentUser?.username.hasPrefix("user_") == true }
 
     private let supabase = SupabaseConfig.client
-    private static let tokenKey = "auth_token"
+    // The supabase-swift SDK persists the session itself; we only cache the profile.
+    // "auth_token" entries written by older builds are cleared on fresh install (BumpSetCutApp).
     private static let userKey = "cached_user"
 
     // MARK: - Session Restoration
 
     func restoreSession() async {
-        // Use a timeout to avoid hanging when no session exists
         do {
-            let session = try await withThrowingTaskGroup(of: Session.self) { group in
-                group.addTask {
-                    try await self.supabase.auth.session
-                }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(3))
-                    throw APIError.unauthorized
-                }
-                let result = try await group.next()!
-                group.cancelAll()
-                return result
+            // No stored session → nothing to restore; bail without any network wait.
+            // With a stored session, await auth.session untimed: the only wait is a
+            // legitimate token refresh, and racing it with a fixed timeout signed
+            // out users with valid-but-expired sessions on slow connections.
+            guard supabase.auth.currentSession != nil else {
+                authState = .unauthenticated
+                return
             }
+            let session = try await supabase.auth.session
 
             if session.isExpired {
                 // Session expired, try to refresh
@@ -56,7 +53,9 @@ final class AuthenticationService {
                 }
             }
 
-            let profile = try await fetchProfile(userId: session.user.id.uuidString.lowercased())
+            guard let profile = try await fetchProfile(userId: session.user.id.uuidString.lowercased()) else {
+                throw APIError.unauthorized
+            }
             currentUser = profile
             authState = .authenticated
             try KeychainHelper.save(profile, for: Self.userKey)
@@ -88,13 +87,6 @@ final class AuthenticationService {
                 username: username
             )
 
-            let token = AuthToken(
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
-            )
-
-            try KeychainHelper.save(token, for: Self.tokenKey)
             try KeychainHelper.save(profile, for: Self.userKey)
 
             currentUser = profile
@@ -120,13 +112,6 @@ final class AuthenticationService {
                 userId: session.user.id.uuidString.lowercased()
             )
 
-            let token = AuthToken(
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
-            )
-
-            try KeychainHelper.save(token, for: Self.tokenKey)
             try KeychainHelper.save(profile, for: Self.userKey)
 
             currentUser = profile
@@ -141,15 +126,7 @@ final class AuthenticationService {
 
     func refreshToken() async throws {
         do {
-            let session = try await supabase.auth.refreshSession()
-
-            let refreshed = AuthToken(
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                expiresAt: Date(timeIntervalSince1970: session.expiresAt)
-            )
-
-            try KeychainHelper.save(refreshed, for: Self.tokenKey)
+            _ = try await supabase.auth.refreshSession()
             authState = .authenticated
         } catch {
             authState = .expired
@@ -215,26 +192,27 @@ final class AuthenticationService {
     // MARK: - Private
 
     private func clearStoredCredentials() {
-        try? KeychainHelper.delete(for: Self.tokenKey)
         try? KeychainHelper.delete(for: Self.userKey)
     }
 
-    private func fetchProfile(userId: String) async throws -> UserProfile {
-        try await SupabaseConfig.client
+    /// Returns nil only when no profile row exists; rethrows transient fetch failures.
+    private func fetchProfile(userId: String) async throws -> UserProfile? {
+        let rows: [UserProfile] = try await SupabaseConfig.client
             .from("profiles")
             .select()
             .eq("id", value: userId)
-            .single()
+            .limit(1)
             .execute()
             .value
+        return rows.first
     }
 
     /// Returns (profile, isNewAccount)
     private func fetchOrCreateProfile(userId: String, username: String? = nil) async throws -> (UserProfile, Bool) {
-        // Try to fetch existing profile first — .single() throws when no rows match
-        do {
-            let existing: UserProfile = try await fetchProfile(userId: userId)
-
+        // A transient fetch failure must NOT fall through to creation — the upsert
+        // would overwrite an existing profile's username. Only a confirmed zero-rows
+        // result proceeds to create; other errors propagate to the caller.
+        if let existing = try await fetchProfile(userId: userId) {
             // If caller provided a username and the profile has an auto-generated one, update it
             if let username, existing.username.hasPrefix("user_"), existing.username != username {
                 let updated: UserProfile = try await SupabaseConfig.client
@@ -249,25 +227,29 @@ final class AuthenticationService {
             }
 
             return (existing, false)
-        } catch {
-            // Profile doesn't exist or fetch failed — attempt upsert (PK constraint prevents duplicates)
-            print("[Auth] fetchProfile failed for \(userId.prefix(8))..., will create: \(error)")
         }
 
         let finalUsername = username ?? "user_\(userId.prefix(8))"
 
-        // Use upsert to handle race conditions; DB defaults handle counts and privacy_level
-        let profile: UserProfile = try await SupabaseConfig.client
+        // ignoreDuplicates: a concurrent creation wins and is never overwritten
+        let inserted: [UserProfile] = try await SupabaseConfig.client
             .from("profiles")
             .upsert([
                 "id": userId,
                 "username": finalUsername,
-            ])
+            ], ignoreDuplicates: true)
             .select()
-            .single()
             .execute()
             .value
 
-        return (profile, true)
+        if let profile = inserted.first {
+            return (profile, true)
+        }
+
+        // Insert was skipped because the row appeared concurrently — fetch it
+        if let existing = try await fetchProfile(userId: userId) {
+            return (existing, false)
+        }
+        throw APIError.serverError(statusCode: 500, message: "Profile creation failed — please try again.")
     }
 }

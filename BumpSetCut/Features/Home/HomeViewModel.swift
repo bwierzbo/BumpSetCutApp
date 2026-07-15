@@ -12,7 +12,6 @@ final class HomeViewModel {
     var totalRallies: Int = 0
     /// Total dead time removed across all processed videos (source length − rally time).
     var totalTimeCutSeconds: Double = 0
-    var isLoading: Bool = false
 
     /// Compact display of total time cut, scaling up through units:
     /// "45s" → "38m" → "2h 14m" → "3d 4h" → "1y 23d".
@@ -52,12 +51,16 @@ final class HomeViewModel {
 
     // MARK: - Private Methods
     private func loadStats() {
-        isLoading = true
+        // Lifetime stats are cumulative (UserDefaults) and maintained incrementally
+        // by ProcessingCoordinator. Reading them is cheap, so reflect them immediately.
+        totalRallies = LifetimeStatsStore.shared.totalRallies
+        totalTimeCutSeconds = LifetimeStatsStore.shared.totalTimeCutSeconds
 
-        // Lifetime stats are cumulative and persist across deletions. New processing runs
-        // add to them at completion (ProcessingCoordinator). The one-time seed below
-        // backfills the total for users upgrading from the old live-sum behavior, computed
-        // from whatever processed videos are still on the device.
+        // The only expensive work is the one-time upgrade backfill, which reads every
+        // processed video's metadata file. It runs at most once per install — skip the
+        // whole scan once it's done (previously it ran on every Home appear/refresh).
+        guard !LifetimeStatsStore.shared.hasSeeded else { return }
+
         let contributions: [(videoId: UUID, timeCutSeconds: Double, rallyCount: Int)] =
             mediaStore.getAllVideos()
                 .filter { $0.hasProcessingMetadata }
@@ -73,8 +76,6 @@ final class HomeViewModel {
 
         totalRallies = LifetimeStatsStore.shared.totalRallies
         totalTimeCutSeconds = LifetimeStatsStore.shared.totalTimeCutSeconds
-
-        isLoading = false
     }
 }
 

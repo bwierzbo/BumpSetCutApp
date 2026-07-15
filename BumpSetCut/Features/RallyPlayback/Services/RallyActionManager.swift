@@ -64,6 +64,14 @@ final class RallyActionManager {
 
     /// Records a save/remove action and returns the appropriate feedback.
     func registerAction(_ action: RallySwipeAction, rallyIndex: Int, direction: RallySwipeDirection) -> RallyActionFeedback {
+        // Snapshot membership before mutating so undo can restore all three sets
+        let result = RallyActionResult(
+            action: action, rallyIndex: rallyIndex, direction: direction,
+            wasSaved: savedRallies.contains(rallyIndex),
+            wasRemoved: removedRallies.contains(rallyIndex),
+            wasFavorited: favoritedRallies.contains(rallyIndex)
+        )
+
         switch action {
         case .save:
             savedRallies.insert(rallyIndex)
@@ -78,7 +86,7 @@ final class RallyActionManager {
             removedRallies.remove(rallyIndex)
         }
 
-        actionHistory.append(RallyActionResult(action: action, rallyIndex: rallyIndex, direction: direction))
+        actionHistory.append(result)
         persistSelections()
 
         let feedback: RallyActionFeedback
@@ -116,15 +124,12 @@ final class RallyActionManager {
             return action
         }
 
-        switch action.action {
-        case .save:
-            savedRallies.remove(action.rallyIndex)
-        case .remove:
-            removedRallies.remove(action.rallyIndex)
-        case .favorite:
-            favoritedRallies.remove(action.rallyIndex)
-            savedRallies.remove(action.rallyIndex)
-        }
+        // Restore the pre-action snapshot — reversing only the primary set would
+        // lose whatever membership the action cleared from the other sets
+        let index = action.rallyIndex
+        if action.wasSaved { savedRallies.insert(index) } else { savedRallies.remove(index) }
+        if action.wasRemoved { removedRallies.insert(index) } else { removedRallies.remove(index) }
+        if action.wasFavorited { favoritedRallies.insert(index) } else { favoritedRallies.remove(index) }
 
         persistSelections()
 

@@ -123,7 +123,8 @@ class UploadManager: ObservableObject {
     
     // MARK: - Upload Management
 
-    func addUpload(url: URL, fileName: String, destinationFolderPath: String = "") async {
+    @discardableResult
+    func addUpload(url: URL, fileName: String, destinationFolderPath: String = "") async -> UploadItem {
         // Get file size from disk (no memory load)
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
         let uploadItem = UploadItem(
@@ -139,13 +140,16 @@ class UploadManager: ObservableObject {
         await generateThumbnail(for: uploadItem)
 
         logger.info("Added upload item: \(fileName) (\(fileSize) bytes)")
+        return uploadItem
     }
-    
-    func startUpload(item: UploadItem, customName: String? = nil, folderPath: String? = nil) {
+
+    @discardableResult
+    func startUpload(item: UploadItem, customName: String? = nil, folderPath: String? = nil) -> Task<Void, Never> {
         let task = Task {
             await performUpload(item: item, customName: customName, folderPath: folderPath)
         }
         item.setUploadTask(task)
+        return task
     }
     
     func startAllUploads() {
@@ -185,6 +189,9 @@ class UploadManager: ObservableObject {
     // MARK: - Private Upload Implementation
     
     private func performUpload(item: UploadItem, customName: String?, folderPath: String?) async {
+        // The task body may be scheduled after the user already cancelled the item —
+        // without this guard the upload runs anyway and overwrites .cancelled with .complete
+        if case .cancelled = item.status { return }
         do {
             // Update final name and destination
             if let customName = customName {

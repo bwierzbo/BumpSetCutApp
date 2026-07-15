@@ -13,6 +13,7 @@ struct BSCEmptyState: View {
     var onSecondaryAction: (() -> Void)? = nil
 
     @State private var isAnimating = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // MARK: - Body
     var body: some View {
@@ -23,12 +24,12 @@ struct BSCEmptyState: View {
             // Text content
             VStack(spacing: BSCSpacing.sm) {
                 Text(title)
-                    .font(.system(size: 20, weight: .bold))
+                    .bscFont(size: 20, weight: .bold)
                     .foregroundColor(.bscTextPrimary)
                     .multilineTextAlignment(.center)
 
                 Text(message)
-                    .font(.system(size: 15))
+                    .bscFont(size: 15)
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -52,7 +53,9 @@ struct BSCEmptyState: View {
         .padding(BSCSpacing.xxl)
         .frame(maxWidth: .infinity)
         .onAppear {
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+            guard !reduceMotion else { return }
+            // Slow, gentle breathing — calm enough to ignore while reading.
+            withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) {
                 isAnimating = true
             }
         }
@@ -68,7 +71,7 @@ struct BSCEmptyState: View {
             Circle()
                 .fill(Color.bscPrimary.opacity(0.1))
                 .frame(width: 120, height: 120)
-                .scaleEffect(isAnimating ? 1.1 : 0.95)
+                .scaleEffect(isAnimating ? 1.06 : 0.98)
 
             // Icon circle
             Circle()
@@ -81,9 +84,9 @@ struct BSCEmptyState: View {
 
             // Icon
             Image(systemName: icon)
-                .font(.system(size: 32, weight: .medium))
+                .bscFont(size: 32, weight: .medium)
                 .foregroundStyle(LinearGradient.bscPrimaryGradient)
-                .offset(y: isAnimating ? -4 : 0)
+                .offset(y: isAnimating ? -3 : 0)
         }
     }
 }

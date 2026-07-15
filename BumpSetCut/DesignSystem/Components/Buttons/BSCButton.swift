@@ -38,11 +38,11 @@ struct BSCButton: View {
                         .scaleEffect(0.8)
                 } else if let icon = icon {
                     Image(systemName: icon)
-                        .font(.system(size: iconSize, weight: .semibold))
+                        .bscFont(size: iconSize, weight: .semibold)
                 }
 
                 Text(title)
-                    .font(.system(size: fontSize, weight: .semibold))
+                    .bscFont(size: fontSize, weight: .semibold)
             }
             .foregroundColor(foregroundColor)
             .padding(.vertical, verticalPadding)

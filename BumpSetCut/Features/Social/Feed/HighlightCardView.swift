@@ -78,7 +78,7 @@ struct HighlightCardView: View {
                     }, onEnd: {
                         lastZoomOffset = zoomOffset
                         if zoomScale <= 1.05 {
-                            withAnimation(.easeOut(duration: 0.25)) {
+                            withAnimation(.bscStandard) {
                                 zoomOffset = .zero
                             }
                             lastZoomOffset = .zero
@@ -86,13 +86,18 @@ struct HighlightCardView: View {
                     }))
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
-                        UIImpactFeedbackGenerator.medium()
-                        onLike()
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        UIImpactFeedbackGenerator.light()
+                        // Like-only (Instagram/TikTok semantics): double-tapping an
+                        // already-liked post must not unlike it while playing the
+                        // "liked" heart animation. The heart button stays a toggle.
+                        if !highlight.isLikedByMe {
+                            onLike()
+                        }
+                        withAnimation(.bscBounce) {
                             showLikeHeart = true
                         }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            withAnimation(.bscBounce) {
                                 showLikeHeart = false
                             }
                         }
@@ -101,15 +106,24 @@ struct HighlightCardView: View {
                         UIImpactFeedbackGenerator.light()
                         togglePlayback()
                     }
+                    .accessibilityAction(named: "Like") {
+                        if !highlight.isLikedByMe {
+                            onLike()
+                        }
+                    }
+                    .accessibilityAction(named: "Play or pause") {
+                        togglePlayback()
+                    }
 
                 // Like heart animation
                 if showLikeHeart {
                     Image(systemName: "heart.fill")
                         .font(.system(size: 80))
                         .foregroundColor(.bscOnMedia)
-                        .shadow(color: .black.opacity(0.3), radius: 8)
+                        .shadow(color: Color.bscMediaScrimBase.opacity(0.3), radius: 8)
                         .transition(.scale.combined(with: .opacity))
                         .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
 
                 // Page indicator dots at bottom for multi-video
@@ -123,6 +137,8 @@ struct HighlightCardView: View {
                                     .frame(width: 7, height: 7)
                             }
                         }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Page \(currentVideoPage + 1) of \(videoURLs.count)")
                         .padding(.horizontal, BSCSpacing.md)
                         .padding(.vertical, 6)
                         .background(Capsule().fill(Color.bscMediaScrim))
@@ -211,7 +227,7 @@ struct HighlightCardView: View {
                             AvatarView(url: highlight.author?.avatarURL, name: highlight.author?.username ?? "?", size: 32)
 
                             Text(highlight.author?.username ?? "Unknown")
-                                .font(.system(size: 14, weight: .semibold))
+                                .bscFont(size: 14, weight: .semibold)
                                 .foregroundColor(.bscOnMedia)
                         }
                     }
@@ -225,9 +241,9 @@ struct HighlightCardView: View {
                         } label: {
                             HStack(spacing: BSCSpacing.xxs) {
                                 Image(systemName: "mappin.circle.fill")
-                                    .font(.system(size: 12))
+                                    .bscFont(size: 12)
                                 Text(location)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .bscFont(size: 13, weight: .medium)
                                     .lineLimit(1)
                             }
                             .foregroundColor(.bscOnMedia)
@@ -240,7 +256,7 @@ struct HighlightCardView: View {
                     // Caption
                     if let caption = highlight.caption, !caption.isEmpty {
                         Text(caption)
-                            .font(.system(size: 14))
+                            .bscFont(size: 14)
                             .foregroundColor(.bscOnMedia)
                             .lineLimit(2)
                     }
@@ -252,9 +268,9 @@ struct HighlightCardView: View {
                         } label: {
                             HStack(spacing: BSCSpacing.xxs) {
                                 Image(systemName: "chart.bar.fill")
-                                    .font(.system(size: 11))
+                                    .bscFont(size: 11)
                                 Text("Vote in poll")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .bscFont(size: 13, weight: .semibold)
                             }
                             .foregroundColor(.bscOnMedia)
                             .padding(.horizontal, BSCSpacing.sm)
@@ -266,7 +282,7 @@ struct HighlightCardView: View {
 
                     // Rally metadata
                     Label("\(String(format: "%.1f", highlight.rallyMetadata.duration))s", systemImage: "timer")
-                        .font(.system(size: 12))
+                        .bscFont(size: 12)
                         .foregroundColor(.bscOnMediaSecondary)
                 }
                 .padding(.leading, BSCSpacing.md + safeArea.leading)
@@ -300,25 +316,26 @@ struct HighlightCardView: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(.system(size: 22))
+                            .bscFont(size: 22)
                             .foregroundColor(.bscOnMedia)
                             .frame(width: 44, height: 32)
-                            .shadow(color: .black.opacity(0.4), radius: 4)
+                            .shadow(color: Color.bscMediaScrimBase.opacity(0.4), radius: 4)
                     }
+                    .accessibilityLabel("More options")
 
                     // Like
                     Button {
-                        UIImpactFeedbackGenerator.medium()
+                        UIImpactFeedbackGenerator.light()
                         onLike()
                     } label: {
                         VStack(spacing: 4) {
                             Image(systemName: highlight.isLikedByMe ? "heart.fill" : "heart")
-                                .font(.system(size: 28))
-                                .foregroundColor(highlight.isLikedByMe ? .bscError : .white)
+                                .bscFont(size: 28)
+                                .foregroundColor(highlight.isLikedByMe ? .bscError : .bscOnMedia)
 
                             if !highlight.hideLikes {
                                 Text(formatCount(highlight.likesCount))
-                                    .font(.system(size: 12, weight: .medium))
+                                    .bscFont(size: 12, weight: .medium)
                                     .foregroundColor(.bscOnMedia)
                             }
                         }
@@ -334,11 +351,11 @@ struct HighlightCardView: View {
                     } label: {
                         VStack(spacing: 4) {
                             Image(systemName: "bubble.right")
-                                .font(.system(size: 26))
+                                .bscFont(size: 26)
                                 .foregroundColor(.bscOnMedia)
 
                             Text(formatCount(highlight.commentsCount))
-                                .font(.system(size: 12, weight: .medium))
+                                .bscFont(size: 12, weight: .medium)
                                 .foregroundColor(.bscOnMedia)
                         }
                     }
@@ -353,11 +370,11 @@ struct HighlightCardView: View {
                     ) {
                         VStack(spacing: 4) {
                             Image(systemName: "arrowshape.turn.up.right")
-                                .font(.system(size: 26))
+                                .bscFont(size: 26)
                                 .foregroundColor(.bscOnMedia)
 
                             Text("Share")
-                                .font(.system(size: 12, weight: .medium))
+                                .bscFont(size: 12, weight: .medium)
                                 .foregroundColor(.bscOnMedia)
                         }
                     }
@@ -368,7 +385,7 @@ struct HighlightCardView: View {
             }
             .padding(.bottom, bottomChromeInset + BSCSpacing.huge)
             // Halo so chrome stays crisp over bright video frames, not just over the scrim.
-            .shadow(color: .black.opacity(0.5), radius: 3)
+            .shadow(color: Color.bscMediaScrimBase.opacity(0.5), radius: 3)
         }
     }
 
@@ -396,7 +413,7 @@ struct HighlightCardView: View {
             }
             .onEnded { _ in
                 if zoomScale <= 1.05 {
-                    withAnimation(.easeOut(duration: 0.25)) {
+                    withAnimation(.bscStandard) {
                         zoomScale = 1.0
                         zoomOffset = .zero
                     }

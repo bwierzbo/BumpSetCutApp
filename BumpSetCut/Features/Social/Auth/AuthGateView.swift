@@ -34,18 +34,18 @@ struct AuthGateView: View {
                         .frame(width: 88, height: 88)
 
                     Image(systemName: "figure.volleyball")
-                        .font(.system(size: 40, weight: .medium))
+                        .bscFont(size: 40, weight: .medium)
                         .foregroundColor(.bscPrimary)
                 }
 
                 // Title and subtitle
                 VStack(spacing: BSCSpacing.sm) {
                     Text("Join the Community")
-                        .font(.system(size: 28, weight: .bold))
+                        .bscFont(size: 28, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
 
                     Text("Share your best rallies, discover plays from other players, and connect with the volleyball community.")
-                        .font(.system(size: 16))
+                        .bscFont(size: 16)
                         .foregroundColor(.bscTextSecondary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
@@ -76,7 +76,7 @@ struct AuthGateView: View {
                             }
                         } label: {
                             Text(viewModel?.isSignUpMode == true ? "Sign Up" : "Sign In")
-                                .font(.system(size: 16, weight: .semibold))
+                                .bscFont(size: 16, weight: .semibold)
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 50)
@@ -94,7 +94,7 @@ struct AuthGateView: View {
                             Text(viewModel?.isSignUpMode == true
                                  ? "Already have an account? Sign In"
                                  : "Don't have an account? Sign Up")
-                                .font(.system(size: 14))
+                                .bscFont(size: 14)
                                 .foregroundColor(.bscPrimary)
                         }
                         .buttonStyle(.plain)
@@ -111,7 +111,7 @@ struct AuthGateView: View {
                         }
                     } label: {
                         Text("Continue without account")
-                            .font(.system(size: 15, weight: .medium))
+                            .bscFont(size: 15, weight: .medium)
                             .foregroundColor(.bscTextTertiary)
                     }
                     .buttonStyle(.plain)
@@ -159,7 +159,7 @@ struct AuthGateView: View {
                             get: { viewModel?.username ?? "" },
                             set: { viewModel?.username = $0 }
                         ))
-                        .font(.system(size: 17))
+                        .bscFont(size: 17)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .textContentType(.oneTimeCode)
@@ -177,11 +177,11 @@ struct AuthGateView: View {
                             } else if viewModel?.isUsernameAvailable == true {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.bscSuccess)
-                                    .font(.system(size: 18))
+                                    .bscFont(size: 18)
                             } else if viewModel?.isUsernameAvailable == false {
                                 Image(systemName: "xmark.circle.fill")
                                     .foregroundColor(.bscError)
-                                    .font(.system(size: 18))
+                                    .bscFont(size: 18)
                             }
                         }
                         .frame(width: 22)
@@ -194,7 +194,7 @@ struct AuthGateView: View {
                     get: { viewModel?.email ?? "" },
                     set: { viewModel?.email = $0 }
                 ))
-                .font(.system(size: 17))
+                .bscFont(size: 17)
                 .textContentType(.emailAddress)
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
@@ -243,10 +243,10 @@ struct AuthGateView: View {
                 if let vm = viewModel, !vm.confirmPassword.isEmpty {
                     HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: vm.passwordsMatch ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                             .foregroundColor(vm.passwordsMatch ? .bscSuccess : .bscError)
                         Text(vm.passwordsMatch ? "Passwords match" : "Passwords do not match")
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                             .foregroundColor(vm.passwordsMatch ? .bscTextSecondary : .bscError)
                         Spacer()
                     }
@@ -261,7 +261,7 @@ struct AuthGateView: View {
                         showForgotPassword = true
                     } label: {
                         Text("Forgot password?")
-                            .font(.system(size: 14))
+                            .bscFont(size: 14)
                             .foregroundColor(.bscPrimary)
                     }
                     .buttonStyle(.plain)
@@ -301,7 +301,7 @@ struct AuthGateView: View {
                     SecureField(placeholder, text: text)
                 }
             }
-            .font(.system(size: 17))
+            .bscFont(size: 17)
             .textContentType(.oneTimeCode)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
@@ -311,7 +311,7 @@ struct AuthGateView: View {
                 isVisible.wrappedValue.toggle()
             } label: {
                 Image(systemName: isVisible.wrappedValue ? "eye.slash" : "eye")
-                    .font(.system(size: 17))
+                    .bscFont(size: 17)
                     .foregroundColor(.bscTextTertiary)
             }
             .buttonStyle(.plain)
@@ -322,10 +322,10 @@ struct AuthGateView: View {
     private func passwordReq(_ label: String, met: Bool) -> some View {
         HStack(spacing: BSCSpacing.xs) {
             Image(systemName: met ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 12))
+                .bscFont(size: 12)
                 .foregroundColor(met ? .bscSuccess : .bscTextTertiary)
             Text(label)
-                .font(.system(size: 12))
+                .bscFont(size: 12)
                 .foregroundColor(met ? .bscTextSecondary : .bscTextTertiary)
         }
     }

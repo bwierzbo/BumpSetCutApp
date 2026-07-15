@@ -11,25 +11,12 @@ import Photos
 
 final class VideoExporter {
 
-    /// Exports individual rally segments as separate video files
-    func exportRallySegments(asset: AVAsset, rallies: [RallySegment], addWatermark: Bool = false) async throws -> [URL] {
-        var exportedURLs: [URL] = []
-
-        for (index, rally) in rallies.enumerated() {
-            let startTime = CMTime(seconds: rally.startTime, preferredTimescale: 600)
-            let endTime = CMTime(seconds: rally.endTime, preferredTimescale: 600)
-            let timeRange = CMTimeRange(start: startTime, end: endTime)
-            let url = try await exportSingleRally(asset: asset, timeRange: timeRange, rallyIndex: index, addWatermark: addWatermark)
-            exportedURLs.append(url)
-        }
-
-        return exportedURLs
-    }
-
     /// Exports a single rally segment as an individual video file.
     /// Uses passthrough (no re-encoding) when possible, falls back to re-encoding if needed.
+    /// Output goes to tmp: these are share-then-delete files and must not land in
+    /// Documents, which is iCloud-backed.
     private func exportSingleRally(asset: AVAsset, timeRange: CMTimeRange, rallyIndex: Int, addWatermark: Bool = false) async throws -> URL {
-        let outURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let outURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("rally_\(rallyIndex)_\(UUID().uuidString).mp4")
 
         // Watermark requires composition-based export (can't overlay on passthrough)
@@ -131,71 +118,6 @@ final class VideoExporter {
                 throw exporter.error ?? ProcessingError.exportSessionFailed("Re-encoding export failed")
             }
             return outURL
-        }
-    }
-
-    /// Exports a composition of keep ranges from the source asset, preserving orientation and audio.
-    func exportTrimmed(asset: AVAsset, keepRanges: [CMTimeRange]) async throws -> URL {
-        let outURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("auto_cut_\(UUID().uuidString).mp4")
-
-        let comp = AVMutableComposition()
-        guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
-            throw ProcessingError.noVideoTrack
-        }
-        let aTrack = try? await asset.loadTracks(withMediaType: .audio).first
-
-        guard let compV = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw ProcessingError.compositionFailed
-        }
-        let compA = aTrack != nil ? comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
-
-        var cursor: CMTime = .zero
-        for r in keepRanges {
-            try compV.insertTimeRange(r, of: vTrack, at: cursor)
-            if let srcA = aTrack, let dstA = compA {
-                try dstA.insertTimeRange(r, of: srcA, at: cursor)
-            }
-            cursor = CMTimeAdd(cursor, r.duration)
-        }
-
-        // Keep orientation
-        if let pref = try? await vTrack.load(.preferredTransform) {
-            compV.preferredTransform = pref
-        }
-
-        guard let exporter = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetHighestQuality) else {
-            throw ProcessingError.exportSessionFailed("Trimmed export session unavailable")
-        }
-
-        if #available(iOS 18.0, *) {
-            try await exporter.export(to: outURL, as: .mp4)
-            return outURL
-        } else {
-            exporter.outputURL = outURL
-            exporter.outputFileType = .mp4
-            exporter.shouldOptimizeForNetworkUse = true
-            exporter.exportAsynchronously(completionHandler: {})
-
-            while exporter.status == .exporting {
-                try await Task.sleep(nanoseconds: 50_000_000)
-            }
-            
-            // Check export session status before returning
-            switch exporter.status {
-            case .completed:
-                // Verify the file was actually created
-                guard FileManager.default.fileExists(atPath: outURL.path) else {
-                    throw ProcessingError.exportSessionFailed("Output file not created")
-                }
-                return outURL
-            case .failed:
-                throw exporter.error ?? ProcessingError.exportSessionFailed("Trimmed export failed")
-            case .cancelled:
-                throw ProcessingError.exportCancelled
-            default:
-                throw ProcessingError.exportSessionFailed("Unexpected export status: \(exporter.status.rawValue)")
-            }
         }
     }
 

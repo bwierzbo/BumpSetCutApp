@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - Rally Loading View
 struct RallyLoadingView: View {
     @State private var isAnimating = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: BSCSpacing.xl) {
@@ -29,22 +30,23 @@ struct RallyLoadingView: View {
                     )
 
                 Image(systemName: "figure.volleyball")
-                    .font(.system(size: 36, weight: .medium))
+                    .bscFont(size: 36, weight: .medium)
                     .foregroundStyle(LinearGradient.bscPrimaryGradient)
                     .offset(y: isAnimating ? -4 : 0)
             }
 
             VStack(spacing: BSCSpacing.sm) {
                 Text("Loading Rallies")
-                    .font(.system(size: 20, weight: .bold))
+                    .bscFont(size: 20, weight: .bold)
                     .foregroundColor(.bscTextPrimary)
 
                 Text("Preparing your rally segments...")
-                    .font(.system(size: 14))
+                    .bscFont(size: 14)
                     .foregroundColor(.bscTextSecondary)
             }
         }
         .onAppear {
+            guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
                 isAnimating = true
             }
@@ -56,29 +58,30 @@ struct RallyLoadingView: View {
 /// Shows a buffering indicator while waiting for video to be ready
 struct RallyBufferingOverlay: View {
     @State private var isAnimating = false
+    var message: String = "Buffering..."
 
     var body: some View {
         ZStack {
             // Semi-transparent background
-            Color.black.opacity(0.4)
+            Color.bscMediaScrim
                 .ignoresSafeArea()
 
             // Buffering indicator
             VStack(spacing: BSCSpacing.md) {
                 // Spinner
                 ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .progressViewStyle(CircularProgressViewStyle(tint: .bscOnMedia))
                     .scaleEffect(1.5)
 
-                Text("Buffering...")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white)
+                Text(message)
+                    .bscFont(size: 16, weight: .medium)
+                    .foregroundColor(.bscOnMedia)
             }
             .padding(BSCSpacing.xl)
             .background(
                 RoundedRectangle(cornerRadius: BSCRadius.lg)
-                    .fill(Color.black.opacity(0.7))
-                    .shadow(color: .black.opacity(0.3), radius: 20)
+                    .fill(Color.bscMediaScrimBase.opacity(0.7))
+                    .shadow(color: Color.bscMediaScrimBase.opacity(0.3), radius: 20)
             )
         }
         .transition(.opacity)
@@ -100,17 +103,17 @@ struct RallyErrorView: View {
                     .frame(width: 80, height: 80)
 
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 40))
+                    .bscFont(size: 40)
                     .foregroundColor(.bscWarning)
             }
 
             VStack(spacing: BSCSpacing.sm) {
                 Text("Error Loading Rallies")
-                    .font(.system(size: 20, weight: .bold))
+                    .bscFont(size: 20, weight: .bold)
                     .foregroundColor(.bscTextPrimary)
 
                 Text(message)
-                    .font(.system(size: 14))
+                    .bscFont(size: 14)
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, BSCSpacing.xl)
@@ -144,17 +147,17 @@ struct RallyEmptyView: View {
                     .frame(width: 80, height: 80)
 
                 Image(systemName: "film.stack")
-                    .font(.system(size: 36))
+                    .bscFont(size: 36)
                     .foregroundColor(.bscTextTertiary)
             }
 
             VStack(spacing: BSCSpacing.sm) {
                 Text("No Rallies Found")
-                    .font(.system(size: 20, weight: .bold))
+                    .bscFont(size: 20, weight: .bold)
                     .foregroundColor(.bscTextPrimary)
 
                 Text("This video doesn't have any detected rally segments. Try processing the video first.")
-                    .font(.system(size: 14))
+                    .bscFont(size: 14)
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, BSCSpacing.xl)

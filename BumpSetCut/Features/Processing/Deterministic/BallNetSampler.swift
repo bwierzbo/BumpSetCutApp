@@ -39,6 +39,7 @@ enum BallNetSampler {
 
         let ballDetector = YOLODetector()
         ballDetector.minConfidence = ballConfidence
+        ballDetector.adaptiveLetterbox = true   // letterbox portrait/ultrawide automatically
         let netDetector = NetDetector()
         netDetector.minConfidence = netConfidence
 
@@ -89,7 +90,9 @@ enum BallNetSampler {
         return (samples, net)
     }
 
-    private static func medianBox(_ boxes: [CGRect]) -> CGRect {
+    /// Median of a set of boxes, component-wise. Shared with `VideoProcessor`'s
+    /// inline net sampling so both freeze the net the same way.
+    static func medianBox(_ boxes: [CGRect]) -> CGRect {
         func med(_ xs: [CGFloat]) -> CGFloat {
             let s = xs.sorted(); let n = s.count
             return n == 0 ? 0 : (n % 2 == 1 ? s[n / 2] : (s[n / 2 - 1] + s[n / 2]) / 2)

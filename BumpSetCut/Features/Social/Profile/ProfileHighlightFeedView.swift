@@ -55,10 +55,11 @@ struct ProfileHighlightFeedView: View {
                         onDismiss()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 28))
+                            .bscFont(size: 28)
                             .foregroundColor(.bscOnMedia.opacity(0.8))
-                            .shadow(radius: 4)
+                            .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 4)
                     }
+                    .accessibilityLabel("Close")
                 }
                 .padding(.horizontal, BSCSpacing.md)
                 .padding(.top, BSCSpacing.md)

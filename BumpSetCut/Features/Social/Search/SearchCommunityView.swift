@@ -88,7 +88,7 @@ struct SearchCommunityView: View {
                 if !viewModel.trendingTags.isEmpty {
                     VStack(alignment: .leading, spacing: BSCSpacing.sm) {
                         Text("Trending")
-                            .font(.system(size: 18, weight: .bold))
+                            .bscFont(size: 18, weight: .bold)
                             .foregroundColor(.bscTextPrimary)
                             .padding(.horizontal, BSCSpacing.lg)
                             .accessibilityIdentifier(AccessibilityID.Search.trendingSection)
@@ -99,7 +99,7 @@ struct SearchCommunityView: View {
                                     viewModel.selectTrendingTag(tag)
                                 } label: {
                                     Text("#\(tag)")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .bscFont(size: 14, weight: .medium)
                                         .foregroundColor(.bscPrimary)
                                         .padding(.horizontal, BSCSpacing.md)
                                         .padding(.vertical, BSCSpacing.sm)
@@ -124,13 +124,13 @@ struct SearchCommunityView: View {
             VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                 HStack {
                     Text("Recent")
-                        .font(.system(size: 18, weight: .bold))
+                        .bscFont(size: 18, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
                     Spacer()
                     Button("Clear") {
                         withAnimation { viewModel.clearRecents() }
                     }
-                    .font(.system(size: 14, weight: .medium))
+                    .bscFont(size: 14, weight: .medium)
                     .foregroundColor(.bscPrimary)
                 }
                 .padding(.horizontal, BSCSpacing.lg)
@@ -143,10 +143,10 @@ struct SearchCommunityView: View {
                         } label: {
                             HStack(spacing: BSCSpacing.md) {
                                 Image(systemName: "clock.arrow.circlepath")
-                                    .font(.system(size: 15))
+                                    .bscFont(size: 15)
                                     .foregroundColor(.bscTextTertiary)
                                 Text(term)
-                                    .font(.system(size: 15))
+                                    .bscFont(size: 15)
                                     .foregroundColor(.bscTextPrimary)
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
@@ -159,10 +159,11 @@ struct SearchCommunityView: View {
                             withAnimation { viewModel.removeRecent(term) }
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.system(size: 12, weight: .semibold))
+                                .bscFont(size: 12, weight: .semibold)
                                 .foregroundColor(.bscTextTertiary)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(term) from recent searches")
                     }
                     .padding(.horizontal, BSCSpacing.lg)
                     .padding(.vertical, BSCSpacing.sm)
@@ -224,7 +225,7 @@ struct SearchCommunityView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.username)
-                    .font(.system(size: 15, weight: .semibold))
+                    .bscFont(size: 15, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
             }
 
@@ -235,7 +236,7 @@ struct SearchCommunityView: View {
             }
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 12))
+                .bscFont(size: 12)
                 .foregroundColor(.bscTextTertiary)
         }
         .padding(.horizontal, BSCSpacing.lg)
@@ -248,7 +249,7 @@ struct SearchCommunityView: View {
             Task { await viewModel.toggleFollow(for: user.id) }
         } label: {
             Text(isFollowing ? "Following" : "Follow")
-                .font(.system(size: 12, weight: .semibold))
+                .bscFont(size: 12, weight: .semibold)
                 .foregroundColor(isFollowing ? .bscTextPrimary : .white)
                 .padding(.horizontal, BSCSpacing.md)
                 .padding(.vertical, 6)
@@ -303,23 +304,23 @@ struct SearchCommunityView: View {
                 HStack(spacing: 4) {
                     HStack(spacing: 2) {
                         Image(systemName: "heart.fill")
-                            .font(.system(size: 9))
+                            .bscFont(size: 9)
                         Text("\(highlight.likesCount)")
-                            .font(.system(size: 9, weight: .medium))
+                            .bscFont(size: 9, weight: .medium)
                     }
                     HStack(spacing: 2) {
                         Image(systemName: "bubble.right.fill")
-                            .font(.system(size: 9))
+                            .bscFont(size: 9)
                         Text("\(highlight.commentsCount)")
-                            .font(.system(size: 9, weight: .medium))
+                            .bscFont(size: 9, weight: .medium)
                     }
                 }
-                .foregroundColor(.white)
+                .foregroundColor(.bscOnMedia)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 3)
-                .background(Color.black.opacity(0.55))
+                .background(Color.bscMediaScrim)
                 .clipShape(Capsule())
-                .padding(4)
+                .padding(BSCSpacing.xs)
             }
         }
         .aspectRatio(1, contentMode: .fit)
@@ -331,7 +332,7 @@ struct SearchCommunityView: View {
 
     private func emptyResult(_ message: String) -> some View {
         Text(message)
-            .font(.system(size: 15))
+            .bscFont(size: 15)
             .foregroundColor(.bscTextSecondary)
             .frame(maxWidth: .infinity)
             .padding(.top, 60)
@@ -358,10 +359,11 @@ struct SearchCommunityView: View {
                         selectedHighlight = nil
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(.white.opacity(0.8))
-                            .shadow(radius: 4)
+                            .bscFont(size: 28)
+                            .foregroundColor(.bscOnMedia.opacity(0.8))
+                            .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 4)
                     }
+                    .accessibilityLabel("Close")
                     .padding(BSCSpacing.md)
                 }
                 Spacer()

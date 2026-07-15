@@ -21,10 +21,17 @@ final class SocialFeedViewModel {
     private(set) var isLoadingMore = false
     private(set) var error: Error?
     private(set) var hasMorePages = true
+    private(set) var loadMoreFailed = false
+    /// Transient message for a failed background action (e.g. a reverted
+    /// optimistic like). The view consumes it into a toast and clears it.
+    var actionError: String?
     var feedType: FeedType = .forYou
 
     private var currentPage = 0
     private let pageSize = 20
+    // Supersedes in-flight loads on tab switch — a dropped-by-guard load left
+    // the previous feed's content displayed under the new tab
+    private var loadGeneration = 0
     private let apiClient: any APIClient
 
     init(apiClient: (any APIClient)? = nil) {
@@ -43,9 +50,11 @@ final class SocialFeedViewModel {
     // MARK: - Loading
 
     func loadFeed() async {
-        guard !isLoading else { return }
+        loadGeneration += 1
+        let gen = loadGeneration
         isLoading = true
         error = nil
+        loadMoreFailed = false
         currentPage = 0
 
         do {
@@ -53,6 +62,7 @@ final class SocialFeedViewModel {
                 ? .getFollowingFeed(page: 0, pageSize: pageSize)
                 : .getFeed(page: 0, pageSize: pageSize)
             let page: [Highlight] = try await apiClient.request(endpoint)
+            guard gen == loadGeneration else { return }
             let blocked = ModerationService.shared.blockedUserIds
             highlights = page.filter { highlight in
                 guard let authorUUID = UUID(uuidString: highlight.authorId) else { return true }
@@ -62,12 +72,15 @@ final class SocialFeedViewModel {
             currentPage = 1
             await enrichPollVotes()
         } catch {
+            guard gen == loadGeneration else { return }
             self.error = error
             highlights = []
             hasMorePages = false
         }
 
-        isLoading = false
+        if gen == loadGeneration {
+            isLoading = false
+        }
     }
 
     func loadMoreIfNeeded(currentItem: Highlight) async {
@@ -77,13 +90,17 @@ final class SocialFeedViewModel {
               !isLoadingMore else { return }
 
         isLoadingMore = true
+        loadMoreFailed = false
         defer { isLoadingMore = false }
 
+        let gen = loadGeneration
         do {
             let endpoint: APIEndpoint = feedType == .following
                 ? .getFollowingFeed(page: currentPage, pageSize: pageSize)
                 : .getFeed(page: currentPage, pageSize: pageSize)
             let page: [Highlight] = try await apiClient.request(endpoint)
+            // A feed switch mid-request supersedes this page
+            guard gen == loadGeneration else { return }
             let blocked = ModerationService.shared.blockedUserIds
             let filtered = page.filter { highlight in
                 guard let authorUUID = UUID(uuidString: highlight.authorId) else { return true }
@@ -95,7 +112,15 @@ final class SocialFeedViewModel {
             await enrichPollVotes()
         } catch {
             print("⚠️ [SocialFeedViewModel] loadMore page \(currentPage) failed: \(error)")
+            if gen == loadGeneration {
+                loadMoreFailed = true
+            }
         }
+    }
+
+    func retryLoadMore() async {
+        guard let lastItem = highlights.last else { return }
+        await loadMoreIfNeeded(currentItem: lastItem)
     }
 
     // MARK: - Insert
@@ -134,9 +159,14 @@ final class SocialFeedViewModel {
                 let _: EmptyResponse = try await apiClient.request(.likeHighlight(id: highlight.id))
             }
         } catch {
-            // Revert on failure
-            highlights[index].isLikedByMe = wasLiked
-            highlights[index].likesCount += wasLiked ? 1 : -1
+            // Revert on failure — re-resolve by id; the pre-await index can be
+            // stale (feed switched, post deleted/prepended) and would crash or
+            // corrupt another post's like state
+            if let idx = highlights.firstIndex(where: { $0.id == highlight.id }) {
+                highlights[idx].isLikedByMe = wasLiked
+                highlights[idx].likesCount += wasLiked ? 1 : -1
+            }
+            actionError = "Couldn't update like"
         }
     }
 
@@ -145,16 +175,21 @@ final class SocialFeedViewModel {
     func enrichPollVotes() async {
         // Only enrich if user is authenticated
         guard (try? await SupabaseConfig.client.auth.session) != nil else { return }
+
+        // Collect the polls still missing the user's vote, then fetch them all in
+        // one query instead of one round-trip per poll (was N+1 on the feed).
+        let pollIds = highlights.compactMap { highlight -> String? in
+            guard let poll = highlight.poll, poll.myVoteOptionId == nil else { return nil }
+            return poll.id
+        }
+        guard !pollIds.isEmpty,
+              let rows: [MyPollVoteRow] = try? await apiClient.request(.getMyPollVotes(pollIds: pollIds))
+        else { return }
+
+        let voteByPoll = Dictionary(rows.map { ($0.pollId, $0.optionId) }, uniquingKeysWith: { first, _ in first })
         for i in highlights.indices {
-            guard let poll = highlights[i].poll,
-                  poll.myVoteOptionId == nil else { continue }
-            do {
-                let rows: [PollVoteRow] = try await apiClient.request(.getMyPollVote(pollId: poll.id))
-                if let row = rows.first {
-                    highlights[i].poll?.myVoteOptionId = row.optionId
-                }
-            } catch {
-                // Non-critical — user just won't see their vote highlighted
+            if let pollId = highlights[i].poll?.id, let optionId = voteByPoll[pollId] {
+                highlights[i].poll?.myVoteOptionId = optionId
             }
         }
     }

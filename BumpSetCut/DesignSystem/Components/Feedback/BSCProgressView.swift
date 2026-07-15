@@ -57,7 +57,7 @@ struct BSCProgressView: View {
 
             if showPercentage {
                 Text("\(Int(progress * 100))%")
-                    .font(.system(size: 12, weight: .semibold))
+                    .bscFont(size: 12, weight: .semibold)
                     .foregroundColor(.bscPrimary)
             }
         }
@@ -67,7 +67,7 @@ struct BSCProgressView: View {
         RoundedRectangle(cornerRadius: BSCRadius.full)
             .fill(
                 LinearGradient(
-                    colors: [.clear, .white.opacity(0.3), .clear],
+                    colors: [.clear, Color.bscOnMedia.opacity(0.3), .clear],
                     startPoint: .leading,
                     endPoint: .trailing
                 )
@@ -147,7 +147,7 @@ struct BSCProgressView: View {
                 VStack {
                     Spacer()
                     Text("\(Int(progress * 100))%")
-                        .font(.system(size: 11, weight: .bold))
+                        .bscFont(size: 11, weight: .bold)
                         .foregroundColor(.bscTextInverse)
                         .padding(.horizontal, BSCSpacing.sm)
                         .padding(.vertical, BSCSpacing.xxs)
@@ -199,15 +199,15 @@ struct BSCStepProgress: View {
         ZStack {
             Circle()
                 .fill(step <= currentStep ? Color.bscPrimary : Color.bscSurfaceGlass)
-                .frame(width: 24, height: 24)
+                .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
 
             if step < currentStep {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .bold))
+                    .bscFont(size: 12, weight: .bold)
                     .foregroundColor(.white)
             } else {
                 Text("\(step + 1)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .bscFont(size: 12, weight: .semibold)
                     .foregroundColor(step == currentStep ? .white : .bscTextTertiary)
             }
         }

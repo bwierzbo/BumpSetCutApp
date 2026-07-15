@@ -88,13 +88,15 @@ final class FlywheelCaptureServiceTests: XCTestCase {
                 hasBall: true,
                 isProjectile: t == 5.0,
                 detections: [VideoProcessor.BallDetection(
-                    bbox: CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.4), confidence: 0.7)],
+                    bbox: CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.4), confidence: 0.7,
+                    isOffCourt: false)],
                 trackPoint: CGPoint(x: 0.5, y: 0.5),
                 rSquared: 0.9,
                 gravitySignature: 0.8,
                 movementType: .airborne,
                 rejectionReason: nil,
-                candidates: []
+                candidates: [],
+                detectedNet: nil
             )
         }
         let segment = RallySegment(
@@ -117,7 +119,7 @@ final class FlywheelCaptureServiceTests: XCTestCase {
         let frame = VideoProcessor.FrameEvidence(
             time: 2.0, hasBall: true, isProjectile: false, detections: [],
             trackPoint: nil, rSquared: nil, gravitySignature: nil,
-            movementType: nil, rejectionReason: "no motion", candidates: [])
+            movementType: nil, rejectionReason: "no motion", candidates: [], detectedNet: nil)
         XCTAssertTrue(FlywheelCaptureService.scopedEvidence([frame], segments: []).isEmpty)
     }
 

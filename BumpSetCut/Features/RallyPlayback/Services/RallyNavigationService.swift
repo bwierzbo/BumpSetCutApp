@@ -30,10 +30,6 @@ final class RallyNavigationService {
         currentRallyIndex < totalCount - 1
     }
 
-    func canGoPrevious() -> Bool {
-        currentRallyIndex > 0
-    }
-
     // MARK: - Stack Management
 
     func updateVisibleStack(totalCount: Int) {

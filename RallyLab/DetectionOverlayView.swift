@@ -15,14 +15,11 @@ import SwiftUI
 struct DetectionOverlayView: View {
     let model: RallyLabModel
 
-    /// How far back the ball trail extends.
-    private let trailWindow: Double = 1.0
-
     var body: some View {
         // Reading these in the body establishes the observation dependency so
         // the Canvas redraws as playback advances.
         let time = model.currentTime
-        let frames = model.overlayFrames(at: time, window: trailWindow)
+        let frames = model.overlayFrames(at: time, window: model.trailWindowSec)
         let displaySize = model.videoDisplaySize
         let turns = model.videoRotationQuarterTurns
         let showROI = model.showROI
@@ -49,26 +46,35 @@ struct DetectionOverlayView: View {
                 }
             }
 
-            // Multi-court candidate visualization. The selected trajectory is the
-            // gravity-colored trail above; here we show every OTHER candidate the
-            // selector saw this frame as a dim grey trail + its own ROI circle, so
-            // a far-court ball that lost selection is visible (and you can see its
-            // score). Each track's ROI is the Kalman association gate that keeps
-            // the balls on separate tracks in the first place.
+            // Multi-court candidate visualization. The selected trajectory (the main
+            // court ball) is the gravity-colored trail above; here we show every
+            // OTHER candidate the selector saw. A "non-court" ball — physics-valid
+            // but dropped by the multi-court size/spatial gate — is drawn RED so it's
+            // obvious which balls the gate rejected vs. an in-court ball that merely
+            // lost scoring (dim grey). Each track's ROI is the Kalman association gate.
             let selectedId = frames.last?.candidates.first(where: { $0.isSelected })?.id
 
-            // Dim grey trails for each non-selected candidate across the window.
+            // Latest court-excluded status per candidate (chronological, last wins).
+            var excludedById: [UUID: Bool] = [:]
+            for frame in frames {
+                for cand in frame.candidates where cand.id != selectedId {
+                    excludedById[cand.id] = cand.isCourtExcluded
+                }
+            }
+
+            // Trails for each non-selected candidate: red = non-court, grey = in-court.
             var trailsById: [UUID: [CGPoint]] = [:]
             for frame in frames {
                 for cand in frame.candidates where cand.id != selectedId {
                     trailsById[cand.id, default: []].append(Self.point(cand.point, turns: turns, in: fit))
                 }
             }
-            for pts in trailsById.values where pts.count >= 2 {
+            for (id, pts) in trailsById where pts.count >= 2 {
                 var path = Path()
                 path.move(to: pts[0])
                 for p in pts.dropFirst() { path.addLine(to: p) }
-                ctx.stroke(path, with: .color(.white.opacity(0.25)),
+                let color: Color = excludedById[id] == true ? .red.opacity(0.5) : .white.opacity(0.25)
+                ctx.stroke(path, with: .color(color),
                            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
 
@@ -83,30 +89,78 @@ struct DetectionOverlayView: View {
                     let c = Self.point(cand.point, turns: turns, in: fit)
                     let r = max(6, cand.roiRadius * roiPixels)
                     let circle = CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
+                    // green = selected main-court ball; red = non-court ball dropped
+                    // by the multi-court gate; orange = in-court projectile that lost
+                    // scoring; grey = non-projectile.
                     let roiColor: Color = cand.isSelected
                         ? .green.opacity(0.9)
-                        : (cand.isProjectile ? .orange.opacity(0.6) : .white.opacity(0.3))
+                        : (cand.isCourtExcluded ? .red.opacity(0.7)
+                           : (cand.isProjectile ? .orange.opacity(0.6) : .white.opacity(0.3)))
                     ctx.stroke(Path(ellipseIn: circle), with: .color(roiColor),
                                style: StrokeStyle(lineWidth: cand.isSelected ? 2 : 1,
                                                   dash: cand.isSelected ? [] : [4, 3]))
                     if !cand.isSelected {
-                        let label = Text(String(format: "%.2f", cand.score))
+                        // Non-court balls aren't scored (the gate dropped them), so
+                        // tag them instead of printing a misleading 0.00.
+                        let text = cand.isCourtExcluded ? "non-court" : String(format: "%.2f", cand.score)
+                        let label = Text(text)
                             .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.8))
+                            .foregroundStyle(cand.isCourtExcluded ? .red.opacity(0.9) : .white.opacity(0.8))
                         ctx.draw(label, at: CGPoint(x: c.x + 4, y: c.y - 4), anchor: .bottomLeading)
                     }
                 }
             }
 
+            // Net band + off-court boundary (latest frame). The magenta lines are the
+            // court bounds (net posts ± offCourtMargin): detections outside them are
+            // dropped as another court's ball. The yellow line is the net's bottom
+            // edge — the under-net rule trashes trajectories that never rise above it.
+            if let latest = frames.last, let net = latest.detectedNet {
+                let netRect = Self.rect(net.box, turns: turns, in: fit)
+                ctx.stroke(Path(netRect), with: .color(.cyan.opacity(0.5)), lineWidth: 1.5)
+                var bottom = Path()
+                bottom.move(to: CGPoint(x: netRect.minX, y: netRect.maxY))
+                bottom.addLine(to: CGPoint(x: netRect.maxX, y: netRect.maxY))
+                ctx.stroke(bottom, with: .color(.yellow.opacity(0.7)),
+                           style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                // Net top edge (above-net threshold): a multi-contact rally must
+                // clear this line at least once. netRect.minY is the top on screen.
+                if model.enableAboveNetRequirement {
+                    let topY = netRect.minY + CGFloat(model.aboveNetMarginY) * fit.height
+                    var top = Path()
+                    top.move(to: CGPoint(x: netRect.minX, y: topY))
+                    top.addLine(to: CGPoint(x: netRect.maxX, y: topY))
+                    ctx.stroke(top, with: .color(.green.opacity(0.7)),
+                               style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                }
+                if model.enableOffCourtRejection {
+                    let m = CGFloat(model.offCourtMarginX)
+                    for x in [net.box.minX - m, net.box.maxX + m] {
+                        let top = Self.point(CGPoint(x: x, y: 0), turns: turns, in: fit)
+                        let bot = Self.point(CGPoint(x: x, y: 1), turns: turns, in: fit)
+                        var line = Path()
+                        line.move(to: top); line.addLine(to: bot)
+                        ctx.stroke(line, with: .color(.purple.opacity(0.6)),
+                                   style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                    }
+                }
+            }
+
             // Current detections (latest frame only): yellow box + the model's
-            // confidence for that box drawn just above it.
+            // confidence for that box drawn just above it. Off-court detections
+            // (dropped before tracking) draw dimmed red so you can see what the gate
+            // rejected and why.
             if let latest = frames.last {
                 for det in latest.detections {
                     let rect = Self.rect(det.bbox, turns: turns, in: fit)
-                    ctx.stroke(Path(rect), with: .color(.yellow), lineWidth: 2)
-                    let label = Text(String(format: "%.2f", Double(det.confidence)))
+                    let color: Color = det.isOffCourt ? .red.opacity(0.5) : .yellow
+                    ctx.stroke(Path(rect), with: .color(color),
+                               style: StrokeStyle(lineWidth: 2, dash: det.isOffCourt ? [4, 3] : []))
+                    let label = Text(det.isOffCourt
+                                     ? "off-court"
+                                     : String(format: "%.2f", Double(det.confidence)))
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(color)
                     ctx.draw(label, at: CGPoint(x: rect.minX, y: max(fit.minY, rect.minY - 2)),
                              anchor: .bottomLeading)
                 }
@@ -125,37 +179,65 @@ struct DetectionOverlayView: View {
 
     // MARK: - Physics HUD
 
-    /// Top-left readout of the gate's per-frame physics signals. rSquared stays
-    /// high for a straight carry, so gravitySignature and the movement class are
-    /// what reveal a ball being carried rather than in free flight.
+    /// Top-left readout of the gate's per-frame physics signals. Persistent: it
+    /// shows whenever there's any ball signal this frame (a tracked point, a
+    /// candidate trajectory, or even just a raw detection), so a rejected
+    /// trajectory always shows WHY it isn't a rally — not only the selected track.
+    /// rSquared stays high for a straight carry, so gravitySignature and the
+    /// movement class are what reveal a ball being carried rather than in free flight.
     private static func drawHUD(_ ctx: GraphicsContext, latest: VideoProcessor.FrameEvidence, in fit: CGRect) {
-        guard latest.trackPoint != nil else { return }
+        // The trajectory we explain: the selected one, else the best-scoring, else
+        // the biggest candidate. nil when only raw detections exist (all off-court).
+        let subject = latest.candidates.first(where: { $0.isSelected })
+            ?? latest.candidates.max(by: { ($0.score, Double($0.ballSize)) < ($1.score, Double($1.ballSize)) })
 
         var lines: [(String, Color)] = []
-        if let r2 = latest.rSquared {
+
+        if let r2 = subject?.rSquared ?? latest.rSquared {
             lines.append((String(format: "R² %.2f", r2), scoreColor(r2)))
         }
-        if let grav = latest.gravitySignature {
+        if let grav = subject?.gravitySignature ?? latest.gravitySignature {
             // High gravity signature = real free flight; low = carried/rolled.
             lines.append((String(format: "gravity %.2f", grav), scoreColor(grav)))
         }
-        if let type = latest.movementType {
+        if let type = subject?.movementType ?? latest.movementType {
             lines.append(("class \(type.displayName)", type == .airborne ? .green : .red))
         }
         if let ballConf = latest.detections.map(\.confidence).max() {
             // YOLO model confidence that the box is a volleyball.
             lines.append((String(format: "ball %.2f", Double(ballConf)), scoreColor(Double(ballConf))))
         }
-        lines.append(("projectile \(latest.isProjectile ? "YES" : "no")",
-                      latest.isProjectile ? .green : .secondary))
-        if let reason = latest.rejectionReason {
-            lines.append(("✕ \(reason)", .orange))
+        if let subject {
+            // Ball size (√area, normalized) — read this to set minBallSize.
+            lines.append((String(format: "size %.3f", Double(subject.ballSize)), .secondary))
         }
-        guard !lines.isEmpty else { return }
+
+        // Verdict line: is this a rally, and if not, exactly why.
+        let isRally = (subject?.isSelected ?? false) && latest.isProjectile
+        if isRally {
+            lines.append(("● RALLY", .green))
+        } else if let subject {
+            if let reason = subject.rejectionReason {
+                lines.append(("✕ \(reason)", subject.isCourtExcluded ? .red : .orange))
+            } else if !subject.isProjectile {
+                lines.append(("✕ not a projectile", .orange))
+            } else {
+                // Valid projectile that simply lost selection to another trajectory.
+                lines.append(("• valid · not selected", .yellow))
+            }
+        } else if !latest.detections.isEmpty {
+            // Raw detections but no candidate survived — all dropped pre-tracking.
+            let allOff = latest.detections.allSatisfy { $0.isOffCourt }
+            lines.append((allOff ? "✕ off-court (beyond posts)" : "ball seen · no track", .red))
+        } else {
+            lines.append(("no ball", .secondary))
+        }
 
         let origin = CGPoint(x: fit.minX + 10, y: fit.minY + 10)
         let lineHeight: CGFloat = 16
-        let panelWidth: CGFloat = latest.rejectionReason != nil ? 230 : 150
+        // Width fits the longest line (monospaced ≈ 7.3pt/char at 12pt).
+        let maxChars = lines.map(\.0.count).max() ?? 0
+        let panelWidth = max(150, CGFloat(maxChars) * 7.3 + 16)
         let panel = CGRect(x: origin.x - 5, y: origin.y - 4,
                            width: panelWidth, height: CGFloat(lines.count) * lineHeight + 8)
         ctx.fill(Path(roundedRect: panel, cornerRadius: 5), with: .color(.black.opacity(0.55)))

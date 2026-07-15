@@ -86,18 +86,18 @@ struct ForgotPasswordView: View {
                 }
             }
         }
-        .font(.system(size: 48, weight: .light))
+        .bscFont(size: 48, weight: .light)
         .foregroundColor(saved ? .bscSuccess : .bscPrimary)
     }
 
     private var headerText: some View {
         VStack(spacing: BSCSpacing.sm) {
             Text(headerTitle)
-                .font(.system(size: 24, weight: .bold))
+                .bscFont(size: 24, weight: .bold)
                 .foregroundColor(.bscTextPrimary)
 
             Text(headerSubtitle)
-                .font(.system(size: 15))
+                .bscFont(size: 15)
                 .foregroundColor(.bscTextSecondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
@@ -172,7 +172,7 @@ struct ForgotPasswordView: View {
                             : ""
 
                         Text(char)
-                            .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                            .bscFont(size: 24, weight: .semibold, design: .monospaced)
                             .foregroundColor(.bscTextPrimary)
                             .frame(width: 36, height: 48)
                             .background(
@@ -182,7 +182,7 @@ struct ForgotPasswordView: View {
                             .overlay(
                                 RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
                                     .stroke(
-                                        index == otpCode.count ? Color.bscPrimary : Color.white.opacity(0.15),
+                                        index == otpCode.count ? Color.bscPrimary : Color.bscSurfaceBorder,
                                         lineWidth: index == otpCode.count ? 2 : 1
                                     )
                             )
@@ -214,7 +214,7 @@ struct ForgotPasswordView: View {
                 Task { await sendCode() }
             } label: {
                 Text("Resend code")
-                    .font(.system(size: 13))
+                    .bscFont(size: 13)
                     .foregroundColor(.bscPrimary)
             }
             .buttonStyle(.plain)
@@ -250,10 +250,10 @@ struct ForgotPasswordView: View {
                 if !confirmPassword.isEmpty {
                     HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: passwordsMatch ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                             .foregroundColor(passwordsMatch ? .bscSuccess : .bscError)
                         Text(passwordsMatch ? "Passwords match" : "Passwords do not match")
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                             .foregroundColor(passwordsMatch ? .bscTextSecondary : .bscError)
                     }
                 }
@@ -277,7 +277,7 @@ struct ForgotPasswordView: View {
     private var errorText: some View {
         if let errorMessage {
             Text(errorMessage)
-                .font(.system(size: 13))
+                .bscFont(size: 13)
                 .foregroundColor(.bscError)
         }
     }
@@ -290,7 +290,7 @@ struct ForgotPasswordView: View {
                 if isLoading {
                     ProgressView().tint(.black)
                 } else {
-                    Text(title).font(.system(size: 16, weight: .semibold))
+                    Text(title).bscFont(size: 16, weight: .semibold)
                 }
             }
             .foregroundColor(.black)
@@ -306,10 +306,10 @@ struct ForgotPasswordView: View {
     private func passwordReq(_ label: String, met: Bool) -> some View {
         HStack(spacing: BSCSpacing.xs) {
             Image(systemName: met ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 12))
+                .bscFont(size: 12)
                 .foregroundColor(met ? .bscSuccess : .bscTextTertiary)
             Text(label)
-                .font(.system(size: 12))
+                .bscFont(size: 12)
                 .foregroundColor(met ? .bscTextSecondary : .bscTextTertiary)
         }
     }

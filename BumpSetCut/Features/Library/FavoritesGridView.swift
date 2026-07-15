@@ -19,9 +19,12 @@ struct FavoritesGridView: View {
     @State private var showingCreateFolder = false
     @State private var newFolderName = ""
     @State private var moveTarget: VideoMetadata?
-    @State private var sortOption: ContentSortOption = .dateCreated
+    // Persisted across launches (String-backed enum works with @AppStorage).
+    @AppStorage("favorites.sortOption") private var sortOption: ContentSortOption = .dateCreated
     @State private var renameTarget: VideoMetadata?
     @State private var renameText: String = ""
+    // Surfaces failures from fire-and-forget library mutations (rename/move/delete).
+    @State private var mutationToast: BSCToastMessage?
     @Environment(\.dismiss) private var dismiss
 
     init(mediaStore: MediaStore) {
@@ -76,6 +79,7 @@ struct FavoritesGridView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(!folderManager.isAtLibraryRoot)
         .toolbar { toolbarContent }
+        .bscToast($mutationToast)
         .onAppear {
             folderManager.loadInitialContentsIfNeeded()
         }
@@ -108,15 +112,19 @@ struct FavoritesGridView: View {
             Button("Remove", role: .destructive) {
                 if let video = videoToDelete {
                     Task {
-                        // Sync unfavorite back to source video's review selections
-                        if let srcVideoId = video.sourceVideoId,
-                           let srcRallyIndex = video.sourceRallyIndex {
-                            let metadataStore = MetadataStore()
-                            var selections = metadataStore.loadReviewSelections(for: srcVideoId)
-                            selections.favorited.remove(srcRallyIndex)
-                            try? metadataStore.saveReviewSelections(selections, for: srcVideoId)
+                        do {
+                            // Sync unfavorite back to source video's review selections
+                            if let srcVideoId = video.sourceVideoId,
+                               let srcRallyIndex = video.sourceRallyIndex {
+                                let metadataStore = MetadataStore()
+                                var selections = metadataStore.loadReviewSelections(for: srcVideoId)
+                                selections.favorited.remove(srcRallyIndex)
+                                try metadataStore.saveReviewSelections(selections, for: srcVideoId)
+                            }
+                            try await folderManager.deleteVideo(video)
+                        } catch {
+                            mutationToast = BSCToastMessage(text: "Couldn't remove favorite", style: .error)
                         }
-                        try? await folderManager.deleteVideo(video)
                     }
                     videoToDelete = nil
                 }
@@ -134,7 +142,10 @@ struct FavoritesGridView: View {
                 if let video = renameTarget {
                     let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
-                        Task { try? await folderManager.renameVideo(video, to: trimmed) }
+                        Task {
+                            do { try await folderManager.renameVideo(video, to: trimmed) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename video", style: .error) }
+                        }
                     }
                     renameTarget = nil
                 }
@@ -160,7 +171,7 @@ struct FavoritesGridView: View {
         HStack {
             Spacer()
             Text("\(videos.count) \(videos.count == 1 ? "rally" : "rallies")")
-                .font(.system(size: 13))
+                .bscFont(size: 13)
                 .foregroundColor(.bscTextSecondary)
                 .accessibilityIdentifier(AccessibilityID.Favorites.rallyCount)
         }
@@ -184,16 +195,23 @@ struct FavoritesGridView: View {
                         }
                     },
                     onRename: { newName in
-                        Task { try? await folderManager.renameFolder(folder, to: newName) }
+                        Task {
+                            do { try await folderManager.renameFolder(folder, to: newName) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename folder", style: .error) }
+                        }
                     },
                     onDelete: {
-                        Task { try? await folderManager.deleteFolder(folder) }
+                        Task {
+                            do { try await folderManager.deleteFolder(folder) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't delete folder", style: .error) }
+                        }
                     }
                 )
                 .dropDestination(for: VideoMetadata.self) { droppedVideos, _ in
                     guard let video = droppedVideos.first else { return false }
                     Task {
-                        try? await folderManager.moveVideoToFolder(video, targetFolderPath: folder.path)
+                        do { try await folderManager.moveVideoToFolder(video, targetFolderPath: folder.path) }
+                        catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
                     }
                     return true
                 }
@@ -216,6 +234,7 @@ struct FavoritesGridView: View {
                     gridCell(video)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(video.displayName)
                 .accessibilityIdentifier("favorites.gridCell.\(index)")
                 .draggable(video)
                 .contextMenu {
@@ -253,13 +272,13 @@ struct FavoritesGridView: View {
 
                 if let duration = video.duration {
                     Text(formatDuration(duration))
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white)
+                        .bscFont(size: 10, weight: .medium, design: .monospaced)
+                        .foregroundColor(.bscOnMedia)
                         .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.55))
+                        .padding(.vertical, BSCSpacing.xxs)
+                        .background(Color.bscMediaScrim)
                         .clipShape(Capsule())
-                        .padding(4)
+                        .padding(BSCSpacing.xs)
                 }
             }
         }
@@ -274,7 +293,7 @@ struct FavoritesGridView: View {
     private var toolbarContent: some ToolbarContent {
         if !folderManager.isAtLibraryRoot {
             ToolbarItem(placement: .navigationBarLeading) {
-                BSCIconButton(icon: "chevron.left", style: .ghost, size: .compact) {
+                BSCIconButton(icon: "chevron.left", style: .ghost, size: .compact, accessibilityLabel: "Back") {
                     withAnimation(.bscSpring) { folderManager.navigateToParent() }
                 }
             }
@@ -289,12 +308,12 @@ struct FavoritesGridView: View {
                         }
                     }
                 } label: {
-                    BSCIconButton(icon: "arrow.up.arrow.down", style: .ghost, size: .compact) {}
+                    BSCIconButton(icon: "arrow.up.arrow.down", style: .ghost, size: .compact, accessibilityLabel: "Sort options") {}
                         .allowsHitTesting(false)
                 }
                 .accessibilityIdentifier(AccessibilityID.Favorites.sortMenu)
 
-                BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact) {
+                BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact, accessibilityLabel: "Create new folder") {
                     showingCreateFolder = true
                 }
                 .accessibilityIdentifier(AccessibilityID.Favorites.createFolder)
@@ -309,7 +328,7 @@ struct FavoritesGridView: View {
             VStack(spacing: BSCSpacing.xl) {
                 VStack(alignment: .leading, spacing: BSCSpacing.sm) {
                     Text("Folder Name")
-                        .font(.system(size: 14, weight: .semibold))
+                        .bscFont(size: 14, weight: .semibold)
                         .foregroundColor(.bscTextSecondary)
                         .textCase(.uppercase)
                         .tracking(0.5)
@@ -350,7 +369,8 @@ struct FavoritesGridView: View {
                 // Root option
                 Button {
                     Task {
-                        try? await folderManager.moveVideoToFolder(video, targetFolderPath: LibraryType.favorites.rootPath)
+                        do { try await folderManager.moveVideoToFolder(video, targetFolderPath: LibraryType.favorites.rootPath) }
+                        catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
                         moveTarget = nil
                     }
                 } label: {
@@ -362,7 +382,8 @@ struct FavoritesGridView: View {
                 ForEach(mediaStore.getAllFolders(in: .favorites), id: \.id) { folder in
                     Button {
                         Task {
-                            try? await folderManager.moveVideoToFolder(video, targetFolderPath: folder.path)
+                            do { try await folderManager.moveVideoToFolder(video, targetFolderPath: folder.path) }
+                            catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
                             moveTarget = nil
                         }
                     } label: {
@@ -388,7 +409,8 @@ struct FavoritesGridView: View {
         let trimmed = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         Task {
-            try? await folderManager.createFolder(name: trimmed)
+            do { try await folderManager.createFolder(name: trimmed) }
+            catch { mutationToast = BSCToastMessage(text: "Couldn't create folder", style: .error) }
             showingCreateFolder = false
             newFolderName = ""
         }
@@ -424,6 +446,9 @@ struct FavoritesFeedView: View {
     @State private var clipDuration: Double = 0
     @State private var savedTrims: [Int: RallyTrimAdjustment] = [:]
 
+    // One-time discoverability hint for the long-press trim gesture.
+    @State private var showTrimHint = false
+
     var body: some View {
         ZStack {
             Color.bscMediaBackground.ignoresSafeArea()
@@ -449,8 +474,8 @@ struct FavoritesFeedView: View {
                     HStack {
                         if videos.count > 1 {
                             Text("\((currentIndex ?? startIndex) + 1)/\(videos.count)")
-                                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.white)
+                                .bscFont(size: 13, weight: .semibold, design: .monospaced)
+                                .foregroundColor(.bscOnMedia)
                                 .padding(.horizontal, BSCSpacing.sm)
                                 .padding(.vertical, BSCSpacing.xs)
                                 .background(.ultraThinMaterial.opacity(0.8))
@@ -462,10 +487,11 @@ struct FavoritesFeedView: View {
 
                         Button { onDismiss() } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundColor(.white.opacity(0.8))
-                                .shadow(radius: 4)
+                                .bscFont(size: 28)
+                                .foregroundColor(Color.bscOnMedia.opacity(0.8))
+                                .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 4)
                         }
+                        .accessibilityLabel("Close")
                         .accessibilityIdentifier(AccessibilityID.Favorites.feedClose)
                     }
                     .padding(.horizontal, BSCSpacing.md)
@@ -477,8 +503,8 @@ struct FavoritesFeedView: View {
                     HStack {
                         if let idx = currentIndex, idx < videos.count {
                             Text(videos[idx].displayName)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white)
+                                .bscFont(size: 14, weight: .semibold)
+                                .foregroundColor(.bscOnMedia)
                                 .lineLimit(1)
                                 .accessibilityIdentifier(AccessibilityID.Favorites.feedVideoName)
                         }
@@ -492,12 +518,34 @@ struct FavoritesFeedView: View {
             // Pause icon
             if isPaused && !isTrimmingMode {
                 Image(systemName: "play.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(.white.opacity(0.7))
-                    .shadow(radius: 8)
+                    .bscFont(size: 60)
+                    .foregroundColor(.bscOnMediaSecondary)
+                    .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 8)
                     .allowsHitTesting(false)
                     .transition(.opacity)
+                    .accessibilityHidden(true)
                     .accessibilityIdentifier(AccessibilityID.Favorites.feedPauseIcon)
+            }
+
+            // One-time "press & hold to trim" hint.
+            if showTrimHint && !isTrimmingMode {
+                VStack {
+                    Spacer()
+                    HStack(spacing: BSCSpacing.xs) {
+                        Image(systemName: "hand.tap.fill")
+                            .bscFont(size: 13)
+                            .accessibilityHidden(true)
+                        Text("Press & hold to trim")
+                            .bscFont(size: 14, weight: .semibold)
+                    }
+                    .foregroundColor(.bscOnMedia)
+                    .padding(.horizontal, BSCSpacing.md)
+                    .padding(.vertical, BSCSpacing.sm)
+                    .background(.ultraThinMaterial.opacity(0.9), in: Capsule())
+                    .padding(.bottom, 140)
+                    .allowsHitTesting(false)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
 
             // Trim overlay
@@ -531,6 +579,9 @@ struct FavoritesFeedView: View {
                 currentIndex = startIndex
                 hasScrolledToStart = true
             }
+        }
+        .task {
+            await maybeShowTrimHint()
         }
         .onChange(of: currentIndex) { oldIdx, newIdx in
             if let old = oldIdx { players[old]?.pause() }
@@ -584,13 +635,33 @@ struct FavoritesFeedView: View {
         } else {
             player.pause()
         }
-        withAnimation(.easeInOut(duration: 0.2)) { isPaused.toggle() }
+        withAnimation(.bscQuick) { isPaused.toggle() }
+    }
+
+    // MARK: - Trim Hint
+
+    /// Surface the long-press trim affordance once, then never again. Runs inside
+    /// the view's `.task`, so closing the feed cancels the sleeps — the flag is
+    /// burned only if the hint actually appears.
+    private func maybeShowTrimHint() async {
+        guard !videos.isEmpty, !AppSettings.shared.hasSeenFavoritesTrimHint else { return }
+
+        guard (try? await Task.sleep(nanoseconds: 600_000_000)) != nil else { return }
+
+        AppSettings.shared.hasSeenFavoritesTrimHint = true
+        withAnimation(.bscStandard) { showTrimHint = true }
+
+        guard (try? await Task.sleep(nanoseconds: 3_500_000_000)) != nil else { return }
+        withAnimation(.bscStandard) { showTrimHint = false }
     }
 
     // MARK: - Trim
 
     private func enterTrimMode(at index: Int) {
         guard index < videos.count else { return }
+
+        UIImpactFeedbackGenerator.medium()
+        withAnimation(.bscQuick) { showTrimHint = false }
 
         // Pause playback
         players[index]?.pause()
@@ -615,7 +686,7 @@ struct FavoritesFeedView: View {
                 trimAfter = 0
             }
 
-            withAnimation(.easeInOut(duration: 0.2)) { isTrimmingMode = true }
+            withAnimation(.bscQuick) { isTrimmingMode = true }
         }
     }
 
@@ -627,12 +698,12 @@ struct FavoritesFeedView: View {
         try? store.saveTrimAdjustments([0: adjustment], for: videoId)
         savedTrims[idx] = adjustment
 
-        withAnimation(.easeInOut(duration: 0.2)) { isTrimmingMode = false }
+        withAnimation(.bscQuick) { isTrimmingMode = false }
         applyTrimAndPlay(at: idx)
     }
 
     private func cancelTrim() {
-        withAnimation(.easeInOut(duration: 0.2)) { isTrimmingMode = false }
+        withAnimation(.bscQuick) { isTrimmingMode = false }
         if let idx = currentIndex {
             applyTrimAndPlay(at: idx)
         }

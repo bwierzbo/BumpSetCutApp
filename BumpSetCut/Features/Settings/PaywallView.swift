@@ -23,9 +23,10 @@ struct PaywallView: View {
                     // Header
                     VStack(spacing: BSCSpacing.md) {
                         Image(systemName: "crown.fill")
-                            .font(.system(size: 60))
+                            .bscFont(size: 60)
                             .foregroundStyle(.yellow)
-                            .shadow(radius: 10)
+                            .bscShadow(BSCShadow.md)
+                            .accessibilityHidden(true)
 
                         Text("Unlock BumpSetCut Pro")
                             .font(.title.bold())
@@ -54,7 +55,7 @@ struct PaywallView: View {
                         VStack(spacing: BSCSpacing.md) {
                             VStack(spacing: BSCSpacing.xs) {
                                 Text(product.displayPrice)
-                                    .font(.system(size: 48, weight: .bold))
+                                    .bscFont(size: 48, weight: .bold)
                                 Text("per month")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
@@ -144,6 +145,7 @@ struct PaywallView: View {
                             .foregroundStyle(.secondary)
                             .font(.title3)
                     }
+                    .accessibilityLabel("Close")
                 }
             }
             .alert("Error", isPresented: $showError) {
@@ -207,7 +209,7 @@ struct FeatureRow: View {
             Image(systemName: icon)
                 .font(.title3)
                 .foregroundStyle(Color.bscPrimary)
-                .frame(width: 32)
+                .frame(width: BSCIconSize.xl)
 
             VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                 Text(title)

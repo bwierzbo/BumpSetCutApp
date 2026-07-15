@@ -10,6 +10,7 @@ struct BSCLoadingOverlay: View {
     var showBackground: Bool = true
 
     @State private var isAnimating = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // MARK: - Body
     var body: some View {
@@ -28,7 +29,7 @@ struct BSCLoadingOverlay: View {
 
                 // Message
                 Text(message)
-                    .font(.system(size: 16, weight: .medium))
+                    .bscFont(size: 16, weight: .medium)
                     .foregroundColor(.bscTextPrimary)
                     .multilineTextAlignment(.center)
 
@@ -43,6 +44,7 @@ struct BSCLoadingOverlay: View {
             .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xxl)
         }
         .onAppear {
+            guard !reduceMotion else { return }
             withAnimation(.bscFloat) {
                 isAnimating = true
             }
@@ -55,10 +57,10 @@ struct BSCLoadingOverlay: View {
     // MARK: - Animated Icon
     private var animatedIcon: some View {
         Image(systemName: icon)
-            .font(.system(size: 48, weight: .medium))
+            .bscFont(size: 48, weight: .medium)
             .foregroundStyle(LinearGradient.bscPrimaryGradient)
             .offset(y: isAnimating ? -8 : 0)
-            .animation(.bscFloat, value: isAnimating)
+            .animation(reduceMotion ? nil : .bscFloat, value: isAnimating)
             .bscShadow(BSCShadow.glowPrimary)
     }
 
@@ -85,7 +87,7 @@ struct BSCLoadingOverlay: View {
 
             // Percentage
             Text("\(Int(progress * 100))%")
-                .font(.system(size: 14, weight: .semibold))
+                .bscFont(size: 14, weight: .semibold)
                 .foregroundColor(.bscPrimary)
         }
     }
@@ -112,7 +114,7 @@ struct BSCLoadingIndicator: View {
 
             if let message = message {
                 Text(message)
-                    .font(.system(size: 14))
+                    .bscFont(size: 14)
                     .foregroundColor(.bscTextSecondary)
             }
         }

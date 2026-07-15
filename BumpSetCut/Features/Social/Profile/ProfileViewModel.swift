@@ -16,6 +16,9 @@ final class ProfileViewModel {
     private(set) var isLoading = false
     private(set) var isFollowing = false
     private(set) var error: Error?
+    /// Transient message for a failed background action (e.g. a reverted
+    /// optimistic follow). The view consumes it into a toast and clears it.
+    var actionError: String?
 
     let userId: String
     private let apiClient: any APIClient
@@ -31,28 +34,29 @@ final class ProfileViewModel {
         isLoading = true
         error = nil
 
+        // Profile, highlights and follow-status are independent — fetch them
+        // concurrently instead of as three sequential round-trips.
+        async let profileResult: UserProfile = apiClient.request(.getProfile(userId: userId))
+        async let highlightsResult: [Highlight] = apiClient.request(.getUserHighlights(userId: userId, page: 0))
+        async let followResult: [FollowRow] = apiClient.request(.checkFollowStatus(userId: userId))
+
         do {
-            profile = try await apiClient.request(.getProfile(userId: userId))
-            let page: [Highlight] = try await apiClient.request(.getUserHighlights(userId: userId, page: 0))
-            highlights = page
+            profile = try await profileResult
+            highlights = try await highlightsResult
             currentPage = 1
         } catch {
             self.error = error
         }
 
-        await loadFollowStatus()
-        isLoading = false
-    }
-
-    private func loadFollowStatus() async {
         do {
-            let rows: [FollowRow] = try await apiClient.request(.checkFollowStatus(userId: userId))
-            isFollowing = !rows.isEmpty
+            isFollowing = !(try await followResult).isEmpty
         } catch {
             // Don't break profile loading, but log — a swallowed decode failure here is
             // exactly how the "always shows Follow" bug hid for so long.
             print("⚠️ [ProfileViewModel] loadFollowStatus(\(userId)) failed: \(error)")
         }
+
+        isLoading = false
     }
 
     func deleteHighlight(_ highlight: Highlight) async -> Bool {
@@ -84,13 +88,18 @@ final class ProfileViewModel {
                 let _: EmptyResponse = try await apiClient.request(.likeHighlight(id: highlight.id))
             }
         } catch {
-            highlights[index].isLikedByMe = wasLiked
-            highlights[index].likesCount += wasLiked ? 1 : -1
+            // Re-resolve by id — the pre-await index is stale if the array
+            // shrank or reordered while the request was in flight
+            if let idx = highlights.firstIndex(where: { $0.id == highlight.id }) {
+                highlights[idx].isLikedByMe = wasLiked
+                highlights[idx].likesCount += wasLiked ? 1 : -1
+            }
         }
     }
 
-    func toggleFollow() async {
-        guard let profile else { return }
+    @discardableResult
+    func toggleFollow() async -> Bool {
+        guard let profile else { return false }
 
         isFollowing.toggle()
         var updated = profile
@@ -103,11 +112,14 @@ final class ProfileViewModel {
             } else {
                 let _: EmptyResponse = try await apiClient.request(.unfollow(userId: userId))
             }
+            return true
         } catch {
             // Revert
             isFollowing.toggle()
             updated.followersCount += isFollowing ? 1 : -1
             self.profile = updated
+            actionError = "Couldn't update follow"
+            return false
         }
     }
 }

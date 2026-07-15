@@ -12,9 +12,15 @@ struct BSCFolderCard: View {
     // MARK: - Properties
     let folder: FolderMetadata
     let displayMode: DisplayMode
+    /// Highlights the card as an active drop zone while a video is dragged over it.
+    var isDropTargeted: Bool = false
     let onTap: () -> Void
     let onRename: (String) -> Void
     let onDelete: () -> Void
+
+    private var cornerRadius: CGFloat {
+        displayMode == .list ? BSCRadius.md : BSCRadius.xl
+    }
 
     @State private var showingRenameDialog = false
     @State private var showingDeleteConfirmation = false
@@ -35,8 +41,14 @@ struct BSCFolderCard: View {
         .onTapGesture {
             onTap()
         }
-        .scaleEffect(isPressed ? 0.97 : 1.0)
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.bscPrimary, lineWidth: 2.5)
+                .opacity(isDropTargeted ? 1 : 0)
+        )
+        .scaleEffect(isDropTargeted ? 1.04 : (isPressed ? 0.97 : 1.0))
         .animation(.bscBounce, value: isPressed)
+        .animation(.bscQuick, value: isDropTargeted)
         .onLongPressGesture(minimumDuration: 0.1, pressing: { pressing in
             isPressed = pressing
         }, perform: {})
@@ -103,16 +115,17 @@ struct BSCFolderCard: View {
                     HStack {
                         Spacer()
                         Circle()
-                            .fill(Color.black.opacity(0.5))
-                            .frame(width: 24, height: 24)
+                            .fill(Color.bscMediaScrim)
+                            .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
                             .overlay(
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.white)
+                                    .bscFont(size: 10, weight: .bold)
+                                    .foregroundColor(.bscOnMedia)
                             )
+                            .accessibilityHidden(true)
                     }
                 }
-                .padding(4)
+                .padding(BSCSpacing.xs)
             }
             .frame(width: 72, height: 72)
 
@@ -124,6 +137,9 @@ struct BSCFolderCard: View {
         .frame(height: 160)
         .frame(maxWidth: .infinity)
         .padding(BSCSpacing.lg)
+        .overlay(alignment: .topTrailing) {
+            menuButton
+        }
         .bscInteractive(isSelected: false, cornerRadius: BSCRadius.xl)
     }
 
@@ -160,6 +176,7 @@ struct BSCFolderCard: View {
             // Icon
             Image(systemName: "folder.fill")
                 .font(.system(size: size * 0.45, weight: .medium))
+                .accessibilityHidden(true)
                 .foregroundStyle(
                     LinearGradient(
                         colors: [Color.bscPrimary, Color.bscPrimary.opacity(0.7)],
@@ -175,7 +192,7 @@ struct BSCFolderCard: View {
         VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
             // Title
             Text(folder.name)
-                .font(.system(size: 16, weight: .semibold))
+                .bscFont(size: 16, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(1)
 
@@ -198,7 +215,7 @@ struct BSCFolderCard: View {
         VStack(alignment: .leading, spacing: BSCSpacing.xs) {
             // Title
             Text(folder.name)
-                .font(.system(size: 14, weight: .semibold))
+                .bscFont(size: 14, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
@@ -227,9 +244,10 @@ struct BSCFolderCard: View {
             // Video count
             HStack(spacing: BSCSpacing.xxs) {
                 Image(systemName: "video.fill")
-                    .font(.system(size: 10))
+                    .bscFont(size: 10)
+                    .accessibilityHidden(true)
                 Text("\(folder.videoCount)")
-                    .font(.system(size: 11, weight: .medium))
+                    .bscFont(size: 11, weight: .medium)
             }
             .foregroundColor(folder.videoCount > 0 ? .bscPrimary : .bscTextTertiary)
 
@@ -237,9 +255,10 @@ struct BSCFolderCard: View {
             if folder.subfolderCount > 0 {
                 HStack(spacing: BSCSpacing.xxs) {
                     Image(systemName: "folder.fill")
-                        .font(.system(size: 10))
+                        .bscFont(size: 10)
+                        .accessibilityHidden(true)
                     Text("\(folder.subfolderCount)")
-                        .font(.system(size: 11, weight: .medium))
+                        .bscFont(size: 11, weight: .medium)
                 }
                 .foregroundColor(.bscTextSecondary)
             }
@@ -259,12 +278,15 @@ struct BSCFolderCard: View {
             contextMenuContent
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 16, weight: .medium))
+                .bscFont(size: 16, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
                 .frame(width: 32, height: 32)
                 .background(Color.bscSurfaceGlass)
                 .clipShape(Circle())
+                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
         }
+        .accessibilityLabel("Folder options")
     }
 
     private var quickOpenButton: some View {
@@ -272,9 +294,11 @@ struct BSCFolderCard: View {
             onTap()
         } label: {
             Image(systemName: "arrow.right.circle.fill")
-                .font(.system(size: 20))
+                .bscFont(size: 20)
                 .foregroundColor(.bscPrimary)
                 .frame(width: 32, height: 32)
+                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("Open folder")
     }

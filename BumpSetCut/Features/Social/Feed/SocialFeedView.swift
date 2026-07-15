@@ -18,6 +18,7 @@ struct SocialFeedView: View {
     @State private var selectedProfileId: ProfileID?
     @State private var currentIndex: Int? = 0
     @State private var selectedTab: FeedTab = .forYou
+    @State private var toast: BSCToastMessage?
     @Environment(AppNavigationState.self) private var navigationState
     @Environment(AuthenticationService.self) private var authService
 
@@ -26,9 +27,7 @@ struct SocialFeedView: View {
             Color.bscMediaBackground.ignoresSafeArea()
 
             if viewModel.isLoading && viewModel.highlights.isEmpty {
-                ProgressView()
-                    .tint(.bscPrimary)
-                    .scaleEffect(1.5)
+                loadingSkeleton
             } else if viewModel.highlights.isEmpty {
                 if viewModel.error != nil {
                     BSCEmptyState.loadFailed(message: viewModel.error?.localizedDescription) {
@@ -48,12 +47,32 @@ struct SocialFeedView: View {
                 feedTabPicker
                 Spacer()
             }
+
+            // Pagination footer: spinner while fetching the next page, retry row on failure
+            if !viewModel.highlights.isEmpty, viewModel.isLoadingMore || viewModel.loadMoreFailed {
+                VStack {
+                    Spacer()
+                    loadMoreFooter
+                }
+            }
         }
         // Full-screen video is a dark context: keeps letterbox bars black and chrome
         // readable in light mode. Semantic tokens inside resolve to their dark variants.
         .environment(\.colorScheme, .dark)
         .task {
-            await viewModel.loadFeed()
+            // Only load on first appearance — reloading on every tab return would
+            // discard pagination and snap the feed back to the top. Pull-to-refresh
+            // and the For You/Following switch still force a fresh load.
+            if viewModel.highlights.isEmpty {
+                await viewModel.loadFeed()
+            }
+        }
+        .bscToast($toast)
+        .onChange(of: viewModel.actionError) { _, message in
+            if let message {
+                toast = BSCToastMessage(text: message, style: .error)
+                viewModel.actionError = nil
+            }
         }
         .commentsPanel(item: $selectedHighlightForComments)
         .sheet(item: $selectedProfileId) { profile in
@@ -86,6 +105,9 @@ struct SocialFeedView: View {
             }
             .scrollTargetLayout()
         }
+        .refreshable {
+            await viewModel.loadFeed()
+        }
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $currentIndex)
         // Full-bleed top/sides only — respect the bottom safe area so the
@@ -97,7 +119,12 @@ struct SocialFeedView: View {
     private func highlightCard(index: Int, highlight: Highlight) -> some View {
         let isOwner = highlight.authorId == authService.currentUser?.id
         let deleteAction: (() -> Void)? = isOwner ? {
-            Task { await viewModel.deleteHighlight(highlight) }
+            Task {
+                let deleted = await viewModel.deleteHighlight(highlight)
+                if !deleted {
+                    toast = BSCToastMessage(text: "Couldn't delete post", style: .error)
+                }
+            }
         } : nil
 
         return HighlightCardView(
@@ -120,6 +147,77 @@ struct SocialFeedView: View {
         )
     }
 
+    // MARK: - Loading Skeleton
+
+    /// Full-screen placeholder mirroring the feed card chrome: author/caption
+    /// bars bottom-left and the action rail on the right.
+    private var loadingSkeleton: some View {
+        ZStack {
+            Color.bscMediaScrim.ignoresSafeArea()
+
+            VStack {
+                Spacer()
+
+                HStack(alignment: .bottom, spacing: BSCSpacing.lg) {
+                    VStack(alignment: .leading, spacing: BSCSpacing.sm) {
+                        HStack(spacing: BSCSpacing.xs) {
+                            BSCSkeletonView()
+                                .frame(width: 32, height: 32)
+                                .clipShape(Circle())
+                            BSCSkeletonView()
+                                .frame(width: 96, height: 14)
+                                .clipShape(Capsule())
+                        }
+                        BSCSkeletonView()
+                            .frame(width: 200, height: 12)
+                            .clipShape(Capsule())
+                        BSCSkeletonView()
+                            .frame(width: 140, height: 12)
+                            .clipShape(Capsule())
+                    }
+
+                    Spacer()
+
+                    VStack(spacing: BSCSpacing.lg) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            BSCSkeletonView()
+                                .frame(width: 40, height: 40)
+                                .clipShape(Circle())
+                        }
+                    }
+                }
+                .padding(.horizontal, BSCSpacing.md)
+                .padding(.bottom, BSCSpacing.huge)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading feed")
+    }
+
+    // MARK: - Pagination Footer
+
+    private var loadMoreFooter: some View {
+        Group {
+            if viewModel.isLoadingMore {
+                ProgressView()
+                    .tint(.bscOnMedia)
+            } else {
+                Button {
+                    Task { await viewModel.retryLoadMore() }
+                } label: {
+                    Text("Couldn't load more — tap to retry")
+                        .bscFont(size: 13, weight: .medium)
+                        .foregroundColor(.bscOnMedia)
+                }
+            }
+        }
+        .padding(.horizontal, BSCSpacing.md)
+        .padding(.vertical, BSCSpacing.sm)
+        .background(Capsule().fill(Color.bscMediaScrim))
+        .padding(.bottom, BSCSpacing.sm)
+    }
+
     // MARK: - Tab Picker
 
     private var feedTabPicker: some View {
@@ -128,14 +226,14 @@ struct SocialFeedView: View {
                 Button {
                     guard selectedTab != tab else { return }
                     UIImpactFeedbackGenerator.light()
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(.bscQuick) {
                         selectedTab = tab
                     }
                     currentIndex = 0
                     viewModel.switchFeed(tab == .following ? .following : .forYou)
                 } label: {
                     Text(tab.rawValue)
-                        .font(.system(size: 15, weight: selectedTab == tab ? .bold : .medium))
+                        .bscFont(size: 15, weight: selectedTab == tab ? .bold : .medium)
                         .foregroundColor(selectedTab == tab ? .bscOnMedia : .bscOnMediaSecondary)
                         .padding(.vertical, BSCSpacing.sm)
                         .padding(.horizontal, BSCSpacing.md)
@@ -155,17 +253,17 @@ struct SocialFeedView: View {
     private var emptyState: some View {
         VStack(spacing: BSCSpacing.lg) {
             Image(systemName: selectedTab == .following ? "person.2" : "figure.volleyball")
-                .font(.system(size: 48))
+                .bscFont(size: 48)
                 .foregroundColor(.bscTextSecondary)
 
             Text(selectedTab == .following ? "No highlights from followed users" : "No highlights yet")
-                .font(.system(size: 20, weight: .semibold))
+                .bscFont(size: 20, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
 
             Text(selectedTab == .following
                  ? "Follow players to see their highlights here."
                  : "Be the first to share a volleyball rally!")
-                .font(.system(size: 15))
+                .bscFont(size: 15)
                 .foregroundColor(.bscTextSecondary)
                 .multilineTextAlignment(.center)
 
@@ -173,7 +271,7 @@ struct SocialFeedView: View {
                 Task { await viewModel.loadFeed() }
             } label: {
                 Text("Refresh")
-                    .font(.system(size: 15, weight: .medium))
+                    .bscFont(size: 15, weight: .medium)
                     .foregroundColor(.bscPrimary)
             }
             .accessibilityIdentifier(AccessibilityID.Feed.refreshButton)

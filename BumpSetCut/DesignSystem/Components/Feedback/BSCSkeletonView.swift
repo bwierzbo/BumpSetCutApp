@@ -4,6 +4,7 @@ import SwiftUI
 /// A shimmer loading placeholder for content that's loading
 struct BSCSkeletonView: View {
     @State private var isAnimating = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -27,8 +28,10 @@ struct BSCSkeletonView: View {
             Image(systemName: "video.fill")
                 .font(.title2)
                 .foregroundColor(.bscTextTertiary.opacity(0.5))
+                .accessibilityHidden(true)
         }
         .onAppear {
+            guard !reduceMotion else { return }
             isAnimating = true
         }
     }

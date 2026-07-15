@@ -102,7 +102,7 @@ struct BSCBreadcrumb: View {
             onNavigate("")
         } label: {
             Image(systemName: "house.fill")
-                .font(.system(size: 14, weight: .medium))
+                .bscFont(size: 14, weight: .medium)
                 .foregroundColor(currentPath.isEmpty ? .bscPrimary : .bscTextSecondary)
                 .frame(width: 28, height: 28)
                 .background(currentPath.isEmpty ? Color.bscPrimary.opacity(0.15) : Color.clear)
@@ -114,8 +114,9 @@ struct BSCBreadcrumb: View {
     // MARK: - Separator
     private var separator: some View {
         Image(systemName: "chevron.right")
-            .font(.system(size: 10, weight: .semibold))
+            .bscFont(size: 10, weight: .semibold)
             .foregroundColor(.bscTextTertiary)
+            .accessibilityHidden(true)
     }
 
     // MARK: - Crumb Button
@@ -133,7 +134,7 @@ struct BSCBreadcrumb: View {
                 }
             } label: {
                 Text("...")
-                    .font(.system(size: 13, weight: .medium))
+                    .bscFont(size: 13, weight: .medium)
                     .foregroundColor(.bscPrimary)
                     .padding(.horizontal, BSCSpacing.sm)
                     .padding(.vertical, BSCSpacing.xs)
@@ -149,11 +150,11 @@ struct BSCBreadcrumb: View {
                 HStack(spacing: BSCSpacing.xs) {
                     if crumb.isRoot && !showHomeIcon {
                         Image(systemName: "house.fill")
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                     }
 
                     Text(crumb.name)
-                        .font(.system(size: 13, weight: isLast ? .semibold : .regular))
+                        .bscFont(size: 13, weight: isLast ? .semibold : .regular)
                         .lineLimit(1)
                 }
                 .foregroundColor(isLast ? .bscTextPrimary : .bscTextSecondary)
@@ -206,22 +207,23 @@ struct BSCCompactBreadcrumb: View {
                 Button(action: onBack) {
                     HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 12, weight: .semibold))
+                            .bscFont(size: 12, weight: .semibold)
 
                         Text(parentName)
-                            .font(.system(size: 14))
+                            .bscFont(size: 14)
                             .lineLimit(1)
                     }
                     .foregroundColor(.bscTextSecondary)
                 }
 
                 Text("/")
-                    .font(.system(size: 14))
+                    .bscFont(size: 14)
                     .foregroundColor(.bscTextTertiary)
+                    .accessibilityHidden(true)
             }
 
             Text(currentName)
-                .font(.system(size: 14, weight: .semibold))
+                .bscFont(size: 14, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(1)
         }

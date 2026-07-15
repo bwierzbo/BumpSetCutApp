@@ -43,13 +43,22 @@ struct RallyActionResult {
     let direction: RallySwipeDirection
     let previousTrim: RallyTrimAdjustment?
     let isTrimAction: Bool
+    // Pre-action membership snapshot so undo restores exactly the prior state
+    // (each action mutates up to three sets, not just its primary one)
+    let wasSaved: Bool
+    let wasRemoved: Bool
+    let wasFavorited: Bool
 
-    init(action: RallySwipeAction, rallyIndex: Int, direction: RallySwipeDirection) {
+    init(action: RallySwipeAction, rallyIndex: Int, direction: RallySwipeDirection,
+         wasSaved: Bool = false, wasRemoved: Bool = false, wasFavorited: Bool = false) {
         self.action = action
         self.rallyIndex = rallyIndex
         self.direction = direction
         self.previousTrim = nil
         self.isTrimAction = false
+        self.wasSaved = wasSaved
+        self.wasRemoved = wasRemoved
+        self.wasFavorited = wasFavorited
     }
 
     init(trimRallyIndex: Int, previousTrim: RallyTrimAdjustment?) {
@@ -58,5 +67,8 @@ struct RallyActionResult {
         self.direction = .right
         self.previousTrim = previousTrim
         self.isTrimAction = true
+        self.wasSaved = false
+        self.wasRemoved = false
+        self.wasFavorited = false
     }
 }

@@ -74,7 +74,7 @@ struct RallyExportProgress: View {
         VStack(spacing: BSCSpacing.lg) {
             if exportStatus == .completed {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 60))
+                    .bscFont(size: 60)
                     .foregroundColor(.bscSuccess)
             } else {
                 ProgressView(value: exportProgress)
@@ -92,15 +92,13 @@ struct RallyExportProgress: View {
                 .multilineTextAlignment(.center)
 
             if exportStatus == .exporting {
-                if exportType == .individual {
-                    Text("\(exportedCount) of \(savedRallies.count) rallies")
-                        .font(.body)
-                        .foregroundColor(.bscTextSecondary)
-                } else {
-                    Text("\(Int(exportProgress * 100))%")
-                        .font(.body)
-                        .foregroundColor(.bscTextSecondary)
-                }
+                // Both modes surface a percentage so progress reads consistently;
+                // individual export also shows the rally count.
+                Text(exportType == .individual
+                     ? "\(exportedCount) of \(savedRallies.count) rallies · \(Int(exportProgress * 100))%"
+                     : "Combining rallies · \(Int(exportProgress * 100))%")
+                    .font(.body)
+                    .foregroundColor(.bscTextSecondary)
             }
         }
     }
@@ -145,7 +143,7 @@ struct RallyExportProgress: View {
     private func storageErrorView(message: String) -> some View {
         VStack(spacing: BSCSpacing.xl) {
             Image(systemName: "externaldrive.badge.exclamationmark")
-                .font(.system(size: 60))
+                .bscFont(size: 60)
                 .foregroundColor(.bscWarning)
 
             VStack(spacing: BSCSpacing.sm) {
@@ -171,7 +169,7 @@ struct RallyExportProgress: View {
     private func failedView(errorMessage: String) -> some View {
         VStack(spacing: BSCSpacing.xl) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 60))
+                .bscFont(size: 60)
                 .foregroundColor(.bscError)
 
             VStack(spacing: BSCSpacing.sm) {
@@ -315,6 +313,7 @@ struct RallyExportProgress: View {
                 exportProgress = 1.0
                 exportStatus = .completed
                 isExporting = false
+                UINotificationFeedbackGenerator.success()
             }
 
         } catch is CancellationError {
@@ -335,6 +334,7 @@ struct RallyExportProgress: View {
                     exportStatus = .failed(error.localizedDescription)
                 }
                 isExporting = false
+                UINotificationFeedbackGenerator.error()
             }
         }
 
@@ -359,18 +359,20 @@ struct RallyExportProgress: View {
         exportedURLs.removeAll()
     }
 
-    /// Clean up orphaned rally_* temp files in the Documents directory
+    /// Clean up orphaned rally_*/stitched_rallies_* temp files in tmp, plus
+    /// rally_* files stranded in Documents by older builds that exported there.
     private func cleanupOrphanedRallyFiles() {
-        let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        guard let contents = try? FileManager.default.contentsOfDirectory(at: documentsDir, includingPropertiesForKeys: nil) else { return }
-        for file in contents where file.lastPathComponent.hasPrefix("rally_") && file.pathExtension == "mp4" {
-            try? FileManager.default.removeItem(at: file)
-        }
-        // Also clean stitched temp files in tmp directory
         let tmpDir = FileManager.default.temporaryDirectory
-        guard let tmpContents = try? FileManager.default.contentsOfDirectory(at: tmpDir, includingPropertiesForKeys: nil) else { return }
-        for file in tmpContents where file.lastPathComponent.hasPrefix("stitched_rallies_") && file.pathExtension == "mp4" {
-            try? FileManager.default.removeItem(at: file)
+        if let tmpContents = try? FileManager.default.contentsOfDirectory(at: tmpDir, includingPropertiesForKeys: nil) {
+            for file in tmpContents where (file.lastPathComponent.hasPrefix("rally_") || file.lastPathComponent.hasPrefix("stitched_rallies_")) && file.pathExtension == "mp4" {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+        let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        if let contents = try? FileManager.default.contentsOfDirectory(at: documentsDir, includingPropertiesForKeys: nil) {
+            for file in contents where file.lastPathComponent.hasPrefix("rally_") && file.pathExtension == "mp4" {
+                try? FileManager.default.removeItem(at: file)
+            }
         }
     }
 }

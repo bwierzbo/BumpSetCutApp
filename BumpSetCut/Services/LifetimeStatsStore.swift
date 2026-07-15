@@ -28,6 +28,10 @@ final class LifetimeStatsStore {
     var totalTimeCutSeconds: Double { defaults.double(forKey: timeCutKey) }
     var totalRallies: Int { defaults.integer(forKey: ralliesKey) }
 
+    /// True once the one-time upgrade backfill has run. Callers can use this to
+    /// skip the (expensive) metadata scan that only feeds `seedIfNeeded`.
+    var hasSeeded: Bool { defaults.bool(forKey: seededKey) }
+
     private var countedIds: Set<String> {
         get { Set(defaults.stringArray(forKey: countedKey) ?? []) }
         set { defaults.set(Array(newValue), forKey: countedKey) }

@@ -35,8 +35,28 @@ final class YOLODetector {
     /// aspect preserved + padding) instead of stretched (`.scaleFill`). Letterbox
     /// keeps the ball round — matching YOLO's training preprocessing — which can
     /// recover confidence on non-square / ultrawide (0.5x) footage. VideoProcessor
-    /// sets it from ProcessorConfig.useScaleFitLetterbox.
+    /// sets it from ProcessorConfig.useScaleFitLetterbox. Ignored when
+    /// `adaptiveLetterbox` is on.
     var useScaleFitLetterbox: Bool = false
+
+    /// When true, the detector chooses scaleFit vs scaleFill PER FRAME from the
+    /// source aspect ratio (overriding `useScaleFitLetterbox`): letterbox for
+    /// distortion-prone orientations — portrait, or ultrawide beyond
+    /// `adaptiveWideRatio` — and stretch for normal landscape / near-square (where
+    /// the stretch is mild and a bigger ball helps). The model is trained on
+    /// landscape, so portrait scaleFill squishes the ball into an ellipse and
+    /// tanks confidence; this fixes that without regressing landscape footage.
+    var adaptiveLetterbox: Bool = false
+    /// In adaptive mode, a landscape frame wider than this (srcW/srcH) is treated
+    /// as ultrawide and letterboxed. 16:9 ≈ 1.78 stays on scaleFill; ≥2.0 = letterbox.
+    var adaptiveWideRatio: CGFloat = 2.0
+
+    /// Effective scaleFit decision for a given source frame size.
+    private func shouldLetterbox(srcW: CGFloat, srcH: CGFloat) -> Bool {
+        guard adaptiveLetterbox, srcW > 0, srcH > 0 else { return useScaleFitLetterbox }
+        let ratio = srcW / srcH
+        return ratio < 1.0 || ratio > adaptiveWideRatio   // portrait or ultrawide
+    }
 
     private struct StaticCell {
         var lastPoint: CGPoint
@@ -99,13 +119,15 @@ final class YOLODetector {
     func detect(in pixelBuffer: CVPixelBuffer, at time: CMTime) -> [DetectionResult] {
         guard let model = model else { return [] }
         
-        let request = VNCoreMLRequest(model: model)
-        request.imageCropAndScaleOption = useScaleFitLetterbox ? .scaleFit : .scaleFill
-        request.preferBackgroundProcessing = false
-
-        // Source frame size — needed to undo letterbox padding in the raw-tensor path.
+        // Source frame size — drives the adaptive scaleFit decision and is needed
+        // to undo letterbox padding in the raw-tensor path.
         let srcW = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
         let srcH = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+        let letterbox = shouldLetterbox(srcW: srcW, srcH: srcH)
+
+        let request = VNCoreMLRequest(model: model)
+        request.imageCropAndScaleOption = letterbox ? .scaleFit : .scaleFill
+        request.preferBackgroundProcessing = false
 
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
         do {
@@ -126,7 +148,7 @@ final class YOLODetector {
         } else if let feature = request.results?
                     .first(where: { $0 is VNCoreMLFeatureValueObservation }) as? VNCoreMLFeatureValueObservation,
                   let array = feature.featureValue.multiArrayValue {
-            base = decodeRawDetections(array, time: time, srcW: srcW, srcH: srcH)
+            base = decodeRawDetections(array, time: time, srcW: srcW, srcH: srcH, letterbox: letterbox)
         } else {
             return []
         }
@@ -167,11 +189,11 @@ final class YOLODetector {
     /// Expected shape [1, N, 6] with each row [x1, y1, x2, y2, confidence, class]
     /// in the model's input pixel space, top-left origin. Converts to
     /// Vision-normalized bottom-left bboxes so the rest of the pipeline is unchanged.
-    private func decodeRawDetections(_ array: MLMultiArray, time: CMTime, srcW: CGFloat, srcH: CGFloat) -> [DetectionResult] {
+    private func decodeRawDetections(_ array: MLMultiArray, time: CMTime, srcW: CGFloat, srcH: CGFloat, letterbox: Bool) -> [DetectionResult] {
         let decoded = decodeYOLORaw(array,
                                     inputSize: CGSize(width: modelInputWidth, height: modelInputHeight),
                                     srcSize: CGSize(width: srcW, height: srcH),
-                                    letterbox: useScaleFitLetterbox,
+                                    letterbox: letterbox,
                                     minConfidence: minConfidence)
         let out = decoded.map { DetectionResult(bbox: $0.rect, confidence: $0.confidence, timestamp: time) }
         #if DEBUG

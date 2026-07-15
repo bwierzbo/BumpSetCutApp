@@ -20,23 +20,23 @@ struct AdjustmentPropagationPrompt: View {
     var body: some View {
         ZStack {
             // Dim + gray out the paused video behind the prompt
-            Color.black.opacity(0.6)
+            Color.bscMediaScrimBase.opacity(0.6)
                 .ignoresSafeArea()
 
             VStack(spacing: BSCSpacing.lg) {
                 Image(systemName: iconName)
-                    .font(.system(size: 34, weight: .semibold))
+                    .bscFont(size: 34, weight: .semibold)
                     .foregroundColor(.bscPrimary)
 
                 VStack(spacing: BSCSpacing.sm) {
                     Text("Apply to Other Rallies?")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
+                        .bscFont(size: 18, weight: .bold)
+                        .foregroundColor(.bscOnMedia)
                         .multilineTextAlignment(.center)
 
                     Text("Apply \(changeDescription) to this rally and every rally after it?")
-                        .font(.system(size: 14))
-                        .foregroundColor(.white.opacity(0.75))
+                        .bscFont(size: 14)
+                        .foregroundColor(.bscOnMediaSecondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -44,17 +44,17 @@ struct AdjustmentPropagationPrompt: View {
                 HStack(spacing: BSCSpacing.md) {
                     Button(action: onNo) {
                         Text("Just This One")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
+                            .bscFont(size: 16, weight: .semibold)
+                            .foregroundColor(.bscOnMedia)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, BSCSpacing.md)
-                            .background(Color.white.opacity(0.15))
+                            .background(Color.bscOnMedia.opacity(0.15))
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                     }
 
                     Button(action: onYes) {
                         Text("Apply to All")
-                            .font(.system(size: 16, weight: .bold))
+                            .bscFont(size: 16, weight: .bold)
                             .foregroundColor(.black)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, BSCSpacing.md)
@@ -68,7 +68,7 @@ struct AdjustmentPropagationPrompt: View {
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.xl))
             .overlay(
                 RoundedRectangle(cornerRadius: BSCRadius.xl)
-                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                    .stroke(Color.bscOnMedia.opacity(0.1), lineWidth: 1)
             )
             .padding(.horizontal, BSCSpacing.xxl)
         }

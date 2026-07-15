@@ -8,6 +8,16 @@ Additional guidance for Claude Code in this repository.
 - Ask questions when intent is unclear
 - Point out better approaches when they exist
 - No flattery or unnecessary compliments
+- **Default to momentum**: when work items are enumerated (sprints, findings, optimizations), batch and do all of them rather than asking which to do — the user's answer is consistently "keep going / do all". Reserve questions for genuine product decisions, and give the design rationale/trade-offs when asking.
+- **Fix ALL review findings** (code review, cloud review, advisors) — never triage some as deferred/not-mine without asking first.
+- **Push after every commit chunk**, before starting the next work item. Work sometimes spans two repos (BumpSetCut + BumpSetCutWebApp) — confirm which repo(s) to push when both changed; the user sometimes pushes the webapp himself.
+- **Security warnings about user-pasted secrets: state once, then proceed.** Don't repeat the warning in later turns.
+- Commit a checkpoint before risky bulk changes (dead-code sweeps, large deletions).
+
+## Git
+
+- ANY file referenced by project.pbxproj (models, assets) must be committed in the same commit as the pbxproj change — local-only files break Xcode Cloud silently.
+- Follow the memory/CLAUDE.md dual-target rule before declaring shared-pipeline changes done.
 
 ## Absolute Rules
 

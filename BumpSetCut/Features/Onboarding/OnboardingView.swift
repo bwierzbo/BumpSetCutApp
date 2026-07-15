@@ -34,7 +34,7 @@ struct OnboardingView: View {
                         Button("Skip") {
                             onComplete()
                         }
-                        .font(.system(size: 16, weight: .medium))
+                        .bscFont(size: 16, weight: .medium)
                         .foregroundColor(.bscTextSecondary)
                         .padding(.horizontal, BSCSpacing.lg)
                         .padding(.top, BSCSpacing.md)
@@ -52,7 +52,7 @@ struct OnboardingView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .animation(.easeInOut(duration: 0.3), value: currentPage)
+                .animation(.bscStandard, value: currentPage)
 
                 // Footer with page indicator and button
                 OnboardingFooter(
@@ -73,7 +73,7 @@ struct OnboardingView: View {
         }
         .opacity(hasAppeared ? 1 : 0)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.3)) {
+            withAnimation(.bscStandard) {
                 hasAppeared = true
             }
         }
@@ -133,9 +133,9 @@ private struct OnboardingFooter: View {
             HStack(spacing: BSCSpacing.sm) {
                 ForEach(0..<totalPages, id: \.self) { index in
                     Circle()
-                        .fill(index == currentPage ? Color.bscPrimary : Color.white.opacity(0.3))
+                        .fill(index == currentPage ? Color.bscPrimary : Color.bscTextTertiary.opacity(0.5))
                         .frame(width: index == currentPage ? 10 : 8, height: index == currentPage ? 10 : 8)
-                        .animation(.spring(response: 0.3), value: currentPage)
+                        .animation(.bscSnappy, value: currentPage)
                 }
             }
 
@@ -143,11 +143,11 @@ private struct OnboardingFooter: View {
             Button(action: onNext) {
                 HStack(spacing: BSCSpacing.sm) {
                     Text(isLastPage ? "Get Started" : "Next")
-                        .font(.system(size: 18, weight: .bold))
+                        .bscFont(size: 18, weight: .bold)
 
                     if !isLastPage {
                         Image(systemName: "arrow.right")
-                            .font(.system(size: 16, weight: .bold))
+                            .bscFont(size: 16, weight: .bold)
                     }
                 }
                 .foregroundColor(.bscTextInverse)

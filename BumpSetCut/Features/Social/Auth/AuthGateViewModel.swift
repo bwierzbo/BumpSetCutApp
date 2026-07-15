@@ -86,7 +86,9 @@ class AuthGateViewModel {
                 isUsernameAvailable = result.isAvailable
             } catch {
                 guard !Task.isCancelled else { return }
+                #if DEBUG
                 print("[Auth] Username check failed: \(error)")
+                #endif
                 isUsernameAvailable = nil
             }
             isCheckingUsername = false
@@ -104,7 +106,9 @@ class AuthGateViewModel {
                 username: username.trimmingCharacters(in: .whitespaces)
             )
         } catch {
+            #if DEBUG
             print("[Auth] Email sign-up error: \(error)")
+            #endif
             errorMessage = userFriendlyMessage(for: error)
             showError = true
         }
@@ -118,7 +122,9 @@ class AuthGateViewModel {
                 password: password
             )
         } catch {
+            #if DEBUG
             print("[Auth] Email sign-in error: \(error)")
+            #endif
             errorMessage = userFriendlyMessage(for: error)
             showError = true
         }
@@ -134,7 +140,9 @@ class AuthGateViewModel {
             try await authService.resetPassword(email: email.trimmingCharacters(in: .whitespaces))
             showForgotPasswordSent = true
         } catch {
+            #if DEBUG
             print("[Auth] Reset password error: \(error)")
+            #endif
             errorMessage = userFriendlyMessage(for: error)
             showError = true
         }

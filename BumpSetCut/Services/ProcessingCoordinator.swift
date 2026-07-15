@@ -10,6 +10,8 @@ import AVFoundation
 import Foundation
 import Observation
 import os
+import UIKit
+import UserNotifications
 
 @MainActor
 @Observable
@@ -44,6 +46,9 @@ final class ProcessingCoordinator {
     }
 
     @ObservationIgnored private var processingStartDate: Date?
+    // Run generation: a cancelled run's late callbacks (its CancellationError can
+    // land after a new run started) must not clobber the new run's state
+    @ObservationIgnored private var runGeneration = 0
 
     // MARK: - Processing Context (stored so VM can resume save flow)
     private(set) var videoURL: URL?
@@ -98,6 +103,9 @@ final class ProcessingCoordinator {
         // borderline rallies can be staged for relabeling after processing.
         self.processor.collectFrameEvidence = AppSettings.shared.enableDataFlywheel
 
+        runGeneration += 1
+        let gen = runGeneration
+
         currentTask = Task { [weak self] in
             guard let self else { return }
 
@@ -120,7 +128,7 @@ final class ProcessingCoordinator {
                 processor.setBackgroundCancellationHandler { [weak self] in
                     task?.cancel()
                     Task { @MainActor in
-                        self?.handleCancellation()
+                        self?.handleCancellation(gen: gen)
                     }
                 }
 
@@ -128,9 +136,10 @@ final class ProcessingCoordinator {
                     let tempURL = try await processor.processVideoDebug(videoURL)
                     let debugData = processor.trajectoryDebugger
                     await MainActor.run {
+                        guard gen == self.runGeneration else { return }
                         self.pendingSaveURL = tempURL
                         self.pendingDebugData = debugData
-                        self.handleCompletion()
+                        self.handleCompletion(gen: gen)
                     }
                 } else {
                     let metadata = try await processor.processVideo(videoURL, videoId: videoId)
@@ -163,12 +172,14 @@ final class ProcessingCoordinator {
                     }
 
                     await MainActor.run {
-                        // Mark as processed when the metadata sidecar is available (storage tracking).
-                        if let match = mediaStore.getAllVideos().first(where: { $0.id == videoId }),
-                           let metadataSize = match.getCurrentMetadataSize() {
+                        // Mark as processed on success so the manifest's
+                        // hasProcessingMetadata flag stays authoritative (UI relies on it
+                        // instead of a per-render disk check). Always mark when the video
+                        // exists; the size is best-effort storage tracking only.
+                        if let match = mediaStore.getAllVideos().first(where: { $0.id == videoId }) {
                             let _ = mediaStore.markVideoAsProcessed(
                                 videoId: videoId,
-                                metadataFileSize: metadataSize
+                                metadataFileSize: match.getCurrentMetadataSize() ?? 0
                             )
                         }
                         // Always record usage on a successful process, independent of the
@@ -199,25 +210,39 @@ final class ProcessingCoordinator {
                     // video; see the isDebugMode branch above.) So there's nothing to
                     // save here: the original now carries its rallies.
                     await MainActor.run {
-                        self.handleCompletion()
+                        self.handleCompletion(gen: gen)
                     }
                 }
 
             } catch is CancellationError {
-                await MainActor.run { self.handleCancellation() }
+                await MainActor.run { self.handleCancellation(gen: gen) }
             } catch ProcessingError.noRalliesDetected {
+                // Data flywheel (opted-in users only): a video where the detector
+                // found NO rallies is a hard negative worth relabeling. Persist the
+                // full per-frame evidence, then stage whole-video frame groupings.
+                let collectedEvidence = self.processor.frameEvidence
                 await MainActor.run {
-                    self.noRalliesDetected = true
-                    self.handleCompletion()
+                    if gen == self.runGeneration {
+                        self.noRalliesDetected = true
+                        self.handleCompletion(gen: gen)
+                    }
+                    if AppSettings.shared.enableDataFlywheel, !collectedEvidence.isEmpty {
+                        let stored = collectedEvidence.map(StoredFrameEvidence.init)
+                        try? MetadataStore().saveFrameEvidence(stored, for: videoId)
+                    }
                 }
+                await FlywheelCaptureService.shared.stageNoRallyContribution(
+                    videoId: videoId, originalURL: videoURL
+                )
             } catch {
                 await MainActor.run {
+                    guard gen == self.runGeneration else { return }
                     if StorageChecker.isStorageError(error) {
                         self.errorMessage = "Ran out of storage space during processing. Free up space and try again."
                     } else {
                         self.errorMessage = error.localizedDescription
                     }
-                    self.handleCompletion()
+                    self.handleCompletion(gen: gen)
                 }
             }
         }
@@ -226,6 +251,8 @@ final class ProcessingCoordinator {
     // MARK: - Cancel
 
     func cancelProcessing() {
+        // Invalidate the run so its late callbacks become no-ops
+        runGeneration += 1
         currentTask?.cancel()
         currentTask = nil
         isProcessing = false
@@ -263,13 +290,20 @@ final class ProcessingCoordinator {
 
     // MARK: - Private
 
-    private func handleCompletion() {
+    private func handleCompletion(gen: Int) {
+        guard gen == runGeneration else { return }
         isProcessing = false
         progress = 1.0
         didComplete = true
         showCompletionPill = true
         currentTask = nil
         logger.info("Processing completed for \(self.videoName)")
+
+        if noRalliesDetected || errorMessage != nil {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        } else {
+            UINotificationFeedbackGenerator.success()
+        }
 
         // Auto-hide completion pill after 5 seconds if not consumed
         Task {
@@ -282,10 +316,51 @@ final class ProcessingCoordinator {
         }
     }
 
-    private func handleCancellation() {
+    private func handleCancellation(gen: Int) {
+        guard gen == runGeneration else { return }
+        // User-initiated cancels bump runGeneration before cancelling the task, so a
+        // matching generation here means the system cancelled us: background grace
+        // time expired. Surface it — silently discarding minutes of processing looks
+        // like a successful no-op. Guard on isProcessing because the expiry path
+        // reaches here twice (background handler + the task's CancellationError).
+        guard isProcessing else { return }
         isProcessing = false
         progress = 0.0
         currentTask = nil
-        showCompletionPill = false
+        errorMessage = "Processing was interrupted — please start it again."
+        didComplete = true
+        showCompletionPill = true
+        logger.warning("Processing interrupted by background expiry for \(self.videoName)")
+        postInterruptionNotification()
+    }
+
+    /// Local notification for background-expiry interruption, so the user learns
+    /// about it without having to reopen the app and notice the pill.
+    private func postInterruptionNotification() {
+        guard UIApplication.shared.applicationState != .active else { return }
+        let name = videoName
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            switch settings.authorizationStatus {
+            case .notDetermined:
+                // Provisional authorization is granted without a prompt, which is the
+                // only kind that can be requested while backgrounded.
+                guard (try? await center.requestAuthorization(options: [.alert, .sound, .provisional])) == true else { return }
+            case .denied:
+                return
+            default:
+                break
+            }
+            let content = UNMutableNotificationContent()
+            content.title = "Processing was interrupted"
+            content.body = "\(name) couldn't finish in the background. Open BumpSetCut and start it again."
+            let request = UNNotificationRequest(
+                identifier: "processing-interrupted-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            try? await center.add(request)
+        }
     }
 }

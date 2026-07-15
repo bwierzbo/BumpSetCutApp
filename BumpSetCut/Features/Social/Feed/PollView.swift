@@ -12,7 +12,7 @@ struct PollView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: BSCSpacing.sm) {
             Text(poll.question)
-                .font(.system(size: 15, weight: .semibold))
+                .bscFont(size: 15, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(3)
 
@@ -21,7 +21,7 @@ struct PollView: View {
             }
 
             Text("\(poll.totalVotes) vote\(poll.totalVotes == 1 ? "" : "s") \u{00B7} tap to \(hasVoted ? "change" : "vote")")
-                .font(.system(size: 12))
+                .bscFont(size: 12)
                 .foregroundColor(.bscTextSecondary)
         }
         .padding(BSCSpacing.md)
@@ -33,8 +33,8 @@ struct PollView: View {
                 .stroke(Color.bscSurfaceBorder, lineWidth: 1)
         )
         // Animate the buttons↔results swap and bar fills when the vote changes.
-        .animation(.snappy(duration: 0.28), value: poll.myVoteOptionId)
-        .animation(.snappy(duration: 0.28), value: poll.totalVotes)
+        .animation(.bscSnappy, value: poll.myVoteOptionId)
+        .animation(.bscSnappy, value: poll.totalVotes)
     }
 
     // MARK: - Option Row (tappable to vote or change vote)
@@ -57,7 +57,7 @@ struct PollView: View {
 
     private func voteButtonLabel(option: PollOption) -> some View {
         Text(option.text)
-            .font(.system(size: 14, weight: .medium))
+            .bscFont(size: 14, weight: .medium)
             .foregroundColor(.bscPrimary)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -77,18 +77,18 @@ struct PollView: View {
         return HStack(spacing: BSCSpacing.xs) {
             if isMyVote {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 13))
+                    .bscFont(size: 13)
                     .foregroundColor(.bscPrimary)
             }
             Text(option.text)
-                .font(.system(size: 14, weight: isMyVote ? .bold : .medium))
+                .bscFont(size: 14, weight: isMyVote ? .bold : .medium)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(1)
 
             Spacer()
 
             Text("\(percentage)%")
-                .font(.system(size: 13, weight: .bold))
+                .bscFont(size: 13, weight: .bold)
                 .foregroundColor(isMyVote ? .bscPrimary : .bscTextSecondary)
         }
         .padding(.horizontal, BSCSpacing.md)
@@ -114,6 +114,6 @@ private struct PollOptionButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .opacity(configuration.isPressed ? 0.85 : 1.0)
-            .animation(.snappy(duration: 0.12), value: configuration.isPressed)
+            .animation(.bscQuick, value: configuration.isPressed)
     }
 }

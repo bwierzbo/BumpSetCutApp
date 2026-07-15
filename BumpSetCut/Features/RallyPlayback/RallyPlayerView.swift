@@ -147,6 +147,10 @@ struct RallyPlayerView: View {
                 }
                 .presentationDetents([.medium])
             }
+            .bscToast(Binding(
+                get: { viewModel.favoritesErrorMessage.map { BSCToastMessage(text: $0, style: .error) } },
+                set: { if $0 == nil { viewModel.favoritesErrorMessage = nil } }
+            ))
         }
         .task(id: videoMetadata.id) {
             await viewModel.loadRallies()
@@ -245,9 +249,11 @@ struct RallyPlayerView: View {
                 RallyActionButtons(
                     isSaved: viewModel.currentRallyIsSaved,
                     isRemoved: viewModel.currentRallyIsRemoved,
+                    isFavorited: viewModel.currentRallyIsFavorited,
                     canUndo: viewModel.canUndo,
                     onRemove: { performAction(.remove) },
                     onUndo: { viewModel.undoLastAction() },
+                    onFavorite: { viewModel.performAction(.favorite, direction: .up) },
                     onSave: { performAction(.save) }
                 )
                 .zIndex(200)
@@ -264,10 +270,10 @@ struct RallyPlayerView: View {
                             showReportMistake = true
                         } label: {
                             Image(systemName: viewModel.currentVideoIsReported ? "flag.fill" : "flag")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(viewModel.currentVideoIsReported ? .bscOrange : .white)
+                                .bscFont(size: 14, weight: .semibold)
+                                .foregroundColor(viewModel.currentVideoIsReported ? .bscOrange : .bscOnMedia)
                                 .padding(10)
-                                .background(Color.black.opacity(0.35))
+                                .background(Color.bscMediaScrimBase.opacity(0.35))
                                 .clipShape(Circle())
                                 .overlay(
                                     Circle().stroke(Color.bscOrange,
@@ -338,7 +344,16 @@ struct RallyPlayerView: View {
             // Buffering overlay (topmost - shows while waiting for video to buffer)
             if viewModel.isBuffering {
                 RallyBufferingOverlay()
+                    .allowsHitTesting(false)
                     .zIndex(500)
+            }
+
+            // Saving favorites overlay — favorite clips export to the library on
+            // exit/export/share, which can take a few seconds. Show progress so the
+            // back button doesn't appear frozen.
+            if viewModel.isSavingFavorites {
+                RallyBufferingOverlay(message: "Saving favorites…")
+                    .zIndex(550)
             }
         }
         // Navigation swipe — disabled while trimming or while the prompt is up.
@@ -436,6 +451,8 @@ struct RallyPlayerView: View {
                         let absH = abs(value.translation.height)
                         if absW > 10 || absH > 10 {
                             viewModel.dragAxis = absW >= absH ? .horizontal : .vertical
+                            // Subtle tick the moment the swipe direction is committed.
+                            UIImpactFeedbackGenerator.light()
                         }
                     }
 
@@ -508,8 +525,12 @@ struct RallyPlayerView: View {
     private func pinchGesture() -> some Gesture {
         MagnificationGesture()
             .onChanged { value in
-                let newScale = viewModel.baseZoomScale * value
-                viewModel.zoomScale = min(max(newScale, 1.0), 5.0)
+                let clamped = min(max(viewModel.baseZoomScale * value, 1.0), 5.0)
+                // Tick once when first reaching the zoom cap.
+                if clamped == 5.0 && viewModel.zoomScale < 5.0 {
+                    UIImpactFeedbackGenerator.light()
+                }
+                viewModel.zoomScale = clamped
             }
             .onEnded { value in
                 let newScale = viewModel.baseZoomScale * value
@@ -526,7 +547,7 @@ struct RallyPlayerView: View {
         if viewModel.isZoomed {
             viewModel.resetZoom()
         } else {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            withAnimation(.bscSnappy) {
                 viewModel.zoomScale = 2.5
                 viewModel.zoomOffset = .zero
             }
@@ -544,6 +565,10 @@ struct RallyPlayerView: View {
         let magnify = MagnificationGesture()
             .onChanged { value in
                 let newScale = min(max(viewModel.baseZoomScale * value, 1.0), zoomLimit)
+                // Tick once when first reaching the zoom cap.
+                if newScale == zoomLimit && viewModel.zoomScale < zoomLimit {
+                    UIImpactFeedbackGenerator.light()
+                }
                 viewModel.zoomScale = newScale
                 viewModel.zoomOffset = clampedOffset(viewModel.zoomOffset, scale: newScale, cardSize: geometry.size)
             }
@@ -579,7 +604,7 @@ struct RallyPlayerView: View {
 
     /// Reset the live editing zoom/pan to 1× / centered (overlay reset button).
     private func resetTrimZoom() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+        withAnimation(.bscSnappy) {
             viewModel.zoomScale = 1.0
             viewModel.zoomOffset = .zero
         }
@@ -766,6 +791,16 @@ struct UnifiedRallyCard: View {
         .onTapGesture(count: 1) {
             if isCurrent {
                 playerCache.togglePlayPause()
+            }
+        }
+        .accessibilityAction(named: "Play or pause") {
+            if isCurrent {
+                playerCache.togglePlayPause()
+            }
+        }
+        .accessibilityAction(named: "Toggle zoom") {
+            if isCurrent {
+                onDoubleTap?()
             }
         }
         .task(id: url) {

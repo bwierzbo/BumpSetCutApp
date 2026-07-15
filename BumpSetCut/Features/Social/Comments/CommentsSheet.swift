@@ -13,6 +13,7 @@ struct CommentsSheet: View {
     var onHeaderDrag: (CGFloat) -> Void = { _ in }
     var onHeaderDragEnd: (CGFloat) -> Void = { _ in }
     @State private var viewModel: CommentsViewModel
+    @State private var toast: BSCToastMessage?
     @FocusState private var isCommentFocused: Bool
     @Environment(AuthenticationService.self) private var authService
 
@@ -48,10 +49,7 @@ struct CommentsSheet: View {
 
                 // Comments list
                 if viewModel.isLoading && viewModel.comments.isEmpty {
-                    Spacer()
-                    ProgressView()
-                        .tint(.bscPrimary)
-                    Spacer()
+                    loadingSkeleton
                 } else if viewModel.comments.isEmpty && viewModel.loadError != nil {
                     Spacer()
                     BSCEmptyState.loadFailed(message: viewModel.loadError?.localizedDescription) {
@@ -61,13 +59,12 @@ struct CommentsSheet: View {
                     Spacer()
                 } else if viewModel.comments.isEmpty {
                     Spacer()
-                    Text("No comments yet")
-                        .font(.system(size: 15))
-                        .foregroundColor(.bscTextSecondary)
-                        .accessibilityIdentifier(AccessibilityID.Comments.emptyState)
-                    Text("Be the first to comment!")
-                        .font(.system(size: 13))
-                        .foregroundColor(.bscTextTertiary)
+                    BSCEmptyState(
+                        icon: "bubble.right",
+                        title: "No comments yet",
+                        message: "Be the first to comment!"
+                    )
+                    .accessibilityIdentifier(AccessibilityID.Comments.emptyState)
                     Spacer()
                 } else {
                     ScrollView {
@@ -86,10 +83,10 @@ struct CommentsSheet: View {
                 if viewModel.sendError != nil {
                     HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
+                            .bscFont(size: 11)
                             .foregroundColor(.bscError)
                         Text("Couldn't send comment. Try again.")
-                            .font(.system(size: 12))
+                            .bscFont(size: 12)
                             .foregroundColor(.bscError)
                         Spacer()
                     }
@@ -101,12 +98,51 @@ struct CommentsSheet: View {
                 // Input bar
                 inputBar
             }
-            .animation(.easeInOut(duration: 0.2), value: viewModel.sendError != nil)
+            .animation(.bscQuick, value: viewModel.sendError != nil)
             .background(Color.bscBackground)
-            .task {
-                await viewModel.loadMyPollVote()
-                await viewModel.loadComments()
+            .bscToast($toast)
+            .onChange(of: viewModel.actionError) { _, message in
+                if let message {
+                    toast = BSCToastMessage(text: message, style: .error)
+                    viewModel.actionError = nil
+                }
             }
+            .task {
+                // Poll vote and comments are independent — load them concurrently.
+                async let pollVote: Void = viewModel.loadMyPollVote()
+                async let comments: Void = viewModel.loadComments()
+                _ = await (pollVote, comments)
+            }
+    }
+
+    // MARK: - Loading Skeleton
+
+    private var loadingSkeleton: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: BSCSpacing.md) {
+                ForEach(0..<4, id: \.self) { _ in
+                    HStack(alignment: .top, spacing: BSCSpacing.sm) {
+                        BSCSkeletonView()
+                            .frame(width: 32, height: 32)
+                            .clipShape(Circle())
+
+                        VStack(alignment: .leading, spacing: BSCSpacing.xs) {
+                            BSCSkeletonView()
+                                .frame(width: 110, height: 12)
+                                .clipShape(Capsule())
+                            BSCSkeletonView()
+                                .frame(width: 210, height: 12)
+                                .clipShape(Capsule())
+                        }
+
+                        Spacer()
+                    }
+                }
+            }
+            .padding(BSCSpacing.md)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading comments")
     }
 
     // MARK: - Panel Header
@@ -119,12 +155,12 @@ struct CommentsSheet: View {
 
             HStack {
                 Text("Comments")
-                    .font(.system(size: 16, weight: .semibold))
+                    .bscFont(size: 16, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
+                        .bscFont(size: 15, weight: .semibold)
                         .foregroundColor(.bscTextSecondary)
                 }
                 .accessibilityLabel("Close comments")
@@ -155,38 +191,55 @@ struct CommentsSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: BSCSpacing.xs) {
                     Text(comment.author?.username ?? "Unknown")
-                        .font(.system(size: 13, weight: .semibold))
+                        .bscFont(size: 13, weight: .semibold)
                         .foregroundColor(.bscTextPrimary)
 
                     Text(comment.createdAt.formatted(.relative(presentation: .named)))
-                        .font(.system(size: 11))
+                        .bscFont(size: 11)
                         .foregroundColor(.bscTextTertiary)
                 }
 
                 Text(comment.text)
-                    .font(.system(size: 14))
+                    .bscFont(size: 14)
                     .foregroundColor(.bscTextPrimary)
 
                 // Like button
                 Button {
+                    UIImpactFeedbackGenerator.light()
                     Task { await viewModel.toggleCommentLike(comment) }
                 } label: {
                     HStack(spacing: 2) {
                         Image(systemName: comment.isLikedByMe ? "heart.fill" : "heart")
-                            .font(.system(size: 11))
+                            .bscFont(size: 11)
                             .foregroundColor(comment.isLikedByMe ? .bscError : .bscTextTertiary)
                         if comment.likesCount > 0 {
                             Text("\(comment.likesCount)")
-                                .font(.system(size: 11))
+                                .bscFont(size: 11)
                                 .foregroundColor(.bscTextTertiary)
                         }
                     }
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 2)
+                .accessibilityLabel(comment.isLikedByMe ? "Unlike comment" : "Like comment")
+                .padding(.top, BSCSpacing.xxs)
             }
 
             Spacer()
+
+            Menu {
+                Button {
+                    reportingComment = comment
+                } label: {
+                    Label("Report Comment", systemImage: "exclamationmark.shield")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .bscFont(size: 13, weight: .semibold)
+                    .foregroundColor(.bscTextSecondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Comment options")
         }
         .contextMenu {
             Button {
@@ -210,7 +263,7 @@ struct CommentsSheet: View {
         HStack(spacing: BSCSpacing.sm) {
             TextField("Add a comment...", text: $viewModel.newCommentText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 15))
+                .bscFont(size: 15)
                 .foregroundColor(.bscTextPrimary)
                 .padding(.vertical, BSCSpacing.sm)
                 .padding(.horizontal, BSCSpacing.md)
@@ -220,13 +273,29 @@ struct CommentsSheet: View {
                 .accessibilityIdentifier(AccessibilityID.Comments.inputField)
 
             Button {
-                Task { await viewModel.sendComment() }
+                Task {
+                    let countBefore = viewModel.comments.count
+                    await viewModel.sendComment()
+                    if viewModel.comments.count > countBefore {
+                        UINotificationFeedbackGenerator.success()
+                    }
+                }
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30))
-                    .foregroundColor(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .bscTextTertiary : .bscPrimary)
+                ZStack {
+                    if viewModel.isSending {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.bscPrimary)
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .bscFont(size: 30)
+                            .foregroundColor(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .bscTextTertiary : .bscPrimary)
+                    }
+                }
+                .frame(width: 30, height: 30)
             }
             .disabled(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isSending)
+            .accessibilityLabel("Send comment")
             .accessibilityIdentifier(AccessibilityID.Comments.sendButton)
         }
         .padding(.horizontal, BSCSpacing.md)

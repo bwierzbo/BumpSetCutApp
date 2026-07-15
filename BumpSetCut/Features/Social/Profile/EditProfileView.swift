@@ -71,7 +71,7 @@ struct EditProfileView: View {
                     Section {
                         Text(errorMessage)
                             .foregroundColor(.bscError)
-                            .font(.system(size: 13))
+                            .bscFont(size: 13)
                     }
                 }
             }
@@ -136,25 +136,26 @@ struct EditProfileView: View {
                         .frame(width: 28, height: 28)
                         .overlay(
                             Image(systemName: "camera.fill")
-                                .font(.system(size: 12, weight: .semibold))
+                                .bscFont(size: 12, weight: .semibold)
                                 .foregroundColor(.white)
                         )
                         .offset(x: 2, y: 2)
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Change profile photo")
 
             if isUploadingAvatar {
                 HStack(spacing: 6) {
                     ProgressView()
                         .scaleEffect(0.7)
                     Text("Uploading...")
-                        .font(.system(size: 12))
+                        .bscFont(size: 12)
                         .foregroundColor(.bscTextSecondary)
                 }
             } else {
                 Text("Tap to change photo")
-                    .font(.system(size: 12))
+                    .bscFont(size: 12)
                     .foregroundColor(.bscTextTertiary)
             }
         }

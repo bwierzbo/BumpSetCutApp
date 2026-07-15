@@ -122,7 +122,7 @@ struct RallyExportOptionCard: View {
         Button(action: action) {
             HStack(spacing: BSCSpacing.lg) {
                 Image(systemName: icon)
-                    .font(.system(size: 24, weight: .medium))
+                    .bscFont(size: 24, weight: .medium)
                     .foregroundColor(isDisabled ? .bscTextTertiary : color)
                     .frame(width: 50, height: 50)
                     .background((isDisabled ? Color.bscTextTertiary : color).opacity(0.1))
@@ -141,7 +141,7 @@ struct RallyExportOptionCard: View {
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .medium))
+                    .bscFont(size: 14, weight: .medium)
                     .foregroundColor(.bscTextTertiary)
             }
             .padding(BSCSpacing.lg)
