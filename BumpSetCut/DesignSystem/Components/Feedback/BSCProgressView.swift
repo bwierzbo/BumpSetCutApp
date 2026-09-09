@@ -58,7 +58,7 @@ struct BSCProgressView: View {
             if showPercentage {
                 Text("\(Int(progress * 100))%")
                     .bscFont(size: 12, weight: .semibold)
-                    .foregroundColor(.bscPrimary)
+                    .foregroundColor(.bscPrimaryText)
             }
         }
     }
@@ -103,11 +103,11 @@ struct BSCProgressView: View {
             if showPercentage {
                 VStack(spacing: 2) {
                     Text("\(Int(progress * 100))")
-                        .font(.system(size: size * 0.3, weight: .bold))
+                        .bscFont(size: size * 0.3, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
 
                     Text("%")
-                        .font(.system(size: size * 0.15, weight: .medium))
+                        .bscFont(size: size * 0.15, weight: .medium)
                         .foregroundColor(.bscTextSecondary)
                 }
             }
@@ -138,7 +138,7 @@ struct BSCProgressView: View {
 
             // Volleyball icon
             Image(systemName: "figure.volleyball")
-                .font(.system(size: size * 0.35, weight: .medium))
+                .bscFont(size: size * 0.35, weight: .medium)
                 .foregroundStyle(LinearGradient.bscPrimaryGradient)
                 .bscFloatingEffect()
 
@@ -148,10 +148,10 @@ struct BSCProgressView: View {
                     Spacer()
                     Text("\(Int(progress * 100))%")
                         .bscFont(size: 11, weight: .bold)
-                        .foregroundColor(.bscTextInverse)
+                        .foregroundColor(.bscOnPrimary)
                         .padding(.horizontal, BSCSpacing.sm)
                         .padding(.vertical, BSCSpacing.xxs)
-                        .background(Color.bscPrimary)
+                        .background(Color.bscPrimaryDark)
                         .clipShape(Capsule())
                         .offset(y: BSCSpacing.sm)
                 }

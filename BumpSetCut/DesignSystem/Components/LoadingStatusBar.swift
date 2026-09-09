@@ -23,7 +23,7 @@ struct LoadingStatusBar: View {
                     .scaleEffect(0.8)
 
                 Text(message)
-                    .font(.subheadline)
+                    .bscFont(size: 15)
                     .foregroundColor(.bscTextSecondary)
 
                 Spacer()

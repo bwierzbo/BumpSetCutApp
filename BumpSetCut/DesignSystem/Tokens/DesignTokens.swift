@@ -82,8 +82,19 @@ extension Color {
         dark: Color(hex: "#3B82F6").opacity(0.15)
     )
 
+    /// Text/icons ON a primary or status fill. Fixed (not adaptive) — colored
+    /// fills are mode-invariant, so the label must be too. 4.5:1+ on the
+    /// darkened primary/destructive gradients in both modes.
+    static let bscOnPrimary = Color(hex: "#F1EFEF")
+
     /// Warm accent (demoted orange — for special callouts, favorites)
     static let bscWarmAccent = Color.bscOrange
+
+    /// Contrast-safe warm-accent variant for text/icons on light backgrounds
+    static let bscWarmAccentText = Color(light: Color(hex: "#C2410C"), dark: Color(hex: "#FF8C5A"))
+
+    /// Contrast-safe teal variant for text/icons on light backgrounds
+    static let bscTealText = Color(light: Color(hex: "#0F766E"), dark: Color(hex: "#2DD4BF"))
 }
 
 // MARK: - Surface Colors (Adaptive)
@@ -171,25 +182,37 @@ extension Color {
     static let bscSuccessText = Color(light: Color(hex: "#16A34A"), dark: Color(hex: "#22C55E"))
     static let bscErrorText = Color(light: Color(hex: "#DC2626"), dark: Color(hex: "#EF4444"))
     static let bscWarningText = Color(light: Color(hex: "#B45309"), dark: Color(hex: "#F59E0B"))
+
+    /// Fixed (mode-invariant) fills for solid colored buttons/badges that carry
+    /// bscOnPrimary or white content — darkened so the label passes AA in both
+    /// modes (the raw hues leave white at 2.3–3.8:1).
+    static let bscPrimaryFill = Color(hex: "#2563EB")
+    static let bscErrorFill = Color(hex: "#DC2626")
+    static let bscSuccessFill = Color(hex: "#16A34A")
 }
 
 // MARK: - Processing Status Colors
+// Adaptive and contrast-safe: these color status LABELS and glyphs on cards,
+// so they must clear WCAG AA on light surfaces (the old raw-teal/raw-blue
+// values sat at 1.9–3.7:1 on white).
 extension Color {
-    /// Original video - Not yet processed (subtle teal for visibility)
-    static let bscStatusOriginal = Color.bscTeal.opacity(0.8)
+    /// Original video - Not yet processed
+    static let bscStatusOriginal = Color.bscTealText
 
     /// Processed video - Has AI-detected rallies
-    static let bscStatusProcessed = Color.bscBlue
+    static let bscStatusProcessed = Color.bscPrimaryText
 
     /// Has versions - Multiple processed variants
-    static let bscStatusVersioned = Color.bscTeal
+    static let bscStatusVersioned = Color.bscTealText
 }
 
 // MARK: - Gradient Definitions
 extension LinearGradient {
-    /// Primary action gradient (blue brand feel)
+    /// Primary action gradient (blue brand feel). Darkened so bscOnPrimary
+    /// labels clear WCAG AA at both ends (4.5 / 5.9) — the old #3B82F6 start
+    /// left white text at 3.7:1.
     static let bscPrimaryGradient = LinearGradient(
-        colors: [Color.bscBlue, Color.bscBlueDark],
+        colors: [Color(hex: "#2563EB"), Color(hex: "#1D4ED8")],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
@@ -222,9 +245,10 @@ extension LinearGradient {
         endPoint: .bottom
     )
 
-    /// Destructive action gradient
+    /// Destructive action gradient. Darkened so white/bscOnPrimary labels
+    /// clear WCAG AA (4.8 / 6.5) — white on the old #EF4444 was 3.8:1.
     static let bscDestructiveGradient = LinearGradient(
-        colors: [Color.bscError, Color.bscError.opacity(0.8)],
+        colors: [Color(hex: "#DC2626"), Color(hex: "#B91C1C")],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )

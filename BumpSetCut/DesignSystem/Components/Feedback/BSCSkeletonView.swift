@@ -3,37 +3,18 @@ import SwiftUI
 // MARK: - BSCSkeletonView
 /// A shimmer loading placeholder for content that's loading
 struct BSCSkeletonView: View {
-    @State private var isAnimating = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         ZStack {
             // Base color
             Color.bscBackgroundElevated
 
-            // Shimmer gradient overlay
-            LinearGradient(
-                colors: [
-                    Color.bscSurfaceGlass.opacity(0.3),
-                    Color.bscSurfaceGlass.opacity(0.6),
-                    Color.bscSurfaceGlass.opacity(0.3)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .offset(x: isAnimating ? 200 : -200)
-            .animation(.linear(duration: 1.5).repeatForever(autoreverses: false), value: isAnimating)
-
             // Video icon placeholder
             Image(systemName: "video.fill")
-                .font(.title2)
+                .bscFont(size: BSCIconSize.md)
                 .foregroundColor(.bscTextTertiary.opacity(0.5))
                 .accessibilityHidden(true)
         }
-        .onAppear {
-            guard !reduceMotion else { return }
-            isAnimating = true
-        }
+        .bscShimmer()
     }
 }
 

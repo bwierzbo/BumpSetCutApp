@@ -46,8 +46,8 @@ struct AvatarView: View {
             .frame(width: size, height: size)
             .overlay(
                 Text(name.prefix(1).uppercased())
-                    .font(.system(size: size * 0.4, weight: .bold))
-                    .foregroundColor(.bscPrimary)
+                    .bscFont(size: size * 0.4, weight: .bold)
+                    .foregroundColor(.bscPrimaryText)
             )
     }
 }

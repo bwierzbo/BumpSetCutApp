@@ -42,7 +42,9 @@ struct BSCSearchBar: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .bscFont(size: 16)
-                            .foregroundColor(.bscTextTertiary)
+                            .foregroundColor(.bscTextSecondary)
+                            .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Clear search")
                     .transition(.scale.combined(with: .opacity))
@@ -72,7 +74,7 @@ struct BSCSearchBar: View {
                 } label: {
                     Text("Cancel")
                         .bscFont(size: 16)
-                        .foregroundColor(.bscPrimary)
+                        .foregroundColor(.bscPrimaryText)
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }

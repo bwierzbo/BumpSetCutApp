@@ -103,10 +103,12 @@ struct BSCBreadcrumb: View {
         } label: {
             Image(systemName: "house.fill")
                 .bscFont(size: 14, weight: .medium)
-                .foregroundColor(currentPath.isEmpty ? .bscPrimary : .bscTextSecondary)
+                .foregroundColor(currentPath.isEmpty ? .bscPrimaryText : .bscTextSecondary)
                 .frame(width: 28, height: 28)
                 .background(currentPath.isEmpty ? Color.bscPrimary.opacity(0.15) : Color.clear)
                 .clipShape(Circle())
+                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("Home")
     }
@@ -135,7 +137,7 @@ struct BSCBreadcrumb: View {
             } label: {
                 Text("...")
                     .bscFont(size: 13, weight: .medium)
-                    .foregroundColor(.bscPrimary)
+                    .foregroundColor(.bscPrimaryText)
                     .padding(.horizontal, BSCSpacing.sm)
                     .padding(.vertical, BSCSpacing.xs)
                     .background(Color.bscPrimary.opacity(0.1))
@@ -162,6 +164,8 @@ struct BSCBreadcrumb: View {
                 .padding(.vertical, BSCSpacing.xs)
                 .background(isLast ? Color.bscPrimary.opacity(0.15) : Color.clear)
                 .clipShape(Capsule())
+                .frame(minHeight: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
             }
             .disabled(isLast)
             .accessibilityLabel(crumb.name)

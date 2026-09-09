@@ -17,9 +17,9 @@ struct BSCToastMessage: Equatable {
 
         var tint: Color {
             switch self {
-            case .success: return .bscSuccess
-            case .error: return .bscError
-            case .info: return .bscInfo
+            case .success: return .bscSuccessText
+            case .error: return .bscErrorText
+            case .info: return .bscPrimaryText
             }
         }
     }

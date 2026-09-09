@@ -115,12 +115,12 @@ struct BSCFolderCard: View {
                     HStack {
                         Spacer()
                         Circle()
-                            .fill(Color.bscMediaScrim)
+                            .fill(Color.bscSurfaceGlass)
                             .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
                             .overlay(
                                 Image(systemName: "chevron.right")
                                     .bscFont(size: 10, weight: .bold)
-                                    .foregroundColor(.bscOnMedia)
+                                    .foregroundColor(.bscTextSecondary)
                             )
                             .accessibilityHidden(true)
                     }
@@ -175,7 +175,7 @@ struct BSCFolderCard: View {
 
             // Icon
             Image(systemName: "folder.fill")
-                .font(.system(size: size * 0.45, weight: .medium))
+                .bscFont(size: size * 0.45, weight: .medium)
                 .accessibilityHidden(true)
                 .foregroundStyle(
                     LinearGradient(
@@ -249,7 +249,7 @@ struct BSCFolderCard: View {
                 Text("\(folder.videoCount)")
                     .bscFont(size: 11, weight: .medium)
             }
-            .foregroundColor(folder.videoCount > 0 ? .bscPrimary : .bscTextTertiary)
+            .foregroundColor(folder.videoCount > 0 ? .bscPrimaryText : .bscTextSecondary)
 
             // Subfolder count
             if folder.subfolderCount > 0 {
@@ -268,8 +268,8 @@ struct BSCFolderCard: View {
     // MARK: - Date Text
     private var dateText: some View {
         Text(folder.modifiedDate.formatted(date: .abbreviated, time: .omitted))
-            .font(.caption2)
-            .foregroundColor(.bscTextTertiary)
+            .bscFont(size: 11)
+            .foregroundColor(.bscTextSecondary)
     }
 
     // MARK: - Action Buttons

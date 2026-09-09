@@ -66,7 +66,7 @@ struct BSCIconButton: View {
 
                 // Icon
                 Image(systemName: icon)
-                    .font(.system(size: size.iconSize, weight: .semibold))
+                    .bscFont(size: size.iconSize, weight: .semibold)
                     .foregroundColor(foregroundColor)
 
                 // Badge
@@ -74,6 +74,11 @@ struct BSCIconButton: View {
                     badgeView(count: badge)
                 }
             }
+            .frame(
+                width: max(size.dimension, BSCTouchTarget.standard),
+                height: max(size.dimension, BSCTouchTarget.standard)
+            )
+            .contentShape(Rectangle())
             .bscShadow(shadowStyle)
             .opacity(isEnabled ? 1.0 : 0.5)
         }
@@ -90,9 +95,9 @@ struct BSCIconButton: View {
         Text(badgeText)
             .bscFont(size: 10, weight: .bold)
             .foregroundColor(.white)
-            .padding(.horizontal, 5)
+            .padding(.horizontal, BSCSpacing.xs)
             .padding(.vertical, BSCSpacing.xxs)
-            .background(Color.bscError)
+            .background(Color.bscErrorText)
             .clipShape(Capsule())
             .offset(x: size.dimension / 3, y: -size.dimension / 3)
     }
@@ -112,7 +117,7 @@ struct BSCIconButton: View {
         case .destructive:
             return Color.bscError
         case .success:
-            return Color.bscSuccess
+            return Color.bscSuccessText
         }
     }
 

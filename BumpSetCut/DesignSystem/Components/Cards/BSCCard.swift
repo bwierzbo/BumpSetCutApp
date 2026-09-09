@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// Scale applied to selected cards (BSCCard.interactive and .bscInteractive).
+private let bscSelectedCardScale: CGFloat = 1.03
+
 // MARK: - BSCCard
 /// A versatile card container with glass morphism and elevation styles
 struct BSCCard<Content: View>: View {
@@ -26,7 +29,7 @@ struct BSCCard<Content: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(border)
             .bscShadow(shadowStyle)
-            .scaleEffect(isSelected ? 1.03 : 1.0)
+            .scaleEffect(isSelected ? bscSelectedCardScale : 1.0)
             .animation(.bscSpring, value: isSelected)
     }
 
@@ -178,8 +181,26 @@ extension View {
                     )
             )
             .bscShadow(isSelected ? BSCShadow.glowBlue : BSCShadow.sm)
-            .scaleEffect(isSelected ? 1.03 : 1.0)
+            .scaleEffect(isSelected ? bscSelectedCardScale : 1.0)
             .animation(.bscSpring, value: isSelected)
+    }
+}
+
+// MARK: - Surface Chrome
+extension View {
+    /// Standard elevated-surface chrome: rounded fill, hairline border, medium shadow.
+    /// One modifier for the card/pill chrome repeated across the app.
+    func bscSurfaceChrome(cornerRadius: CGFloat = BSCRadius.lg, shadow: BSCShadowStyle = BSCShadow.md) -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.bscBackgroundElevated)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+            )
+            .bscShadow(shadow)
     }
 }
 

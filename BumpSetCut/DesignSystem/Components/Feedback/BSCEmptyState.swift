@@ -12,9 +12,6 @@ struct BSCEmptyState: View {
     var onAction: (() -> Void)? = nil
     var onSecondaryAction: (() -> Void)? = nil
 
-    @State private var isAnimating = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     // MARK: - Body
     var body: some View {
         VStack(spacing: BSCSpacing.xl) {
@@ -40,25 +37,18 @@ struct BSCEmptyState: View {
                 VStack(spacing: BSCSpacing.md) {
                     if let actionTitle = actionTitle, let onAction = onAction {
                         BSCButton(title: actionTitle, style: .primary, action: onAction)
-                            .frame(maxWidth: UIScreen.main.bounds.width - 64)
+                            .frame(maxWidth: BSCContentWidth.compact)
                     }
 
                     if let secondaryActionTitle = secondaryActionTitle, let onSecondaryAction = onSecondaryAction {
                         BSCButton(title: secondaryActionTitle, style: .ghost, action: onSecondaryAction)
-                            .frame(maxWidth: UIScreen.main.bounds.width - 64)
+                            .frame(maxWidth: BSCContentWidth.compact)
                     }
                 }
             }
         }
         .padding(BSCSpacing.xxl)
         .frame(maxWidth: .infinity)
-        .onAppear {
-            guard !reduceMotion else { return }
-            // Slow, gentle breathing — calm enough to ignore while reading.
-            withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) {
-                isAnimating = true
-            }
-        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title). \(message)")
         .transition(.opacity.combined(with: .scale(scale: 0.95)))
@@ -71,7 +61,6 @@ struct BSCEmptyState: View {
             Circle()
                 .fill(Color.bscPrimary.opacity(0.1))
                 .frame(width: 120, height: 120)
-                .scaleEffect(isAnimating ? 1.06 : 0.98)
 
             // Icon circle
             Circle()
@@ -86,7 +75,7 @@ struct BSCEmptyState: View {
             Image(systemName: icon)
                 .bscFont(size: 32, weight: .medium)
                 .foregroundStyle(LinearGradient.bscPrimaryGradient)
-                .offset(y: isAnimating ? -3 : 0)
+                .bscFloatingEffect()
         }
     }
 }

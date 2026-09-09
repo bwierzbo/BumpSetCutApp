@@ -213,8 +213,10 @@ struct BSCVideoCard: View {
             onSelectionToggle?()
         } label: {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .font(.title3)
+                .bscFont(size: BSCIconSize.lg)
                 .foregroundColor(isSelected ? .bscPrimary : .bscTextSecondary)
+                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel(isSelected ? "Deselect video" : "Select video")
     }
@@ -227,13 +229,15 @@ struct BSCVideoCard: View {
                     onSelectionToggle?()
                 } label: {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
+                        .bscFont(size: BSCIconSize.lg)
                         .foregroundColor(isSelected ? .bscPrimary : .bscOnMedia)
                         .background(
                             Circle()
                                 .fill(Color.bscMediaScrimBase.opacity(0.6))
                                 .frame(width: 28, height: 28)
                         )
+                        .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel(isSelected ? "Deselect video" : "Select video")
                 .padding(BSCSpacing.sm)
@@ -251,10 +255,10 @@ struct BSCVideoCard: View {
                     Text(formatDuration(duration))
                         .bscFont(size: 11, weight: .semibold)
                         .foregroundColor(.bscOnMedia)
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, BSCSpacing.sm)
                         .padding(.vertical, BSCSpacing.xxs)
                         .background(Color.bscMediaScrimBase.opacity(0.7))
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
                         .padding(BSCSpacing.sm)
                 }
             }
@@ -330,7 +334,7 @@ struct BSCVideoCard: View {
     private var statusBadge: some View {
         HStack(spacing: BSCSpacing.xs) {
             Image(systemName: statusIconName)
-                .font(.caption2)
+                .bscFont(size: 11)
                 .foregroundColor(statusColor)
                 .accessibilityHidden(true)
             Text(statusText)
@@ -338,8 +342,8 @@ struct BSCVideoCard: View {
                 .foregroundColor(statusColor)
             if isReported {
                 Image(systemName: "flag.fill")
-                    .font(.caption2)
-                    .foregroundColor(.bscOrange)
+                    .bscFont(size: 11)
+                    .foregroundColor(.bscWarmAccentText)
                     .accessibilityLabel("Reported to improve detection")
             }
         }
@@ -387,8 +391,8 @@ struct BSCVideoCard: View {
     // MARK: - Metadata Views
     private var dateText: some View {
         Text(video.createdDate.formatted(date: .abbreviated, time: .omitted))
-            .font(.caption2)
-            .foregroundColor(.bscTextTertiary)
+            .bscFont(size: 11)
+            .foregroundColor(.bscTextSecondary)
     }
 
     private var durationText: some View {
@@ -399,20 +403,20 @@ struct BSCVideoCard: View {
                 Text("--:--")
             }
         }
-        .font(.caption2)
+        .bscFont(size: 11)
         .foregroundColor(.bscTextSecondary)
     }
 
     private var fileSizeText: some View {
         Text(formatFileSize(video.fileSize))
-            .font(.caption2)
-            .foregroundColor(.bscTextTertiary)
+            .bscFont(size: 11)
+            .foregroundColor(.bscTextSecondary)
     }
 
     private var extensionBadge: some View {
         Text(video.originalURL.pathExtension.uppercased())
             .bscFont(size: 10, weight: .medium)
-            .foregroundColor(.bscTextTertiary)
+            .foregroundColor(.bscTextSecondary)
             .padding(.horizontal, BSCSpacing.xs)
             .padding(.vertical, BSCSpacing.xxs)
             .background(Color.bscSurfaceGlass)

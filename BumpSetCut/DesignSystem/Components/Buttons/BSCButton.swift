@@ -47,7 +47,7 @@ struct BSCButton: View {
             .foregroundColor(foregroundColor)
             .padding(.vertical, verticalPadding)
             .padding(.horizontal, horizontalPadding)
-            .frame(maxWidth: isFullWidth ? .infinity : nil)
+            .frame(maxWidth: isFullWidth ? .infinity : nil, minHeight: BSCTouchTarget.standard)
             .background(background)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(border)
@@ -66,13 +66,13 @@ struct BSCButton: View {
     private var foregroundColor: Color {
         switch style {
         case .primary:
-            return .bscTextInverse
+            return .bscOnPrimary
         case .secondary:
-            return .bscPrimary
+            return .bscPrimaryText
         case .ghost:
             return .bscTextPrimary
         case .destructive:
-            return .white
+            return .bscOnPrimary
         }
     }
 
