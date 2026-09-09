@@ -15,7 +15,8 @@ struct LibraryView: View {
     @State private var hasAppeared = false
     @State private var showingPhotoPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @State private var videoNameInput = ""
+    @State private var pendingUploadItem: PhotosPickerItem?
+    @State private var showingNamePrompt = false
     // Path of the folder currently under an active video drag (drop-zone highlight).
     @State private var dropTargetFolderPath: String?
     // Surfaces failures from fire-and-forget library mutations (rename/move/delete).
@@ -24,8 +25,8 @@ struct LibraryView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
-    init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
-        self._viewModel = State(wrappedValue: LibraryViewModel(mediaStore: mediaStore, libraryType: libraryType))
+    init(mediaStore: MediaStore, uploadCoordinator: UploadCoordinator, libraryType: LibraryType = .saved) {
+        self._viewModel = State(wrappedValue: LibraryViewModel(mediaStore: mediaStore, uploadCoordinator: uploadCoordinator, libraryType: libraryType))
     }
 
     // MARK: - Body
@@ -86,49 +87,16 @@ struct LibraryView: View {
             )
             .onChange(of: selectedPhotoItems) { _, items in
                 if !items.isEmpty, let item = items.first {
-                    viewModel.uploadCoordinator.handlePhotosPickerItem(item, destinationFolder: viewModel.currentPath)
+                    pendingUploadItem = item
                     selectedPhotoItems.removeAll()
+                    showingNamePrompt = true
                 }
             }
-            .alert("Storage Full", isPresented: Binding(
-                get: { viewModel.uploadCoordinator.showStorageWarning },
-                set: { viewModel.uploadCoordinator.showStorageWarning = $0 }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(viewModel.uploadCoordinator.storageWarningMessage)
-            }
-            .alert("Import Failed", isPresented: Binding(
-                get: { viewModel.uploadCoordinator.showImportError },
-                set: { viewModel.uploadCoordinator.showImportError = $0 }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(viewModel.uploadCoordinator.importErrorMessage)
-            }
-            .alert("Name Your Video", isPresented: Binding(
-                get: { viewModel.uploadCoordinator.showNamingDialog },
-                set: { if !$0 && viewModel.uploadCoordinator.showNamingDialog { viewModel.uploadCoordinator.completeNaming(customName: nil) } }
-            )) {
-                TextField("Video name", text: $videoNameInput)
-                    .onChange(of: videoNameInput) { _, newValue in
-                        let stripped = String(newValue.drop(while: { $0.isWhitespace }))
-                        let limited = String(stripped.prefix(100))
-                        if limited != newValue {
-                            videoNameInput = limited
-                        }
-                    }
-                Button("Save") {
-                    viewModel.uploadCoordinator.completeNaming(customName: videoNameInput)
-                    videoNameInput = ""
+            .uploadNamePrompt(isPresented: $showingNamePrompt) { name in
+                if let item = pendingUploadItem {
+                    viewModel.uploadCoordinator.handlePhotosPickerItem(item, destinationFolder: viewModel.currentPath, customName: name)
                 }
-                .disabled(videoNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("Skip", role: .cancel) {
-                    viewModel.uploadCoordinator.completeNaming(customName: nil)
-                    videoNameInput = ""
-                }
-            } message: {
-                Text("Give your video a custom name")
+                pendingUploadItem = nil
             }
         }
     }
@@ -516,14 +484,10 @@ private extension LibraryView {
 // MARK: - Status Bars
 private extension LibraryView {
     var statusBars: some View {
-        VStack(spacing: 0) {
-            UploadStatusBar(uploadCoordinator: viewModel.uploadCoordinator)
-
-            LoadingStatusBar(
-                isLoading: viewModel.isLoading,
-                message: "Loading content..."
-            )
-        }
+        LoadingStatusBar(
+            isLoading: viewModel.isLoading,
+            message: "Loading content..."
+        )
     }
 }
 
@@ -582,10 +546,10 @@ private extension LibraryView {
                     }
 
                     // Upload
-                    EnhancedUploadButton(
-                        uploadCoordinator: viewModel.uploadCoordinator,
-                        destinationFolder: viewModel.currentPath
-                    )
+                    EnhancedUploadButton { item in
+                        pendingUploadItem = item
+                        showingNamePrompt = true
+                    }
                 }
             }
         }
@@ -654,6 +618,7 @@ private extension LibraryView {
 
 // MARK: - Preview
 #Preview("Library") {
-    LibraryView(mediaStore: MediaStore())
+    let store = MediaStore()
+    LibraryView(mediaStore: store, uploadCoordinator: UploadCoordinator(mediaStore: store))
         .environment(AppSettings.shared)
 }

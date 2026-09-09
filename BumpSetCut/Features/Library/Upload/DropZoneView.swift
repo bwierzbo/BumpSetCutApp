@@ -63,150 +63,15 @@ struct DropZoneView<Content: View>: View {
     }
 }
 
-// MARK: - Upload Status Bar
-
-struct UploadStatusBar: View {
-    var uploadCoordinator: UploadCoordinator
-    @State private var uploadedVideoURL: URL?
-
-    var body: some View {
-        Group {
-            if uploadCoordinator.isUploadInProgress {
-                VStack(spacing: 24) {
-                    createHeaderView()
-
-                    if uploadCoordinator.showCompleted {
-                        createCompletedView()
-                    } else {
-                        createUploadingView(progress: 0.0) // Progress not used anymore
-                    }
-
-                    if uploadCoordinator.showCompleted {
-                        createActionButtons()
-                    } else {
-                        createCancelButton()
-                    }
-                }
-                .padding(BSCSpacing.xl)
-                .background(Color.bscBackgroundMuted)
-                .cornerRadius(BSCRadius.md)
-                .padding(.horizontal, BSCSpacing.lg)
-                .padding(.bottom, BSCSpacing.lg)
-            } else {
-                EmptyView()
-            }
-        }
-    }
-    
-    // MARK: - Upload Status Bar Components
-    
-    private func createCancelButton() -> some View {
-        Button("Cancel") {
-            uploadCoordinator.cancelUploadFlow()
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(Color.bscError)
-        .foregroundColor(.white)
-        .cornerRadius(BSCRadius.md)
-    }
-    
-    private func createHeaderView() -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "icloud.and.arrow.up")
-                .bscFont(size: 48)
-                .foregroundColor(.bscPrimary)
-            
-            Text("Processing Video")
-                .font(.title2)
-                .fontWeight(.bold)
-        }
-    }
-    
-    private func createUploadingView(progress: Double) -> some View {
-        VStack(spacing: 16) {
-            // Determinate bar when the import reports progress (Photos picker, incl.
-            // iCloud download); indeterminate spinner for drag-drop.
-            if let fraction = uploadCoordinator.importProgress {
-                ProgressView(value: fraction)
-                    .progressViewStyle(.linear)
-                    .frame(width: 200)
-                    .animation(.bscSpring, value: fraction)
-
-                Text("\(Int(fraction * 100))%")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundColor(.bscTextSecondary)
-            } else {
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .progressViewStyle(CircularProgressViewStyle())
-            }
-
-            // Show progress text from coordinator
-            if !uploadCoordinator.uploadProgressText.isEmpty {
-                Text(uploadCoordinator.uploadProgressText)
-                    .font(.headline)
-                    .foregroundColor(.bscTextPrimary)
-            } else {
-                Text("Processing video...")
-                    .font(.headline)
-                    .foregroundColor(.bscTextPrimary)
-            }
-
-            // Show file size if available
-            if !uploadCoordinator.currentFileSize.isEmpty {
-                Text(uploadCoordinator.currentFileSize)
-                    .font(.subheadline)
-                    .foregroundColor(.bscTextSecondary)
-            }
-        }
-    }
-
-    private func createCompletedView() -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .bscFont(size: 32)
-                .foregroundColor(.bscSuccess)
-
-            Text("Upload Complete!")
-                .font(.headline)
-                .foregroundColor(.bscTextPrimary)
-            
-            Text("Video uploaded and automatically named with today's date")
-                .font(.caption)
-                .foregroundColor(.bscTextSecondary)
-                .multilineTextAlignment(.center)
-        }
-    }
-    
-    private func createActionButtons() -> some View {
-        Button("Done") {
-            uploadCoordinator.completeUploadFlow()
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(Color.bscSuccess)
-        .foregroundColor(.white)
-        .cornerRadius(BSCRadius.md)
-    }
-    
-    
-}
-
 // MARK: - Enhanced Upload Button
 
 struct EnhancedUploadButton: View {
-    let uploadCoordinator: UploadCoordinator
-    let destinationFolder: String
+    /// Called with the picked video; the caller runs the naming prompt + upload.
+    let onVideoPicked: (PhotosPickerItem) -> Void
 
     @State private var showingPhotoPicker = false
     @State private var selectedItems: [PhotosPickerItem] = []
-    @State private var showingNamingDialog = false
-    @State private var pendingVideoURL: URL?  // URL-based: keeps video on disk
-    @State private var videoFileName = ""
-    @State private var customVideoName = ""
-    
+
     var body: some View {
         Menu {
             Button {
@@ -244,118 +109,9 @@ struct EnhancedUploadButton: View {
         )
         .onChange(of: selectedItems) { _, items in
             if !items.isEmpty, let item = items.first {
-                uploadCoordinator.handlePhotosPickerItem(item, destinationFolder: destinationFolder)
+                onVideoPicked(item)
                 selectedItems.removeAll()
             }
-        }
-        .sheet(isPresented: $showingNamingDialog) {
-            VideoNamingSheet(
-                customName: $customVideoName,
-                onSave: {
-                    if let url = pendingVideoURL {
-                        let finalName = customVideoName.isEmpty ? videoFileName : customVideoName
-                        saveVideoWithName(url: url, name: finalName)
-                    }
-                    showingNamingDialog = false
-                },
-                onCancel: {
-                    showingNamingDialog = false
-                    // Clean up temp file
-                    if let url = pendingVideoURL {
-                        try? FileManager.default.removeItem(at: url)
-                    }
-                    pendingVideoURL = nil
-                }
-            )
-        }
-    }
-
-    private func handleVideoSelection(_ item: PhotosPickerItem) {
-        Task {
-            // Use file-based transfer - never load entire video into memory
-            guard let movie = try? await item.loadTransferable(type: VideoTransferable.self) else {
-                print("Failed to load video as file")
-                return
-            }
-
-            await MainActor.run {
-                self.pendingVideoURL = movie.url
-                self.videoFileName = "Video_\(DateFormatter.yyyyMMdd_HHmmss.string(from: Date()))"
-                self.customVideoName = ""
-                self.showingNamingDialog = true
-            }
-        }
-    }
-
-    private func saveVideoWithName(url: URL, name: String) {
-        Task {
-            let fileName = name.hasSuffix(".mp4") ? name : "\(name).mp4"
-            await uploadCoordinator.uploadManager.addUpload(
-                url: url,
-                fileName: fileName,
-                destinationFolderPath: destinationFolder
-            )
-
-            // Start the upload immediately
-            if let uploadItem = uploadCoordinator.uploadManager.uploadItems.last {
-                uploadItem.displayName = name
-                uploadItem.finalName = name
-                uploadCoordinator.uploadManager.startUpload(item: uploadItem, customName: name)
-            }
-        }
-    }
-}
-
-// MARK: - Simple Video Naming Sheet
-
-struct VideoNamingSheet: View {
-    @Binding var customName: String
-    let onSave: () -> Void
-    let onCancel: () -> Void
-    
-    @FocusState private var isTextFieldFocused: Bool
-    
-    var body: some View {
-        NavigationView {
-            VStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Name Your Video")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                    
-                    Text("Enter a name for your video")
-                        .font(.caption)
-                        .foregroundColor(.bscTextSecondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Video Name")
-                        .font(.headline)
-                    
-                    TextField("Enter video name", text: $customName)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .focused($isTextFieldFocused)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Name Video")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarItems(
-                leading: Button("Cancel") {
-                    onCancel()
-                },
-                trailing: Button("Save") {
-                    onSave()
-                }
-                .fontWeight(.semibold)
-            )
-        }
-        .onAppear {
-            isTextFieldFocused = true
         }
     }
 }
@@ -384,10 +140,7 @@ extension DateFormatter {
                     .padding(40)
             }
         }
-        
-        EnhancedUploadButton(
-            uploadCoordinator: UploadCoordinator(mediaStore: MediaStore()),
-            destinationFolder: ""
-        )
+
+        EnhancedUploadButton { _ in }
     }
 }

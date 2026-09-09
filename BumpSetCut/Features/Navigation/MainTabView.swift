@@ -28,10 +28,12 @@ extension EnvironmentValues {
 
 struct MainTabView: View {
     @State private var selectedTab: AppTab = .home
-    @State private var mediaStore = MediaStore()
+    @State private var mediaStore: MediaStore
     @State private var metadataStore = MetadataStore()
     @State private var navigationState = AppNavigationState()
+    @State private var uploadCoordinator: UploadCoordinator
     @State private var showProcessingView = false
+    @State private var showCancelUploadDialog = false
     @State private var showLowStorageBanner = false
     @State private var lowStorageAvailable: Int64 = 0
     @State private var lowStorageDismissed = false
@@ -43,6 +45,12 @@ struct MainTabView: View {
 
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        let store = MediaStore()
+        _mediaStore = State(initialValue: store)
+        _uploadCoordinator = State(initialValue: UploadCoordinator(mediaStore: store))
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -105,8 +113,13 @@ struct MainTabView: View {
                     .padding(.bottom, 54) // Above tab bar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(100)
+            } else if uploadCoordinator.isUploadInProgress {
+                videoUploadPill
+                    .padding(.bottom, 54) // Above tab bar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(99)
             } else if flywheelService.isDraining {
-                uploadPill
+                flywheelUploadPill
                     .padding(.bottom, 54) // Above tab bar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(98)
@@ -114,13 +127,36 @@ struct MainTabView: View {
                 lowStorageBannerView
                     .padding(.bottom, 54) // Above tab bar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(99)
+                    .zIndex(97)
             }
         }
         .animation(.bscSpring, value: processingCoordinator.isProcessing)
         .animation(.bscSpring, value: processingCoordinator.showCompletionPill)
+        .animation(.bscSpring, value: uploadCoordinator.isUploadInProgress)
+        .animation(.bscSpring, value: uploadCoordinator.showCompleted)
         .animation(.bscSpring, value: flywheelService.isDraining)
         .animation(.bscSpring, value: showLowStorageBanner)
+        .confirmationDialog("Cancel upload?", isPresented: $showCancelUploadDialog, titleVisibility: .visible) {
+            Button("Cancel Upload", role: .destructive) { uploadCoordinator.cancelImport() }
+            Button("Keep Uploading", role: .cancel) {}
+        }
+        .alert("Storage Full", isPresented: Binding(
+            get: { uploadCoordinator.showStorageWarning },
+            set: { uploadCoordinator.showStorageWarning = $0 }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(uploadCoordinator.storageWarningMessage)
+        }
+        .alert("Import Failed", isPresented: Binding(
+            get: { uploadCoordinator.showImportError },
+            set: { uploadCoordinator.showImportError = $0 }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(uploadCoordinator.importErrorMessage)
+        }
+        .environment(uploadCoordinator)
         .environment(navigationState)
         .environment(\.changeTab, { tab in
             selectedTab = tab
@@ -189,13 +225,17 @@ struct MainTabView: View {
             Button {
                 deepLinkedHighlight = nil
             } label: {
+                // 44pt hit target (28pt glyph + 8pt each side); outer padding drops
+                // to xs so the icon stays visually 12pt from the edge as before.
                 Image(systemName: "xmark.circle.fill")
                     .bscFont(size: 28)
                     .foregroundColor(Color.bscOnMedia.opacity(0.85))
                     .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 4)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("Close")
-            .padding(BSCSpacing.md)
+            .padding(BSCSpacing.xs)
         }
     }
 
@@ -210,9 +250,86 @@ struct MainTabView: View {
         return "Keep app open \u{2022} \(processingCoordinator.videoName)"
     }
 
+    /// Video import pill — mirrors the processing pill's style. Shown while a
+    /// video is importing from Photos (incl. iCloud download) so the user can
+    /// keep using the app. Tapping offers a cancel confirmation.
+    private var videoUploadPill: some View {
+        Button {
+            if !uploadCoordinator.showCompleted {
+                showCancelUploadDialog = true
+            }
+        } label: {
+            HStack(spacing: BSCSpacing.sm) {
+                if uploadCoordinator.showCompleted {
+                    Image(systemName: "checkmark.circle.fill")
+                        .bscFont(size: 20)
+                        .foregroundColor(.bscSuccessText)
+
+                    Text("Upload complete!")
+                        .bscFont(size: 13, weight: .semibold)
+                        .foregroundColor(.bscTextPrimary)
+                } else {
+                    ZStack {
+                        if let fraction = uploadCoordinator.importProgress {
+                            Circle().stroke(Color.bscSurfaceBorder, lineWidth: 2.5)
+                                .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
+                            Circle()
+                                .trim(from: 0, to: fraction)
+                                .stroke(Color.bscPrimary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                                .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
+                                .rotationEffect(.degrees(-90))
+                            Image(systemName: "arrow.up")
+                                .bscFont(size: 9, weight: .bold)
+                                .foregroundColor(.bscPrimary)
+                        } else {
+                            // Indeterminate (drag-drop, or before load progress arrives)
+                            ProgressView()
+                                .tint(.bscPrimary)
+                                .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Uploading \(uploadCoordinator.currentVideoName)…")
+                            .bscFont(size: 13, weight: .semibold)
+                            .foregroundColor(.bscTextPrimary)
+                        Text(uploadCoordinator.uploadProgressText.isEmpty
+                             ? "keep the app open"
+                             : uploadCoordinator.uploadProgressText)
+                            .bscFont(size: 11)
+                            .foregroundColor(.bscTextSecondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    if let fraction = uploadCoordinator.importProgress {
+                        Text("\(Int(fraction * 100))%")
+                            .bscFont(size: 14, weight: .bold, design: .monospaced)
+                            .foregroundColor(.bscPrimaryText)
+                    }
+                }
+            }
+            .padding(.horizontal, BSCSpacing.md)
+            .padding(.vertical, BSCSpacing.sm)
+            .frame(maxWidth: 500, minHeight: 44)
+            .background(
+                RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                    .fill(Color.bscBackgroundElevated)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+            )
+            .bscShadow(BSCShadow.md)
+            .padding(.horizontal, BSCSpacing.lg)
+        }
+        .buttonStyle(.plain)
+    }
+
     /// Flywheel upload pill — mirrors the processing pill's style. Shown while
     /// frames are draining to the server so the user knows not to quit mid-upload.
-    private var uploadPill: some View {
+    private var flywheelUploadPill: some View {
         HStack(spacing: BSCSpacing.sm) {
             ZStack {
                 Circle().stroke(Color.bscSurfaceBorder, lineWidth: 2.5).frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
@@ -234,14 +351,14 @@ struct MainTabView: View {
                      ? "\(flywheelService.uploadFrameTotal) frames · keep the app open"
                      : "keep the app open")
                     .bscFont(size: 11)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
                     .lineLimit(1)
             }
 
             Spacer()
             Text("\(Int(flywheelService.uploadProgress * 100))%")
                 .bscFont(size: 14, weight: .bold, design: .monospaced)
-                .foregroundColor(.bscPrimary)
+                .foregroundColor(.bscPrimaryText)
         }
         .padding(.horizontal, BSCSpacing.md)
         .padding(.vertical, BSCSpacing.sm)
@@ -280,7 +397,7 @@ struct MainTabView: View {
                     } else {
                         Image(systemName: processingCoordinator.noRalliesDetected ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
                             .bscFont(size: 20)
-                            .foregroundColor(processingCoordinator.noRalliesDetected ? .bscTextSecondary : .bscSuccess)
+                            .foregroundColor(processingCoordinator.noRalliesDetected ? .bscTextSecondary : .bscSuccessText)
 
                         Text(processingCoordinator.noRalliesDetected ? "No rallies found" : "Processing complete!")
                             .bscFont(size: 13, weight: .semibold)
@@ -301,7 +418,7 @@ struct MainTabView: View {
 
                         Text("\(processingCoordinator.progressPercent)")
                             .bscFont(size: 8, weight: .bold, design: .monospaced)
-                            .foregroundColor(.bscPrimary)
+                            .foregroundColor(.bscPrimaryText)
                     }
 
                     VStack(alignment: .leading, spacing: 1) {
@@ -311,12 +428,12 @@ struct MainTabView: View {
                                 .foregroundColor(.bscTextPrimary)
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .bscFont(size: 9)
-                                .foregroundColor(.bscWarning)
+                                .foregroundColor(.bscWarningText)
                         }
 
                         Text(processingETASubtitle)
                             .bscFont(size: 11)
-                            .foregroundColor(.bscTextTertiary)
+                            .foregroundColor(.bscTextSecondary)
                             .lineLimit(1)
                     }
 
@@ -324,12 +441,12 @@ struct MainTabView: View {
 
                     Text("\(processingCoordinator.progressPercent)%")
                         .bscFont(size: 14, weight: .bold, design: .monospaced)
-                        .foregroundColor(.bscPrimary)
+                        .foregroundColor(.bscPrimaryText)
                 }
             }
             .padding(.horizontal, BSCSpacing.md)
             .padding(.vertical, BSCSpacing.sm)
-            .frame(maxWidth: 500)
+            .frame(maxWidth: 500, minHeight: 44)
             .background(
                 RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
                     .fill(Color.bscBackgroundElevated)
@@ -350,7 +467,7 @@ struct MainTabView: View {
         HStack(spacing: BSCSpacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .bscFont(size: 16)
-                .foregroundColor(.bscWarning)
+                .foregroundColor(.bscWarningText)
 
             Text("Storage nearly full — \(StorageChecker.formatBytes(lowStorageAvailable)) remaining. Free up space to avoid issues.")
                 .bscFont(size: 12, weight: .medium)
@@ -365,9 +482,13 @@ struct MainTabView: View {
                     lowStorageDismissed = true
                 }
             } label: {
+                // 44pt hit target around the small glyph; trailing alignment keeps
+                // the visible icon where it was, extending the tappable area inward.
                 Image(systemName: "xmark")
                     .bscFont(size: 12, weight: .bold)
                     .foregroundColor(.bscTextSecondary)
+                    .frame(width: 44, height: 44, alignment: .trailing)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("Dismiss")
         }

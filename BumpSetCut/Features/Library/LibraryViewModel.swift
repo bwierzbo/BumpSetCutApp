@@ -181,10 +181,10 @@ final class LibraryViewModel {
     }
 
     // MARK: - Initialization
-    init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
+    init(mediaStore: MediaStore, uploadCoordinator: UploadCoordinator, libraryType: LibraryType = .saved) {
         self.libraryType = libraryType
         self.folderManager = FolderManager(mediaStore: mediaStore, libraryType: libraryType)
-        self.uploadCoordinator = UploadCoordinator(mediaStore: mediaStore)
+        self.uploadCoordinator = uploadCoordinator
         self.searchViewModel = SearchViewModel(mediaStore: mediaStore)
 
         // Restore the persisted sort + view mode (defaults stand if none saved).

@@ -16,12 +16,13 @@ struct HomeView: View {
     @State private var hasAppeared = false
 
     // Upload state
-    @State private var uploadCoordinator: UploadCoordinator?
+    @Environment(UploadCoordinator.self) private var uploadCoordinator
     @State private var showingPhotoPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var pendingUploadItems: [PhotosPickerItem] = []
+    @State private var pendingDestinationFolder: String?
     @State private var showingFolderSelection = false
-    @State private var videoNameInput = ""
+    @State private var showingNamePrompt = false
 
     // Process state
     @State private var showingProcessPicker = false
@@ -49,11 +50,6 @@ struct HomeView: View {
                 } else {
                     portraitContent(contentWidth: contentWidth)
                 }
-
-                // Upload progress overlay
-                if let coordinator = uploadCoordinator, coordinator.isUploadInProgress {
-                    uploadProgressOverlay(coordinator)
-                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -80,21 +76,32 @@ struct HomeView: View {
                 showingFolderSelection = true
             }
         }
-        .sheet(isPresented: $showingFolderSelection) {
+        .sheet(isPresented: $showingFolderSelection, onDismiss: {
+            // Present the name prompt only after the sheet has fully dismissed —
+            // chaining an alert while a sheet animates out is flaky in SwiftUI.
+            if pendingUploadItems.first != nil && pendingDestinationFolder != nil {
+                showingNamePrompt = true
+            }
+        }) {
             UploadFolderSelectionSheet(
                 mediaStore: mediaStore,
                 onFolderSelected: { folderPath in
-                    if let coordinator = uploadCoordinator, let item = pendingUploadItems.first {
-                        coordinator.handlePhotosPickerItem(item, destinationFolder: folderPath)
-                    }
-                    pendingUploadItems.removeAll()
+                    pendingDestinationFolder = folderPath
                     showingFolderSelection = false
                 },
                 onCancel: {
                     pendingUploadItems.removeAll()
+                    pendingDestinationFolder = nil
                     showingFolderSelection = false
                 }
             )
+        }
+        .uploadNamePrompt(isPresented: $showingNamePrompt) { name in
+            if let item = pendingUploadItems.first, let folder = pendingDestinationFolder {
+                uploadCoordinator.handlePhotosPickerItem(item, destinationFolder: folder, customName: name)
+            }
+            pendingUploadItems.removeAll()
+            pendingDestinationFolder = nil
         }
         .sheet(isPresented: $showingProcessPicker) {
             UnprocessedVideoPickerSheet(mediaStore: mediaStore)
@@ -109,9 +116,6 @@ struct HomeView: View {
             // Initialize dependencies asynchronously to avoid blocking
             if viewModel == nil {
                 viewModel = HomeViewModel(mediaStore: mediaStore, metadataStore: metadataStore)
-            }
-            if uploadCoordinator == nil {
-                uploadCoordinator = UploadCoordinator(mediaStore: mediaStore)
             }
 
             // Delay animation start to let view finish initial layout
@@ -128,130 +132,6 @@ struct HomeView: View {
                 }
             }
         }
-        .alert("Storage Full", isPresented: Binding(
-            get: { uploadCoordinator?.showStorageWarning ?? false },
-            set: { uploadCoordinator?.showStorageWarning = $0 }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(uploadCoordinator?.storageWarningMessage ?? "Not enough storage space")
-        }
-        .alert("Import Failed", isPresented: Binding(
-            get: { uploadCoordinator?.showImportError ?? false },
-            set: { uploadCoordinator?.showImportError = $0 }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(uploadCoordinator?.importErrorMessage ?? "The video couldn't be imported from Photos.")
-        }
-        .alert("Name Your Video", isPresented: Binding(
-            get: { uploadCoordinator?.showNamingDialog ?? false },
-            set: { if !$0 && (uploadCoordinator?.showNamingDialog ?? false) { uploadCoordinator?.completeNaming(customName: nil) } }
-        )) {
-            TextField("Video name", text: $videoNameInput)
-                .onChange(of: videoNameInput) { _, newValue in
-                    let stripped = String(newValue.drop(while: { $0.isWhitespace }))
-                    let limited = String(stripped.prefix(100))
-                    if limited != newValue {
-                        videoNameInput = limited
-                    }
-                }
-            Button("Save") {
-                uploadCoordinator?.completeNaming(customName: videoNameInput)
-                videoNameInput = ""
-            }
-            .disabled(videoNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            Button("Skip", role: .cancel) {
-                uploadCoordinator?.completeNaming(customName: nil)
-                videoNameInput = ""
-            }
-        } message: {
-            Text("Give your video a custom name")
-        }
-    }
-
-    // MARK: - Upload Progress Overlay
-
-    private func uploadProgressOverlay(_ coordinator: UploadCoordinator) -> some View {
-        ZStack {
-            Color.bscMediaScrim
-                .ignoresSafeArea()
-                .transition(.opacity)
-
-            VStack(spacing: BSCSpacing.lg) {
-                if coordinator.showCompleted {
-                    // Completion state
-                    Image(systemName: "checkmark.circle.fill")
-                        .bscFont(size: 44)
-                        .foregroundColor(.bscSuccess)
-                        .transition(.scale.combined(with: .opacity))
-
-                    Text("Upload Complete!")
-                        .bscFont(size: 18, weight: .bold)
-                        .foregroundColor(.bscTextPrimary)
-                } else {
-                    // Progress state — determinate bar when the import reports progress
-                    // (Photos picker, incl. iCloud download), indeterminate otherwise.
-                    if let fraction = coordinator.importProgress {
-                        ProgressView(value: fraction)
-                            .progressViewStyle(.linear)
-                            .tint(.bscPrimary)
-                            .frame(width: 200)
-                            .animation(.bscSpring, value: fraction)
-                    } else {
-                        ProgressView()
-                            .scaleEffect(1.3)
-                            .tint(.bscPrimary)
-                    }
-
-                    VStack(spacing: BSCSpacing.sm) {
-                        if !coordinator.uploadProgressText.isEmpty {
-                            Text(coordinator.uploadProgressText)
-                                .bscFont(size: 16, weight: .semibold)
-                                .foregroundColor(.bscTextPrimary)
-                        } else {
-                            Text("Importing video...")
-                                .bscFont(size: 16, weight: .semibold)
-                                .foregroundColor(.bscTextPrimary)
-                        }
-
-                        if let fraction = coordinator.importProgress {
-                            Text("\(Int(fraction * 100))%")
-                                .bscFont(size: 12, weight: .medium, design: .monospaced)
-                                .foregroundColor(.bscTextTertiary)
-                        }
-
-                        if !coordinator.currentFileSize.isEmpty {
-                            Text(coordinator.currentFileSize)
-                                .bscFont(size: 12)
-                                .foregroundColor(.bscTextTertiary)
-                        }
-                    }
-
-                    if coordinator.importProgress != nil {
-                        Button("Cancel") {
-                            coordinator.cancelImport()
-                        }
-                        .bscFont(size: 14, weight: .semibold)
-                        .foregroundColor(.bscTextSecondary)
-                        .padding(.top, BSCSpacing.xs)
-                    }
-                }
-            }
-            .padding(BSCSpacing.xl)
-            .padding(.horizontal, BSCSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
-                    .fill(Color.bscBackgroundElevated)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
-                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
-            )
-            .bscShadow(BSCShadow.xl)
-            .transition(.scale(scale: 0.9).combined(with: .opacity))
-        }
-        .animation(.bscSpring, value: coordinator.showCompleted)
     }
 
     // MARK: - Portrait Layout
@@ -363,7 +243,7 @@ struct HomeView: View {
 
     // MARK: - Main CTA Button
     private var mainCTAButton: some View {
-        NavigationLink(destination: LibraryView(mediaStore: mediaStore)) {
+        NavigationLink(destination: LibraryView(mediaStore: mediaStore, uploadCoordinator: uploadCoordinator)) {
             HStack(spacing: BSCSpacing.sm) {
                 Image(systemName: "play.circle.fill")
                     .bscFont(size: 24, weight: .semibold)
@@ -997,8 +877,10 @@ struct ImportedVideo: Identifiable, Hashable {
 
 // MARK: - Preview
 #Preview("HomeView") {
+    let store = MediaStore()
     NavigationStack {
-        HomeView(mediaStore: MediaStore(), metadataStore: MetadataStore())
+        HomeView(mediaStore: store, metadataStore: MetadataStore())
     }
     .environment(AppSettings.shared)
+    .environment(UploadCoordinator(mediaStore: store))
 }

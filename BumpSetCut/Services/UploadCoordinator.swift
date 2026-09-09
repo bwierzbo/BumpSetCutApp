@@ -8,7 +8,7 @@
 import Foundation
 import SwiftUI
 import PhotosUI
-import Combine
+import AVFoundation
 import UniformTypeIdentifiers
 import Observation
 import os
@@ -45,6 +45,8 @@ final class UploadCoordinator {
     var showCompleted = false
     var uploadProgressText = ""
     var currentFileSize: String = ""
+    /// Display name of the video being imported, for the global upload pill.
+    var currentVideoName: String = ""
 
     /// Determinate import progress (0...1) for the Photos-picker path, including the
     /// iCloud download for off-device videos. `nil` means indeterminate (e.g. drag-drop).
@@ -65,33 +67,12 @@ final class UploadCoordinator {
     // import's late completion must not tear down a newer import's progress/handle
     @ObservationIgnored private var importGeneration = 0
 
-    // Publisher for notifying when upload is completed
-    @ObservationIgnored private let uploadCompletedSubject = PassthroughSubject<Void, Never>()
-    var uploadCompletedPublisher: AnyPublisher<Void, Never> {
-        uploadCompletedSubject.eraseToAnyPublisher()
-    }
-
-    // Track recently uploaded videos for post-upload naming
-    private var recentlyUploadedFileNames: [String] = []
-
-    // Naming dialog state
-    var showNamingDialog = false
-    var namingDialogFileName = ""
-    var namingDialogSuggestedName = ""
-    @ObservationIgnored private var namingContinuation: CheckedContinuation<Void, Never>?
-    
     init(mediaStore: MediaStore) {
         self.mediaStore = mediaStore
         self.uploadManager = UploadManager(mediaStore: mediaStore)
     }
     
     // MARK: - Public Interface
-
-    func cancelUploadFlow() {
-        uploadManager.cancelAllUploads()
-        cancelImport()
-        showCompleted = false
-    }
 
     /// Cancel an in-flight Photos import (including an ongoing iCloud download).
     /// The underlying `loadTransferable` resumes with a cancellation error, which
@@ -166,6 +147,15 @@ struct DropViewDelegate: DropDelegate {
             return
         }
 
+        // The provider only *claims* movie content — verify the bytes are a
+        // playable video before storing them in the library.
+        let isPlayable = (try? await AVURLAsset(url: tempURL).load(.isPlayable)) ?? false
+        guard isPlayable else {
+            try? FileManager.default.removeItem(at: tempURL)
+            print("❌ Dropped file is not a playable video, rejecting")
+            return
+        }
+
         await MainActor.run {
             uploadCoordinator.isUploadInProgress = true
         }
@@ -221,7 +211,7 @@ extension UploadCoordinator {
 // MARK: - Single File Upload
 
 extension UploadCoordinator {
-    func handlePhotosPickerItem(_ item: PhotosPickerItem, destinationFolder: String = "") {
+    func handlePhotosPickerItem(_ item: PhotosPickerItem, destinationFolder: String = "", customName: String? = nil) {
         logger.info("Handling photos picker item")
 
         Task { @MainActor in
@@ -229,15 +219,15 @@ extension UploadCoordinator {
         }
 
         Task {
-            await processItem(item, destinationFolder: destinationFolder)
+            await processItem(item, destinationFolder: destinationFolder, customName: customName)
         }
     }
 
-    private func processItem(_ item: PhotosPickerItem, destinationFolder: String) async {
+    private func processItem(_ item: PhotosPickerItem, destinationFolder: String, customName: String?) async {
         await MainActor.run {
             importProgress = 0
             importWasCancelled = false
-            recentlyUploadedFileNames.removeAll()
+            currentVideoName = Self.sanitizedCustomName(customName) ?? "video"
             uploadProgressText = "Importing from Photos…"
         }
 
@@ -300,7 +290,15 @@ extension UploadCoordinator {
             uploadProgressText = "Saving \(fileSizeString) video..."
         }
 
-        await saveVideoFromURL(videoURL, destinationFolder: destinationFolder)
+        let saved = await saveVideoFromURL(videoURL, destinationFolder: destinationFolder, customName: customName)
+
+        guard saved else {
+            await MainActor.run {
+                importProgress = nil
+                isUploadInProgress = false
+            }
+            return
+        }
 
         await handleUploadCompletion()
     }
@@ -359,14 +357,35 @@ extension UploadCoordinator {
         return "The video couldn't be imported from Photos. It may still be downloading from iCloud — open it in the Photos app to finish the download, then try again."
     }
 
-    /// Save video from URL to final destination
-    private func saveVideoFromURL(_ sourceURL: URL, destinationFolder: String) async {
+    /// The name prompt caps input, but the coordinator is shared API — enforce the
+    /// same limits here so no caller can inject unbounded or control-character names.
+    private static func sanitizedCustomName(_ name: String?) -> String? {
+        guard let name else { return nil }
+        let cleaned = name
+            .components(separatedBy: .controlCharacters).joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+        return String(cleaned.prefix(100))
+    }
+
+    /// Save video from URL to final destination. Returns whether the video landed in the library.
+    private func saveVideoFromURL(_ sourceURL: URL, destinationFolder: String, customName: String?) async -> Bool {
         do {
             let fileName = "Video_\(DateFormatter.yyyyMMdd_HHmmss.string(from: Date()))_\(UUID().uuidString.prefix(4)).mp4"
             let baseURL = StorageManager.getPersistentStorageDirectory()
             let destinationURL = baseURL
                 .appendingPathComponent(destinationFolder)
                 .appendingPathComponent(fileName)
+
+            // Folder paths are validated at creation, but never trust a caller-supplied
+            // path to stay inside the library — reject anything that resolves outside
+            // the storage root (e.g. a "../" segment).
+            let rootPath = baseURL.standardizedFileURL.path
+            guard destinationURL.standardizedFileURL.path.hasPrefix(rootPath + "/") else {
+                logger.error("Rejected upload destination outside storage root")
+                try? FileManager.default.removeItem(at: sourceURL)
+                return false
+            }
 
             // Ensure directory exists
             try FileManager.default.createDirectory(
@@ -378,22 +397,28 @@ extension UploadCoordinator {
             // Move file (O(1) rename on same filesystem, avoids full copy)
             try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
 
+            let resolvedName: String
+            if let name = Self.sanitizedCustomName(customName) {
+                resolvedName = name
+            } else {
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "dd/MM/yyyy"
+                resolvedName = "Uploaded video \(dateFormatter.string(from: Date()))"
+            }
+
             // Add to MediaStore
             let success = mediaStore.addVideo(
                 at: destinationURL,
                 toFolder: destinationFolder,
-                customName: nil
+                customName: resolvedName
             )
 
             if success {
                 logger.info("Video upload completed: \(fileName)")
-                // Track for post-upload naming
-                await MainActor.run {
-                    recentlyUploadedFileNames.append(fileName)
-                }
             } else {
                 logger.error("Failed to add video to MediaStore: \(fileName)")
             }
+            return success
 
         } catch {
             if StorageChecker.isStorageError(error) {
@@ -405,20 +430,17 @@ extension UploadCoordinator {
             } else {
                 logger.error("Failed to save video: \(error.localizedDescription)")
             }
+            return false
         }
     }
-    
+
     func handleUploadCompletion() async {
-        // Show naming dialog for each uploaded video
-        for fileName in recentlyUploadedFileNames {
-            await showPostUploadNamingDialog(for: fileName)
-        }
+        // The save window is sub-second; if the user confirmed cancel during it,
+        // don't resurrect the pill with a completion state.
+        guard !importWasCancelled else { return }
 
         await MainActor.run {
             showCompleted = true
-            recentlyUploadedFileNames.removeAll()
-            // Notify LibraryView to refresh its contents
-            uploadCompletedSubject.send()
         }
 
         // Auto-dismiss after 2 seconds to keep it simple
@@ -427,66 +449,11 @@ extension UploadCoordinator {
         await MainActor.run {
             isUploadInProgress = false
             showCompleted = false
+            importProgress = nil
         }
     }
 
-    private func showPostUploadNamingDialog(for fileName: String) async {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "dd/MM/yyyy"
-        let suggestedName = "Uploaded video \(dateFormatter.string(from: Date()))"
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            namingContinuation = continuation
-            namingDialogFileName = fileName
-            namingDialogSuggestedName = suggestedName
-            showNamingDialog = true
-        }
-    }
-
-    /// Called from the SwiftUI naming alert when user saves or skips
-    func completeNaming(customName: String?) {
-        // Guard against double-calls (SwiftUI alert binding setter fires after button action)
-        guard namingContinuation != nil else { return }
-        let fileName = namingDialogFileName
-        let trimmed = customName?.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if let name = trimmed, !name.isEmpty {
-            let success = mediaStore.renameVideo(fileName: fileName, to: name)
-            if success {
-                logger.info("Video named: \(name)")
-            } else {
-                logger.warning("Failed to name video: \(fileName)")
-            }
-        } else {
-            // Skip — apply auto-generated name
-            let suggestedName = namingDialogSuggestedName
-            let success = mediaStore.renameVideo(fileName: fileName, to: suggestedName)
-            if success {
-                logger.info("Video auto-named: \(suggestedName)")
-            } else {
-                logger.warning("Failed to auto-name video: \(fileName)")
-            }
-        }
-        showNamingDialog = false
-        namingContinuation?.resume()
-        namingContinuation = nil
-    }
-    
-    func completeUploadFlow() {
-        // Update UI state immediately for responsiveness
-        isUploadInProgress = false
-        showCompleted = false
-
-        // Move the cleanup to a background task
-        Task {
-            uploadManager.clearCompleted()
-            await MainActor.run {
-                self.logger.info("Upload flow completed by user action")
-            }
-        }
-    }
-    
-    
     func getUploadSummary() -> UploadSummary {
         return UploadSummary(
             totalItems: uploadManager.totalItems,
