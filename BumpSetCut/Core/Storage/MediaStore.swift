@@ -8,6 +8,11 @@
 import Foundation
 import AVFoundation
 import Observation
+import os
+
+// File-scoped so every type in this file shares it. Unlike print, os.Logger
+// redacts interpolated values in release logs, keeping user content private.
+private let logger = Logger(subsystem: "BumpSetCut", category: "MediaStore")
 
 // MARK: - Library Type
 
@@ -361,17 +366,17 @@ struct FolderManifest: Codable {
             do {
                 let data = try Data(contentsOf: manifestURL)
                 self.manifest = try JSONDecoder().decode(FolderManifest.self, from: data)
-                print("MediaStore: Loaded \(manifest.videos.count) videos, \(manifest.folders.count) folders")
+                logger.info("MediaStore: Loaded \(self.manifest.videos.count) videos, \(self.manifest.folders.count) folders")
             } catch {
                 let backupURL = baseDirectory.appendingPathComponent("manifest.corrupt-\(Int(Date().timeIntervalSince1970)).json")
                 try? fileManager.copyItem(at: manifestURL, to: backupURL)
-                print("MediaStore: ERROR — manifest exists but failed to decode (\(error)). Backed up to \(backupURL.lastPathComponent) and starting with an empty manifest.")
+                logger.error("MediaStore: ERROR — manifest exists but failed to decode (\(String(describing: error))). Backed up to \(backupURL.lastPathComponent) and starting with an empty manifest.")
                 self.manifest = FolderManifest()
                 saveManifest()
             }
         } else {
             self.manifest = FolderManifest()
-            print("MediaStore: Created new manifest")
+            logger.info("MediaStore: Created new manifest")
             saveManifest()
         }
         
@@ -484,20 +489,20 @@ struct FolderManifest: Codable {
 
         // Read the template JSON
         guard let templateData = fileManager.contents(atPath: metadataTemplatePath) else {
-            print("MediaStore: ⚠️ Could not read metadata template at \(metadataTemplatePath)")
+            logger.warning("MediaStore: ⚠️ Could not read metadata template at \(metadataTemplatePath)")
             return
         }
 
         // Parse, replace videoId, re-encode
         guard var json = try? JSONSerialization.jsonObject(with: templateData) as? [String: Any] else {
-            print("MediaStore: ⚠️ Could not parse metadata template JSON")
+            logger.warning("MediaStore: ⚠️ Could not parse metadata template JSON")
             return
         }
 
         json["videoId"] = videoId.uuidString
 
         guard let correctedData = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else {
-            print("MediaStore: ⚠️ Could not re-encode metadata JSON")
+            logger.warning("MediaStore: ⚠️ Could not re-encode metadata JSON")
             return
         }
 
@@ -508,7 +513,7 @@ struct FolderManifest: Codable {
 
         do {
             try correctedData.write(to: destURL, options: .atomic)
-            print("MediaStore: ✅ Injected pre-processed metadata for video \(videoId)")
+            logger.info("MediaStore: ✅ Injected pre-processed metadata for video \(videoId)")
 
             // Update manifest entry to reflect metadata presence and processed status
             let videoKey = videoMetadata.fileName
@@ -522,7 +527,7 @@ struct FolderManifest: Codable {
                 saveManifest()
             }
         } catch {
-            print("MediaStore: ❌ Failed to write metadata: \(error)")
+            logger.error("MediaStore: ❌ Failed to write metadata: \(String(describing: error))")
         }
     }
     #endif
@@ -543,7 +548,7 @@ struct FolderManifest: Codable {
             // Increment version so @Observable consumers detect the change
             contentVersion += 1
         } catch {
-            print("Failed to save manifest: \(error)")
+            logger.error("Failed to save manifest: \(String(describing: error))")
         }
     }
     
@@ -583,7 +588,7 @@ struct FolderManifest: Codable {
                 .appendingPathComponent(video.fileName)
             guard !fileManager.fileExists(atPath: livePath.path) else { continue }
 
-            print("Removing stale video entry: \(video.displayName) (file not found)")
+            logger.warning("Removing stale video entry: \(video.displayName) (file not found)")
             manifest.videos.removeValue(forKey: key)
             needsSave = true
 
@@ -600,7 +605,7 @@ struct FolderManifest: Codable {
             let liveURL = baseDirectory.appendingPathComponent(key, isDirectory: true)
             guard !fileManager.fileExists(atPath: liveURL.path) else { continue }
 
-            print("Removing stale folder entry: \(folder.name) (directory not found)")
+            logger.warning("Removing stale folder entry: \(folder.name) (directory not found)")
             manifest.folders.removeValue(forKey: key)
             needsSave = true
         }
@@ -681,7 +686,7 @@ extension MediaStore {
             saveManifest()
             return true
         } catch {
-            print("Failed to create folder: \(error)")
+            logger.error("Failed to create folder: \(String(describing: error))")
             return false
         }
     }
@@ -718,7 +723,7 @@ extension MediaStore {
             saveManifest()
             return true
         } catch {
-            print("Failed to rename folder: \(error)")
+            logger.error("Failed to rename folder: \(String(describing: error))")
             return false
         }
     }
@@ -746,7 +751,7 @@ extension MediaStore {
             saveManifest()
             return true
         } catch {
-            print("Failed to delete folder: \(error)")
+            logger.error("Failed to delete folder: \(String(describing: error))")
             return false
         }
     }
@@ -835,7 +840,7 @@ extension MediaStore {
     @discardableResult
     func resetProcessingState(videoId: UUID) -> Bool {
         guard var video = manifest.videos.values.first(where: { $0.id == videoId }) else {
-            print("❌ MediaStore.resetProcessingState: Video \(videoId) not found")
+            logger.error("❌ MediaStore.resetProcessingState: Video \(videoId) not found")
             return false
         }
         let videoKey = video.fileName
@@ -845,14 +850,14 @@ extension MediaStore {
         video.processedVideoIds = []
         manifest.videos[videoKey] = video
         saveManifest()
-        print("📹 MediaStore: reset processing state for \(video.displayName)")
+        logger.info("📹 MediaStore: reset processing state for \(video.displayName)")
         return true
     }
 
     func markVideoAsProcessed(videoId: UUID, metadataFileSize: Int64) -> Bool {
         // Find the video
         guard var video = manifest.videos.values.first(where: { $0.id == videoId }) else {
-            print("❌ MediaStore.markVideoAsProcessed: Video with ID \(videoId) not found")
+            logger.error("❌ MediaStore.markVideoAsProcessed: Video with ID \(videoId) not found")
             return false
         }
 
@@ -863,7 +868,7 @@ extension MediaStore {
         manifest.videos[videoKey] = video
 
         saveManifest()
-        print("📹 MediaStore: marked \(video.displayName) processed (\(metadataFileSize) bytes)")
+        logger.info("📹 MediaStore: marked \(video.displayName) processed (\(metadataFileSize) bytes)")
         return true
     }
 
@@ -871,7 +876,7 @@ extension MediaStore {
     /// Updates fileSize and duration in the manifest.
     func replaceVideoFile(id: UUID, withFileAt newURL: URL) -> Bool {
         guard var video = manifest.videos.values.first(where: { $0.id == id }) else {
-            print("❌ replaceVideoFile: Video with ID \(id) not found")
+            logger.error("❌ replaceVideoFile: Video with ID \(id) not found")
             return false
         }
 
@@ -909,10 +914,10 @@ extension MediaStore {
 
             manifest.videos[videoKey] = video
             saveManifest()
-            print("✅ replaceVideoFile: Replaced \(videoKey) (new size: \(video.fileSize) bytes)")
+            logger.info("✅ replaceVideoFile: Replaced \(videoKey) (new size: \(video.fileSize) bytes)")
             return true
         } catch {
-            print("❌ replaceVideoFile: \(error)")
+            logger.error("❌ replaceVideoFile: \(String(describing: error))")
             return false
         }
     }
@@ -930,7 +935,7 @@ extension MediaStore {
         let fileManager = FileManager.default
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
               let fileSize = attributes[.size] as? Int64 else {
-            print("❌ MediaStore.addProcessedVideo: failed to read attributes for \(url.path)")
+            logger.error("❌ MediaStore.addProcessedVideo: failed to read attributes for \(url.path)")
             return false
         }
 
@@ -949,16 +954,16 @@ extension MediaStore {
         videoMetadata.originalVideoId = originalVideoId
 
         manifest.videos[videoKey] = videoMetadata
-        print("✅ Processed video metadata added to manifest with key: '\(videoKey)'")
+        logger.info("✅ Processed video metadata added to manifest with key: '\(videoKey)'")
 
         // Update the original video to reference this processed version
         if var originalVideo = manifest.videos.values.first(where: { $0.id == originalVideoId }) {
             let originalKey = originalVideo.fileName
             originalVideo.processedVideoIds.append(videoMetadata.id)
             manifest.videos[originalKey] = originalVideo
-            print("✅ Updated original video '\(originalKey)' with processed video ID: \(videoMetadata.id)")
+            logger.info("✅ Updated original video '\(originalKey)' with processed video ID: \(videoMetadata.id)")
         } else {
-            print("⚠️ Original video with ID \(originalVideoId) not found")
+            logger.warning("⚠️ Original video with ID \(originalVideoId) not found")
         }
 
         // Update folder video count
@@ -966,36 +971,36 @@ extension MediaStore {
             if manifest.folders[folderPath] != nil {
                 manifest.folders[folderPath]?.videoCount += 1
                 manifest.folders[folderPath]?.modifiedDate = Date()
-                print("✅ Updated folder '\(folderPath)' video count to: \(manifest.folders[folderPath]?.videoCount ?? 0)")
+                logger.info("✅ Updated folder '\(folderPath)' video count to: \(self.manifest.folders[folderPath]?.videoCount ?? 0)")
             } else {
-                print("⚠️ Folder '\(folderPath)' not found in manifest.folders")
-                print("   Available folders: \(manifest.folders.keys.sorted())")
+                logger.warning("⚠️ Folder '\(folderPath)' not found in manifest.folders")
+                logger.info("   Available folders: \(self.manifest.folders.keys.sorted())")
             }
         } else {
-            print("📁 Added to root folder")
+            logger.info("📁 Added to root folder")
         }
 
         saveManifest()
-        print("✅ Manifest saved successfully")
+        logger.info("✅ Manifest saved successfully")
         return true
     }
     
     func addVideo(at url: URL, toFolder folderPath: String = "", customName: String? = nil, sourceVideoId: UUID? = nil, sourceRallyIndex: Int? = nil) -> Bool {
         let videoKey = url.lastPathComponent
-        print("📹 MediaStore.addVideo called:")
-        print("   - URL: \(url)")
-        print("   - FolderPath: '\(folderPath)'")
-        print("   - CustomName: '\(customName ?? "nil")'")
-        print("   - VideoKey: '\(videoKey)'")
+        logger.info("📹 MediaStore.addVideo called:")
+        logger.info("   - URL: \(url)")
+        logger.info("   - FolderPath: '\(folderPath)'")
+        logger.info("   - CustomName: '\(customName ?? "nil")'")
+        logger.info("   - VideoKey: '\(videoKey)'")
         
         // Get file attributes
         let fileManager = FileManager.default
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
               let fileSize = attributes[.size] as? Int64 else {
-            print("❌ Failed to get file attributes for: \(url.path)")
+            logger.error("❌ Failed to get file attributes for: \(url.path)")
             return false
         }
-        print("✅ File attributes retrieved, size: \(fileSize) bytes")
+        logger.info("✅ File attributes retrieved, size: \(fileSize) bytes")
         
         var videoMetadata = VideoMetadata(
             originalURL: url,
@@ -1009,24 +1014,24 @@ extension MediaStore {
         videoMetadata.sourceRallyIndex = sourceRallyIndex
 
         manifest.videos[videoKey] = videoMetadata
-        print("✅ Video metadata added to manifest with key: '\(videoKey)'")
+        logger.info("✅ Video metadata added to manifest with key: '\(videoKey)'")
         
         // Update folder video count
         if !folderPath.isEmpty {
             if manifest.folders[folderPath] != nil {
                 manifest.folders[folderPath]?.videoCount += 1
                 manifest.folders[folderPath]?.modifiedDate = Date()
-                print("✅ Updated folder '\(folderPath)' video count to: \(manifest.folders[folderPath]?.videoCount ?? 0)")
+                logger.info("✅ Updated folder '\(folderPath)' video count to: \(self.manifest.folders[folderPath]?.videoCount ?? 0)")
             } else {
-                print("⚠️ Folder '\(folderPath)' not found in manifest.folders")
-                print("   Available folders: \(manifest.folders.keys.sorted())")
+                logger.warning("⚠️ Folder '\(folderPath)' not found in manifest.folders")
+                logger.info("   Available folders: \(self.manifest.folders.keys.sorted())")
             }
         } else {
-            print("📁 Added to root folder")
+            logger.info("📁 Added to root folder")
         }
         
         saveManifest()
-        print("✅ Manifest saved successfully")
+        logger.info("✅ Manifest saved successfully")
         return true
     }
     
@@ -1065,7 +1070,7 @@ extension MediaStore {
             saveManifest()
             return true
         } catch {
-            print("Failed to move video: \(error)")
+            logger.error("Failed to move video: \(String(describing: error))")
             return false
         }
     }
@@ -1093,10 +1098,10 @@ extension MediaStore {
             do {
                 try fileManager.removeItem(at: fileURL)
             } catch {
-                print("⚠️ Failed to delete video file (will still clean manifest): \(error)")
+                logger.error("⚠️ Failed to delete video file (will still clean manifest): \(String(describing: error))")
             }
         } else {
-            print("⚠️ Video file not found on disk, cleaning up manifest entry: \(fileName)")
+            logger.warning("⚠️ Video file not found on disk, cleaning up manifest entry: \(fileName)")
         }
 
         // Always clean up manifest regardless of file state
@@ -1128,7 +1133,7 @@ extension MediaStore {
                     if originalVideo.id == originalVideoId {
                         originalVideo.processedVideoIds.removeAll { $0 == videoMetadata.id }
                         manifest.videos[fileName] = originalVideo
-                        print("🔗 Removed processed video \(videoMetadata.id) from original video \(originalVideoId)")
+                        logger.info("🔗 Removed processed video \(videoMetadata.id) from original video \(originalVideoId)")
                         break
                     }
                 }
@@ -1137,7 +1142,7 @@ extension MediaStore {
             // This is an original video - delete all its processed versions
             let processedVideoIds = videoMetadata.processedVideoIds
             if !processedVideoIds.isEmpty {
-                print("🗑️ Deleting \(processedVideoIds.count) processed videos for original \(videoMetadata.id)")
+                logger.info("🗑️ Deleting \(processedVideoIds.count) processed videos for original \(videoMetadata.id)")
                 
                 // Find and delete all processed videos
                 let processedVideosToDelete = manifest.videos.filter { (_, video) in
@@ -1149,7 +1154,7 @@ extension MediaStore {
                     do {
                         try FileManager.default.removeItem(at: processedFileURL)
                         manifest.videos.removeValue(forKey: fileName)
-                        print("🗑️ Deleted processed video: \(fileName)")
+                        logger.info("🗑️ Deleted processed video: \(fileName)")
                         
                         // Also clean up debug data if it exists
                         if let debugPath = processedVideo.debugDataPath {
@@ -1157,7 +1162,7 @@ extension MediaStore {
                             try? FileManager.default.removeItem(at: debugURL)
                         }
                     } catch {
-                        print("❌ Failed to delete processed video \(fileName): \(error)")
+                        logger.error("❌ Failed to delete processed video \(fileName): \(String(describing: error))")
                     }
                 }
             }
@@ -1591,7 +1596,7 @@ extension MediaStore {
                     subfolderCount: 0
                 )
                 manifest.folders[rootPath] = folderMetadata
-                print("MediaStore: Created library root folder: \(rootPath)")
+                logger.info("MediaStore: Created library root folder: \(rootPath)")
             }
         }
         saveManifest()
@@ -1600,7 +1605,7 @@ extension MediaStore {
     /// Migrate existing processed videos to set hasProcessingMetadata flag
     /// This detects videos that have metadata files on disk but weren't flagged
     func migrateProcessedVideos() {
-        print("MediaStore: Checking for processed videos to migrate...")
+        logger.info("MediaStore: Checking for processed videos to migrate...")
         let metadataDirectory = baseDirectory.appendingPathComponent("ProcessedMetadata", isDirectory: true)
 
         var migratedCount = 0
@@ -1622,14 +1627,14 @@ extension MediaStore {
             video.updateMetadataTracking(fileSize: fileSize)
             manifest.videos[key] = video
             migratedCount += 1
-            print("MediaStore: Migrated processed video: \(video.displayName)")
+            logger.info("MediaStore: Migrated processed video: \(video.displayName)")
         }
 
         if migratedCount > 0 {
             saveManifest()
-            print("MediaStore: ✅ Migrated \(migratedCount) processed video(s)")
+            logger.info("MediaStore: ✅ Migrated \(migratedCount) processed video(s)")
         } else {
-            print("MediaStore: No processed videos to migrate")
+            logger.info("MediaStore: No processed videos to migrate")
         }
     }
 }
@@ -1649,7 +1654,7 @@ extension MediaStore {
     func migrateToSeparateLibraries() {
         // Skip if already migrated
         guard !hasCompletedLibraryMigration() else {
-            print("MediaStore: Library migration already complete")
+            logger.info("MediaStore: Library migration already complete")
             return
         }
 
@@ -1666,13 +1671,13 @@ extension MediaStore {
             // No migration needed, just mark as complete
             manifest.version = 2
             saveManifest()
-            print("MediaStore: No content to migrate, marking migration complete")
+            logger.info("MediaStore: No content to migrate, marking migration complete")
             return
         }
 
-        print("MediaStore: Starting library migration...")
-        print("MediaStore: Videos to migrate: \(videosNeedingMigration.count)")
-        print("MediaStore: Folders to migrate: \(foldersNeedingMigration.count)")
+        logger.info("MediaStore: Starting library migration...")
+        logger.info("MediaStore: Videos to migrate: \(videosNeedingMigration.count)")
+        logger.info("MediaStore: Folders to migrate: \(foldersNeedingMigration.count)")
 
         let fileManager = FileManager.default
 
@@ -1705,7 +1710,7 @@ extension MediaStore {
                     subfolderCount: 0
                 )
                 manifest.folders[savedPath] = savedFolder
-                print("MediaStore: Created folder in SavedGames: \(savedPath)")
+                logger.info("MediaStore: Created folder in SavedGames: \(savedPath)")
             }
 
             // Create folder in ProcessedGames if it has processed videos
@@ -1728,7 +1733,7 @@ extension MediaStore {
                     subfolderCount: 0
                 )
                 manifest.folders[processedPath] = processedFolder
-                print("MediaStore: Created folder in ProcessedGames: \(processedPath)")
+                logger.info("MediaStore: Created folder in ProcessedGames: \(processedPath)")
             }
 
             // Remove old folder entry
@@ -1754,10 +1759,10 @@ extension MediaStore {
             do {
                 if fileManager.fileExists(atPath: oldURL.path) {
                     try fileManager.moveItem(at: oldURL, to: newURL)
-                    print("MediaStore: Moved video \(video.fileName) to \(newFolderPath)")
+                    logger.info("MediaStore: Moved video \(video.fileName) to \(newFolderPath)")
                 }
             } catch {
-                print("MediaStore: Warning - Could not move video file: \(error)")
+                logger.warning("MediaStore: Warning - Could not move video file: \(String(describing: error))")
             }
 
             // Update video metadata
@@ -1790,7 +1795,7 @@ extension MediaStore {
         // 5. Mark migration complete
         manifest.version = 2
         saveManifest()
-        print("MediaStore: Library migration complete!")
+        logger.info("MediaStore: Library migration complete!")
     }
 }
 
