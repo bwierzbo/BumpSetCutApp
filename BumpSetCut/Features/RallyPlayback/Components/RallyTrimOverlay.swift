@@ -19,24 +19,36 @@ struct RallyTrimOverlay: View {
     var showsAngleControl: Bool = true
     var showsZoomControl: Bool = false
 
-    private let maxBuffer: Double = 3.0
+    private let initialBuffer: Double = 3.0
     private let handleWidth: CGFloat = 14
     private let barHeight: CGFloat = 56
     private let borderThickness: CGFloat = 3
     private let minSelectionDuration: Double = 1.0
     private let maxRotationDegrees: Double = 10.0
     private let rotationStepDegrees: Double = 0.5
+    private let edgeZoneWidth: CGFloat = 20
+    private let autoExtendRate: Double = 1.0   // video-seconds per second held at the edge
+    private let autoExtendTickSeconds: Double = 0.1
+
+    private enum ExtendDirection { case left, right }
 
     @State private var thumbnails: [UIImage] = []
-    @State private var leftDragBase: Double?
-    @State private var rightDragBase: Double?
+    @State private var leftGrabOffset: CGFloat?
+    @State private var rightGrabOffset: CGFloat?
     @State private var leftAtClamp = false
     @State private var rightAtClamp = false
     @State private var selectionHaptic = UISelectionFeedbackGenerator()
+    @State private var autoExtendTask: Task<Void, Never>? = nil
+    @State private var autoExtendDirection: ExtendDirection? = nil
+    @State private var thumbnailTask: Task<Void, Never>? = nil
+    @State private var lastThumbnailWindow: (start: Double, end: Double) = (0, 0)
 
-    // Time window visible in the filmstrip
-    private var windowStart: Double { max(0, rallyStartTime - maxBuffer) }
-    private var windowEnd: Double { min(videoDuration, rallyEndTime + maxBuffer) }
+    // Time window visible in the filmstrip. Starts at ±initialBuffer around the
+    // rally (expanded to include any saved trim beyond that) and grows while a
+    // handle is held at a strip edge.
+    @State private var windowStart: Double = 0
+    @State private var windowEnd: Double = 0
+    @State private var windowInitialized = false
     private var windowDuration: Double { windowEnd - windowStart }
 
     // Current effective trim boundaries
@@ -95,8 +107,27 @@ struct RallyTrimOverlay: View {
                 .padding(.bottom, BSCSpacing.huge)
             }
         }
-        .onAppear { selectionHaptic.prepare() }
-        .task { await generateThumbnails() }
+        .onAppear {
+            initializeWindowIfNeeded()
+            selectionHaptic.prepare()
+        }
+        .task {
+            initializeWindowIfNeeded()
+            maybeRefreshThumbnails(force: true)
+        }
+        .onDisappear {
+            autoExtendTask?.cancel()
+            autoExtendTask = nil
+            autoExtendDirection = nil
+            thumbnailTask?.cancel()
+        }
+    }
+
+    private func initializeWindowIfNeeded() {
+        guard !windowInitialized else { return }
+        windowInitialized = true
+        windowStart = max(0, min(rallyStartTime - initialBuffer, effectiveStart))
+        windowEnd = min(videoDuration, max(rallyEndTime + initialBuffer, effectiveEnd))
     }
 
     // MARK: - Zoom Hint / Readout
@@ -249,7 +280,11 @@ struct RallyTrimOverlay: View {
                 .accessibilityValue(String(format: "%.1f seconds", effectiveStart))
                 .accessibilityAdjustableAction { direction in
                     let delta = direction == .increment ? 0.5 : -0.5
-                    let newTime = Swift.max(windowStart, Swift.min(effectiveStart + delta, effectiveEnd - minSelectionDuration))
+                    let newTime = Swift.max(0, Swift.min(effectiveStart + delta, effectiveEnd - minSelectionDuration))
+                    if newTime < windowStart {
+                        windowStart = newTime
+                        maybeRefreshThumbnails(force: true)
+                    }
                     trimBefore = rallyStartTime - newTime
                     onScrub(newTime)
                 }
@@ -263,11 +298,16 @@ struct RallyTrimOverlay: View {
                 .accessibilityValue(String(format: "%.1f seconds", effectiveEnd))
                 .accessibilityAdjustableAction { direction in
                     let delta = direction == .increment ? 0.5 : -0.5
-                    let newTime = Swift.min(windowEnd, Swift.max(effectiveEnd + delta, effectiveStart + minSelectionDuration))
+                    let newTime = Swift.min(videoDuration, Swift.max(effectiveEnd + delta, effectiveStart + minSelectionDuration))
+                    if newTime > windowEnd {
+                        windowEnd = newTime
+                        maybeRefreshThumbnails(force: true)
+                    }
                     trimAfter = newTime - rallyEndTime
                     onScrub(newTime)
                 }
         }
+        .coordinateSpace(name: "trimBar")
         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm))
     }
 
@@ -326,37 +366,118 @@ struct RallyTrimOverlay: View {
     // MARK: - Gestures
 
     private func leftHandleDrag(totalWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 1)
+        DragGesture(minimumDistance: 1, coordinateSpace: .named("trimBar"))
             .onChanged { value in
-                if leftDragBase == nil { leftDragBase = trimBefore }
-                let baseX = xForTime(rallyStartTime - (leftDragBase ?? 0), in: totalWidth)
-                let newTime = timeForX(baseX + value.translation.width, in: totalWidth)
+                if leftGrabOffset == nil {
+                    leftGrabOffset = value.startLocation.x - xForTime(effectiveStart, in: totalWidth)
+                }
+                let desiredX = value.location.x - (leftGrabOffset ?? 0)
+
+                // Holding at the strip's left edge auto-extends the window
+                // (while the loop runs, ticks own trimBefore — not the finger).
+                if desiredX <= edgeZoneWidth && windowStart > 0 {
+                    if autoExtendTask == nil {
+                        selectionHaptic.selectionChanged()
+                        selectionHaptic.prepare()
+                        startAutoExtend(.left)
+                    }
+                    return
+                }
+                stopAutoExtend()
+
+                let newTime = timeForX(desiredX, in: totalWidth)
                 let clamped = max(windowStart, min(newTime, effectiveEnd - minSelectionDuration))
                 tickAtClamp(isClamped: clamped != newTime, wasClamped: &leftAtClamp)
                 trimBefore = rallyStartTime - clamped
                 onScrub(clamped)
             }
             .onEnded { _ in
-                leftDragBase = nil
+                stopAutoExtend()
+                leftGrabOffset = nil
                 leftAtClamp = false
             }
     }
 
     private func rightHandleDrag(totalWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 1)
+        DragGesture(minimumDistance: 1, coordinateSpace: .named("trimBar"))
             .onChanged { value in
-                if rightDragBase == nil { rightDragBase = trimAfter }
-                let baseX = xForTime(rallyEndTime + (rightDragBase ?? 0), in: totalWidth)
-                let newTime = timeForX(baseX + value.translation.width, in: totalWidth)
+                if rightGrabOffset == nil {
+                    rightGrabOffset = value.startLocation.x - xForTime(effectiveEnd, in: totalWidth)
+                }
+                let desiredX = value.location.x - (rightGrabOffset ?? 0)
+
+                if desiredX >= totalWidth - edgeZoneWidth && windowEnd < videoDuration {
+                    if autoExtendTask == nil {
+                        selectionHaptic.selectionChanged()
+                        selectionHaptic.prepare()
+                        startAutoExtend(.right)
+                    }
+                    return
+                }
+                stopAutoExtend()
+
+                let newTime = timeForX(desiredX, in: totalWidth)
                 let clamped = min(windowEnd, max(newTime, effectiveStart + minSelectionDuration))
                 tickAtClamp(isClamped: clamped != newTime, wasClamped: &rightAtClamp)
                 trimAfter = clamped - rallyEndTime
                 onScrub(clamped)
             }
             .onEnded { _ in
-                rightDragBase = nil
+                stopAutoExtend()
+                rightGrabOffset = nil
                 rightAtClamp = false
             }
+    }
+
+    // MARK: - Edge-Hold Auto-Extension
+
+    private func startAutoExtend(_ direction: ExtendDirection) {
+        autoExtendDirection = direction
+        autoExtendTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(autoExtendTickSeconds * 1_000_000_000))
+                guard !Task.isCancelled else { break }
+                performExtendTick(direction)
+            }
+        }
+    }
+
+    /// Stop the extension loop (finger left the edge zone, drag ended, or a
+    /// video bound was hit) and settle the filmstrip on the final window.
+    private func stopAutoExtend() {
+        guard autoExtendTask != nil else { return }
+        autoExtendTask?.cancel()
+        autoExtendTask = nil
+        autoExtendDirection = nil
+        maybeRefreshThumbnails(force: true)
+    }
+
+    private func performExtendTick(_ direction: ExtendDirection) {
+        let tickStep = autoExtendRate * autoExtendTickSeconds
+        switch direction {
+        case .left:
+            let step = min(tickStep, windowStart)
+            guard step > 0 else {
+                tickAtClamp(isClamped: true, wasClamped: &leftAtClamp)
+                stopAutoExtend()
+                return
+            }
+            windowStart -= step
+            // Pin the handle at the strip edge while the window grows under it.
+            trimBefore = rallyStartTime - windowStart
+            onScrub(windowStart)
+        case .right:
+            let step = min(tickStep, videoDuration - windowEnd)
+            guard step > 0 else {
+                tickAtClamp(isClamped: true, wasClamped: &rightAtClamp)
+                stopAutoExtend()
+                return
+            }
+            windowEnd += step
+            trimAfter = windowEnd - rallyEndTime
+            onScrub(windowEnd)
+        }
+        maybeRefreshThumbnails()
     }
 
     /// Tick once when a handle drag first hits its clamp (min duration or window edge).
@@ -382,11 +503,21 @@ struct RallyTrimOverlay: View {
 
     // MARK: - Thumbnails
 
+    /// Regenerate the filmstrip for the current window — at most once per
+    /// ≥1s of window growth during auto-extension unless forced.
+    private func maybeRefreshThumbnails(force: Bool = false) {
+        let grown = (lastThumbnailWindow.start - windowStart) + (windowEnd - lastThumbnailWindow.end)
+        guard force || grown >= 1.0 else { return }
+        thumbnailTask?.cancel()
+        thumbnailTask = Task { await generateThumbnails() }
+    }
+
     private func generateThumbnails() async {
         let url = videoURL
         let start = windowStart
         let duration = windowDuration
         let count = 12
+        lastThumbnailWindow = (windowStart, windowEnd)
 
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
@@ -400,11 +531,13 @@ struct RallyTrimOverlay: View {
 
         var result: [UIImage] = []
         for await imageResult in generator.images(for: times) {
+            guard !Task.isCancelled else { return }
             if let cgImage = try? imageResult.image {
                 result.append(UIImage(cgImage: cgImage))
             }
         }
 
+        guard !Task.isCancelled else { return }
         thumbnails = result
     }
 
