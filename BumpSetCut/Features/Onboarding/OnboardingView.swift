@@ -31,13 +31,17 @@ struct OnboardingView: View {
                 HStack {
                     Spacer()
                     if currentPage < pages.count - 1 {
-                        Button("Skip") {
+                        Button {
                             onComplete()
+                        } label: {
+                            Text("Skip")
+                                .bscFont(size: 16, weight: .medium)
+                                .foregroundColor(.bscTextSecondary)
+                                .padding(.horizontal, BSCSpacing.lg)
+                                .padding(.top, BSCSpacing.md)
+                                .frame(minHeight: BSCTouchTarget.standard)
+                                .contentShape(Rectangle())
                         }
-                        .bscFont(size: 16, weight: .medium)
-                        .foregroundColor(.bscTextSecondary)
-                        .padding(.horizontal, BSCSpacing.lg)
-                        .padding(.top, BSCSpacing.md)
                         .accessibilityIdentifier(AccessibilityID.Onboarding.skip)
                     }
                 }
@@ -60,7 +64,7 @@ struct OnboardingView: View {
                     totalPages: pages.count,
                     onNext: {
                         if currentPage < pages.count - 1 {
-                            withAnimation {
+                            withAnimation(.bscStandard) {
                                 currentPage += 1
                             }
                         } else {
@@ -96,7 +100,7 @@ struct OnboardingView: View {
                     )
                     .frame(width: 600, height: 600)
                     .offset(x: -geo.size.width * 0.1, y: -geo.size.height * 0.3)
-                    .animation(.easeInOut(duration: 0.5), value: currentPage)
+                    .animation(.bscEmphasized, value: currentPage)
 
                 // Bottom gradient orb
                 Circle()
@@ -133,7 +137,7 @@ private struct OnboardingFooter: View {
             HStack(spacing: BSCSpacing.sm) {
                 ForEach(0..<totalPages, id: \.self) { index in
                     Circle()
-                        .fill(index == currentPage ? Color.bscPrimary : Color.bscTextTertiary.opacity(0.5))
+                        .fill(index == currentPage ? Color.bscPrimary : Color.bscTextSecondary.opacity(0.6))
                         .frame(width: index == currentPage ? 10 : 8, height: index == currentPage ? 10 : 8)
                         .animation(.bscSnappy, value: currentPage)
                 }
@@ -150,12 +154,12 @@ private struct OnboardingFooter: View {
                             .bscFont(size: 16, weight: .bold)
                     }
                 }
-                .foregroundColor(.bscTextInverse)
+                .foregroundColor(.bscOnPrimary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, BSCSpacing.lg)
                 .background(LinearGradient.bscPrimaryGradient)
                 .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
-                .bscShadow(BSCShadow.glowOrange)
+                .bscShadow(BSCShadow.glowPrimary)
             }
             .buttonStyle(OnboardingButtonStyle())
             .padding(.horizontal, BSCSpacing.xl)

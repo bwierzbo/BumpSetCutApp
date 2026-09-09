@@ -165,7 +165,7 @@ struct ForgotPasswordView: View {
                     }
 
                 // Individual digit boxes
-                HStack(spacing: 8) {
+                HStack(spacing: BSCSpacing.sm) {
                     ForEach(0..<codeLength, id: \.self) { index in
                         let char = index < otpCode.count
                             ? String(otpCode[otpCode.index(otpCode.startIndex, offsetBy: index)])
@@ -194,7 +194,7 @@ struct ForgotPasswordView: View {
                 }
             }
             .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + BSCDuration.normal) {
                     isCodeFieldFocused = true
                 }
             }
@@ -215,7 +215,9 @@ struct ForgotPasswordView: View {
             } label: {
                 Text("Resend code")
                     .bscFont(size: 13)
-                    .foregroundColor(.bscPrimary)
+                    .foregroundColor(.bscPrimaryText)
+                    .frame(minHeight: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
@@ -251,10 +253,10 @@ struct ForgotPasswordView: View {
                     HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: passwordsMatch ? "checkmark.circle.fill" : "xmark.circle.fill")
                             .bscFont(size: 12)
-                            .foregroundColor(passwordsMatch ? .bscSuccess : .bscError)
+                            .foregroundColor(passwordsMatch ? .bscSuccessText : .bscErrorText)
                         Text(passwordsMatch ? "Passwords match" : "Passwords do not match")
                             .bscFont(size: 12)
-                            .foregroundColor(passwordsMatch ? .bscTextSecondary : .bscError)
+                            .foregroundColor(passwordsMatch ? .bscTextSecondary : .bscErrorText)
                     }
                 }
 
@@ -278,7 +280,7 @@ struct ForgotPasswordView: View {
         if let errorMessage {
             Text(errorMessage)
                 .bscFont(size: 13)
-                .foregroundColor(.bscError)
+                .foregroundColor(.bscErrorText)
         }
     }
 
@@ -288,15 +290,15 @@ struct ForgotPasswordView: View {
         } label: {
             Group {
                 if isLoading {
-                    ProgressView().tint(.black)
+                    ProgressView().tint(.bscOnPrimary)
                 } else {
                     Text(title).bscFont(size: 16, weight: .semibold)
                 }
             }
-            .foregroundColor(.black)
+            .foregroundColor(.bscOnPrimary)
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(Color.bscPrimary)
+            .background(Color.bscPrimaryFill)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
         }
         .disabled(disabled)
@@ -307,10 +309,10 @@ struct ForgotPasswordView: View {
         HStack(spacing: BSCSpacing.xs) {
             Image(systemName: met ? "checkmark.circle.fill" : "circle")
                 .bscFont(size: 12)
-                .foregroundColor(met ? .bscSuccess : .bscTextTertiary)
+                .foregroundColor(met ? .bscSuccessText : .bscTextSecondary)
             Text(label)
                 .bscFont(size: 12)
-                .foregroundColor(met ? .bscTextSecondary : .bscTextTertiary)
+                .foregroundColor(.bscTextSecondary)
         }
     }
 

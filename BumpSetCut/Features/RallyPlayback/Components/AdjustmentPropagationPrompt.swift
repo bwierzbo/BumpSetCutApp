@@ -31,12 +31,12 @@ struct AdjustmentPropagationPrompt: View {
                 VStack(spacing: BSCSpacing.sm) {
                     Text("Apply to Other Rallies?")
                         .bscFont(size: 18, weight: .bold)
-                        .foregroundColor(.bscOnMedia)
+                        .foregroundColor(.bscTextPrimary)
                         .multilineTextAlignment(.center)
 
                     Text("Apply \(changeDescription) to this rally and every rally after it?")
                         .bscFont(size: 14)
-                        .foregroundColor(.bscOnMediaSecondary)
+                        .foregroundColor(.bscTextSecondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -45,20 +45,20 @@ struct AdjustmentPropagationPrompt: View {
                     Button(action: onNo) {
                         Text("Just This One")
                             .bscFont(size: 16, weight: .semibold)
-                            .foregroundColor(.bscOnMedia)
+                            .foregroundColor(.bscTextPrimary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, BSCSpacing.md)
-                            .background(Color.bscOnMedia.opacity(0.15))
+                            .background(Color.bscSurfaceGlass)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                     }
 
                     Button(action: onYes) {
                         Text("Apply to All")
                             .bscFont(size: 16, weight: .bold)
-                            .foregroundColor(.black)
+                            .foregroundColor(.bscOnPrimary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, BSCSpacing.md)
-                            .background(Color.bscPrimary)
+                            .background(Color.bscPrimaryFill)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                     }
                 }
@@ -68,7 +68,7 @@ struct AdjustmentPropagationPrompt: View {
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.xl))
             .overlay(
                 RoundedRectangle(cornerRadius: BSCRadius.xl)
-                    .stroke(Color.bscOnMedia.opacity(0.1), lineWidth: 1)
+                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
             )
             .padding(.horizontal, BSCSpacing.xxl)
         }
@@ -95,7 +95,7 @@ struct AdjustmentPropagationPrompt: View {
 
 #Preview {
     ZStack {
-        Color.gray
+        Color.bscMediaBackground
         AdjustmentPropagationPrompt(rotation: 2.5, zoom: 1.4, onYes: {}, onNo: {})
     }
 }

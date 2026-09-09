@@ -48,7 +48,7 @@ struct UsernamePickerView: View {
                     HStack(spacing: 0) {
                         Text("@")
                             .bscFont(size: 18, weight: .medium)
-                            .foregroundColor(.bscTextTertiary)
+                            .foregroundColor(.bscTextSecondary)
                             .padding(.leading, BSCSpacing.md)
 
                         TextField("username", text: Binding(
@@ -73,10 +73,12 @@ struct UsernamePickerView: View {
                                     .tint(.bscPrimary)
                             } else if viewModel?.isAvailable == true {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.bscSuccess)
+                                    .bscFont(size: 18)
+                                    .foregroundColor(.bscSuccessText)
                             } else if viewModel?.isAvailable == false {
                                 Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.bscError)
+                                    .bscFont(size: 18)
+                                    .foregroundColor(.bscErrorText)
                             }
                         }
                         .frame(width: 24)
@@ -92,18 +94,18 @@ struct UsernamePickerView: View {
                     // Rules text
                     Text("3-20 characters. Letters, numbers, and underscores only.")
                         .bscFont(size: 13)
-                        .foregroundColor(.bscTextTertiary)
+                        .foregroundColor(.bscTextSecondary)
 
                     if viewModel?.isAvailable == false {
                         Text("This username is already taken.")
                             .bscFont(size: 13)
-                            .foregroundColor(.bscError)
+                            .foregroundColor(.bscErrorText)
                     }
 
                     if let error = viewModel?.errorMessage {
                         Text(error)
                             .bscFont(size: 13)
-                            .foregroundColor(.bscError)
+                            .foregroundColor(.bscErrorText)
                     }
                 }
                 .padding(.horizontal, BSCSpacing.xl)
@@ -116,18 +118,18 @@ struct UsernamePickerView: View {
                 } label: {
                     if viewModel?.isSubmitting == true {
                         ProgressView()
-                            .tint(.black)
+                            .tint(.bscOnPrimary)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(Color.bscPrimary)
+                            .background(Color.bscPrimaryFill)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                     } else {
                         Text("Continue")
                             .bscFont(size: 16, weight: .semibold)
-                            .foregroundColor(.black)
+                            .foregroundColor(.bscOnPrimary)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(Color.bscPrimary)
+                            .background(Color.bscPrimaryFill)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                     }
                 }

@@ -13,7 +13,6 @@ struct ProfileView: View {
     @State private var highlightToDelete: Highlight?
     @State private var showReportSheet = false
     @State private var showBlockAlert = false
-    @State private var showCopiedToast = false
     @State private var showingSettings = false
     @State private var toast: BSCToastMessage?
     @Environment(AuthenticationService.self) private var authService
@@ -53,20 +52,6 @@ struct ProfileView: View {
                 }
             }
 
-            // "Copied!" toast
-            if showCopiedToast {
-                VStack {
-                    Spacer()
-                    Text("Copied!")
-                        .bscFont(size: 14, weight: .semibold)
-                        .foregroundColor(.bscOnMedia)
-                        .padding(.horizontal, BSCSpacing.lg)
-                        .padding(.vertical, BSCSpacing.sm)
-                        .background(Color.bscMediaScrimBase.opacity(0.8), in: Capsule())
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .padding(.bottom, BSCSpacing.xl)
-                }
-            }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -154,6 +139,8 @@ struct ProfileView: View {
                         Image(systemName: "ellipsis")
                             .bscFont(size: 16, weight: .medium)
                             .foregroundColor(.bscTextSecondary)
+                            .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("More options")
                 }
@@ -198,10 +185,7 @@ struct ProfileView: View {
                 .onLongPressGesture {
                     UIPasteboard.general.string = profile.username
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    withAnimation { showCopiedToast = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        withAnimation { showCopiedToast = false }
-                    }
+                    toast = BSCToastMessage(text: "Copied!", style: .success)
                 }
 
             if let bio = profile.bio, !bio.isEmpty {
@@ -217,7 +201,7 @@ struct ProfileView: View {
             if let team = profile.teamName, !team.isEmpty {
                 Label(team, systemImage: "person.3")
                     .bscFont(size: 13)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
             }
         }
     }
@@ -296,10 +280,10 @@ struct ProfileView: View {
                 } label: {
                     Text(viewModel.isFollowing ? "Following" : "Follow")
                         .bscFont(size: 14, weight: .semibold)
-                        .foregroundColor(viewModel.isFollowing ? .bscTextPrimary : .white)
+                        .foregroundColor(viewModel.isFollowing ? .bscTextPrimary : .bscOnPrimary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, BSCSpacing.sm)
-                        .background(viewModel.isFollowing ? Color.bscSurfaceGlass : Color.bscPrimary)
+                        .background(viewModel.isFollowing ? Color.bscSurfaceGlass : Color.bscPrimaryFill)
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                 }
                 .accessibilityIdentifier(AccessibilityID.Profile.followButton)
@@ -398,8 +382,9 @@ struct ProfileView: View {
                                     Image(systemName: "ellipsis")
                                         .bscFont(size: 12, weight: .semibold)
                                         .foregroundColor(.bscOnMedia)
-                                        .shadow(color: Color.bscMediaScrimBase.opacity(0.5), radius: 2)
-                                        .frame(width: 44, height: 44)
+                                        .padding(BSCSpacing.sm)
+                                        .background(Color.bscMediaScrim, in: Circle())
+                                        .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
                                         .contentShape(Rectangle())
                                 }
                                 .accessibilityLabel("Post options")
@@ -426,18 +411,18 @@ struct ProfileView: View {
                 .clipped()
 
                 // Bottom-left: stats overlay
-                HStack(spacing: 4) {
+                HStack(spacing: BSCSpacing.xs) {
                     if isMulti {
                         Image(systemName: "square.stack.fill")
                             .bscFont(size: 9)
                     }
-                    HStack(spacing: 2) {
+                    HStack(spacing: BSCSpacing.xxs) {
                         Image(systemName: "heart.fill")
                             .bscFont(size: 9)
                         Text("\(highlight.likesCount)")
                             .bscFont(size: 9, weight: .medium)
                     }
-                    HStack(spacing: 2) {
+                    HStack(spacing: BSCSpacing.xxs) {
                         Image(systemName: "bubble.right.fill")
                             .bscFont(size: 9)
                         Text("\(highlight.commentsCount)")
@@ -459,8 +444,9 @@ struct ProfileView: View {
                             Image(systemName: "square.stack.fill")
                                 .bscFont(size: 12)
                                 .foregroundColor(.bscOnMedia)
-                                .shadow(color: Color.bscMediaScrimBase.opacity(0.5), radius: 2)
-                                .padding(6)
+                                .padding(BSCSpacing.xs)
+                                .background(Color.bscMediaScrim, in: Circle())
+                                .padding(BSCSpacing.xs)
                         }
                         Spacer()
                     }

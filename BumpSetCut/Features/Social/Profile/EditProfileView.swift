@@ -70,7 +70,7 @@ struct EditProfileView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundColor(.bscError)
+                            .foregroundColor(.bscErrorText)
                             .bscFont(size: 13)
                     }
                 }
@@ -132,12 +132,12 @@ struct EditProfileView: View {
 
                     // Camera badge
                     Circle()
-                        .fill(Color.bscPrimary)
+                        .fill(Color.bscPrimaryFill)
                         .frame(width: 28, height: 28)
                         .overlay(
                             Image(systemName: "camera.fill")
                                 .bscFont(size: 12, weight: .semibold)
-                                .foregroundColor(.white)
+                                .foregroundColor(.bscOnPrimary)
                         )
                         .offset(x: 2, y: 2)
                 }
@@ -156,7 +156,7 @@ struct EditProfileView: View {
             } else {
                 Text("Tap to change photo")
                     .bscFont(size: 12)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
             }
         }
     }

@@ -76,18 +76,28 @@ struct RallyTrimOverlay: View {
 
                 // Cancel / Duration / Done
                 HStack {
-                    Button("Cancel") { onCancel() }
-                        .bscFont(size: 16)
-                        .foregroundColor(.bscOnMedia)
+                    Button(action: onCancel) {
+                        Text("Cancel")
+                            .bscFont(size: 16)
+                            .foregroundColor(.bscOnMedia)
+                            .frame(minHeight: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
+                    }
                     Spacer()
                     Text(formatDuration(selectionDuration))
                         .bscFont(size: 15, weight: .medium, design: .monospaced)
-                        .foregroundColor(.bscPrimary)
+                        .foregroundColor(.bscOnMedia)
                     Spacer()
-                    Button("Done") { onConfirm() }
-                        .bscFont(size: 16, weight: .semibold)
-                        .foregroundColor(.bscPrimary)
+                    Button(action: onConfirm) {
+                        Text("Done")
+                            .bscFont(size: 16, weight: .semibold)
+                            .foregroundColor(.bscPrimary)
+                            .frame(minHeight: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
+                    }
                 }
+                .padding(.horizontal, BSCSpacing.lg)
+                .background(Capsule().fill(Color.bscMediaScrim))
                 .padding(.horizontal, BSCSpacing.xl)
                 .padding(.bottom, BSCSpacing.md)
 
@@ -150,10 +160,12 @@ struct RallyTrimOverlay: View {
                 Button { onResetZoom() } label: {
                     Image(systemName: "arrow.counterclockwise")
                         .bscFont(size: 12, weight: .semibold)
+                        .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                 }
             }
         }
-        .foregroundColor(Color.bscOnMedia.opacity(0.85))
+        .foregroundColor(.bscOnMedia)
     }
 
     // MARK: - Angle Control
@@ -263,9 +275,9 @@ struct RallyTrimOverlay: View {
             // 4. Yellow top/bottom borders between handles
             let innerWidth = max(0, rightX - leftX - 2 * handleWidth)
             VStack(spacing: 0) {
-                Rectangle().fill(Color.bscPrimary).frame(height: borderThickness)
+                Rectangle().fill(Color.bscPrimaryBright).frame(height: borderThickness)
                 Spacer()
-                Rectangle().fill(Color.bscPrimary).frame(height: borderThickness)
+                Rectangle().fill(Color.bscPrimaryBright).frame(height: borderThickness)
             }
             .frame(width: innerWidth, height: barHeight)
             .offset(x: leftX + handleWidth)

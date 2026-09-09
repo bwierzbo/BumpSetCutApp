@@ -118,7 +118,7 @@ struct HighlightCardView: View {
                 // Like heart animation
                 if showLikeHeart {
                     Image(systemName: "heart.fill")
-                        .font(.system(size: 80))
+                        .bscFont(size: 80)
                         .foregroundColor(.bscOnMedia)
                         .shadow(color: Color.bscMediaScrimBase.opacity(0.3), radius: 8)
                         .transition(.scale.combined(with: .opacity))
@@ -133,8 +133,8 @@ struct HighlightCardView: View {
                         HStack(spacing: 6) {
                             ForEach(0..<videoURLs.count, id: \.self) { i in
                                 Circle()
-                                    .fill(i == currentVideoPage ? Color.bscOnMedia : Color.bscOnMedia.opacity(0.35))
-                                    .frame(width: 7, height: 7)
+                                    .fill(i == currentVideoPage ? Color.bscOnMedia : Color.bscOnMedia.opacity(0.5))
+                                    .frame(width: 8, height: 8)
                             }
                         }
                         .accessibilityElement(children: .ignore)
@@ -230,6 +230,8 @@ struct HighlightCardView: View {
                                 .bscFont(size: 14, weight: .semibold)
                                 .foregroundColor(.bscOnMedia)
                         }
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("View profile of \(highlight.author?.username ?? "user")")
@@ -247,6 +249,11 @@ struct HighlightCardView: View {
                                     .lineLimit(1)
                             }
                             .foregroundColor(.bscOnMedia)
+                            .padding(.horizontal, BSCSpacing.sm)
+                            .padding(.vertical, BSCSpacing.xxs)
+                            .background(Color.bscMediaScrim, in: Capsule())
+                            .frame(minHeight: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .disabled(onLocation == nil)
@@ -274,8 +281,10 @@ struct HighlightCardView: View {
                             }
                             .foregroundColor(.bscOnMedia)
                             .padding(.horizontal, BSCSpacing.sm)
-                            .padding(.vertical, BSCSpacing.xxs)
+                            .padding(.vertical, BSCSpacing.sm)
                             .background(Color.bscMediaScrim, in: Capsule())
+                            .frame(minHeight: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
@@ -318,7 +327,7 @@ struct HighlightCardView: View {
                         Image(systemName: "ellipsis")
                             .bscFont(size: 22)
                             .foregroundColor(.bscOnMedia)
-                            .frame(width: 44, height: 32)
+                            .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
                             .shadow(color: Color.bscMediaScrimBase.opacity(0.4), radius: 4)
                     }
                     .accessibilityLabel("More options")
@@ -328,7 +337,7 @@ struct HighlightCardView: View {
                         UIImpactFeedbackGenerator.light()
                         onLike()
                     } label: {
-                        VStack(spacing: 4) {
+                        VStack(spacing: BSCSpacing.xs) {
                             Image(systemName: highlight.isLikedByMe ? "heart.fill" : "heart")
                                 .bscFont(size: 28)
                                 .foregroundColor(highlight.isLikedByMe ? .bscError : .bscOnMedia)
@@ -339,6 +348,8 @@ struct HighlightCardView: View {
                                     .foregroundColor(.bscOnMedia)
                             }
                         }
+                        .frame(minWidth: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(highlight.isLikedByMe ? "Unlike" : "Like")
@@ -349,7 +360,7 @@ struct HighlightCardView: View {
                         UIImpactFeedbackGenerator.light()
                         onComment()
                     } label: {
-                        VStack(spacing: 4) {
+                        VStack(spacing: BSCSpacing.xs) {
                             Image(systemName: "bubble.right")
                                 .bscFont(size: 26)
                                 .foregroundColor(.bscOnMedia)
@@ -358,6 +369,8 @@ struct HighlightCardView: View {
                                 .bscFont(size: 12, weight: .medium)
                                 .foregroundColor(.bscOnMedia)
                         }
+                        .frame(minWidth: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Comments")
@@ -368,7 +381,7 @@ struct HighlightCardView: View {
                         item: highlight.deepLinkURL,
                         message: Text("Check out this rally on BumpSetCut")
                     ) {
-                        VStack(spacing: 4) {
+                        VStack(spacing: BSCSpacing.xs) {
                             Image(systemName: "arrowshape.turn.up.right")
                                 .bscFont(size: 26)
                                 .foregroundColor(.bscOnMedia)
@@ -377,6 +390,8 @@ struct HighlightCardView: View {
                                 .bscFont(size: 12, weight: .medium)
                                 .foregroundColor(.bscOnMedia)
                         }
+                        .frame(minWidth: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Share highlight")

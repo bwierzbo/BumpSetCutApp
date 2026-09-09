@@ -36,7 +36,7 @@ struct RallyExportSheet: View {
                         dismiss()
                         onDismiss()
                     }
-                    .foregroundColor(.bscPrimary)
+                    .foregroundColor(.bscPrimaryText)
                     .disabled(isExporting)
                 }
             }
@@ -56,10 +56,10 @@ struct RallyExportSheet: View {
 
     private var noSavedRalliesView: some View {
         Text("No rallies saved — swipe right on rallies to keep them.")
-            .font(.body)
+            .bscFont(size: 17)
             .foregroundColor(.bscTextSecondary)
             .multilineTextAlignment(.center)
-            .padding(.horizontal)
+            .padding(.horizontal, BSCSpacing.lg)
             .padding(.vertical, BSCSpacing.xxl)
     }
 
@@ -71,7 +71,7 @@ struct RallyExportSheet: View {
     private var exportOptionsView: some View {
         VStack(spacing: BSCSpacing.lg) {
             Text("Export \(rallyCountLabel)")
-                .font(.headline)
+                .bscFont(size: 17, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .padding(.bottom, BSCSpacing.sm)
 
@@ -95,7 +95,7 @@ struct RallyExportSheet: View {
                 title: "Export Combined Video",
                 subtitle: "Stitch all saved rallies into one video",
                 icon: "film.stack",
-                color: .bscTeal,
+                color: .bscTealText,
                 isDisabled: isExporting
             ) {
                 guard !isExporting else { return }
@@ -123,18 +123,18 @@ struct RallyExportOptionCard: View {
             HStack(spacing: BSCSpacing.lg) {
                 Image(systemName: icon)
                     .bscFont(size: 24, weight: .medium)
-                    .foregroundColor(isDisabled ? .bscTextTertiary : color)
+                    .foregroundColor(isDisabled ? .bscTextSecondary : color)
                     .frame(width: 50, height: 50)
                     .background((isDisabled ? Color.bscTextTertiary : color).opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                     Text(title)
-                        .font(.headline)
+                        .bscFont(size: 17, weight: .semibold)
                         .foregroundColor(isDisabled ? .bscTextTertiary : .bscTextPrimary)
 
                     Text(subtitle)
-                        .font(.body)
+                        .bscFont(size: 17)
                         .foregroundColor(.bscTextSecondary)
                 }
 
@@ -142,7 +142,7 @@ struct RallyExportOptionCard: View {
 
                 Image(systemName: "chevron.right")
                     .bscFont(size: 14, weight: .medium)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
             }
             .padding(BSCSpacing.lg)
             .background(Color.bscBackgroundElevated)

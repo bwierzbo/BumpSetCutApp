@@ -153,7 +153,7 @@ struct SocialFeedView: View {
     /// bars bottom-left and the action rail on the right.
     private var loadingSkeleton: some View {
         ZStack {
-            Color.bscMediaScrim.ignoresSafeArea()
+            Color.bscMediaBackground.ignoresSafeArea()
 
             VStack {
                 Spacer()
@@ -202,6 +202,9 @@ struct SocialFeedView: View {
             if viewModel.isLoadingMore {
                 ProgressView()
                     .tint(.bscOnMedia)
+                    .padding(.horizontal, BSCSpacing.md)
+                    .padding(.vertical, BSCSpacing.sm)
+                    .background(Capsule().fill(Color.bscMediaScrim))
             } else {
                 Button {
                     Task { await viewModel.retryLoadMore() }
@@ -209,12 +212,14 @@ struct SocialFeedView: View {
                     Text("Couldn't load more — tap to retry")
                         .bscFont(size: 13, weight: .medium)
                         .foregroundColor(.bscOnMedia)
+                        .padding(.horizontal, BSCSpacing.md)
+                        .padding(.vertical, BSCSpacing.sm)
+                        .background(Capsule().fill(Color.bscMediaScrim))
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                 }
             }
         }
-        .padding(.horizontal, BSCSpacing.md)
-        .padding(.vertical, BSCSpacing.sm)
-        .background(Capsule().fill(Color.bscMediaScrim))
         .padding(.bottom, BSCSpacing.sm)
     }
 
@@ -237,6 +242,8 @@ struct SocialFeedView: View {
                         .foregroundColor(selectedTab == tab ? .bscOnMedia : .bscOnMediaSecondary)
                         .padding(.vertical, BSCSpacing.sm)
                         .padding(.horizontal, BSCSpacing.md)
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier(tab == .forYou ? AccessibilityID.Feed.forYouTab : AccessibilityID.Feed.followingTab)
             }
@@ -272,7 +279,9 @@ struct SocialFeedView: View {
             } label: {
                 Text("Refresh")
                     .bscFont(size: 15, weight: .medium)
-                    .foregroundColor(.bscPrimary)
+                    .foregroundColor(.bscPrimaryText)
+                    .frame(minHeight: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
             }
             .accessibilityIdentifier(AccessibilityID.Feed.refreshButton)
         }

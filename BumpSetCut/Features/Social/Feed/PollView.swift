@@ -58,15 +58,17 @@ struct PollView: View {
     private func voteButtonLabel(option: PollOption) -> some View {
         Text(option.text)
             .bscFont(size: 14, weight: .medium)
-            .foregroundColor(.bscPrimary)
+            .foregroundColor(.bscPrimaryText)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, BSCSpacing.md)
             .padding(.vertical, BSCSpacing.sm)
+            .frame(minHeight: BSCTouchTarget.standard)
             .background(
                 RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
-                    .stroke(Color.bscPrimary.opacity(0.5), lineWidth: 1)
+                    .stroke(Color.bscPrimary, lineWidth: 1)
             )
+            .contentShape(Rectangle())
     }
 
     private func resultBarLabel(option: PollOption) -> some View {
@@ -78,7 +80,7 @@ struct PollView: View {
             if isMyVote {
                 Image(systemName: "checkmark.circle.fill")
                     .bscFont(size: 13)
-                    .foregroundColor(.bscPrimary)
+                    .foregroundColor(.bscPrimaryText)
             }
             Text(option.text)
                 .bscFont(size: 14, weight: isMyVote ? .bold : .medium)
@@ -89,14 +91,15 @@ struct PollView: View {
 
             Text("\(percentage)%")
                 .bscFont(size: 13, weight: .bold)
-                .foregroundColor(isMyVote ? .bscPrimary : .bscTextSecondary)
+                .foregroundColor(isMyVote ? .bscPrimaryText : .bscTextSecondary)
         }
         .padding(.horizontal, BSCSpacing.md)
         .padding(.vertical, BSCSpacing.sm)
+        .frame(minHeight: BSCTouchTarget.standard)
         .background(
             GeometryReader { geo in
                 RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
-                    .fill(isMyVote ? Color.bscPrimary.opacity(0.3) : Color.bscPrimary.opacity(0.12))
+                    .fill(isMyVote ? Color.bscPrimary.opacity(0.3) : Color.bscPrimarySubtle)
                     .frame(width: geo.size.width * fraction)
             }
         )
@@ -104,6 +107,7 @@ struct PollView: View {
             RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
                 .fill(Color.bscSurfaceGlass)
         )
+        .contentShape(Rectangle())
     }
 }
 

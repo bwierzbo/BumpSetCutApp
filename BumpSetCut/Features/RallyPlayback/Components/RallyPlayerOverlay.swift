@@ -54,10 +54,10 @@ struct RallyPlayerOverlay: View {
             .frame(width: 44, height: 44)
             .background(
                 Circle()
-                    .fill(Color.bscSurfaceGlass)
+                    .fill(Color.bscMediaScrim)
                     .overlay(
                         Circle()
-                            .stroke(Color.bscOnMedia.opacity(0.2), lineWidth: 1)
+                            .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1)
                     )
             )
         }
@@ -78,7 +78,7 @@ struct RallyPlayerOverlay: View {
                         .fill(Color.bscOnMedia.opacity(0.1))
                         .overlay(
                             Circle()
-                                .stroke(Color.bscOnMedia.opacity(0.15), lineWidth: 1)
+                                .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1)
                         )
                 )
         }
@@ -96,10 +96,10 @@ struct RallyPlayerOverlay: View {
                 .frame(width: 44, height: 44)
                 .background(
                     Circle()
-                        .fill(Color.bscSurfaceGlass)
+                        .fill(Color.bscMediaScrim)
                         .overlay(
                             Circle()
-                                .stroke(Color.bscOnMedia.opacity(0.2), lineWidth: 1)
+                                .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1)
                         )
                 )
         }
@@ -115,7 +115,7 @@ struct RallyPlayerOverlay: View {
                 if isFavorited {
                     Image(systemName: "star.fill")
                         .bscFont(size: 12, weight: .bold)
-                        .foregroundColor(.bscPrimary)
+                        .foregroundColor(.bscOnMedia)
                 }
 
                 Text("\(currentIndex + 1)")
@@ -125,11 +125,11 @@ struct RallyPlayerOverlay: View {
 
                 Text("/")
                     .bscFont(size: 14)
-                    .foregroundColor(Color.bscOnMedia.opacity(0.6))
+                    .foregroundColor(.bscOnMediaSecondary)
 
                 Text("\(totalCount)")
                     .bscFont(size: 14, weight: .medium)
-                    .foregroundColor(Color.bscOnMedia.opacity(0.8))
+                    .foregroundColor(.bscOnMediaSecondary)
 
                 Image(systemName: "square.grid.2x2")
                     .bscFont(size: 11, weight: .semibold)
@@ -140,7 +140,7 @@ struct RallyPlayerOverlay: View {
             .padding(.vertical, BSCSpacing.sm)
             .background(
                 Capsule()
-                    .fill(Color.bscSurfaceGlass)
+                    .fill(Color.bscMediaScrim)
                     .overlay(
                         Capsule()
                             .stroke(statusBorderColor, lineWidth: isSaved || isRemoved || isFavorited ? 2 : 1)
@@ -164,7 +164,7 @@ struct RallyPlayerOverlay: View {
         } else if isRemoved {
             return .bscError.opacity(0.6)
         } else {
-            return Color.bscOnMedia.opacity(0.2)
+            return Color.bscOnMedia.opacity(0.4)
         }
     }
 }

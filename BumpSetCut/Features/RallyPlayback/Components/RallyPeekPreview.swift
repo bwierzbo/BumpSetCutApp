@@ -26,7 +26,7 @@ struct RallyPeekPreview: View {
 
     private func peekStickyNoteView(direction: RallyPeekDirection) -> some View {
         peekFrameContent
-            .frame(width: min(geometry.size.width * 0.9, geometry.size.width - 40))
+            .frame(width: min(geometry.size.width * 0.9, geometry.size.width - BSCSpacing.xxl))
             .aspectRatio(16/9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg))
             .scaleEffect(calculateStickyNoteScale())
@@ -53,11 +53,11 @@ struct RallyPeekPreview: View {
                 VStack(spacing: BSCSpacing.sm) {
                     Image(systemName: "video.fill")
                         .bscFont(size: 30)
-                        .foregroundColor(.gray)
+                        .foregroundColor(.bscOnMediaSecondary)
 
                     Text("Preview")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                        .bscFont(size: 12)
+                        .foregroundColor(.bscOnMediaSecondary)
                 }
             }
         }

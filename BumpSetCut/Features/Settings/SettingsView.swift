@@ -105,12 +105,12 @@ struct SettingsView: View {
                         dismiss()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(.bscPrimary)
+                    .foregroundColor(.bscPrimaryText)
                     .accessibilityIdentifier(AccessibilityID.Settings.done)
                 }
             }
             .onAppear {
-                withAnimation {
+                withAnimation(.bscSpring) {
                     hasAppeared = true
                 }
             }
@@ -139,7 +139,7 @@ private extension SettingsView {
             title: subscriptionService.isPro ? "Pro" : "Free Plan",
             subtitle: subscriptionService.isPro ? "You have unlimited access" : "Upgrade to unlock all features",
             icon: subscriptionService.isPro ? "crown.fill" : "crown",
-            iconColor: subscriptionService.isPro ? .yellow : .bscPrimary
+            iconColor: subscriptionService.isPro ? .bscWarningText : .bscPrimary
         ) {
             VStack(spacing: BSCSpacing.md) {
                 if subscriptionService.isPro {
@@ -147,9 +147,9 @@ private extension SettingsView {
                     VStack(spacing: BSCSpacing.sm) {
                         HStack {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(Color.bscSuccess)
+                                .foregroundStyle(Color.bscSuccessText)
                             Text("BumpSetCut Pro Active")
-                                .font(.headline)
+                                .bscFont(size: 17, weight: .semibold)
                             Spacer()
                         }
 
@@ -164,13 +164,13 @@ private extension SettingsView {
                                 Text("Manage Subscription")
                                 Spacer()
                                 Image(systemName: "chevron.right")
-                                    .font(.caption)
+                                    .bscFont(size: 12)
                                     .foregroundStyle(Color.bscTextSecondary)
                             }
                         }
                         .foregroundStyle(Color.bscTextPrimary)
                     }
-                    .padding()
+                    .bscCardPadding()
                     .background(
                         RoundedRectangle(cornerRadius: BSCRadius.md)
                             .fill(Color.bscSurfaceGlass)
@@ -198,7 +198,7 @@ private extension SettingsView {
                             value: "On exported videos"
                         )
                     }
-                    .padding()
+                    .bscCardPadding()
                     .background(
                         RoundedRectangle(cornerRadius: BSCRadius.md)
                             .fill(Color.bscSurfaceGlass)
@@ -212,12 +212,12 @@ private extension SettingsView {
                             Text("Upgrade to Pro")
                                 .fontWeight(.semibold)
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.bscOnPrimary)
                         .frame(maxWidth: .infinity)
-                        .padding()
+                        .bscCardPadding()
                         .background(
                             RoundedRectangle(cornerRadius: BSCRadius.md)
-                                .fill(LinearGradient(colors: [Color.bscBlue, Color.bscBlueDark], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .fill(LinearGradient.bscPrimaryGradient)
                         )
                     }
                 }
@@ -235,17 +235,17 @@ struct LimitRow: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .font(.caption)
+                .bscFont(size: 12)
                 .foregroundStyle(Color.bscTextSecondary)
                 .frame(width: BSCIconSize.md)
 
             Text(title)
-                .font(.subheadline)
+                .bscFont(size: 15)
 
             Spacer()
 
             Text(value)
-                .font(.subheadline)
+                .bscFont(size: 15)
                 .foregroundStyle(Color.bscTextSecondary)
         }
     }
@@ -256,7 +256,7 @@ struct LimitRow: View {
 private extension SettingsView {
     var debugSection: some View {
         @Bindable var appSettings = appSettings
-        return BSCSettingsSection(title: "Debug", subtitle: "Debug builds only", icon: "ladybug.fill", iconColor: .bscTeal) {
+        return BSCSettingsSection(title: "Debug", subtitle: "Debug builds only", icon: "ladybug.fill", iconColor: .bscTealText) {
             VStack(spacing: BSCSpacing.md) {
                 BSCSettingsToggle(
                     title: "Pro Mode",
@@ -269,7 +269,7 @@ private extension SettingsView {
                 )
 
                 Divider()
-                    .background(Color.bscSurfaceBorder)
+                    .overlay(Color.bscSurfaceBorder)
 
                 BSCSettingsToggle(
                     title: "Debug Features",
@@ -279,7 +279,7 @@ private extension SettingsView {
                 )
 
                 Divider()
-                    .background(Color.bscSurfaceBorder)
+                    .overlay(Color.bscSurfaceBorder)
 
                 BSCSettingsToggle(
                     title: "Performance Metrics",
@@ -334,9 +334,13 @@ private extension SettingsView {
                             VStack(spacing: BSCSpacing.xs) {
                                 ZStack {
                                     RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
-                                        .fill(theme == .dark ? Color(hex: "#0D0D0E") :
+                                        // Swatches preview each theme's background regardless of the
+                                        // current mode: dark = bscMediaBackground (fixed dark bg value),
+                                        // light = bscBackground's light value (no fixed-light token),
+                                        // system = the adaptive background itself.
+                                        .fill(theme == .dark ? Color.bscMediaBackground :
                                               theme == .light ? Color(hex: "#F8F8FA") :
-                                              Color(light: Color(hex: "#F8F8FA"), dark: Color(hex: "#0D0D0E")))
+                                              Color.bscBackground)
                                         .frame(height: 48)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
@@ -346,6 +350,9 @@ private extension SettingsView {
                                     Image(systemName: theme == .dark ? "moon.fill" :
                                             theme == .light ? "sun.max.fill" : "circle.lefthalf.filled")
                                         .bscFont(size: 18)
+                                        // Mode-invariant on purpose: each glyph must stay legible on its
+                                        // own swatch. #1A1A1C is bscTextPrimary's light value, which has
+                                        // no fixed (non-adaptive) token.
                                         .foregroundColor(theme == .dark ? .white : theme == .light ? Color(hex: "#1A1A1C") : .bscBlue)
                                 }
 
@@ -413,7 +420,7 @@ private extension SettingsView {
                 )
 
                 if appSettings.enableDataFlywheel {
-                    Divider().background(Color.bscSurfaceBorder)
+                    Divider().overlay(Color.bscSurfaceBorder)
 
                     HStack {
                         Text("Contributed")
@@ -431,11 +438,15 @@ private extension SettingsView {
                                 .bscFont(size: 14)
                                 .foregroundColor(.bscTextSecondary)
                             Spacer()
-                            Button("Clear (\(flywheelService.pendingCount))") {
+                            Button {
                                 flywheelService.clearPending()
+                            } label: {
+                                Text("Clear (\(flywheelService.pendingCount))")
+                                    .bscFont(size: 14, weight: .medium)
+                                    .foregroundColor(.bscPrimaryText)
+                                    .frame(minHeight: BSCTouchTarget.standard)
+                                    .contentShape(Rectangle())
                             }
-                            .bscFont(size: 14, weight: .medium)
-                            .foregroundColor(.bscPrimary)
                         }
                     }
                 }
@@ -476,7 +487,7 @@ private extension SettingsView {
                     }
 
                     Divider()
-                        .background(Color.bscSurfaceBorder)
+                        .overlay(Color.bscSurfaceBorder)
 
                     // Sign out button
                     Button {
@@ -490,12 +501,14 @@ private extension SettingsView {
                                 .foregroundColor(.bscTextSecondary)
                             Spacer()
                         }
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier(AccessibilityID.Settings.signOut)
 
                     Divider()
-                        .background(Color.bscSurfaceBorder)
+                        .overlay(Color.bscSurfaceBorder)
 
                     // Delete account button
                     Button {
@@ -504,16 +517,18 @@ private extension SettingsView {
                         HStack {
                             if isDeletingAccount {
                                 ProgressView()
-                                    .tint(.bscError)
+                                    .tint(.bscErrorText)
                             } else {
                                 Image(systemName: "trash")
-                                    .foregroundColor(.bscError)
+                                    .foregroundColor(.bscErrorText)
                             }
                             Text("Delete Account")
                                 .bscFont(size: 14, weight: .medium)
-                                .foregroundColor(.bscError)
+                                .foregroundColor(.bscErrorText)
                             Spacer()
                         }
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .disabled(isDeletingAccount)
@@ -576,7 +591,7 @@ private extension SettingsView {
 // MARK: - Status Section
 private extension SettingsView {
     var statusSection: some View {
-        BSCSettingsSection(title: "Current Status", icon: "checkmark.circle.fill", iconColor: .bscSuccess) {
+        BSCSettingsSection(title: "Current Status", icon: "checkmark.circle.fill", iconColor: .bscSuccessText) {
             VStack(spacing: BSCSpacing.md) {
                 BSCStatusRow(
                     title: "Analytics",
@@ -585,7 +600,7 @@ private extension SettingsView {
 
                 #if DEBUG
                 Divider()
-                    .background(Color.bscSurfaceBorder)
+                    .overlay(Color.bscSurfaceBorder)
 
                 BSCStatusRow(
                     title: "Debug Features",
@@ -593,7 +608,7 @@ private extension SettingsView {
                 )
 
                 Divider()
-                    .background(Color.bscSurfaceBorder)
+                    .overlay(Color.bscSurfaceBorder)
 
                 BSCStatusRow(
                     title: "Performance Metrics",
@@ -617,19 +632,20 @@ private extension SettingsView {
                 } label: {
                     HStack {
                         Text("Privacy Policy")
-                            .font(.subheadline)
+                            .bscFont(size: 15)
                         Spacer()
                         Image(systemName: "arrow.up.right")
-                            .font(.caption)
+                            .bscFont(size: 12)
                             .foregroundStyle(Color.bscTextSecondary)
                     }
+                    .foregroundStyle(Color.bscTextPrimary)
+                    .bscCardPadding()
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCRadius.md)
+                            .fill(Color.bscSurfaceGlass)
+                    )
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(Color.bscTextPrimary)
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: BSCRadius.md)
-                        .fill(Color.bscSurfaceGlass)
-                )
                 .accessibilityHint("Opens in browser")
                 .accessibilityIdentifier(AccessibilityID.Settings.privacyPolicy)
 
@@ -640,19 +656,20 @@ private extension SettingsView {
                 } label: {
                     HStack {
                         Text("Terms of Service")
-                            .font(.subheadline)
+                            .bscFont(size: 15)
                         Spacer()
                         Image(systemName: "arrow.up.right")
-                            .font(.caption)
+                            .bscFont(size: 12)
                             .foregroundStyle(Color.bscTextSecondary)
                     }
+                    .foregroundStyle(Color.bscTextPrimary)
+                    .bscCardPadding()
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCRadius.md)
+                            .fill(Color.bscSurfaceGlass)
+                    )
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(Color.bscTextPrimary)
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: BSCRadius.md)
-                        .fill(Color.bscSurfaceGlass)
-                )
                 .accessibilityHint("Opens in browser")
                 .accessibilityIdentifier(AccessibilityID.Settings.termsOfService)
 
@@ -663,19 +680,20 @@ private extension SettingsView {
                 } label: {
                     HStack {
                         Text("Community Guidelines")
-                            .font(.subheadline)
+                            .bscFont(size: 15)
                         Spacer()
                         Image(systemName: "arrow.up.right")
-                            .font(.caption)
+                            .bscFont(size: 12)
                             .foregroundStyle(Color.bscTextSecondary)
                     }
+                    .foregroundStyle(Color.bscTextPrimary)
+                    .bscCardPadding()
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCRadius.md)
+                            .fill(Color.bscSurfaceGlass)
+                    )
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(Color.bscTextPrimary)
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: BSCRadius.md)
-                        .fill(Color.bscSurfaceGlass)
-                )
                 .accessibilityHint("Opens in browser")
                 .accessibilityIdentifier(AccessibilityID.Settings.communityGuidelines)
             }
@@ -715,7 +733,7 @@ private extension SettingsView {
                     VStack(spacing: BSCSpacing.xxs) {
                         Text("Version")
                             .bscFont(size: 11)
-                            .foregroundColor(.bscTextTertiary)
+                            .foregroundColor(.bscTextSecondary)
                             .textCase(.uppercase)
                         Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
                             .bscFont(size: 14, weight: .semibold)
@@ -723,14 +741,14 @@ private extension SettingsView {
                     }
                     .accessibilityIdentifier(AccessibilityID.Settings.appVersion)
 
-                    Rectangle()
-                        .fill(Color.bscSurfaceBorder)
-                        .frame(width: 1, height: 30)
+                    Divider()
+                        .overlay(Color.bscSurfaceBorder)
+                        .frame(height: 30)
 
                     VStack(spacing: BSCSpacing.xxs) {
                         Text("Build")
                             .bscFont(size: 11)
-                            .foregroundColor(.bscTextTertiary)
+                            .foregroundColor(.bscTextSecondary)
                             .textCase(.uppercase)
                         Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
                             .bscFont(size: 14, weight: .semibold)
@@ -769,7 +787,7 @@ private struct BSCSettingsSection<Content: View>: View {
                 if let subtitle = subtitle {
                     Text("(\(subtitle))")
                         .bscFont(size: 11)
-                        .foregroundColor(.bscTextTertiary)
+                        .foregroundColor(.bscTextSecondary)
                 }
             }
             .padding(.horizontal, BSCSpacing.xs)
@@ -795,40 +813,34 @@ private struct BSCSettingsToggle: View {
     @Binding var isOn: Bool
 
     var body: some View {
-        HStack(spacing: BSCSpacing.md) {
-            // Icon
-            ZStack {
-                Circle()
-                    .fill(Color.bscBlue.opacity(0.15))
-                    .frame(width: 36, height: 36)
+        // The whole row is the Toggle's label, so tapping anywhere flips it.
+        Toggle(isOn: $isOn) {
+            HStack(spacing: BSCSpacing.md) {
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(Color.bscBlue.opacity(0.15))
+                        .frame(width: 36, height: 36)
 
-                Image(systemName: icon)
-                    .bscFont(size: 16)
-                    .foregroundColor(.bscBlue)
+                    Image(systemName: icon)
+                        .bscFont(size: 16)
+                        .foregroundColor(.bscBlue)
+                }
+
+                // Text
+                VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
+                    Text(title)
+                        .bscFont(size: 16, weight: .semibold)
+                        .foregroundColor(.bscTextPrimary)
+
+                    Text(subtitle)
+                        .bscFont(size: 12)
+                        .foregroundColor(.bscTextSecondary)
+                }
             }
-
-            // Text
-            VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                Text(title)
-                    .bscFont(size: 16, weight: .semibold)
-                    .foregroundColor(.bscTextPrimary)
-
-                Text(subtitle)
-                    .bscFont(size: 12)
-                    .foregroundColor(.bscTextSecondary)
-            }
-
-            Spacer()
-
-            // Toggle
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-                .tint(.bscPrimary)
         }
-        .accessibilityElement(children: .combine)
+        .tint(.bscPrimary)
         .accessibilityLabel("\(title), \(subtitle)")
-        .accessibilityValue(isOn ? "On" : "Off")
-        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -847,12 +859,12 @@ private struct BSCStatusRow: View {
 
             HStack(spacing: BSCSpacing.xs) {
                 Circle()
-                    .fill(isEnabled ? Color.bscSuccess : Color.bscTextTertiary)
+                    .fill(isEnabled ? Color.bscSuccessText : Color.bscTextSecondary)
                     .frame(width: 8, height: 8)
 
                 Text(isEnabled ? "Enabled" : "Disabled")
                     .bscFont(size: 13, weight: .medium)
-                    .foregroundColor(isEnabled ? .bscSuccess : .bscTextTertiary)
+                    .foregroundColor(isEnabled ? .bscSuccessText : .bscTextSecondary)
             }
         }
     }
@@ -882,7 +894,7 @@ private struct DeleteAccountConfirmationView: View {
                         .frame(width: 64, height: 64)
                     Image(systemName: "exclamationmark.triangle.fill")
                         .bscFont(size: 28)
-                        .foregroundColor(.bscError)
+                        .foregroundColor(.bscErrorText)
                 }
                 .padding(.top, BSCSpacing.xl)
 
@@ -918,10 +930,10 @@ private struct DeleteAccountConfirmationView: View {
                 } label: {
                     Text("Delete Account")
                         .bscFont(size: 16, weight: .semibold)
-                        .foregroundColor(.white)
+                        .foregroundColor(.bscOnPrimary)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(matches ? Color.bscError : Color.bscError.opacity(0.4))
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .background(matches ? Color.bscErrorFill : Color.bscErrorFill.opacity(0.4))
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                 }
                 .disabled(!matches)
@@ -987,17 +999,17 @@ struct FlywheelConsentSheet: View {
 
                         Link("Privacy Policy", destination: URL(string: "https://bumpsetcut.com/privacy")!)
                             .bscFont(size: 14, weight: .medium)
-                            .foregroundColor(.bscPrimary)
+                            .foregroundColor(.bscPrimaryText)
 
                         Button {
                             onAccept()
                         } label: {
                             Text("Turn On Contributions")
                                 .bscFont(size: 16, weight: .semibold)
-                                .foregroundColor(.white)
+                                .foregroundColor(.bscOnPrimary)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, BSCSpacing.md)
-                                .background(Color.bscPrimary)
+                                .background(Color.bscPrimaryFill)
                                 .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                         }
                         .padding(.top, BSCSpacing.sm)

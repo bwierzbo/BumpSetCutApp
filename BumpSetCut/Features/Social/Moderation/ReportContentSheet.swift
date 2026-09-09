@@ -33,10 +33,10 @@ struct ReportContentSheet: View {
                             .foregroundStyle(Color.bscError)
 
                         Text("Report \(contentType.displayName)")
-                            .font(.title2.bold())
+                            .bscFont(size: 22, weight: .bold)
 
                         Text("Help us keep the community safe by reporting content that violates our guidelines.")
-                            .font(.subheadline)
+                            .bscFont(size: 15)
                             .foregroundStyle(Color.bscTextSecondary)
                             .multilineTextAlignment(.center)
                     }
@@ -45,7 +45,7 @@ struct ReportContentSheet: View {
                     // Report Type Selection
                     VStack(alignment: .leading, spacing: BSCSpacing.md) {
                         Text("What's wrong with this \(contentType.displayName)?")
-                            .font(.headline)
+                            .bscFont(size: 17, weight: .semibold)
 
                         ForEach(ReportType.allCases, id: \.self) { type in
                             ReportTypeButton(
@@ -61,7 +61,7 @@ struct ReportContentSheet: View {
                     if selectedType != nil {
                         VStack(alignment: .leading, spacing: BSCSpacing.sm) {
                             Text("Additional details (optional)")
-                                .font(.headline)
+                                .bscFont(size: 17, weight: .semibold)
 
                             TextField("Provide more context...", text: $description, axis: .vertical)
                                 .textFieldStyle(.roundedBorder)
@@ -80,23 +80,23 @@ struct ReportContentSheet: View {
                             if isSubmitting {
                                 ProgressView()
                                     .progressViewStyle(.circular)
-                                    .tint(.white)
+                                    .tint(.bscOnPrimary)
                                     .frame(maxWidth: .infinity)
                             } else {
                                 Text("Submit Report")
                                     .fontWeight(.semibold)
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(Color.bscOnPrimary)
                                     .frame(maxWidth: .infinity)
-                                    .padding()
+                                    .padding(BSCSpacing.lg)
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(.bscError)
+                        .tint(Color.bscErrorFill)
                         .disabled(isSubmitting)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-                .padding()
+                .padding(BSCSpacing.lg)
                 .animation(.bscSpring, value: selectedType)
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -175,31 +175,31 @@ struct ReportTypeButton: View {
         Button(action: action) {
             HStack(spacing: BSCSpacing.md) {
                 Image(systemName: type.icon)
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? Color.bscOnMedia : Color.bscError)
-                    .frame(width: 32)
+                    .bscFont(size: 20)
+                    .foregroundStyle(isSelected ? Color.bscOnPrimary : Color.bscErrorText)
+                    .frame(width: BSCIconSize.xl)
 
                 VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                     Text(type.displayName)
-                        .font(.headline)
-                        .foregroundStyle(isSelected ? Color.bscOnMedia : Color.bscTextPrimary)
+                        .bscFont(size: 17, weight: .semibold)
+                        .foregroundStyle(isSelected ? Color.bscOnPrimary : Color.bscTextPrimary)
 
                     Text(type.description)
-                        .font(.caption)
-                        .foregroundStyle(isSelected ? Color.bscOnMedia.opacity(0.8) : Color.bscTextSecondary)
+                        .bscFont(size: 12)
+                        .foregroundStyle(isSelected ? Color.bscOnPrimary.opacity(0.8) : Color.bscTextSecondary)
                 }
 
                 Spacer()
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color.bscOnMedia)
+                        .foregroundStyle(Color.bscOnPrimary)
                 }
             }
-            .padding()
+            .padding(BSCSpacing.lg)
             .background(
                 RoundedRectangle(cornerRadius: BSCRadius.md)
-                    .fill(isSelected ? Color.bscError : Color.bscSurfaceGlass)
+                    .fill(isSelected ? Color.bscErrorFill : Color.bscSurfaceGlass)
             )
         }
         .buttonStyle(.plain)

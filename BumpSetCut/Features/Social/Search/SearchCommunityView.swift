@@ -100,7 +100,7 @@ struct SearchCommunityView: View {
                                 } label: {
                                     Text("#\(tag)")
                                         .bscFont(size: 14, weight: .medium)
-                                        .foregroundColor(.bscPrimary)
+                                        .foregroundColor(.bscPrimaryText)
                                         .padding(.horizontal, BSCSpacing.md)
                                         .padding(.vertical, BSCSpacing.sm)
                                         .background(Color.bscSurfaceGlass)
@@ -127,11 +127,15 @@ struct SearchCommunityView: View {
                         .bscFont(size: 18, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
                     Spacer()
-                    Button("Clear") {
+                    Button {
                         withAnimation { viewModel.clearRecents() }
+                    } label: {
+                        Text("Clear")
+                            .bscFont(size: 14, weight: .medium)
+                            .foregroundColor(.bscPrimaryText)
+                            .frame(minHeight: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
                     }
-                    .bscFont(size: 14, weight: .medium)
-                    .foregroundColor(.bscPrimary)
                 }
                 .padding(.horizontal, BSCSpacing.lg)
                 .padding(.bottom, BSCSpacing.xs)
@@ -144,7 +148,7 @@ struct SearchCommunityView: View {
                             HStack(spacing: BSCSpacing.md) {
                                 Image(systemName: "clock.arrow.circlepath")
                                     .bscFont(size: 15)
-                                    .foregroundColor(.bscTextTertiary)
+                                    .foregroundColor(.bscTextSecondary)
                                 Text(term)
                                     .bscFont(size: 15)
                                     .foregroundColor(.bscTextPrimary)
@@ -160,7 +164,9 @@ struct SearchCommunityView: View {
                         } label: {
                             Image(systemName: "xmark")
                                 .bscFont(size: 12, weight: .semibold)
-                                .foregroundColor(.bscTextTertiary)
+                                .foregroundColor(.bscTextSecondary)
+                                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Remove \(term) from recent searches")
@@ -223,7 +229,7 @@ struct SearchCommunityView: View {
         HStack(spacing: BSCSpacing.md) {
             AvatarView(url: user.avatarURL, name: user.username, size: 44)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                 Text(user.username)
                     .bscFont(size: 15, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
@@ -237,7 +243,7 @@ struct SearchCommunityView: View {
 
             Image(systemName: "chevron.right")
                 .bscFont(size: 12)
-                .foregroundColor(.bscTextTertiary)
+                .foregroundColor(.bscTextSecondary)
         }
         .padding(.horizontal, BSCSpacing.lg)
         .padding(.vertical, BSCSpacing.md)
@@ -250,11 +256,13 @@ struct SearchCommunityView: View {
         } label: {
             Text(isFollowing ? "Following" : "Follow")
                 .bscFont(size: 12, weight: .semibold)
-                .foregroundColor(isFollowing ? .bscTextPrimary : .white)
+                .foregroundColor(isFollowing ? .bscTextPrimary : .bscOnPrimary)
                 .padding(.horizontal, BSCSpacing.md)
                 .padding(.vertical, 6)
-                .background(isFollowing ? Color.bscSurfaceGlass : Color.bscPrimary)
+                .background(isFollowing ? Color.bscSurfaceGlass : Color.bscPrimaryFill)
                 .clipShape(Capsule())
+                .frame(minHeight: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

@@ -20,7 +20,7 @@ struct GestureTipsOverlay: View {
                 .ignoresSafeArea()
                 .opacity(showingContent ? 1 : 0)
 
-            VStack(spacing: 40) {
+            VStack(spacing: BSCSpacing.xxl) {
                 // Title
                 Text("Swipe Actions")
                     .bscFont(size: 28, weight: .bold)
@@ -47,7 +47,7 @@ struct GestureTipsOverlay: View {
 
                     // Center card representation
                     RoundedRectangle(cornerRadius: BSCRadius.lg)
-                        .fill(Color.bscSurfaceGlass)
+                        .fill(Color.bscMediaScrim)
                         .frame(width: 90, height: 130)
                         .overlay(
                             RoundedRectangle(cornerRadius: BSCRadius.lg)
@@ -59,7 +59,7 @@ struct GestureTipsOverlay: View {
                                     .bscFont(size: 28)
                                     .foregroundColor(.bscPrimary)
                                 Text("Rally")
-                                    .font(.caption.bold())
+                                    .bscFont(size: 12, weight: .bold)
                                     .foregroundColor(.bscOnMediaSecondary)
                             }
                         )
@@ -111,7 +111,7 @@ struct GestureTipsOverlay: View {
                 // Dismiss hint
                 Text("Tap anywhere to continue")
                     .bscFont(size: 15)
-                    .foregroundColor(Color.bscOnMedia.opacity(0.5))
+                    .foregroundColor(.bscOnMediaSecondary)
                     .opacity(showingContent ? 1 : 0)
                     .offset(y: showingContent ? 0 : 20)
             }
@@ -122,7 +122,7 @@ struct GestureTipsOverlay: View {
             withAnimation(.bscQuick) {
                 showingContent = false
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + BSCDuration.fast) {
                 onDismiss()
             }
         }
@@ -167,7 +167,7 @@ private struct GestureArrow: View {
         }
         .onAppear {
             guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+            withAnimation(.bscFloat) {
                 isAnimating = true
             }
         }

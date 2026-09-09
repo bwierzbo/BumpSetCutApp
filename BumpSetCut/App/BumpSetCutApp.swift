@@ -66,7 +66,7 @@ import AVFoundation
                             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                         }
                         .bscFont(size: 15, weight: .medium)
-                        .foregroundColor(.bscOrange)
+                        .foregroundColor(.bscPrimaryText)
                     }
                 }
                 .preferredColorScheme(appSettings.appearanceMode.colorScheme)

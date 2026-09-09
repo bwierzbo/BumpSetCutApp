@@ -61,6 +61,7 @@ struct ReportMistakeSheet: View {
                                         .foregroundColor(.bscTextSecondary)
                                 }
                                 .padding(BSCSpacing.md)
+                                .frame(minHeight: BSCTouchTarget.standard)
                                 .background(Color.bscBackgroundElevated)
                                 .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                             }

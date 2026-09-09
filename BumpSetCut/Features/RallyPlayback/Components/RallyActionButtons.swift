@@ -36,7 +36,7 @@ struct RallyActionButtons: View {
                 // Undo button - fixed container
                 RallyActionButton(
                     icon: "arrow.uturn.backward",
-                    color: .bscTextSecondary,
+                    color: .bscOnMediaSecondary,
                     size: .medium,
                     isActive: false,
                     action: onUndo
@@ -65,7 +65,7 @@ struct RallyActionButtons: View {
                 // Save button - fixed container
                 RallyActionButton(
                     icon: isSaved ? "heart.fill" : "heart",
-                    color: .bscSuccess,
+                    color: .bscSuccessFill,
                     size: .large,
                     isActive: isSaved,
                     action: onSave
@@ -95,7 +95,7 @@ private struct RallyActionButton: View {
 
         var iconSize: CGFloat {
             switch self {
-            case .medium: return 20
+            case .medium: return BSCIconSize.md
             case .large: return 28
             }
         }
@@ -129,25 +129,19 @@ private struct RallyActionButton: View {
                     .fill(
                         isActive
                             ? color.opacity(0.9)
-                            : Color.bscSurfaceGlass
+                            : Color.bscMediaScrim
                     )
                     .frame(width: size.frameSize, height: size.frameSize)
                     .overlay(
                         Circle()
-                            .stroke(
-                                LinearGradient(
-                                    colors: [
-                                        Color.bscOnMedia.opacity(0.3),
-                                        Color.bscOnMedia.opacity(0.1),
-                                        .clear
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1.5
-                            )
+                            .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1.5)
                     )
-                    .shadow(color: isActive ? color.opacity(0.5) : Color.bscMediaScrimBase.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(
+                        color: isActive ? color.opacity(0.5) : BSCShadow.md.color,
+                        radius: BSCShadow.md.radius,
+                        x: BSCShadow.md.x,
+                        y: BSCShadow.md.y
+                    )
 
                 // Icon
                 Image(systemName: icon)
@@ -208,7 +202,7 @@ struct RallyActionFeedbackView: View {
             .padding(.vertical, BSCSpacing.lg)
             .background(
                 RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
-                    .fill(Color.bscSurfaceGlass)
+                    .fill(Color.bscMediaScrim)
                     .overlay(
                         RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
                             .stroke(feedback.type.feedbackColor.opacity(0.4), lineWidth: 2)
@@ -234,15 +228,15 @@ extension RallyActionFeedback.ActionType {
     var feedbackColor: Color {
         switch self {
         case .save:
-            return .bscSuccess
+            return .bscSuccessText
         case .remove:
-            return .bscError
+            return .bscErrorText
         case .undo:
-            return .bscBlue
+            return .bscPrimaryText
         case .favorite:
-            return .bscPrimary
+            return .bscPrimaryText
         case .trim:
-            return .bscWarning
+            return .bscWarningText
         }
     }
 }

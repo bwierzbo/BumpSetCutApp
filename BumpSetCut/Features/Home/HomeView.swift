@@ -256,7 +256,7 @@ struct HomeView: View {
                 Image(systemName: "chevron.right")
                     .bscFont(size: 16, weight: .semibold)
             }
-            .foregroundColor(.bscTextInverse)
+            .foregroundColor(.bscOnPrimary)
             .padding(.vertical, BSCSpacing.lg)
             .padding(.horizontal, BSCSpacing.xl)
             .background(LinearGradient.bscPrimaryGradient)
@@ -318,7 +318,7 @@ struct HomeView: View {
             Button {
                 showingProcessPicker = true
             } label: {
-                quickActionContent(icon: "brain.head.profile", title: "Process", color: .bscTeal)
+                quickActionContent(icon: "brain.head.profile", title: "Process", color: .bscTealText)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Process video")
@@ -343,6 +343,7 @@ struct HomeView: View {
         title: String,
         color: Color
     ) -> some View {
+        // 6pt gap is deliberate; BSCSpacing has no token between xs (4) and sm (8)
         VStack(spacing: 6) {
             Image(systemName: icon)
                 .bscFont(size: 22, weight: .medium)
@@ -432,7 +433,7 @@ struct UploadFolderSelectionSheet: View {
                         } label: {
                             Text("Upload to \(selectedFolderPath == LibraryType.saved.rootPath ? "Library" : selectedFolderPath.components(separatedBy: "/").last ?? "Folder")")
                                 .bscFont(size: 16, weight: .bold)
-                                .foregroundColor(.bscTextInverse)
+                                .foregroundColor(.bscOnPrimary)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, BSCSpacing.md)
                                 .background(LinearGradient.bscPrimaryGradient)
@@ -445,6 +446,8 @@ struct UploadFolderSelectionSheet: View {
                             Text("Create New Folder")
                                 .bscFont(size: 14, weight: .medium)
                                 .foregroundColor(.bscTextSecondary)
+                                .frame(minHeight: BSCTouchTarget.standard)
+                                .contentShape(Rectangle())
                         }
                     }
                     .padding(BSCSpacing.lg)
@@ -485,7 +488,7 @@ struct UploadFolderSelectionSheet: View {
                         .foregroundColor(color)
                 }
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                     Text(name)
                         .bscFont(size: 16, weight: .medium)
                         .foregroundColor(.bscTextPrimary)
@@ -493,7 +496,7 @@ struct UploadFolderSelectionSheet: View {
                     if !path.isEmpty {
                         Text(path)
                             .bscFont(size: 12)
-                            .foregroundColor(.bscTextTertiary)
+                            .foregroundColor(.bscTextSecondary)
                     }
                 }
 
@@ -623,7 +626,7 @@ struct UnprocessedVideoPickerSheet: View {
                             VStack(spacing: BSCSpacing.lg) {
                                 Image(systemName: "checkmark.seal.fill")
                                     .bscFont(size: 48)
-                                    .foregroundColor(.bscTeal)
+                                    .foregroundColor(.bscTealText)
 
                                 Text("All Caught Up!")
                                     .bscFont(size: 20, weight: .bold)
@@ -643,7 +646,7 @@ struct UnprocessedVideoPickerSheet: View {
                                     .frame(height: 1)
                                 Text("or select an existing video")
                                     .bscFont(size: 12, weight: .medium)
-                                    .foregroundColor(.bscTextTertiary)
+                                    .foregroundColor(.bscTextSecondary)
                                 Rectangle()
                                     .fill(Color.bscSurfaceBorder)
                                     .frame(height: 1)
@@ -663,6 +666,7 @@ struct UnprocessedVideoPickerSheet: View {
                 }
 
                 if isImporting {
+                    // TODO(design): modal scrim token
                     Color.bscMediaScrim.ignoresSafeArea()
                     VStack(spacing: BSCSpacing.md) {
                         ProgressView()
@@ -725,7 +729,7 @@ struct UnprocessedVideoPickerSheet: View {
                 Image(systemName: "square.and.arrow.down.fill")
                     .bscFont(size: 20, weight: .semibold)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                     Text("Import New Video")
                         .bscFont(size: 16, weight: .bold)
                     Text("Add from Photos and process immediately")
@@ -738,7 +742,7 @@ struct UnprocessedVideoPickerSheet: View {
                 Image(systemName: "chevron.right")
                     .bscFont(size: 14, weight: .semibold)
             }
-            .foregroundColor(.bscTextInverse)
+            .foregroundColor(.bscOnPrimary)
             .padding(.vertical, BSCSpacing.md)
             .padding(.horizontal, BSCSpacing.lg)
             .background(LinearGradient.bscPrimaryGradient)
@@ -806,7 +810,7 @@ struct UnprocessedVideoPickerSheet: View {
             .frame(width: 80, height: 50)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                 Text(video.displayName)
                     .bscFont(size: 15, weight: .medium)
                     .foregroundColor(.bscTextPrimary)
@@ -832,7 +836,7 @@ struct UnprocessedVideoPickerSheet: View {
 
             Image(systemName: "chevron.right")
                 .bscFont(size: 14, weight: .medium)
-                .foregroundColor(.bscTextTertiary)
+                .foregroundColor(.bscTextSecondary)
         }
         .padding(BSCSpacing.md)
         .background(Color.bscSurfaceGlass)

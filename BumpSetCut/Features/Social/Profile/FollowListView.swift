@@ -89,7 +89,7 @@ struct FollowListView: View {
         HStack(spacing: BSCSpacing.md) {
             AvatarView(url: user.avatarURL, name: user.username, size: 44)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                 Text(user.username)
                     .bscFont(size: 15, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
@@ -99,7 +99,7 @@ struct FollowListView: View {
 
             Image(systemName: "chevron.right")
                 .bscFont(size: 12)
-                .foregroundColor(.bscTextTertiary)
+                .foregroundColor(.bscTextSecondary)
         }
         .padding(.horizontal, BSCSpacing.lg)
         .padding(.vertical, BSCSpacing.md)

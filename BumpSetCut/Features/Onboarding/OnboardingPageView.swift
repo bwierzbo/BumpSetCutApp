@@ -11,9 +11,7 @@ import SwiftUI
 
 struct OnboardingPageView: View {
     let page: OnboardingPage
-    @State private var isAnimating = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
     var body: some View {
@@ -22,11 +20,6 @@ struct OnboardingPageView: View {
                 landscapeLayout(geometry: geometry)
             } else {
                 portraitLayout(geometry: geometry)
-            }
-        }
-        .onAppear {
-            if !reduceMotion {
-                isAnimating = true
             }
         }
     }
@@ -74,7 +67,6 @@ struct OnboardingPageView: View {
             Circle()
                 .fill(page.color.opacity(0.1))
                 .frame(width: size, height: size)
-                .scaleEffect(isAnimating ? 1.1 : 1.0)
 
             Circle()
                 .fill(page.color.opacity(0.2))
@@ -83,12 +75,8 @@ struct OnboardingPageView: View {
             Image(systemName: page.icon)
                 .bscFont(size: iconSize, weight: .medium)
                 .foregroundColor(page.color)
-                .scaleEffect(isAnimating ? 1.05 : 1.0)
         }
-        .animation(
-            .easeInOut(duration: 2.0).repeatForever(autoreverses: true),
-            value: isAnimating
-        )
+        .bscFloatingEffect()
     }
 
     // MARK: - Text Content
@@ -103,7 +91,7 @@ struct OnboardingPageView: View {
                 .bscFont(size: isLandscape ? 15 : 17)
                 .foregroundColor(.bscTextSecondary)
                 .multilineTextAlignment(.center)
-                .lineSpacing(4)
+                .lineSpacing(BSCSpacing.xs)
                 .frame(maxWidth: maxWidth)
         }
     }

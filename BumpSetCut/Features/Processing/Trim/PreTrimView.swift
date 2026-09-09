@@ -28,7 +28,7 @@ struct PreTrimView: View {
     private let handleWidth: CGFloat = 14
     private let barHeight: CGFloat = 56
     private let borderThickness: CGFloat = 3
-    private let handleHitPadding: CGFloat = 12
+    private let handleHitPadding: CGFloat = BSCSpacing.md
 
     var body: some View {
         ZStack {
@@ -70,7 +70,7 @@ struct PreTrimView: View {
                 // Duration label
                 Text("Duration: \(formatTime(viewModel.selectionDuration))")
                     .bscFont(size: 13, weight: .medium, design: .monospaced)
-                    .foregroundColor(.bscTextSecondary)
+                    .foregroundColor(.bscOnMediaSecondary)
                     .padding(.top, BSCSpacing.sm)
 
                 // Estimated processing time (self-calibrating from past runs)
@@ -80,7 +80,7 @@ struct PreTrimView: View {
                         systemImage: "clock"
                     )
                     .bscFont(size: 12)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscOnMediaSecondary)
                     .padding(.top, BSCSpacing.xxs)
                 }
 
@@ -192,11 +192,11 @@ struct PreTrimView: View {
         HStack {
             Text(formatTime(viewModel.startTime))
                 .bscFont(size: 13, weight: .medium, design: .monospaced)
-                .foregroundColor(.bscPrimary)
+                .foregroundColor(.bscOnMedia)
             Spacer()
             Text(formatTime(viewModel.endTime))
                 .bscFont(size: 13, weight: .medium, design: .monospaced)
-                .foregroundColor(.bscPrimary)
+                .foregroundColor(.bscOnMedia)
         }
     }
 
@@ -304,7 +304,7 @@ struct PreTrimView: View {
             .overlay(
                 Image(systemName: isLeft ? "chevron.compact.left" : "chevron.compact.right")
                     .bscFont(size: 15, weight: .heavy)
-                    .foregroundColor(.white)
+                    .foregroundColor(.bscOnMedia)
             )
             .allowsHitTesting(false)
         }
@@ -370,6 +370,8 @@ struct PreTrimView: View {
                     .frame(width: 30, height: 30)
                     .background(Color.bscOnMedia.opacity(0.15))
                     .clipShape(Circle())
+                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("Decrease angle")
 
@@ -387,12 +389,14 @@ struct PreTrimView: View {
                     .frame(width: 30, height: 30)
                     .background(Color.bscOnMedia.opacity(0.15))
                     .clipShape(Circle())
+                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("Increase angle")
 
             Text(formatDegrees(viewModel.rotationDegrees))
                 .bscFont(size: 13, weight: .medium, design: .monospaced)
-                .foregroundColor(.bscPrimary)
+                .foregroundColor(.bscOnMedia)
                 .frame(width: 56, alignment: .trailing)
 
             Button {
@@ -402,6 +406,8 @@ struct PreTrimView: View {
                     .bscFont(size: 13, weight: .semibold)
                     .foregroundColor(Color.bscOnMedia.opacity(abs(viewModel.rotationDegrees) < 0.01 ? 0.3 : 0.9))
                     .frame(width: 30, height: 30)
+                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
             }
             .disabled(abs(viewModel.rotationDegrees) < 0.01)
             .accessibilityLabel("Reset angle")
@@ -432,7 +438,7 @@ struct PreTrimView: View {
 
                 Text("Trimming video... \(Int(viewModel.exportProgress * 100))%")
                     .bscFont(size: 14, weight: .medium)
-                    .foregroundColor(.bscTextSecondary)
+                    .foregroundColor(.bscOnMediaSecondary)
             }
         } else if let error = viewModel.exportError {
             VStack(spacing: BSCSpacing.md) {

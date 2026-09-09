@@ -34,7 +34,7 @@ struct RallyOverviewSheet: View {
         VStack(spacing: 0) {
             // Drag indicator
             Capsule()
-                .fill(Color.bscOnMedia.opacity(0.3))
+                .fill(Color.bscTextTertiary.opacity(0.5))
                 .frame(width: 36, height: 5)
                 .padding(.top, BSCSpacing.sm)
                 .padding(.bottom, isCompactHeight ? BSCSpacing.xs : BSCSpacing.md)
@@ -79,14 +79,14 @@ struct RallyOverviewSheet: View {
         HStack(spacing: BSCSpacing.md) {
             Image(systemName: "checkmark.circle.fill")
                 .bscFont(size: 20, weight: .medium)
-                .foregroundStyle(Color.bscSuccess)
+                .foregroundStyle(Color.bscSuccessText)
 
             // Inline stats
             HStack(spacing: BSCSpacing.md) {
-                statPill(count: savedRallies.count, label: "saved", color: .bscSuccess)
-                statPill(count: removedRallies.count, label: "removed", color: .bscError)
+                statPill(count: savedRallies.count, label: "saved", color: .bscSuccessText)
+                statPill(count: removedRallies.count, label: "removed", color: .bscErrorText)
                 if !favoritedRallies.isEmpty {
-                    statPill(count: favoritedRallies.count, label: "favorited", color: .bscPrimary)
+                    statPill(count: favoritedRallies.count, label: "favorited", color: .bscPrimaryText)
                 }
             }
 
@@ -103,7 +103,7 @@ struct RallyOverviewSheet: View {
                     Text("Save All")
                         .bscFont(size: 13, weight: .semibold)
                 }
-                .foregroundColor(.bscSuccess)
+                .foregroundColor(.bscSuccessText)
                 .padding(.horizontal, BSCSpacing.md)
                 .padding(.vertical, BSCSpacing.xs)
                 .background(Color.bscSuccess.opacity(0.15))
@@ -145,7 +145,7 @@ struct RallyOverviewSheet: View {
         VStack(spacing: BSCSpacing.md) {
             Image(systemName: "checkmark.circle.fill")
                 .bscFont(size: 48, weight: .medium)
-                .foregroundStyle(Color.bscSuccess)
+                .foregroundStyle(Color.bscSuccessText)
                 .symbolEffect(.bounce, value: appeared)
 
             Text("Review Complete")
@@ -154,10 +154,10 @@ struct RallyOverviewSheet: View {
 
             // Compact stats pill row
             HStack(spacing: BSCSpacing.lg) {
-                statPill(count: savedRallies.count, label: "saved", color: .bscSuccess)
-                statPill(count: removedRallies.count, label: "removed", color: .bscError)
+                statPill(count: savedRallies.count, label: "saved", color: .bscSuccessText)
+                statPill(count: removedRallies.count, label: "removed", color: .bscErrorText)
                 if !favoritedRallies.isEmpty {
-                    statPill(count: favoritedRallies.count, label: "favorited", color: .bscPrimary)
+                    statPill(count: favoritedRallies.count, label: "favorited", color: .bscPrimaryText)
                 }
             }
             .padding(.horizontal, BSCSpacing.xl)
@@ -174,7 +174,7 @@ struct RallyOverviewSheet: View {
                         Text("Save All")
                             .bscFont(size: 13, weight: .semibold)
                     }
-                    .foregroundColor(.bscSuccess)
+                    .foregroundColor(.bscSuccessText)
                     .padding(.horizontal, BSCSpacing.md)
                     .padding(.vertical, BSCSpacing.xs)
                     .background(Color.bscSuccess.opacity(0.15))
@@ -266,7 +266,7 @@ struct RallyOverviewSheet: View {
                         Text("Export \(savedRallies.count)")
                             .bscFont(size: 15, weight: .semibold)
                     }
-                    .foregroundColor(.bscOnMedia)
+                    .foregroundColor(.bscOnPrimary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, BSCSpacing.sm)
                     .background(
@@ -287,12 +287,12 @@ struct RallyOverviewSheet: View {
                         Text(savedRallies.count > 1 ? "Post \(savedRallies.count)" : "Post")
                             .bscFont(size: 15, weight: .semibold)
                     }
-                    .foregroundColor(.bscOnMedia)
+                    .foregroundColor(.bscTextPrimary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, BSCSpacing.sm)
                     .background(
                         RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                            .stroke(Color.bscOnMedia.opacity(0.2), lineWidth: 1.5)
+                            .stroke(Color.bscSurfaceBorder, lineWidth: 1.5)
                             .fill(Color.bscBackgroundElevated)
                     )
                 }
@@ -332,7 +332,7 @@ struct RallyOverviewSheet: View {
                         Text("Export \(savedRallies.count) \(savedRallies.count == 1 ? "Rally" : "Rallies")")
                             .bscFont(size: 16, weight: .semibold)
                     }
-                    .foregroundColor(.bscOnMedia)
+                    .foregroundColor(.bscOnPrimary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, BSCSpacing.md)
                     .background(
@@ -355,12 +355,12 @@ struct RallyOverviewSheet: View {
                              : "Post to Community")
                             .bscFont(size: 16, weight: .semibold)
                     }
-                    .foregroundColor(.bscOnMedia)
+                    .foregroundColor(.bscTextPrimary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, BSCSpacing.md)
                     .background(
                         RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                            .stroke(Color.bscOnMedia.opacity(0.2), lineWidth: 1.5)
+                            .stroke(Color.bscSurfaceBorder, lineWidth: 1.5)
                             .fill(Color.bscBackgroundElevated)
                     )
                 }
@@ -468,9 +468,9 @@ private struct RallyOverviewCell: View {
     }
 
     private var borderColor: Color {
-        if isFavorited { return .bscPrimary.opacity(0.7) }
-        if isSaved { return .bscSuccess.opacity(0.7) }
-        if isRemoved { return .bscError.opacity(0.7) }
+        if isFavorited { return .bscPrimaryText }
+        if isSaved { return .bscSuccessText }
+        if isRemoved { return .bscErrorText }
         return Color.bscOnMedia.opacity(0.1)
     }
 }

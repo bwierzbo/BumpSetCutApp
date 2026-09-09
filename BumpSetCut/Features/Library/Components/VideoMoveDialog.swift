@@ -68,7 +68,7 @@ struct VideoMoveDialog: View {
                         // library ("" would strand the video outside every library view)
                         FolderRowView(
                             icon: "house.fill",
-                            iconColor: .bscBlue,
+                            iconColor: .bscPrimary,
                             name: "Root",
                             subtitle: "Main folder",
                             isSelected: selectedFolderPath == libraryRootPath,
@@ -102,7 +102,7 @@ struct VideoMoveDialog: View {
                         Text("Cancel")
                             .bscFont(size: 14, weight: .semibold)
                             .foregroundColor(.bscTextSecondary)
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
                             .padding(BSCSpacing.md)
                             .background(Color.bscSurfaceGlass)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg))
@@ -117,10 +117,10 @@ struct VideoMoveDialog: View {
                     } label: {
                         Text("Move")
                             .bscFont(size: 14, weight: .semibold)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
+                            .foregroundColor(canMoveToSelectedFolder ? .bscOnPrimary : .bscTextTertiary)
+                            .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
                             .padding(BSCSpacing.md)
-                            .background(canMoveToSelectedFolder ? Color.bscBlue : Color.bscSurfaceGlass)
+                            .background(canMoveToSelectedFolder ? Color.bscPrimaryFill : Color.bscSurfaceGlass)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg))
                     }
                     .disabled(!canMoveToSelectedFolder)
@@ -227,15 +227,15 @@ private struct FolderRowView: View {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .bscFont(size: 20)
-                        .foregroundColor(.bscBlue)
+                        .foregroundColor(.bscPrimaryText)
                 }
             }
             .padding(BSCSpacing.md)
-            .background(isSelected ? Color.bscBlue.opacity(0.1) : Color.clear)
+            .background(isSelected ? Color.bscPrimary.opacity(0.1) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: BSCRadius.md)
-                    .stroke(isSelected ? Color.bscBlue.opacity(0.3) : Color.clear, lineWidth: 1)
+                    .stroke(isSelected ? Color.bscPrimary.opacity(0.3) : Color.clear, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

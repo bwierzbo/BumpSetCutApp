@@ -39,17 +39,16 @@ struct DropZoneView<Content: View>: View {
                                 .foregroundColor(.bscPrimary)
 
                             Text("Drop videos here to upload")
-                                .font(.title2)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.bscPrimary)
+                                .bscFont(size: 20, weight: .semibold)
+                                .foregroundColor(.bscPrimaryText)
 
                             if !destinationFolder.isEmpty {
                                 Text("To folder: \(destinationFolder)")
-                                    .font(.caption)
+                                    .bscFont(size: 12)
                                     .foregroundColor(.bscTextSecondary)
                             }
                         }
-                        .padding()
+                        .bscCardPadding()
                         .background(Color.bscBackground.opacity(0.9))
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                     )
@@ -90,14 +89,15 @@ struct EnhancedUploadButton: View {
         } label: {
             HStack {
                 Image(systemName: "plus")
-                    .fontWeight(.medium)
+                    .bscFont(size: 14, weight: .medium)
                 Text("Upload Videos")
-                    .fontWeight(.medium)
+                    .bscFont(size: 14, weight: .medium)
             }
             .padding(.horizontal, BSCSpacing.lg)
             .padding(.vertical, BSCSpacing.sm)
-            .background(Color.bscPrimary)
-            .foregroundColor(.white)
+            .frame(minHeight: BSCTouchTarget.standard)
+            .background(Color.bscPrimaryFill)
+            .foregroundColor(.bscOnPrimary)
             .clipShape(Capsule())
         }
         .photosPicker(

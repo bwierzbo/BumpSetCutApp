@@ -56,7 +56,7 @@ struct ProcessVideoView: View {
                         }
                     }
                     .padding(BSCSpacing.xl)
-                    .frame(maxWidth: isLandscape ? 500 : .infinity)
+                    .frame(maxWidth: isLandscape ? BSCContentWidth.regular : .infinity)
                     .frame(maxWidth: .infinity)
                 }
 
@@ -243,15 +243,14 @@ private extension ProcessVideoView {
             HStack(spacing: BSCSpacing.xs) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .bscFont(size: 11)
-                    .foregroundColor(.bscWarning)
+                    .foregroundColor(.bscWarningText)
                 Text("Keep BumpSetCut open while processing. Switching apps may interrupt the analysis.")
                     .bscFont(size: 12)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .multilineTextAlignment(.leading)
         }
-        .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
     }
 
@@ -264,7 +263,7 @@ private extension ProcessVideoView {
 
                 Image(systemName: "checkmark.circle.fill")
                     .bscFont(size: 48)
-                    .foregroundColor(.bscSuccess)
+                    .foregroundColor(.bscSuccessText)
             }
 
             VStack(spacing: BSCSpacing.xs) {
@@ -283,7 +282,7 @@ private extension ProcessVideoView {
                     VStack(spacing: BSCSpacing.xxs) {
                         Text("\(viewModel.detectedRallyCount)")
                             .bscFont(size: 24, weight: .bold)
-                            .foregroundColor(.bscPrimary)
+                            .foregroundColor(.bscPrimaryText)
                         Text(viewModel.detectedRallyCount == 1 ? "Rally" : "Rallies")
                             .bscFont(size: 12)
                             .foregroundColor(.bscTextSecondary)
@@ -292,7 +291,7 @@ private extension ProcessVideoView {
                         VStack(spacing: BSCSpacing.xxs) {
                             Text(timeCut)
                                 .bscFont(size: 24, weight: .bold)
-                                .foregroundColor(.bscTeal)
+                                .foregroundColor(.bscTealText)
                             Text("Time Saved")
                                 .bscFont(size: 12)
                                 .foregroundColor(.bscTextSecondary)
@@ -302,7 +301,7 @@ private extension ProcessVideoView {
                         VStack(spacing: BSCSpacing.xxs) {
                             Text("\(percent)%")
                                 .bscFont(size: 24, weight: .bold)
-                                .foregroundColor(.bscBlue)
+                                .foregroundColor(.bscPrimaryText)
                             Text("Dead Time Cut")
                                 .bscFont(size: 12)
                                 .foregroundColor(.bscTextSecondary)
@@ -312,7 +311,6 @@ private extension ProcessVideoView {
                 .padding(.top, BSCSpacing.xs)
             }
         }
-        .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
     }
 
@@ -325,7 +323,7 @@ private extension ProcessVideoView {
 
                 Image(systemName: "checkmark.circle.fill")
                     .bscFont(size: 48)
-                    .foregroundColor(.bscSuccess)
+                    .foregroundColor(.bscSuccessText)
             }
 
             VStack(spacing: BSCSpacing.xs) {
@@ -338,7 +336,6 @@ private extension ProcessVideoView {
                     .foregroundColor(.bscTextSecondary)
             }
         }
-        .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
     }
 
@@ -351,7 +348,7 @@ private extension ProcessVideoView {
 
                 Image(systemName: "volleyball.fill")
                     .bscFont(size: 40)
-                    .foregroundColor(.bscWarning)
+                    .foregroundColor(.bscWarningText)
             }
 
             VStack(spacing: BSCSpacing.sm) {
@@ -377,7 +374,6 @@ private extension ProcessVideoView {
                 tipRow(icon: "arrow.up.circle.fill", text: "Higher resolution video (1080p or above)")
             }
         }
-        .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
     }
 
@@ -403,7 +399,7 @@ private extension ProcessVideoView {
 
                 Image(systemName: "checkmark.circle.fill")
                     .bscFont(size: 48)
-                    .foregroundColor(.bscSuccess)
+                    .foregroundColor(.bscSuccessText)
             }
 
             VStack(spacing: BSCSpacing.xs) {
@@ -423,7 +419,7 @@ private extension ProcessVideoView {
                     VStack(spacing: BSCSpacing.xxs) {
                         Text("\(viewModel.detectedRallyCount)")
                             .bscFont(size: 24, weight: .bold)
-                            .foregroundColor(.bscPrimary)
+                            .foregroundColor(.bscPrimaryText)
                         Text(viewModel.detectedRallyCount == 1 ? "Rally" : "Rallies")
                             .bscFont(size: 12)
                             .foregroundColor(.bscTextSecondary)
@@ -432,7 +428,7 @@ private extension ProcessVideoView {
                         VStack(spacing: BSCSpacing.xxs) {
                             Text(timeCut)
                                 .bscFont(size: 24, weight: .bold)
-                                .foregroundColor(.bscTeal)
+                                .foregroundColor(.bscTealText)
                             Text("Time Saved")
                                 .bscFont(size: 12)
                                 .foregroundColor(.bscTextSecondary)
@@ -442,7 +438,7 @@ private extension ProcessVideoView {
                         VStack(spacing: BSCSpacing.xxs) {
                             Text("\(percent)%")
                                 .bscFont(size: 24, weight: .bold)
-                                .foregroundColor(.bscBlue)
+                                .foregroundColor(.bscPrimaryText)
                             Text("Dead Time Cut")
                                 .bscFont(size: 12)
                                 .foregroundColor(.bscTextSecondary)
@@ -452,7 +448,6 @@ private extension ProcessVideoView {
                 .padding(.top, BSCSpacing.xs)
             }
         }
-        .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
     }
 
@@ -478,7 +473,6 @@ private extension ProcessVideoView {
                     .foregroundColor(.bscTextSecondary)
             }
         }
-        .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
     }
 
@@ -509,7 +503,7 @@ private extension ProcessVideoView {
                 if let detail = info.detail {
                     Text(detail)
                         .bscFont(size: 12, weight: .medium)
-                        .foregroundColor(.bscTextTertiary)
+                        .foregroundColor(.bscTextSecondary)
                         .padding(.horizontal, BSCSpacing.md)
                         .padding(.vertical, BSCSpacing.xs)
                         .background(Color.bscSurfaceGlass)
@@ -517,7 +511,6 @@ private extension ProcessVideoView {
                 }
             }
         }
-        .padding(BSCSpacing.xl)
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
     }
 }
@@ -568,7 +561,7 @@ private extension ProcessVideoView {
                     systemImage: "clock"
                 )
                 .bscFont(size: 12)
-                .foregroundColor(.bscTextTertiary)
+                .foregroundColor(.bscTextSecondary)
             }
 
             // AI Processing - Primary (shows trim screen first)
@@ -591,13 +584,13 @@ private extension ProcessVideoView {
 
                 Text("AI Processing removes dead time\nDebug Processing includes analysis overlay")
                     .bscFont(size: 12)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.top, BSCSpacing.xs)
             } else {
                 Text("AI Processing removes dead time")
                     .bscFont(size: 12)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.top, BSCSpacing.xs)
             }
@@ -696,7 +689,7 @@ private struct ProcessingIconView: View {
                     )
                     .frame(width: 100, height: 100)
                     .rotationEffect(.degrees(isAnimating ? 360 : 0))
-                    .animation(.linear(duration: 2).repeatForever(autoreverses: false), value: isAnimating)
+                    .animation(isAnimating ? .bscSpin : .bscStandard, value: isAnimating)
             }
 
             // Pulse circle
@@ -719,7 +712,7 @@ private struct ProcessingIconView: View {
                 .overlay(
                     Circle()
                         .stroke(
-                            isComplete ? AnyShapeStyle(Color.bscSuccess) : AnyShapeStyle(LinearGradient.bscPrimaryGradient),
+                            isComplete ? AnyShapeStyle(Color.bscSuccessText) : AnyShapeStyle(LinearGradient.bscPrimaryGradient),
                             lineWidth: 2
                         )
                 )
@@ -727,13 +720,13 @@ private struct ProcessingIconView: View {
             // Brain icon
             Image(systemName: isComplete ? "checkmark" : "brain.head.profile")
                 .bscFont(size: 36, weight: .medium)
-                .foregroundStyle(isComplete ? AnyShapeStyle(Color.bscSuccess) : AnyShapeStyle(LinearGradient.bscPrimaryGradient))
+                .foregroundStyle(isComplete ? AnyShapeStyle(Color.bscSuccessText) : AnyShapeStyle(LinearGradient.bscPrimaryGradient))
                 .offset(y: isProcessing && !isComplete ? (isAnimating ? -4 : 0) : 0)
         }
         .onAppear {
             if isProcessing && !reduceMotion {
                 isAnimating = true
-                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                withAnimation(.bscPulse) {
                     pulseScale = 1.1
                 }
             }
@@ -741,7 +734,7 @@ private struct ProcessingIconView: View {
         .onChange(of: isProcessing) { _, newValue in
             if newValue && !reduceMotion {
                 isAnimating = true
-                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                withAnimation(.bscPulse) {
                     pulseScale = 1.1
                 }
             } else {

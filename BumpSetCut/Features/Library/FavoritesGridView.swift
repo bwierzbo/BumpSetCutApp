@@ -274,7 +274,7 @@ struct FavoritesGridView: View {
                     Text(formatDuration(duration))
                         .bscFont(size: 10, weight: .medium, design: .monospaced)
                         .foregroundColor(.bscOnMedia)
-                        .padding(.horizontal, 5)
+                        .padding(.horizontal, BSCSpacing.xs)
                         .padding(.vertical, BSCSpacing.xxs)
                         .background(Color.bscMediaScrim)
                         .clipShape(Capsule())
@@ -354,7 +354,7 @@ struct FavoritesGridView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Create") { createFolder() }
                         .fontWeight(.semibold)
-                        .foregroundColor(.bscPrimary)
+                        .foregroundColor(.bscPrimaryText)
                         .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
@@ -520,7 +520,7 @@ struct FavoritesFeedView: View {
                 Image(systemName: "play.fill")
                     .bscFont(size: 60)
                     .foregroundColor(.bscOnMediaSecondary)
-                    .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 8)
+                    .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 4)
                     .allowsHitTesting(false)
                     .transition(.opacity)
                     .accessibilityHidden(true)
@@ -542,7 +542,7 @@ struct FavoritesFeedView: View {
                     .padding(.horizontal, BSCSpacing.md)
                     .padding(.vertical, BSCSpacing.sm)
                     .background(.ultraThinMaterial.opacity(0.9), in: Capsule())
-                    .padding(.bottom, 140)
+                    .padding(.bottom, 140) // TODO(design): clearance constant
                     .allowsHitTesting(false)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }

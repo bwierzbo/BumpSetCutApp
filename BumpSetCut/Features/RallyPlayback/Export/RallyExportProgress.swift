@@ -35,11 +35,15 @@ struct RallyExportProgress: View {
                         progressIndicator
                         statusText
                         Spacer()
-                        Button("Cancel") {
+                        Button {
                             cancelExport()
+                        } label: {
+                            Text("Cancel")
+                                .bscFont(size: 17, weight: .semibold)
+                                .foregroundColor(.bscErrorText)
+                                .frame(minHeight: BSCTouchTarget.standard)
+                                .contentShape(Rectangle())
                         }
-                        .font(.headline)
-                        .foregroundColor(.bscError)
                         .accessibilityIdentifier(AccessibilityID.Export.cancelButton)
                         .accessibilityLabel("Cancel export")
 
@@ -75,10 +79,10 @@ struct RallyExportProgress: View {
             if exportStatus == .completed {
                 Image(systemName: "checkmark.circle.fill")
                     .bscFont(size: 60)
-                    .foregroundColor(.bscSuccess)
+                    .foregroundColor(.bscSuccessText)
             } else {
                 ProgressView(value: exportProgress)
-                    .progressViewStyle(CircularProgressViewStyle(tint: exportType == .individual ? .bscPrimary : .bscTeal))
+                    .progressViewStyle(CircularProgressViewStyle(tint: exportType == .individual ? .bscPrimary : .bscTealText))
                     .scaleEffect(2.0)
             }
         }
@@ -87,7 +91,7 @@ struct RallyExportProgress: View {
     private var statusText: some View {
         VStack(spacing: BSCSpacing.sm) {
             Text(exportStatus.message)
-                .font(.headline)
+                .bscFont(size: 17, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .multilineTextAlignment(.center)
 
@@ -97,7 +101,7 @@ struct RallyExportProgress: View {
                 Text(exportType == .individual
                      ? "\(exportedCount) of \(savedRallies.count) rallies · \(Int(exportProgress * 100))%"
                      : "Combining rallies · \(Int(exportProgress * 100))%")
-                    .font(.body)
+                    .bscFont(size: 17)
                     .foregroundColor(.bscTextSecondary)
             }
         }
@@ -106,17 +110,16 @@ struct RallyExportProgress: View {
     private var successView: some View {
         VStack(spacing: BSCSpacing.lg) {
             Text("Saved to Photos")
-                .font(.title3)
-                .fontWeight(.semibold)
-                .foregroundColor(.bscSuccess)
+                .bscFont(size: 20, weight: .semibold)
+                .foregroundColor(.bscSuccessText)
 
             if !exportedURLs.isEmpty {
                 Button {
                     showShareSheet = true
                 } label: {
                     Label("Share", systemImage: "square.and.arrow.up")
-                        .font(.headline)
-                        .foregroundColor(.bscTextInverse)
+                        .bscFont(size: 17, weight: .semibold)
+                        .foregroundColor(.bscOnPrimary)
                         .padding(.horizontal, BSCSpacing.xxl)
                         .padding(.vertical, BSCSpacing.md)
                         .frame(maxWidth: .infinity)
@@ -127,12 +130,16 @@ struct RallyExportProgress: View {
                 .accessibilityLabel("Share exported videos")
             }
 
-            Button("Done") {
+            Button {
                 cleanupExportedFiles()
                 dismiss()
+            } label: {
+                Text("Done")
+                    .bscFont(size: 17, weight: .semibold)
+                    .foregroundColor(.bscTextSecondary)
+                    .frame(minHeight: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
             }
-            .font(.headline)
-            .foregroundColor(.bscTextSecondary)
             .accessibilityIdentifier(AccessibilityID.Export.doneButton)
         }
         .sheet(isPresented: $showShareSheet) {
@@ -144,25 +151,28 @@ struct RallyExportProgress: View {
         VStack(spacing: BSCSpacing.xl) {
             Image(systemName: "externaldrive.badge.exclamationmark")
                 .bscFont(size: 60)
-                .foregroundColor(.bscWarning)
+                .foregroundColor(.bscWarningText)
 
             VStack(spacing: BSCSpacing.sm) {
                 Text("Not Enough Storage")
-                    .font(.title3)
-                    .fontWeight(.semibold)
+                    .bscFont(size: 20, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
 
                 Text(message)
-                    .font(.body)
+                    .bscFont(size: 17)
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
             }
 
-            Button("Dismiss") {
+            Button {
                 dismiss()
+            } label: {
+                Text("Dismiss")
+                    .bscFont(size: 17, weight: .semibold)
+                    .foregroundColor(.bscErrorText)
+                    .frame(minHeight: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
             }
-            .font(.headline)
-            .foregroundColor(.bscError)
         }
     }
 
@@ -174,35 +184,40 @@ struct RallyExportProgress: View {
 
             VStack(spacing: BSCSpacing.sm) {
                 Text("Export Failed")
-                    .font(.title3)
-                    .fontWeight(.semibold)
+                    .bscFont(size: 20, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
 
                 Text(errorMessage)
-                    .font(.body)
+                    .bscFont(size: 17)
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
             }
 
             VStack(spacing: BSCSpacing.md) {
-                Button("Retry") {
+                Button {
                     storageError = nil
                     startExport()
+                } label: {
+                    Text("Retry")
+                        .bscFont(size: 17, weight: .semibold)
+                        .foregroundColor(.bscOnPrimary)
+                        .padding(.horizontal, BSCSpacing.xxl)
+                        .padding(.vertical, BSCSpacing.md)
+                        .background(LinearGradient.bscPrimaryGradient)
+                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                 }
-                .font(.headline)
-                .foregroundColor(.bscTextInverse)
-                .padding(.horizontal, BSCSpacing.xxl)
-                .padding(.vertical, BSCSpacing.md)
-                .background(LinearGradient.bscPrimaryGradient)
-                .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                 .accessibilityIdentifier(AccessibilityID.Export.retryButton)
                 .accessibilityLabel("Retry export")
 
-                Button("Dismiss") {
+                Button {
                     dismiss()
+                } label: {
+                    Text("Dismiss")
+                        .bscFont(size: 17, weight: .semibold)
+                        .foregroundColor(.bscErrorText)
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                 }
-                .font(.headline)
-                .foregroundColor(.bscError)
             }
         }
     }

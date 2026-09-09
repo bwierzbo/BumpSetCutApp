@@ -24,22 +24,21 @@ struct VideoRenameDialog: View {
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: BSCSpacing.xl) {
+                VStack(alignment: .leading, spacing: BSCSpacing.sm) {
                     Text("Rename Video")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                    
+                        .bscFont(size: 20, weight: .semibold)
+
                     Text("Enter a new name for your video")
-                        .font(.caption)
+                        .bscFont(size: 12)
                         .foregroundColor(.bscTextSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                
-                VStack(alignment: .leading, spacing: 8) {
+
+                VStack(alignment: .leading, spacing: BSCSpacing.sm) {
                     Text("Video Name")
-                        .font(.headline)
-                    
+                        .bscFont(size: 14, weight: .semibold)
+
                     TextField("Enter video name", text: $newName)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .focused($isTextFieldFocused)
@@ -47,32 +46,37 @@ struct VideoRenameDialog: View {
                             handleRename()
                         }
                 }
-                
+
                 Spacer()
-                
-                HStack(spacing: 12) {
-                    Button("Cancel") {
+
+                HStack(spacing: BSCSpacing.md) {
+                    Button {
                         onCancel()
+                    } label: {
+                        Text("Cancel")
+                            .frame(maxWidth: .infinity)
+                            .padding(BSCSpacing.lg)
+                            .background(Color.bscSurfaceGlass)
+                            .foregroundColor(.bscTextPrimary)
+                            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.bscSurfaceGlass)
-                    .foregroundColor(.bscTextPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
-                    
-                    Button("Rename") {
+
+                    Button {
                         handleRename()
+                    } label: {
+                        Text("Rename")
+                            .frame(maxWidth: .infinity)
+                            .padding(BSCSpacing.lg)
+                            .background(isNameEmpty ? Color.bscSurfaceGlass : Color.bscPrimaryFill)
+                            .foregroundColor(isNameEmpty ? .bscTextTertiary : .bscOnPrimary)
+                            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.bscSurfaceGlass : Color.bscPrimary)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
-                    .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isNameEmpty)
                 }
                 .padding(.bottom)
             }
             .padding()
+            .background(Color.bscBackground)
             .onAppear {
                 isTextFieldFocused = true
             }
@@ -81,6 +85,10 @@ struct VideoRenameDialog: View {
         .presentationDragIndicator(.visible)
     }
     
+    private var isNameEmpty: Bool {
+        newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func handleRename() {
         let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty && trimmedName != currentName else { return }

@@ -111,7 +111,7 @@ extension HomeViewModel {
                     icon: "crown.fill",
                     value: "Pro",
                     label: "Unlimited",
-                    color: .yellow
+                    color: .bscWarningText
                 )
             ]
         } else {
@@ -147,7 +147,7 @@ extension HomeViewModel {
                     icon: batteryIcon,
                     value: "\(Int(remainingMin))m",
                     label: "This Week",
-                    color: remainingMin > 0 ? .bscBlue : .red
+                    color: remainingMin > 0 ? .bscPrimaryText : .bscErrorText
                 )
             ]
         }

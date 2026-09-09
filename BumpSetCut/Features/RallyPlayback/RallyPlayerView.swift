@@ -272,13 +272,15 @@ struct RallyPlayerView: View {
                             Image(systemName: viewModel.currentVideoIsReported ? "flag.fill" : "flag")
                                 .bscFont(size: 14, weight: .semibold)
                                 .foregroundColor(viewModel.currentVideoIsReported ? .bscOrange : .bscOnMedia)
-                                .padding(10)
+                                .padding(BSCSpacing.sm)
                                 .background(Color.bscMediaScrimBase.opacity(0.35))
                                 .clipShape(Circle())
                                 .overlay(
                                     Circle().stroke(Color.bscOrange,
                                                     lineWidth: viewModel.currentVideoIsReported ? 1.5 : 0)
                                 )
+                                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                                .contentShape(Rectangle())
                         }
                         .accessibilityLabel(viewModel.currentVideoIsReported ? "Video reported" : "Report a detection mistake")
                         .padding(.trailing, BSCSpacing.lg)
@@ -514,7 +516,7 @@ struct RallyPlayerView: View {
                 }
 
                 // No action - animate back to center
-                withAnimation(.interpolatingSpring(stiffness: 300, damping: 25)) {
+                withAnimation(.bscSwipe) {
                     viewModel.dragOffset = .zero
                 }
             }

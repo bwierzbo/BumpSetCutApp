@@ -84,10 +84,10 @@ struct CommentsSheet: View {
                     HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .bscFont(size: 11)
-                            .foregroundColor(.bscError)
+                            .foregroundColor(.bscErrorText)
                         Text("Couldn't send comment. Try again.")
                             .bscFont(size: 12)
-                            .foregroundColor(.bscError)
+                            .foregroundColor(.bscErrorText)
                         Spacer()
                     }
                     .padding(.horizontal, BSCSpacing.md)
@@ -162,6 +162,8 @@ struct CommentsSheet: View {
                     Image(systemName: "xmark")
                         .bscFont(size: 15, weight: .semibold)
                         .foregroundColor(.bscTextSecondary)
+                        .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Close comments")
             }
@@ -188,7 +190,7 @@ struct CommentsSheet: View {
             // Avatar
             AvatarView(url: comment.author?.avatarURL, name: comment.author?.username ?? "?", size: 32)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                 HStack(spacing: BSCSpacing.xs) {
                     Text(comment.author?.username ?? "Unknown")
                         .bscFont(size: 13, weight: .semibold)
@@ -196,7 +198,7 @@ struct CommentsSheet: View {
 
                     Text(comment.createdAt.formatted(.relative(presentation: .named)))
                         .bscFont(size: 11)
-                        .foregroundColor(.bscTextTertiary)
+                        .foregroundColor(.bscTextSecondary)
                 }
 
                 Text(comment.text)
@@ -208,16 +210,18 @@ struct CommentsSheet: View {
                     UIImpactFeedbackGenerator.light()
                     Task { await viewModel.toggleCommentLike(comment) }
                 } label: {
-                    HStack(spacing: 2) {
+                    HStack(spacing: BSCSpacing.xxs) {
                         Image(systemName: comment.isLikedByMe ? "heart.fill" : "heart")
                             .bscFont(size: 11)
-                            .foregroundColor(comment.isLikedByMe ? .bscError : .bscTextTertiary)
+                            .foregroundColor(comment.isLikedByMe ? .bscError : .bscTextSecondary)
                         if comment.likesCount > 0 {
                             Text("\(comment.likesCount)")
                                 .bscFont(size: 11)
-                                .foregroundColor(.bscTextTertiary)
+                                .foregroundColor(.bscTextSecondary)
                         }
                     }
+                    .frame(minWidth: BSCTouchTarget.standard, minHeight: BSCTouchTarget.standard, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(comment.isLikedByMe ? "Unlike comment" : "Like comment")
@@ -267,6 +271,7 @@ struct CommentsSheet: View {
                 .foregroundColor(.bscTextPrimary)
                 .padding(.vertical, BSCSpacing.sm)
                 .padding(.horizontal, BSCSpacing.md)
+                .frame(minHeight: BSCTouchTarget.standard)
                 .background(Color.bscSurfaceGlass)
                 .clipShape(Capsule())
                 .focused($isCommentFocused)
@@ -292,7 +297,8 @@ struct CommentsSheet: View {
                             .foregroundColor(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .bscTextTertiary : .bscPrimary)
                     }
                 }
-                .frame(width: 30, height: 30)
+                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
             }
             .disabled(viewModel.newCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isSending)
             .accessibilityLabel("Send comment")

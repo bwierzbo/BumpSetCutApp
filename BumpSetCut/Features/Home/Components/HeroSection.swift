@@ -62,7 +62,7 @@ struct HeroSection: View {
 
     // MARK: - Title Section
     private var titleSection: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: BSCSpacing.xs) {
             Text("BumpSetCut")
                 .bscFont(size: 32, weight: .bold)
                 .foregroundColor(.bscTextPrimary)

@@ -32,7 +32,7 @@ struct RallyLoadingView: View {
                 Image(systemName: "figure.volleyball")
                     .bscFont(size: 36, weight: .medium)
                     .foregroundStyle(LinearGradient.bscPrimaryGradient)
-                    .offset(y: isAnimating ? -4 : 0)
+                    .bscFloatingEffect()
             }
 
             VStack(spacing: BSCSpacing.sm) {
@@ -47,7 +47,7 @@ struct RallyLoadingView: View {
         }
         .onAppear {
             guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+            withAnimation(.bscPulse) {
                 isAnimating = true
             }
         }
@@ -99,12 +99,12 @@ struct RallyErrorView: View {
             // Error icon
             ZStack {
                 Circle()
-                    .fill(Color.bscWarning.opacity(0.15))
+                    .fill(Color.bscWarningText.opacity(0.15))
                     .frame(width: 80, height: 80)
 
                 Image(systemName: "exclamationmark.triangle.fill")
                     .bscFont(size: 40)
-                    .foregroundColor(.bscWarning)
+                    .foregroundColor(.bscWarningText)
             }
 
             VStack(spacing: BSCSpacing.sm) {
@@ -143,12 +143,12 @@ struct RallyEmptyView: View {
             // Empty icon
             ZStack {
                 Circle()
-                    .fill(Color.bscTextTertiary.opacity(0.15))
+                    .fill(Color.bscTextSecondary.opacity(0.15))
                     .frame(width: 80, height: 80)
 
                 Image(systemName: "film.stack")
                     .bscFont(size: 36)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
             }
 
             VStack(spacing: BSCSpacing.sm) {

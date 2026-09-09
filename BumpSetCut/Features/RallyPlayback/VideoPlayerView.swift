@@ -99,7 +99,7 @@ private extension VideoPlayerView {
                 .progressViewStyle(CircularProgressViewStyle(tint: .bscOnMedia))
             Text("Loading video...")
                 .foregroundColor(.bscOnMedia)
-                .font(.caption)
+                .bscFont(size: 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

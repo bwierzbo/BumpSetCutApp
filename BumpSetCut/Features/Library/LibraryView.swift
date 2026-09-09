@@ -144,7 +144,7 @@ private extension LibraryView {
                     contentBody(geometry: geometry)
                 }
                 .padding(isLandscape ? BSCSpacing.xl : BSCSpacing.lg)
-                .frame(maxWidth: isLandscape ? 700 : .infinity)
+                .frame(maxWidth: isLandscape ? BSCContentWidth.wide : .infinity)
                 .frame(maxWidth: .infinity)
             }
             .background(Color.bscBackground)
@@ -213,17 +213,19 @@ private extension LibraryView {
                 } label: {
                     Text(filter.rawValue)
                         .bscFont(size: 13, weight: viewModel.videoFilter == filter ? .semibold : .medium)
-                        .foregroundColor(viewModel.videoFilter == filter ? .bscTextInverse : .bscTextSecondary)
+                        .foregroundColor(viewModel.videoFilter == filter ? .bscOnPrimary : .bscTextSecondary)
                         .padding(.horizontal, BSCSpacing.md)
                         .padding(.vertical, BSCSpacing.sm)
                         .background(
                             Capsule()
-                                .fill(viewModel.videoFilter == filter ? Color.bscPrimary : Color.bscSurfaceGlass)
+                                .fill(viewModel.videoFilter == filter ? Color.bscPrimaryFill : Color.bscSurfaceGlass)
                         )
                         .overlay(
                             Capsule()
                                 .stroke(viewModel.videoFilter == filter ? Color.clear : Color.bscSurfaceBorder, lineWidth: 1)
                         )
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(filter.rawValue) videos\(viewModel.videoFilter == filter ? ", selected" : "")")
@@ -531,6 +533,8 @@ private extension LibraryView {
                         .bscFont(size: 16, weight: .medium)
                         .foregroundColor(.bscTextSecondary)
                         .frame(width: BSCIconSize.xl, height: BSCIconSize.xl)
+                        .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Sort and view options")
                 .accessibilityIdentifier(AccessibilityID.Library.sortMenu)
@@ -596,7 +600,7 @@ private extension LibraryView {
                         createFolder()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(.bscPrimary)
+                    .foregroundColor(.bscPrimaryText)
                     .disabled(viewModel.newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }

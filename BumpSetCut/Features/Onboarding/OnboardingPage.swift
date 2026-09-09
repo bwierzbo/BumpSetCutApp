@@ -35,7 +35,7 @@ struct OnboardingPage: Identifiable {
             title: "AI Processing",
             description: "Our AI analyzes your footage and detects volleyball rallies automatically.",
             icon: "brain.head.profile",
-            color: .bscTeal
+            color: .bscTealText
         ),
         OnboardingPage(
             title: "Swipe Through Rallies",
@@ -47,7 +47,7 @@ struct OnboardingPage: Identifiable {
             title: "You're Ready!",
             description: "Start by uploading your first volleyball video and let the AI do the rest.",
             icon: "checkmark.circle.fill",
-            color: .bscSuccess
+            color: .bscSuccessText
         )
     ]
 }

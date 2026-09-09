@@ -77,10 +77,10 @@ struct AuthGateView: View {
                         } label: {
                             Text(viewModel?.isSignUpMode == true ? "Sign Up" : "Sign In")
                                 .bscFont(size: 16, weight: .semibold)
-                                .foregroundColor(.white)
+                                .foregroundColor(.bscOnPrimary)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 50)
-                                .background(Color.bscPrimary)
+                                .background(Color.bscPrimaryFill)
                                 .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                         }
                         .disabled(viewModel?.isEmailFormValid != true)
@@ -95,7 +95,9 @@ struct AuthGateView: View {
                                  ? "Already have an account? Sign In"
                                  : "Don't have an account? Sign Up")
                                 .bscFont(size: 14)
-                                .foregroundColor(.bscPrimary)
+                                .foregroundColor(.bscPrimaryText)
+                                .frame(minHeight: BSCTouchTarget.standard)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier(AccessibilityID.AuthGate.toggleMode)
@@ -112,7 +114,9 @@ struct AuthGateView: View {
                     } label: {
                         Text("Continue without account")
                             .bscFont(size: 15, weight: .medium)
-                            .foregroundColor(.bscTextTertiary)
+                            .foregroundColor(.bscTextSecondary)
+                            .frame(minHeight: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier(AccessibilityID.AuthGate.skip)
@@ -176,11 +180,11 @@ struct AuthGateView: View {
                                     .tint(.bscPrimary)
                             } else if viewModel?.isUsernameAvailable == true {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.bscSuccess)
+                                    .foregroundColor(.bscSuccessText)
                                     .bscFont(size: 18)
                             } else if viewModel?.isUsernameAvailable == false {
                                 Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.bscError)
+                                    .foregroundColor(.bscErrorText)
                                     .bscFont(size: 18)
                             }
                         }
@@ -244,10 +248,10 @@ struct AuthGateView: View {
                     HStack(spacing: BSCSpacing.xs) {
                         Image(systemName: vm.passwordsMatch ? "checkmark.circle.fill" : "xmark.circle.fill")
                             .bscFont(size: 12)
-                            .foregroundColor(vm.passwordsMatch ? .bscSuccess : .bscError)
+                            .foregroundColor(vm.passwordsMatch ? .bscSuccessText : .bscErrorText)
                         Text(vm.passwordsMatch ? "Passwords match" : "Passwords do not match")
                             .bscFont(size: 12)
-                            .foregroundColor(vm.passwordsMatch ? .bscTextSecondary : .bscError)
+                            .foregroundColor(vm.passwordsMatch ? .bscTextSecondary : .bscErrorText)
                         Spacer()
                     }
                 }
@@ -262,7 +266,9 @@ struct AuthGateView: View {
                     } label: {
                         Text("Forgot password?")
                             .bscFont(size: 14)
-                            .foregroundColor(.bscPrimary)
+                            .foregroundColor(.bscPrimaryText)
+                            .frame(minHeight: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier(AccessibilityID.AuthGate.forgotPassword)
@@ -312,7 +318,9 @@ struct AuthGateView: View {
             } label: {
                 Image(systemName: isVisible.wrappedValue ? "eye.slash" : "eye")
                     .bscFont(size: 17)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
+                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isVisible.wrappedValue ? "Hide password" : "Show password")
@@ -323,10 +331,10 @@ struct AuthGateView: View {
         HStack(spacing: BSCSpacing.xs) {
             Image(systemName: met ? "checkmark.circle.fill" : "circle")
                 .bscFont(size: 12)
-                .foregroundColor(met ? .bscSuccess : .bscTextTertiary)
+                .foregroundColor(met ? .bscSuccessText : .bscTextSecondary)
             Text(label)
                 .bscFont(size: 12)
-                .foregroundColor(met ? .bscTextSecondary : .bscTextTertiary)
+                .foregroundColor(.bscTextSecondary)
         }
     }
 }
