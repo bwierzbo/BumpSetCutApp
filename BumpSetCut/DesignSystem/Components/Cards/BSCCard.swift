@@ -149,23 +149,6 @@ extension View {
         ))
     }
 
-    /// Apply elevated card style
-    func bscElevated(cornerRadius: CGFloat = BSCRadius.lg) -> some View {
-        background(Color.bscBackgroundElevated)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .bscShadow(BSCShadow.lg)
-    }
-
-    /// Apply outlined card style
-    func bscOutlined(cornerRadius: CGFloat = BSCRadius.lg) -> some View {
-        background(Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
-            )
-    }
-
     /// Apply interactive card style
     func bscInteractive(
         isSelected: Bool,
@@ -201,49 +184,6 @@ extension View {
                     .stroke(Color.bscSurfaceBorder, lineWidth: 1)
             )
             .bscShadow(shadow)
-    }
-}
-
-// MARK: - Section Card
-/// A card specifically designed for settings/form sections
-struct BSCSectionCard<Content: View>: View {
-    let title: String?
-    let icon: String?
-    @ViewBuilder let content: () -> Content
-
-    init(
-        title: String? = nil,
-        icon: String? = nil,
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.title = title
-        self.icon = icon
-        self.content = content
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: BSCSpacing.md) {
-            if title != nil || icon != nil {
-                HStack(spacing: BSCSpacing.sm) {
-                    if let icon = icon {
-                        Image(systemName: icon)
-                            .bscFont(size: BSCIconSize.md, weight: .semibold)
-                            .foregroundColor(.bscPrimary)
-                            .accessibilityHidden(true)
-                    }
-
-                    if let title = title {
-                        Text(title)
-                            .bscFont(size: 14, weight: .semibold)
-                            .foregroundColor(.bscTextSecondary)
-                            .textCase(.uppercase)
-                    }
-                }
-            }
-
-            content()
-        }
-        .bscGlass(padding: BSCSpacing.lg)
     }
 }
 
@@ -292,25 +232,6 @@ struct BSCSectionCard<Content: View>: View {
                     Text("Blue glow when selected")
                         .font(.subheadline)
                         .foregroundColor(.bscTextSecondary)
-                }
-            }
-
-            BSCSectionCard(title: "Settings", icon: "gear") {
-                VStack(spacing: BSCSpacing.md) {
-                    HStack {
-                        Text("Option 1")
-                            .foregroundColor(.bscTextPrimary)
-                        Spacer()
-                        Toggle("", isOn: .constant(true))
-                            .tint(.bscPrimary)
-                    }
-                    HStack {
-                        Text("Option 2")
-                            .foregroundColor(.bscTextPrimary)
-                        Spacer()
-                        Toggle("", isOn: .constant(false))
-                            .tint(.bscPrimary)
-                    }
                 }
             }
         }

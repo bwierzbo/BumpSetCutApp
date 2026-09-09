@@ -43,6 +43,9 @@ struct MainTabView: View {
     private var processingCoordinator = ProcessingCoordinator.shared
     private var flywheelService = FlywheelCaptureService.shared
 
+    /// Bottom padding that keeps floating pills clear of the tab bar.
+    private let tabBarClearance: CGFloat = 54
+
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.scenePhase) private var scenePhase
 
@@ -105,28 +108,30 @@ struct MainTabView: View {
                 }
                 .accessibilityIdentifier(AccessibilityID.Tab.profile)
             }
-            .tint(.bscPrimary)
+            // bscPrimaryText, not bscPrimary: the selected tab label renders as
+            // text and needs the AA-passing variant (raw bscPrimary is 3.68:1).
+            .tint(.bscPrimaryText)
 
             // Floating processing progress pill
             if processingCoordinator.isProcessing || processingCoordinator.showCompletionPill {
                 processingPill
-                    .padding(.bottom, 54) // Above tab bar
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, tabBarClearance)
+                    .transition(.bscSlideUp)
                     .zIndex(100)
             } else if uploadCoordinator.isUploadInProgress {
                 videoUploadPill
-                    .padding(.bottom, 54) // Above tab bar
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, tabBarClearance)
+                    .transition(.bscSlideUp)
                     .zIndex(99)
             } else if flywheelService.isDraining {
                 flywheelUploadPill
-                    .padding(.bottom, 54) // Above tab bar
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, tabBarClearance)
+                    .transition(.bscSlideUp)
                     .zIndex(98)
             } else if showLowStorageBanner {
                 lowStorageBannerView
-                    .padding(.bottom, 54) // Above tab bar
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, tabBarClearance)
+                    .transition(.bscSlideUp)
                     .zIndex(97)
             }
         }
@@ -222,19 +227,11 @@ struct MainTabView: View {
                 onProfile: { _ in }
             )
 
-            Button {
+            // xs outer padding keeps the icon visually 12pt from the edge
+            // (the component's 44pt hit frame supplies the other 8pt).
+            BSCMediaCloseButton {
                 deepLinkedHighlight = nil
-            } label: {
-                // 44pt hit target (28pt glyph + 8pt each side); outer padding drops
-                // to xs so the icon stays visually 12pt from the edge as before.
-                Image(systemName: "xmark.circle.fill")
-                    .bscFont(size: 28)
-                    .foregroundColor(Color.bscOnMedia.opacity(0.85))
-                    .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 4)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
             }
-            .accessibilityLabel("Close")
             .padding(BSCSpacing.xs)
         }
     }
@@ -259,48 +256,32 @@ struct MainTabView: View {
                 showCancelUploadDialog = true
             }
         } label: {
-            HStack(spacing: BSCSpacing.sm) {
-                if uploadCoordinator.showCompleted {
+            if uploadCoordinator.showCompleted {
+                BSCStatusPill(title: "Upload complete!") {
                     Image(systemName: "checkmark.circle.fill")
                         .bscFont(size: 20)
                         .foregroundColor(.bscSuccessText)
-
-                    Text("Upload complete!")
-                        .bscFont(size: 13, weight: .semibold)
-                        .foregroundColor(.bscTextPrimary)
-                } else {
-                    ZStack {
-                        if let fraction = uploadCoordinator.importProgress {
-                            Circle().stroke(Color.bscSurfaceBorder, lineWidth: 2.5)
-                                .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
-                            Circle()
-                                .trim(from: 0, to: fraction)
-                                .stroke(Color.bscPrimary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                                .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
-                                .rotationEffect(.degrees(-90))
+                } trailing: {}
+            } else {
+                BSCStatusPill(
+                    title: "Uploading \(uploadCoordinator.currentVideoName)…",
+                    subtitle: uploadCoordinator.uploadProgressText.isEmpty
+                        ? "keep the app open"
+                        : uploadCoordinator.uploadProgressText
+                ) {
+                    if let fraction = uploadCoordinator.importProgress {
+                        BSCProgressRing(progress: fraction) {
                             Image(systemName: "arrow.up")
                                 .bscFont(size: 9, weight: .bold)
                                 .foregroundColor(.bscPrimary)
-                        } else {
-                            // Indeterminate (drag-drop, or before load progress arrives)
-                            ProgressView()
-                                .tint(.bscPrimary)
-                                .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
                         }
+                    } else {
+                        // Indeterminate (drag-drop, or before load progress arrives)
+                        ProgressView()
+                            .tint(.bscPrimary)
+                            .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
                     }
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Uploading \(uploadCoordinator.currentVideoName)…")
-                            .bscFont(size: 13, weight: .semibold)
-                            .foregroundColor(.bscTextPrimary)
-                        Text(uploadCoordinator.uploadProgressText.isEmpty
-                             ? "keep the app open"
-                             : uploadCoordinator.uploadProgressText)
-                            .bscFont(size: 11)
-                            .foregroundColor(.bscTextSecondary)
-                            .lineLimit(1)
-                    }
-
+                } trailing: {
                     Spacer()
 
                     if let fraction = uploadCoordinator.importProgress {
@@ -310,19 +291,6 @@ struct MainTabView: View {
                     }
                 }
             }
-            .padding(.horizontal, BSCSpacing.md)
-            .padding(.vertical, BSCSpacing.sm)
-            .frame(maxWidth: 500, minHeight: 44)
-            .background(
-                RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                    .fill(Color.bscBackgroundElevated)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
-            )
-            .bscShadow(BSCShadow.md)
-            .padding(.horizontal, BSCSpacing.lg)
         }
         .buttonStyle(.plain)
     }
@@ -330,49 +298,23 @@ struct MainTabView: View {
     /// Flywheel upload pill — mirrors the processing pill's style. Shown while
     /// frames are draining to the server so the user knows not to quit mid-upload.
     private var flywheelUploadPill: some View {
-        HStack(spacing: BSCSpacing.sm) {
-            ZStack {
-                Circle().stroke(Color.bscSurfaceBorder, lineWidth: 2.5).frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
-                Circle()
-                    .trim(from: 0, to: flywheelService.uploadProgress)
-                    .stroke(Color.bscPrimary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                    .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
-                    .rotationEffect(.degrees(-90))
+        BSCStatusPill(
+            title: "Uploading rally data…",
+            subtitle: flywheelService.uploadFrameTotal > 0
+                ? "\(flywheelService.uploadFrameTotal) frames · keep the app open"
+                : "keep the app open"
+        ) {
+            BSCProgressRing(progress: flywheelService.uploadProgress) {
                 Image(systemName: "arrow.up")
                     .bscFont(size: 9, weight: .bold)
                     .foregroundColor(.bscPrimary)
             }
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Uploading rally data…")
-                    .bscFont(size: 13, weight: .semibold)
-                    .foregroundColor(.bscTextPrimary)
-                Text(flywheelService.uploadFrameTotal > 0
-                     ? "\(flywheelService.uploadFrameTotal) frames · keep the app open"
-                     : "keep the app open")
-                    .bscFont(size: 11)
-                    .foregroundColor(.bscTextSecondary)
-                    .lineLimit(1)
-            }
-
+        } trailing: {
             Spacer()
             Text("\(Int(flywheelService.uploadProgress * 100))%")
                 .bscFont(size: 14, weight: .bold, design: .monospaced)
                 .foregroundColor(.bscPrimaryText)
         }
-        .padding(.horizontal, BSCSpacing.md)
-        .padding(.vertical, BSCSpacing.sm)
-        .frame(maxWidth: 500)
-        .background(
-            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                .fill(Color.bscBackgroundElevated)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                .stroke(Color.bscSurfaceBorder, lineWidth: 1)
-        )
-        .bscShadow(BSCShadow.md)
-        .padding(.horizontal, BSCSpacing.lg)
     }
 
     private var processingPill: some View {
@@ -383,60 +325,35 @@ struct MainTabView: View {
                 selectedTab = .home
             }
         } label: {
-            HStack(spacing: BSCSpacing.sm) {
-                if processingCoordinator.didComplete {
-                    // Completion state
-                    if processingCoordinator.errorMessage != nil {
+            if processingCoordinator.didComplete {
+                // Completion state
+                if processingCoordinator.errorMessage != nil {
+                    BSCStatusPill(title: "Processing failed") {
                         Image(systemName: "exclamationmark.circle.fill")
                             .bscFont(size: 20)
                             .foregroundColor(.bscError)
-
-                        Text("Processing failed")
-                            .bscFont(size: 13, weight: .semibold)
-                            .foregroundColor(.bscTextPrimary)
-                    } else {
+                    } trailing: {}
+                } else {
+                    BSCStatusPill(title: processingCoordinator.noRalliesDetected ? "No rallies found" : "Processing complete!") {
                         Image(systemName: processingCoordinator.noRalliesDetected ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
                             .bscFont(size: 20)
                             .foregroundColor(processingCoordinator.noRalliesDetected ? .bscTextSecondary : .bscSuccessText)
-
-                        Text(processingCoordinator.noRalliesDetected ? "No rallies found" : "Processing complete!")
-                            .bscFont(size: 13, weight: .semibold)
-                            .foregroundColor(.bscTextPrimary)
-                    }
-                } else {
-                    // Progress ring
-                    ZStack {
-                        Circle()
-                            .stroke(Color.bscSurfaceBorder, lineWidth: 2.5)
-                            .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
-
-                        Circle()
-                            .trim(from: 0, to: processingCoordinator.progress)
-                            .stroke(Color.bscPrimary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                            .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
-                            .rotationEffect(.degrees(-90))
-
+                    } trailing: {}
+                }
+            } else {
+                BSCStatusPill {
+                    BSCProgressRing(progress: processingCoordinator.progress) {
                         Text("\(processingCoordinator.progressPercent)")
                             .bscFont(size: 8, weight: .bold, design: .monospaced)
                             .foregroundColor(.bscPrimaryText)
                     }
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: BSCSpacing.xxs) {
-                            Text("Processing...")
-                                .bscFont(size: 13, weight: .semibold)
-                                .foregroundColor(.bscTextPrimary)
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .bscFont(size: 9)
-                                .foregroundColor(.bscWarningText)
-                        }
-
-                        Text(processingETASubtitle)
-                            .bscFont(size: 11)
-                            .foregroundColor(.bscTextSecondary)
-                            .lineLimit(1)
+                } content: {
+                    BSCStatusPillLabel(title: "Processing...", subtitle: processingETASubtitle) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .bscFont(size: 9)
+                            .foregroundColor(.bscWarningText)
                     }
-
+                } trailing: {
                     Spacer()
 
                     Text("\(processingCoordinator.progressPercent)%")
@@ -444,19 +361,6 @@ struct MainTabView: View {
                         .foregroundColor(.bscPrimaryText)
                 }
             }
-            .padding(.horizontal, BSCSpacing.md)
-            .padding(.vertical, BSCSpacing.sm)
-            .frame(maxWidth: 500, minHeight: 44)
-            .background(
-                RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                    .fill(Color.bscBackgroundElevated)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
-            )
-            .bscShadow(BSCShadow.md)
-            .padding(.horizontal, BSCSpacing.lg)
         }
         .buttonStyle(.plain)
     }
@@ -464,16 +368,18 @@ struct MainTabView: View {
     // MARK: - Low Storage Banner
 
     private var lowStorageBannerView: some View {
-        HStack(spacing: BSCSpacing.sm) {
+        // Bespoke content (12pt two-line message, warning border) rather than the
+        // standard title/subtitle stack — restyling it would change the banner.
+        BSCStatusPill(borderColor: Color.bscWarning.opacity(0.4)) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .bscFont(size: 16)
                 .foregroundColor(.bscWarningText)
-
+        } content: {
             Text("Storage nearly full — \(StorageChecker.formatBytes(lowStorageAvailable)) remaining. Free up space to avoid issues.")
                 .bscFont(size: 12, weight: .medium)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(2)
-
+        } trailing: {
             Spacer(minLength: 0)
 
             Button {
@@ -487,24 +393,11 @@ struct MainTabView: View {
                 Image(systemName: "xmark")
                     .bscFont(size: 12, weight: .bold)
                     .foregroundColor(.bscTextSecondary)
-                    .frame(width: 44, height: 44, alignment: .trailing)
+                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard, alignment: .trailing)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("Dismiss")
         }
-        .padding(.horizontal, BSCSpacing.md)
-        .padding(.vertical, BSCSpacing.sm)
-        .frame(maxWidth: 500)
-        .background(
-            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                .fill(Color.bscBackgroundElevated)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                .stroke(Color.bscWarning.opacity(0.4), lineWidth: 1)
-        )
-        .bscShadow(BSCShadow.md)
-        .padding(.horizontal, BSCSpacing.lg)
     }
 
     // MARK: - Storage Check

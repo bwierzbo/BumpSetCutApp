@@ -623,21 +623,7 @@ struct UnprocessedVideoPickerSheet: View {
                         importAndProcessButton
 
                         if unprocessedVideos.isEmpty && !isImporting {
-                            VStack(spacing: BSCSpacing.lg) {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .bscFont(size: 48)
-                                    .foregroundColor(.bscTealText)
-
-                                Text("All Caught Up!")
-                                    .bscFont(size: 20, weight: .bold)
-                                    .foregroundColor(.bscTextPrimary)
-
-                                Text("No unprocessed videos. Import a new one above.")
-                                    .bscFont(size: 14)
-                                    .foregroundColor(.bscTextSecondary)
-                                    .multilineTextAlignment(.center)
-                            }
-                            .padding(.top, BSCSpacing.xl)
+                            BSCEmptyState.allCaughtUp()
                         } else if !unprocessedVideos.isEmpty {
                             // Divider between import and existing videos
                             HStack {

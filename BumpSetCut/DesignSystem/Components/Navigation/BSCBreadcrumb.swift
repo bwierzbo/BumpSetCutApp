@@ -198,42 +198,6 @@ extension BSCBreadcrumb {
     }
 }
 
-// MARK: - Compact Breadcrumb
-/// A simpler breadcrumb showing just parent and current
-struct BSCCompactBreadcrumb: View {
-    let parentName: String?
-    let currentName: String
-    let onBack: (() -> Void)?
-
-    var body: some View {
-        HStack(spacing: BSCSpacing.sm) {
-            if let parentName = parentName, let onBack = onBack {
-                Button(action: onBack) {
-                    HStack(spacing: BSCSpacing.xs) {
-                        Image(systemName: "chevron.left")
-                            .bscFont(size: 12, weight: .semibold)
-
-                        Text(parentName)
-                            .bscFont(size: 14)
-                            .lineLimit(1)
-                    }
-                    .foregroundColor(.bscTextSecondary)
-                }
-
-                Text("/")
-                    .bscFont(size: 14)
-                    .foregroundColor(.bscTextTertiary)
-                    .accessibilityHidden(true)
-            }
-
-            Text(currentName)
-                .bscFont(size: 14, weight: .semibold)
-                .foregroundColor(.bscTextPrimary)
-                .lineLimit(1)
-        }
-    }
-}
-
 // MARK: - Preview
 #Preview("BSCBreadcrumb") {
     VStack(spacing: BSCSpacing.xxl) {
@@ -267,16 +231,6 @@ struct BSCCompactBreadcrumb: View {
             crumbs: BSCBreadcrumb.crumbs(from: ""),
             currentPath: "",
             onNavigate: { _ in }
-        )
-
-        Text("Compact")
-            .font(.headline)
-            .foregroundColor(.bscTextPrimary)
-
-        BSCCompactBreadcrumb(
-            parentName: "Beach",
-            currentName: "Summer 2024",
-            onBack: {}
         )
     }
     .padding()

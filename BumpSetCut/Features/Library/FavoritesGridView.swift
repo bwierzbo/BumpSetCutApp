@@ -22,7 +22,6 @@ struct FavoritesGridView: View {
     // Persisted across launches (String-backed enum works with @AppStorage).
     @AppStorage("favorites.sortOption") private var sortOption: ContentSortOption = .dateCreated
     @State private var renameTarget: VideoMetadata?
-    @State private var renameText: String = ""
     // Surfaces failures from fire-and-forget library mutations (rename/move/delete).
     @State private var mutationToast: BSCToastMessage?
     @Environment(\.dismiss) private var dismiss
@@ -132,27 +131,29 @@ struct FavoritesGridView: View {
         } message: {
             Text("This rally will be removed from your favorites.")
         }
-        .alert("Rename", isPresented: Binding(
-            get: { renameTarget != nil },
-            set: { if !$0 { renameTarget = nil } }
-        )) {
-            TextField("Name", text: $renameText)
-            Button("Cancel", role: .cancel) { renameTarget = nil }
-            Button("Rename") {
-                if let video = renameTarget {
-                    let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        .bscNameAlert(
+            title: "Rename",
+            message: "Enter a new name for this rally.",
+            placeholder: "Name",
+            initialText: renameTarget?.displayName ?? "",
+            confirmTitle: "Rename",
+            isPresented: Binding(
+                get: { renameTarget != nil },
+                set: { if !$0 { renameTarget = nil } }
+            ),
+            onCommit: { name in
+                if let video = renameTarget, let name {
+                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
                         Task {
                             do { try await folderManager.renameVideo(video, to: trimmed) }
                             catch { mutationToast = BSCToastMessage(text: "Couldn't rename video", style: .error) }
                         }
                     }
-                    renameTarget = nil
                 }
+                renameTarget = nil
             }
-        } message: {
-            Text("Enter a new name for this rally.")
-        }
+        )
         .simultaneousGesture(
             DragGesture(minimumDistance: 20)
                 .onEnded { value in
@@ -239,7 +240,6 @@ struct FavoritesGridView: View {
                 .draggable(video)
                 .contextMenu {
                     Button {
-                        renameText = video.displayName
                         renameTarget = video
                     } label: {
                         Label("Rename", systemImage: "pencil")
@@ -485,14 +485,8 @@ struct FavoritesFeedView: View {
 
                         Spacer()
 
-                        Button { onDismiss() } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .bscFont(size: 28)
-                                .foregroundColor(Color.bscOnMedia.opacity(0.8))
-                                .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 4)
-                        }
-                        .accessibilityLabel("Close")
-                        .accessibilityIdentifier(AccessibilityID.Favorites.feedClose)
+                        BSCMediaCloseButton { onDismiss() }
+                            .accessibilityIdentifier(AccessibilityID.Favorites.feedClose)
                     }
                     .padding(.horizontal, BSCSpacing.md)
                     .padding(.top, BSCSpacing.md)

@@ -363,16 +363,12 @@ struct SearchCommunityView: View {
             VStack {
                 HStack {
                     Spacer()
-                    Button {
+                    // xs outer padding keeps the icon visually 12pt from the edge
+                    // (the component's 44pt hit frame supplies the other 8pt).
+                    BSCMediaCloseButton {
                         selectedHighlight = nil
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .bscFont(size: 28)
-                            .foregroundColor(.bscOnMedia.opacity(0.8))
-                            .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 4)
                     }
-                    .accessibilityLabel("Close")
-                    .padding(BSCSpacing.md)
+                    .padding(BSCSpacing.xs)
                 }
                 Spacer()
             }

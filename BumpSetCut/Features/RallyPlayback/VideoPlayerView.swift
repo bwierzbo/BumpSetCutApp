@@ -35,15 +35,13 @@ struct VideoPlayerView: View {
             .contentShape(Rectangle())
             .simultaneousGesture(dismissDragGesture)
 
-            // Close button - kept inside the safe area so it isn't tucked under the notch
-            Button {
+            // Close button - kept inside the safe area so it isn't tucked under the notch.
+            // sm outer padding keeps the icon ~16pt from the edges (the component's
+            // 44pt hit frame supplies the other 8pt).
+            BSCMediaCloseButton {
                 dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .bscFont(size: 30)
-                    .foregroundStyle(Color.bscOnMedia.opacity(0.8), Color.bscMediaScrimBase.opacity(0.3))
             }
-            .padding()
+            .padding(BSCSpacing.sm)
         }
         .onAppear(perform: setupPlayer)
         .onDisappear(perform: cleanupPlayer)

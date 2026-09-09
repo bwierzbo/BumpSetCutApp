@@ -139,36 +139,10 @@ struct RallyEmptyView: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(spacing: BSCSpacing.xl) {
-            // Empty icon
-            ZStack {
-                Circle()
-                    .fill(Color.bscTextSecondary.opacity(0.15))
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: "film.stack")
-                    .bscFont(size: 36)
-                    .foregroundColor(.bscTextSecondary)
-            }
-
-            VStack(spacing: BSCSpacing.sm) {
-                Text("No Rallies Found")
-                    .bscFont(size: 20, weight: .bold)
-                    .foregroundColor(.bscTextPrimary)
-
-                Text("This video doesn't have any detected rally segments. Try processing the video first.")
-                    .bscFont(size: 14)
-                    .foregroundColor(.bscTextSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, BSCSpacing.xl)
-            }
-
-            BSCButton(title: "Go Back", icon: "chevron.left", style: .primary, size: .medium) {
-                onDismiss()
-            }
-        }
-        .padding(BSCSpacing.xl)
-        .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
+        BSCEmptyState.noRallySegments(onGoBack: onDismiss)
+            .bscGlass(cornerRadius: BSCRadius.xl, padding: 0)
+            .frame(maxWidth: BSCContentWidth.regular)
+            .padding(BSCSpacing.xl)
     }
 }
 

@@ -257,35 +257,17 @@ struct SocialFeedView: View {
 
     // MARK: - Empty State
 
+    @ViewBuilder
     private var emptyState: some View {
-        VStack(spacing: BSCSpacing.lg) {
-            Image(systemName: selectedTab == .following ? "person.2" : "figure.volleyball")
-                .bscFont(size: 48)
-                .foregroundColor(.bscTextSecondary)
-
-            Text(selectedTab == .following ? "No highlights from followed users" : "No highlights yet")
-                .bscFont(size: 20, weight: .semibold)
-                .foregroundColor(.bscTextPrimary)
-
-            Text(selectedTab == .following
-                 ? "Follow players to see their highlights here."
-                 : "Be the first to share a volleyball rally!")
-                .bscFont(size: 15)
-                .foregroundColor(.bscTextSecondary)
-                .multilineTextAlignment(.center)
-
-            Button {
+        if selectedTab == .following {
+            BSCEmptyState.noFollowingHighlights(actionAccessibilityID: AccessibilityID.Feed.refreshButton) {
                 Task { await viewModel.loadFeed() }
-            } label: {
-                Text("Refresh")
-                    .bscFont(size: 15, weight: .medium)
-                    .foregroundColor(.bscPrimaryText)
-                    .frame(minHeight: BSCTouchTarget.standard)
-                    .contentShape(Rectangle())
             }
-            .accessibilityIdentifier(AccessibilityID.Feed.refreshButton)
+        } else {
+            BSCEmptyState.noHighlights(actionAccessibilityID: AccessibilityID.Feed.refreshButton) {
+                Task { await viewModel.loadFeed() }
+            }
         }
-        .padding(BSCSpacing.xl)
     }
 }
 

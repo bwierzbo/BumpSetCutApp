@@ -149,9 +149,7 @@ struct CommentsSheet: View {
 
     private var panelHeader: some View {
         VStack(spacing: BSCSpacing.sm) {
-            Capsule()
-                .fill(Color.bscTextTertiary.opacity(0.5))
-                .frame(width: 36, height: 5)
+            BSCSheetGrabber()
 
             HStack {
                 Text("Comments")

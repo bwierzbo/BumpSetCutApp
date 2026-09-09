@@ -11,26 +11,33 @@ struct BSCEmptyState: View {
     var secondaryActionTitle: String? = nil
     var onAction: (() -> Void)? = nil
     var onSecondaryAction: (() -> Void)? = nil
+    var actionAccessibilityID: String? = nil
 
     // MARK: - Body
     var body: some View {
         VStack(spacing: BSCSpacing.xl) {
-            // Animated icon
-            animatedIcon
+            // Icon + text combine into one element; buttons stay individually
+            // focusable/queryable for VoiceOver and UI tests.
+            VStack(spacing: BSCSpacing.xl) {
+                // Animated icon
+                animatedIcon
 
-            // Text content
-            VStack(spacing: BSCSpacing.sm) {
-                Text(title)
-                    .bscFont(size: 20, weight: .bold)
-                    .foregroundColor(.bscTextPrimary)
-                    .multilineTextAlignment(.center)
+                // Text content
+                VStack(spacing: BSCSpacing.sm) {
+                    Text(title)
+                        .bscFont(size: 20, weight: .bold)
+                        .foregroundColor(.bscTextPrimary)
+                        .multilineTextAlignment(.center)
 
-                Text(message)
-                    .bscFont(size: 15)
-                    .foregroundColor(.bscTextSecondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                    Text(message)
+                        .bscFont(size: 15)
+                        .foregroundColor(.bscTextSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(title). \(message)")
 
             // Action buttons
             if actionTitle != nil || secondaryActionTitle != nil {
@@ -38,6 +45,7 @@ struct BSCEmptyState: View {
                     if let actionTitle = actionTitle, let onAction = onAction {
                         BSCButton(title: actionTitle, style: .primary, action: onAction)
                             .frame(maxWidth: BSCContentWidth.compact)
+                            .accessibilityIdentifier(actionAccessibilityID ?? "")
                     }
 
                     if let secondaryActionTitle = secondaryActionTitle, let onSecondaryAction = onSecondaryAction {
@@ -49,8 +57,6 @@ struct BSCEmptyState: View {
         }
         .padding(BSCSpacing.xxl)
         .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title). \(message)")
         .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
 
@@ -115,6 +121,26 @@ extension BSCEmptyState {
         )
     }
 
+    /// Rally playback opened for a video with no detected rally segments
+    static func noRallySegments(onGoBack: @escaping () -> Void) -> BSCEmptyState {
+        BSCEmptyState(
+            icon: "film.stack",
+            title: "No Rallies Found",
+            message: "This video doesn't have any detected rally segments. Try processing the video first.",
+            actionTitle: "Go Back",
+            onAction: onGoBack
+        )
+    }
+
+    /// Home processing queue is empty
+    static func allCaughtUp() -> BSCEmptyState {
+        BSCEmptyState(
+            icon: "checkmark.seal.fill",
+            title: "All Caught Up!",
+            message: "No unprocessed videos. Import a new one above."
+        )
+    }
+
     /// No search results state
     static func noSearchResults(query: String, onClear: @escaping () -> Void) -> BSCEmptyState {
         BSCEmptyState(
@@ -150,14 +176,27 @@ extension BSCEmptyState {
 
     // MARK: - Social Empty States
 
-    /// No highlights from followed users
-    static func noFollowingHighlights(onDiscover: @escaping () -> Void) -> BSCEmptyState {
+    /// Following feed with no highlights from followed users
+    static func noFollowingHighlights(actionAccessibilityID: String? = nil, onRefresh: @escaping () -> Void) -> BSCEmptyState {
         BSCEmptyState(
             icon: "person.2",
-            title: "No Highlights Yet",
-            message: "Follow players to see their highlights here. Discover the volleyball community!",
-            actionTitle: "Discover Players",
-            onAction: onDiscover
+            title: "No highlights from followed users",
+            message: "Follow players to see their highlights here.",
+            actionTitle: "Refresh",
+            onAction: onRefresh,
+            actionAccessibilityID: actionAccessibilityID
+        )
+    }
+
+    /// For You feed with no highlights at all
+    static func noHighlights(actionAccessibilityID: String? = nil, onRefresh: @escaping () -> Void) -> BSCEmptyState {
+        BSCEmptyState(
+            icon: "figure.volleyball",
+            title: "No highlights yet",
+            message: "Be the first to share a volleyball rally!",
+            actionTitle: "Refresh",
+            onAction: onRefresh,
+            actionAccessibilityID: actionAccessibilityID
         )
     }
 

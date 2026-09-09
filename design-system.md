@@ -70,9 +70,26 @@ Raw status hues are mode-invariant fills; **the `*Text` variants exist because t
 | `bscError` | `#EF4444` (3.8 icon-only) | `bscErrorText` | `#DC2626` / `#EF4444` | 4.8 / 4.6 ✅ |
 | `bscWarning` | `#F59E0B` (2.2 on white ❌) | `bscWarningText` | `#B45309` / `#F59E0B` | 5.0 / 8.1 ✅ |
 | `bscInfo` / `bscPrimary` | `#3B82F6` (3.7 icon-only) | `bscPrimaryText` | `#2563EB` / `#60A5FA` | 5.2 / 6.8 ✅ |
+| `bscTeal` | `#14B8A6` (2.5 on white ❌) | `bscTealText` | `#0F766E` / `#2DD4BF` | 5.5 / 9.3 ✅ |
+| `bscOrange`/`bscWarmAccent` | `#FF6B35` (2.9 on white ❌) | `bscWarmAccentText` | `#C2410C` / `#FF8C5A` | 5.2 / 7.6 ✅ |
 
 ᶦ passes the 3:1 non-text bar; prefer it for icons, not body text, in light mode.
 Each status hue also has a `*Subtle` 15%-opacity background variant.
+
+### On-fill labels and solid fills
+
+Colored fills are mode-invariant, so labels on them must be too — never use the adaptive `bscTextInverse` on a colored fill (it flips near-black in dark mode).
+
+| Token | Value | Use |
+|---|---|---|
+| `bscOnPrimary` | `#F1EFEF` fixed | Text/icons on primary, destructive, or status fills (≥4.5:1 on all fills below) |
+| `bscPrimaryFill` | `#2563EB` fixed | Solid blue button/badge fill |
+| `bscErrorFill` | `#DC2626` fixed | Solid destructive fill |
+| `bscSuccessFill` | `#16A34A` fixed | Solid success fill (e.g. active save button) |
+| `bscPrimaryGradient` | `#2563EB → #1D4ED8` | Primary CTA gradient (4.5 / 5.9 with bscOnPrimary) |
+| `bscDestructiveGradient` | `#DC2626 → #B91C1C` | Destructive CTA gradient (4.8 / 6.5) |
+
+`bscStatusOriginal/Processed/Versioned` are adaptive, text-safe status label colors (they color card labels, not fills).
 
 ### Rules
 
@@ -112,9 +129,9 @@ Each status hue also has a `*Subtle` 15%-opacity background variant.
 
 ## Typography
 
-- **`.bscFont(size:weight:design:)`** is the standard text modifier — a drop-in for `.font(.system(...))` that scales with Dynamic Type and live-updates when the user changes text size (`Typography/BSCScaledFont.swift`). Never use fixed `Font.system(size:)` directly.
-- **`MFontModifier`** provides the named scale (display1/2, h1–h6, body, labels, captions, plus semantic aliases like `cardTitle`, `statValue`) with tuned line heights and kerning.
-- Common ad-hoc sizes in chrome: 13 semibold (pill titles), 11 (pill subtitles), 14 bold monospaced (percentages), 12 medium (banners).
+- **`.bscFont(size:weight:design:)`** is the *only* text modifier — a drop-in for `.font(.system(...))` that scales with Dynamic Type and live-updates when the user changes text size (`Typography/BSCScaledFont.swift`). Never use fixed `Font.system(size:)` or the `.font(.caption/.headline/...)` shortcuts.
+- The old `MFontModifier` Inter scale was deleted (2026-09-09): it had zero intentional call sites and its `.font(_:)` overload silently hijacked every `.font(.caption)`-style call. The bundled Inter fonts remain registered but unused; remove them from Resources/Info.plist if Inter is never adopted.
+- Common sizes in chrome: 13 semibold (pill titles), 11 (pill subtitles), 14 bold monospaced (percentages), 12 medium (banners).
 
 ## Animation
 
@@ -133,7 +150,13 @@ Each status hue also has a `*Subtle` 15%-opacity background variant.
 
 ## Components (built on the tokens)
 
-`BSCButton`, `BSCIconButton` (circular, sized via `BSCTouchTarget`), `BSCCard`/`BSCFolderCard`/`BSCVideoCard`, `BSCToast`, `BSCEmptyState`, `BSCErrorState`, `BSCLoadingOverlay`, `BSCProgressView`, `BSCSkeletonView`, `BSCSearchBar`, `BSCBreadcrumb`, `LoadingStatusBar`, `AvatarView`, `VideoThumbnailView`, `MetadataOverlayView`. Prefer these over bespoke views; extend them rather than forking their styling.
+Every listed component is in active use — dead components were deleted in the 2026-09-09 audit (`BSCErrorState`, `BSCLoadingOverlay`, `BSCTextField`/`BSCTextArea`, `BSCStepProgress`, `BSCSectionCard`, `BSCCompactBreadcrumb`, `MetadataOverlayView`). Prefer these over bespoke views; extend them rather than forking their styling:
+
+- **Buttons**: `BSCButton` (AA labels, 44pt min height), `BSCIconButton` (32–70pt visual, always ≥44pt hit area), `BSCMediaCloseButton` (scrimmed close for full-screen media)
+- **Cards**: `BSCCard`, `BSCFolderCard`, `BSCVideoCard`, plus the `bscSurfaceChrome()` modifier (the standard elevated fill + hairline border + md shadow)
+- **Feedback**: `BSCToast`, `BSCEmptyState` (presets), `BSCProgressView`, `BSCProgressRing`, `BSCStatusPill` (floating bottom pills), `BSCSkeletonView`, `LoadingStatusBar`
+- **Inputs/Nav**: `BSCSearchBar`, `BSCBreadcrumb`, `BSCNameAlert` (name-a-thing alert; `uploadNamePrompt` wraps it), `BSCSheetGrabber`
+- **Misc**: `AvatarView`, `VideoThumbnailView`
 
 ## Changing tokens
 

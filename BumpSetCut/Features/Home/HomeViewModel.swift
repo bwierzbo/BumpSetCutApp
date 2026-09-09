@@ -99,13 +99,13 @@ extension HomeViewModel {
                     icon: "figure.volleyball",
                     value: "\(totalRallies)",
                     label: "Rallies",
-                    color: .bscPrimary
+                    color: .bscPrimaryText
                 ),
                 StatItem(
                     icon: "scissors",
                     value: timeCutDisplay,
                     label: "Time Cut",
-                    color: .bscTeal
+                    color: .bscTealText
                 ),
                 StatItem(
                     icon: "crown.fill",
@@ -135,13 +135,13 @@ extension HomeViewModel {
                     icon: "figure.volleyball",
                     value: "\(totalRallies)",
                     label: "Rallies",
-                    color: .bscPrimary
+                    color: .bscPrimaryText
                 ),
                 StatItem(
                     icon: "scissors",
                     value: timeCutDisplay,
                     label: "Time Cut",
-                    color: .bscTeal
+                    color: .bscTealText
                 ),
                 StatItem(
                     icon: batteryIcon,

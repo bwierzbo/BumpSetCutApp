@@ -51,18 +51,14 @@ struct ProfileHighlightFeedView: View {
                 HStack {
                     Spacer()
 
-                    Button {
+                    BSCMediaCloseButton {
                         onDismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .bscFont(size: 28)
-                            .foregroundColor(.bscOnMedia.opacity(0.8))
-                            .shadow(color: Color.bscMediaScrimBase.opacity(0.33), radius: 4)
                     }
-                    .accessibilityLabel("Close")
                 }
-                .padding(.horizontal, BSCSpacing.md)
-                .padding(.top, BSCSpacing.md)
+                // xs padding keeps the icon visually 12pt from the edges
+                // (the component's 44pt hit frame supplies the other 8pt).
+                .padding(.horizontal, BSCSpacing.xs)
+                .padding(.top, BSCSpacing.xs)
 
                 Spacer()
             }

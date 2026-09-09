@@ -161,66 +161,6 @@ struct BSCProgressView: View {
     }
 }
 
-// MARK: - Step Progress
-/// A step-based progress indicator
-struct BSCStepProgress: View {
-    let currentStep: Int
-    let totalSteps: Int
-    var labels: [String]? = nil
-
-    var body: some View {
-        VStack(spacing: BSCSpacing.sm) {
-            // Steps
-            HStack(spacing: BSCSpacing.xs) {
-                ForEach(0..<totalSteps, id: \.self) { step in
-                    stepIndicator(for: step)
-
-                    if step < totalSteps - 1 {
-                        connector(isComplete: step < currentStep)
-                    }
-                }
-            }
-
-            // Labels
-            if let labels = labels, labels.count == totalSteps {
-                HStack {
-                    ForEach(0..<totalSteps, id: \.self) { step in
-                        Text(labels[step])
-                            .font(.caption2)
-                            .foregroundColor(step <= currentStep ? .bscTextPrimary : .bscTextTertiary)
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-            }
-        }
-    }
-
-    private func stepIndicator(for step: Int) -> some View {
-        ZStack {
-            Circle()
-                .fill(step <= currentStep ? Color.bscPrimary : Color.bscSurfaceGlass)
-                .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
-
-            if step < currentStep {
-                Image(systemName: "checkmark")
-                    .bscFont(size: 12, weight: .bold)
-                    .foregroundColor(.white)
-            } else {
-                Text("\(step + 1)")
-                    .bscFont(size: 12, weight: .semibold)
-                    .foregroundColor(step == currentStep ? .white : .bscTextTertiary)
-            }
-        }
-    }
-
-    private func connector(isComplete: Bool) -> some View {
-        Rectangle()
-            .fill(isComplete ? Color.bscPrimary : Color.bscSurfaceGlass)
-            .frame(height: 2)
-            .frame(maxWidth: .infinity)
-    }
-}
-
 // MARK: - Preview
 #Preview("BSCProgressView") {
     ScrollView {
@@ -253,19 +193,6 @@ struct BSCStepProgress: View {
                 BSCProgressView(progress: 0.45, style: .volleyball, size: 120)
             }
 
-            // Step Progress
-            VStack(alignment: .leading, spacing: BSCSpacing.md) {
-                Text("Step Progress")
-                    .font(.headline)
-                    .foregroundColor(.bscTextPrimary)
-
-                BSCStepProgress(
-                    currentStep: 2,
-                    totalSteps: 4,
-                    labels: ["Upload", "Detect", "Process", "Export"]
-                )
-                .frame(maxWidth: 300)
-            }
         }
         .padding()
     }

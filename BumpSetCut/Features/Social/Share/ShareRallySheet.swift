@@ -547,15 +547,7 @@ struct ShareRallySheet: View {
             }
             .frame(maxWidth: BSCContentWidth.compact)
             .padding(BSCSpacing.xl)
-            .background(
-                RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
-                    .fill(Color.bscBackgroundElevated)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
-                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
-            )
-            .shadow(color: Color.bscMediaScrimBase.opacity(0.3), radius: 20, y: 10)
+            .bscSurfaceChrome(cornerRadius: BSCRadius.xl, shadow: BSCShadow.xl)
             .padding(BSCSpacing.xl)
         }
         .transition(.opacity)

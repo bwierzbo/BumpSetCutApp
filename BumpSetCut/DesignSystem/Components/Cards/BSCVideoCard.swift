@@ -468,20 +468,6 @@ struct BSCVideoCard: View {
         .accessibilityLabel("View Processed Rallies")
     }
 
-    private var quickDeleteButton: some View {
-        Button {
-            showingDeleteConfirmation = true
-        } label: {
-            Image(systemName: "trash.fill")
-                .bscFont(size: 16)
-                .foregroundColor(.bscError)
-                .frame(width: 32, height: 32)
-                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel("Delete video")
-    }
-
     // MARK: - Context Menu
     @ViewBuilder
     private var contextMenuContent: some View {
