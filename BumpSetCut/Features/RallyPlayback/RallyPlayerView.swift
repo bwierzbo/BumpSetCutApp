@@ -707,6 +707,11 @@ struct UnifiedRallyCard: View {
     var onDoubleTap: (() -> Void)?
 
     @State private var thumbnail: UIImage?
+    // First video frame rendered — the thumbnail then unmounts. Keeping it
+    // mounted behind a live video causes rotation artifacts: the SwiftUI image
+    // animates with the rotation while the AVPlayerLayer resizes on UIKit's
+    // schedule, so the mismatched thumbnail peeks out around the video.
+    @State private var isVideoReady = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var isPortrait: Bool {
@@ -769,7 +774,11 @@ struct UnifiedRallyCard: View {
                     CustomVideoPlayerView(
                         player: player,
                         gravity: .resizeAspectFill,
-                        onReadyForDisplay: { _ in }
+                        onReadyForDisplay: { ready in
+                            guard ready != isVideoReady else { return }
+                            // Async: updateUIView reports synchronously during view updates
+                            DispatchQueue.main.async { isVideoReady = ready }
+                        }
                     )
                     .allowsHitTesting(isCurrent)
                 }
@@ -806,11 +815,15 @@ struct UnifiedRallyCard: View {
             }
         }
         .task(id: url) {
+            isVideoReady = false
             thumbnail = await thumbnailCache.getThumbnailAsync(for: url)
         }
     }
 
     private var showThumbnail: Bool {
+        // Only until the player has rendered its first frame — after that the
+        // video fully covers the card and the thumbnail must not linger behind it.
+        guard !isVideoReady else { return false }
         if isCurrent { return true }
         return isPreviousRally || position == 1
     }

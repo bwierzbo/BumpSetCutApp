@@ -433,6 +433,9 @@ struct FavoritesFeedView: View {
     @State private var currentIndex: Int?
     @State private var hasScrolledToStart = false
     @State private var players: [Int: AVPlayer] = [:]
+    // Indices whose player has rendered a frame — their thumbnails unmount so
+    // they can't peek out around the video layer during rotation.
+    @State private var readyPlayers: Set<Int> = []
     @State private var loopObservers: [Int: Any] = [:]
     @State private var boundaryObservers: [Int: Any] = [:]
 
@@ -590,17 +593,28 @@ struct FavoritesFeedView: View {
 
     private func videoCard(video: VideoMetadata, index: Int) -> some View {
         ZStack {
-            VideoThumbnailView(
-                thumbnailURL: nil,
-                videoURL: video.originalURL,
-                contentMode: .fit
-            )
+            // Only until the first video frame renders — a thumbnail left mounted
+            // behind a live video peeks out around it during rotation (the SwiftUI
+            // image and the AVPlayerLayer resize on different schedules).
+            if !readyPlayers.contains(index) {
+                VideoThumbnailView(
+                    thumbnailURL: nil,
+                    videoURL: video.originalURL,
+                    contentMode: .fit
+                )
+            }
 
             if let player = players[index] {
                 CustomVideoPlayerView(
                     player: player,
                     gravity: .resizeAspect,
-                    onReadyForDisplay: { _ in }
+                    onReadyForDisplay: { ready in
+                        guard ready != readyPlayers.contains(index) else { return }
+                        // Async: updateUIView reports synchronously during view updates
+                        DispatchQueue.main.async {
+                            if ready { readyPlayers.insert(index) } else { readyPlayers.remove(index) }
+                        }
+                    }
                 )
                 .allowsHitTesting(false)
             }
@@ -795,6 +809,7 @@ struct FavoritesFeedView: View {
             player.pause()
             player.replaceCurrentItem(with: nil)
         }
+        readyPlayers.removeAll()
         players.removeAll()
         loopObservers.removeAll()
         boundaryObservers.removeAll()
