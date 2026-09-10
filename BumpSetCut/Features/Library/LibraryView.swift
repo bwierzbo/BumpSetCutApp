@@ -21,6 +21,11 @@ struct LibraryView: View {
     @State private var dropTargetFolderPath: String?
     // Surfaces failures from fire-and-forget library mutations (rename/move/delete).
     @State private var mutationToast: BSCToastMessage?
+    // Full-screen playback is presented from HERE, not from the cards: cards live in
+    // lazy grids whose cells are recycled on rotation, which would dismiss any cover
+    // presented from cell-local state mid-viewing.
+    @State private var playingVideo: VideoMetadata?
+    @State private var viewingRalliesVideo: VideoMetadata?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
@@ -55,6 +60,12 @@ struct LibraryView: View {
                 }
             }
             .bscToast($mutationToast)
+            .fullScreenCover(item: $playingVideo) { video in
+                VideoPlayerView(videoURL: video.originalURL)
+            }
+            .fullScreenCover(item: $viewingRalliesVideo) { video in
+                RallyPlayerView(videoMetadata: video, mediaStore: viewModel.folderManager.store)
+            }
             .sheet(isPresented: $viewModel.showingCreateFolder) {
                 createFolderSheet
             }
@@ -431,7 +442,8 @@ private extension LibraryView {
                             catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
                         }
                     },
-
+                    onPlayVideo: { playingVideo = video },
+                    onViewRallies: { viewingRalliesVideo = video }
                 )
                 .draggable(video)  // Make videos draggable
             }
@@ -467,7 +479,8 @@ private extension LibraryView {
                             catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
                         }
                     },
-
+                    onPlayVideo: { playingVideo = video },
+                    onViewRallies: { viewingRalliesVideo = video }
                 )
                 .draggable(video)  // Make videos draggable
             }

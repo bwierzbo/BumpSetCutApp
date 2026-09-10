@@ -22,11 +22,14 @@ struct BSCVideoCard: View {
     var isSelectable: Bool = false
     var isSelected: Bool = false
     var onSelectionToggle: (() -> Void)? = nil
+    // Full-screen presentations are owned by the SCREEN, not this cell: cards live
+    // in lazy containers whose cells get recycled on rotation/scroll, and a cover
+    // presented from cell-local @State dismisses when its cell is torn down.
+    let onPlayVideo: () -> Void
+    let onViewRallies: () -> Void
 
     // MARK: - State
     @State private var thumbnail: UIImage?
-    @State private var showingVideoPlayer = false
-    @State private var showingRallyViewer = false  // Explicit rally viewer (bypasses library type check)
     @State private var showingProcessVideo = false
     @State private var showingDeleteConfirmation = false
     @State private var showingRenameDialog = false
@@ -48,13 +51,6 @@ struct BSCVideoCard: View {
         .onTapGesture(perform: handleTap)
         .contextMenu { contextMenuContent }
         .onAppear(perform: generateThumbnail)
-        .fullScreenCover(isPresented: $showingVideoPlayer) {
-            VideoPlayerView(videoURL: video.originalURL)
-        }
-        .fullScreenCover(isPresented: $showingRallyViewer) {
-            // "View Rallies" button: Always show rally viewer (ignores library type)
-            RallyPlayerView(videoMetadata: video, mediaStore: mediaStore)
-        }
         .sheet(isPresented: $showingProcessVideo) {
             NavigationStack {
                 ProcessVideoView(
@@ -456,7 +452,7 @@ struct BSCVideoCard: View {
 
     private var quickViewRalliesButton: some View {
         Button {
-            showingRallyViewer = true
+            onViewRallies()
         } label: {
             Image(systemName: "play.fill")
                 .bscFont(size: 16)
@@ -473,7 +469,7 @@ struct BSCVideoCard: View {
     private var contextMenuContent: some View {
         if hasRallies {
             Button {
-                showingRallyViewer = true
+                onViewRallies()
             } label: {
                 Label("View Rallies", systemImage: "play.rectangle")
             }
@@ -530,7 +526,7 @@ struct BSCVideoCard: View {
         if isSelectable {
             onSelectionToggle?()
         } else {
-            showingVideoPlayer = true
+            onPlayVideo()
         }
     }
 
