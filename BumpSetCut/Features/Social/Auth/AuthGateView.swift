@@ -6,10 +6,12 @@
 //
 
 import SwiftUI
+import AuthenticationServices
 
 struct AuthGateView: View {
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @State private var viewModel: AuthGateViewModel?
     @State private var showForgotPassword = false
     @State private var isPasswordVisible = false
@@ -62,6 +64,48 @@ struct AuthGateView: View {
                             .scaleEffect(1.2)
                             .frame(height: 50)
                     } else {
+                        // Social sign-in
+                        SignInWithAppleButton(.continue) { request in
+                            viewModel?.configureAppleRequest(request)
+                        } onCompletion: { result in
+                            Task { await viewModel?.handleAppleCompletion(result) }
+                        }
+                        .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                        .frame(height: 50)
+                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+                        .accessibilityIdentifier(AccessibilityID.AuthGate.appleSignIn)
+
+                        Button {
+                            Task { await viewModel?.signInWithGoogle() }
+                        } label: {
+                            HStack(spacing: BSCSpacing.sm) {
+                                Image(systemName: "globe")
+                                    .bscFont(size: 17, weight: .semibold)
+                                Text("Continue with Google")
+                                    .bscFont(size: 16, weight: .semibold)
+                            }
+                            .foregroundColor(.bscTextPrimary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.bscBackgroundElevated)
+                            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+                            )
+                        }
+                        .accessibilityIdentifier(AccessibilityID.AuthGate.googleSignIn)
+
+                        // Divider between social and email auth
+                        HStack(spacing: BSCSpacing.md) {
+                            Rectangle().fill(Color.bscSurfaceBorder).frame(height: 1)
+                            Text("or")
+                                .bscFont(size: 13)
+                                .foregroundColor(.bscTextSecondary)
+                            Rectangle().fill(Color.bscSurfaceBorder).frame(height: 1)
+                        }
+                        .padding(.vertical, BSCSpacing.xs)
+
                         // Email form
                         emailForm
 

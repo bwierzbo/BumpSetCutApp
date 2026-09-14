@@ -79,6 +79,8 @@ enum AccessibilityID {
         static let passwordField = "authGate.password"
         static let confirmPasswordField = "authGate.confirmPassword"
         static let forgotPassword = "authGate.forgotPassword"
+        static let appleSignIn = "authGate.appleSignIn"
+        static let googleSignIn = "authGate.googleSignIn"
     }
 
     enum Feed {

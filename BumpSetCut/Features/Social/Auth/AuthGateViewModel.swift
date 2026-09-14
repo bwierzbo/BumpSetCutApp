@@ -8,6 +8,8 @@
 import SwiftUI
 import Observation
 import Auth
+import AuthenticationServices
+import CryptoKit
 
 @MainActor @Observable
 class AuthGateViewModel {
@@ -146,6 +148,84 @@ class AuthGateViewModel {
             errorMessage = userFriendlyMessage(for: error)
             showError = true
         }
+    }
+
+    // MARK: - Sign in with Apple
+
+    /// Raw nonce for the in-flight Apple request; its SHA-256 goes into the
+    /// authorization request and the raw value is verified by Supabase.
+    private var currentNonce: String?
+
+    func configureAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
+        let nonce = Self.randomNonceString()
+        currentNonce = nonce
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = Self.sha256(nonce)
+    }
+
+    func handleAppleCompletion(_ result: Result<ASAuthorization, Error>) async {
+        errorMessage = nil
+        switch result {
+        case .success(let authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let idToken = String(data: tokenData, encoding: .utf8),
+                  let nonce = currentNonce else {
+                errorMessage = "Apple didn't return a valid sign-in. Please try again."
+                showError = true
+                return
+            }
+            do {
+                try await authService.signInWithApple(idToken: idToken, nonce: nonce)
+            } catch {
+                #if DEBUG
+                print("[Auth] Apple sign-in error: \(error)")
+                #endif
+                errorMessage = userFriendlyMessage(for: error)
+                showError = true
+            }
+        case .failure(let error):
+            // The user closing the Apple sheet is not an error.
+            if let authError = error as? ASAuthorizationError, authError.code == .canceled { return }
+            #if DEBUG
+            print("[Auth] Apple authorization error: \(error)")
+            #endif
+            errorMessage = userFriendlyMessage(for: error)
+            showError = true
+        }
+    }
+
+    // MARK: - Sign in with Google
+
+    func signInWithGoogle() async {
+        errorMessage = nil
+        do {
+            try await authService.signInWithGoogle()
+        } catch {
+            // The user dismissing the browser sheet is not an error.
+            if let webError = error as? ASWebAuthenticationSessionError, webError.code == .canceledLogin { return }
+            #if DEBUG
+            print("[Auth] Google sign-in error: \(error)")
+            #endif
+            errorMessage = userFriendlyMessage(for: error)
+            showError = true
+        }
+    }
+
+    // MARK: - Nonce Helpers
+
+    private static func randomNonceString(length: Int = 32) -> String {
+        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var bytes = [UInt8](repeating: 0, count: length)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        precondition(status == errSecSuccess, "Unable to generate secure nonce")
+        return String(bytes.map { charset[Int($0) % charset.count] })
+    }
+
+    private static func sha256(_ input: String) -> String {
+        SHA256.hash(data: Data(input.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     // MARK: - Error Formatting

@@ -122,6 +122,49 @@ final class AuthenticationService {
         }
     }
 
+    // MARK: - Sign in with Apple
+
+    /// Completes native Sign in with Apple: exchanges Apple's ID token (with
+    /// the raw nonce whose SHA-256 was attached to the authorization request)
+    /// for a Supabase session.
+    func signInWithApple(idToken: String, nonce: String) async throws {
+        authState = .authenticating
+        do {
+            let session = try await supabase.auth.signInWithIdToken(
+                credentials: OpenIDConnectCredentials(provider: .apple, idToken: idToken, nonce: nonce)
+            )
+            try await completeSocialSignIn(session: session)
+        } catch {
+            authState = .unauthenticated
+            throw error
+        }
+    }
+
+    // MARK: - Sign in with Google
+
+    /// Runs Supabase's Google OAuth flow in an ASWebAuthenticationSession
+    /// (PKCE; redirect back via bumpsetcut://auth-callback from SupabaseConfig).
+    func signInWithGoogle() async throws {
+        authState = .authenticating
+        do {
+            let session = try await supabase.auth.signInWithOAuth(provider: .google)
+            try await completeSocialSignIn(session: session)
+        } catch {
+            authState = .unauthenticated
+            throw error
+        }
+    }
+
+    /// Shared post-session handling for social providers. Social sign-ins have
+    /// no username step, so a freshly minted `user_*` profile routes to the
+    /// username picker instead of straight into the app.
+    private func completeSocialSignIn(session: Session) async throws {
+        let (profile, _) = try await fetchOrCreateProfile(userId: session.user.id.uuidString.lowercased())
+        try KeychainHelper.save(profile, for: Self.userKey)
+        currentUser = profile
+        authState = profile.username.hasPrefix("user_") ? .needsUsername : .authenticated
+    }
+
     // MARK: - Token Refresh
 
     func refreshToken() async throws {
