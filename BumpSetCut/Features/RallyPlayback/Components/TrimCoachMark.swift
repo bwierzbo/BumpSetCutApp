@@ -17,7 +17,7 @@ struct TrimCoachMark: View {
             Image(systemName: "hand.tap.fill")
                 .bscFont(size: 15, weight: .semibold)
                 .foregroundStyle(Color.bscPrimary)
-            Text("Hold anywhere to trim this rally")
+            Text("Hold anywhere to trim & zoom")
                 .bscFont(size: 14, weight: .semibold)
                 .foregroundColor(.bscOnMedia)
         }
