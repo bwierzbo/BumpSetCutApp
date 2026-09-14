@@ -14,6 +14,7 @@ struct RallyOverviewSheet: View {
     let onPostToCommunity: (Int, Bool) -> Void  // (rallyIndex, postAllSaved)
     let onSaveAll: () -> Void
     let onDeselectAll: () -> Void
+    let onEditTimeline: () -> Void
     let onDismiss: () -> Void
 
     @State private var appeared = false
@@ -296,6 +297,20 @@ struct RallyOverviewSheet: View {
                 }
             }
 
+            // Edit timeline (icon-only in compact height)
+            Button(action: onEditTimeline) {
+                Image(systemName: "slider.horizontal.below.rectangle")
+                    .bscFont(size: 15, weight: .semibold)
+                    .foregroundColor(.bscTextPrimary)
+                    .frame(minWidth: BSCTouchTarget.standard, minHeight: BSCTouchTarget.standard)
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                            .stroke(Color.bscSurfaceBorder, lineWidth: 1.5)
+                            .fill(Color.bscBackgroundElevated)
+                    )
+            }
+            .accessibilityLabel("Edit rallies on timeline")
+
             // Done
             Button(action: onDismiss) {
                 HStack(spacing: BSCSpacing.sm) {
@@ -362,6 +377,24 @@ struct RallyOverviewSheet: View {
                             .fill(Color.bscBackgroundElevated)
                     )
                 }
+            }
+
+            // Edit timeline (add missed rallies, delete false positives)
+            Button(action: onEditTimeline) {
+                HStack(spacing: BSCSpacing.sm) {
+                    Image(systemName: "slider.horizontal.below.rectangle")
+                        .bscFont(size: 16, weight: .semibold)
+                    Text("Edit Rallies on Timeline")
+                        .bscFont(size: 16, weight: .semibold)
+                }
+                .foregroundColor(.bscTextPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, BSCSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+                        .stroke(Color.bscSurfaceBorder, lineWidth: 1.5)
+                        .fill(Color.bscBackgroundElevated)
+                )
             }
 
             // Done
@@ -497,6 +530,7 @@ private struct RallyCellButtonStyle: ButtonStyle {
         onPostToCommunity: { _, _ in },
         onSaveAll: {},
         onDeselectAll: {},
+        onEditTimeline: {},
         onDismiss: {}
     )
 }

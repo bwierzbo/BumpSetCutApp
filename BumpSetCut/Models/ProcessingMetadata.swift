@@ -86,6 +86,28 @@ struct ProcessingMetadata: Codable, Identifiable {
         case trajectoryData, classificationResults, physicsValidation
         case performanceMetrics, eventLog
     }
+
+    /// Copy preserving identity and all processing data, with edited rally
+    /// segments — used when the user edits the timeline manually.
+    func withRallySegments(_ segments: [RallySegment]) -> ProcessingMetadata {
+        ProcessingMetadata(copying: self, rallySegments: segments)
+    }
+
+    private init(copying other: ProcessingMetadata, rallySegments: [RallySegment]) {
+        self.id = other.id
+        self.videoId = other.videoId
+        self.processingVersion = other.processingVersion
+        self.processingDate = other.processingDate
+        self.processingConfig = other.processingConfig
+        self.rallySegments = rallySegments
+        self.processingStats = other.processingStats
+        self.qualityMetrics = other.qualityMetrics
+        self.trajectoryData = other.trajectoryData
+        self.classificationResults = other.classificationResults
+        self.physicsValidation = other.physicsValidation
+        self.performanceMetrics = other.performanceMetrics
+        self.eventLog = other.eventLog
+    }
 }
 
 // MARK: - Processing Configuration (Codable wrapper for ProcessorConfig)
@@ -215,6 +237,10 @@ struct RallySegment: Codable, Identifiable {
     let detectionCount: Int
     let averageTrajectoryLength: Double
     let ballSizeTrend: Double?
+    /// True for segments the user created or re-timed in the timeline editor.
+    /// Manual segments are human ground truth: reprocessing must not clobber
+    /// them, and manual adds are labeled false negatives for the flywheel.
+    let isManual: Bool
 
     init(startTime: CMTime, endTime: CMTime, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double, ballSizeTrend: Double? = nil) {
         self.id = UUID()
@@ -225,6 +251,7 @@ struct RallySegment: Codable, Identifiable {
         self.detectionCount = detectionCount
         self.averageTrajectoryLength = averageTrajectoryLength
         self.ballSizeTrend = ballSizeTrend
+        self.isManual = false
     }
 
     init(from decoder: Decoder) throws {
@@ -237,10 +264,11 @@ struct RallySegment: Codable, Identifiable {
         detectionCount = try container.decode(Int.self, forKey: .detectionCount)
         averageTrajectoryLength = try container.decode(Double.self, forKey: .averageTrajectoryLength)
         ballSizeTrend = try container.decodeIfPresent(Double.self, forKey: .ballSizeTrend)
+        isManual = try container.decodeIfPresent(Bool.self, forKey: .isManual) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, startTime, endTime, confidence, quality, detectionCount, averageTrajectoryLength, ballSizeTrend
+        case id, startTime, endTime, confidence, quality, detectionCount, averageTrajectoryLength, ballSizeTrend, isManual
     }
 
     var duration: Double {
@@ -281,6 +309,21 @@ struct RallySegment: Codable, Identifiable {
         self.detectionCount = detectionCount
         self.averageTrajectoryLength = averageTrajectoryLength
         self.ballSizeTrend = ballSizeTrend
+        self.isManual = false
+    }
+
+    /// Full initializer preserving identity — used by the timeline editor so an
+    /// edited segment keeps its id (index-keyed sidecar data is remapped by id).
+    init(id: UUID, startTimeSeconds: Double, endTimeSeconds: Double, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double, ballSizeTrend: Double?, isManual: Bool) {
+        self.id = id
+        self.startTime = startTimeSeconds
+        self.endTime = endTimeSeconds
+        self.confidence = confidence
+        self.quality = quality
+        self.detectionCount = detectionCount
+        self.averageTrajectoryLength = averageTrajectoryLength
+        self.ballSizeTrend = ballSizeTrend
+        self.isManual = isManual
     }
 }
 

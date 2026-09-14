@@ -93,7 +93,7 @@ final class ScreenshotTests: XCTestCase {
         guard hasRallyFixture else { return }
 
         // 4. Rally player (pre-processed video card offers "View Rallies")
-        let viewRallies = app.buttons["View Rallies"]
+        let viewRallies = app.buttons["View Processed Rallies"]
         guard viewRallies.waitForExistence(timeout: 5) else { return }
         viewRallies.tap()
 

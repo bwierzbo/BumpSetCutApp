@@ -44,7 +44,7 @@ final class RallyPlayerViewModel {
 
     let playerCache = RallyPlayerCache()
     let thumbnailCache = RallyThumbnailCache()
-    private let metadataStore = MetadataStore()
+    let metadataStore = MetadataStore()
 
     // MARK: - Task Management
 
@@ -418,6 +418,17 @@ final class RallyPlayerViewModel {
         playerCache.pause()
         let direction: NavigationDirection = index < currentRallyIndex ? .up : .down
         navigateTo(index: index, direction: direction)
+    }
+
+    /// Full reload after the timeline editor rewrote rallySegments and the
+    /// index-keyed sidecars — players, thumbnails, and selections are all
+    /// rebuilt from disk, starting back at the first rally.
+    func reloadAfterTimelineEdit() async {
+        cleanup()
+        processingMetadata = nil
+        navigation.setIndex(0, totalCount: 1)
+        loadingState = .loading
+        await loadRallies()
     }
 
     var savedRallyShareInfo: [Int: RallyShareInfo] {

@@ -18,6 +18,7 @@ struct RallyPlayerView: View {
     @State private var viewModel: RallyPlayerViewModel
     @State private var showingGestureTips = false
     @State private var showTrimHint = false
+    @State private var showTimelineEditor = false
     @State private var showReportMistake = false
     @State private var rallyIndexToShare: ShareableRallyIndex?
     /// Rotation captured at the start of a two-finger twist (RotationGesture
@@ -104,12 +105,26 @@ struct RallyPlayerView: View {
                     },
                     onSaveAll: { viewModel.saveAllRallies() },
                     onDeselectAll: { viewModel.deselectAllRallies() },
+                    onEditTimeline: {
+                        viewModel.showOverviewSheet = false
+                        showTimelineEditor = true
+                    },
                     onDismiss: {
                         viewModel.showOverviewSheet = false
                         Task {
                             await viewModel.copyFavoritesToLibrary()
                             dismiss()
                         }
+                    }
+                )
+            }
+            .fullScreenCover(isPresented: $showTimelineEditor) {
+                RallyTimelineView(
+                    videoURL: videoMetadata.originalURL,
+                    videoId: videoMetadata.originalVideoId ?? videoMetadata.id,
+                    metadataStore: viewModel.metadataStore,
+                    onSaved: {
+                        Task { await viewModel.reloadAfterTimelineEdit() }
                     }
                 )
             }
