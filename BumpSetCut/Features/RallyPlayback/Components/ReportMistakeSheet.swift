@@ -17,6 +17,7 @@ struct ReportMistakeSheet: View {
     /// Reason codes mirror the labels offline relabelers care about.
     private let reasons: [(code: String, label: String, icon: String)] = [
         ("missed_ball", "Missed the ball", "circle.dashed"),
+        ("missed_rally", "Missed a whole rally", "plus.viewfinder"),
         ("wrong_bounds", "Wrong start / end", "timeline.selection"),
         ("not_a_rally", "Not a real rally", "xmark.circle"),
         ("other", "Something else", "ellipsis.circle")

@@ -50,7 +50,7 @@ final class TimelineEditorTests: XCTestCase {
 
         // Overview sheet → timeline editor
         player.rallyCounter.tap()
-        let editTimeline = app.buttons["Edit Rallies on Timeline"]
+        let editTimeline = app.buttons["Add or Fix Rallies"]
         XCTAssertTrue(editTimeline.waitForExistence(timeout: 5))
         editTimeline.tap()
 

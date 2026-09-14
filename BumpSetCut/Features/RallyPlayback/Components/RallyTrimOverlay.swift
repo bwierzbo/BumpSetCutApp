@@ -16,6 +16,11 @@ struct RallyTrimOverlay: View {
     let onConfirm: () -> Void
     let onCancel: () -> Void
     var onResetZoom: () -> Void = {}
+    /// When provided, holding the right handle at the strip edge plays the
+    /// video in real time from the given boundary (instead of stepped seeks)
+    /// so the user can watch for the actual rally end.
+    var onExtendPlaybackStart: ((Double) -> Void)? = nil
+    var onExtendPlaybackEnd: ((Double) -> Void)? = nil
     var showsAngleControl: Bool = true
     var showsZoomControl: Bool = false
 
@@ -42,6 +47,7 @@ struct RallyTrimOverlay: View {
     @State private var selectionHaptic = UISelectionFeedbackGenerator()
     @State private var autoExtendTask: Task<Void, Never>? = nil
     @State private var autoExtendDirection: ExtendDirection? = nil
+    @State private var extendUsesPlayback = false
     @State private var thumbnailTask: Task<Void, Never>? = nil
     @State private var lastThumbnailWindow: (start: Double, end: Double) = (0, 0)
 
@@ -461,6 +467,13 @@ struct RallyTrimOverlay: View {
 
     private func startAutoExtend(_ direction: ExtendDirection) {
         autoExtendDirection = direction
+        // Right-edge extends play in real time when the host supports it —
+        // the boundary tracks the tick clock at 1s/s while playback shows
+        // the actual footage (tester feedback: stepped seeks felt choppy).
+        if direction == .right, let start = onExtendPlaybackStart {
+            extendUsesPlayback = true
+            start(windowEnd)
+        }
         autoExtendTask = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(autoExtendTickSeconds * 1_000_000_000))
@@ -477,6 +490,10 @@ struct RallyTrimOverlay: View {
         autoExtendTask?.cancel()
         autoExtendTask = nil
         autoExtendDirection = nil
+        if extendUsesPlayback {
+            extendUsesPlayback = false
+            onExtendPlaybackEnd?(windowEnd)
+        }
         maybeRefreshThumbnails(force: true)
     }
 
@@ -503,7 +520,11 @@ struct RallyTrimOverlay: View {
             }
             windowEnd += step
             trimAfter = windowEnd - rallyEndTime
-            onScrub(windowEnd)
+            // In playback mode the video is already advancing in real time —
+            // seeking every tick would fight the player.
+            if !extendUsesPlayback {
+                onScrub(windowEnd)
+            }
         }
         maybeRefreshThumbnails()
     }

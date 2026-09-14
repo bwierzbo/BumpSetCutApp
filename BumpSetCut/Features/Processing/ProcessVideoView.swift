@@ -13,6 +13,7 @@ struct ProcessVideoView: View {
     @State private var viewModel: ProcessVideoViewModel
     @State private var hasAppeared = false
     @State private var showReprocessConfirm = false
+    @State private var showTimelineEditor = false
     @Environment(\.dismiss) private var dismiss
 
     init(videoURL: URL, mediaStore: MediaStore, onComplete: @escaping () -> Void) {
@@ -99,6 +100,22 @@ struct ProcessVideoView: View {
         }
         .sheet(isPresented: $viewModel.showPaywall) {
             PaywallView()
+        }
+        .fullScreenCover(isPresented: $showTimelineEditor) {
+            if let videoMetadata = viewModel.currentVideoMetadata {
+                RallyTimelineView(
+                    videoURL: videoMetadata.originalURL,
+                    videoId: videoMetadata.originalVideoId ?? videoMetadata.id,
+                    metadataStore: MetadataStore(),
+                    onSaved: {
+                        // Jump straight into reviewing what was just added
+                        // (delay lets the editor cover finish dismissing).
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            viewModel.showRallyPlayer = true
+                        }
+                    }
+                )
+            }
         }
         .fullScreenCover(isPresented: $viewModel.showRallyPlayer) {
             if let videoMetadata = viewModel.currentVideoMetadata {
@@ -606,8 +623,14 @@ private extension ProcessVideoView {
     }
 
     var noRalliesButtons: some View {
-        BSCButton(title: "Back to Library", icon: "chevron.left", style: .secondary, size: .large) {
-            dismiss()
+        VStack(spacing: BSCSpacing.md) {
+            BSCButton(title: "Add Rallies Manually", icon: "plus.circle.fill", style: .primary, size: .large) {
+                showTimelineEditor = true
+            }
+
+            BSCButton(title: "Back to Library", icon: "chevron.left", style: .ghost, size: .medium) {
+                dismiss()
+            }
         }
     }
 
@@ -630,6 +653,10 @@ private extension ProcessVideoView {
                 viewModel.showRallyPlayer = true
             }
             .accessibilityIdentifier(AccessibilityID.Process.viewRallies)
+
+            BSCButton(title: "Missed a Rally? Add It Manually", icon: "plus.circle", style: .secondary, size: .medium) {
+                showTimelineEditor = true
+            }
 
             BSCButton(title: "Done", icon: "checkmark", style: .ghost, size: .medium) {
                 dismiss()

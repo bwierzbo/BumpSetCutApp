@@ -122,13 +122,15 @@ extension BSCEmptyState {
     }
 
     /// Rally playback opened for a video with no detected rally segments
-    static func noRallySegments(onGoBack: @escaping () -> Void) -> BSCEmptyState {
+    static func noRallySegments(onAddManually: @escaping () -> Void, onGoBack: @escaping () -> Void) -> BSCEmptyState {
         BSCEmptyState(
             icon: "film.stack",
             title: "No Rallies Found",
-            message: "This video doesn't have any detected rally segments. Try processing the video first.",
-            actionTitle: "Go Back",
-            onAction: onGoBack
+            message: "Detection didn't find any rallies in this video. You can mark them yourself on the timeline.",
+            actionTitle: "Add Rallies Manually",
+            secondaryActionTitle: "Go Back",
+            onAction: onAddManually,
+            onSecondaryAction: onGoBack
         )
     }
 

@@ -719,6 +719,21 @@ final class RallyPlayerViewModel {
         playerCache.seek(url: url, to: cmTime)
     }
 
+    /// Real-time playback while a trim handle is held at the strip edge, so
+    /// the user can watch for the actual rally end instead of stepping
+    /// through seeks. Looping is removed so playback can run past the current
+    /// rally bounds; confirmTrim/cancelTrim re-establish it.
+    func beginTrimExtendPlayback(from time: Double) {
+        lifecycle.removeLooping()
+        scrubTo(time: time)
+        playerCache.play()
+    }
+
+    func endTrimExtendPlayback(at time: Double) {
+        playerCache.pause()
+        scrubTo(time: time)
+    }
+
     func confirmTrim() {
         UINotificationFeedbackGenerator.success()
         // Capture the live pinch/pan from the gesture state into the trim values

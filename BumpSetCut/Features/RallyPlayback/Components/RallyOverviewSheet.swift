@@ -309,7 +309,7 @@ struct RallyOverviewSheet: View {
                             .fill(Color.bscBackgroundElevated)
                     )
             }
-            .accessibilityLabel("Edit rallies on timeline")
+            .accessibilityLabel("Add or fix rallies")
 
             // Done
             Button(action: onDismiss) {
@@ -384,7 +384,7 @@ struct RallyOverviewSheet: View {
                 HStack(spacing: BSCSpacing.sm) {
                     Image(systemName: "slider.horizontal.below.rectangle")
                         .bscFont(size: 16, weight: .semibold)
-                    Text("Edit Rallies on Timeline")
+                    Text("Add or Fix Rallies")
                         .bscFont(size: 16, weight: .semibold)
                 }
                 .foregroundColor(.bscTextPrimary)

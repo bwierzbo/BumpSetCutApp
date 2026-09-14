@@ -136,10 +136,11 @@ struct RallyErrorView: View {
 
 // MARK: - Rally Empty View
 struct RallyEmptyView: View {
+    let onAddManually: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
-        BSCEmptyState.noRallySegments(onGoBack: onDismiss)
+        BSCEmptyState.noRallySegments(onAddManually: onAddManually, onGoBack: onDismiss)
             .bscGlass(cornerRadius: BSCRadius.xl, padding: 0)
             .frame(maxWidth: BSCContentWidth.regular)
             .padding(BSCSpacing.xl)
@@ -168,6 +169,6 @@ struct RallyEmptyView: View {
 #Preview("Empty") {
     ZStack {
         Color.bscBackground
-        RallyEmptyView(onDismiss: {})
+        RallyEmptyView(onAddManually: {}, onDismiss: {})
     }
 }

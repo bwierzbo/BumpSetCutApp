@@ -20,6 +20,7 @@ struct RallyPlayerView: View {
     @State private var showTrimHint = false
     @State private var showTimelineEditor = false
     @State private var showReportMistake = false
+    @State private var showAddMissedRallyPrompt = false
     @State private var rallyIndexToShare: ShareableRallyIndex?
     /// Rotation captured at the start of a two-finger twist (RotationGesture
     /// reports angle relative to its own start).
@@ -65,7 +66,10 @@ struct RallyPlayerView: View {
                     )
 
                 case .empty:
-                    RallyEmptyView(onDismiss: { dismiss() })
+                    RallyEmptyView(
+                        onAddManually: { showTimelineEditor = true },
+                        onDismiss: { dismiss() }
+                    )
 
                 case .loaded:
                     rallyContent(geometry: geometry)
@@ -160,8 +164,21 @@ struct RallyPlayerView: View {
             .sheet(isPresented: $showReportMistake) {
                 ReportMistakeSheet { reason in
                     viewModel.reportCurrentRallyMistake(reason: reason)
+                    // "Missed a whole rally" → the user knows where one is;
+                    // offer to fix it on the timeline right now.
+                    if reason == "missed_rally" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            showAddMissedRallyPrompt = true
+                        }
+                    }
                 }
                 .presentationDetents([.medium])
+            }
+            .alert("Report Sent", isPresented: $showAddMissedRallyPrompt) {
+                Button("Add It on the Timeline") { showTimelineEditor = true }
+                Button("Done", role: .cancel) {}
+            } message: {
+                Text("Want to add the missed rally yourself? Rallies you add also help train detection.")
             }
             .bscToast(Binding(
                 get: { viewModel.favoritesErrorMessage.map { BSCToastMessage(text: $0, style: .error) } },
@@ -349,6 +366,8 @@ struct RallyPlayerView: View {
                     onConfirm: { viewModel.confirmTrim() },
                     onCancel: { viewModel.cancelTrim() },
                     onResetZoom: { resetTrimZoom() },
+                    onExtendPlaybackStart: { time in viewModel.beginTrimExtendPlayback(from: time) },
+                    onExtendPlaybackEnd: { time in viewModel.endTrimExtendPlayback(at: time) },
                     showsZoomControl: true
                 )
                 .zIndex(250)
