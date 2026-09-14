@@ -814,12 +814,28 @@ final class VideoProcessor {
             detectionLatencyMs: nil
         )
 
+        // Manual segments (timeline editor) are human ground truth — carry them
+        // through reprocessing, dropping any newly detected segment that
+        // overlaps one.
+        var mergedSegments = rallySegments
+        if let store = metadataStore,
+           let existing = try? await store.loadMetadata(for: videoId) {
+            let manual = existing.rallySegments.filter { $0.isManual }
+            if !manual.isEmpty {
+                let keptDetected = rallySegments.filter { detected in
+                    !manual.contains { $0.startTime < detected.endTime && detected.startTime < $0.endTime }
+                }
+                mergedSegments = (manual + keptDetected).sorted { $0.startTime < $1.startTime }
+                print("🖐️ Preserved \(manual.count) manual segment(s) through reprocessing")
+            }
+        }
+
         // Create final metadata
-        eventLog.log(.processingCompleted, detail: "rallies=\(rallySegments.count), duration=\(String(format: "%.1f", endTime.timeIntervalSince(startTime)))s")
+        eventLog.log(.processingCompleted, detail: "rallies=\(mergedSegments.count), duration=\(String(format: "%.1f", endTime.timeIntervalSince(startTime)))s")
         let metadata = ProcessingMetadata.createWithEnhancedData(
             for: videoId,
             with: config,
-            rallySegments: rallySegments,
+            rallySegments: mergedSegments,
             stats: processingStats,
             quality: qualityMetrics,
             trajectories: trajectoryDataCollection,
