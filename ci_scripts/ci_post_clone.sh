@@ -32,3 +32,12 @@ enum Secrets {
 EOF
 
 echo "✅ ci_post_clone: wrote Secrets.swift to $SECRETS_PATH"
+
+# Stamp a unique, monotonically increasing build number so every Xcode Cloud
+# build can be delivered to TestFlight without manual bumps. CI_BUILD_NUMBER
+# is Xcode Cloud's own build counter (already > any manually uploaded build).
+if [ -n "$CI_BUILD_NUMBER" ]; then
+  cd "$CI_PRIMARY_REPOSITORY_PATH"
+  agvtool new-version -all "$CI_BUILD_NUMBER"
+  echo "✅ ci_post_clone: build number set to $CI_BUILD_NUMBER"
+fi
