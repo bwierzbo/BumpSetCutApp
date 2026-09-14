@@ -33,6 +33,25 @@ EOF
 
 echo "✅ ci_post_clone: wrote Secrets.swift to $SECRETS_PATH"
 
+# Validate the key BEFORE shipping it — a corrupted env var (e.g. a key pasted
+# with embedded line breaks, which broke builds 35-37) otherwise produces a
+# green build whose app can't reach the backend at all.
+if [ "$(printf '%s' "$SUPABASE_ANON_KEY" | tr -d '[:space:]')" != "$SUPABASE_ANON_KEY" ]; then
+  echo "❌ ci_post_clone: SUPABASE_ANON_KEY contains whitespace/line breaks."
+  echo "   Re-paste it as one unbroken line in the Xcode Cloud workflow environment variables."
+  exit 1
+fi
+
+HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 --retry 2 \
+  "$SUPABASE_URL/auth/v1/health" -H "apikey: $SUPABASE_ANON_KEY" || true)
+HEALTH_STATUS=${HEALTH_STATUS:-000}
+if [ "$HEALTH_STATUS" != "200" ]; then
+  echo "❌ ci_post_clone: Supabase auth health check failed (HTTP $HEALTH_STATUS)."
+  echo "   SUPABASE_ANON_KEY is likely invalid or rotated — a build with a bad key ships an app that cannot sign in."
+  exit 1
+fi
+echo "✅ ci_post_clone: Supabase key validated against $SUPABASE_URL (HTTP 200)"
+
 # Stamp a unique, monotonically increasing build number so every Xcode Cloud
 # build can be delivered to TestFlight without manual bumps. CI_BUILD_NUMBER
 # is Xcode Cloud's own build counter (already > any manually uploaded build).
