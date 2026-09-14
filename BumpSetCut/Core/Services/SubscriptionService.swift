@@ -25,7 +25,7 @@ final class SubscriptionService {
     }
 
     // MARK: - Free Tier Limits
-    static let weeklyProcessingDurationMinutes: Double = 60 // Free users get 60 min/week
+    static let weeklyProcessingDurationMinutes: Double = 30 // Free users get 30 min/week
 
     // MARK: - Pro Entitlements
     enum ProFeature: String, CaseIterable {
