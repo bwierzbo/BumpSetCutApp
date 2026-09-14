@@ -14,6 +14,8 @@ import AVFoundation
     @State private var authService = AuthenticationService()
     @State private var networkMonitor = NetworkMonitor.shared
     @State private var offlineQueue = OfflineQueue()
+    // Skip the splash under UI testing so screenshots stay deterministic
+    @State private var showSplash = !CommandLine.arguments.contains("--uitesting")
 
     init() {
         #if DEBUG
@@ -93,6 +95,13 @@ import AVFoundation
                     UsernamePickerView()
                         .environment(authService)
                         .interactiveDismissDisabled()
+                }
+                .overlay {
+                    if showSplash {
+                        LaunchSplashView {
+                            withAnimation(.easeOut(duration: 0.35)) { showSplash = false }
+                        }
+                    }
                 }
         }
     }
