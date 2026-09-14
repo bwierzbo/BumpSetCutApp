@@ -17,6 +17,7 @@ struct RallyPlayerView: View {
 
     @State private var viewModel: RallyPlayerViewModel
     @State private var showingGestureTips = false
+    @State private var showTrimHint = false
     @State private var showReportMistake = false
     @State private var rallyIndexToShare: ShareableRallyIndex?
     /// Rotation captured at the start of a two-finger twist (RotationGesture
@@ -162,6 +163,16 @@ struct RallyPlayerView: View {
                     showingGestureTips = true
                 }
             }
+            // Trim coach mark: appears after the video settles, hides after a
+            // while, and stops appearing for good once the user has trimmed.
+            if !appSettings.hasUsedRallyTrim {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    withAnimation(.bscSpring) { showTrimHint = true }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+                    withAnimation(.bscQuick) { showTrimHint = false }
+                }
+            }
         }
         .onDisappear {
             viewModel.cleanup()
@@ -291,6 +302,21 @@ struct RallyPlayerView: View {
                 .transition(.opacity)
             }
 
+            // "Hold to trim" coach mark — shows every session until the user
+            // actually enters trim mode once (tester feedback: the one-time
+            // tips overlay wasn't enough to make trimming discoverable).
+            if showTrimHint && !appSettings.hasUsedRallyTrim && !showingGestureTips
+                && !viewModel.isTrimmingMode && !viewModel.isAwaitingPropagationChoice {
+                VStack {
+                    Spacer()
+                    TrimCoachMark()
+                        .padding(.bottom, verticalSizeClass == .compact ? 130 : 170)
+                }
+                .allowsHitTesting(false)
+                .zIndex(210)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
             // Trim overlay
             if viewModel.isTrimmingMode, let segment = currentRallySegment {
                 RallyTrimOverlay(
@@ -369,6 +395,8 @@ struct RallyPlayerView: View {
                 .onEnded { _ in
                     guard !viewModel.isTransitioning, !viewModel.isPerformingAction,
                           !viewModel.isTrimmingMode, !viewModel.isAwaitingPropagationChoice else { return }
+                    appSettings.hasUsedRallyTrim = true
+                    withAnimation(.bscQuick) { showTrimHint = false }
                     viewModel.enterTrimMode()
                 }
         )

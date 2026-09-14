@@ -75,6 +75,9 @@ struct SocialFeedView: View {
             }
         }
         .commentsPanel(item: $selectedHighlightForComments)
+        // The comments input bar reaches the screen bottom; hide the floating
+        // tab bar while the panel is open so it doesn't cover the input.
+        .toolbarVisibility(selectedHighlightForComments == nil ? .automatic : .hidden, for: .tabBar)
         .sheet(item: $selectedProfileId) { profile in
             NavigationStack {
                 ProfileView(userId: profile.id)

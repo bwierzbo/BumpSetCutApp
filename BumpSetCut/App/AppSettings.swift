@@ -110,6 +110,14 @@ enum AppTheme: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Whether the user has ever entered trim mode in the rally player.
+    /// The in-player "Hold to trim" coach mark shows until this flips.
+    var hasUsedRallyTrim: Bool {
+        didSet {
+            UserDefaults.standard.set(hasUsedRallyTrim, forKey: "hasUsedRallyTrim")
+        }
+    }
+
 
     private init() {
         // Appearance
@@ -136,6 +144,7 @@ enum AppTheme: String, CaseIterable, Identifiable {
         self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
         self.hasSeenRallyTips = UserDefaults.standard.bool(forKey: "hasSeenRallyTips")
         self.hasSeenFavoritesTrimHint = UserDefaults.standard.bool(forKey: "hasSeenFavoritesTrimHint")
+        self.hasUsedRallyTrim = UserDefaults.standard.bool(forKey: "hasUsedRallyTrim")
 
         print("🎛️ AppSettings initialized")
     }
