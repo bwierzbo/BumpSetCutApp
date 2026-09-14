@@ -68,7 +68,8 @@ final class ProcessingCoordinator {
         videoURL: URL,
         mediaStore: MediaStore,
         videoId: UUID,
-        isDebugMode: Bool
+        isDebugMode: Bool,
+        config: ProcessorConfig = ProcessorConfig()
     ) {
         // Cancel any existing processing
         cancelProcessing()
@@ -99,6 +100,7 @@ final class ProcessingCoordinator {
 
         // Create fresh processor
         self.processor = VideoProcessor()
+        self.processor.config = config
         // Data flywheel: collect per-frame evidence only for opted-in users, so
         // borderline rallies can be staged for relabeling after processing.
         self.processor.collectFrameEvidence = AppSettings.shared.enableDataFlywheel

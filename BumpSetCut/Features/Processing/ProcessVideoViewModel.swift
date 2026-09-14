@@ -37,6 +37,8 @@ final class ProcessVideoViewModel {
 
     // No rallies detected flag
     var noRalliesDetected: Bool = false
+    /// Whether the permissive retry has already been used for this video.
+    private(set) var didTrySensitiveReprocess = false
 
     // MARK: - Coordinator Reference
     private var coordinator: ProcessingCoordinator { ProcessingCoordinator.shared }
@@ -269,7 +271,19 @@ final class ProcessVideoViewModel {
         startProcessing(isDebugMode: false)
     }
 
-    func startProcessing(isDebugMode: Bool) {
+    /// Re-run detection with the permissive preset after a zero-rally result.
+    /// One shot per session — the button hides once tried so users don't loop.
+    func reprocessHighSensitivity() {
+        guard let videoId = currentVideoMetadata?.id else { return }
+        didTrySensitiveReprocess = true
+        try? MetadataStore().deleteMetadata(for: videoId)
+        mediaStore.resetProcessingState(videoId: videoId)
+        noRalliesDetected = false
+        loadCurrentVideoMetadata()
+        startProcessing(isDebugMode: false, config: .highSensitivity)
+    }
+
+    func startProcessing(isDebugMode: Bool, config: ProcessorConfig = ProcessorConfig()) {
         // Block concurrent processing — only one video at a time
         if coordinator.isProcessing, coordinator.videoURL != videoURL {
             errorMessage = "Another video is already being processed. Please wait for it to finish or cancel it first."
@@ -312,7 +326,8 @@ final class ProcessVideoViewModel {
             videoURL: videoURL,
             mediaStore: mediaStore,
             videoId: currentVideoMetadata?.id ?? UUID(),
-            isDebugMode: isDebugMode
+            isDebugMode: isDebugMode,
+            config: config
         )
     }
 

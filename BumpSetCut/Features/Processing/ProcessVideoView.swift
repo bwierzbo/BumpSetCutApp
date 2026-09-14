@@ -628,6 +628,12 @@ private extension ProcessVideoView {
                 showTimelineEditor = true
             }
 
+            if !viewModel.didTrySensitiveReprocess {
+                BSCButton(title: "Retry with Higher Sensitivity", icon: "dial.high.fill", style: .secondary, size: .medium) {
+                    viewModel.reprocessHighSensitivity()
+                }
+            }
+
             BSCButton(title: "Back to Library", icon: "chevron.left", style: .ghost, size: .medium) {
                 dismiss()
             }

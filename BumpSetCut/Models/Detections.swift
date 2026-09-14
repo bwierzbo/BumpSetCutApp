@@ -59,6 +59,21 @@ enum ProcessingError: Error, LocalizedError {
 }
 
 struct ProcessorConfig {
+
+    /// Permissive retry preset for videos where the default pass found no
+    /// rallies. Trades precision for recall: the YOLO confidence floor drops
+    /// well below the shipped threshold and the parabola fit relaxes slightly,
+    /// so marginal footage (dim gyms, distant courts) surfaces *something* the
+    /// user can prune on the timeline. Held-ball rejection (curvature/velocity
+    /// floors) is deliberately untouched.
+    static var highSensitivity: ProcessorConfig {
+        var config = ProcessorConfig()
+        config.detectionConfidence = 0.35
+        config.parabolaMinR2 = 0.72
+        config.minSegmentLength = 1.5
+        return config
+    }
+
     // Physics gating. Defaults are the tuning the app has always shipped (the
     // former "beach" preset — the only one ever used in production); there is
     // no longer a per-sport config.
