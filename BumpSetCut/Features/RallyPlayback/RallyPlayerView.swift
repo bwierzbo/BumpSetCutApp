@@ -286,10 +286,11 @@ struct RallyPlayerView: View {
                 .transition(.opacity)
             }
 
-            // Report-a-mistake affordance (data flywheel, opted-in users only)
+            // Report-a-mistake affordance (data flywheel, opted-in users only).
+            // Top-trailing, below the overlay chrome — tester feedback: at the
+            // bottom it sat nearly on top of the Save action button.
             if viewModel.isFlywheelEnabled && !viewModel.isTrimmingMode && !viewModel.isAwaitingPropagationChoice {
                 VStack {
-                    Spacer()
                     HStack {
                         Spacer()
                         Button {
@@ -310,8 +311,9 @@ struct RallyPlayerView: View {
                         }
                         .accessibilityLabel(viewModel.currentVideoIsReported ? "Video reported" : "Report a detection mistake")
                         .padding(.trailing, BSCSpacing.lg)
-                        .padding(.bottom, 120)
+                        .padding(.top, verticalSizeClass == .compact ? 76 : 120)
                     }
+                    Spacer()
                 }
                 .zIndex(200)
                 .transition(.opacity)

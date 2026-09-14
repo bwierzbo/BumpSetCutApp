@@ -32,6 +32,8 @@ struct RallyTrimOverlay: View {
 
     private enum ExtendDirection { case left, right }
 
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
     @State private var thumbnails: [UIImage] = []
     @State private var leftGrabOffset: CGFloat?
     @State private var rightGrabOffset: CGFloat?
@@ -64,14 +66,28 @@ struct RallyTrimOverlay: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
+            // Compact height (landscape): merge rows and tighten spacing so the
+            // controls hug the bottom instead of covering half the video.
+            let compact = verticalSizeClass == .compact
             VStack(spacing: 0) {
                 Spacer()
 
-                // Gesture hint + zoom readout
-                if showsZoomControl {
-                    zoomHintRow
+                if compact {
+                    if showsZoomControl || showsAngleControl {
+                        HStack(spacing: BSCSpacing.lg) {
+                            if showsZoomControl { zoomHintRow }
+                            if showsAngleControl { angleControl }
+                        }
                         .padding(.horizontal, BSCSpacing.lg)
-                        .padding(.bottom, BSCSpacing.md)
+                        .padding(.bottom, BSCSpacing.xs)
+                    }
+                } else {
+                    // Gesture hint + zoom readout
+                    if showsZoomControl {
+                        zoomHintRow
+                            .padding(.horizontal, BSCSpacing.lg)
+                            .padding(.bottom, BSCSpacing.md)
+                    }
                 }
 
                 // Cancel / Duration / Done
@@ -99,10 +115,10 @@ struct RallyTrimOverlay: View {
                 .padding(.horizontal, BSCSpacing.lg)
                 .background(Capsule().fill(Color.bscMediaScrim))
                 .padding(.horizontal, BSCSpacing.xl)
-                .padding(.bottom, BSCSpacing.md)
+                .padding(.bottom, compact ? BSCSpacing.xs : BSCSpacing.md)
 
-                // Angle adjustment row
-                if showsAngleControl {
+                // Angle adjustment row (merged into the hint row when compact)
+                if showsAngleControl && !compact {
                     angleControl
                         .padding(.horizontal, BSCSpacing.lg)
                         .padding(.bottom, BSCSpacing.md)
@@ -114,7 +130,7 @@ struct RallyTrimOverlay: View {
                 }
                 .frame(height: barHeight)
                 .padding(.horizontal, BSCSpacing.lg)
-                .padding(.bottom, BSCSpacing.huge)
+                .padding(.bottom, compact ? BSCSpacing.md : BSCSpacing.huge)
             }
         }
         .onAppear {

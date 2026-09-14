@@ -12,6 +12,13 @@ import SwiftUI
 struct GestureTipsOverlay: View {
     let onDismiss: () -> Void
     @State private var showingContent = false
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    // The arrow diagram must be tall enough to CONTAIN the offset arrows —
+    // an undersized frame let the up arrow spill over the title (tester bug).
+    private var compact: Bool { verticalSizeClass == .compact }
+    private var verticalArrowOffset: CGFloat { compact ? 90 : 140 }
+    private var diagramHeight: CGFloat { compact ? 290 : 420 }
 
     var body: some View {
         ZStack {
@@ -20,7 +27,7 @@ struct GestureTipsOverlay: View {
                 .ignoresSafeArea()
                 .opacity(showingContent ? 1 : 0)
 
-            VStack(spacing: BSCSpacing.xxl) {
+            VStack(spacing: compact ? BSCSpacing.md : BSCSpacing.xxl) {
                 // Title
                 Text("Swipe Actions")
                     .bscFont(size: 28, weight: .bold)
@@ -32,7 +39,7 @@ struct GestureTipsOverlay: View {
                 ZStack {
                     // UP arrow - Favorite
                     GestureArrow(direction: .up, label: "Favorite", icon: "star.fill", color: .bscPrimary)
-                        .offset(y: -140)
+                        .offset(y: -verticalArrowOffset)
                         .opacity(showingContent ? 1 : 0)
 
                     // LEFT arrow - Remove
@@ -66,7 +73,7 @@ struct GestureTipsOverlay: View {
                         .scaleEffect(showingContent ? 1 : 0.8)
                         .opacity(showingContent ? 1 : 0)
                 }
-                .frame(height: 240)
+                .frame(height: diagramHeight)
 
                 // Additional tips
                 VStack(spacing: BSCSpacing.md) {

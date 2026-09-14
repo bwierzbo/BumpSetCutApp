@@ -2,10 +2,10 @@
 //  RallyTimelineView.swift
 //  BumpSetCut
 //
-//  Whole-video timeline editor: detected rallies appear as segments on a
-//  scrollable track, with a preview player above. Users add rallies the
-//  detector missed, delete false positives, and drag segment edges — the
-//  same handle interaction as trim mode.
+//  Whole-video timeline editor: full-screen preview with the rally track
+//  overlaid at the bottom. Users add rallies the detector missed, delete
+//  false positives, drag segment edges (same handle language as trim mode),
+//  and scrub by dragging on the video itself.
 //
 
 import SwiftUI
@@ -22,14 +22,15 @@ struct RallyTimelineView: View {
     @State private var player: AVPlayer
     @State private var isPlaying = false
     @State private var timeObserver: Any?
-    @State private var scrubbingFromPlayback = false
     @State private var showDiscardDialog = false
     @State private var showSaveError = false
 
-    // Handle-drag anchors (segment edge value at gesture start)
+    // Drag anchors (value at gesture start)
     @State private var startDragAnchor: Double?
     @State private var endDragAnchor: Double?
     @State private var playheadDragAnchor: Double?
+    @State private var videoScrubAnchor: Double?
+    @State private var lastSeekedTime: Double = -1
 
     private let trackHeight: CGFloat = 64
     private let handleWidth: CGFloat = 18
@@ -46,39 +47,67 @@ struct RallyTimelineView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-                .padding(.horizontal, horizontalInset)
-                .padding(.vertical, BSCSpacing.md)
+        ZStack {
+            Color.bscMediaScrimBase.ignoresSafeArea()
 
-            if viewModel.loadFailed {
-                Spacer()
-                Text("Couldn't load this video's rally data")
-                    .bscFont(size: 15)
-                    .foregroundColor(.bscOnMediaSecondary)
-                Spacer()
-            } else {
-                preview
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Full-screen preview — drag horizontally to scrub, tap to play/pause.
+            CustomVideoPlayerView(player: player, gravity: .resizeAspect) { _ in }
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .gesture(videoScrubGesture)
+                .onTapGesture { togglePlayback() }
 
-                timeReadout
-                    .padding(.top, BSCSpacing.md)
+            // Center play affordance (hidden while playing — tap video to pause)
+            if !isPlaying {
+                Image(systemName: "play.fill")
+                    .bscFont(size: 22, weight: .semibold)
+                    .foregroundColor(.bscOnMedia)
+                    .padding(BSCSpacing.md)
+                    .background(Color.bscMediaScrimBase.opacity(0.55))
+                    .clipShape(Circle())
+                    .allowsHitTesting(false)
+            }
 
-                timelineStrip
-                    .frame(height: trackHeight + 36)
-                    .padding(.top, BSCSpacing.sm)
-
-                editControls
+            VStack(spacing: 0) {
+                topBar
                     .padding(.horizontal, horizontalInset)
+                    .padding(.vertical, BSCSpacing.sm)
+                    .background(
+                        LinearGradient(colors: [Color.bscMediaScrimBase.opacity(0.85), .clear],
+                                       startPoint: .top, endPoint: .bottom)
+                        .ignoresSafeArea(edges: .top)
+                    )
+
+                Spacer()
+
+                if viewModel.loadFailed {
+                    Text("Couldn't load this video's rally data")
+                        .bscFont(size: 15)
+                        .foregroundColor(.bscOnMediaSecondary)
+                    Spacer()
+                } else {
+                    // Bottom control cluster over a scrim so the video stays visible
+                    VStack(spacing: BSCSpacing.sm) {
+                        timeReadout
+                        timelineStrip
+                            .frame(height: trackHeight + 36)
+                        editControls
+                            .padding(.horizontal, horizontalInset)
+                    }
                     .padding(.top, BSCSpacing.md)
-                    .padding(.bottom, BSCSpacing.lg)
+                    .padding(.bottom, BSCSpacing.md)
+                    .background(
+                        LinearGradient(colors: [.clear, Color.bscMediaScrimBase.opacity(0.9)],
+                                       startPoint: .top, endPoint: .bottom)
+                        .ignoresSafeArea(edges: .bottom)
+                    )
+                }
             }
         }
-        .background(Color.bscMediaScrimBase.ignoresSafeArea())
         .environment(\.colorScheme, .dark)
         .task {
             await viewModel.load()
-            seek(to: viewModel.playhead)
+            seek(to: viewModel.playhead, precise: true)
             installTimeObserver()
         }
         .onDisappear {
@@ -149,26 +178,23 @@ struct RallyTimelineView: View {
         }
     }
 
-    // MARK: - Preview
+    // MARK: - Scrubbing on the video
 
-    private var preview: some View {
-        ZStack {
-            CustomVideoPlayerView(player: player, gravity: .resizeAspect) { _ in }
-
-            // Play/pause toggle
-            Button {
-                togglePlayback()
-            } label: {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .bscFont(size: 22, weight: .semibold)
-                    .foregroundColor(.bscOnMedia)
-                    .padding(BSCSpacing.md)
-                    .background(Color.bscMediaScrimBase.opacity(0.55))
-                    .clipShape(Circle())
+    /// Horizontal pan over the full-screen preview scrubs the playhead —
+    /// fine control independent of the timeline's pixel scale.
+    private var videoScrubGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                pausePlayback()
+                if videoScrubAnchor == nil { videoScrubAnchor = viewModel.playhead }
+                let secondsPerPoint = min(0.08, max(0.01, viewModel.videoDuration / 400))
+                let time = clampTime((videoScrubAnchor ?? 0) + Double(value.translation.width) * secondsPerPoint)
+                setPlayhead(time)
             }
-            .opacity(isPlaying ? 0.35 : 1.0)
-            .accessibilityLabel(isPlaying ? "Pause" : "Play")
-        }
+            .onEnded { _ in
+                videoScrubAnchor = nil
+                seek(to: viewModel.playhead, precise: true)
+            }
     }
 
     private var timeReadout: some View {
@@ -202,8 +228,10 @@ struct RallyTimelineView: View {
                         .fill(Color.bscOnMedia.opacity(0.12))
                         .frame(width: contentWidth, height: trackHeight)
                         .onTapGesture { location in
+                            pausePlayback()
                             let time = clampTime(Double(location.x / pps))
                             setPlayhead(time)
+                            seek(to: time, precise: true)
                         }
                         .accessibilityIdentifier("timeline.track")
 
@@ -275,8 +303,12 @@ struct RallyTimelineView: View {
         .offset(x: x)
         .onTapGesture {
             UIImpactFeedbackGenerator.light()
+            pausePlayback()
             viewModel.selectedSegmentID = isSelected ? nil : segment.id
-            if !isSelected { setPlayhead(segment.start) }
+            if !isSelected {
+                setPlayhead(segment.start)
+                seek(to: segment.start, precise: true)
+            }
         }
         .overlay(alignment: .topLeading) {
             if isSelected {
@@ -303,25 +335,31 @@ struct RallyTimelineView: View {
             .highPriorityGesture(
                 DragGesture(minimumDistance: 1)
                     .onChanged { value in
-                        player.pause()
-                        isPlaying = false
+                        pausePlayback()
                         let delta = Double(value.translation.width / pps)
                         switch edge {
                         case .leading:
                             if startDragAnchor == nil { startDragAnchor = segment.start }
                             let newStart = (startDragAnchor ?? segment.start) + delta
                             viewModel.setStart(newStart, for: segment.id)
-                            if let updated = viewModel.selectedSegment { seek(to: updated.start) }
+                            if let updated = viewModel.selectedSegment {
+                                viewModel.playhead = updated.start
+                                seek(to: updated.start)
+                            }
                         case .trailing:
                             if endDragAnchor == nil { endDragAnchor = segment.end }
                             let newEnd = (endDragAnchor ?? segment.end) + delta
                             viewModel.setEnd(newEnd, for: segment.id)
-                            if let updated = viewModel.selectedSegment { seek(to: updated.end) }
+                            if let updated = viewModel.selectedSegment {
+                                viewModel.playhead = updated.end
+                                seek(to: updated.end)
+                            }
                         }
                     }
                     .onEnded { _ in
                         startDragAnchor = nil
                         endDragAnchor = nil
+                        seek(to: viewModel.playhead, precise: true)
                         UISelectionFeedbackGenerator().selectionChanged()
                     }
             )
@@ -343,13 +381,15 @@ struct RallyTimelineView: View {
         .highPriorityGesture(
             DragGesture(minimumDistance: 1)
                 .onChanged { value in
-                    player.pause()
-                    isPlaying = false
+                    pausePlayback()
                     if playheadDragAnchor == nil { playheadDragAnchor = viewModel.playhead }
                     let time = clampTime((playheadDragAnchor ?? 0) + Double(value.translation.width / pps))
                     setPlayhead(time)
                 }
-                .onEnded { _ in playheadDragAnchor = nil }
+                .onEnded { _ in
+                    playheadDragAnchor = nil
+                    seek(to: viewModel.playhead, precise: true)
+                }
         )
         .accessibilityLabel("Playhead")
     }
@@ -418,10 +458,25 @@ struct RallyTimelineView: View {
         seek(to: time)
     }
 
-    private func seek(to seconds: Double) {
-        guard !scrubbingFromPlayback else { return }
+    /// Coarse, throttled seeks while dragging keep scrubbing smooth on long
+    /// videos; a precise (frame-exact) seek lands on gesture end.
+    private func seek(to seconds: Double, precise: Bool = false) {
+        if !precise, abs(seconds - lastSeekedTime) < 0.06 { return }
+        lastSeekedTime = seconds
         let time = CMTimeMakeWithSeconds(seconds, preferredTimescale: 600)
-        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        if precise {
+            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        } else {
+            let tolerance = CMTimeMakeWithSeconds(0.2, preferredTimescale: 600)
+            player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance)
+        }
+    }
+
+    private func pausePlayback() {
+        if isPlaying {
+            player.pause()
+            isPlaying = false
+        }
     }
 
     private func togglePlayback() {
@@ -439,9 +494,7 @@ struct RallyTimelineView: View {
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
             Task { @MainActor in
                 guard isPlaying else { return }
-                scrubbingFromPlayback = true
                 viewModel.playhead = CMTimeGetSeconds(time)
-                scrubbingFromPlayback = false
             }
         }
     }
