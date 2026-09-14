@@ -107,4 +107,31 @@ final class ScreenshotTests: XCTestCase {
         settle(2)
         shoot("rally_trim")
     }
+
+    // MARK: - Paywall (App Store subscription review screenshot)
+
+    /// Requires the scheme's StoreKit configuration so the $4.99 product loads.
+    func testCapturePaywall() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--skip-onboarding", "--clear-library", "--force-free"]
+        app.launch()
+
+        let home = HomeScreen(app: app)
+        guard home.settingsButton.waitForExistence(timeout: 10) else { return }
+        home.settingsButton.tap()
+
+        let upgrade = app.buttons["Upgrade to Pro"]
+        var swipes = 0
+        while !upgrade.isHittable && swipes < 6 {
+            app.swipeUp()
+            swipes += 1
+        }
+        guard upgrade.waitForExistence(timeout: 5) else { return }
+        upgrade.tap()
+
+        // Wait for the StoreKit product price to render
+        _ = app.buttons["Subscribe Now"].waitForExistence(timeout: 10)
+        settle(2)
+        shoot("paywall")
+    }
 }

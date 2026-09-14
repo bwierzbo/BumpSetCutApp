@@ -52,6 +52,15 @@
             </BuildableReference>
          </TestableReference>
       </Testables>
+      <TestPlans>
+         <TestPlanReference
+            reference = "container:TestPlans/AllTests.xctestplan"
+            default = "YES">
+         </TestPlanReference>
+         <TestPlanReference
+            reference = "container:TestPlans/Screenshots.xctestplan">
+         </TestPlanReference>
+      </TestPlans>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

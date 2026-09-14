@@ -1,0 +1,32 @@
+{
+  "configurations" : [
+    {
+      "id" : "8B2A1C40-0F63-4E7A-9B1D-3C5E7A9F1B20",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:BumpSetCut.xcodeproj",
+        "identifier" : "429E9BCB2E750001000TE5TS",
+        "name" : "BumpSetCutTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:BumpSetCut.xcodeproj",
+        "identifier" : "366A3AAE2F48FD8C001FCE8B",
+        "name" : "BumpSetCutUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

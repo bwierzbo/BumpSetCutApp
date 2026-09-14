@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "id": "5D9F3E12-7A84-4C06-B2E1-9F0A6C4D8E31",
+      "name": "Configuration 1",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "storeKitConfiguration": {
+      "identifier": "../BumpSetCut/Resources/Configuration.storekit"
+    }
+  },
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:BumpSetCut.xcodeproj",
+        "identifier": "366A3AAE2F48FD8C001FCE8B",
+        "name": "BumpSetCutUITests"
+      }
+    }
+  ],
+  "version": 1
+}

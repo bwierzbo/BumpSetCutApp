@@ -1,92 +1,84 @@
 {
-  "identifier" : "C3E8F1A2",
-  "nonRenewingSubscriptions" : [
-
-  ],
-  "products" : [
-
-  ],
-  "settings" : {
-    "_failTransactionsEnabled" : false,
-    "_locale" : "en_US",
-    "_storefront" : "USA",
-    "_storeKitErrors" : [
+  "identifier": "C3E8F1A2",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": [
       {
-        "current" : null,
-        "enabled" : false,
-        "name" : "Load Products"
+        "current": null,
+        "enabled": false,
+        "name": "Load Products"
       },
       {
-        "current" : null,
-        "enabled" : false,
-        "name" : "Purchase"
+        "current": null,
+        "enabled": false,
+        "name": "Purchase"
       },
       {
-        "current" : null,
-        "enabled" : false,
-        "name" : "Verification"
+        "current": null,
+        "enabled": false,
+        "name": "Verification"
       },
       {
-        "current" : null,
-        "enabled" : false,
-        "name" : "App Store Sync"
+        "current": null,
+        "enabled": false,
+        "name": "App Store Sync"
       },
       {
-        "current" : null,
-        "enabled" : false,
-        "name" : "Subscription Status"
+        "current": null,
+        "enabled": false,
+        "name": "Subscription Status"
       },
       {
-        "current" : null,
-        "enabled" : false,
-        "name" : "App Transaction"
+        "current": null,
+        "enabled": false,
+        "name": "App Transaction"
       },
       {
-        "current" : null,
-        "enabled" : false,
-        "name" : "Manage Subscriptions Sheet"
+        "current": null,
+        "enabled": false,
+        "name": "Manage Subscriptions Sheet"
       },
       {
-        "current" : null,
-        "enabled" : false,
-        "name" : "Refund Request Sheet"
+        "current": null,
+        "enabled": false,
+        "name": "Refund Request Sheet"
       },
       {
-        "current" : null,
-        "enabled" : false,
-        "name" : "Offer Code Redeem Sheet"
+        "current": null,
+        "enabled": false,
+        "name": "Offer Code Redeem Sheet"
       }
     ]
   },
-  "subscriptions" : [
+  "subscriptions": [
     {
-      "adHocOffers" : [
-
-      ],
-      "codeOffers" : [
-
-      ],
-      "displayPrice" : "7.99",
-      "familyShareable" : false,
-      "groupNumber" : 1,
-      "internalID" : "6670321457",
-      "introductoryOffer" : null,
-      "localizations" : [
+      "adHocOffers": [],
+      "codeOffers": [],
+      "displayPrice": "4.99",
+      "familyShareable": false,
+      "groupNumber": 1,
+      "internalID": "6670321457",
+      "introductoryOffer": null,
+      "localizations": [
         {
-          "description" : "Unlimited video processing, no watermarks, and process on cellular data",
-          "displayName" : "BumpSetCut Pro",
-          "locale" : "en_US"
+          "description": "Unlimited processing, no watermark, offline mode",
+          "displayName": "BumpSetCut Pro",
+          "locale": "en_US"
         }
       ],
-      "productID" : "com.bumpsetcut.pro.monthly",
-      "recurringSubscriptionPeriod" : "P1M",
-      "referenceName" : "Pro Monthly",
-      "subscriptionGroupID" : "21452743",
-      "type" : "RecurringSubscription"
+      "productID": "com.bumpsetcut.pro.monthly",
+      "recurringSubscriptionPeriod": "P1M",
+      "referenceName": "Pro Monthly",
+      "subscriptionGroupID": "21452743",
+      "type": "RecurringSubscription"
     }
   ],
-  "version" : {
-    "major" : 3,
-    "minor" : 0
+  "version": {
+    "major": 3,
+    "minor": 0
   }
 }

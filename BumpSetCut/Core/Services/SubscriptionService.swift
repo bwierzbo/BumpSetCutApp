@@ -68,7 +68,11 @@ final class SubscriptionService {
     #if DEBUG
     // MARK: - Testing Helpers (DEBUG ONLY)
 
-    private(set) var debugForcePro: Bool = UserDefaults.standard.object(forKey: "debug_force_pro") as? Bool ?? true
+    private(set) var debugForcePro: Bool = {
+        // UI tests pass --force-free to exercise the free tier and paywall
+        if CommandLine.arguments.contains("--force-free") { return false }
+        return UserDefaults.standard.object(forKey: "debug_force_pro") as? Bool ?? true
+    }()
 
     func setProStatus(_ status: Bool) {
         UserDefaults.standard.set(status, forKey: "debug_force_pro")
