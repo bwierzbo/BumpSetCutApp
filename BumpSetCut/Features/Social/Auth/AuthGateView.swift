@@ -75,23 +75,28 @@ struct AuthGateView: View {
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                         .accessibilityIdentifier(AccessibilityID.AuthGate.appleSignIn)
 
+                        // Google-branded button: official "G" mark + the colors from
+                        // Google's sign-in branding guidelines (not design-system
+                        // tokens by design, same as Apple's native button above).
                         Button {
                             Task { await viewModel?.signInWithGoogle() }
                         } label: {
                             HStack(spacing: BSCSpacing.sm) {
-                                Image(systemName: "globe")
-                                    .bscFont(size: 17, weight: .semibold)
+                                Image("GoogleLogo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 20, height: 20)
                                 Text("Continue with Google")
                                     .bscFont(size: 16, weight: .semibold)
                             }
-                            .foregroundColor(.bscTextPrimary)
+                            .foregroundColor(colorScheme == .dark ? Color(hex: "#E3E3E3") : Color(hex: "#1F1F1F"))
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(Color.bscBackgroundElevated)
+                            .background(colorScheme == .dark ? Color(hex: "#131314") : .white)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
-                                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+                                    .stroke(colorScheme == .dark ? Color(hex: "#8E918F") : Color(hex: "#747775"), lineWidth: 1)
                             )
                         }
                         .accessibilityIdentifier(AccessibilityID.AuthGate.googleSignIn)
