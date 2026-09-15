@@ -20,6 +20,10 @@ struct ShareRallySheet: View {
     @State private var showLocationPicker = false
     @FocusState private var isCaptionFocused: Bool
 
+    // Prepared-file (reel) preview
+    @State private var reelPlayer: AVPlayer?
+    @State private var reelLoopObserver: Any?
+
     private let preloadRadius = 4
 
     init(originalVideoURL: URL, rallyVideoURLs: [URL], savedRallyIndices: [Int],
@@ -39,6 +43,22 @@ struct ShareRallySheet: View {
         ))
     }
 
+    /// Post an already-stitched highlight reel as one post. The caller owns
+    /// (and later deletes) the prepared temp file.
+    init(preparedFileURL: URL, duration: Double, clipCount: Int, title: String) {
+        _viewModel = State(initialValue: ShareRallyViewModel(
+            preparedFileURL: preparedFileURL,
+            duration: duration,
+            clipCount: clipCount,
+            title: title
+        ))
+    }
+
+    private var isPreparedFile: Bool {
+        if case .preparedFile = viewModel.source { return true }
+        return false
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -46,8 +66,12 @@ struct ShareRallySheet: View {
 
                 ScrollView {
                     VStack(spacing: BSCSpacing.lg) {
-                        // Rally video carousel
-                        rallyCarousel
+                        // Rally video carousel (or single reel preview)
+                        if isPreparedFile {
+                            reelPreview
+                        } else {
+                            rallyCarousel
+                        }
 
                         // Caption with hashtags
                         captionField
@@ -72,7 +96,7 @@ struct ShareRallySheet: View {
                     uploadOverlay
                 }
             }
-            .navigationTitle("Share Rally")
+            .navigationTitle(isPreparedFile ? "Share Highlight Reel" : "Share Rally")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -89,19 +113,26 @@ struct ShareRallySheet: View {
             .interactiveDismissDisabled(isUploadBusy)
         }
         .onAppear {
-            carouselSelection = viewModel.selectedPage
-            updatePlayerPool(activePage: viewModel.selectedPage)
+            if isPreparedFile {
+                setupReelPlayer()
+            } else {
+                carouselSelection = viewModel.selectedPage
+                updatePlayerPool(activePage: viewModel.selectedPage)
+            }
         }
         .onDisappear { cleanupAllPlayers() }
         .onChange(of: carouselSelection) { _, newPage in
+            guard !isPreparedFile else { return }
             viewModel.selectedPage = newPage
             updatePlayerPool(activePage: newPage)
         }
         .onChange(of: isCaptionFocused) { _, focused in
             if focused {
                 playerPool[viewModel.selectedPage]?.pause()
+                reelPlayer?.pause()
             } else {
                 playerPool[viewModel.selectedPage]?.play()
+                reelPlayer?.play()
             }
         }
         .onChange(of: viewModel.state) { _, newState in
@@ -123,6 +154,60 @@ struct ShareRallySheet: View {
                 viewModel.upload()
             }
         }
+    }
+
+    // MARK: - Reel Preview (prepared file)
+
+    private var reelPreview: some View {
+        VStack(spacing: BSCSpacing.sm) {
+            ZStack {
+                Color.bscSurfaceGlass
+
+                if let reelPlayer {
+                    CustomVideoPlayerView(
+                        player: reelPlayer,
+                        gravity: .resizeAspect,
+                        onReadyForDisplay: { _ in }
+                    )
+                    .allowsHitTesting(false)
+                }
+            }
+            .aspectRatio(16/9, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
+
+            if case .preparedFile(_, let duration, let clipCount, let title) = viewModel.source {
+                HStack(spacing: BSCSpacing.xs) {
+                    Image(systemName: "film.stack")
+                        .bscFont(size: 12)
+                    Text("\(title) · \(clipCount) \(clipCount == 1 ? "clip" : "clips") · \(formatReelDuration(duration))")
+                        .bscFont(size: 13, weight: .medium)
+                        .lineLimit(1)
+                }
+                .foregroundColor(.bscTextSecondary)
+            }
+        }
+    }
+
+    private func formatReelDuration(_ seconds: Double) -> String {
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%d:%02d", mins, secs)
+    }
+
+    private func setupReelPlayer() {
+        guard reelPlayer == nil, case .preparedFile(let url, _, _, _) = viewModel.source else { return }
+        let player = AVPlayer(url: url)
+        player.isMuted = true
+        reelLoopObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem,
+            queue: .main
+        ) { [weak player] _ in
+            player?.seek(to: .zero)
+            player?.play()
+        }
+        player.play()
+        reelPlayer = player
     }
 
     // MARK: - Rally Carousel
@@ -279,6 +364,14 @@ struct ShareRallySheet: View {
         }
         playerPool.removeAll()
         loopObservers.removeAll()
+
+        if let reelLoopObserver {
+            NotificationCenter.default.removeObserver(reelLoopObserver)
+        }
+        reelLoopObserver = nil
+        reelPlayer?.pause()
+        reelPlayer?.replaceCurrentItem(with: nil)
+        reelPlayer = nil
     }
 
     // MARK: - Caption
@@ -495,7 +588,13 @@ struct ShareRallySheet: View {
 
     private var rallyInfo: some View {
         VStack(spacing: BSCSpacing.xs) {
-            if viewModel.postAllSaved && viewModel.savedRallyIndices.count > 1 {
+            if isPreparedFile {
+                if viewModel.isReelTooLong {
+                    Label("Highlight reels must be under 5 minutes", systemImage: "exclamationmark.triangle.fill")
+                        .bscFont(size: 12, weight: .medium)
+                        .foregroundColor(.bscErrorText)
+                }
+            } else if viewModel.postAllSaved && viewModel.savedRallyIndices.count > 1 {
                 HStack(spacing: BSCSpacing.lg) {
                     Label("\(viewModel.postCount) rallies", systemImage: "square.stack")
                     Label("\(String(format: "%.1f", viewModel.totalDuration))s total", systemImage: "timer")
@@ -611,7 +710,8 @@ struct ShareRallySheet: View {
     // MARK: - Post Button
 
     private var postButton: some View {
-        let canPost = viewModel.state == .idle && (!viewModel.isTooLong || viewModel.postAllSaved) && viewModel.isPollValid
+        let canPost = viewModel.state == .idle && (!viewModel.isTooLong || viewModel.postAllSaved)
+            && !viewModel.isReelTooLong && viewModel.isPollValid
         return Button("Post") {
             isCaptionFocused = false
             if authService.isAuthenticated {

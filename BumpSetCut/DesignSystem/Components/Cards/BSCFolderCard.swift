@@ -17,6 +17,9 @@ struct BSCFolderCard: View {
     let onTap: () -> Void
     let onRename: (String) -> Void
     let onDelete: () -> Void
+    /// Optional reel actions (favorites collections only) — nil hides the menu items.
+    var onExportHighlight: (() -> Void)? = nil
+    var onPostToCommunity: (() -> Void)? = nil
 
     private var cornerRadius: CGFloat {
         displayMode == .list ? BSCRadius.md : BSCRadius.xl
@@ -310,6 +313,24 @@ struct BSCFolderCard: View {
             onTap()
         } label: {
             Label("Open", systemImage: "folder")
+        }
+
+        if onExportHighlight != nil || onPostToCommunity != nil {
+            Divider()
+
+            if let onExportHighlight {
+                Button(action: onExportHighlight) {
+                    Label("Export Highlight Video", systemImage: "film.stack")
+                }
+                .accessibilityIdentifier(AccessibilityID.Favorites.exportReel)
+            }
+
+            if let onPostToCommunity {
+                Button(action: onPostToCommunity) {
+                    Label("Post to Community", systemImage: "paperplane")
+                }
+                .accessibilityIdentifier(AccessibilityID.Favorites.postReel)
+            }
         }
 
         Divider()

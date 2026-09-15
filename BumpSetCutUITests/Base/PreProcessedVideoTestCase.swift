@@ -52,18 +52,18 @@ class PreProcessedVideoTestCase: BSCUITestCase {
             homeScreen.viewLibraryButton.tap()
         }
 
-        // Pre-processed video has processedVideoIds set, so card shows "View Rallies"
-        // directly instead of "Process with AI"
-        let viewRalliesOnCard = app.buttons["View Rallies"]
+        // Pre-processed video's card shows a visible "View Processed Rallies"
+        // play button ("View Rallies" only exists in the context menu).
+        let viewProcessedRallies = app.buttons["View Processed Rallies"]
         let processButton = app.buttons["Process with AI"]
 
-        let found = viewRalliesOnCard.waitForExistence(timeout: 5)
+        let found = viewProcessedRallies.waitForExistence(timeout: 5)
             || processButton.waitForExistence(timeout: 5)
-        XCTAssertTrue(found, "Neither 'View Rallies' nor 'Process with AI' button found")
+        XCTAssertTrue(found, "Neither 'View Processed Rallies' nor 'Process with AI' button found")
 
-        if viewRalliesOnCard.exists {
+        if viewProcessedRallies.exists {
             // Directly opens rally player from the card
-            viewRalliesOnCard.tap()
+            viewProcessedRallies.tap()
         } else {
             // Fallback: open ProcessVideoView then tap View Rallies
             processButton.tap()

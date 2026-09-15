@@ -39,6 +39,16 @@ struct RallyShareInfo {
     let metadata: RallyHighlightMetadata
 }
 
+// MARK: - Share Source
+
+/// What is being posted: rallies clipped from a source video at upload time,
+/// or an already-exported file (a stitched highlight reel) uploaded as-is —
+/// its watermark decision was made at stitch time.
+enum ShareSource {
+    case rallies
+    case preparedFile(url: URL, duration: Double, clipCount: Int, title: String)
+}
+
 // MARK: - View Model
 
 @MainActor
@@ -56,6 +66,7 @@ final class ShareRallyViewModel {
     var pollQuestion: String = ""
     var pollOptions: [String] = ["", ""]
 
+    let source: ShareSource
     let originalVideoURL: URL
     let rallyVideoURLs: [URL]
     let savedRallyIndices: [Int]
@@ -132,6 +143,7 @@ final class ShareRallyViewModel {
          initialPage: Int, thumbnailCache: RallyThumbnailCache, videoId: UUID,
          rallyInfo: [Int: RallyShareInfo], postAllSaved: Bool = false,
          apiClient: (any APIClient)? = nil) {
+        self.source = .rallies
         self.originalVideoURL = originalVideoURL
         self.rallyVideoURLs = rallyVideoURLs
         self.savedRallyIndices = savedRallyIndices
@@ -143,9 +155,27 @@ final class ShareRallyViewModel {
         self.apiClient = apiClient ?? SupabaseAPIClient.shared
     }
 
+    /// Post an already-exported file (stitched highlight reel) as one post.
+    /// No per-rally clipping happens — the file uploads as-is.
+    init(preparedFileURL: URL, duration: Double, clipCount: Int, title: String,
+         apiClient: (any APIClient)? = nil) {
+        self.source = .preparedFile(url: preparedFileURL, duration: duration, clipCount: clipCount, title: title)
+        self.originalVideoURL = preparedFileURL
+        self.rallyVideoURLs = []
+        self.savedRallyIndices = []
+        self.selectedPage = 0
+        self.thumbnailCache = RallyThumbnailCache()
+        self.videoId = UUID()
+        self.rallyInfo = [:]
+        self.postAllSaved = false
+        self.apiClient = apiClient ?? SupabaseAPIClient.shared
+    }
+
     // MARK: - Actions
 
     private let maxDurationSeconds: Double = 60
+    /// Reels are longer-form by design, but still capped.
+    static let maxReelDurationSeconds: Double = 300
 
     var currentDuration: Double? {
         guard let info = currentShareInfo else { return nil }
@@ -157,8 +187,21 @@ final class ShareRallyViewModel {
         return duration > maxDurationSeconds
     }
 
+    var isReelTooLong: Bool {
+        guard case .preparedFile(_, let duration, _, _) = source else { return false }
+        return duration > Self.maxReelDurationSeconds
+    }
+
     func upload() {
         guard state == .idle else { return }
+        if case .preparedFile(let url, let duration, let clipCount, _) = source {
+            if isReelTooLong {
+                state = .failed("Highlight reels must be under 5 minutes")
+                return
+            }
+            startPreparedFileUpload(url: url, duration: duration, clipCount: clipCount)
+            return
+        }
         if postAllSaved {
             startBatchUpload()
         } else {
@@ -236,6 +279,60 @@ final class ShareRallyViewModel {
                     localVideoId: videoId,
                     localRallyIndex: rallyIndex,
                     rallyMetadata: metadata,
+                    locationName: pickedLocation?.name,
+                    latitude: pickedLocation?.latitude,
+                    longitude: pickedLocation?.longitude
+                )
+
+                var highlight: Highlight = try await apiClient.request(.createHighlight(upload))
+
+                if includePoll {
+                    let poll = try await createPollForHighlight(highlightId: highlight.id)
+                    highlight.poll = poll
+                }
+
+                state = .complete(highlight)
+            } catch is CancellationError {
+                state = .idle
+            } catch {
+                state = .failed(Self.uploadErrorMessage(for: error))
+            }
+        }
+    }
+
+    // MARK: - Prepared File Upload (Highlight Reel)
+
+    /// Upload an already-stitched file as one post. The caller owns the temp
+    /// file (it is NOT deleted here — the export sheet cleans it up on dismiss).
+    private func startPreparedFileUpload(url: URL, duration: Double, clipCount: Int) {
+        uploadTask = Task {
+            state = .uploading(progress: 0)
+
+            do {
+                let uploadURL = try await apiClient.upload(
+                    fileURL: url,
+                    to: .createUploadURL
+                ) { [weak self] progress in
+                    Task { @MainActor in
+                        self?.state = .uploading(progress: progress)
+                    }
+                }
+
+                try Task.checkCancellation()
+                state = .processing
+
+                let userId = try await SupabaseConfig.client.auth.session.user.id.uuidString.lowercased()
+                let upload = HighlightUpload(
+                    authorId: userId,
+                    muxPlaybackId: uploadURL.absoluteString,
+                    caption: caption.isEmpty ? nil : caption,
+                    tags: extractedTags,
+                    hideLikes: hideLikes,
+                    localVideoId: nil,
+                    localRallyIndex: nil,
+                    rallyMetadata: RallyHighlightMetadata(
+                        duration: duration, confidence: 1.0, quality: 1.0, detectionCount: clipCount
+                    ),
                     locationName: pickedLocation?.name,
                     latitude: pickedLocation?.latitude,
                     longitude: pickedLocation?.longitude

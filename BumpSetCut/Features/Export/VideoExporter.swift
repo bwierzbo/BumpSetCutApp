@@ -11,6 +11,146 @@ import Photos
 
 final class VideoExporter {
 
+    // MARK: - Multi-Source Stitching (highlight reels)
+
+    /// One clip of a stitched highlight reel: a source file plus an optional
+    /// sub-range (nil = the whole clip, e.g. a favorites clip with its trim
+    /// already applied at export time).
+    struct StitchClip {
+        let url: URL
+        let timeRange: CMTimeRange?
+
+        init(url: URL, timeRange: CMTimeRange? = nil) {
+            self.url = url
+            self.timeRange = timeRange
+        }
+    }
+
+    /// Composition + per-clip video instructions for a reel. The video
+    /// composition carries one instruction per clip so mixed orientations all
+    /// render upright, aspect-fit into the first clip's display size.
+    struct StitchBuild {
+        let composition: AVMutableComposition
+        let videoComposition: AVMutableVideoComposition
+    }
+
+    /// Stitch multiple source files into one reel. Every clip gets its own
+    /// composition instruction: its preferred transform normalized to upright,
+    /// then aspect-fit into the render size (the first clip's upright size).
+    /// Clips without audio insert an empty audio range so later clips stay in
+    /// sync. Separated from export so tests can inspect the build.
+    func buildStitchComposition(clips: [StitchClip]) async throws -> StitchBuild {
+        guard !clips.isEmpty else {
+            throw ProcessingError.compositionFailed
+        }
+
+        let composition = AVMutableComposition()
+        guard let compV = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
+              let compA = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw ProcessingError.compositionFailed
+        }
+
+        var renderSize = CGSize.zero
+        var maxFrameRate: Float = 0
+        var instructions: [AVMutableVideoCompositionInstruction] = []
+        var currentTime = CMTime.zero
+        var insertedAnyAudio = false
+
+        for clip in clips {
+            let asset = AVURLAsset(url: clip.url)
+            guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
+                throw ProcessingError.noVideoTrack
+            }
+            let aTrack = try? await asset.loadTracks(withMediaType: .audio).first
+
+            let fullRange = CMTimeRange(start: .zero, duration: try await asset.load(.duration))
+            let range = clip.timeRange.map { CMTimeRangeGetIntersection($0, otherRange: fullRange) } ?? fullRange
+            guard range.duration > .zero else { continue }
+
+            try compV.insertTimeRange(range, of: vTrack, at: currentTime)
+            if let aTrack {
+                try compA.insertTimeRange(range, of: aTrack, at: currentTime)
+                insertedAnyAudio = true
+            } else {
+                // Keep the audio timeline aligned with video for later clips.
+                compA.insertEmptyTimeRange(CMTimeRange(start: currentTime, duration: range.duration))
+            }
+
+            let naturalSize = try await vTrack.load(.naturalSize)
+            let preferredTransform = (try? await vTrack.load(.preferredTransform)) ?? .identity
+            let uprightSize = videoSizeAfterTransform(naturalSize: naturalSize, transform: preferredTransform)
+            if renderSize == .zero { renderSize = uprightSize }
+            maxFrameRate = max(maxFrameRate, (try? await vTrack.load(.nominalFrameRate)) ?? 0)
+
+            // Normalize the transform so the upright video starts at the origin,
+            // then aspect-fit + center it in the render size.
+            let transformedRect = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
+            var transform = preferredTransform.concatenating(
+                CGAffineTransform(translationX: -transformedRect.minX, y: -transformedRect.minY)
+            )
+            let scale = min(renderSize.width / uprightSize.width, renderSize.height / uprightSize.height)
+            transform = transform.concatenating(CGAffineTransform(scaleX: scale, y: scale))
+            transform = transform.concatenating(CGAffineTransform(
+                translationX: (renderSize.width - uprightSize.width * scale) / 2,
+                y: (renderSize.height - uprightSize.height * scale) / 2
+            ))
+
+            let instruction = AVMutableVideoCompositionInstruction()
+            instruction.timeRange = CMTimeRange(start: currentTime, duration: range.duration)
+            let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compV)
+            layerInstruction.setTransform(transform, at: currentTime)
+            instruction.layerInstructions = [layerInstruction]
+            instructions.append(instruction)
+
+            currentTime = CMTimeAdd(currentTime, range.duration)
+        }
+
+        guard !instructions.isEmpty else {
+            throw ProcessingError.compositionFailed
+        }
+
+        // A track of nothing but empty ranges buys nothing — drop it.
+        if !insertedAnyAudio {
+            composition.removeTrack(compA)
+        }
+
+        let videoComposition = AVMutableVideoComposition()
+        videoComposition.renderSize = renderSize
+        // Match the fastest source, clamped to a sane range (never hardcode 30).
+        let frameRate = Int32(min(max(maxFrameRate.rounded(), 24), 60))
+        videoComposition.frameDuration = CMTime(value: 1, timescale: frameRate)
+        videoComposition.instructions = instructions
+
+        return StitchBuild(composition: composition, videoComposition: videoComposition)
+    }
+
+    /// Export multiple source clips as ONE stitched reel to a tmp file
+    /// (`stitched_rallies_` prefix — covered by the existing tmp sweeper).
+    func exportStitchedClips(_ clips: [StitchClip], addWatermark: Bool = false, progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
+        let build = try await buildStitchComposition(clips: clips)
+        if addWatermark {
+            attachWatermarkTool(to: build.videoComposition, videoSize: build.videoComposition.renderSize)
+        }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stitched_rallies_\(UUID().uuidString).mp4")
+        return try await exportComposition(
+            build.composition,
+            videoComposition: build.videoComposition,
+            to: outputURL,
+            progressHandler: progressHandler
+        )
+    }
+
+    /// Stitch multiple source clips into one reel and save it to Photos,
+    /// returning the temp file URL for sharing. Caller cleans up the URL.
+    @discardableResult
+    func exportStitchedClipsToPhotoLibrary(_ clips: [StitchClip], addWatermark: Bool = false, progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
+        let exportedURL = try await exportStitchedClips(clips, addWatermark: addWatermark, progressHandler: progressHandler)
+        try await saveVideoToPhotoLibrary(url: exportedURL)
+        return exportedURL
+    }
+
     /// Exports a single rally segment as an individual video file.
     /// Uses passthrough (no re-encoding) when possible, falls back to re-encoding if needed.
     /// Output goes to tmp: these are share-then-delete files and must not land in
@@ -208,15 +348,28 @@ final class VideoExporter {
             compV.preferredTransform = preferredTransform
         }
 
-        guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
-            throw ProcessingError.exportSessionFailed("Stitched export session unavailable")
-        }
-
+        var videoComposition: AVMutableVideoComposition?
         if addWatermark {
             let naturalSize = try await vTrack.load(.naturalSize)
             let videoSize = videoSizeAfterTransform(naturalSize: naturalSize, transform: preferredTransform)
-            exporter.videoComposition = applyWatermark(to: composition, videoSize: videoSize, transform: preferredTransform)
+            videoComposition = applyWatermark(to: composition, videoSize: videoSize, transform: preferredTransform)
         }
+
+        return try await exportComposition(
+            composition,
+            videoComposition: videoComposition,
+            to: outputURL,
+            progressHandler: progressHandler
+        )
+    }
+
+    /// Shared progress-reporting export for stitched compositions
+    /// (iOS-18 async export vs. the legacy polling path).
+    private func exportComposition(_ composition: AVMutableComposition, videoComposition: AVVideoComposition?, to outputURL: URL, progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
+        guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+            throw ProcessingError.exportSessionFailed("Stitched export session unavailable")
+        }
+        exporter.videoComposition = videoComposition
 
         if #available(iOS 18.0, *) {
             // Poll progress on a background task while awaiting export
@@ -318,8 +471,15 @@ final class VideoExporter {
 
         videoComposition.instructions = [instruction]
 
-        // Add watermark as animation layer
-        let watermarkLayer = createWatermarkLayer(videoSize: videoSize, videoDuration: composition.duration)
+        attachWatermarkTool(to: videoComposition, videoSize: videoSize)
+
+        return videoComposition
+    }
+
+    /// Adds the watermark overlay as a Core Animation tool on an existing
+    /// video composition. Shared by single-source and stitched exports.
+    private func attachWatermarkTool(to videoComposition: AVMutableVideoComposition, videoSize: CGSize) {
+        let watermarkLayer = createWatermarkLayer(videoSize: videoSize, videoDuration: .zero)
 
         let parentLayer = CALayer()
         let videoLayer = CALayer()
@@ -332,8 +492,6 @@ final class VideoExporter {
             postProcessingAsVideoLayer: videoLayer,
             in: parentLayer
         )
-
-        return videoComposition
     }
 
     /// Export a single time range to a URL, optionally with watermark overlay.

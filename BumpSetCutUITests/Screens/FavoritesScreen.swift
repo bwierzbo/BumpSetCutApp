@@ -26,6 +26,10 @@ struct FavoritesScreen {
         app.descendants(matching: .any)["favorites.rallyCount"]
     }
 
+    var folderMenu: XCUIElement {
+        app.buttons["favorites.folderMenu"]
+    }
+
     // Feed elements
     var feedCloseButton: XCUIElement {
         app.buttons["favorites.feed.close"]

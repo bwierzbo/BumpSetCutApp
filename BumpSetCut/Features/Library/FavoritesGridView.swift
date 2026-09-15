@@ -24,7 +24,16 @@ struct FavoritesGridView: View {
     @State private var renameTarget: VideoMetadata?
     // Surfaces failures from fire-and-forget library mutations (rename/move/delete).
     @State private var mutationToast: BSCToastMessage?
+    // Non-nil presents the highlight-reel export/post sheet for a folder.
+    @State private var reelTarget: ReelTarget?
     @Environment(\.dismiss) private var dismiss
+
+    struct ReelTarget: Identifiable {
+        let id = UUID()
+        let folderName: String
+        let clips: [VideoExporter.StitchClip]
+        let mode: FolderReelExportSheet.Mode
+    }
 
     init(mediaStore: MediaStore) {
         self.mediaStore = mediaStore
@@ -102,6 +111,13 @@ struct FavoritesGridView: View {
         }
         .sheet(item: $moveTarget) { video in
             folderPickerSheet(for: video)
+        }
+        .sheet(item: $reelTarget) { target in
+            FolderReelExportSheet(
+                folderName: target.folderName,
+                clips: target.clips,
+                mode: target.mode
+            )
         }
         .alert("Remove Favorite?", isPresented: Binding(
             get: { videoToDelete != nil },
@@ -206,7 +222,13 @@ struct FavoritesGridView: View {
                             do { try await folderManager.deleteFolder(folder) }
                             catch { mutationToast = BSCToastMessage(text: "Couldn't delete folder", style: .error) }
                         }
-                    }
+                    },
+                    onExportHighlight: folder.videoCount > 0 ? {
+                        presentReel(folderName: folder.name, videos: mediaStore.getVideos(in: folder.path), mode: .saveToPhotos)
+                    } : nil,
+                    onPostToCommunity: folder.videoCount > 0 ? {
+                        presentReel(folderName: folder.name, videos: mediaStore.getVideos(in: folder.path), mode: .postToCommunity)
+                    } : nil
                 )
                 .dropDestination(for: VideoMetadata.self) { droppedVideos, _ in
                     guard let video = droppedVideos.first else { return false }
@@ -317,6 +339,25 @@ struct FavoritesGridView: View {
                     showingCreateFolder = true
                 }
                 .accessibilityIdentifier(AccessibilityID.Favorites.createFolder)
+
+                // Reel actions for what's on screen (root = un-filed favorites only).
+                Menu {
+                    Button {
+                        presentReel(folderName: title, videos: videos, mode: .saveToPhotos)
+                    } label: {
+                        Label("Export Highlight Video", systemImage: "film.stack")
+                    }
+                    Button {
+                        presentReel(folderName: title, videos: videos, mode: .postToCommunity)
+                    } label: {
+                        Label("Post to Community", systemImage: "paperplane")
+                    }
+                } label: {
+                    BSCIconButton(icon: "ellipsis", style: .ghost, size: .compact, accessibilityLabel: "Folder actions") {}
+                        .allowsHitTesting(false)
+                }
+                .disabled(videos.isEmpty)
+                .accessibilityIdentifier(AccessibilityID.Favorites.folderMenu)
             }
         }
     }
@@ -401,6 +442,52 @@ struct FavoritesGridView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Highlight Reel
+
+    /// Resolve the folder's videos into stitch clips (createdDate order, each
+    /// with its favorites-feed trim applied), then present the export sheet.
+    private func presentReel(folderName: String, videos: [VideoMetadata], mode: FolderReelExportSheet.Mode) {
+        Task {
+            let clips = await reelClips(from: videos)
+            guard !clips.isEmpty else {
+                mutationToast = BSCToastMessage(text: "No clips to stitch", style: .error)
+                return
+            }
+            reelTarget = ReelTarget(folderName: folderName, clips: clips, mode: mode)
+        }
+    }
+
+    private func reelClips(from videos: [VideoMetadata]) async -> [VideoExporter.StitchClip] {
+        let store = MetadataStore()
+        var clips: [VideoExporter.StitchClip] = []
+        for video in videos.sorted(by: { $0.createdDate < $1.createdDate }) {
+            // Favorites clips store a single trim under index 0 (set in the feed).
+            guard let adj = store.loadTrimAdjustments(for: video.id)[0],
+                  adj.before < 0 || adj.after < 0 else {
+                clips.append(VideoExporter.StitchClip(url: video.originalURL))
+                continue
+            }
+            let duration = try? await AVURLAsset(url: video.originalURL).load(.duration)
+            let durationSecs = duration.map(CMTimeGetSeconds) ?? 0
+            guard durationSecs > 0 else {
+                clips.append(VideoExporter.StitchClip(url: video.originalURL))
+                continue
+            }
+            // Negative before/after cut into the clip; positive extends don't
+            // apply to standalone favorites clips (they start/end at the file).
+            let start = max(0, -adj.before)
+            let end = min(durationSecs, max(start + 0.1, durationSecs + min(0, adj.after)))
+            clips.append(VideoExporter.StitchClip(
+                url: video.originalURL,
+                timeRange: CMTimeRange(
+                    start: CMTime(seconds: start, preferredTimescale: 600),
+                    end: CMTime(seconds: end, preferredTimescale: 600)
+                )
+            ))
+        }
+        return clips
     }
 
     // MARK: - Actions

@@ -54,4 +54,12 @@ final class FavoritesEmptyStateTests: BSCUITestCase {
         XCTAssertTrue(favorites.rallyCount.waitForExistence(timeout: 5))
         XCTAssertTrue(favorites.rallyCount.label.contains("0") || favorites.rallyCount.label.contains("rallies"))
     }
+
+    /// Reel actions (Export Highlight Video / Post to Community) are disabled
+    /// when the current folder has no clips.
+    func testReelMenuDisabledWhenEmpty() {
+        XCTAssertTrue(favorites.folderMenu.waitForExistence(timeout: 5))
+        XCTAssertFalse(favorites.folderMenu.isEnabled,
+                       "Reel menu should be disabled with no favorites")
+    }
 }

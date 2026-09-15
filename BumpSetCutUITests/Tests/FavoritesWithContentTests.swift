@@ -46,11 +46,18 @@ final class FavoritesWithContentTests: PreProcessedVideoTestCase {
         // Wait for file operations to complete
         sleep(2)
 
-        // Now navigate to Favorites from Home
+        // The player dismisses back to the Library — walk back to Home first,
+        // then into Favorites.
         let home = HomeScreen(app: app)
-        if home.favoriteRalliesButton.waitForExistence(timeout: 10) {
-            home.favoriteRalliesButton.tap()
+        if !home.favoriteRalliesButton.waitForExistence(timeout: 3) {
+            let backButton = app.buttons["BackButton"]
+            if backButton.waitForExistence(timeout: 3) {
+                backButton.tap()
+            }
         }
+        XCTAssertTrue(home.favoriteRalliesButton.waitForExistence(timeout: 10),
+                      "Should reach Home to open Favorites")
+        home.favoriteRalliesButton.tap()
 
         favorites = FavoritesScreen(app: app)
     }
@@ -223,6 +230,25 @@ final class FavoritesWithContentTests: PreProcessedVideoTestCase {
             // Cancel to not actually remove
             alert.buttons["Cancel"].tap()
         }
+    }
+
+    // MARK: - Highlight Reel Menu
+
+    /// Reel menu is enabled with content and offers export + post actions.
+    func testReelMenuEnabledWithContent() {
+        XCTAssertTrue(favorites.folderMenu.waitForExistence(timeout: 5))
+        XCTAssertTrue(favorites.folderMenu.isEnabled,
+                      "Reel menu should be enabled when favorites exist")
+        favorites.folderMenu.tap()
+
+        let exportAction = app.buttons["Export Highlight Video"]
+        let postAction = app.buttons["Post to Community"]
+        XCTAssertTrue(exportAction.waitForExistence(timeout: 3),
+                      "Menu should offer Export Highlight Video")
+        XCTAssertTrue(postAction.exists, "Menu should offer Post to Community")
+
+        // Dismiss without exporting
+        app.tap()
     }
 
     // MARK: - Sort with Content (5.2.2)
