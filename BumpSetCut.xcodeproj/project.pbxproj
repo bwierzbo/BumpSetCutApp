@@ -75,6 +75,7 @@
 				Features/RallyPlayback/Models/RallyPlayerState.swift,
 				Models/Detections.swift,
 				Models/FlywheelContribution.swift,
+				Models/GameScoring.swift,
 				Models/ProcessingMetadata.swift,
 				Resources/ML/ball_v2_small.mlpackage,
 				Resources/ML/bestv2.mlpackage,

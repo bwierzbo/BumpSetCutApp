@@ -151,6 +151,19 @@ enum AccessibilityID {
         static let chooseFolder = "rallyPlayer.chooseFolder"
     }
 
+    enum GameScoring {
+        static let entry = "gameScoring.entry"
+        static let scoreboard = "gameScoring.scoreboard"
+        static let rallyCounter = "gameScoring.rallyCounter"
+        static let pointTeamA = "gameScoring.pointTeamA"
+        static let pointTeamB = "gameScoring.pointTeamB"
+        static let setBreak = "gameScoring.setBreak"
+        static let export = "gameScoring.export"
+        static let teamAField = "gameScoring.teamAField"
+        static let teamBField = "gameScoring.teamBField"
+        static let startScoring = "gameScoring.startScoring"
+    }
+
     enum CollectionPicker {
         static let sheet = "collectionPicker.sheet"
         static let confirmButton = "collectionPicker.confirm"

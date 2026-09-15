@@ -32,6 +32,9 @@ final class VideoExporter {
     struct StitchBuild {
         let composition: AVMutableComposition
         let videoComposition: AVMutableVideoComposition
+        /// Output-timeline range of each INPUT clip, aligned by index
+        /// (nil = that clip resolved to zero duration and was skipped).
+        let clipRanges: [CMTimeRange?]
     }
 
     /// Stitch multiple source files into one reel. Every clip gets its own
@@ -55,6 +58,7 @@ final class VideoExporter {
         var instructions: [AVMutableVideoCompositionInstruction] = []
         var currentTime = CMTime.zero
         var insertedAnyAudio = false
+        var clipRanges: [CMTimeRange?] = []
 
         for clip in clips {
             let asset = AVURLAsset(url: clip.url)
@@ -65,7 +69,11 @@ final class VideoExporter {
 
             let fullRange = CMTimeRange(start: .zero, duration: try await asset.load(.duration))
             let range = clip.timeRange.map { CMTimeRangeGetIntersection($0, otherRange: fullRange) } ?? fullRange
-            guard range.duration > .zero else { continue }
+            guard range.duration > .zero else {
+                clipRanges.append(nil)
+                continue
+            }
+            clipRanges.append(CMTimeRange(start: currentTime, duration: range.duration))
 
             try compV.insertTimeRange(range, of: vTrack, at: currentTime)
             if let aTrack {
@@ -121,7 +129,7 @@ final class VideoExporter {
         videoComposition.frameDuration = CMTime(value: 1, timescale: frameRate)
         videoComposition.instructions = instructions
 
-        return StitchBuild(composition: composition, videoComposition: videoComposition)
+        return StitchBuild(composition: composition, videoComposition: videoComposition, clipRanges: clipRanges)
     }
 
     /// Export multiple source clips as ONE stitched reel to a tmp file
@@ -149,6 +157,131 @@ final class VideoExporter {
         let exportedURL = try await exportStitchedClips(clips, addWatermark: addWatermark, progressHandler: progressHandler)
         try await saveVideoToPhotoLibrary(url: exportedURL)
         return exportedURL
+    }
+
+    // MARK: - Scored Game Export
+
+    /// Scoreboard shown during one clip of a scored game export.
+    struct GameScoreOverlay {
+        let teamAName: String
+        let teamBName: String
+        let teamAColor: UIColor
+        let teamBColor: UIColor
+        let state: GameScoreState
+        /// Show the sets line (any set has been played or is configured).
+        let showsSets: Bool
+    }
+
+    /// Stitch a full game into ONE video with a running scoreboard burned in.
+    /// `overlays` aligns with `clips` by index (nil = no scoreboard for that
+    /// clip). Uses the same Core Animation mechanism as the watermark.
+    func exportScoredGame(
+        clips: [StitchClip],
+        overlays: [GameScoreOverlay?],
+        addWatermark: Bool = false,
+        progressHandler: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> URL {
+        let build = try await buildStitchComposition(clips: clips)
+        let videoSize = build.videoComposition.renderSize
+
+        var overlayLayers: [CALayer] = []
+        for (index, range) in build.clipRanges.enumerated() {
+            guard let range, index < overlays.count, let overlay = overlays[index] else { continue }
+            overlayLayers.append(makeScoreboardLayer(overlay, timeRange: range, videoSize: videoSize))
+        }
+        if addWatermark {
+            overlayLayers.append(createWatermarkLayer(videoSize: videoSize, videoDuration: build.composition.duration))
+        }
+        attachOverlayTool(to: build.videoComposition, videoSize: videoSize, overlayLayers: overlayLayers)
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stitched_rallies_game_\(UUID().uuidString).mp4")
+        return try await exportComposition(
+            build.composition,
+            videoComposition: build.videoComposition,
+            to: outputURL,
+            progressHandler: progressHandler
+        )
+    }
+
+    @discardableResult
+    func exportScoredGameToPhotoLibrary(
+        clips: [StitchClip],
+        overlays: [GameScoreOverlay?],
+        addWatermark: Bool = false,
+        progressHandler: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> URL {
+        let url = try await exportScoredGame(
+            clips: clips, overlays: overlays, addWatermark: addWatermark, progressHandler: progressHandler
+        )
+        try await saveVideoToPhotoLibrary(url: url)
+        return url
+    }
+
+    /// One scoreboard pill, visible only during its clip's output range.
+    /// Video-composition layer space has its origin at the BOTTOM-left.
+    private func makeScoreboardLayer(_ overlay: GameScoreOverlay, timeRange: CMTimeRange, videoSize: CGSize) -> CALayer {
+        let fontSize = min(max(videoSize.height * 0.034, 18), 46)
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        let subFont = UIFont.systemFont(ofSize: fontSize * 0.62, weight: .semibold)
+
+        let line = NSMutableAttributedString()
+        line.append(NSAttributedString(string: "● ", attributes: [.font: font, .foregroundColor: overlay.teamAColor]))
+        line.append(NSAttributedString(string: "\(overlay.teamAName)  \(overlay.state.scoreA)",
+                                       attributes: [.font: font, .foregroundColor: UIColor.white]))
+        line.append(NSAttributedString(string: " – ",
+                                       attributes: [.font: font, .foregroundColor: UIColor.white.withAlphaComponent(0.6)]))
+        line.append(NSAttributedString(string: "\(overlay.state.scoreB)  \(overlay.teamBName)",
+                                       attributes: [.font: font, .foregroundColor: UIColor.white]))
+        line.append(NSAttributedString(string: " ●", attributes: [.font: font, .foregroundColor: overlay.teamBColor]))
+
+        if overlay.showsSets {
+            line.append(NSAttributedString(
+                string: "   Sets \(overlay.state.setsA)–\(overlay.state.setsB)",
+                attributes: [.font: subFont, .foregroundColor: UIColor.white.withAlphaComponent(0.75)]
+            ))
+        }
+
+        let textSize = line.size()
+        let hPadding = fontSize * 0.7
+        let vPadding = fontSize * 0.42
+        let pillSize = CGSize(width: ceil(textSize.width) + hPadding * 2,
+                              height: ceil(textSize.height) + vPadding * 2)
+
+        let textLayer = CATextLayer()
+        textLayer.string = line
+        textLayer.alignmentMode = .center
+        textLayer.contentsScale = 2
+        textLayer.frame = CGRect(x: hPadding, y: vPadding, width: ceil(textSize.width), height: ceil(textSize.height))
+
+        let margin = fontSize * 0.6
+        let pill = CALayer()
+        pill.frame = CGRect(
+            x: margin,
+            y: videoSize.height - pillSize.height - margin,
+            width: pillSize.width,
+            height: pillSize.height
+        )
+        pill.backgroundColor = UIColor.black.withAlphaComponent(0.55).cgColor
+        pill.cornerRadius = pillSize.height / 2
+        pill.masksToBounds = true
+        pill.addSublayer(textLayer)
+
+        // Visible only during this clip: model opacity 0, a held animation
+        // raises it for [start, start+duration] on the export timeline.
+        pill.opacity = 0
+        let visibility = CABasicAnimation(keyPath: "opacity")
+        visibility.fromValue = 1
+        visibility.toValue = 1
+        let start = CMTimeGetSeconds(timeRange.start)
+        // beginTime 0 means "now" to Core Animation — nudge it.
+        visibility.beginTime = start == 0 ? AVCoreAnimationBeginTimeAtZero : start
+        visibility.duration = CMTimeGetSeconds(timeRange.duration)
+        visibility.isRemovedOnCompletion = false
+        visibility.fillMode = .removed
+        pill.add(visibility, forKey: "scoreboardVisibility")
+
+        return pill
     }
 
     /// Exports a single rally segment as an individual video file.
@@ -479,14 +612,24 @@ final class VideoExporter {
     /// Adds the watermark overlay as a Core Animation tool on an existing
     /// video composition. Shared by single-source and stitched exports.
     private func attachWatermarkTool(to videoComposition: AVMutableVideoComposition, videoSize: CGSize) {
-        let watermarkLayer = createWatermarkLayer(videoSize: videoSize, videoDuration: .zero)
+        attachOverlayTool(
+            to: videoComposition,
+            videoSize: videoSize,
+            overlayLayers: [createWatermarkLayer(videoSize: videoSize, videoDuration: .zero)]
+        )
+    }
 
+    /// Attaches arbitrary overlay layers (scoreboards, watermark) over the
+    /// video via one Core Animation tool — a composition supports only one.
+    private func attachOverlayTool(to videoComposition: AVMutableVideoComposition, videoSize: CGSize, overlayLayers: [CALayer]) {
         let parentLayer = CALayer()
         let videoLayer = CALayer()
         parentLayer.frame = CGRect(origin: .zero, size: videoSize)
         videoLayer.frame = CGRect(origin: .zero, size: videoSize)
         parentLayer.addSublayer(videoLayer)
-        parentLayer.addSublayer(watermarkLayer)
+        for layer in overlayLayers {
+            parentLayer.addSublayer(layer)
+        }
 
         videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
             postProcessingAsVideoLayer: videoLayer,

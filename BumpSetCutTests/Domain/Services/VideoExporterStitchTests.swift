@@ -111,6 +111,31 @@ final class VideoExporterStitchTests: XCTestCase {
         XCTAssertEqual(timescale, 30)
     }
 
+    func testStitchClipRangesAlignWithInputAndTileOutput() async throws {
+        let a = try makeClip(name: "ranges1", duration: 1.0, size: CGSize(width: 320, height: 240))
+        let b = try makeClip(name: "ranges2", duration: 0.5, size: CGSize(width: 320, height: 240))
+
+        let build = try await VideoExporter().buildStitchComposition(clips: [
+            .init(url: a), .init(url: b)
+        ])
+
+        XCTAssertEqual(build.clipRanges.count, 2)
+        let first = try XCTUnwrap(build.clipRanges[0])
+        let second = try XCTUnwrap(build.clipRanges[1])
+        XCTAssertEqual(CMTimeGetSeconds(first.start), 0, accuracy: 0.01)
+        XCTAssertEqual(CMTimeGetSeconds(first.duration), 1.0, accuracy: 0.15)
+        XCTAssertEqual(
+            CMTimeGetSeconds(second.start),
+            CMTimeGetSeconds(first.end),
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            CMTimeGetSeconds(second.end),
+            CMTimeGetSeconds(build.composition.duration),
+            accuracy: 0.05
+        )
+    }
+
     func testStitchEmptyClipListThrows() async {
         do {
             _ = try await VideoExporter().buildStitchComposition(clips: [])

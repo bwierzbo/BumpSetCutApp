@@ -26,6 +26,7 @@ struct LibraryView: View {
     // presented from cell-local state mid-viewing.
     @State private var playingVideo: VideoMetadata?
     @State private var viewingRalliesVideo: VideoMetadata?
+    @State private var scoringVideo: VideoMetadata?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
@@ -65,6 +66,9 @@ struct LibraryView: View {
             }
             .fullScreenCover(item: $viewingRalliesVideo) { video in
                 RallyPlayerView(videoMetadata: video, mediaStore: viewModel.folderManager.store)
+            }
+            .fullScreenCover(item: $scoringVideo) { video in
+                GameScoringView(videoMetadata: video)
             }
             .sheet(isPresented: $viewModel.showingCreateFolder) {
                 createFolderSheet
@@ -443,7 +447,8 @@ private extension LibraryView {
                         }
                     },
                     onPlayVideo: { playingVideo = video },
-                    onViewRallies: { viewingRalliesVideo = video }
+                    onViewRallies: { viewingRalliesVideo = video },
+                    onScoreGame: { scoringVideo = video }
                 )
                 .draggable(video)  // Make videos draggable
             }
@@ -480,7 +485,8 @@ private extension LibraryView {
                         }
                     },
                     onPlayVideo: { playingVideo = video },
-                    onViewRallies: { viewingRalliesVideo = video }
+                    onViewRallies: { viewingRalliesVideo = video },
+                    onScoreGame: { scoringVideo = video }
                 )
                 .draggable(video)  // Make videos draggable
             }

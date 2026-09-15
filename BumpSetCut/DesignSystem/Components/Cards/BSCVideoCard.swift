@@ -27,6 +27,8 @@ struct BSCVideoCard: View {
     // presented from cell-local @State dismisses when its cell is torn down.
     let onPlayVideo: () -> Void
     let onViewRallies: () -> Void
+    /// Optional game-scoring entry (processed videos only); nil hides the item.
+    var onScoreGame: (() -> Void)? = nil
 
     // MARK: - State
     @State private var thumbnail: UIImage?
@@ -472,6 +474,13 @@ struct BSCVideoCard: View {
                 onViewRallies()
             } label: {
                 Label("View Rallies", systemImage: "play.rectangle")
+            }
+
+            if let onScoreGame {
+                Button(action: onScoreGame) {
+                    Label("Score Game", systemImage: "sportscourt")
+                }
+                .accessibilityIdentifier(AccessibilityID.GameScoring.entry)
             }
             Divider()
         }

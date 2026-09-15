@@ -250,6 +250,14 @@ final class RallyTimelineViewModel {
             try metadataStore.saveMetadata(metadata.withRallySegments(newRallySegments))
             try metadataStore.saveTrimAdjustments(newAdjustments, for: videoId)
             try metadataStore.saveReviewSelections(newSelections, for: videoId)
+
+            // Game scoring follows its rallies to their new indices too.
+            if var scoring = metadataStore.loadGameScoring(for: videoId) {
+                scoring.pointWinners = Dictionary(uniqueKeysWithValues:
+                    scoring.pointWinners.compactMap { old, winner in oldToNew[old].map { ($0, winner) } })
+                scoring.setBreaks = Set(scoring.setBreaks.compactMap { oldToNew[$0] })
+                try metadataStore.saveGameScoring(scoring, for: videoId)
+            }
         } catch {
             throw SaveError.writeFailed(error)
         }

@@ -447,6 +447,34 @@ extension MetadataStore {
     }
 }
 
+// MARK: - Game Scoring Persistence
+
+extension MetadataStore {
+
+    private func gameScoringURL(for videoId: UUID) -> URL {
+        metadataDirectory.appendingPathComponent("\(videoId.uuidString)_scoring.json")
+    }
+
+    /// Save manual game scoring (teams, per-rally point winners, set breaks).
+    func saveGameScoring(_ scoring: GameScoring, for videoId: UUID) throws {
+        let url = gameScoringURL(for: videoId)
+        try createMetadataDirectoryIfNeeded()
+        let data = try jsonEncoder.encode(scoring)
+        try data.write(to: url, options: .atomic)
+    }
+
+    /// Load game scoring for a video. Nil = never set up (drives team setup).
+    func loadGameScoring(for videoId: UUID) -> GameScoring? {
+        let url = gameScoringURL(for: videoId)
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let scoring = try? jsonDecoder.decode(GameScoring.self, from: data) else {
+            return nil
+        }
+        return scoring
+    }
+}
+
 // MARK: - Frame Evidence Persistence (Data Flywheel)
 
 extension MetadataStore {
