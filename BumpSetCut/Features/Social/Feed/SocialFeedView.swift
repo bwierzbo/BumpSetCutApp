@@ -21,6 +21,8 @@ struct SocialFeedView: View {
     @State private var toast: BSCToastMessage?
     @Environment(AppNavigationState.self) private var navigationState
     @Environment(AuthenticationService.self) private var authService
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var isLandscape: Bool { verticalSizeClass == .compact }
 
     var body: some View {
         ZStack {
@@ -81,7 +83,18 @@ struct SocialFeedView: View {
         .sheet(item: $selectedProfileId) { profile in
             NavigationStack {
                 ProfileView(userId: profile.id)
+                    .toolbar {
+                        // Pull-down fights the profile's own scroll/refresh, so
+                        // give an explicit way out (tester feedback).
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            BSCIconButton(icon: "chevron.left", style: .ghost, size: .compact, accessibilityLabel: "Back to feed") {
+                                selectedProfileId = nil
+                            }
+                            .accessibilityIdentifier(AccessibilityID.Feed.profileBack)
+                        }
+                    }
             }
+            .presentationDragIndicator(.visible)
         }
         .onChange(of: navigationState.postedHighlight) { _, highlight in
             if let highlight {
@@ -113,10 +126,16 @@ struct SocialFeedView: View {
         }
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $currentIndex)
-        // Full-bleed top/sides only — respect the bottom safe area so the
-        // horizontal carousel ends above the tab bar instead of under it
-        // (the tab bar swallows swipes in that strip).
-        .ignoresSafeArea(edges: [.top, .horizontal])
+        // Portrait: full-bleed top/sides only — respect the bottom safe area so
+        // the horizontal carousel ends above the tab bar instead of under it
+        // (the tab bar swallows swipes in that strip). Landscape: full-bleed on
+        // every edge so pages fill the screen exactly — anything less leaves a
+        // strip where the next post's frame shows through (tester feedback).
+        .ignoresSafeArea(edges: isLandscape ? [.all] : [.top, .horizontal])
+        // Card heights (containerRelativeFrame) go stale across rotation,
+        // misaligning pages; rebuild the pager and let scrollPosition restore
+        // the current post.
+        .id(isLandscape)
     }
 
     private func highlightCard(index: Int, highlight: Highlight) -> some View {
@@ -146,7 +165,9 @@ struct SocialFeedView: View {
             onLocation: { location in
                 navigationState.pendingSearchQuery = location
             },
-            extendsUnderBottomSafeArea: false
+            // Landscape pages are full-bleed (see feedContent), so chrome needs
+            // the bottom inset back; portrait cards end above the tab bar.
+            extendsUnderBottomSafeArea: isLandscape
         )
     }
 

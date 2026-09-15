@@ -100,6 +100,7 @@ enum AccessibilityID {
         static let likeButton = "feed.like"
         static let commentButton = "feed.comment"
         static let profileButton = "feed.profile"
+        static let profileBack = "feed.profileBack"
     }
 
     enum Comments {

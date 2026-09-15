@@ -84,23 +84,30 @@ struct FolderReelExportSheet: View {
                     .bscFont(size: 60)
                     .foregroundColor(.bscSuccessText)
             } else {
-                ProgressView(value: exportProgress)
-                    .progressViewStyle(CircularProgressViewStyle(tint: .bscTealText))
-                    .scaleEffect(2.0)
+                ZStack {
+                    Circle()
+                        .fill(Color.bscSurfaceGlass)
+                        .frame(width: 148, height: 148)
+                    BSCExportProgressRing(progress: exportProgress, tint: .bscTealText)
+                }
             }
         }
     }
 
     private var statusText: some View {
         VStack(spacing: BSCSpacing.sm) {
-            Text(exportStatus == .completed ? "Reel ready!" : "Stitching \(folderName)…")
-                .bscFont(size: 17, weight: .semibold)
+            Text(exportStatus == .completed ? "Highlight video ready!" : "Stitching \(folderName)…")
+                .bscFont(size: 20, weight: .bold)
                 .foregroundColor(.bscTextPrimary)
                 .multilineTextAlignment(.center)
 
             if exportStatus == .exporting {
-                Text("\(clips.count) \(clips.count == 1 ? "clip" : "clips") · \(Int(exportProgress * 100))%")
-                    .bscFont(size: 17)
+                Label("\(clips.count) \(clips.count == 1 ? "clip" : "clips") · one video", systemImage: "film.stack")
+                    .bscFont(size: 15)
+                    .foregroundColor(.bscTextSecondary)
+            } else if exportStatus == .preparing {
+                Text("Preparing clips…")
+                    .bscFont(size: 15)
                     .foregroundColor(.bscTextSecondary)
             }
         }

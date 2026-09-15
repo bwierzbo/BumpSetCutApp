@@ -81,9 +81,15 @@ struct RallyExportProgress: View {
                     .bscFont(size: 60)
                     .foregroundColor(.bscSuccessText)
             } else {
-                ProgressView(value: exportProgress)
-                    .progressViewStyle(CircularProgressViewStyle(tint: exportType == .individual ? .bscPrimary : .bscTealText))
-                    .scaleEffect(2.0)
+                ZStack {
+                    Circle()
+                        .fill(Color.bscSurfaceGlass)
+                        .frame(width: 148, height: 148)
+                    BSCExportProgressRing(
+                        progress: exportProgress,
+                        tint: exportType == .individual ? .bscPrimary : .bscTealText
+                    )
+                }
             }
         }
     }
