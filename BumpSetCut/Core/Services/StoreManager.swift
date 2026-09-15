@@ -60,9 +60,13 @@ final class StoreManager {
         do {
             let products = try await Product.products(for: ProductID.allCases)
             self.products = products.sorted { $0.price < $1.price }
-            logger.info("Loaded \(products.count) products")
+            if products.isEmpty {
+                logger.error("Loaded 0 products for \(ProductID.allCases) — StoreKit returned no error, so the products likely don't exist in this environment (local .storekit config not attached, or App Store product not yet approved).")
+            } else {
+                logger.info("Loaded \(products.count) products")
+            }
         } catch {
-            logger.error("Failed to load products: \(error.localizedDescription)")
+            logger.error("Failed to load products: \(String(describing: error))")
         }
     }
 

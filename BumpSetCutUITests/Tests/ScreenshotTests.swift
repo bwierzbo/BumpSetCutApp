@@ -14,6 +14,7 @@
 //
 
 import XCTest
+import StoreKitTest
 
 final class ScreenshotTests: XCTestCase {
 
@@ -110,8 +111,15 @@ final class ScreenshotTests: XCTestCase {
 
     // MARK: - Paywall (App Store subscription review screenshot)
 
-    /// Requires the scheme's StoreKit configuration so the $4.99 product loads.
-    func testCapturePaywall() {
+    /// Configures the simulator's StoreKit test environment programmatically
+    /// (SKTestSession) so the $4.99 product loads — scheme/test-plan StoreKit
+    /// configuration references don't attach under this Xcode/simulator combo.
+    func testCapturePaywall() throws {
+        let session = try SKTestSession(configurationFileNamed: "Configuration")
+        session.resetToDefaultState()
+        session.clearTransactions()
+        session.disableDialogs = true
+
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting", "--skip-onboarding", "--clear-library", "--force-free"]
         app.launch()

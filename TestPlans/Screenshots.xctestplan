@@ -6,11 +6,7 @@
       "options": {}
     }
   ],
-  "defaultOptions": {
-    "storeKitConfiguration": {
-      "identifier": "../BumpSetCut/Resources/Configuration.storekit"
-    }
-  },
+  "defaultOptions": {},
   "testTargets": [
     {
       "target": {
