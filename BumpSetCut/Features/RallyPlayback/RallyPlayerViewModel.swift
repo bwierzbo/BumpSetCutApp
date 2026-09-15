@@ -200,6 +200,36 @@ final class RallyPlayerViewModel {
     func saveAllRallies() { actions.saveAll(totalCount: rallyVideoURLs.count) }
     func deselectAllRallies() { actions.deselectAll() }
 
+    // MARK: - Favorite Collections
+
+    /// Rally awaiting a collection choice; non-nil presents the picker sheet.
+    struct CollectionPickerTarget: Identifiable {
+        let rallyIndex: Int
+        var id: Int { rallyIndex }
+    }
+
+    var collectionPickerTarget: CollectionPickerTarget?
+
+    func favoriteCollection(for rallyIndex: Int) -> String? {
+        actions.favoriteCollections[rallyIndex]
+    }
+
+    /// "Choose Folder" tapped on the favorite toast: dismiss the toast and
+    /// open the picker for the rally the toast belonged to (the player may
+    /// have auto-advanced past it already).
+    func presentCollectionPicker(for rallyIndex: Int) {
+        actions.dismissFeedback()
+        collectionPickerTarget = CollectionPickerTarget(rallyIndex: rallyIndex)
+    }
+
+    /// Picker confirmed: record the collection (nil = favorites root) for the
+    /// pending rally. Consumed later by copyFavoritesToLibrary().
+    func selectFavoriteCollection(_ name: String?) {
+        guard let target = collectionPickerTarget else { return }
+        actions.setFavoriteCollection(name, for: target.rallyIndex)
+        collectionPickerTarget = nil
+    }
+
     // MARK: - Trim Forwarding
 
     var isTrimmingMode: Bool { trim.isTrimmingMode }
@@ -591,8 +621,10 @@ final class RallyPlayerViewModel {
             stageFlywheelCorrection(rallyIndex: currentRallyIndex, trigger: .userRemoved)
         }
 
+        // Favorite toasts carry the "Choose Folder" affordance, so they linger longer.
+        let dismissDelay: UInt64 = action == .favorite ? 3_500_000_000 : 2_000_000_000
         let dismissTask = Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(nanoseconds: dismissDelay)
             actions.dismissFeedback()
         }
         activeTasks.append(dismissTask)
@@ -816,15 +848,48 @@ final class RallyPlayerViewModel {
         // copied on a previous pass instead of duplicating the clip each time.
         // Prefix scan, not root-only: clips the user moved into Favorites
         // subfolders still count as copied.
-        let alreadyCopied = Set(
+        let alreadyCopiedByIndex = Dictionary(
             mediaStore.getAllVideos(in: .favorites)
                 .filter { $0.sourceVideoId == videoMetadata.id }
-                .compactMap { $0.sourceRallyIndex }
+                .compactMap { video in video.sourceRallyIndex.map { ($0, video) } },
+            uniquingKeysWith: { first, _ in first }
         )
+
+        // Resolve a collection choice to a manifest folder path, creating the
+        // physical directory + manifest entry when missing (a collection the
+        // user deleted since choosing it gets recreated by name).
+        var resolvedFolderPaths: [String: String] = [:]
+        func destinationFolderPath(forCollection name: String?) -> String {
+            guard let name else { return LibraryType.favorites.rootPath }
+            if let cached = resolvedFolderPaths[name] { return cached }
+            let path = "\(LibraryType.favorites.rootPath)/\(name)"
+            try? fileManager.createDirectory(at: baseDir.appendingPathComponent(path, isDirectory: true),
+                                             withIntermediateDirectories: true)
+            if !mediaStore.getAllFolders(in: .favorites).contains(where: { $0.path == path }) {
+                _ = mediaStore.createFolder(name: name, parentPath: LibraryType.favorites.rootPath)
+            }
+            resolvedFolderPaths[name] = path
+            return path
+        }
 
         var failureCount = 0
         for index in favoritedRallies.sorted() {
-            guard index < metadata.rallySegments.count, !alreadyCopied.contains(index) else { continue }
+            guard index < metadata.rallySegments.count else { continue }
+            let chosenCollection = actions.favoriteCollections[index]
+
+            if let existing = alreadyCopiedByIndex[index] {
+                // Already copied: honor a later explicit collection choice by
+                // re-filing the existing clip. Manual drags (no recorded
+                // choice) are never disturbed.
+                if let chosenCollection {
+                    let destPath = destinationFolderPath(forCollection: chosenCollection)
+                    if existing.folderPath != destPath {
+                        _ = mediaStore.moveVideo(fileName: existing.fileName, toFolder: destPath)
+                    }
+                }
+                continue
+            }
+
             do {
                 // Respect the user's per-rally trim adjustments
                 let start = effectiveStartTime(for: index)
@@ -839,15 +904,17 @@ final class RallyPlayerViewModel {
                     .appendingPathComponent("fav_rally_\(index)_\(UUID().uuidString).mp4")
                 let exportedURL = try await exporter.exportClip(asset: asset, timeRange: timeRange, to: tempURL)
 
-                // Move to persistent storage
+                // Move to persistent storage (into the chosen collection)
+                let destFolderPath = destinationFolderPath(forCollection: chosenCollection)
                 let destFileName = UUID().uuidString + ".mp4"
-                let destURL = favoritesDir.appendingPathComponent(destFileName)
+                let destURL = baseDir.appendingPathComponent(destFolderPath, isDirectory: true)
+                    .appendingPathComponent(destFileName)
                 try fileManager.moveItem(at: exportedURL, to: destURL)
 
                 // Register in MediaStore with source backlink for sync
                 let _ = mediaStore.addVideo(
                     at: destURL,
-                    toFolder: LibraryType.favorites.rootPath,
+                    toFolder: destFolderPath,
                     customName: "\(videoMetadata.displayName) - Rally \(index + 1)",
                     sourceVideoId: videoMetadata.id,
                     sourceRallyIndex: index

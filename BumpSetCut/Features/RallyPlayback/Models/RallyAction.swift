@@ -5,6 +5,10 @@ import SwiftUI
 struct RallyActionFeedback {
     let type: ActionType
     let message: String
+    /// The rally the feedback refers to. The player auto-advances shortly
+    /// after a favorite, so the toast's "Choose Folder" action must remember
+    /// which rally it was created for.
+    var rallyIndex: Int? = nil
 
     enum ActionType {
         case save
@@ -48,9 +52,11 @@ struct RallyActionResult {
     let wasSaved: Bool
     let wasRemoved: Bool
     let wasFavorited: Bool
+    let previousCollection: String?
 
     init(action: RallySwipeAction, rallyIndex: Int, direction: RallySwipeDirection,
-         wasSaved: Bool = false, wasRemoved: Bool = false, wasFavorited: Bool = false) {
+         wasSaved: Bool = false, wasRemoved: Bool = false, wasFavorited: Bool = false,
+         previousCollection: String? = nil) {
         self.action = action
         self.rallyIndex = rallyIndex
         self.direction = direction
@@ -59,6 +65,7 @@ struct RallyActionResult {
         self.wasSaved = wasSaved
         self.wasRemoved = wasRemoved
         self.wasFavorited = wasFavorited
+        self.previousCollection = previousCollection
     }
 
     init(trimRallyIndex: Int, previousTrim: RallyTrimAdjustment?) {
@@ -70,5 +77,6 @@ struct RallyActionResult {
         self.wasSaved = false
         self.wasRemoved = false
         self.wasFavorited = false
+        self.previousCollection = nil
     }
 }

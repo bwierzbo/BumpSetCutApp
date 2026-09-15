@@ -168,6 +168,11 @@ private struct RallyActionButtonStyle: ButtonStyle {
 struct RallyActionFeedbackView: View {
     let feedback: RallyActionFeedback
     let isShowing: Bool
+    /// Optional tappable action appended to the toast capsule (e.g. "Choose
+    /// Folder" on a favorite). When nil the toast is purely visual and lets
+    /// every touch pass through to the player.
+    var actionLabel: String? = nil
+    var onAction: (() -> Void)? = nil
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -197,6 +202,22 @@ struct RallyActionFeedbackView: View {
                 Text(feedback.message)
                     .bscFont(size: 16, weight: .semibold)
                     .foregroundColor(.bscOnMedia)
+
+                if let actionLabel, let onAction {
+                    Button(action: onAction) {
+                        Text(actionLabel)
+                            .bscFont(size: 15, weight: .bold)
+                            .foregroundColor(feedback.type.feedbackColor)
+                            .padding(.horizontal, BSCSpacing.md)
+                            .padding(.vertical, BSCSpacing.sm)
+                            .background(
+                                Capsule().fill(feedback.type.feedbackColor.opacity(0.18))
+                            )
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(AccessibilityID.RallyPlayer.chooseFolder)
+                }
             }
             .padding(.horizontal, BSCSpacing.xl)
             .padding(.vertical, BSCSpacing.lg)
@@ -220,6 +241,9 @@ struct RallyActionFeedbackView: View {
                 Spacer()
             }
         }
+        // Purely-visual toasts pass every touch through to the player; with an
+        // action only the capsule itself is tappable (spacers never hit-test).
+        .allowsHitTesting(onAction != nil)
     }
 }
 

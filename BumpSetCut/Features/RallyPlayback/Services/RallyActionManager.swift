@@ -13,6 +13,8 @@ final class RallyActionManager {
     private(set) var savedRallies: Set<Int> = []
     private(set) var removedRallies: Set<Int> = []
     private(set) var favoritedRallies: Set<Int> = []
+    /// Rally index → favorites collection folder NAME (absent = general Favorites)
+    private(set) var favoriteCollections: [Int: String] = [:]
     private(set) var actionHistory: [RallyActionResult] = []
 
     // MARK: - Persistence
@@ -52,12 +54,25 @@ final class RallyActionManager {
         savedRallies = selections.saved
         removedRallies = selections.removed
         favoritedRallies = selections.favorited
+        favoriteCollections = selections.favoriteCollections
     }
 
     private func persistSelections() {
         guard let videoId, let metadataStore else { return }
-        let selections = RallyReviewSelections(saved: savedRallies, removed: removedRallies, favorited: favoritedRallies)
+        let selections = RallyReviewSelections(saved: savedRallies, removed: removedRallies,
+                                               favorited: favoritedRallies, favoriteCollections: favoriteCollections)
         try? metadataStore.saveReviewSelections(selections, for: videoId)
+    }
+
+    /// Files a favorited rally into a named collection (nil = general Favorites).
+    /// Persists immediately — the favorite swipe may be seconds in the past.
+    func setFavoriteCollection(_ name: String?, for index: Int) {
+        if let name {
+            favoriteCollections[index] = name
+        } else {
+            favoriteCollections.removeValue(forKey: index)
+        }
+        persistSelections()
     }
 
     // MARK: - Action Registration
@@ -69,7 +84,8 @@ final class RallyActionManager {
             action: action, rallyIndex: rallyIndex, direction: direction,
             wasSaved: savedRallies.contains(rallyIndex),
             wasRemoved: removedRallies.contains(rallyIndex),
-            wasFavorited: favoritedRallies.contains(rallyIndex)
+            wasFavorited: favoritedRallies.contains(rallyIndex),
+            previousCollection: favoriteCollections[rallyIndex]
         )
 
         switch action {
@@ -80,6 +96,7 @@ final class RallyActionManager {
             removedRallies.insert(rallyIndex)
             savedRallies.remove(rallyIndex)
             favoritedRallies.remove(rallyIndex)
+            favoriteCollections.removeValue(forKey: rallyIndex)
         case .favorite:
             favoritedRallies.insert(rallyIndex)
             savedRallies.insert(rallyIndex)
@@ -96,7 +113,7 @@ final class RallyActionManager {
         case .remove:
             feedback = RallyActionFeedback(type: .remove, message: "Rally Removed")
         case .favorite:
-            feedback = RallyActionFeedback(type: .favorite, message: "Rally Favorited")
+            feedback = RallyActionFeedback(type: .favorite, message: "Rally Favorited", rallyIndex: rallyIndex)
         }
 
         actionFeedback = feedback
@@ -130,6 +147,11 @@ final class RallyActionManager {
         if action.wasSaved { savedRallies.insert(index) } else { savedRallies.remove(index) }
         if action.wasRemoved { removedRallies.insert(index) } else { removedRallies.remove(index) }
         if action.wasFavorited { favoritedRallies.insert(index) } else { favoritedRallies.remove(index) }
+        if let previous = action.previousCollection {
+            favoriteCollections[index] = previous
+        } else {
+            favoriteCollections.removeValue(forKey: index)
+        }
 
         persistSelections()
 
@@ -152,6 +174,7 @@ final class RallyActionManager {
         savedRallies = []
         removedRallies = []
         favoritedRallies = []
+        favoriteCollections = [:]
         actionHistory = []
         persistSelections()
     }

@@ -64,6 +64,9 @@ enum AccessibilityID {
         static let sortMenu = "favorites.sortMenu"
         static let createFolder = "favorites.createFolder"
         static let rallyCount = "favorites.rallyCount"
+        static let folderMenu = "favorites.folderMenu"
+        static let exportReel = "favorites.exportReel"
+        static let postReel = "favorites.postReel"
         static let feedClose = "favorites.feed.close"
         static let feedCounter = "favorites.feed.counter"
         static let feedPauseIcon = "favorites.feed.pauseIcon"
@@ -139,6 +142,14 @@ enum AccessibilityID {
         static let undo = "rallyPlayer.undo"
         static let save = "rallyPlayer.save"
         static let favorite = "rallyPlayer.favorite"
+        static let chooseFolder = "rallyPlayer.chooseFolder"
+    }
+
+    enum CollectionPicker {
+        static let sheet = "collectionPicker.sheet"
+        static let confirmButton = "collectionPicker.confirm"
+        static let createFolderButton = "collectionPicker.createFolder"
+        static let newFolderField = "collectionPicker.newFolderField"
     }
 
     enum Export {

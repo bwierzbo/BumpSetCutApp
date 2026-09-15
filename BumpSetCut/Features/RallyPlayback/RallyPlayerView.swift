@@ -144,6 +144,19 @@ struct RallyPlayerView: View {
                     postAllSaved: item.postAllSaved
                 )
             }
+            // File a favorited rally into a named collection ("Choose Folder" on the toast)
+            .sheet(item: $viewModel.collectionPickerTarget) { target in
+                CollectionPickerSheet(
+                    mediaStore: viewModel.mediaStore,
+                    libraryType: .favorites,
+                    title: "Save to Collection",
+                    rootLabel: "Favorites",
+                    confirmLabel: "Save to",
+                    initialSelection: viewModel.favoriteCollection(for: target.rallyIndex),
+                    onSelect: { name in viewModel.selectFavoriteCollection(name) },
+                    onCancel: { viewModel.collectionPickerTarget = nil }
+                )
+            }
             // Quick share of the current rally via the native share sheet
             .sheet(isPresented: Binding(
                 get: { viewModel.shareURL != nil },
@@ -376,9 +389,14 @@ struct RallyPlayerView: View {
 
             // Action feedback (topmost)
             if let feedback = viewModel.actionFeedback {
+                let favoriteIndex = feedback.type == .favorite ? feedback.rallyIndex : nil
                 RallyActionFeedbackView(
                     feedback: feedback,
-                    isShowing: viewModel.showActionFeedback
+                    isShowing: viewModel.showActionFeedback,
+                    actionLabel: favoriteIndex != nil ? "Choose Folder" : nil,
+                    onAction: favoriteIndex.map { index in
+                        { viewModel.presentCollectionPicker(for: index) }
+                    }
                 )
                 .zIndex(300)
             }

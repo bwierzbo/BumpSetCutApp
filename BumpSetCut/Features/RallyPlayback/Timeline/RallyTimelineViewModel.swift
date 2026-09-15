@@ -241,7 +241,9 @@ final class RallyTimelineViewModel {
         let newSelections = RallyReviewSelections(
             saved: Set(oldSelections.saved.compactMap { oldToNew[$0] }),
             removed: Set(oldSelections.removed.compactMap { oldToNew[$0] }),
-            favorited: Set(oldSelections.favorited.compactMap { oldToNew[$0] })
+            favorited: Set(oldSelections.favorited.compactMap { oldToNew[$0] }),
+            favoriteCollections: Dictionary(uniqueKeysWithValues:
+                oldSelections.favoriteCollections.compactMap { old, name in oldToNew[old].map { ($0, name) } })
         )
 
         do {

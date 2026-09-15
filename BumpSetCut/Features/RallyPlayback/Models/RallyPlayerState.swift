@@ -40,11 +40,16 @@ struct RallyReviewSelections: Codable {
     var saved: Set<Int>
     var removed: Set<Int>
     var favorited: Set<Int>
+    /// Rally index → favorites collection folder NAME (not path). Absent = the
+    /// general Favorites root. Name-keyed so a collection deleted between the
+    /// choice and the copy-to-library pass can be recreated.
+    var favoriteCollections: [Int: String]
 
-    init(saved: Set<Int> = [], removed: Set<Int> = [], favorited: Set<Int> = []) {
+    init(saved: Set<Int> = [], removed: Set<Int> = [], favorited: Set<Int> = [], favoriteCollections: [Int: String] = [:]) {
         self.saved = saved
         self.removed = removed
         self.favorited = favorited
+        self.favoriteCollections = favoriteCollections
     }
 
     init(from decoder: Decoder) throws {
@@ -52,6 +57,7 @@ struct RallyReviewSelections: Codable {
         saved = try container.decode(Set<Int>.self, forKey: .saved)
         removed = try container.decode(Set<Int>.self, forKey: .removed)
         favorited = try container.decodeIfPresent(Set<Int>.self, forKey: .favorited) ?? []
+        favoriteCollections = try container.decodeIfPresent([Int: String].self, forKey: .favoriteCollections) ?? [:]
     }
 
     var isEmpty: Bool { saved.isEmpty && removed.isEmpty && favorited.isEmpty }
