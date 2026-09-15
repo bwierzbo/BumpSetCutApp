@@ -18,9 +18,12 @@ struct SettingsView: View {
     @State private var showFlywheelConsent = false
     @State private var flywheelService = FlywheelCaptureService.shared
     @State private var showDeleteConfirmation = false
+    @State private var showBlockedUsers = false
     @State private var isDeletingAccount = false
     @State private var deleteError: String?
     @State private var subscriptionService = SubscriptionService.shared
+    @State private var isRestoringPurchases = false
+    @State private var restoreResultMessage: String?
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
@@ -54,12 +57,6 @@ struct SettingsView: View {
                             .animation(.bscSpring.delay(0.15), value: hasAppeared)
 
 
-                        // Privacy section
-                        privacySection
-                            .opacity(hasAppeared ? 1 : 0)
-                            .offset(y: hasAppeared ? 0 : 20)
-                            .animation(.bscSpring.delay(0.25), value: hasAppeared)
-
                         // Data flywheel (opt-in model improvement)
                         dataFlywheelSection
                             .opacity(hasAppeared ? 1 : 0)
@@ -72,11 +69,13 @@ struct SettingsView: View {
                             .offset(y: hasAppeared ? 0 : 20)
                             .animation(.bscSpring.delay(0.3), value: hasAppeared)
 
-                        // Status section
+                        // Status section (debug-only rows)
+                        #if DEBUG
                         statusSection
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
                             .animation(.bscSpring.delay(0.35), value: hasAppeared)
+                        #endif
 
                         // Legal section
                         legalSection
@@ -189,7 +188,7 @@ private extension SettingsView {
                         LimitRow(
                             icon: "wifi",
                             title: "Processing Requires",
-                            value: "WiFi connection"
+                            value: "Internet connection"
                         )
 
                         LimitRow(
@@ -220,8 +219,64 @@ private extension SettingsView {
                                 .fill(LinearGradient.bscPrimaryGradient)
                         )
                     }
+
+                    // A lapsed subscriber still needs restore + management
+                    // without going through the paywall.
+                    Button {
+                        Task { await restorePurchasesFromSettings() }
+                    } label: {
+                        HStack {
+                            Text(isRestoringPurchases ? "Restoring…" : "Restore Purchases")
+                            Spacer()
+                        }
+                        .foregroundStyle(Color.bscTextSecondary)
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
+                    }
+                    .disabled(isRestoringPurchases)
+
+                    Button {
+                        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                            Task {
+                                try? await AppStore.showManageSubscriptions(in: scene)
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Text("Manage Subscription")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .bscFont(size: 12)
+                                .foregroundStyle(Color.bscTextSecondary)
+                        }
+                        .foregroundStyle(Color.bscTextSecondary)
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
+                    }
                 }
             }
+        }
+        .alert("Restore Purchases", isPresented: Binding(
+            get: { restoreResultMessage != nil },
+            set: { if !$0 { restoreResultMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(restoreResultMessage ?? "")
+        }
+    }
+
+    func restorePurchasesFromSettings() async {
+        isRestoringPurchases = true
+        defer { isRestoringPurchases = false }
+        do {
+            try await StoreManager.shared.restorePurchases()
+            await subscriptionService.refreshSubscriptionStatus()
+            restoreResultMessage = subscriptionService.isPro
+                ? "Your BumpSetCut Pro subscription has been restored."
+                : "No active subscriptions found for this Apple ID."
+        } catch {
+            restoreResultMessage = error.localizedDescription
         }
     }
 }
@@ -377,22 +432,6 @@ private extension SettingsView {
     }
 }
 
-// MARK: - Privacy Section
-private extension SettingsView {
-    var privacySection: some View {
-        @Bindable var appSettings = appSettings
-        return BSCSettingsSection(title: "Privacy", icon: "lock.shield.fill", iconColor: .bscBlue) {
-            BSCSettingsToggle(
-                title: "Analytics",
-                subtitle: "Help improve the app with anonymous usage data",
-                icon: "chart.bar.fill",
-                isOn: $appSettings.enableAnalytics
-            )
-            .accessibilityIdentifier(AccessibilityID.Settings.analytics)
-        }
-    }
-}
-
 // MARK: - Data Flywheel Section
 private extension SettingsView {
     var dataFlywheelSection: some View {
@@ -489,6 +528,33 @@ private extension SettingsView {
                     Divider()
                         .overlay(Color.bscSurfaceBorder)
 
+                    // Blocked users management (unblock lives here)
+                    Button {
+                        showBlockedUsers = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "hand.raised")
+                                .foregroundColor(.bscTextSecondary)
+                            Text("Blocked Users")
+                                .bscFont(size: 14, weight: .medium)
+                                .foregroundColor(.bscTextPrimary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .bscFont(size: 12)
+                                .foregroundColor(.bscTextSecondary)
+                        }
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(AccessibilityID.Settings.blockedUsers)
+                    .sheet(isPresented: $showBlockedUsers) {
+                        BlockedUsersView()
+                    }
+
+                    Divider()
+                        .overlay(Color.bscSurfaceBorder)
+
                     // Sign out button
                     Button {
                         authService.signOut()
@@ -532,6 +598,7 @@ private extension SettingsView {
                     }
                     .buttonStyle(.plain)
                     .disabled(isDeletingAccount)
+                    .accessibilityIdentifier(AccessibilityID.Settings.deleteAccount)
                     .accessibilityHint("Permanently deletes your account and data")
                     .sheet(isPresented: $showDeleteConfirmation) {
                         DeleteAccountConfirmationView(
@@ -593,15 +660,7 @@ private extension SettingsView {
     var statusSection: some View {
         BSCSettingsSection(title: "Current Status", icon: "checkmark.circle.fill", iconColor: .bscSuccessText) {
             VStack(spacing: BSCSpacing.md) {
-                BSCStatusRow(
-                    title: "Analytics",
-                    isEnabled: appSettings.enableAnalytics
-                )
-
                 #if DEBUG
-                Divider()
-                    .overlay(Color.bscSurfaceBorder)
-
                 BSCStatusRow(
                     title: "Debug Features",
                     isEnabled: appSettings.enableDebugFeatures
@@ -696,6 +755,32 @@ private extension SettingsView {
                 }
                 .accessibilityHint("Opens in browser")
                 .accessibilityIdentifier(AccessibilityID.Settings.communityGuidelines)
+
+                // Developer contact — required alongside the UGC report/block
+                // tooling so users can reach a human.
+                Button {
+                    if let url = URL(string: "mailto:support@bumpsetcut.com") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    HStack {
+                        Text("Contact Support")
+                            .bscFont(size: 15)
+                        Spacer()
+                        Image(systemName: "envelope")
+                            .bscFont(size: 12)
+                            .foregroundStyle(Color.bscTextSecondary)
+                    }
+                    .foregroundStyle(Color.bscTextPrimary)
+                    .bscCardPadding()
+                    .background(
+                        RoundedRectangle(cornerRadius: BSCRadius.md)
+                            .fill(Color.bscSurfaceGlass)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .accessibilityHint("Opens your email app")
+                .accessibilityIdentifier(AccessibilityID.Settings.contactSupport)
             }
         }
     }

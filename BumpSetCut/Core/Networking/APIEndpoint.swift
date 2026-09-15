@@ -16,7 +16,6 @@ enum APIEndpoint {
     // Auth
     case refreshToken(String)
     case signOut
-    case deleteAccount
 
     // User
     case getProfile(userId: String)
@@ -72,7 +71,6 @@ enum APIEndpoint {
         switch self {
         case .refreshToken: return "/auth/refresh"
         case .signOut: return "/auth/signout"
-        case .deleteAccount: return "/auth/delete"
         case .getProfile(let userId): return "/profiles/\(userId)"
         case .updateProfile: return "/profiles/me"
         case .searchUsers: return "/profiles/search"
@@ -122,7 +120,7 @@ enum APIEndpoint {
             return .post
         case .signOut:
             return .post
-        case .deleteAccount, .deleteHighlight, .deleteComment, .unlikeHighlight, .unlikeComment, .unfollow, .unblockUser:
+        case .deleteHighlight, .deleteComment, .unlikeHighlight, .unlikeComment, .unfollow, .unblockUser:
             return .delete
         case .updateProfile:
             return .patch

@@ -153,6 +153,16 @@ struct AuthGateView: View {
 
                     }
 
+                    // Terms agreement — required for a UGC app: creating an
+                    // account implies acceptance, with functional links.
+                    Text(.init("By signing up or signing in, you agree to our [Terms of Service](https://bumpsetcut.com/terms), [Privacy Policy](https://bumpsetcut.com/privacy), and [Community Guidelines](https://bumpsetcut.com/community-guidelines)."))
+                        .bscFont(size: 12)
+                        .foregroundColor(.bscTextSecondary)
+                        .tint(.bscPrimaryText)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, BSCSpacing.sm)
+                        .accessibilityIdentifier(AccessibilityID.AuthGate.termsAgreement)
+
                     // Continue without account
                     Button {
                         if let onSkip = onSkip {

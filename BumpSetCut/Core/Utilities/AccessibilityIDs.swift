@@ -36,11 +36,13 @@ enum AccessibilityID {
 
     enum Settings {
         static let done = "settings.done"
-        static let analytics = "settings.analytics"
         static let themeLight = "settings.theme.light"
         static let themeDark = "settings.theme.dark"
         static let themeSystem = "settings.theme.system"
         static let signOut = "settings.signOut"
+        static let deleteAccount = "settings.deleteAccount"
+        static let blockedUsers = "settings.blockedUsers"
+        static let contactSupport = "settings.contactSupport"
         static let upgrade = "settings.upgrade"
         static let privacyPolicy = "settings.privacyPolicy"
         static let termsOfService = "settings.termsOfService"
@@ -84,6 +86,7 @@ enum AccessibilityID {
         static let forgotPassword = "authGate.forgotPassword"
         static let appleSignIn = "authGate.appleSignIn"
         static let googleSignIn = "authGate.googleSignIn"
+        static let termsAgreement = "authGate.termsAgreement"
     }
 
     enum Feed {

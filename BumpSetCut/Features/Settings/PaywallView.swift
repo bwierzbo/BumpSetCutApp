@@ -77,20 +77,6 @@ struct PaywallView: View {
                                     }
                                 }
                                 .padding(.horizontal, BSCSpacing.lg)
-
-                                // Restore Button
-                                Button {
-                                    Task {
-                                        await restorePurchases()
-                                    }
-                                } label: {
-                                    Text("Restore Purchases")
-                                        .bscFont(size: 15)
-                                        .foregroundColor(.bscTextSecondary)
-                                        .frame(minHeight: BSCTouchTarget.standard)
-                                        .contentShape(Rectangle())
-                                }
-                                .disabled(isPurchasing)
                             }
                             .padding(.top, BSCSpacing.lg)
                         } else if storeManager.isLoading {
@@ -103,9 +89,24 @@ struct PaywallView: View {
                                 .padding(BSCSpacing.lg)
                         }
 
-                        // Legal Text
+                        // Restore — must stay reachable even when StoreKit
+                        // fails to load products (App Review checks this).
+                        Button {
+                            Task {
+                                await restorePurchases()
+                            }
+                        } label: {
+                            Text("Restore Purchases")
+                                .bscFont(size: 15)
+                                .foregroundColor(.bscTextSecondary)
+                                .frame(minHeight: BSCTouchTarget.standard)
+                                .contentShape(Rectangle())
+                        }
+                        .disabled(isPurchasing)
+
+                        // Legal Text — full auto-renew disclosure
                         VStack(spacing: BSCSpacing.xs) {
-                            Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period.")
+                            Text(subscriptionTerms)
                                 .bscFont(size: 11)
                                 .foregroundColor(.bscTextSecondary)
                                 .multilineTextAlignment(.center)
@@ -163,6 +164,22 @@ struct PaywallView: View {
                 Text(errorMessage ?? "Something went wrong")
             }
         }
+    }
+
+    // MARK: - Subscription Terms
+
+    /// Full auto-renew disclosure Apple expects adjacent to the purchase
+    /// button (name, length, price, billing and cancellation mechanics).
+    private var subscriptionTerms: String {
+        let price = storeManager.proMonthlyProduct?.displayPrice ?? "$4.99"
+        return """
+        BumpSetCut Pro is a monthly auto-renewing subscription (\(price)/month). \
+        Payment will be charged to your Apple ID account at confirmation of purchase. \
+        The subscription automatically renews unless it is cancelled at least 24 hours \
+        before the end of the current period, and your account will be charged for \
+        renewal within 24 hours prior to the end of the current period. You can manage \
+        and cancel your subscription in your App Store account settings at any time.
+        """
     }
 
     // MARK: - Actions

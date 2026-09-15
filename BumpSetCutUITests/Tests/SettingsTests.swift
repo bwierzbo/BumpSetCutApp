@@ -26,8 +26,8 @@ final class SettingsTests: BSCUITestCase {
     func testAllSectionsAreVisible() {
         // .textCase(.uppercase) only changes rendering — XCUITest sees the original text
         XCTAssertTrue(app.staticTexts["Appearance"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Processing"].exists)
-        XCTAssertTrue(app.staticTexts["Privacy"].exists)
+        XCTAssertTrue(app.staticTexts["Improve Detection"].exists)
+        XCTAssertTrue(app.staticTexts["Social & Privacy"].exists)
 
         // Legal & About — may need to scroll
         app.swipeUp()
@@ -50,11 +50,6 @@ final class SettingsTests: BSCUITestCase {
 
         // Tap system theme
         settings.themeSystemButton.tap()
-    }
-
-    func testAnalyticsToggleIsTappable() {
-        XCTAssertTrue(settings.analyticsToggle.waitForExistence(timeout: 3))
-        settings.analyticsToggle.tap()
     }
 
     func testLegalLinksAreVisible() {

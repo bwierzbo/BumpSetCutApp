@@ -18,7 +18,18 @@ enum AuthState {
 @Observable
 final class AuthenticationService {
     private(set) var currentUser: UserProfile?
-    private(set) var authState: AuthState = .unauthenticated
+    private(set) var authState: AuthState = .unauthenticated {
+        didSet {
+            // Blocks must survive relaunch: load them whenever a session
+            // becomes active (sign-in or restore), clear them on sign-out.
+            guard authState != oldValue else { return }
+            if authState == .authenticated {
+                Task { await ModerationService.shared.ensureBlocksLoaded() }
+            } else if authState == .unauthenticated {
+                ModerationService.shared.resetForSignOut()
+            }
+        }
+    }
 
     var isAuthenticated: Bool { authState == .authenticated }
     var needsUsernameSetup: Bool { currentUser?.username.hasPrefix("user_") == true }

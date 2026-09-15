@@ -55,13 +55,6 @@ enum AppTheme: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Track rally view usage for analytics
-    var enableAnalytics: Bool {
-        didSet {
-            UserDefaults.standard.set(enableAnalytics, forKey: "enableAnalytics")
-        }
-    }
-
     // MARK: - Data Flywheel
 
     /// Opt in to contribute clips of rallies the detector struggled with (plus
@@ -133,8 +126,6 @@ enum AppTheme: String, CaseIterable, Identifiable {
         self.showPerformanceMetrics = false
         #endif
 
-        self.enableAnalytics = UserDefaults.standard.object(forKey: "enableAnalytics") as? Bool ?? true
-
         // Data flywheel (opt-in, default off)
         self.enableDataFlywheel = UserDefaults.standard.bool(forKey: "enableDataFlywheel")
         self.flywheelConsentVersion = UserDefaults.standard.string(forKey: "flywheelConsentVersion") ?? ""
@@ -148,48 +139,6 @@ enum AppTheme: String, CaseIterable, Identifiable {
 
         print("🎛️ AppSettings initialized")
     }
-
-    // MARK: - Analytics Helpers
-
-    func logRallyViewUsage(viewType: RallyViewType, duration: TimeInterval, rallyCount: Int) {
-        guard enableAnalytics else { return }
-
-        let analyticsData: [String: Any] = [
-            "view_type": viewType.rawValue,
-            "session_duration": duration,
-            "rally_count": rallyCount,
-            "timestamp": Date().timeIntervalSince1970
-        ]
-
-        print("📊 Rally view analytics: \(analyticsData)")
-    }
-
-    func logRallyGestureUsage(gestureType: RallyGestureType, rallyIndex: Int) {
-        guard enableAnalytics else { return }
-
-        let gestureData: [String: Any] = [
-            "gesture_type": gestureType.rawValue,
-            "rally_index": rallyIndex,
-            "timestamp": Date().timeIntervalSince1970
-        ]
-
-        print("👆 Rally gesture analytics: \(gestureData)")
-    }
-}
-
-// MARK: - Analytics Types
-
-enum RallyViewType: String, CaseIterable {
-    case rally = "RallyPlayerView"
-    case fallback = "VideoPlayerView"
-}
-
-enum RallyGestureType: String, CaseIterable {
-    case swipeNext = "swipe_next"
-    case swipePrevious = "swipe_previous"
-    case tapPlayPause = "tap_play_pause"
-    case doubleTapDebug = "double_tap_debug"
-    case edgeBounce = "edge_bounce"
 }
 
 // MARK: - View Extension

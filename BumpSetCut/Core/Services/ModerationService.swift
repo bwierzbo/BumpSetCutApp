@@ -18,6 +18,16 @@ final class ModerationService {
     // MARK: - State
     private(set) var blockedUserIds: Set<UUID> = []
     private(set) var isLoadingBlocks = false
+    private var hasLoadedBlocks = false
+
+    /// Content this user reported, hidden from their own feeds immediately and
+    /// across launches (device-local; the server-side report is the source of
+    /// truth for moderation).
+    private(set) var reportedHighlightIds: Set<UUID>
+    private(set) var reportedCommentIds: Set<UUID>
+
+    private static let reportedHighlightsKey = "moderation.reportedHighlightIds"
+    private static let reportedCommentsKey = "moderation.reportedCommentIds"
 
     // MARK: - Dependencies
     private let apiClient: SupabaseAPIClient
@@ -26,6 +36,18 @@ final class ModerationService {
 
     private init(apiClient: SupabaseAPIClient = .shared) {
         self.apiClient = apiClient
+        reportedHighlightIds = Self.loadReportedIds(forKey: Self.reportedHighlightsKey)
+        reportedCommentIds = Self.loadReportedIds(forKey: Self.reportedCommentsKey)
+    }
+
+    private static func loadReportedIds(forKey key: String) -> Set<UUID> {
+        let strings = UserDefaults.standard.stringArray(forKey: key) ?? []
+        return Set(strings.compactMap(UUID.init(uuidString:)))
+    }
+
+    private func persistReportedIds() {
+        UserDefaults.standard.set(reportedHighlightIds.map(\.uuidString), forKey: Self.reportedHighlightsKey)
+        UserDefaults.standard.set(reportedCommentIds.map(\.uuidString), forKey: Self.reportedCommentsKey)
     }
 
     // MARK: - Content Reporting
@@ -46,6 +68,10 @@ final class ModerationService {
         )
 
         let _: ContentReport = try await apiClient.request(.createReport(request))
+
+        // Hide it from the reporter's own feeds right away.
+        reportedHighlightIds.insert(highlightId)
+        persistReportedIds()
     }
 
     /// Report a comment
@@ -64,6 +90,9 @@ final class ModerationService {
         )
 
         let _: ContentReport = try await apiClient.request(.createReport(request))
+
+        reportedCommentIds.insert(commentId)
+        persistReportedIds()
     }
 
     /// Report a user profile
@@ -118,6 +147,21 @@ final class ModerationService {
         let blocks: [UserBlock] = try await apiClient.request(.getBlockedUsers)
 
         blockedUserIds = Set(blocks.map { $0.blockedId })
+        hasLoadedBlocks = true
+    }
+
+    /// Load the block list once per sign-in; feeds call this before their
+    /// first filter so blocks survive app relaunch.
+    func ensureBlocksLoaded() async {
+        guard !hasLoadedBlocks, !isLoadingBlocks else { return }
+        try? await loadBlockedUsers()
+    }
+
+    /// Clear the signed-in user's block cache (reported-content hides are
+    /// device-local and intentionally survive sign-out).
+    func resetForSignOut() {
+        blockedUserIds = []
+        hasLoadedBlocks = false
     }
 
     /// Check if a user is blocked
@@ -134,6 +178,26 @@ final class ModerationService {
     }
 
     // MARK: - Filtering Helpers
+
+    /// Whether a highlight should be hidden from this user's feeds
+    /// (author blocked, or the user reported it).
+    func isHighlightHidden(id: String, authorId: String) -> Bool {
+        if let highlightId = UUID(uuidString: id), reportedHighlightIds.contains(highlightId) {
+            return true
+        }
+        guard let author = UUID(uuidString: authorId) else { return false }
+        return blockedUserIds.contains(author)
+    }
+
+    /// Whether a comment should be hidden from this user
+    /// (author blocked, or the user reported it).
+    func isCommentHidden(id: String, authorId: String) -> Bool {
+        if let commentId = UUID(uuidString: id), reportedCommentIds.contains(commentId) {
+            return true
+        }
+        guard let author = UUID(uuidString: authorId) else { return false }
+        return blockedUserIds.contains(author)
+    }
 
     /// Filter out blocked users from a list of highlights
     func filterBlockedContent<T: Identifiable>(

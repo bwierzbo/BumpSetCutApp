@@ -28,7 +28,7 @@ struct SocialFeedView: View {
 
             if viewModel.isLoading && viewModel.highlights.isEmpty {
                 loadingSkeleton
-            } else if viewModel.highlights.isEmpty {
+            } else if viewModel.visibleHighlights.isEmpty {
                 if viewModel.error != nil {
                     BSCEmptyState.loadFailed(message: viewModel.error?.localizedDescription) {
                         Task { await viewModel.loadFeed() }
@@ -97,7 +97,7 @@ struct SocialFeedView: View {
     private var feedContent: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                ForEach(Array(viewModel.highlights.enumerated()), id: \.element.id) { index, highlight in
+                ForEach(Array(viewModel.visibleHighlights.enumerated()), id: \.element.id) { index, highlight in
                     highlightCard(index: index, highlight: highlight)
                         .containerRelativeFrame(.vertical)
                         .id(index)

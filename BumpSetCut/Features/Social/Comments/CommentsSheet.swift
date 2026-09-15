@@ -57,7 +57,7 @@ struct CommentsSheet: View {
                     }
                     .accessibilityIdentifier(AccessibilityID.Comments.emptyState)
                     Spacer()
-                } else if viewModel.comments.isEmpty {
+                } else if viewModel.visibleComments.isEmpty {
                     Spacer()
                     BSCEmptyState(
                         icon: "bubble.right",
@@ -69,7 +69,7 @@ struct CommentsSheet: View {
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: BSCSpacing.md) {
-                            ForEach(viewModel.comments) { comment in
+                            ForEach(viewModel.visibleComments) { comment in
                                 commentRow(comment)
                             }
                         }
@@ -182,6 +182,7 @@ struct CommentsSheet: View {
     // MARK: - Comment Row
 
     @State private var reportingComment: Comment?
+    @State private var blockingComment: Comment?
 
     private func commentRow(_ comment: Comment) -> some View {
         HStack(alignment: .top, spacing: BSCSpacing.sm) {
@@ -234,6 +235,11 @@ struct CommentsSheet: View {
                 } label: {
                     Label("Report Comment", systemImage: "exclamationmark.shield")
                 }
+                Button(role: .destructive) {
+                    blockingComment = comment
+                } label: {
+                    Label("Block @\(comment.author?.username ?? "user")", systemImage: "hand.raised")
+                }
             } label: {
                 Image(systemName: "ellipsis")
                     .bscFont(size: 13, weight: .semibold)
@@ -249,12 +255,29 @@ struct CommentsSheet: View {
             } label: {
                 Label("Report Comment", systemImage: "exclamationmark.shield")
             }
+            Button(role: .destructive) {
+                blockingComment = comment
+            } label: {
+                Label("Block @\(comment.author?.username ?? "user")", systemImage: "hand.raised")
+            }
         }
         .sheet(item: $reportingComment) { comment in
             ReportContentSheet(
                 contentType: .comment,
                 contentId: UUID(uuidString: comment.id) ?? UUID(),
                 reportedUserId: UUID(uuidString: comment.authorId) ?? UUID()
+            )
+        }
+        .blockUserAlert(
+            isPresented: Binding(
+                get: { blockingComment?.id == comment.id },
+                set: { if !$0 && blockingComment?.id == comment.id { blockingComment = nil } }
+            ),
+            username: comment.author?.username ?? "user",
+            userId: UUID(uuidString: comment.authorId) ?? UUID()
+        ) {
+            try await ModerationService.shared.blockUser(
+                UUID(uuidString: comment.authorId) ?? UUID()
             )
         }
     }

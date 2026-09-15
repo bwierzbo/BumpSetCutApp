@@ -14,10 +14,6 @@ struct SettingsScreen {
         app.buttons["settings.done"]
     }
 
-    var analyticsToggle: XCUIElement {
-        app.descendants(matching: .any)["settings.analytics"]
-    }
-
     var themeLightButton: XCUIElement {
         app.descendants(matching: .any)["settings.theme.light"]
     }

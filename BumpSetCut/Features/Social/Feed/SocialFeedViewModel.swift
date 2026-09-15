@@ -17,6 +17,14 @@ enum FeedType {
 @Observable
 final class SocialFeedViewModel {
     private(set) var highlights: [Highlight] = []
+
+    /// What the feed actually renders: loaded highlights minus anything the
+    /// user has since blocked or reported. Computed so a block/report mid-
+    /// session removes the card immediately (ModerationService is @Observable).
+    var visibleHighlights: [Highlight] {
+        let moderation = ModerationService.shared
+        return highlights.filter { !moderation.isHighlightHidden(id: $0.id, authorId: $0.authorId) }
+    }
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
     private(set) var error: Error?
@@ -57,17 +65,18 @@ final class SocialFeedViewModel {
         loadMoreFailed = false
         currentPage = 0
 
+        // Blocks are per-account server state; make sure they're in before the
+        // first filter so blocked users stay hidden across app relaunches.
+        await ModerationService.shared.ensureBlocksLoaded()
+
         do {
             let endpoint: APIEndpoint = feedType == .following
                 ? .getFollowingFeed(page: 0, pageSize: pageSize)
                 : .getFeed(page: 0, pageSize: pageSize)
             let page: [Highlight] = try await apiClient.request(endpoint)
             guard gen == loadGeneration else { return }
-            let blocked = ModerationService.shared.blockedUserIds
-            highlights = page.filter { highlight in
-                guard let authorUUID = UUID(uuidString: highlight.authorId) else { return true }
-                return !blocked.contains(authorUUID)
-            }
+            let moderation = ModerationService.shared
+            highlights = page.filter { !moderation.isHighlightHidden(id: $0.id, authorId: $0.authorId) }
             hasMorePages = page.count >= pageSize
             currentPage = 1
             await enrichPollVotes()
@@ -84,7 +93,9 @@ final class SocialFeedViewModel {
     }
 
     func loadMoreIfNeeded(currentItem: Highlight) async {
-        guard let lastItem = highlights.last,
+        // Compare against the last VISIBLE item — if the stored last was
+        // hidden by a block/report, pagination would otherwise never trigger.
+        guard let lastItem = visibleHighlights.last,
               lastItem.id == currentItem.id,
               hasMorePages,
               !isLoadingMore else { return }
@@ -101,11 +112,8 @@ final class SocialFeedViewModel {
             let page: [Highlight] = try await apiClient.request(endpoint)
             // A feed switch mid-request supersedes this page
             guard gen == loadGeneration else { return }
-            let blocked = ModerationService.shared.blockedUserIds
-            let filtered = page.filter { highlight in
-                guard let authorUUID = UUID(uuidString: highlight.authorId) else { return true }
-                return !blocked.contains(authorUUID)
-            }
+            let moderation = ModerationService.shared
+            let filtered = page.filter { !moderation.isHighlightHidden(id: $0.id, authorId: $0.authorId) }
             highlights.append(contentsOf: filtered)
             hasMorePages = page.count >= pageSize
             currentPage += 1

@@ -12,6 +12,13 @@ import Observation
 @Observable
 final class CommentsViewModel {
     private(set) var comments: [Comment] = []
+
+    /// Loaded comments minus anything the user has since blocked or reported —
+    /// computed so a report/block removes the row immediately.
+    var visibleComments: [Comment] {
+        let moderation = ModerationService.shared
+        return comments.filter { !moderation.isCommentHidden(id: $0.id, authorId: $0.authorId) }
+    }
     private(set) var isLoading = false
     private(set) var loadError: Error?
     private(set) var sendError: Error?
@@ -37,13 +44,14 @@ final class CommentsViewModel {
         isLoading = true
         loadError = nil
 
+        // Blocks are per-account server state; ensure they're loaded so blocked
+        // users stay hidden across app relaunches.
+        await ModerationService.shared.ensureBlocksLoaded()
+
         do {
             let page: [Comment] = try await apiClient.request(.getComments(highlightId: highlightId, page: 0))
-            let blocked = ModerationService.shared.blockedUserIds
-            comments = page.filter { comment in
-                guard let authorUUID = UUID(uuidString: comment.authorId) else { return true }
-                return !blocked.contains(authorUUID)
-            }
+            let moderation = ModerationService.shared
+            comments = page.filter { !moderation.isCommentHidden(id: $0.id, authorId: $0.authorId) }
             currentPage = 1
         } catch is CancellationError {
             // View went away / reloaded — not a real failure, don't surface it.

@@ -81,6 +81,17 @@
 				<string>C617.1</string>
 			</array>
 		</dict>
+		<!-- Disk space APIs (StorageChecker: pre-flight space checks before
+		     video exports, and the storage warning shown to the user) -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>E174.1</string>
+				<string>85F4.1</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>
