@@ -157,7 +157,6 @@ enum AccessibilityID {
         static let rallyCounter = "gameScoring.rallyCounter"
         static let pointTeamA = "gameScoring.pointTeamA"
         static let pointTeamB = "gameScoring.pointTeamB"
-        static let setBreak = "gameScoring.setBreak"
         static let export = "gameScoring.export"
         static let teamAField = "gameScoring.teamAField"
         static let teamBField = "gameScoring.teamBField"

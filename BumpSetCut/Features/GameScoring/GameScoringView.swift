@@ -100,16 +100,9 @@ struct GameScoringView: View {
                 score: viewModel.currentState.scoreA
             )
 
-            VStack(spacing: BSCSpacing.xxs) {
-                Text("–")
-                    .bscFont(size: 22, weight: .bold)
-                    .foregroundColor(.bscTextSecondary)
-                if viewModel.showsSets {
-                    Text("Sets \(viewModel.currentState.setsA)–\(viewModel.currentState.setsB)")
-                        .bscFont(size: 11, weight: .semibold)
-                        .foregroundColor(.bscTextSecondary)
-                }
-            }
+            Text("–")
+                .bscFont(size: 22, weight: .bold)
+                .foregroundColor(.bscTextSecondary)
 
             teamScoreChip(
                 team: viewModel.scoring.teamB,
@@ -212,33 +205,17 @@ struct GameScoringView: View {
                             id: AccessibilityID.GameScoring.pointTeamB)
             }
 
-            HStack(spacing: BSCSpacing.lg) {
-                Button {
-                    viewModel.clearCurrentPoint()
-                } label: {
-                    Label("No Point", systemImage: "slash.circle")
-                        .bscFont(size: 13, weight: .medium)
-                        .foregroundColor(viewModel.currentWinner == nil ? .bscTextTertiary : .bscTextSecondary)
-                        .frame(minHeight: BSCTouchTarget.standard)
-                        .contentShape(Rectangle())
-                }
-                .disabled(viewModel.currentWinner == nil)
-
-                Button {
-                    viewModel.toggleSetBreak()
-                } label: {
-                    Label(
-                        viewModel.currentStartsNewSet ? "Starts New Set ✓" : "Starts New Set",
-                        systemImage: "flag.checkered"
-                    )
+            // A recording is one set — no set controls, just point correction.
+            Button {
+                viewModel.clearCurrentPoint()
+            } label: {
+                Label("No Point", systemImage: "slash.circle")
                     .bscFont(size: 13, weight: .medium)
-                    .foregroundColor(viewModel.currentStartsNewSet ? .bscPrimaryText : .bscTextSecondary)
+                    .foregroundColor(viewModel.currentWinner == nil ? .bscTextTertiary : .bscTextSecondary)
                     .frame(minHeight: BSCTouchTarget.standard)
                     .contentShape(Rectangle())
-                }
-                .disabled(viewModel.currentIndex == 0)
-                .accessibilityIdentifier(AccessibilityID.GameScoring.setBreak)
             }
+            .disabled(viewModel.currentWinner == nil)
         }
     }
 
@@ -278,7 +255,6 @@ struct GameScoringView: View {
 
     private func exportOverlays() -> [VideoExporter.GameScoreOverlay?] {
         let states = viewModel.states
-        let showsSets = viewModel.showsSets
         let scoring = viewModel.scoring
         return states.map { state in
             VideoExporter.GameScoreOverlay(
@@ -287,7 +263,7 @@ struct GameScoringView: View {
                 teamAColor: UIColor(Color(hex: scoring.teamA.colorHex)),
                 teamBColor: UIColor(Color(hex: scoring.teamB.colorHex)),
                 state: state,
-                showsSets: showsSets
+                showsSets: false  // one recording = one set
             )
         }
     }

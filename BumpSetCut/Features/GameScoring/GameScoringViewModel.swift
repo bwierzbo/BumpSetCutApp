@@ -67,8 +67,6 @@ final class GameScoringViewModel {
     }
 
     var currentWinner: GamePointWinner? { scoring.pointWinners[currentIndex] }
-    var currentStartsNewSet: Bool { scoring.setBreaks.contains(currentIndex) }
-    var showsSets: Bool { !scoring.setBreaks.isEmpty }
 
     // MARK: - Loading
 
@@ -194,17 +192,6 @@ final class GameScoringViewModel {
     /// Clear the current rally's point (no score change — e.g. a replayed point).
     func clearCurrentPoint() {
         scoring.pointWinners.removeValue(forKey: currentIndex)
-        persist()
-    }
-
-    /// Toggle "this rally starts a new set" for the current rally.
-    func toggleSetBreak() {
-        guard currentIndex > 0 else { return }
-        if scoring.setBreaks.contains(currentIndex) {
-            scoring.setBreaks.remove(currentIndex)
-        } else {
-            scoring.setBreaks.insert(currentIndex)
-        }
         persist()
     }
 
