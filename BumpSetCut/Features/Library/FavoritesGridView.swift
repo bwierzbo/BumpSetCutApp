@@ -91,10 +91,14 @@ struct FavoritesGridView: View {
                         .accessibilityIdentifier(AccessibilityID.Favorites.emptyState)
                         .padding(.top, BSCSpacing.xxl)
                     } else {
+                        // Same structure as the library: labeled sections,
+                        // "Rallies" standing in for "Videos".
                         if !folders.isEmpty {
+                            sectionHeader("Folders")
                             foldersSection
                         }
                         if !videos.isEmpty {
+                            sectionHeader("Rallies")
                             if viewMode == .grid {
                                 videosGrid
                                     .transition(.opacity)
@@ -252,6 +256,18 @@ struct FavoritesGridView: View {
                 .accessibilityIdentifier(AccessibilityID.Favorites.rallyCount)
         }
         .padding(.horizontal, BSCSpacing.lg)
+    }
+
+    // MARK: - Section Header (library-style)
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .bscFont(size: 16, weight: .semibold)
+            .foregroundColor(.bscTextSecondary)
+            .textCase(.uppercase)
+            .tracking(0.5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, BSCSpacing.lg)
     }
 
     // MARK: - Folders
@@ -702,10 +718,12 @@ struct FavoritesGridView: View {
                 )
             }
 
-            if eligible.count > ShareRallyViewModel.maxClipsPerPost {
-                clipPickerTarget = ClipPickerTarget(title: title, clips: eligible)
-            } else {
+            // Folder posts always go through the picker (with Select All when
+            // everything fits); a single clip posts directly.
+            if eligible.count == 1 {
                 carouselTarget = CarouselTarget(title: title, clips: eligible)
+            } else {
+                clipPickerTarget = ClipPickerTarget(title: title, clips: eligible)
             }
         }
     }

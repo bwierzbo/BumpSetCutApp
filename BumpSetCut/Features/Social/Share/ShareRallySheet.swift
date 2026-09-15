@@ -20,7 +20,17 @@ struct ShareRallySheet: View {
     @State private var showLocationPicker = false
     @FocusState private var isCaptionFocused: Bool
 
+    // Crop mode: pinch/drag reframes the CURRENT page; saved per page and
+    // burned in at upload.
+    @State private var isCropMode = false
+    @State private var liveCropZoom: CGFloat = 1
+    @State private var lastCropZoom: CGFloat = 1
+    @State private var liveCropOffset: CGSize = .zero
+    @State private var lastCropOffset: CGSize = .zero
+    @State private var previewSize: CGSize = .zero
+
     private let preloadRadius = 4
+    private let maxCropZoom: CGFloat = 3
 
     init(originalVideoURL: URL, rallyVideoURLs: [URL], savedRallyIndices: [Int],
          initialRallyIndex: Int, thumbnailCache: RallyThumbnailCache,
@@ -172,17 +182,22 @@ struct ShareRallySheet: View {
                     let isCurrent = pageIndex == viewModel.selectedPage
 
                     ZStack(alignment: .bottomLeading) {
-                        // File-based thumbnail while the player warms up
-                        VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url)
+                        // Video content gets the crop transform; the badge stays put.
+                        ZStack {
+                            // File-based thumbnail while the player warms up
+                            VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url)
 
-                        if let pagePlayer = playerPool[pageIndex] {
-                            CustomVideoPlayerView(
-                                player: pagePlayer,
-                                gravity: .resizeAspectFill,
-                                onReadyForDisplay: { _ in }
-                            )
-                            .allowsHitTesting(false)
+                            if let pagePlayer = playerPool[pageIndex] {
+                                CustomVideoPlayerView(
+                                    player: pagePlayer,
+                                    gravity: .resizeAspectFill,
+                                    onReadyForDisplay: { _ in }
+                                )
+                                .allowsHitTesting(false)
+                            }
                         }
+                        .scaleEffect(displayCropZoom(for: pageIndex))
+                        .offset(displayCropOffset(for: pageIndex))
 
                         Text(clip.displayName)
                             .bscFont(size: 13, weight: .bold)
@@ -202,6 +217,11 @@ struct ShareRallySheet: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .aspectRatio(16/9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
+            .background(cropSizeReader)
+            .highPriorityGesture(cropDragGesture, including: isCropMode ? .gesture : .subviews)
+            .simultaneousGesture(cropPinchGesture, including: isCropMode ? .all : .subviews)
+
+            cropControls
 
             // Page dots
             if viewModel.favoriteClips.count > 1 {
@@ -230,24 +250,29 @@ struct ShareRallySheet: View {
                     let isCurrent = pageIndex == viewModel.selectedPage
 
                     ZStack(alignment: .bottomLeading) {
-                        // Thumbnail (always visible — instant, no loading)
-                        if let thumb = viewModel.thumbnailCache.getThumbnail(for: url) {
-                            Image(uiImage: thumb)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } else {
-                            Color.bscSurfaceGlass
-                        }
+                        // Video content gets the crop transform; the badge stays put.
+                        ZStack {
+                            // Thumbnail (always visible — instant, no loading)
+                            if let thumb = viewModel.thumbnailCache.getThumbnail(for: url) {
+                                Image(uiImage: thumb)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } else {
+                                Color.bscSurfaceGlass
+                            }
 
-                        // Preloaded video player (current ±4 pages have players)
-                        if let pagePlayer = playerPool[pageIndex] {
-                            CustomVideoPlayerView(
-                                player: pagePlayer,
-                                gravity: .resizeAspectFill,
-                                onReadyForDisplay: { _ in }
-                            )
-                            .allowsHitTesting(false)
+                            // Preloaded video player (current ±4 pages have players)
+                            if let pagePlayer = playerPool[pageIndex] {
+                                CustomVideoPlayerView(
+                                    player: pagePlayer,
+                                    gravity: .resizeAspectFill,
+                                    onReadyForDisplay: { _ in }
+                                )
+                                .allowsHitTesting(false)
+                            }
                         }
+                        .scaleEffect(displayCropZoom(for: pageIndex))
+                        .offset(displayCropOffset(for: pageIndex))
 
                         // Rally badge
                         rallyBadge(pageIndex: pageIndex)
@@ -261,6 +286,11 @@ struct ShareRallySheet: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .aspectRatio(16/9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
+            .background(cropSizeReader)
+            .highPriorityGesture(cropDragGesture, including: isCropMode ? .gesture : .subviews)
+            .simultaneousGesture(cropPinchGesture, including: isCropMode ? .all : .subviews)
+
+            cropControls
 
             // Page dots
             if viewModel.savedRallyIndices.count > 1 {
@@ -276,6 +306,168 @@ struct ShareRallySheet: View {
                 .accessibilityLabel("Rally \(viewModel.selectedPage + 1) of \(viewModel.savedRallyIndices.count)")
             }
         }
+    }
+
+    // MARK: - Crop
+
+    /// Captures the carousel's on-screen size so crop offsets can be
+    /// normalized (and denormalized) against it.
+    private var cropSizeReader: some View {
+        GeometryReader { geo in
+            Color.clear
+                .onAppear { previewSize = geo.size }
+                .onChange(of: geo.size) { _, size in previewSize = size }
+        }
+    }
+
+    private func displayCropZoom(for page: Int) -> CGFloat {
+        if isCropMode && page == viewModel.selectedPage { return liveCropZoom }
+        return viewModel.crops[page]?.zoom ?? 1
+    }
+
+    private func displayCropOffset(for page: Int) -> CGSize {
+        if isCropMode && page == viewModel.selectedPage { return liveCropOffset }
+        guard let crop = viewModel.crops[page], previewSize != .zero else { return .zero }
+        return CGSize(width: crop.offsetXNorm * previewSize.width,
+                      height: crop.offsetYNorm * previewSize.height)
+    }
+
+    private var cropPinchGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                guard isCropMode else { return }
+                liveCropZoom = min(max(lastCropZoom * value.magnification, 1), maxCropZoom)
+            }
+            .onEnded { _ in
+                guard isCropMode else { return }
+                lastCropZoom = liveCropZoom
+                clampCropOffset()
+            }
+    }
+
+    private var cropDragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard isCropMode else { return }
+                liveCropOffset = CGSize(
+                    width: lastCropOffset.width + value.translation.width,
+                    height: lastCropOffset.height + value.translation.height
+                )
+            }
+            .onEnded { _ in
+                guard isCropMode else { return }
+                clampCropOffset()
+            }
+    }
+
+    /// Keep the pan inside what the zoom exposes, so the crop can't drift
+    /// into empty space.
+    private func clampCropOffset() {
+        let maxX = (liveCropZoom - 1) / 2 * previewSize.width
+        let maxY = (liveCropZoom - 1) / 2 * previewSize.height
+        withAnimation(.bscQuick) {
+            liveCropOffset.width = min(max(liveCropOffset.width, -maxX), maxX)
+            liveCropOffset.height = min(max(liveCropOffset.height, -maxY), maxY)
+        }
+        lastCropOffset = liveCropOffset
+    }
+
+    private var currentPageHasCrop: Bool {
+        viewModel.crops[viewModel.selectedPage].map { !$0.isIdentity } ?? false
+    }
+
+    /// Crop toggle / editing controls under the carousel.
+    private var cropControls: some View {
+        HStack(spacing: BSCSpacing.lg) {
+            if isCropMode {
+                Button {
+                    withAnimation(.bscQuick) {
+                        liveCropZoom = 1
+                        liveCropOffset = .zero
+                    }
+                    lastCropZoom = 1
+                    lastCropOffset = .zero
+                } label: {
+                    Text("Reset")
+                        .bscFont(size: 14, weight: .medium)
+                        .foregroundColor(.bscTextSecondary)
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
+                }
+
+                Spacer()
+
+                Text("Pinch & drag to reframe")
+                    .bscFont(size: 12)
+                    .foregroundColor(.bscTextTertiary)
+
+                Spacer()
+
+                Button {
+                    saveCrop()
+                } label: {
+                    Text("Done")
+                        .bscFont(size: 14, weight: .bold)
+                        .foregroundColor(.bscPrimaryText)
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier(AccessibilityID.Share.cropDone)
+            } else {
+                Button {
+                    enterCropMode()
+                } label: {
+                    HStack(spacing: BSCSpacing.xs) {
+                        Image(systemName: "crop")
+                            .bscFont(size: 13, weight: .semibold)
+                        Text(currentPageHasCrop ? "Cropped" : "Crop")
+                            .bscFont(size: 13, weight: .semibold)
+                    }
+                    .foregroundColor(currentPageHasCrop ? .bscPrimaryText : .bscTextSecondary)
+                    .frame(minHeight: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
+                }
+                .disabled(isUploadBusy)
+                .accessibilityIdentifier(AccessibilityID.Share.cropButton)
+
+                Spacer()
+
+                if pageCount > 1 {
+                    Text("Crops apply per rally")
+                        .bscFont(size: 12)
+                        .foregroundColor(.bscTextTertiary)
+                }
+            }
+        }
+        .animation(.bscQuick, value: isCropMode)
+    }
+
+    private func enterCropMode() {
+        let existing = viewModel.crops[viewModel.selectedPage]
+        liveCropZoom = existing?.zoom ?? 1
+        liveCropOffset = CGSize(
+            width: (existing?.offsetXNorm ?? 0) * previewSize.width,
+            height: (existing?.offsetYNorm ?? 0) * previewSize.height
+        )
+        lastCropZoom = liveCropZoom
+        lastCropOffset = liveCropOffset
+        isCropMode = true
+    }
+
+    private func saveCrop() {
+        if previewSize != .zero {
+            let crop = ShareCrop(
+                zoom: liveCropZoom,
+                offsetXNorm: liveCropOffset.width / previewSize.width,
+                offsetYNorm: liveCropOffset.height / previewSize.height
+            )
+            if crop.isIdentity {
+                viewModel.crops.removeValue(forKey: viewModel.selectedPage)
+            } else {
+                viewModel.crops[viewModel.selectedPage] = crop
+            }
+        }
+        isCropMode = false
     }
 
     @ViewBuilder
@@ -712,7 +904,7 @@ struct ShareRallySheet: View {
 
     private var postButton: some View {
         let canPost = viewModel.state == .idle && (!viewModel.isTooLong || viewModel.postAllSaved)
-            && viewModel.isPollValid
+            && viewModel.isPollValid && !isCropMode
         return Button("Post") {
             isCaptionFocused = false
             if authService.isAuthenticated {

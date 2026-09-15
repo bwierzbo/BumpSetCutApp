@@ -59,6 +59,21 @@ enum ShareSource {
     case favoriteClips(clips: [FavoriteShareClip], title: String)
 }
 
+// MARK: - Share Crop
+
+/// Per-page crop set on the share sheet: zoom around center plus a pan,
+/// offsets normalized to the preview size (+Y down, SwiftUI space). Applied
+/// at upload by re-exporting the clip with the crop burned in.
+struct ShareCrop: Equatable {
+    var zoom: CGFloat
+    var offsetXNorm: CGFloat
+    var offsetYNorm: CGFloat
+
+    var isIdentity: Bool {
+        zoom <= 1.001 && offsetXNorm == 0 && offsetYNorm == 0
+    }
+}
+
 // MARK: - View Model
 
 @MainActor
@@ -69,6 +84,8 @@ final class ShareRallyViewModel {
     var pickedLocation: PickedLocation?
     var selectedPage: Int
     var postAllSaved: Bool
+    /// Crop per carousel page (identity crops are never stored).
+    var crops: [Int: ShareCrop] = [:]
     private(set) var state: ShareState = .idle
 
     // Poll
@@ -258,7 +275,8 @@ final class ShareRallyViewModel {
                     asset: asset,
                     startTime: startCM,
                     endTime: endCM,
-                    rallyIndex: rallyIndex
+                    rallyIndex: rallyIndex,
+                    cropPage: selectedPage
                 )
 
                 try Task.checkCancellation()
@@ -329,10 +347,23 @@ final class ShareRallyViewModel {
                 for (i, clip) in clips.enumerated() {
                     try Task.checkCancellation()
 
-                    // Trim or watermark forces a re-export; otherwise the
-                    // library file uploads as-is (never delete originals).
+                    // Crop, trim, or watermark forces a re-export; otherwise
+                    // the library file uploads as-is (never delete originals).
                     let fileToUpload: URL
-                    if clip.timeRange != nil || addWatermark {
+                    let crop = crops[i].flatMap { $0.isIdentity ? nil : $0 }
+                    if let crop {
+                        fileToUpload = try await VideoExporter().exportStitchedClips(
+                            [VideoExporter.StitchClip(
+                                url: clip.url,
+                                timeRange: clip.timeRange,
+                                zoom: crop.zoom,
+                                panX: crop.offsetXNorm,
+                                panY: -crop.offsetYNorm
+                            )],
+                            addWatermark: addWatermark
+                        )
+                        tempURLsToClean.append(fileToUpload)
+                    } else if clip.timeRange != nil || addWatermark {
                         let asset = AVURLAsset(url: clip.url)
                         let fullRange = CMTimeRange(start: .zero, duration: try await asset.load(.duration))
                         let range = clip.timeRange.map { CMTimeRangeGetIntersection($0, otherRange: fullRange) } ?? fullRange
@@ -424,7 +455,8 @@ final class ShareRallyViewModel {
                     let endCM = CMTime(seconds: info.endTime, preferredTimescale: 600)
 
                     let clipURL = try await exportRallyClip(
-                        asset: asset, startTime: startCM, endTime: endCM, rallyIndex: rallyIndex
+                        asset: asset, startTime: startCM, endTime: endCM, rallyIndex: rallyIndex,
+                        cropPage: i
                     )
                     clipURLsToClean.append(clipURL)
 
@@ -540,14 +572,29 @@ final class ShareRallyViewModel {
         return completePoll
     }
 
-    /// Export just the rally time range from the source video.
-    /// Uses passthrough when possible; falls back to re-encoding when watermark is needed.
-    private func exportRallyClip(asset: AVAsset, startTime: CMTime, endTime: CMTime, rallyIndex: Int) async throws -> URL {
-        let outURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("share_rally_\(rallyIndex)_\(UUID().uuidString).mp4")
-
+    /// Export just the rally time range from the source video, applying any
+    /// crop set for its carousel page. Uses passthrough when possible; a crop
+    /// or watermark forces the composition path.
+    private func exportRallyClip(asset: AVAsset, startTime: CMTime, endTime: CMTime, rallyIndex: Int, cropPage: Int) async throws -> URL {
         let timeRange = CMTimeRange(start: startTime, end: endTime)
         let addWatermark = SubscriptionService.shared.shouldAddWatermark
+
+        if let crop = crops[cropPage], !crop.isIdentity {
+            // Composition space is bottom-left origin — flip the preview's Y pan.
+            return try await VideoExporter().exportStitchedClips(
+                [VideoExporter.StitchClip(
+                    url: originalVideoURL,
+                    timeRange: timeRange,
+                    zoom: crop.zoom,
+                    panX: crop.offsetXNorm,
+                    panY: -crop.offsetYNorm
+                )],
+                addWatermark: addWatermark
+            )
+        }
+
+        let outURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("share_rally_\(rallyIndex)_\(UUID().uuidString).mp4")
 
         return try await VideoExporter().exportClip(
             asset: asset,

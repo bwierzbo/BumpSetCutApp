@@ -34,6 +34,9 @@ struct HighlightCardView: View {
     @State private var lastZoomScale: CGFloat = 1.0
     @State private var zoomOffset: CGSize = .zero
     @State private var lastZoomOffset: CGSize = .zero
+    /// Pages whose player has rendered a first frame — until then (or when a
+    /// remote stream is buffering) a spinner shows over the thumbnail.
+    @State private var readyPages: Set<Int> = []
 
     private let preloadRadius = 4
     private var videoURLs: [URL] { highlight.allVideoURLs }
@@ -179,6 +182,9 @@ struct HighlightCardView: View {
         }
         .onDisappear { teardownAllPlayers() }
         .onChange(of: isActive) { _, active in
+            // Zoom never follows a card across posts (tester bug: swiping out
+            // and back kept the previous pinch).
+            resetZoom()
             if active {
                 setupPlayers()
                 if isPaused { isPaused = false }
@@ -420,6 +426,8 @@ struct HighlightCardView: View {
     // MARK: - Pinch to Zoom
 
     /// Pinch gesture: uses simultaneousGesture so it doesn't block TabView swipes.
+    /// Instagram-style transient zoom — always snaps back on release, so it can
+    /// never be left stuck zoomed/panned (tester bug).
     private var pinchOnlyGesture: some Gesture {
         MagnifyGesture()
             .onChanged { value in
@@ -427,17 +435,21 @@ struct HighlightCardView: View {
                 zoomScale = min(max(newScale, 1.0), 4.0)
             }
             .onEnded { _ in
-                if zoomScale <= 1.05 {
-                    withAnimation(.bscStandard) {
-                        zoomScale = 1.0
-                        zoomOffset = .zero
-                    }
-                    lastZoomScale = 1.0
-                    lastZoomOffset = .zero
-                } else {
-                    lastZoomScale = zoomScale
+                withAnimation(.bscStandard) {
+                    zoomScale = 1.0
+                    zoomOffset = .zero
                 }
+                lastZoomScale = 1.0
+                lastZoomOffset = .zero
             }
+    }
+
+    /// Hard reset (no animation) when the card leaves the screen or is recycled.
+    private func resetZoom() {
+        zoomScale = 1.0
+        lastZoomScale = 1.0
+        zoomOffset = .zero
+        lastZoomOffset = .zero
     }
 
     @ViewBuilder
@@ -446,6 +458,28 @@ struct HighlightCardView: View {
             multiVideoCarousel(size: size)
         } else {
             singleVideoView(size: size)
+        }
+    }
+
+    /// Spinner while the active page's remote stream hasn't rendered a frame,
+    /// so a buffering video never reads as a frozen/broken post.
+    @ViewBuilder
+    private func bufferingIndicator(forPage page: Int) -> some View {
+        if isActive && !isPaused && !readyPages.contains(page) && currentVideoPage == page {
+            ProgressView()
+                .controlSize(.large)
+                .tint(.bscOnMedia)
+                .padding(BSCSpacing.md)
+                .background(Circle().fill(Color.bscMediaScrim))
+                .allowsHitTesting(false)
+                .accessibilityLabel("Loading video")
+        }
+    }
+
+    private func setPageReady(_ page: Int, _ ready: Bool) {
+        // updateUIView reports synchronously during view updates — defer.
+        DispatchQueue.main.async {
+            if ready { readyPages.insert(page) } else { readyPages.remove(page) }
         }
     }
 
@@ -467,10 +501,14 @@ struct HighlightCardView: View {
                 CustomVideoPlayerView(
                     player: player,
                     gravity: .resizeAspect,
-                    onReadyForDisplay: { _ in }
+                    onReadyForDisplay: { ready in
+                        setPageReady(0, ready)
+                    }
                 )
                 .allowsHitTesting(false)
             }
+
+            bufferingIndicator(forPage: 0)
         }
     }
 
@@ -494,10 +532,14 @@ struct HighlightCardView: View {
                         CustomVideoPlayerView(
                             player: pagePlayer,
                             gravity: .resizeAspect,
-                            onReadyForDisplay: { _ in }
+                            onReadyForDisplay: { ready in
+                                setPageReady(index, ready)
+                            }
                         )
                         .allowsHitTesting(false)
                     }
+
+                    bufferingIndicator(forPage: index)
                 }
                 .frame(width: size.width, height: size.height)
                 .clipped()
@@ -622,6 +664,7 @@ struct HighlightCardView: View {
         }
         playerPool.removeAll()
         loopObservers.removeAll()
+        readyPages.removeAll()
     }
 
     private func formatCount(_ count: Int) -> String {

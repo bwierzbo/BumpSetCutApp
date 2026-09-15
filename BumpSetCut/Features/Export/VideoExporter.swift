@@ -15,14 +15,21 @@ final class VideoExporter {
 
     /// One clip of a stitched highlight reel: a source file plus an optional
     /// sub-range (nil = the whole clip, e.g. a favorites clip with its trim
-    /// already applied at export time).
+    /// already applied at export time) and an optional crop (zoom around
+    /// center + pan, pan normalized as a fraction of the render size, +Y up).
     struct StitchClip {
         let url: URL
         let timeRange: CMTimeRange?
+        let zoom: CGFloat
+        let panX: CGFloat
+        let panY: CGFloat
 
-        init(url: URL, timeRange: CMTimeRange? = nil) {
+        init(url: URL, timeRange: CMTimeRange? = nil, zoom: CGFloat = 1, panX: CGFloat = 0, panY: CGFloat = 0) {
             self.url = url
             self.timeRange = timeRange
+            self.zoom = zoom
+            self.panX = panX
+            self.panY = panY
         }
     }
 
@@ -102,6 +109,18 @@ final class VideoExporter {
                 translationX: (renderSize.width - uprightSize.width * scale) / 2,
                 y: (renderSize.height - uprightSize.height * scale) / 2
             ))
+
+            // Optional crop: zoom around the render center, then pan.
+            if clip.zoom > 1.001 || clip.panX != 0 || clip.panY != 0 {
+                let zoom = max(1, clip.zoom)
+                var crop = CGAffineTransform(translationX: -renderSize.width / 2, y: -renderSize.height / 2)
+                crop = crop.concatenating(CGAffineTransform(scaleX: zoom, y: zoom))
+                crop = crop.concatenating(CGAffineTransform(
+                    translationX: renderSize.width / 2 + clip.panX * renderSize.width,
+                    y: renderSize.height / 2 + clip.panY * renderSize.height
+                ))
+                transform = transform.concatenating(crop)
+            }
 
             let instruction = AVMutableVideoCompositionInstruction()
             instruction.timeRange = CMTimeRange(start: currentTime, duration: range.duration)
@@ -549,32 +568,36 @@ final class VideoExporter {
         return CGSize(width: abs(rect.width), height: abs(rect.height))
     }
 
-    /// Creates a watermark text layer for video compositions
+    /// Creates a watermark text layer for video compositions. Layer space is
+    /// in PIXELS of the render size — sizes must scale with the video or the
+    /// mark is microscopic on 1080p+ footage (tester-reported).
     func createWatermarkLayer(videoSize: CGSize, videoDuration: CMTime) -> CALayer {
         let watermarkText = "Made with BumpSetCut"
+        let fontSize = min(max(videoSize.height * 0.028, 13), 44)
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
 
-        // Create text layer
+        let attributed = NSAttributedString(string: watermarkText, attributes: [
+            .font: font,
+            .foregroundColor: UIColor.white.withAlphaComponent(0.7)
+        ])
+        let textSize = attributed.size()
+
         let textLayer = CATextLayer()
-        textLayer.string = watermarkText
-        textLayer.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-        textLayer.fontSize = 14
-        textLayer.foregroundColor = UIColor.white.withAlphaComponent(0.6).cgColor
+        textLayer.string = attributed
+        textLayer.contentsScale = 2
         textLayer.alignmentMode = .right
         textLayer.shadowColor = UIColor.black.cgColor
-        textLayer.shadowOpacity = 0.5
-        textLayer.shadowOffset = CGSize(width: 1, height: 1)
-        textLayer.shadowRadius = 2
+        textLayer.shadowOpacity = 0.6
+        textLayer.shadowOffset = CGSize(width: 0, height: fontSize * 0.06)
+        textLayer.shadowRadius = fontSize * 0.15
 
-        // Position in bottom-right corner with padding
-        let padding: CGFloat = 16
-        let textWidth: CGFloat = 180
-        let textHeight: CGFloat = 20
-
+        // Bottom-right corner with padding (layer origin is bottom-left)
+        let padding = fontSize * 0.9
         textLayer.frame = CGRect(
-            x: videoSize.width - textWidth - padding,
+            x: videoSize.width - ceil(textSize.width) - padding,
             y: padding,
-            width: textWidth,
-            height: textHeight
+            width: ceil(textSize.width),
+            height: ceil(textSize.height)
         )
 
         // Create parent layer

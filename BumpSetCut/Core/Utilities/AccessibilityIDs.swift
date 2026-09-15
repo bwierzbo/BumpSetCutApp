@@ -70,6 +70,7 @@ enum AccessibilityID {
         static let exportReel = "favorites.exportReel"
         static let postReel = "favorites.postReel"
         static let clipPickerConfirm = "favorites.clipPicker.confirm"
+        static let clipPickerSelectAll = "favorites.clipPicker.selectAll"
         static let tipsOverlay = "favorites.tipsOverlay"
         static let feedClose = "favorites.feed.close"
         static let feedCounter = "favorites.feed.counter"
@@ -149,6 +150,11 @@ enum AccessibilityID {
         static let save = "rallyPlayer.save"
         static let favorite = "rallyPlayer.favorite"
         static let chooseFolder = "rallyPlayer.chooseFolder"
+    }
+
+    enum Share {
+        static let cropButton = "share.crop"
+        static let cropDone = "share.cropDone"
     }
 
     enum GameScoring {
