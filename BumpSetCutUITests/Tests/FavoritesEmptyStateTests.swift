@@ -50,16 +50,29 @@ final class FavoritesEmptyStateTests: BSCUITestCase {
         XCTAssertTrue(favorites.sortMenu.waitForExistence(timeout: 5))
     }
 
+    /// Favorites offers the same sort options and grid⇄list toggle as the library.
+    func testSortMenuOffersViewToggle() {
+        XCTAssertTrue(favorites.sortMenu.waitForExistence(timeout: 5))
+        favorites.sortMenu.tap()
+
+        XCTAssertTrue(app.buttons["Date Created"].waitForExistence(timeout: 3),
+                      "Sort options should match the library")
+        XCTAssertTrue(app.buttons["List"].exists || app.buttons["Grid"].exists,
+                      "View toggle should offer List/Grid")
+
+        app.tap() // dismiss menu
+    }
+
     func testRallyCountShowsZero() {
         XCTAssertTrue(favorites.rallyCount.waitForExistence(timeout: 5))
         XCTAssertTrue(favorites.rallyCount.label.contains("0") || favorites.rallyCount.label.contains("rallies"))
     }
 
-    /// Reel actions (Export Highlight Video / Post to Community) are disabled
-    /// when the current folder has no clips.
-    func testReelMenuDisabledWhenEmpty() {
-        XCTAssertTrue(favorites.folderMenu.waitForExistence(timeout: 5))
-        XCTAssertFalse(favorites.folderMenu.isEnabled,
-                       "Reel menu should be disabled with no favorites")
+    /// Post/export actions are per-folder only — the favorites root offers
+    /// no bulk menu (and certainly not when empty).
+    func testNoReelMenuAtRoot() {
+        XCTAssertTrue(favorites.sortMenu.waitForExistence(timeout: 5))
+        XCTAssertFalse(favorites.folderMenu.exists,
+                       "Root must not offer post/export actions")
     }
 }

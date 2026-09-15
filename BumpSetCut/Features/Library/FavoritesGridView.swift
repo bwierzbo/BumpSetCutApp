@@ -24,15 +24,34 @@ struct FavoritesGridView: View {
     @State private var renameTarget: VideoMetadata?
     // Surfaces failures from fire-and-forget library mutations (rename/move/delete).
     @State private var mutationToast: BSCToastMessage?
-    // Non-nil presents the highlight-reel export/post sheet for a folder.
+    // Non-nil presents the stitched highlight-video export sheet.
     @State private var reelTarget: ReelTarget?
+    // Non-nil presents the multi-rally community post sheet.
+    @State private var carouselTarget: CarouselTarget?
+    // Non-nil presents the clip picker (folders with more than 10 clips).
+    @State private var clipPickerTarget: ClipPickerTarget?
+    // Grid ⇄ list, persisted like the library's toggle.
+    @AppStorage("favorites.viewMode") private var viewMode: ViewMode = .grid
+    // First-visit feature tour.
+    @State private var showOnboarding = false
     @Environment(\.dismiss) private var dismiss
 
     struct ReelTarget: Identifiable {
         let id = UUID()
         let folderName: String
         let clips: [VideoExporter.StitchClip]
-        let mode: FolderReelExportSheet.Mode
+    }
+
+    struct CarouselTarget: Identifiable {
+        let id = UUID()
+        let title: String
+        let clips: [FavoriteShareClip]
+    }
+
+    struct ClipPickerTarget: Identifiable {
+        let id = UUID()
+        let title: String
+        let clips: [FavoriteShareClip]
     }
 
     init(mediaStore: MediaStore) {
@@ -76,11 +95,28 @@ struct FavoritesGridView: View {
                             foldersSection
                         }
                         if !videos.isEmpty {
-                            videosGrid
+                            if viewMode == .grid {
+                                videosGrid
+                                    .transition(.opacity)
+                            } else {
+                                videosList
+                                    .transition(.opacity)
+                            }
                         }
                     }
                 }
                 .padding(.top, BSCSpacing.md)
+                .animation(.bscStandard, value: viewMode)
+            }
+
+            // First-visit feature tour
+            if showOnboarding {
+                FavoritesTipsOverlay {
+                    showOnboarding = false
+                    AppSettings.shared.hasSeenFavoritesOnboarding = true
+                }
+                .zIndex(100)
+                .transition(.opacity)
             }
         }
         .navigationTitle(title)
@@ -90,6 +126,11 @@ struct FavoritesGridView: View {
         .bscToast($mutationToast)
         .onAppear {
             folderManager.loadInitialContentsIfNeeded()
+            if !AppSettings.shared.hasSeenFavoritesOnboarding {
+                withAnimation(.bscStandard.delay(0.4)) {
+                    showOnboarding = true
+                }
+            }
         }
         .onChange(of: mediaStore.contentVersion) { _, _ in
             folderManager.refreshContents()
@@ -115,8 +156,26 @@ struct FavoritesGridView: View {
         .sheet(item: $reelTarget) { target in
             FolderReelExportSheet(
                 folderName: target.folderName,
+                clips: target.clips
+            )
+        }
+        .sheet(item: $carouselTarget) { target in
+            ShareRallySheet(favoriteClips: target.clips, title: target.title)
+        }
+        .sheet(item: $clipPickerTarget) { target in
+            ClipPickerSheet(
+                title: target.title,
                 clips: target.clips,
-                mode: target.mode
+                maxSelection: ShareRallyViewModel.maxClipsPerPost,
+                onConfirm: { selected in
+                    clipPickerTarget = nil
+                    // Let the picker sheet finish dismissing before presenting
+                    // the share sheet (same pattern as alert-after-sheet).
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        carouselTarget = CarouselTarget(title: target.title, clips: selected)
+                    }
+                },
+                onCancel: { clipPickerTarget = nil }
             )
         }
         .alert("Remove Favorite?", isPresented: Binding(
@@ -197,50 +256,64 @@ struct FavoritesGridView: View {
 
     // MARK: - Folders
 
+    @ViewBuilder
     private var foldersSection: some View {
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: BSCSpacing.sm), count: 2),
-            spacing: BSCSpacing.sm
-        ) {
-            ForEach(folders, id: \.id) { folder in
-                BSCFolderCard(
-                    folder: folder,
-                    displayMode: .grid,
-                    onTap: {
-                        withAnimation(.bscSpring) {
-                            folderManager.navigateToFolder(folder.path)
-                        }
-                    },
-                    onRename: { newName in
-                        Task {
-                            do { try await folderManager.renameFolder(folder, to: newName) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename folder", style: .error) }
-                        }
-                    },
-                    onDelete: {
-                        Task {
-                            do { try await folderManager.deleteFolder(folder) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't delete folder", style: .error) }
-                        }
-                    },
-                    onExportHighlight: folder.videoCount > 0 ? {
-                        presentReel(folderName: folder.name, videos: mediaStore.getVideos(in: folder.path), mode: .saveToPhotos)
-                    } : nil,
-                    onPostToCommunity: folder.videoCount > 0 ? {
-                        presentReel(folderName: folder.name, videos: mediaStore.getVideos(in: folder.path), mode: .postToCommunity)
-                    } : nil
-                )
-                .dropDestination(for: VideoMetadata.self) { droppedVideos, _ in
-                    guard let video = droppedVideos.first else { return false }
-                    Task {
-                        do { try await folderManager.moveVideoToFolder(video, targetFolderPath: folder.path) }
-                        catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
-                    }
-                    return true
+        if viewMode == .grid {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: BSCSpacing.sm), count: 2),
+                spacing: BSCSpacing.sm
+            ) {
+                ForEach(folders, id: \.id) { folder in
+                    folderCard(folder, displayMode: .grid)
                 }
             }
+            .padding(.horizontal, BSCSpacing.lg)
+        } else {
+            LazyVStack(spacing: BSCSpacing.sm) {
+                ForEach(folders, id: \.id) { folder in
+                    folderCard(folder, displayMode: .list)
+                }
+            }
+            .padding(.horizontal, BSCSpacing.lg)
         }
-        .padding(.horizontal, BSCSpacing.lg)
+    }
+
+    private func folderCard(_ folder: FolderMetadata, displayMode: BSCFolderCard.DisplayMode) -> some View {
+        BSCFolderCard(
+            folder: folder,
+            displayMode: displayMode,
+            onTap: {
+                withAnimation(.bscSpring) {
+                    folderManager.navigateToFolder(folder.path)
+                }
+            },
+            onRename: { newName in
+                Task {
+                    do { try await folderManager.renameFolder(folder, to: newName) }
+                    catch { mutationToast = BSCToastMessage(text: "Couldn't rename folder", style: .error) }
+                }
+            },
+            onDelete: {
+                Task {
+                    do { try await folderManager.deleteFolder(folder) }
+                    catch { mutationToast = BSCToastMessage(text: "Couldn't delete folder", style: .error) }
+                }
+            },
+            onExportHighlight: folder.videoCount > 0 ? {
+                presentStitchExport(folderName: folder.name, videos: mediaStore.getVideos(in: folder.path))
+            } : nil,
+            onPostToCommunity: folder.videoCount > 0 ? {
+                preparePost(title: folder.name, videos: mediaStore.getVideos(in: folder.path))
+            } : nil
+        )
+        .dropDestination(for: VideoMetadata.self) { droppedVideos, _ in
+            guard let video = droppedVideos.first else { return false }
+            Task {
+                do { try await folderManager.moveVideoToFolder(video, targetFolderPath: folder.path) }
+                catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
+            }
+            return true
+        }
     }
 
     // MARK: - Videos Grid
@@ -261,25 +334,109 @@ struct FavoritesGridView: View {
                 .accessibilityIdentifier("favorites.gridCell.\(index)")
                 .draggable(video)
                 .contextMenu {
-                    Button {
-                        renameTarget = video
-                    } label: {
-                        Label("Rename", systemImage: "pencil")
-                    }
-                    Button {
-                        moveTarget = video
-                    } label: {
-                        Label("Move to Folder", systemImage: "folder")
-                    }
-                    Button(role: .destructive) {
-                        videoToDelete = video
-                    } label: {
-                        Label("Remove Favorite", systemImage: "star.slash")
-                    }
+                    clipContextMenu(for: video)
                 }
             }
         }
         .padding(.horizontal, BSCSpacing.xs)
+    }
+
+    // MARK: - Videos List
+
+    private var videosList: some View {
+        LazyVStack(spacing: BSCSpacing.sm) {
+            ForEach(Array(videos.enumerated()), id: \.element.id) { index, video in
+                Button {
+                    selectedIndex = index
+                } label: {
+                    listRow(video)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(video.displayName)
+                .accessibilityIdentifier("favorites.listRow.\(index)")
+                .draggable(video)
+                .contextMenu {
+                    clipContextMenu(for: video)
+                }
+            }
+        }
+        .padding(.horizontal, BSCSpacing.lg)
+    }
+
+    private func listRow(_ video: VideoMetadata) -> some View {
+        HStack(spacing: BSCSpacing.md) {
+            VideoThumbnailView(thumbnailURL: nil, videoURL: video.originalURL)
+                .frame(width: 88, height: 60)
+                .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
+
+            VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
+                Text(video.displayName)
+                    .bscFont(size: 15, weight: .medium)
+                    .foregroundColor(.bscTextPrimary)
+                    .lineLimit(1)
+
+                HStack(spacing: BSCSpacing.xs) {
+                    if let duration = video.duration {
+                        Text(formatDuration(duration))
+                            .bscFont(size: 12, design: .monospaced)
+                    }
+                    Text(video.createdDate.formatted(date: .abbreviated, time: .omitted))
+                        .bscFont(size: 12)
+                }
+                .foregroundColor(.bscTextSecondary)
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .bscFont(size: 12)
+                .foregroundColor(.bscTextSecondary)
+        }
+        .padding(BSCSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                .fill(Color.bscSurfaceGlass)
+        )
+        .contentShape(Rectangle())
+    }
+
+    // MARK: - Clip Context Menu
+
+    /// Shared clip actions (grid + list): manage, post as a single-rally
+    /// community post, or save the clip (trim + watermark applied) to Photos.
+    @ViewBuilder
+    private func clipContextMenu(for video: VideoMetadata) -> some View {
+        Button {
+            renameTarget = video
+        } label: {
+            Label("Rename", systemImage: "pencil")
+        }
+        Button {
+            moveTarget = video
+        } label: {
+            Label("Move to Folder", systemImage: "folder")
+        }
+
+        Divider()
+
+        Button {
+            preparePost(title: video.displayName, videos: [video])
+        } label: {
+            Label("Post to Community", systemImage: "paperplane")
+        }
+        Button {
+            presentStitchExport(folderName: video.displayName, videos: [video])
+        } label: {
+            Label("Save to Photos", systemImage: "square.and.arrow.down")
+        }
+
+        Divider()
+
+        Button(role: .destructive) {
+            videoToDelete = video
+        } label: {
+            Label("Remove Favorite", systemImage: "star.slash")
+        }
     }
 
     private func gridCell(_ video: VideoMetadata) -> some View {
@@ -322,6 +479,7 @@ struct FavoritesGridView: View {
         }
         ToolbarItem(placement: .navigationBarTrailing) {
             HStack(spacing: BSCSpacing.md) {
+                // Sort + view menu, matching the library's control
                 Menu {
                     Picker("Sort", selection: $sortOption) {
                         ForEach(ContentSortOption.allCases, id: \.self) { option in
@@ -329,35 +487,49 @@ struct FavoritesGridView: View {
                                 .tag(option)
                         }
                     }
+
+                    Divider()
+
+                    Picker("View", selection: $viewMode) {
+                        ForEach(ViewMode.allCases, id: \.self) { mode in
+                            Label(mode.rawValue, systemImage: mode.icon)
+                                .tag(mode)
+                        }
+                    }
                 } label: {
-                    BSCIconButton(icon: "arrow.up.arrow.down", style: .ghost, size: .compact, accessibilityLabel: "Sort options") {}
+                    BSCIconButton(icon: "slider.horizontal.3", style: .ghost, size: .compact, accessibilityLabel: "Sort and view options") {}
                         .allowsHitTesting(false)
                 }
                 .accessibilityIdentifier(AccessibilityID.Favorites.sortMenu)
 
-                BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact, accessibilityLabel: "Create new folder") {
-                    showingCreateFolder = true
+                if folderManager.isAtLibraryRoot {
+                    BSCIconButton(icon: "folder.badge.plus", style: .ghost, size: .compact, accessibilityLabel: "Create new folder") {
+                        showingCreateFolder = true
+                    }
+                    .accessibilityIdentifier(AccessibilityID.Favorites.createFolder)
                 }
-                .accessibilityIdentifier(AccessibilityID.Favorites.createFolder)
 
-                // Reel actions for what's on screen (root = un-filed favorites only).
-                Menu {
-                    Button {
-                        presentReel(folderName: title, videos: videos, mode: .saveToPhotos)
+                // Folder actions — only inside a folder; the favorites root is
+                // never posted or exported wholesale.
+                if !folderManager.isAtLibraryRoot {
+                    Menu {
+                        Button {
+                            preparePost(title: title, videos: videos)
+                        } label: {
+                            Label("Post to Community", systemImage: "paperplane")
+                        }
+                        Button {
+                            presentStitchExport(folderName: title, videos: videos)
+                        } label: {
+                            Label("Export Highlight Video", systemImage: "film.stack")
+                        }
                     } label: {
-                        Label("Export Highlight Video", systemImage: "film.stack")
+                        BSCIconButton(icon: "ellipsis", style: .ghost, size: .compact, accessibilityLabel: "Folder actions") {}
+                            .allowsHitTesting(false)
                     }
-                    Button {
-                        presentReel(folderName: title, videos: videos, mode: .postToCommunity)
-                    } label: {
-                        Label("Post to Community", systemImage: "paperplane")
-                    }
-                } label: {
-                    BSCIconButton(icon: "ellipsis", style: .ghost, size: .compact, accessibilityLabel: "Folder actions") {}
-                        .allowsHitTesting(false)
+                    .disabled(videos.isEmpty)
+                    .accessibilityIdentifier(AccessibilityID.Favorites.folderMenu)
                 }
-                .disabled(videos.isEmpty)
-                .accessibilityIdentifier(AccessibilityID.Favorites.folderMenu)
             }
         }
     }
@@ -444,50 +616,98 @@ struct FavoritesGridView: View {
         }
     }
 
-    // MARK: - Highlight Reel
+    // MARK: - Highlight Reel & Posting
 
-    /// Resolve the folder's videos into stitch clips (createdDate order, each
-    /// with its favorites-feed trim applied), then present the export sheet.
-    private func presentReel(folderName: String, videos: [VideoMetadata], mode: FolderReelExportSheet.Mode) {
-        Task {
-            let clips = await reelClips(from: videos)
-            guard !clips.isEmpty else {
-                mutationToast = BSCToastMessage(text: "No clips to stitch", style: .error)
-                return
-            }
-            reelTarget = ReelTarget(folderName: folderName, clips: clips, mode: mode)
-        }
+    /// One clip resolved for export/posting: file, optional trim window, and
+    /// effective duration.
+    private struct ResolvedClip {
+        let video: VideoMetadata
+        let timeRange: CMTimeRange?
+        let duration: Double
     }
 
-    private func reelClips(from videos: [VideoMetadata]) async -> [VideoExporter.StitchClip] {
+    /// Resolve videos into clips (createdDate order), applying each clip's
+    /// favorites-feed trim (a single adjustment stored under index 0).
+    private func resolvedClips(from videos: [VideoMetadata]) async -> [ResolvedClip] {
         let store = MetadataStore()
-        var clips: [VideoExporter.StitchClip] = []
+        var clips: [ResolvedClip] = []
         for video in videos.sorted(by: { $0.createdDate < $1.createdDate }) {
-            // Favorites clips store a single trim under index 0 (set in the feed).
+            let assetDuration = try? await AVURLAsset(url: video.originalURL).load(.duration)
+            let durationSecs = assetDuration.map(CMTimeGetSeconds) ?? (video.duration ?? 0)
+            guard durationSecs > 0 else { continue }
+
             guard let adj = store.loadTrimAdjustments(for: video.id)[0],
                   adj.before < 0 || adj.after < 0 else {
-                clips.append(VideoExporter.StitchClip(url: video.originalURL))
-                continue
-            }
-            let duration = try? await AVURLAsset(url: video.originalURL).load(.duration)
-            let durationSecs = duration.map(CMTimeGetSeconds) ?? 0
-            guard durationSecs > 0 else {
-                clips.append(VideoExporter.StitchClip(url: video.originalURL))
+                clips.append(ResolvedClip(video: video, timeRange: nil, duration: durationSecs))
                 continue
             }
             // Negative before/after cut into the clip; positive extends don't
             // apply to standalone favorites clips (they start/end at the file).
             let start = max(0, -adj.before)
             let end = min(durationSecs, max(start + 0.1, durationSecs + min(0, adj.after)))
-            clips.append(VideoExporter.StitchClip(
-                url: video.originalURL,
+            clips.append(ResolvedClip(
+                video: video,
                 timeRange: CMTimeRange(
                     start: CMTime(seconds: start, preferredTimescale: 600),
                     end: CMTime(seconds: end, preferredTimescale: 600)
-                )
+                ),
+                duration: end - start
             ))
         }
         return clips
+    }
+
+    /// Export Highlight Video: stitch everything into ONE video for Photos.
+    /// No clip-count or duration caps.
+    private func presentStitchExport(folderName: String, videos: [VideoMetadata]) {
+        Task {
+            let clips = await resolvedClips(from: videos).map {
+                VideoExporter.StitchClip(url: $0.video.originalURL, timeRange: $0.timeRange)
+            }
+            guard !clips.isEmpty else {
+                mutationToast = BSCToastMessage(text: "No clips to stitch", style: .error)
+                return
+            }
+            reelTarget = ReelTarget(folderName: folderName, clips: clips)
+        }
+    }
+
+    /// Post to Community: ONE swipeable multi-rally post. Clips over the
+    /// single-rally limit are skipped with a notice; folders with more than
+    /// the per-post maximum open a picker to choose which clips to include.
+    private func preparePost(title: String, videos: [VideoMetadata]) {
+        Task {
+            let all = await resolvedClips(from: videos).map {
+                FavoriteShareClip(
+                    url: $0.video.originalURL,
+                    timeRange: $0.timeRange,
+                    duration: $0.duration,
+                    displayName: $0.video.displayName
+                )
+            }
+            let eligible = all.filter { $0.duration <= ShareRallyViewModel.maxDurationSeconds }
+            let skipped = all.count - eligible.count
+
+            guard !eligible.isEmpty else {
+                mutationToast = BSCToastMessage(
+                    text: all.isEmpty ? "No clips to post" : "All clips are over 1 minute",
+                    style: .error
+                )
+                return
+            }
+            if skipped > 0 {
+                mutationToast = BSCToastMessage(
+                    text: "\(skipped) \(skipped == 1 ? "clip" : "clips") over 1 minute skipped",
+                    style: .info
+                )
+            }
+
+            if eligible.count > ShareRallyViewModel.maxClipsPerPost {
+                clipPickerTarget = ClipPickerTarget(title: title, clips: eligible)
+            } else {
+                carouselTarget = CarouselTarget(title: title, clips: eligible)
+            }
+        }
     }
 
     // MARK: - Actions

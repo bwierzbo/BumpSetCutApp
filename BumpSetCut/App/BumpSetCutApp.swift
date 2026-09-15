@@ -33,6 +33,8 @@ import AVFoundation
             AppSettings.shared.hasSeenRallyTips = true
             UserDefaults.standard.set(true, forKey: "hasUsedRallyTrim")
             AppSettings.shared.hasUsedRallyTrim = true
+            UserDefaults.standard.set(true, forKey: "hasSeenFavoritesOnboarding")
+            AppSettings.shared.hasSeenFavoritesOnboarding = true
 
             // Clear library for a clean test slate
             if CommandLine.arguments.contains("--clear-library") {

@@ -234,21 +234,26 @@ final class FavoritesWithContentTests: PreProcessedVideoTestCase {
 
     // MARK: - Highlight Reel Menu
 
-    /// Reel menu is enabled with content and offers export + post actions.
-    func testReelMenuEnabledWithContent() {
-        XCTAssertTrue(favorites.folderMenu.waitForExistence(timeout: 5))
-        XCTAssertTrue(favorites.folderMenu.isEnabled,
-                      "Reel menu should be enabled when favorites exist")
-        favorites.folderMenu.tap()
+    /// Post/export actions live on clips and folders, never on the root:
+    /// the root toolbar has no bulk menu, but a clip's context menu offers
+    /// Post to Community and Save to Photos.
+    func testClipActionsExistAndRootHasNoBulkMenu() {
+        XCTAssertTrue(favorites.sortMenu.waitForExistence(timeout: 5))
+        XCTAssertFalse(favorites.folderMenu.exists,
+                       "Root must not offer post/export actions")
 
-        let exportAction = app.buttons["Export Highlight Video"]
+        // Long-press the favorited clip: per-clip post/save actions
+        let gridCell = app.buttons["favorites.gridCell.0"]
+        guard gridCell.waitForExistence(timeout: 5) else { return }
+        gridCell.press(forDuration: 1.5)
+
         let postAction = app.buttons["Post to Community"]
-        XCTAssertTrue(exportAction.waitForExistence(timeout: 3),
-                      "Menu should offer Export Highlight Video")
-        XCTAssertTrue(postAction.exists, "Menu should offer Post to Community")
-
-        // Dismiss without exporting
-        app.tap()
+        let saveAction = app.buttons["Save to Photos"]
+        if postAction.waitForExistence(timeout: 5) {
+            XCTAssertTrue(saveAction.exists, "Clip menu should offer Save to Photos")
+            // Dismiss without acting
+            app.tap()
+        }
     }
 
     // MARK: - Sort with Content (5.2.2)

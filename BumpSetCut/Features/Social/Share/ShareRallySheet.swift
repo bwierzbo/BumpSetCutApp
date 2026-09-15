@@ -20,10 +20,6 @@ struct ShareRallySheet: View {
     @State private var showLocationPicker = false
     @FocusState private var isCaptionFocused: Bool
 
-    // Prepared-file (reel) preview
-    @State private var reelPlayer: AVPlayer?
-    @State private var reelLoopObserver: Any?
-
     private let preloadRadius = 4
 
     init(originalVideoURL: URL, rallyVideoURLs: [URL], savedRallyIndices: [Int],
@@ -43,20 +39,37 @@ struct ShareRallySheet: View {
         ))
     }
 
-    /// Post an already-stitched highlight reel as one post. The caller owns
-    /// (and later deletes) the prepared temp file.
-    init(preparedFileURL: URL, duration: Double, clipCount: Int, title: String) {
+    /// Post favorites clips (separate files) as ONE swipeable multi-rally post.
+    init(favoriteClips: [FavoriteShareClip], title: String) {
         _viewModel = State(initialValue: ShareRallyViewModel(
-            preparedFileURL: preparedFileURL,
-            duration: duration,
-            clipCount: clipCount,
+            favoriteClips: favoriteClips,
             title: title
         ))
     }
 
-    private var isPreparedFile: Bool {
-        if case .preparedFile = viewModel.source { return true }
+    private var isFavoriteClips: Bool {
+        if case .favoriteClips = viewModel.source { return true }
         return false
+    }
+
+    /// Pages in the preview carousel, source-agnostic.
+    private var pageCount: Int {
+        isFavoriteClips ? viewModel.favoriteClips.count : viewModel.savedRallyIndices.count
+    }
+
+    /// Per-page playback: which file, and the loop window inside it.
+    private func playbackConfig(forPage page: Int) -> (url: URL, start: Double, end: Double)? {
+        if isFavoriteClips {
+            guard page < viewModel.favoriteClips.count else { return nil }
+            let clip = viewModel.favoriteClips[page]
+            let start = clip.timeRange.map { CMTimeGetSeconds($0.start) } ?? 0
+            let end = clip.timeRange.map { CMTimeGetSeconds($0.end) } ?? clip.duration
+            return (clip.url, start, max(end, start + 0.1))
+        }
+        guard page < viewModel.savedRallyIndices.count else { return nil }
+        let rallyIndex = viewModel.savedRallyIndices[page]
+        guard let info = viewModel.rallyInfo[rallyIndex] else { return nil }
+        return (viewModel.originalVideoURL, info.startTime, info.endTime)
     }
 
     var body: some View {
@@ -66,9 +79,10 @@ struct ShareRallySheet: View {
 
                 ScrollView {
                     VStack(spacing: BSCSpacing.lg) {
-                        // Rally video carousel (or single reel preview)
-                        if isPreparedFile {
-                            reelPreview
+                        // Rally video carousel (source video rallies, or
+                        // favorites clips as one swipeable post)
+                        if isFavoriteClips {
+                            favoriteClipsCarousel
                         } else {
                             rallyCarousel
                         }
@@ -96,7 +110,7 @@ struct ShareRallySheet: View {
                     uploadOverlay
                 }
             }
-            .navigationTitle(isPreparedFile ? "Share Highlight Reel" : "Share Rally")
+            .navigationTitle(isFavoriteClips ? "Share Rallies" : "Share Rally")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -113,26 +127,19 @@ struct ShareRallySheet: View {
             .interactiveDismissDisabled(isUploadBusy)
         }
         .onAppear {
-            if isPreparedFile {
-                setupReelPlayer()
-            } else {
-                carouselSelection = viewModel.selectedPage
-                updatePlayerPool(activePage: viewModel.selectedPage)
-            }
+            carouselSelection = viewModel.selectedPage
+            updatePlayerPool(activePage: viewModel.selectedPage)
         }
         .onDisappear { cleanupAllPlayers() }
         .onChange(of: carouselSelection) { _, newPage in
-            guard !isPreparedFile else { return }
             viewModel.selectedPage = newPage
             updatePlayerPool(activePage: newPage)
         }
         .onChange(of: isCaptionFocused) { _, focused in
             if focused {
                 playerPool[viewModel.selectedPage]?.pause()
-                reelPlayer?.pause()
             } else {
                 playerPool[viewModel.selectedPage]?.play()
-                reelPlayer?.play()
             }
         }
         .onChange(of: viewModel.state) { _, newState in
@@ -156,58 +163,60 @@ struct ShareRallySheet: View {
         }
     }
 
-    // MARK: - Reel Preview (prepared file)
+    // MARK: - Favorite Clips Carousel (multi-rally post preview)
 
-    private var reelPreview: some View {
+    private var favoriteClipsCarousel: some View {
         VStack(spacing: BSCSpacing.sm) {
-            ZStack {
-                Color.bscSurfaceGlass
+            TabView(selection: $carouselSelection) {
+                ForEach(Array(viewModel.favoriteClips.enumerated()), id: \.element.id) { pageIndex, clip in
+                    let isCurrent = pageIndex == viewModel.selectedPage
 
-                if let reelPlayer {
-                    CustomVideoPlayerView(
-                        player: reelPlayer,
-                        gravity: .resizeAspect,
-                        onReadyForDisplay: { _ in }
-                    )
-                    .allowsHitTesting(false)
+                    ZStack(alignment: .bottomLeading) {
+                        // File-based thumbnail while the player warms up
+                        VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url)
+
+                        if let pagePlayer = playerPool[pageIndex] {
+                            CustomVideoPlayerView(
+                                player: pagePlayer,
+                                gravity: .resizeAspectFill,
+                                onReadyForDisplay: { _ in }
+                            )
+                            .allowsHitTesting(false)
+                        }
+
+                        Text(clip.displayName)
+                            .bscFont(size: 13, weight: .bold)
+                            .foregroundColor(.bscOnMedia)
+                            .lineLimit(1)
+                            .padding(.horizontal, BSCSpacing.sm)
+                            .padding(.vertical, BSCSpacing.xxs)
+                            .background(Capsule().fill(Color.bscMediaScrimBase.opacity(0.7)))
+                            .padding(BSCSpacing.sm)
+                    }
+                    .clipped()
+                    .opacity(isCurrent ? 1.0 : 0.85)
+                    .animation(.bscQuick, value: isCurrent)
+                    .tag(pageIndex)
                 }
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
             .aspectRatio(16/9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous))
 
-            if case .preparedFile(_, let duration, let clipCount, let title) = viewModel.source {
+            // Page dots
+            if viewModel.favoriteClips.count > 1 {
                 HStack(spacing: BSCSpacing.xs) {
-                    Image(systemName: "film.stack")
-                        .bscFont(size: 12)
-                    Text("\(title) · \(clipCount) \(clipCount == 1 ? "clip" : "clips") · \(formatReelDuration(duration))")
-                        .bscFont(size: 13, weight: .medium)
-                        .lineLimit(1)
+                    ForEach(viewModel.favoriteClips.indices, id: \.self) { i in
+                        Circle()
+                            .fill(i == viewModel.selectedPage ? Color.bscPrimary : Color.bscTextSecondary.opacity(0.6))
+                            .frame(width: 8, height: 8)
+                            .animation(.bscQuick, value: viewModel.selectedPage)
+                    }
                 }
-                .foregroundColor(.bscTextSecondary)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Rally \(viewModel.selectedPage + 1) of \(viewModel.favoriteClips.count)")
             }
         }
-    }
-
-    private func formatReelDuration(_ seconds: Double) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
-    }
-
-    private func setupReelPlayer() {
-        guard reelPlayer == nil, case .preparedFile(let url, _, _, _) = viewModel.source else { return }
-        let player = AVPlayer(url: url)
-        player.isMuted = true
-        reelLoopObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem,
-            queue: .main
-        ) { [weak player] _ in
-            player?.seek(to: .zero)
-            player?.play()
-        }
-        player.play()
-        reelPlayer = player
     }
 
     // MARK: - Rally Carousel
@@ -298,7 +307,7 @@ struct ShareRallySheet: View {
     // MARK: - Player Pool Management
 
     private func updatePlayerPool(activePage: Int) {
-        let pageCount = viewModel.savedRallyIndices.count
+        guard pageCount > 0 else { return }
         let lo = max(0, activePage - preloadRadius)
         let hi = min(pageCount - 1, activePage + preloadRadius)
         let visibleRange = lo...hi
@@ -315,14 +324,13 @@ struct ShareRallySheet: View {
 
         // Create players for pages in the window that don't have one
         for pageIndex in visibleRange {
-            let rallyIndex = viewModel.savedRallyIndices[pageIndex]
-            guard let info = viewModel.rallyInfo[rallyIndex] else { continue }
+            guard let config = playbackConfig(forPage: pageIndex) else { continue }
 
             if playerPool[pageIndex] == nil {
-                let player = AVPlayer(url: viewModel.originalVideoURL)
+                let player = AVPlayer(url: config.url)
                 player.automaticallyWaitsToMinimizeStalling = false
-                let startTime = CMTimeMakeWithSeconds(info.startTime, preferredTimescale: 600)
-                let endTime = CMTimeMakeWithSeconds(info.endTime, preferredTimescale: 600)
+                let startTime = CMTimeMakeWithSeconds(config.start, preferredTimescale: 600)
+                let endTime = CMTimeMakeWithSeconds(config.end, preferredTimescale: 600)
 
                 player.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
 
@@ -364,14 +372,6 @@ struct ShareRallySheet: View {
         }
         playerPool.removeAll()
         loopObservers.removeAll()
-
-        if let reelLoopObserver {
-            NotificationCenter.default.removeObserver(reelLoopObserver)
-        }
-        reelLoopObserver = nil
-        reelPlayer?.pause()
-        reelPlayer?.replaceCurrentItem(with: nil)
-        reelPlayer = nil
     }
 
     // MARK: - Caption
@@ -588,12 +588,13 @@ struct ShareRallySheet: View {
 
     private var rallyInfo: some View {
         VStack(spacing: BSCSpacing.xs) {
-            if isPreparedFile {
-                if viewModel.isReelTooLong {
-                    Label("Highlight reels must be under 5 minutes", systemImage: "exclamationmark.triangle.fill")
-                        .bscFont(size: 12, weight: .medium)
-                        .foregroundColor(.bscErrorText)
+            if isFavoriteClips {
+                HStack(spacing: BSCSpacing.lg) {
+                    Label("\(viewModel.postCount) \(viewModel.postCount == 1 ? "rally" : "rallies")", systemImage: "square.stack")
+                    Label("\(String(format: "%.1f", viewModel.totalDuration))s total", systemImage: "timer")
                 }
+                .bscFont(size: 12)
+                .foregroundColor(.bscTextSecondary)
             } else if viewModel.postAllSaved && viewModel.savedRallyIndices.count > 1 {
                 HStack(spacing: BSCSpacing.lg) {
                     Label("\(viewModel.postCount) rallies", systemImage: "square.stack")
@@ -711,7 +712,7 @@ struct ShareRallySheet: View {
 
     private var postButton: some View {
         let canPost = viewModel.state == .idle && (!viewModel.isTooLong || viewModel.postAllSaved)
-            && !viewModel.isReelTooLong && viewModel.isPollValid
+            && viewModel.isPollValid
         return Button("Post") {
             isCaptionFocused = false
             if authService.isAuthenticated {

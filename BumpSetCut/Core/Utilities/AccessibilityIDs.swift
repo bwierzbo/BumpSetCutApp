@@ -69,6 +69,8 @@ enum AccessibilityID {
         static let folderMenu = "favorites.folderMenu"
         static let exportReel = "favorites.exportReel"
         static let postReel = "favorites.postReel"
+        static let clipPickerConfirm = "favorites.clipPicker.confirm"
+        static let tipsOverlay = "favorites.tipsOverlay"
         static let feedClose = "favorites.feed.close"
         static let feedCounter = "favorites.feed.counter"
         static let feedPauseIcon = "favorites.feed.pauseIcon"

@@ -2,10 +2,10 @@
 //  FolderReelExportSheet.swift
 //  BumpSetCut
 //
-//  Stitches a favorites collection into ONE highlight reel, then either saves
-//  it to Photos (with share) or hands it to the community share sheet as one
-//  post. Mirrors the RallyExportProgress pattern: storage preflight,
-//  background task, cancel, retry, haptics.
+//  Stitches favorites clips into ONE highlight video saved to Photos (with
+//  share). Community posting is NOT stitched — it goes through the
+//  multi-rally ShareRallySheet instead. Mirrors the RallyExportProgress
+//  pattern: storage preflight, background task, cancel, retry, haptics.
 //
 
 import SwiftUI
@@ -13,21 +13,8 @@ import AVFoundation
 import UIKit
 
 struct FolderReelExportSheet: View {
-    enum Mode {
-        case saveToPhotos
-        case postToCommunity
-
-        var title: String {
-            switch self {
-            case .saveToPhotos: return "Export Highlight Video"
-            case .postToCommunity: return "Post Highlight Reel"
-            }
-        }
-    }
-
     let folderName: String
     let clips: [VideoExporter.StitchClip]
-    let mode: Mode
 
     @Environment(\.dismiss) private var dismiss
     @State private var exportStatus: RallyExportStatus = .preparing
@@ -36,33 +23,8 @@ struct FolderReelExportSheet: View {
     @State private var storageError: String?
     @State private var exportedURL: URL?
     @State private var showShareSheet = false
-    /// Non-nil swaps the sheet content to the community share flow (post mode).
-    @State private var preparedReel: PreparedReel?
-
-    struct PreparedReel {
-        let url: URL
-        let duration: Double
-    }
 
     var body: some View {
-        if let preparedReel {
-            // Post mode, stitch done: the share sheet takes over in-place.
-            // The stitched temp file is deleted when this sheet leaves the screen.
-            ShareRallySheet(
-                preparedFileURL: preparedReel.url,
-                duration: preparedReel.duration,
-                clipCount: clips.count,
-                title: folderName
-            )
-            .onDisappear {
-                try? FileManager.default.removeItem(at: preparedReel.url)
-            }
-        } else {
-            exportContent
-        }
-    }
-
-    private var exportContent: some View {
         NavigationView {
             VStack(spacing: BSCSpacing.xxl) {
                 Spacer()
@@ -102,7 +64,7 @@ struct FolderReelExportSheet: View {
             }
             .padding(BSCSpacing.xl)
             .background(Color.bscBackground)
-            .navigationTitle(mode.title)
+            .navigationTitle("Export Highlight Video")
             .navigationBarTitleDisplayMode(.inline)
         }
         .onAppear {
@@ -288,16 +250,6 @@ struct FolderReelExportSheet: View {
             return
         }
 
-        // Community posts are capped; fail before the (slow) stitch.
-        if mode == .postToCommunity {
-            let totalDuration = await totalClipDuration()
-            if totalDuration > ShareRallyViewModel.maxReelDurationSeconds {
-                exportStatus = .failed("Highlight reels must be under 5 minutes")
-                UINotificationFeedbackGenerator.error()
-                return
-            }
-        }
-
         // Survive app backgrounding during the stitch.
         let bgTaskId = UIApplication.shared.beginBackgroundTask {
             self.exportTask?.cancel()
@@ -319,27 +271,14 @@ struct FolderReelExportSheet: View {
                 }
             }
 
-            switch mode {
-            case .saveToPhotos:
-                let url = try await exporter.exportStitchedClipsToPhotoLibrary(
-                    clips, addWatermark: addWatermark, progressHandler: progressHandler
-                )
-                try Task.checkCancellation()
-                exportedURL = url
-                exportProgress = 1.0
-                exportStatus = .completed
-                UINotificationFeedbackGenerator.success()
-
-            case .postToCommunity:
-                let url = try await exporter.exportStitchedClips(
-                    clips, addWatermark: addWatermark, progressHandler: progressHandler
-                )
-                try Task.checkCancellation()
-                let duration = (try? await CMTimeGetSeconds(AVURLAsset(url: url).load(.duration))) ?? 0
-                UINotificationFeedbackGenerator.success()
-                // Swap to the community share sheet in-place.
-                preparedReel = PreparedReel(url: url, duration: duration)
-            }
+            let url = try await exporter.exportStitchedClipsToPhotoLibrary(
+                clips, addWatermark: addWatermark, progressHandler: progressHandler
+            )
+            try Task.checkCancellation()
+            exportedURL = url
+            exportProgress = 1.0
+            exportStatus = .completed
+            UINotificationFeedbackGenerator.success()
         } catch is CancellationError {
             cleanupOrphanedStitchFiles()
         } catch {
@@ -351,21 +290,6 @@ struct FolderReelExportSheet: View {
             }
             UINotificationFeedbackGenerator.error()
         }
-    }
-
-    /// Sum of the clips' effective durations (trim ranges when set, full
-    /// duration otherwise). Used for the community-post length cap.
-    private func totalClipDuration() async -> Double {
-        var total = 0.0
-        for clip in clips {
-            if let range = clip.timeRange, range.duration.isNumeric {
-                total += CMTimeGetSeconds(range.duration)
-            } else {
-                let duration = try? await AVURLAsset(url: clip.url).load(.duration)
-                total += duration.map { CMTimeGetSeconds($0) } ?? 0
-            }
-        }
-        return total
     }
 
     private func cleanupExportedFile() {
