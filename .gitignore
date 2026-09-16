@@ -39,3 +39,4 @@ supabase/.temp/
 
 # RallyLab test artifacts
 BumpSetCut/Resources/ML/test.png
+__pycache__/
