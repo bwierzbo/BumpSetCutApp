@@ -13,9 +13,14 @@ struct OnboardingPage: Identifiable {
     /// Pages that do something beyond Next — the footer adapts its buttons.
     enum Kind {
         case info
+        /// Explains Photos access (background iCloud imports), then the
+        /// primary button triggers the real system prompt ("Not Now" skips).
+        case photoLibrary
         /// Explains notifications, then the primary button triggers the real
         /// system prompt (with a "Not Now" escape).
         case notifications
+
+        var isPermission: Bool { self != .info }
     }
 
     let id = UUID()
@@ -51,6 +56,13 @@ struct OnboardingPage: Identifiable {
             description: "Browse rallies in a full-screen swipe feed. Save your favorites or remove clips you don't need.",
             icon: "play.circle.fill",
             color: .bscPrimary
+        ),
+        OnboardingPage(
+            title: "Import Straight from iCloud",
+            description: "Allow Photos access so the videos you pick download in the background — even big ones still in iCloud. Keep using the app while they arrive.",
+            icon: "photo.on.rectangle.angled",
+            color: .bscTealText,
+            kind: .photoLibrary
         ),
         OnboardingPage(
             title: "Stay in the Loop",

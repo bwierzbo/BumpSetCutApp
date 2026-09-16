@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Photos
 import UserNotifications
 
 // MARK: - Onboarding View
@@ -63,12 +64,12 @@ struct OnboardingView: View {
                 OnboardingFooter(
                     currentPage: currentPage,
                     totalPages: pages.count,
-                    isNotificationsPage: pages[currentPage].kind == .notifications,
+                    kind: pages[currentPage].kind,
                     onNext: {
-                        if pages[currentPage].kind == .notifications {
-                            enableNotifications()
-                        } else {
-                            advance()
+                        switch pages[currentPage].kind {
+                        case .photoLibrary: requestPhotoAccess()
+                        case .notifications: enableNotifications()
+                        case .info: advance()
                         }
                     },
                     onNotNow: advance
@@ -105,6 +106,20 @@ struct OnboardingView: View {
         Task {
             _ = try? await UNUserNotificationCenter.current()
                 .requestAuthorization(options: [.alert, .sound, .badge])
+            advance()
+        }
+    }
+
+    /// Photos access lets imports download from iCloud in the background
+    /// (PhotoKit path). Declining just means the first iCloud import asks
+    /// instead, or falls back to the foreground-only picker transfer.
+    private func requestPhotoAccess() {
+        guard !CommandLine.arguments.contains("--uitesting") else {
+            advance()
+            return
+        }
+        Task {
+            _ = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
             advance()
         }
     }
@@ -151,7 +166,7 @@ struct OnboardingView: View {
 private struct OnboardingFooter: View {
     let currentPage: Int
     let totalPages: Int
-    let isNotificationsPage: Bool
+    let kind: OnboardingPage.Kind
     let onNext: () -> Void
     let onNotNow: () -> Void
 
@@ -161,12 +176,20 @@ private struct OnboardingFooter: View {
 
     private var primaryTitle: String {
         if isLastPage { return "Get Started" }
-        return isNotificationsPage ? "Enable Notifications" : "Next"
+        switch kind {
+        case .photoLibrary: return "Allow Photos Access"
+        case .notifications: return "Enable Notifications"
+        case .info: return "Next"
+        }
     }
 
     private var primaryIcon: String? {
         if isLastPage { return nil }
-        return isNotificationsPage ? "bell.fill" : "arrow.right"
+        switch kind {
+        case .photoLibrary: return "photo.on.rectangle"
+        case .notifications: return "bell.fill"
+        case .info: return "arrow.right"
+        }
     }
 
     var body: some View {
@@ -203,7 +226,7 @@ private struct OnboardingFooter: View {
             .padding(.horizontal, BSCSpacing.xl)
             .accessibilityIdentifier(isLastPage ? AccessibilityID.Onboarding.getStarted : AccessibilityID.Onboarding.next)
 
-            // "Not Now" escape for the notifications page. Always laid out so
+            // "Not Now" escape for the permission pages. Always laid out so
             // the footer height doesn't jump between pages; hidden elsewhere.
             Button(action: onNotNow) {
                 Text("Not Now")
@@ -212,9 +235,9 @@ private struct OnboardingFooter: View {
                     .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
                     .contentShape(Rectangle())
             }
-            .opacity(isNotificationsPage ? 1 : 0)
-            .allowsHitTesting(isNotificationsPage)
-            .accessibilityHidden(!isNotificationsPage)
+            .opacity(kind.isPermission ? 1 : 0)
+            .allowsHitTesting(kind.isPermission)
+            .accessibilityHidden(!kind.isPermission)
             .accessibilityIdentifier(AccessibilityID.Onboarding.notNow)
         }
     }
