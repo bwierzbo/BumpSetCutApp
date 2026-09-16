@@ -87,7 +87,8 @@ struct HomeView: View {
             selection: $selectedPhotoItems,
             maxSelectionCount: 1,
             matching: .videos,
-            preferredItemEncoding: .current // deliver original bytes; avoid slow re-encode on import
+            preferredItemEncoding: .current, // deliver original bytes; avoid slow re-encode on import
+            photoLibrary: .shared() // items carry a PhotoKit identifier → background-capable iCloud fetch
         )
         .onChange(of: selectedPhotoItems) { _, items in
             if let item = items.first {
@@ -740,7 +741,8 @@ struct UnprocessedVideoPickerSheet: View {
                 selection: $selectedImportItems,
                 maxSelectionCount: 1,
                 matching: .videos,
-                preferredItemEncoding: .current // deliver original bytes; avoid slow re-encode on import
+                preferredItemEncoding: .current, // deliver original bytes; avoid slow re-encode on import
+                photoLibrary: .shared() // items carry a PhotoKit identifier → background-capable iCloud fetch
             )
             .onChange(of: selectedImportItems) { _, items in
                 guard let item = items.first else { return }

@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import Photos
 import PhotosUI
 import AVFoundation
 import UniformTypeIdentifiers
@@ -65,6 +66,8 @@ final class UploadCoordinator {
     /// the real lifeline for iCloud downloads that outlive backgrounding.
     @ObservationIgnored private let importGuard = BackgroundProcessingGuard()
     @ObservationIgnored private var importProgressHandle: Progress?
+    /// In-flight PhotoKit resource download (the background-capable path).
+    @ObservationIgnored private var importResourceRequest: PHAssetResourceDataRequestID?
     @ObservationIgnored private var importWasCancelled = false
     // Ties loadTransferable callbacks to the import that created them — a cancelled
     // import's late completion must not tear down a newer import's progress/handle
@@ -125,6 +128,10 @@ final class UploadCoordinator {
     private func tearDownImport() {
         importWasCancelled = true
         importGeneration += 1
+        if let requestID = importResourceRequest {
+            PHAssetResourceManager.default().cancelDataRequest(requestID)
+            importResourceRequest = nil
+        }
         importProgressHandle?.cancel()
         importProgressObservation?.invalidate()
         importProgressObservation = nil
@@ -282,7 +289,15 @@ extension UploadCoordinator {
 
         let videoURL: URL?
         do {
-            videoURL = try await loadVideoWithRetry(from: item)
+            // PhotoKit first: it downloads with real progress and keeps going
+            // while the continued-processing task holds the app alive. The
+            // picker's own transfer only works in the foreground.
+            if let identifier = item.itemIdentifier,
+               let url = try await loadVideoViaPhotoKit(identifier: identifier) {
+                videoURL = url
+            } else {
+                videoURL = try await loadVideoWithRetry(from: item)
+            }
         } catch {
             // User cancellation resumes with an error too — don't surface an alert for it.
             if importWasCancelled {
@@ -354,6 +369,74 @@ extension UploadCoordinator {
         }
 
         await handleUploadCompletion()
+    }
+
+    /// Materialize the picked asset through PhotoKit instead of the picker's
+    /// out-of-process transfer. PhotoKit streams the iCloud download to us with
+    /// genuine progress and continues while our process is alive under the
+    /// continued-processing task — the picker transfer stalls the moment the
+    /// app leaves the foreground, which the system then reports as a failed
+    /// task. Returns nil when PhotoKit can't serve this asset (library access
+    /// declined, or the asset isn't in a limited selection) so the caller
+    /// falls back to the picker path.
+    private func loadVideoViaPhotoKit(identifier: String) async throws -> URL? {
+        var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if status == .notDetermined {
+            status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        }
+        guard status == .authorized || status == .limited else { return nil }
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject,
+              asset.mediaType == .video else { return nil }
+
+        // The edited render when one exists (what the picker's `.current`
+        // delivers), otherwise the original.
+        let resources = PHAssetResource.assetResources(for: asset)
+        guard let resource = resources.first(where: { $0.type == .fullSizeVideo })
+                ?? resources.first(where: { $0.type == .video }) else { return nil }
+
+        let ext = UTType(resource.uniformTypeIdentifier)?.preferredFilenameExtension ?? "mov"
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("import_\(UUID().uuidString).\(ext)")
+        guard FileManager.default.createFile(atPath: tempURL.path, contents: nil) else { return nil }
+        let handle = try FileHandle(forWritingTo: tempURL)
+
+        importGeneration += 1
+        let gen = importGeneration
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.progressHandler = { [weak self] fraction in
+            Task { @MainActor in
+                guard let self, gen == self.importGeneration else { return }
+                self.importProgress = fraction
+                ProcessingBackgroundKeeper.importing.updateProgress(fraction, subtitle: self.currentVideoName)
+            }
+        }
+
+        let manager = PHAssetResourceManager.default()
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                // Chunks arrive on PhotoKit's queue in order; stream them
+                // straight to disk so a multi-GB video never sits in memory.
+                let requestID = manager.requestData(for: resource, options: options) { chunk in
+                    try? handle.write(contentsOf: chunk)
+                } completionHandler: { error in
+                    try? handle.close()
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
+                }
+                importResourceRequest = requestID
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
+        }
+        if gen == importGeneration {
+            importResourceRequest = nil
+        }
+        return tempURL
     }
 
     /// Backoff between import attempts. iCloud-only videos routinely fail the

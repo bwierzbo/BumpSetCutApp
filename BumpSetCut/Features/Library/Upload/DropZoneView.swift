@@ -105,7 +105,8 @@ struct EnhancedUploadButton: View {
             selection: $selectedItems,
             maxSelectionCount: 1, // Limited to single video for now
             matching: .videos,
-            preferredItemEncoding: .current // deliver original bytes; avoid slow re-encode on import
+            preferredItemEncoding: .current, // deliver original bytes; avoid slow re-encode on import
+            photoLibrary: .shared() // items carry a PhotoKit identifier → background-capable iCloud fetch
         )
         .onChange(of: selectedItems) { _, items in
             if !items.isEmpty, let item = items.first {

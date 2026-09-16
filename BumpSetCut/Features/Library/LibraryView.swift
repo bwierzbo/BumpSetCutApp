@@ -106,7 +106,8 @@ struct LibraryView: View {
                 selection: $selectedPhotoItems,
                 maxSelectionCount: 1,
                 matching: .videos,
-                preferredItemEncoding: .current // deliver original bytes; avoid slow re-encode on import
+                preferredItemEncoding: .current, // deliver original bytes; avoid slow re-encode on import
+                photoLibrary: .shared() // items carry a PhotoKit identifier → background-capable iCloud fetch
             )
             .onChange(of: selectedPhotoItems) { _, items in
                 if !items.isEmpty, let item = items.first {
