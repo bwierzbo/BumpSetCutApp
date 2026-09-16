@@ -28,6 +28,7 @@ extension EnvironmentValues {
 
 struct MainTabView: View {
     @State private var selectedTab: AppTab = .home
+    @State private var followToast: BSCToastMessage?
     @State private var mediaStore: MediaStore
     @State private var metadataStore = MetadataStore()
     @State private var navigationState = AppNavigationState()
@@ -161,6 +162,14 @@ struct MainTabView: View {
         } message: {
             Text(uploadCoordinator.importErrorMessage)
         }
+        .bscToast($followToast)
+        .onChange(of: SocialNotificationService.shared.followToast) { _, message in
+            // A follow arrived while the app is active — surface it on whatever
+            // tab the user is on.
+            guard let message else { return }
+            followToast = BSCToastMessage(text: message, style: .success)
+            SocialNotificationService.shared.followToast = nil
+        }
         .environment(uploadCoordinator)
         .environment(navigationState)
         .environment(\.changeTab, { tab in
@@ -187,7 +196,11 @@ struct MainTabView: View {
                     ProcessVideoView(
                         videoURL: videoURL,
                         mediaStore: store,
-                        onComplete: { showProcessingView = false }
+                        // Completion must NOT dismiss: the view transitions to
+                        // its results summary (rally count, time cut, View
+                        // Rallies) — auto-closing it here made the pill's
+                        // "tap to view" open and instantly vanish.
+                        onComplete: {}
                     )
                 }
             }

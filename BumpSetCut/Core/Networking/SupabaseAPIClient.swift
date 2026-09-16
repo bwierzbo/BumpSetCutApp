@@ -510,6 +510,44 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .value
             return try safeCast(rows)
 
+        // MARK: Notifications
+
+        case .getNotifications(let page):
+            let myId = try await currentUserId()
+            let pageSize = 30
+            let from = page * pageSize
+            let to = from + pageSize - 1
+            let notifications: [SocialNotification] = try await supabase
+                .from("notifications")
+                .select("*, actor:profiles!actor_id(*)")
+                .eq("recipient_id", value: myId)
+                .order("created_at", ascending: false)
+                .range(from: from, to: to)
+                .execute()
+                .value
+            return try safeCast(notifications)
+
+        case .getUnreadNotificationCount:
+            let myId = try await currentUserId()
+            let count = try await supabase
+                .from("notifications")
+                .select("id", head: true, count: .exact)
+                .eq("recipient_id", value: myId)
+                .is("read_at", value: nil)
+                .execute()
+                .count ?? 0
+            return try safeCast(count)
+
+        case .markAllNotificationsRead:
+            let myId = try await currentUserId()
+            try await supabase
+                .from("notifications")
+                .update(["read_at": Date().ISO8601Format()])
+                .eq("recipient_id", value: myId)
+                .is("read_at", value: nil)
+                .execute()
+            return try safeCast(EmptyResponse())
+
         // MARK: Auth (handled via Supabase Auth, not DB)
 
         case .refreshToken, .signOut:

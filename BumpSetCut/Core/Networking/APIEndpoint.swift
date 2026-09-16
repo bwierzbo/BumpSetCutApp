@@ -64,6 +64,11 @@ enum APIEndpoint {
     case getMyPollVote(pollId: String)
     case getMyPollVotes(pollIds: [String])
 
+    // Notifications
+    case getNotifications(page: Int)
+    case getUnreadNotificationCount
+    case markAllNotificationsRead
+
     // Upload
     case createUploadURL
 
@@ -106,6 +111,9 @@ enum APIEndpoint {
         case .votePoll: return "/poll_votes"
         case .getMyPollVote(let pollId): return "/polls/\(pollId)/my-vote"
         case .getMyPollVotes: return "/poll_votes/mine"
+        case .getNotifications: return "/notifications"
+        case .getUnreadNotificationCount: return "/notifications/unread-count"
+        case .markAllNotificationsRead: return "/notifications/read-all"
         case .createUploadURL: return "/uploads"
         }
     }
@@ -122,7 +130,7 @@ enum APIEndpoint {
             return .post
         case .deleteHighlight, .deleteComment, .unlikeHighlight, .unlikeComment, .unfollow, .unblockUser:
             return .delete
-        case .updateProfile:
+        case .updateProfile, .markAllNotificationsRead:
             return .patch
         default:
             return .get

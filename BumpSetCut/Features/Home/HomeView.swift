@@ -30,6 +30,9 @@ struct HomeView: View {
     // Onboarding state
     @State private var showingOnboarding = false
 
+    // Social notifications
+    @State private var showingNotifications = false
+
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isLandscape: Bool { verticalSizeClass == .compact }
@@ -55,12 +58,20 @@ struct HomeView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                settingsButton
+                HStack(spacing: BSCSpacing.sm) {
+                    if authService.isAuthenticated {
+                        notificationsButton
+                    }
+                    settingsButton
+                }
             }
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
                 .environment(appSettings)
+        }
+        .sheet(isPresented: $showingNotifications) {
+            NotificationCenterView()
         }
         .photosPicker(
             isPresented: $showingPhotoPicker,
@@ -370,6 +381,28 @@ struct HomeView: View {
         }
         .accessibilityIdentifier(AccessibilityID.Home.settings)
         .accessibilityLabel("Settings")
+    }
+
+    // MARK: - Notifications Button
+    private var notificationsButton: some View {
+        let unread = SocialNotificationService.shared.unreadCount
+        return BSCIconButton(icon: "bell.fill", style: .glass, size: .compact) {
+            showingNotifications = true
+        }
+        .overlay(alignment: .topTrailing) {
+            if unread > 0 {
+                Text(unread > 99 ? "99+" : "\(unread)")
+                    .bscFont(size: 11, weight: .bold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.bscError))
+                    .offset(x: 6, y: -6)
+                    .allowsHitTesting(false)
+            }
+        }
+        .accessibilityIdentifier(AccessibilityID.Home.notifications)
+        .accessibilityLabel(unread > 0 ? "Notifications, \(unread) unread" : "Notifications")
     }
 }
 
@@ -693,7 +726,9 @@ struct UnprocessedVideoPickerSheet: View {
                 ProcessVideoView(
                     videoURL: video.url,
                     mediaStore: mediaStore,
-                    onComplete: { dismiss() }
+                    // Keep the results summary on screen after completion —
+                    // the user dismisses it (or taps View Rallies) themselves.
+                    onComplete: {}
                 )
             }
             .onAppear {
@@ -782,7 +817,8 @@ struct UnprocessedVideoPickerSheet: View {
         return ProcessVideoView(
             videoURL: videoURL,
             mediaStore: mediaStore,
-            onComplete: { dismiss() }
+            // Keep the results summary on screen after completion.
+            onComplete: {}
         )
     }
 

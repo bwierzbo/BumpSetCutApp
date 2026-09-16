@@ -25,8 +25,12 @@ final class AuthenticationService {
             guard authState != oldValue else { return }
             if authState == .authenticated {
                 Task { await ModerationService.shared.ensureBlocksLoaded() }
+                if let userId = currentUser?.id {
+                    SocialNotificationService.shared.start(userId: userId)
+                }
             } else if authState == .unauthenticated {
                 ModerationService.shared.resetForSignOut()
+                SocialNotificationService.shared.stop()
             }
         }
     }
