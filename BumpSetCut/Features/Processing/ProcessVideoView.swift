@@ -257,11 +257,18 @@ private extension ProcessVideoView {
                 .bscFont(size: 14, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
 
+            // Reflects what leaving actually does: with a continued-processing
+            // task (iOS 26+) the run follows the user out; otherwise
+            // checkpoints mean leaving only pauses it.
             HStack(spacing: BSCSpacing.xs) {
-                Image(systemName: "exclamationmark.triangle.fill")
+                Image(systemName: ProcessingBackgroundKeeper.shared.isActive
+                      ? "checkmark.circle.fill" : "info.circle.fill")
                     .bscFont(size: 11)
-                    .foregroundColor(.bscWarningText)
-                Text("Keep BumpSetCut open while processing. Switching apps may interrupt the analysis.")
+                    .foregroundColor(ProcessingBackgroundKeeper.shared.isActive
+                                     ? .bscSuccessText : .bscTextSecondary)
+                Text(ProcessingBackgroundKeeper.shared.isActive
+                     ? "You can leave the app — processing continues in the background and you'll get a notification when it's done."
+                     : "You can leave the app — progress is saved, and processing picks up where it left off next time.")
                     .bscFont(size: 12)
                     .foregroundColor(.bscTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
