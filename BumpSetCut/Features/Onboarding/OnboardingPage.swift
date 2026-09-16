@@ -10,11 +10,20 @@ import SwiftUI
 // MARK: - Onboarding Page
 
 struct OnboardingPage: Identifiable {
+    /// Pages that do something beyond Next — the footer adapts its buttons.
+    enum Kind {
+        case info
+        /// Explains notifications, then the primary button triggers the real
+        /// system prompt (with a "Not Now" escape).
+        case notifications
+    }
+
     let id = UUID()
     let title: String
     let description: String
     let icon: String
     let color: Color
+    var kind: Kind = .info
 
     // MARK: - All Pages
 
@@ -42,6 +51,13 @@ struct OnboardingPage: Identifiable {
             description: "Browse rallies in a full-screen swipe feed. Save your favorites or remove clips you don't need.",
             icon: "play.circle.fill",
             color: .bscPrimary
+        ),
+        OnboardingPage(
+            title: "Stay in the Loop",
+            description: "Get a heads-up the moment your rallies are ready, and when teammates follow, like, or comment on your posts.",
+            icon: "bell.badge.fill",
+            color: .bscBlue,
+            kind: .notifications
         ),
         OnboardingPage(
             title: "You're Ready!",

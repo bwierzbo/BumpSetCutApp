@@ -37,6 +37,7 @@ enum AccessibilityID {
         static let skip = "onboarding.skip"
         static let next = "onboarding.next"
         static let getStarted = "onboarding.getStarted"
+        static let notNow = "onboarding.notNow"
         static func page(_ index: Int) -> String { "onboarding.page.\(index)" }
     }
 
@@ -145,6 +146,12 @@ enum AccessibilityID {
         static let cancelButton = "process.cancelButton"
         static let viewRallies = "process.viewRallies"
         static let doneButton = "process.doneButton"
+    }
+
+    enum Upload {
+        static let pill = "upload.pill"
+        static let cancelButton = "upload.cancelButton"
+        static let doneButton = "upload.doneButton"
     }
 
     enum RallyPlayer {

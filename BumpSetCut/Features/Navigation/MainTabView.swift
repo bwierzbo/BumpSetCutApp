@@ -34,7 +34,7 @@ struct MainTabView: View {
     @State private var navigationState = AppNavigationState()
     @State private var uploadCoordinator: UploadCoordinator
     @State private var showProcessingView = false
-    @State private var showCancelUploadDialog = false
+    @State private var showUploadView = false
     @State private var showLowStorageBanner = false
     @State private var lowStorageAvailable: Int64 = 0
     @State private var lowStorageDismissed = false
@@ -142,10 +142,6 @@ struct MainTabView: View {
         .animation(.bscSpring, value: uploadCoordinator.showCompleted)
         .animation(.bscSpring, value: flywheelService.isDraining)
         .animation(.bscSpring, value: showLowStorageBanner)
-        .confirmationDialog("Cancel upload?", isPresented: $showCancelUploadDialog, titleVisibility: .visible) {
-            Button("Cancel Upload", role: .destructive) { uploadCoordinator.cancelImport() }
-            Button("Keep Uploading", role: .cancel) {}
-        }
         .alert("Storage Full", isPresented: Binding(
             get: { uploadCoordinator.showStorageWarning },
             set: { uploadCoordinator.showStorageWarning = $0 }
@@ -204,6 +200,9 @@ struct MainTabView: View {
                     )
                 }
             }
+        }
+        .sheet(isPresented: $showUploadView) {
+            UploadProgressSheet(uploadCoordinator: uploadCoordinator)
         }
         .onOpenURL { url in handleDeepLink(url) }
         .fullScreenCover(item: $deepLinkedHighlight) { highlight in
@@ -265,14 +264,13 @@ struct MainTabView: View {
         return "\(processingCoordinator.videoName) \u{2022} \(leaveNote)"
     }
 
-    /// Video import pill — mirrors the processing pill's style. Shown while a
-    /// video is importing from Photos (incl. iCloud download) so the user can
-    /// keep using the app. Tapping offers a cancel confirmation.
+    /// Video import pill — mirrors the processing pill. Shown while a video is
+    /// importing from Photos (incl. iCloud download) so the user can keep
+    /// using the app. Tapping opens the import sheet, where it can be
+    /// cancelled — the same interaction as the processing pill.
     private var videoUploadPill: some View {
         Button {
-            if !uploadCoordinator.showCompleted {
-                showCancelUploadDialog = true
-            }
+            showUploadView = true
         } label: {
             if uploadCoordinator.showCompleted {
                 BSCStatusPill(title: "Upload complete!") {
@@ -313,6 +311,7 @@ struct MainTabView: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(AccessibilityID.Upload.pill)
     }
 
     /// Flywheel upload pill — mirrors the processing pill's style. Shown while

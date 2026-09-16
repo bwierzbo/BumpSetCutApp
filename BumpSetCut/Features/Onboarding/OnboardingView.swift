@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 // MARK: - Onboarding View
 
@@ -62,15 +63,15 @@ struct OnboardingView: View {
                 OnboardingFooter(
                     currentPage: currentPage,
                     totalPages: pages.count,
+                    isNotificationsPage: pages[currentPage].kind == .notifications,
                     onNext: {
-                        if currentPage < pages.count - 1 {
-                            withAnimation(.bscStandard) {
-                                currentPage += 1
-                            }
+                        if pages[currentPage].kind == .notifications {
+                            enableNotifications()
                         } else {
-                            onComplete()
+                            advance()
                         }
-                    }
+                    },
+                    onNotNow: advance
                 )
                 .padding(.bottom, BSCSpacing.xl)
             }
@@ -80,6 +81,31 @@ struct OnboardingView: View {
             withAnimation(.bscStandard) {
                 hasAppeared = true
             }
+        }
+    }
+
+    private func advance() {
+        if currentPage < pages.count - 1 {
+            withAnimation(.bscStandard) {
+                currentPage += 1
+            }
+        } else {
+            onComplete()
+        }
+    }
+
+    /// Show the real system prompt from the page that explains it, then move
+    /// on whatever the answer. Under UI testing the alert would block
+    /// automation, so the page just advances.
+    private func enableNotifications() {
+        guard !CommandLine.arguments.contains("--uitesting") else {
+            advance()
+            return
+        }
+        Task {
+            _ = try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound, .badge])
+            advance()
         }
     }
 
@@ -125,10 +151,22 @@ struct OnboardingView: View {
 private struct OnboardingFooter: View {
     let currentPage: Int
     let totalPages: Int
+    let isNotificationsPage: Bool
     let onNext: () -> Void
+    let onNotNow: () -> Void
 
     private var isLastPage: Bool {
         currentPage == totalPages - 1
+    }
+
+    private var primaryTitle: String {
+        if isLastPage { return "Get Started" }
+        return isNotificationsPage ? "Enable Notifications" : "Next"
+    }
+
+    private var primaryIcon: String? {
+        if isLastPage { return nil }
+        return isNotificationsPage ? "bell.fill" : "arrow.right"
     }
 
     var body: some View {
@@ -143,14 +181,14 @@ private struct OnboardingFooter: View {
                 }
             }
 
-            // Next / Get Started button
+            // Next / Enable Notifications / Get Started button
             Button(action: onNext) {
                 HStack(spacing: BSCSpacing.sm) {
-                    Text(isLastPage ? "Get Started" : "Next")
+                    Text(primaryTitle)
                         .bscFont(size: 18, weight: .bold)
 
-                    if !isLastPage {
-                        Image(systemName: "arrow.right")
+                    if let primaryIcon {
+                        Image(systemName: primaryIcon)
                             .bscFont(size: 16, weight: .bold)
                     }
                 }
@@ -164,6 +202,20 @@ private struct OnboardingFooter: View {
             .buttonStyle(OnboardingButtonStyle())
             .padding(.horizontal, BSCSpacing.xl)
             .accessibilityIdentifier(isLastPage ? AccessibilityID.Onboarding.getStarted : AccessibilityID.Onboarding.next)
+
+            // "Not Now" escape for the notifications page. Always laid out so
+            // the footer height doesn't jump between pages; hidden elsewhere.
+            Button(action: onNotNow) {
+                Text("Not Now")
+                    .bscFont(size: 16, weight: .medium)
+                    .foregroundColor(.bscTextSecondary)
+                    .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
+            }
+            .opacity(isNotificationsPage ? 1 : 0)
+            .allowsHitTesting(isNotificationsPage)
+            .accessibilityHidden(!isNotificationsPage)
+            .accessibilityIdentifier(AccessibilityID.Onboarding.notNow)
         }
     }
 }

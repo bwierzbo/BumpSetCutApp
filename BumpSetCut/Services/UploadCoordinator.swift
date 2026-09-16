@@ -78,11 +78,32 @@ final class UploadCoordinator {
     /// Keep the import alive across backgrounding: continued-processing task
     /// on iOS 26+ (system progress UI), 30s grace window otherwise.
     @MainActor private func beginImportContinuation() {
-        ProcessingBackgroundKeeper.importing.onSystemCancel = { [weak self] in
+        let keeper = ProcessingBackgroundKeeper.importing
+        keeper.onSystemCancel = { [weak self] in
             self?.cancelImport()
         }
-        ProcessingBackgroundKeeper.importing.begin(subtitle: currentVideoName)
-        importGuard.begin(onExpiring: {})
+        // An import can't checkpoint: once the system ends the continued task
+        // the transfer is about to be frozen, so fail it visibly rather than
+        // leave a pill that never finishes.
+        keeper.onExpiration = { [weak self] in
+            self?.interruptImport()
+        }
+        keeper.begin(subtitle: currentVideoName)
+        importGuard.begin(onExpiring: { [weak self] in
+            // Legacy 30s window ran out with nothing keeping us alive — the
+            // app is about to suspend mid-transfer.
+            guard let self, !keeper.isActive else { return }
+            self.interruptImport()
+        })
+    }
+
+    /// The transfer is about to be frozen by suspension and can't resume.
+    /// Tear it down and tell the user — a stuck pill was the alternative.
+    @MainActor private func interruptImport() {
+        guard isUploadInProgress, !importWasCancelled else { return }
+        tearDownImport()
+        importErrorMessage = "The import stopped because BumpSetCut went to the background before it finished. Keep the app open while importing, then try again."
+        showImportError = true
     }
 
     @MainActor private func endImportContinuation(success: Bool) {
@@ -96,6 +117,12 @@ final class UploadCoordinator {
     /// The underlying `loadTransferable` resumes with a cancellation error, which
     /// `processItem` treats as a user cancellation (no error alert).
     func cancelImport() {
+        tearDownImport()
+    }
+
+    /// Stop the in-flight transfer and clear pill state. A late
+    /// `loadTransferable` result is discarded silently via `importWasCancelled`.
+    private func tearDownImport() {
         importWasCancelled = true
         importGeneration += 1
         importProgressHandle?.cancel()

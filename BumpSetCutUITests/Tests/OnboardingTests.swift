@@ -38,8 +38,10 @@ final class OnboardingTests: BSCUITestCase {
         let onboarding = OnboardingScreen(app: app)
         XCTAssertTrue(onboarding.page(0).waitForExistence(timeout: 10))
 
-        // Navigate through pages 0-3 using Next
-        for pageIndex in 0..<4 {
+        // Navigate through pages 0-4 using Next (the notifications page's
+        // "Enable Notifications" button carries the same identifier and just
+        // advances under --uitesting — no system prompt).
+        for pageIndex in 0..<5 {
             XCTAssertTrue(onboarding.page(pageIndex).exists, "Page \(pageIndex) should be visible")
             XCTAssertTrue(onboarding.nextButton.waitForExistence(timeout: 3))
             onboarding.nextButton.tap()
@@ -47,8 +49,28 @@ final class OnboardingTests: BSCUITestCase {
             sleep(1)
         }
 
-        // Page 4 (last page) should now be visible with "Get Started"
+        // Page 5 (last page) should now be visible with "Get Started"
+        XCTAssertTrue(onboarding.page(5).waitForExistence(timeout: 5))
+        XCTAssertTrue(onboarding.getStartedButton.waitForExistence(timeout: 3))
+    }
+
+    func testNotificationsPageOffersNotNow() {
+        let onboarding = OnboardingScreen(app: app)
+        XCTAssertTrue(onboarding.page(0).waitForExistence(timeout: 10))
+
+        // Pages 0-3 are informational; page 4 explains notifications.
+        for _ in 0..<4 {
+            XCTAssertTrue(onboarding.nextButton.waitForExistence(timeout: 3))
+            onboarding.nextButton.tap()
+            sleep(1)
+        }
         XCTAssertTrue(onboarding.page(4).waitForExistence(timeout: 5))
+
+        let notNow = app.descendants(matching: .any)["onboarding.notNow"]
+        XCTAssertTrue(notNow.waitForExistence(timeout: 3), "Notifications page should offer Not Now")
+        notNow.tap()
+
+        XCTAssertTrue(onboarding.page(5).waitForExistence(timeout: 5), "Not Now should advance past the notifications page")
         XCTAssertTrue(onboarding.getStartedButton.waitForExistence(timeout: 3))
     }
 
@@ -67,8 +89,8 @@ final class OnboardingTests: BSCUITestCase {
         let onboarding = OnboardingScreen(app: app)
         XCTAssertTrue(onboarding.nextButton.waitForExistence(timeout: 10))
 
-        // Navigate to last page (5 pages total, need 4 taps)
-        for i in 0..<4 {
+        // Navigate to last page (6 pages total, need 5 taps)
+        for i in 0..<5 {
             let nextBtn = onboarding.nextButton
             XCTAssertTrue(nextBtn.waitForExistence(timeout: 5), "Next button should exist on page \(i)")
             nextBtn.tap()
