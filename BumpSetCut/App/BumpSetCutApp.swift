@@ -20,7 +20,7 @@ import AVFoundation
     init() {
         // Background continuation for video processing (iOS 26+) must
         // register its task handler before anything can submit one.
-        ProcessingBackgroundKeeper.register()
+        ProcessingBackgroundKeeper.registerAll()
 
         #if DEBUG
         // UI Testing launch arguments

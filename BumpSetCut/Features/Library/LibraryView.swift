@@ -27,6 +27,7 @@ struct LibraryView: View {
     @State private var playingVideo: VideoMetadata?
     @State private var viewingRalliesVideo: VideoMetadata?
     @State private var scoringVideo: VideoMetadata?
+    @State private var spaceSaverVideo: VideoMetadata?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
@@ -69,6 +70,13 @@ struct LibraryView: View {
             }
             .fullScreenCover(item: $scoringVideo) { video in
                 GameScoringView(videoMetadata: video)
+            }
+            .sheet(item: $spaceSaverVideo) { video in
+                SpaceSaverSheet(
+                    video: video,
+                    mediaStore: viewModel.folderManager.store,
+                    metadataStore: MetadataStore()
+                )
             }
             .sheet(isPresented: $viewModel.showingCreateFolder) {
                 createFolderSheet
@@ -448,7 +456,8 @@ private extension LibraryView {
                     },
                     onPlayVideo: { playingVideo = video },
                     onViewRallies: { viewingRalliesVideo = video },
-                    onScoreGame: { scoringVideo = video }
+                    onScoreGame: { scoringVideo = video },
+                    onFreeUpSpace: { spaceSaverVideo = video }
                 )
                 .draggable(video)  // Make videos draggable
             }
@@ -486,7 +495,8 @@ private extension LibraryView {
                     },
                     onPlayVideo: { playingVideo = video },
                     onViewRallies: { viewingRalliesVideo = video },
-                    onScoreGame: { scoringVideo = video }
+                    onScoreGame: { scoringVideo = video },
+                    onFreeUpSpace: { spaceSaverVideo = video }
                 )
                 .draggable(video)  // Make videos draggable
             }

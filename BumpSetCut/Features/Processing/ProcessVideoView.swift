@@ -261,12 +261,12 @@ private extension ProcessVideoView {
             // task (iOS 26+) the run follows the user out; otherwise
             // checkpoints mean leaving only pauses it.
             HStack(spacing: BSCSpacing.xs) {
-                Image(systemName: ProcessingBackgroundKeeper.shared.isActive
+                Image(systemName: ProcessingBackgroundKeeper.processing.isActive
                       ? "checkmark.circle.fill" : "info.circle.fill")
                     .bscFont(size: 11)
-                    .foregroundColor(ProcessingBackgroundKeeper.shared.isActive
+                    .foregroundColor(ProcessingBackgroundKeeper.processing.isActive
                                      ? .bscSuccessText : .bscTextSecondary)
-                Text(ProcessingBackgroundKeeper.shared.isActive
+                Text(ProcessingBackgroundKeeper.processing.isActive
                      ? "You can leave the app — processing continues in the background and you'll get a notification when it's done."
                      : "You can leave the app — progress is saved, and processing picks up where it left off next time.")
                     .bscFont(size: 12)

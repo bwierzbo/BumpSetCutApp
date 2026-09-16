@@ -153,14 +153,14 @@ final class ProcessingCoordinator {
                 _ = try? await center.requestAuthorization(options: [.alert, .sound])
             }
         }
-        let keeper = ProcessingBackgroundKeeper.shared
+        let keeper = ProcessingBackgroundKeeper.processing
         keeper.onExpiration = { [weak self] in
             self?.processor.requestCheckpoint()
         }
         keeper.onSystemCancel = { [weak self] in
             self?.cancelProcessing()
         }
-        keeper.begin(videoName: videoName)
+        keeper.begin(subtitle: videoName)
 
         currentTask = Task { [weak self] in
             guard let self else { return }
@@ -172,7 +172,7 @@ final class ProcessingCoordinator {
                     guard let self else { break }
                     await MainActor.run {
                         self.progress = min(1.0, max(0.0, self.processor.progress))
-                        ProcessingBackgroundKeeper.shared.updateProgress(self.progress, videoName: self.videoName)
+                        ProcessingBackgroundKeeper.processing.updateProgress(self.progress, subtitle: self.videoName)
                     }
                 }
             }
@@ -187,7 +187,7 @@ final class ProcessingCoordinator {
                 let task = self.currentTask
                 processor.setBackgroundCancellationHandler { [weak self] in
                     guard let self else { return }
-                    if ProcessingBackgroundKeeper.shared.isActive {
+                    if ProcessingBackgroundKeeper.processing.isActive {
                         self.processor.requestCheckpoint()
                         return
                     }
@@ -323,7 +323,7 @@ final class ProcessingCoordinator {
         showCompletionPill = false
         setKeepAwake(false)
         stopBackgroundObserver()
-        ProcessingBackgroundKeeper.shared.finish(success: false)
+        ProcessingBackgroundKeeper.processing.finish(success: false)
         // The pipeline's resume checkpoint survives a cancel on purpose:
         // processing the same video again picks up where this run stopped.
     }
@@ -367,7 +367,7 @@ final class ProcessingCoordinator {
         currentTask = nil
         setKeepAwake(false)
         stopBackgroundObserver()
-        ProcessingBackgroundKeeper.shared.finish(success: errorMessage == nil)
+        ProcessingBackgroundKeeper.processing.finish(success: errorMessage == nil)
         logger.info("Processing completed for \(self.videoName)")
 
         if noRalliesDetected || errorMessage != nil {
@@ -416,7 +416,7 @@ final class ProcessingCoordinator {
         currentTask = nil
         setKeepAwake(false)
         stopBackgroundObserver()
-        ProcessingBackgroundKeeper.shared.finish(success: false)
+        ProcessingBackgroundKeeper.processing.finish(success: false)
         errorMessage = "Processing was paused — your progress is saved. Start it again to continue."
         didComplete = true
         showCompletionPill = true

@@ -515,10 +515,70 @@ final class VideoExporter {
         )
     }
 
+    /// Same-source trim: keep only `ranges` (in order) of the file at `url`,
+    /// preserving quality via passthrough when the codec allows, re-encoding
+    /// otherwise. Powers "Free Up Space" — the trimmed file replaces the
+    /// original, with rally segment times remapped onto the new timeline.
+    func exportKeepRanges(
+        from url: URL,
+        ranges: [CMTimeRange],
+        to outputURL: URL,
+        fileType: AVFileType,
+        progressHandler: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> URL {
+        guard !ranges.isEmpty else { throw ProcessingError.compositionFailed }
+
+        let asset = AVURLAsset(url: url)
+        guard let vTrack = try await asset.loadTracks(withMediaType: .video).first else {
+            throw ProcessingError.noVideoTrack
+        }
+        let aTrack = try? await asset.loadTracks(withMediaType: .audio).first
+
+        let composition = AVMutableComposition()
+        guard let compV = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw ProcessingError.compositionFailed
+        }
+        let compA = aTrack != nil ? composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
+
+        var currentTime = CMTime.zero
+        for range in ranges {
+            try compV.insertTimeRange(range, of: vTrack, at: currentTime)
+            if let aTrack, let compA {
+                try compA.insertTimeRange(range, of: aTrack, at: currentTime)
+            }
+            currentTime = CMTimeAdd(currentTime, range.duration)
+        }
+        compV.preferredTransform = (try? await vTrack.load(.preferredTransform)) ?? .identity
+
+        // Passthrough first (no quality loss, dramatically faster).
+        do {
+            try? FileManager.default.removeItem(at: outputURL)
+            return try await exportComposition(
+                composition, videoComposition: nil, to: outputURL,
+                preset: AVAssetExportPresetPassthrough, fileType: fileType,
+                progressHandler: progressHandler
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            return try await exportComposition(
+                composition, videoComposition: nil, to: outputURL,
+                preset: AVAssetExportPresetHighestQuality, fileType: fileType,
+                progressHandler: progressHandler
+            )
+        }
+    }
+
     /// Shared progress-reporting export for stitched compositions
     /// (iOS-18 async export vs. the legacy polling path).
-    private func exportComposition(_ composition: AVMutableComposition, videoComposition: AVVideoComposition?, to outputURL: URL, progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
-        guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+    private func exportComposition(
+        _ composition: AVMutableComposition,
+        videoComposition: AVVideoComposition?,
+        to outputURL: URL,
+        preset: String = AVAssetExportPresetHighestQuality,
+        fileType: AVFileType = .mp4,
+        progressHandler: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> URL {
+        guard let exporter = AVAssetExportSession(asset: composition, presetName: preset) else {
             throw ProcessingError.exportSessionFailed("Stitched export session unavailable")
         }
         exporter.videoComposition = videoComposition
@@ -531,13 +591,13 @@ final class VideoExporter {
                     try await Task.sleep(nanoseconds: 100_000_000) // 100ms
                 }
             }
-            try await exporter.export(to: outputURL, as: .mp4)
+            try await exporter.export(to: outputURL, as: fileType)
             pollTask.cancel()
             progressHandler?(1.0)
             return outputURL
         } else {
             exporter.outputURL = outputURL
-            exporter.outputFileType = .mp4
+            exporter.outputFileType = fileType
             exporter.shouldOptimizeForNetworkUse = true
             exporter.exportAsynchronously(completionHandler: {})
 

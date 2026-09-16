@@ -2,15 +2,16 @@
 //  ProcessingBackgroundKeeper.swift
 //  BumpSetCut
 //
-//  Keeps video processing alive when the user leaves the app, on iOS 26+
-//  via BGContinuedProcessingTask: the system shows its own live progress UI
-//  (with a cancel affordance) and lets user-initiated work keep running in
-//  the background. On expiration the pipeline writes a resume checkpoint so
-//  nothing is lost. Older iOS falls back to the ~30s grace window +
-//  checkpoint-on-background (see ProcessingCoordinator).
+//  Keeps long-running, user-initiated work alive when the user leaves the
+//  app, on iOS 26+ via BGContinuedProcessingTask: the system shows its own
+//  live progress UI (with a cancel affordance) and lets the work keep
+//  running in the background. Two instances cover the app's long jobs —
+//  video processing (which additionally checkpoints for resume) and Photos
+//  imports (which can't resume, so continuation is their only lifeline).
+//  Older iOS falls back to the ~30s grace window.
 //
 //  Registration must happen before the first submit — BumpSetCutApp.init
-//  calls `register()` at launch.
+//  calls `registerAll()` at launch.
 //
 
 import BackgroundTasks
@@ -21,34 +22,51 @@ import Observation
 @Observable
 final class ProcessingBackgroundKeeper {
 
-    static let shared = ProcessingBackgroundKeeper()
-    static let taskIdentifier = "app.BumpSetCut.processing"
+    /// Continuation for rally-detection processing runs.
+    static let processing = ProcessingBackgroundKeeper(
+        identifier: "app.BumpSetCut.processing",
+        title: "Detecting rallies"
+    )
 
-    /// True while a continued-processing task is keeping us alive — the
-    /// legacy 30s-guard expiry must NOT cancel processing in that case, and
-    /// the processing pill's copy switches to "free to leave the app".
+    /// Continuation for Photos/iCloud video imports.
+    static let importing = ProcessingBackgroundKeeper(
+        identifier: "app.BumpSetCut.import",
+        title: "Importing video"
+    )
+
+    /// True while a continued-processing task is keeping us alive — legacy
+    /// 30s-guard expiry must NOT cancel the work, and "keep the app open"
+    /// copy switches to "free to leave the app".
     private(set) var isActive = false
 
     @ObservationIgnored private var task: AnyObject?
-    /// Called on system expiration, BEFORE the grace period ends — the
-    /// coordinator uses it to request a pipeline checkpoint.
+    /// Called on system expiration, BEFORE the grace period ends — processing
+    /// uses it to request a pipeline checkpoint.
     @ObservationIgnored var onExpiration: (@MainActor () -> Void)?
     /// Called when the user cancels from the system progress UI.
     @ObservationIgnored var onSystemCancel: (@MainActor () -> Void)?
 
-    private init() {}
+    private let identifier: String
+    private let title: String
 
-    /// Register the launch handler. Must run during app launch, before any
+    private init(identifier: String, title: String) {
+        self.identifier = identifier
+        self.title = title
+    }
+
+    /// Register both launch handlers. Must run during app launch, before any
     /// submit. No-op below iOS 26.
-    static func register() {
+    static func registerAll() {
         guard #available(iOS 26.0, *) else { return }
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: taskIdentifier, using: .main) { task in
-            guard let continued = task as? BGContinuedProcessingTask else {
-                task.setTaskCompleted(success: false)
-                return
-            }
-            MainActor.assumeIsolated {
-                ProcessingBackgroundKeeper.shared.adopt(continued)
+        for keeper in [processing, importing] {
+            BGTaskScheduler.shared.register(forTaskWithIdentifier: keeper.identifier, using: .main) { task in
+                guard let continued = task as? BGContinuedProcessingTask else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                MainActor.assumeIsolated {
+                    keeper.adopt(continued)
+                }
             }
         }
     }
@@ -56,19 +74,19 @@ final class ProcessingBackgroundKeeper {
     /// Submit a continued-processing request for the job that just started.
     /// Must be called while the app is foregrounded. Failure is fine — the
     /// job simply stays foreground-bound like before.
-    func begin(videoName: String) {
+    func begin(subtitle: String) {
         guard #available(iOS 26.0, *) else { return }
         guard task == nil else { return }
         let request = BGContinuedProcessingTaskRequest(
-            identifier: Self.taskIdentifier,
-            title: "Detecting rallies",
-            subtitle: videoName
+            identifier: identifier,
+            title: title,
+            subtitle: subtitle
         )
         request.strategy = .fail
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
-            print("⚠️ ProcessingBackgroundKeeper: submit failed — \(error.localizedDescription)")
+            print("⚠️ ProcessingBackgroundKeeper(\(identifier)): submit failed — \(error.localizedDescription)")
         }
     }
 
@@ -81,24 +99,23 @@ final class ProcessingBackgroundKeeper {
         continued.expirationHandler = { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                // Ask the pipeline to checkpoint at the next idle frame, then
-                // let the coordinator wind the run down gracefully.
+                // Give the job a beat to save state, then wind the task down.
                 self.onExpiration?()
                 self.finish(success: false)
             }
         }
     }
 
-    /// Mirror the coordinator's progress into the system UI.
-    func updateProgress(_ fraction: Double, videoName: String) {
+    /// Mirror the job's progress into the system UI.
+    func updateProgress(_ fraction: Double, subtitle: String) {
         guard #available(iOS 26.0, *), let continued = task as? BGContinuedProcessingTask else { return }
         let clamped = Int64(min(100, max(0, fraction * 100)))
         if continued.progress.completedUnitCount != clamped {
             continued.progress.completedUnitCount = clamped
-            continued.updateTitle("Detecting rallies", subtitle: "\(videoName) · \(clamped)%")
+            continued.updateTitle(title, subtitle: "\(subtitle) · \(clamped)%")
         }
         // The system cancels the task's progress when the user taps cancel
-        // in its UI — surface that as a processing cancel exactly once.
+        // in its UI — surface that as a job cancel exactly once.
         if continued.progress.isCancelled {
             let handler = onSystemCancel
             finish(success: false)
@@ -106,8 +123,8 @@ final class ProcessingBackgroundKeeper {
         }
     }
 
-    /// End the continued-processing task (processing finished, failed, or
-    /// was cancelled). Safe to call when none is active.
+    /// End the continued-processing task (job finished, failed, or was
+    /// cancelled). Safe to call when none is active.
     func finish(success: Bool) {
         guard #available(iOS 26.0, *), let continued = task as? BGContinuedProcessingTask else {
             task = nil

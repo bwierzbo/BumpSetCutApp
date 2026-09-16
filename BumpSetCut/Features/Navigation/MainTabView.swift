@@ -243,7 +243,7 @@ struct MainTabView: View {
     /// task active (iOS 26+) processing follows the user out; otherwise
     /// checkpoints mean leaving only pauses it.
     private var processingETASubtitle: String {
-        let leaveNote = ProcessingBackgroundKeeper.shared.isActive
+        let leaveNote = ProcessingBackgroundKeeper.processing.isActive
             ? "free to leave the app"
             : "progress saves if you leave"
         if let remaining = processingCoordinator.estimatedSecondsRemaining, remaining > 1 {
@@ -271,7 +271,9 @@ struct MainTabView: View {
                 BSCStatusPill(
                     title: "Uploading \(uploadCoordinator.currentVideoName)…",
                     subtitle: uploadCoordinator.uploadProgressText.isEmpty
-                        ? "keep the app open"
+                        ? (ProcessingBackgroundKeeper.importing.isActive
+                           ? "free to leave the app"
+                           : "keep the app open")
                         : uploadCoordinator.uploadProgressText
                 ) {
                     if let fraction = uploadCoordinator.importProgress {

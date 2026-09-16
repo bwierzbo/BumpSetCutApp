@@ -61,6 +61,9 @@ final class UploadCoordinator {
     var importErrorMessage = ""
 
     @ObservationIgnored private var importProgressObservation: NSKeyValueObservation?
+    /// ~30s grace on iOS < 26; on 26+ the continued-processing task below is
+    /// the real lifeline for iCloud downloads that outlive backgrounding.
+    @ObservationIgnored private let importGuard = BackgroundProcessingGuard()
     @ObservationIgnored private var importProgressHandle: Progress?
     @ObservationIgnored private var importWasCancelled = false
     // Ties loadTransferable callbacks to the import that created them — a cancelled
@@ -70,6 +73,21 @@ final class UploadCoordinator {
     init(mediaStore: MediaStore) {
         self.mediaStore = mediaStore
         self.uploadManager = UploadManager(mediaStore: mediaStore)
+    }
+
+    /// Keep the import alive across backgrounding: continued-processing task
+    /// on iOS 26+ (system progress UI), 30s grace window otherwise.
+    @MainActor private func beginImportContinuation() {
+        ProcessingBackgroundKeeper.importing.onSystemCancel = { [weak self] in
+            self?.cancelImport()
+        }
+        ProcessingBackgroundKeeper.importing.begin(subtitle: currentVideoName)
+        importGuard.begin(onExpiring: {})
+    }
+
+    @MainActor private func endImportContinuation(success: Bool) {
+        ProcessingBackgroundKeeper.importing.finish(success: success)
+        importGuard.end()
     }
     
     // MARK: - Public Interface
@@ -87,6 +105,9 @@ final class UploadCoordinator {
         importProgress = nil
         uploadProgressText = ""
         isUploadInProgress = false
+        Task { @MainActor in
+            self.endImportContinuation(success: false)
+        }
     }
 
     var uploadProgress: UploadManager {
@@ -229,6 +250,7 @@ extension UploadCoordinator {
             importWasCancelled = false
             currentVideoName = Self.sanitizedCustomName(customName) ?? "video"
             uploadProgressText = "Importing from Photos…"
+            beginImportContinuation()
         }
 
         let videoURL: URL?
@@ -246,6 +268,7 @@ extension UploadCoordinator {
                 isUploadInProgress = false
                 importErrorMessage = Self.importErrorMessage(for: error)
                 showImportError = true
+                endImportContinuation(success: false)
             }
             return
         }
@@ -264,6 +287,7 @@ extension UploadCoordinator {
                 isUploadInProgress = false
                 importErrorMessage = "The video couldn't be imported from Photos. It may still be downloading from iCloud — open it in the Photos app to finish the download, then try again."
                 showImportError = true
+                endImportContinuation(success: false)
             }
             return
         }
@@ -278,6 +302,7 @@ extension UploadCoordinator {
                 isUploadInProgress = false
                 storageWarningMessage = storageCheck.errorMessage ?? "Not enough storage space"
                 showStorageWarning = true
+                endImportContinuation(success: false)
             }
             try? FileManager.default.removeItem(at: videoURL)
             logger.warning("Upload cancelled: insufficient storage space")
@@ -296,6 +321,7 @@ extension UploadCoordinator {
             await MainActor.run {
                 importProgress = nil
                 isUploadInProgress = false
+                endImportContinuation(success: false)
             }
             return
         }
@@ -338,6 +364,7 @@ extension UploadCoordinator {
                     Task { @MainActor in
                         guard let self, gen == self.importGeneration else { return }
                         self.importProgress = fraction
+                        ProcessingBackgroundKeeper.importing.updateProgress(fraction, subtitle: self.currentVideoName)
                     }
                 }
             }
@@ -440,6 +467,7 @@ extension UploadCoordinator {
         guard !importWasCancelled else { return }
 
         await MainActor.run {
+            endImportContinuation(success: true)
             showCompleted = true
         }
 

@@ -29,6 +29,8 @@ struct BSCVideoCard: View {
     let onViewRallies: () -> Void
     /// Optional game-scoring entry (processed videos only); nil hides the item.
     var onScoreGame: (() -> Void)? = nil
+    /// Optional "Free Up Space" entry (processed videos only); nil hides the item.
+    var onFreeUpSpace: (() -> Void)? = nil
 
     // MARK: - State
     @State private var thumbnail: UIImage?
@@ -481,6 +483,13 @@ struct BSCVideoCard: View {
                     Label("Score Game", systemImage: "sportscourt")
                 }
                 .accessibilityIdentifier(AccessibilityID.GameScoring.entry)
+            }
+
+            if let onFreeUpSpace {
+                Button(action: onFreeUpSpace) {
+                    Label("Free Up Space", systemImage: "internaldrive")
+                }
+                .accessibilityIdentifier(AccessibilityID.SpaceSaver.entry)
             }
             Divider()
         }

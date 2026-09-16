@@ -169,6 +169,11 @@ enum AccessibilityID {
         static let startScoring = "gameScoring.startScoring"
     }
 
+    enum SpaceSaver {
+        static let entry = "spaceSaver.entry"
+        static let confirm = "spaceSaver.confirm"
+    }
+
     enum CollectionPicker {
         static let sheet = "collectionPicker.sheet"
         static let confirmButton = "collectionPicker.confirm"
