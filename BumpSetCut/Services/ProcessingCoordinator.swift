@@ -149,11 +149,14 @@ final class ProcessingCoordinator {
         // First run: ask for real notification permission (alert + sound) so
         // the completion notification banners instead of landing silently in
         // Notification Center. iOS only ever prompts while notDetermined, so
-        // this is a one-time, contextual ask.
-        Task {
-            let center = UNUserNotificationCenter.current()
-            if await center.notificationSettings().authorizationStatus == .notDetermined {
-                _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        // this is a one-time, contextual ask. Skipped under --uitesting: the
+        // system alert blocks XCUITest from seeing the processing screen.
+        if !CommandLine.arguments.contains("--uitesting") {
+            Task {
+                let center = UNUserNotificationCenter.current()
+                if await center.notificationSettings().authorizationStatus == .notDetermined {
+                    _ = try? await center.requestAuthorization(options: [.alert, .sound])
+                }
             }
         }
         let keeper = ProcessingBackgroundKeeper.processing

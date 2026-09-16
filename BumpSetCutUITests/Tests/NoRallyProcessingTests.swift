@@ -30,7 +30,7 @@ final class NoRallyProcessingTests: VideoTestCase {
 
     /// 6.4.1, 6.5.3, 15.4.2 — "No Rallies Detected" message appears after processing
     func testNoRalliesMessageShown() {
-        processScreen.startButton.tap()
+        processScreen.startProcessing()
 
         let noRalliesText = app.staticTexts["No Rallies Detected"]
         XCTAssertTrue(
@@ -41,7 +41,7 @@ final class NoRallyProcessingTests: VideoTestCase {
 
     /// 6.4.2 — Tips are visible when no rallies detected
     func testNoRalliesTipsVisible() {
-        processScreen.startButton.tap()
+        processScreen.startProcessing()
 
         let noRalliesText = app.staticTexts["No Rallies Detected"]
         XCTAssertTrue(noRalliesText.waitForExistence(timeout: 120))
@@ -52,7 +52,7 @@ final class NoRallyProcessingTests: VideoTestCase {
 
     /// 6.4.3 — "Back to Library" button returns to library
     func testBackToLibraryButton() {
-        processScreen.startButton.tap()
+        processScreen.startProcessing()
 
         let noRalliesText = app.staticTexts["No Rallies Detected"]
         XCTAssertTrue(noRalliesText.waitForExistence(timeout: 120))

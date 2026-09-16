@@ -31,14 +31,14 @@ final class ProcessingTests: VideoTestCase {
     }
 
     func testStartShowsProgress() {
-        processScreen.startButton.tap()
+        processScreen.startProcessing()
 
         let analyzingText = app.staticTexts["Analyzing video..."]
         XCTAssertTrue(analyzingText.waitForExistence(timeout: 10), "'Analyzing video...' should appear after starting")
     }
 
     func testCancelProcessing() {
-        processScreen.startButton.tap()
+        processScreen.startProcessing()
 
         // Wait for processing to start
         let analyzingText = app.staticTexts["Analyzing video..."]
@@ -53,17 +53,17 @@ final class ProcessingTests: VideoTestCase {
         XCTAssertTrue(libraryExists || homeExists, "Should navigate back after cancelling")
     }
 
-    /// This test runs real ML inference and may take 60-180 seconds.
-    func testProcessingCompletes() {
-        processScreen.startButton.tap()
-        waitForProcessingComplete(timeout: 180)
+    /// This test runs real ML inference and can take several minutes on a simulator.
+    func testProcessingCompletes() throws {
+        processScreen.startProcessing()
+        try waitForProcessingComplete(timeout: 420)
     }
 
     /// This test runs real ML inference. Processing now auto-saves into the original
     /// video's folder — there is no destination prompt — and lands on the stats screen.
-    func testAutoSaveAfterProcessing() {
-        processScreen.startButton.tap()
-        waitForProcessingComplete(timeout: 180)
+    func testAutoSaveAfterProcessing() throws {
+        processScreen.startProcessing()
+        try waitForProcessingComplete(timeout: 420)
 
         // No "Save to Library" step — the stats screen with "View Rallies" appears directly.
         XCTAssertTrue(
@@ -79,27 +79,28 @@ final class ProcessingTests: VideoTestCase {
     // MARK: - Additional Processing Tests
 
     func testProgressBarAppears() {
-        processScreen.startButton.tap()
+        processScreen.startProcessing()
 
-        // Progress indicator should appear during processing
-        let progressView = app.progressIndicators.firstMatch
+        // "Analyzing video..." shows immediately and gives way to the progress
+        // phase — check it first, then fall back to any progress indicator.
         let analyzingText = app.staticTexts["Analyzing video..."]
-        let hasProgress = progressView.waitForExistence(timeout: 10) || analyzingText.waitForExistence(timeout: 10)
+        let progressView = app.progressIndicators.firstMatch
+        let hasProgress = analyzingText.waitForExistence(timeout: 10) || progressView.waitForExistence(timeout: 10)
         XCTAssertTrue(hasProgress, "Progress indicator or analyzing text should appear after starting")
     }
 
-    func testProcessingShowsRallyCount() {
-        processScreen.startButton.tap()
-        waitForProcessingComplete(timeout: 180)
+    func testProcessingShowsRallyCount() throws {
+        processScreen.startProcessing()
+        try waitForProcessingComplete(timeout: 420)
 
         // After completion, rally count text should appear (e.g., "3 Rallies")
         let ralliesText = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Rall'")).firstMatch
         XCTAssertTrue(ralliesText.waitForExistence(timeout: 5), "Rally count should be displayed after processing")
     }
 
-    func testViewRalliesOpensPlayer() {
-        processScreen.startButton.tap()
-        waitForProcessingComplete(timeout: 180)
+    func testViewRalliesOpensPlayer() throws {
+        processScreen.startProcessing()
+        try waitForProcessingComplete(timeout: 420)
 
         // Processing auto-saves and lands on the stats screen with "View Rallies".
         XCTAssertTrue(
@@ -120,9 +121,9 @@ final class ProcessingTests: VideoTestCase {
         )
     }
 
-    func testDoneButtonDismisses() {
-        processScreen.startButton.tap()
-        waitForProcessingComplete(timeout: 180)
+    func testDoneButtonDismisses() throws {
+        processScreen.startProcessing()
+        try waitForProcessingComplete(timeout: 420)
 
         // Processing auto-saves and lands on the stats screen with a "Done" button.
         XCTAssertTrue(processScreen.doneButton.waitForExistence(timeout: 10), "'Done' button should appear after auto-save")
@@ -134,9 +135,9 @@ final class ProcessingTests: VideoTestCase {
         XCTAssertTrue(libraryExists || homeExists, "Should navigate back after tapping Done")
     }
 
-    func testReprocessingBlocked() {
-        processScreen.startButton.tap()
-        waitForProcessingComplete(timeout: 180)
+    func testReprocessingBlocked() throws {
+        processScreen.startProcessing()
+        try waitForProcessingComplete(timeout: 420)
 
         // Processing auto-saves and lands on the stats screen.
         // "View Rallies" should be visible, NOT the start button.
