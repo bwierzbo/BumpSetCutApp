@@ -48,6 +48,14 @@ struct SettingsView: View {
                             .opacity(hasAppeared ? 1 : 0)
                             .offset(y: hasAppeared ? 0 : 20)
                             .animation(.bscSpring.delay(0.1), value: hasAppeared)
+                        #else
+                        // TestFlight testers get the tier toggle debug builds have
+                        if SubscriptionService.isTestFlight {
+                            testerSection
+                                .opacity(hasAppeared ? 1 : 0)
+                                .offset(y: hasAppeared ? 0 : 20)
+                                .animation(.bscSpring.delay(0.1), value: hasAppeared)
+                        }
                         #endif
 
                         // Appearance section
@@ -305,6 +313,25 @@ struct LimitRow: View {
         }
     }
 }
+
+// MARK: - Tester Section (TestFlight release builds)
+#if !DEBUG
+private extension SettingsView {
+    var testerSection: some View {
+        BSCSettingsSection(title: "TestFlight", subtitle: "Visible to beta testers only", icon: "hammer.fill", iconColor: .bscTealText) {
+            BSCSettingsToggle(
+                title: "Pro Mode",
+                subtitle: "Switch between Pro and Free tier for testing",
+                icon: "crown.fill",
+                isOn: Binding(
+                    get: { subscriptionService.isPro },
+                    set: { subscriptionService.setProStatus($0) }
+                )
+            )
+        }
+    }
+}
+#endif
 
 // MARK: - Debug Section
 #if DEBUG

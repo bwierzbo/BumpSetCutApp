@@ -18,11 +18,25 @@ final class SubscriptionService {
     // MARK: - Public Properties
     var isPro: Bool {
         #if DEBUG
-        return debugForcePro
+        return forcePro
         #else
+        // TestFlight runs against the StoreKit sandbox — real subscriptions
+        // can't exist there, so testers get Pro with a Settings toggle.
+        if Self.isTestFlight { return forcePro }
         return StoreManager.shared.hasActiveSubscription
         #endif
     }
+
+    /// True when this install came through TestFlight: a sandbox receipt with
+    /// no embedded provisioning profile (which would mean an Xcode/Ad Hoc build).
+    static let isTestFlight: Bool = {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        guard Bundle.main.path(forResource: "embedded", ofType: "mobileprovision") == nil else { return false }
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+        #endif
+    }()
 
     // MARK: - Free Tier Limits
     static let weeklyProcessingDurationMinutes: Double = 30 // Free users get 30 min/week
@@ -65,10 +79,11 @@ final class SubscriptionService {
         print("💎 Subscription status refreshed: \(isPro ? "Pro" : "Free")")
     }
 
-    #if DEBUG
-    // MARK: - Testing Helpers (DEBUG ONLY)
+    // MARK: - Tier Override (DEBUG builds + TestFlight installs)
 
-    private(set) var debugForcePro: Bool = {
+    /// Manual Pro/Free override. Consulted by `isPro` only in DEBUG builds and
+    /// TestFlight installs — production App Store builds ignore it entirely.
+    private(set) var forcePro: Bool = {
         // UI tests pass --force-free to exercise the free tier and paywall
         if CommandLine.arguments.contains("--force-free") { return false }
         return UserDefaults.standard.object(forKey: "debug_force_pro") as? Bool ?? true
@@ -76,10 +91,9 @@ final class SubscriptionService {
 
     func setProStatus(_ status: Bool) {
         UserDefaults.standard.set(status, forKey: "debug_force_pro")
-        debugForcePro = status
-        print("💎 [DEBUG] Pro status set to: \(status)")
+        forcePro = status
+        print("💎 Pro override set to: \(status)")
     }
-    #endif
 
     // MARK: - Feature Checks
 
