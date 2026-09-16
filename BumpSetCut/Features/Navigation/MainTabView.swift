@@ -113,27 +113,33 @@ struct MainTabView: View {
             // text and needs the AA-passing variant (raw bscPrimary is 3.68:1).
             .tint(.bscPrimaryText)
 
-            // Floating processing progress pill
-            if processingCoordinator.isProcessing || processingCoordinator.showCompletionPill {
-                processingPill
-                    .padding(.bottom, tabBarClearance)
-                    .transition(.bscSlideUp)
-                    .zIndex(100)
-            } else if uploadCoordinator.isUploadInProgress {
-                videoUploadPill
-                    .padding(.bottom, tabBarClearance)
-                    .transition(.bscSlideUp)
-                    .zIndex(99)
-            } else if flywheelService.isDraining {
-                flywheelUploadPill
-                    .padding(.bottom, tabBarClearance)
-                    .transition(.bscSlideUp)
-                    .zIndex(98)
-            } else if showLowStorageBanner {
-                lowStorageBannerView
-                    .padding(.bottom, tabBarClearance)
-                    .transition(.bscSlideUp)
-                    .zIndex(97)
+            // Floating status pills. Processing and importing are independent
+            // jobs that can run at the same time, so they stack instead of
+            // competing for one slot; the flywheel drain / storage banner
+            // take the last row.
+            let showsProcessing = processingCoordinator.isProcessing || processingCoordinator.showCompletionPill
+            if showsProcessing || uploadCoordinator.isUploadInProgress
+                || flywheelService.isDraining || showLowStorageBanner {
+                VStack(spacing: BSCSpacing.sm) {
+                    if showsProcessing {
+                        processingPill
+                            .transition(.bscSlideUp)
+                    }
+                    if uploadCoordinator.isUploadInProgress {
+                        videoUploadPill
+                            .transition(.bscSlideUp)
+                    }
+                    if flywheelService.isDraining {
+                        flywheelUploadPill
+                            .transition(.bscSlideUp)
+                    } else if showLowStorageBanner {
+                        lowStorageBannerView
+                            .transition(.bscSlideUp)
+                    }
+                }
+                .padding(.bottom, tabBarClearance)
+                .transition(.bscSlideUp)
+                .zIndex(100)
             }
         }
         .animation(.bscSpring, value: processingCoordinator.isProcessing)

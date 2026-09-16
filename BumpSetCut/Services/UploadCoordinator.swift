@@ -282,7 +282,7 @@ extension UploadCoordinator {
 
         let videoURL: URL?
         do {
-            videoURL = try await loadVideoToTempFile(from: item, index: 0)
+            videoURL = try await loadVideoWithRetry(from: item)
         } catch {
             // User cancellation resumes with an error too — don't surface an alert for it.
             if importWasCancelled {
@@ -354,6 +354,34 @@ extension UploadCoordinator {
         }
 
         await handleUploadCompletion()
+    }
+
+    /// Backoff between import attempts. iCloud-only videos routinely fail the
+    /// first `loadTransferable` while Photos is still materializing the
+    /// download, then succeed instantly on the next try — so a single failure
+    /// must never reach the user.
+    private static let importRetryDelays: [UInt64] = [1, 2, 4].map { $0 * 1_000_000_000 }
+
+    private func loadVideoWithRetry(from item: PhotosPickerItem) async throws -> URL? {
+        var lastError: Error?
+        for attempt in 0...Self.importRetryDelays.count {
+            do {
+                if let url = try await loadVideoToTempFile(from: item, index: attempt) {
+                    return url
+                }
+                lastError = nil // "no file" is transient too while iCloud is fetching
+            } catch {
+                if importWasCancelled { throw error }
+                lastError = error
+            }
+            guard attempt < Self.importRetryDelays.count, !importWasCancelled else { break }
+            logger.info("Import attempt \(attempt + 1) produced no file, retrying")
+            await MainActor.run { uploadProgressText = "Waiting for iCloud…" }
+            try? await Task.sleep(nanoseconds: Self.importRetryDelays[attempt])
+            await MainActor.run { uploadProgressText = "Importing from Photos…" }
+        }
+        if let lastError { throw lastError }
+        return nil
     }
 
     /// Load video from PhotosPickerItem to a temp file (memory efficient for large videos).

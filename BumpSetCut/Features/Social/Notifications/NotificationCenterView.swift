@@ -3,8 +3,9 @@
 //  BumpSetCut
 //
 //  The bell sheet: likes, comments, and follows on your posts. Opening it
-//  marks everything read (clearing the Home badge); rows navigate to the
-//  actor's profile (follows) or the highlight (likes/comments).
+//  marks everything read (clearing the Home badge). On every row the avatar
+//  and username open the actor's profile; the rest of a like/comment row
+//  opens the post, and a follow row opens the profile too.
 //
 
 import SwiftUI
@@ -13,9 +14,11 @@ struct NotificationCenterView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel = NotificationsViewModel()
+    // Qualified: the app declares its own NavigationPath type.
+    @State private var path = SwiftUI.NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if viewModel.notifications.isEmpty && viewModel.isLoading {
                     ProgressView()
@@ -89,42 +92,57 @@ struct NotificationCenterView: View {
         .accessibilityIdentifier(AccessibilityID.Notifications.list)
     }
 
-    @ViewBuilder
+    private func openProfile(_ notification: SocialNotification) {
+        path.append(notification.actorId)
+    }
+
+    /// Whole-row tap: the post for likes/comments, the profile for follows.
     private func row(_ notification: SocialNotification) -> some View {
-        if notification.kind == .follow {
-            NavigationLink(value: notification.actorId) {
-                rowContent(notification)
-            }
-            .buttonStyle(.plain)
-        } else {
-            Button {
+        Button {
+            if notification.kind == .follow {
+                openProfile(notification)
+            } else {
                 Task { await viewModel.openHighlight(for: notification) }
-            } label: {
-                rowContent(notification)
             }
-            .buttonStyle(.plain)
+        } label: {
+            rowContent(notification)
         }
+        .buttonStyle(.plain)
     }
 
     private func rowContent(_ notification: SocialNotification) -> some View {
-        HStack(spacing: BSCSpacing.md) {
-            AvatarView(
-                url: notification.actor?.avatarURL,
-                name: notification.actor?.username ?? "?",
-                size: 44
-            )
+        let username = notification.actor?.username ?? "Someone"
+        return HStack(spacing: BSCSpacing.md) {
+            // Avatar and username are their own targets so a like/comment row
+            // can still reach the person, not just the post.
+            Button {
+                openProfile(notification)
+            } label: {
+                AvatarView(
+                    url: notification.actor?.avatarURL,
+                    name: notification.actor?.username ?? "?",
+                    size: 44
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(username)'s profile")
 
             VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                (Text(notification.actor?.username ?? "Someone")
-                    .fontWeight(.semibold)
-                 + Text(" \(notification.message)"))
-                    .bscFont(size: 15)
-                    .foregroundColor(.bscTextPrimary)
-                    .multilineTextAlignment(.leading)
+                Button {
+                    openProfile(notification)
+                } label: {
+                    Text(username)
+                        .bscFont(size: 15, weight: .semibold)
+                        .foregroundColor(.bscTextPrimary)
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(username)'s profile")
 
-                Text(notification.createdAt.formatted(.relative(presentation: .named)))
+                Text("\(notification.message) · \(notification.createdAt.formatted(.relative(presentation: .named)))")
                     .bscFont(size: 13)
                     .foregroundColor(.bscTextSecondary)
+                    .multilineTextAlignment(.leading)
             }
 
             Spacer()
