@@ -27,10 +27,12 @@ final class AuthenticationService {
                 Task { await ModerationService.shared.ensureBlocksLoaded() }
                 if let userId = currentUser?.id {
                     SocialNotificationService.shared.start(userId: userId)
+                    Task { await LifetimeStatsStore.shared.signIn(userId: userId) }
                 }
             } else if authState == .unauthenticated {
                 ModerationService.shared.resetForSignOut()
                 SocialNotificationService.shared.stop()
+                LifetimeStatsStore.shared.signOut()
             }
         }
     }

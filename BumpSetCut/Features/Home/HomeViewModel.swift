@@ -9,9 +9,10 @@ final class HomeViewModel {
     private let mediaStore: MediaStore
     private let metadataStore: MetadataStore
 
-    var totalRallies: Int = 0
+    /// Account-linked lifetime totals (server + not-yet-synced increments).
+    var totalRallies: Int { LifetimeStatsStore.shared.totalRallies }
     /// Total dead time removed across all processed videos (source length − rally time).
-    var totalTimeCutSeconds: Double = 0
+    var totalTimeCutSeconds: Double { LifetimeStatsStore.shared.totalTimeCutSeconds }
 
     /// Compact display of total time cut, scaling up through units:
     /// "45s" → "38m" → "2h 14m" → "3d 4h" → "1y 23d".
@@ -41,24 +42,21 @@ final class HomeViewModel {
     init(mediaStore: MediaStore, metadataStore: MetadataStore) {
         self.mediaStore = mediaStore
         self.metadataStore = metadataStore
-        loadStats()
+        seedLifetimeStatsIfNeeded()
     }
 
     // MARK: - Public Methods
     func refresh() {
-        loadStats()
+        seedLifetimeStatsIfNeeded()
     }
 
     // MARK: - Private Methods
-    private func loadStats() {
-        // Lifetime stats are cumulative (UserDefaults) and maintained incrementally
-        // by ProcessingCoordinator. Reading them is cheap, so reflect them immediately.
-        totalRallies = LifetimeStatsStore.shared.totalRallies
-        totalTimeCutSeconds = LifetimeStatsStore.shared.totalTimeCutSeconds
 
-        // The only expensive work is the one-time upgrade backfill, which reads every
-        // processed video's metadata file. It runs at most once per install — skip the
-        // whole scan once it's done (previously it ran on every Home appear/refresh).
+    /// Lifetime totals are read live from LifetimeStatsStore (maintained by
+    /// ProcessingCoordinator and synced to the account). The only expensive work
+    /// is the one-time upgrade backfill, which reads every processed video's
+    /// metadata file — it runs at most once per install.
+    private func seedLifetimeStatsIfNeeded() {
         guard !LifetimeStatsStore.shared.hasSeeded else { return }
 
         let contributions: [(videoId: UUID, timeCutSeconds: Double, rallyCount: Int)] =
@@ -73,9 +71,6 @@ final class HomeViewModel {
                     return (video.id, cut, metadata.rallySegments.count)
                 }
         LifetimeStatsStore.shared.seedIfNeeded(from: contributions)
-
-        totalRallies = LifetimeStatsStore.shared.totalRallies
-        totalTimeCutSeconds = LifetimeStatsStore.shared.totalTimeCutSeconds
     }
 }
 

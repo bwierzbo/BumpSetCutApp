@@ -69,6 +69,10 @@ enum APIEndpoint {
     case getUnreadNotificationCount
     case markAllNotificationsRead
 
+    // Lifetime Stats (account-linked)
+    case getMyStats
+    case addMyStats(rallies: Int, timeCutSeconds: Double)
+
     // Upload
     case createUploadURL
 
@@ -114,6 +118,8 @@ enum APIEndpoint {
         case .getNotifications: return "/notifications"
         case .getUnreadNotificationCount: return "/notifications/unread-count"
         case .markAllNotificationsRead: return "/notifications/read-all"
+        case .getMyStats: return "/stats/me"
+        case .addMyStats: return "/stats/me/add"
         case .createUploadURL: return "/uploads"
         }
     }
@@ -122,7 +128,7 @@ enum APIEndpoint {
         switch self {
         case .createHighlight, .addComment, .likeHighlight, .likeComment,
              .follow, .createUploadURL, .checkFollowStatusBatch, .createReport, .blockUser,
-             .createPoll, .createPollOptions, .votePoll:
+             .createPoll, .createPollOptions, .votePoll, .addMyStats:
             return .post
         case .refreshToken:
             return .post

@@ -33,6 +33,9 @@ struct HomeView: View {
     // Social notifications
     @State private var showingNotifications = false
 
+    // Account-linked stats: sign-in prompt from the stats slot
+    @State private var showingStatsSignIn = false
+
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isLandscape: Bool { verticalSizeClass == .compact }
@@ -72,6 +75,12 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showingNotifications) {
             NotificationCenterView()
+        }
+        .sheet(isPresented: $showingStatsSignIn) {
+            AuthGateView(onSkip: { showingStatsSignIn = false })
+        }
+        .onChange(of: authService.isAuthenticated) { _, signedIn in
+            if signedIn { showingStatsSignIn = false }
         }
         .photosPicker(
             isPresented: $showingPhotoPicker,
@@ -182,9 +191,17 @@ struct HomeView: View {
     @ViewBuilder
     private func animatedContent(contentWidth: CGFloat) -> some View {
         if let viewModel = viewModel {
-            StatsCard(
-                stats: viewModel.stats(isPro: SubscriptionService.shared.isPro)
-            )
+            // Lifetime stats are account-linked: signed out, the slot invites
+            // sign-in instead of showing device-local numbers.
+            Group {
+                if authService.isAuthenticated {
+                    StatsCard(
+                        stats: viewModel.stats(isPro: SubscriptionService.shared.isPro)
+                    )
+                } else {
+                    StatsSignInCard { showingStatsSignIn = true }
+                }
+            }
             .accessibilityIdentifier(AccessibilityID.Home.statsCard)
             .frame(maxWidth: contentWidth)
             .opacity(hasAppeared ? 1 : 0)

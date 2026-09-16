@@ -26,6 +26,7 @@ enum AccessibilityID {
         static let settings = "home.settings"
         static let statsCard = "home.statsCard"
         static let notifications = "home.notifications"
+        static let statsSignIn = "home.statsSignIn"
     }
 
     enum Notifications {

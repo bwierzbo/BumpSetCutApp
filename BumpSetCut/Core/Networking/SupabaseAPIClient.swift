@@ -46,6 +46,18 @@ struct HighlightLikeRow: Decodable {
     let highlightId: String
 }
 
+/// Parameters for the `add_user_stats` RPC — explicit keys so the encoder's
+/// key strategy can't drift from the SQL parameter names.
+struct AddUserStatsParams: Encodable {
+    let rallies: Int
+    let timeCutSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case rallies = "p_rallies"
+        case timeCutSeconds = "p_time_cut_seconds"
+    }
+}
+
 
 // MARK: - Supabase API Client
 
@@ -547,6 +559,35 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .is("read_at", value: nil)
                 .execute()
             return try safeCast(EmptyResponse())
+
+        // MARK: Lifetime Stats
+
+        case .getMyStats:
+            let myId = try await currentUserId()
+            let rows: [UserStats] = try await supabase
+                .from("user_stats")
+                .select()
+                .eq("user_id", value: myId)
+                .limit(1)
+                .execute()
+                .value
+            return try safeCast(rows.first ?? UserStats.empty(userId: myId))
+
+        case .addMyStats(let rallies, let timeCutSeconds):
+            // The RPC increments atomically server-side; re-reading the row
+            // afterwards keeps the decode path identical to getMyStats.
+            try await supabase
+                .rpc("add_user_stats", params: AddUserStatsParams(rallies: rallies, timeCutSeconds: timeCutSeconds))
+                .execute()
+            let myId = try await currentUserId()
+            let rows: [UserStats] = try await supabase
+                .from("user_stats")
+                .select()
+                .eq("user_id", value: myId)
+                .limit(1)
+                .execute()
+                .value
+            return try safeCast(rows.first ?? UserStats.empty(userId: myId))
 
         // MARK: Auth (handled via Supabase Auth, not DB)
 

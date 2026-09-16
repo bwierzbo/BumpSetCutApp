@@ -136,6 +136,51 @@ struct SingleStatCard: View {
     }
 }
 
+// MARK: - Sign-In Card
+/// Fills the stats slot while signed out — lifetime stats live on the account.
+struct StatsSignInCard: View {
+    let onSignIn: () -> Void
+
+    var body: some View {
+        BSCCard(style: .glass, cornerRadius: BSCRadius.lg, padding: BSCSpacing.md) {
+            HStack(spacing: BSCSpacing.md) {
+                ZStack {
+                    Circle()
+                        .fill(Color.bscPrimary.opacity(0.15))
+                        .frame(width: 36, height: 36)
+
+                    Image(systemName: "chart.bar.fill")
+                        .bscFont(size: 16, weight: .semibold)
+                        .foregroundColor(.bscPrimaryText)
+                }
+
+                VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
+                    Text("Your stats live on your account")
+                        .bscFont(size: 15, weight: .semibold)
+                        .foregroundColor(.bscTextPrimary)
+
+                    Text("Sign in to see rallies found and time cut")
+                        .bscFont(size: 12)
+                        .foregroundColor(.bscTextSecondary)
+                }
+
+                Spacer(minLength: BSCSpacing.sm)
+
+                Button(action: onSignIn) {
+                    Text("Sign In")
+                        .bscFont(size: 14, weight: .semibold)
+                        .foregroundColor(.bscOnPrimary)
+                        .padding(.horizontal, BSCSpacing.md)
+                        .frame(minHeight: 36)
+                        .background(LinearGradient.bscPrimaryGradient)
+                        .clipShape(Capsule())
+                }
+                .accessibilityIdentifier(AccessibilityID.Home.statsSignIn)
+            }
+        }
+    }
+}
+
 // MARK: - Preview
 #Preview("StatsCard") {
     VStack(spacing: BSCSpacing.lg) {
