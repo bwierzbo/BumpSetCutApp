@@ -15,23 +15,26 @@
 
 import BackgroundTasks
 import Foundation
+import Observation
 
 @MainActor
+@Observable
 final class ProcessingBackgroundKeeper {
 
     static let shared = ProcessingBackgroundKeeper()
     static let taskIdentifier = "app.BumpSetCut.processing"
 
     /// True while a continued-processing task is keeping us alive — the
-    /// legacy 30s-guard expiry must NOT cancel processing in that case.
+    /// legacy 30s-guard expiry must NOT cancel processing in that case, and
+    /// the processing pill's copy switches to "free to leave the app".
     private(set) var isActive = false
 
-    private var task: AnyObject?
+    @ObservationIgnored private var task: AnyObject?
     /// Called on system expiration, BEFORE the grace period ends — the
     /// coordinator uses it to request a pipeline checkpoint.
-    var onExpiration: (@MainActor () -> Void)?
+    @ObservationIgnored var onExpiration: (@MainActor () -> Void)?
     /// Called when the user cancels from the system progress UI.
-    var onSystemCancel: (@MainActor () -> Void)?
+    @ObservationIgnored var onSystemCancel: (@MainActor () -> Void)?
 
     private init() {}
 

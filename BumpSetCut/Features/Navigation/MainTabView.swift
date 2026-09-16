@@ -238,13 +238,18 @@ struct MainTabView: View {
 
     // MARK: - Processing Progress Pill
 
-    /// Subtitle for the processing pill — shows a live ETA once enough progress
-    /// has accrued, otherwise the "keep app open" reminder with the video name.
+    /// Subtitle for the processing pill — a live ETA once enough progress has
+    /// accrued, plus what leaving the app means: with a continued-processing
+    /// task active (iOS 26+) processing follows the user out; otherwise
+    /// checkpoints mean leaving only pauses it.
     private var processingETASubtitle: String {
+        let leaveNote = ProcessingBackgroundKeeper.shared.isActive
+            ? "free to leave the app"
+            : "progress saves if you leave"
         if let remaining = processingCoordinator.estimatedSecondsRemaining, remaining > 1 {
-            return "\(ProcessingTimeEstimator.formatEstimate(remaining)) left \u{2022} keep app open"
+            return "\(ProcessingTimeEstimator.formatEstimate(remaining)) left \u{2022} \(leaveNote)"
         }
-        return "Keep app open \u{2022} \(processingCoordinator.videoName)"
+        return "\(processingCoordinator.videoName) \u{2022} \(leaveNote)"
     }
 
     /// Video import pill — mirrors the processing pill's style. Shown while a
