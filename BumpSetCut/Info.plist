@@ -4,6 +4,10 @@
 <dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>app.BumpSetCut.processing</string>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

@@ -35,7 +35,15 @@ final class VideoProcessor {
     // breaks the parabola fit for a few frames).
     private var selectedDropCount = 0
 
+    // iOS: CPU+ANE so detection keeps running when processing continues in
+    // the background (GPU access is restricted there); the ANE is this
+    // model's primary engine, so foreground speed is unaffected. macOS
+    // (RallyLab) has no such restriction and keeps every engine.
+    #if os(iOS)
+    private var detector = YOLODetector(computeUnits: .cpuAndNeuralEngine)
+    #else
     private var detector = YOLODetector()
+    #endif
     private var gate = BallisticsGate(config: ProcessorConfig())
     private var decider = RallyDecider(config: ProcessorConfig())
     private var segments = SegmentBuilder(config: ProcessorConfig())
@@ -137,6 +145,16 @@ final class VideoProcessor {
     var collectFrameEvidence = false
     private(set) var frameEvidence: [FrameEvidence] = []
     private(set) var lastVideoDurationSec: Double = 0
+
+    /// Set when background time is about to run out: the frame loop writes a
+    /// resume checkpoint at the next rally-idle frame. Plain bool by design —
+    /// a torn read only delays the checkpoint one frame.
+    nonisolated(unsafe) private var urgentCheckpointRequested = false
+
+    /// Ask the frame loop to checkpoint as soon as it's safe (rally-idle).
+    func requestCheckpoint() {
+        urgentCheckpointRequested = true
+    }
 
     // MARK: - Entry point (now generates metadata instead of video files)
     func processVideo(_ url: URL, videoId: UUID) async throws -> ProcessingMetadata {
@@ -354,44 +372,107 @@ final class VideoProcessor {
         let fps = max(10, Int(try await track.load(.nominalFrameRate)))
         lastVideoDurationSec = CMTimeGetSeconds(duration)
 
-        // Reader
+        // Resumable processing: a checkpoint from an interrupted run (same
+        // video, same config) lets this run start at its rally-idle resume
+        // point instead of frame zero.
+        let checkpointURL = await MainActor.run { [metadataStore] in
+            metadataStore?.processingCheckpointFileURL(for: videoId)
+        }
+        let configHash = ProcessingCheckpoint.hash(of: config)
+        urgentCheckpointRequested = false
+        var restored: ProcessingCheckpoint?
+        if let checkpointURL, let candidate = ProcessingCheckpoint.load(from: checkpointURL) {
+            if candidate.isValid(for: videoId, configHash: configHash,
+                                 durationSec: lastVideoDurationSec,
+                                 collectEvidence: collectFrameEvidence) {
+                restored = candidate
+                eventLog.log(.processingStarted,
+                             detail: String(format: "resuming from checkpoint at %.1fs", candidate.resumeTime))
+            } else {
+                // Different config or source — a stale checkpoint must not leak in.
+                ProcessingCheckpoint.delete(at: checkpointURL)
+            }
+        }
+
+        // Reader (resumes mid-video when a checkpoint seeded this run)
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
         ])
         reader.add(output)
+        if let restored {
+            reader.timeRange = CMTimeRange(
+                start: CMTime(seconds: restored.resumeTime, preferredTimescale: 600),
+                end: duration
+            )
+            await MainActor.run { self.progress = restored.resumeTime / max(lastVideoDurationSec, 0.1) }
+        }
 
-        // Reset state
+        // Reset state — checkpoints are written at rally-idle, so the stateful
+        // stages (tracker/decider) legitimately start fresh at the resume point.
         decider.reset()
         segments.reset()
         selectedTrackId = nil
         selectedDropCount = 0
         gate.net = nil
+        if let restored {
+            for range in restored.rawSegments {
+                segments.appendRaw(
+                    start: CMTime(seconds: range.start, preferredTimescale: 600),
+                    end: CMTime(seconds: range.end, preferredTimescale: 600)
+                )
+            }
+        }
 
         // Net pre-pass: sample the net across the whole video (same spread as
         // RallyLab's Net tab) and freeze one box, BEFORE the main loop so the
-        // off-court / under-net rules have it from the first frame.
+        // off-court / under-net rules have it from the first frame. A resumed
+        // run reuses the frozen net from the checkpoint.
         detectedNet = nil
         if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
-            detectedNet = await sampleNetAcrossVideo(asset: asset, durationSec: lastVideoDurationSec)
+            if let restoredNet = restored?.net {
+                detectedNet = restoredNet.detectedNet
+            } else {
+                detectedNet = await sampleNetAcrossVideo(asset: asset, durationSec: lastVideoDurationSec)
+            }
             gate.net = detectedNet
         }
 
-        // Metadata collection variables
-        var frameCount = 0
-        var totalDetections = 0
-        var detectionFrameCount = 0
-        var trackingFrameCount = 0
-        var rallyFrameCount = 0
-        var physicsValidFrameCount = 0
-        var confidenceSum = 0.0
-        var rSquaredSum = 0.0
-        var rSquaredCount = 0
+        // Metadata collection variables (seeded from the checkpoint on resume)
+        var frameCount = restored?.counters.frameCount ?? 0
+        var totalDetections = restored?.counters.totalDetections ?? 0
+        var detectionFrameCount = restored?.counters.detectionFrameCount ?? 0
+        var trackingFrameCount = restored?.counters.trackingFrameCount ?? 0
+        var rallyFrameCount = restored?.counters.rallyFrameCount ?? 0
+        var physicsValidFrameCount = restored?.counters.physicsValidFrameCount ?? 0
+        var confidenceSum = restored?.counters.confidenceSum ?? 0.0
+        var rSquaredSum = restored?.counters.rSquaredSum ?? 0.0
+        var rSquaredCount = restored?.counters.rSquaredCount ?? 0
 
-        // Trajectory data collection with memory limits
-        var trajectoryDataCollection: [ProcessingTrajectoryData] = []
+        // Trajectory data collection with memory limits. Resume restores the
+        // fields the per-segment metrics read (spans, physics readouts) —
+        // trajectory POINTS are not checkpointed, so the diagnostic quality
+        // breakdown reflects the post-resume portion.
+        var trajectoryDataCollection: [ProcessingTrajectoryData] = (restored?.trajectorySpans ?? []).map {
+            ProcessingTrajectoryData(
+                id: UUID(), startTime: $0.start, endTime: $0.end, points: [],
+                rSquared: 0, movementType: nil, confidence: 0, quality: 0
+            )
+        }
         var classificationResults: [ProcessingClassificationResult] = []
-        var physicsValidationData: [PhysicsValidationData] = []
+        var physicsValidationData: [PhysicsValidationData] = (restored?.physics ?? []).map {
+            PhysicsValidationData(
+                trajectoryId: UUID(),
+                timestamp: CMTime(seconds: $0.t, preferredTimescale: 600),
+                isValid: $0.isValid, rSquared: $0.rSquared,
+                curvatureValid: $0.isValid, accelerationValid: $0.isValid,
+                velocityConsistent: true, positionJumpsValid: true,
+                confidenceLevel: $0.confidenceLevel
+            )
+        }
+        if collectFrameEvidence, let restoredEvidence = restored?.evidence {
+            frameEvidence = restoredEvidence.map(FrameEvidence.init)
+        }
 
         // Memory management constants from config
         let maxTrajectoryData = config.enableMemoryLimits ? config.maxTrajectoryDataEntries : 10000
@@ -408,15 +489,48 @@ final class VideoProcessor {
         let movementClassifier = MovementClassifier()
 
         // Dynamic stride tracking
-        var rawFrameIndex = 0
-        var skippedFrames = 0
+        var rawFrameIndex = restored?.counters.rawFrameIndex ?? 0
+        var skippedFrames = restored?.counters.skippedFrames ?? 0
         var previousRallyActive = false
 
         // Per-frame ball heights (Vision y), for the above-net multi-contact rule.
-        var ballHeights: [(t: Double, y: CGFloat)] = []
+        var ballHeights: [(t: Double, y: CGFloat)] = (restored?.ballHeights ?? []).map { ($0.t, CGFloat($0.y)) }
         // Selected-track ball bbox areas for the per-rally serve-direction trend —
         // tracker.tracks is pruned as tracks go stale, so it can't be read after the loop.
-        var ballSizes: [(t: Double, area: Double)] = []
+        var ballSizes: [(t: Double, area: Double)] = (restored?.ballSizes ?? []).map { ($0.t, $0.area) }
+
+        // Checkpoint cadence: at rally-idle, every ~30s of video, plus
+        // immediately when background expiry requests one.
+        var lastCheckpointTime = restored?.resumeTime ?? 0
+        let writeCheckpoint: (Double) -> Void = { [weak self] nowSec in
+            guard let self, let checkpointURL else { return }
+            ProcessingCheckpoint(
+                videoId: videoId,
+                configHash: configHash,
+                videoDurationSec: self.lastVideoDurationSec,
+                collectEvidence: self.collectFrameEvidence,
+                resumeTime: nowSec,
+                rawSegments: self.segments.closedRawRanges.map {
+                    .init(start: CMTimeGetSeconds($0.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd($0)))
+                },
+                ballHeights: ballHeights.map { .init(t: $0.t, y: Double($0.y)) },
+                ballSizes: ballSizes.map { .init(t: $0.t, area: $0.area) },
+                evidence: self.collectFrameEvidence ? self.frameEvidence.map(StoredFrameEvidence.init) : [],
+                physics: physicsValidationData.map {
+                    .init(t: $0.timestamp, isValid: $0.isValid, rSquared: $0.rSquared, confidenceLevel: $0.confidenceLevel)
+                },
+                trajectorySpans: trajectoryDataCollection.map { .init(start: $0.startTime, end: $0.endTime) },
+                counters: .init(
+                    rawFrameIndex: rawFrameIndex, skippedFrames: skippedFrames, frameCount: frameCount,
+                    totalDetections: totalDetections, detectionFrameCount: detectionFrameCount,
+                    trackingFrameCount: trackingFrameCount, rallyFrameCount: rallyFrameCount,
+                    physicsValidFrameCount: physicsValidFrameCount, confidenceSum: confidenceSum,
+                    rSquaredSum: rSquaredSum, rSquaredCount: rSquaredCount
+                ),
+                net: self.detectedNet.map(ProcessingCheckpoint.NetBox.init),
+                savedAt: Date()
+            ).write(to: checkpointURL)
+        }
 
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
@@ -530,6 +644,18 @@ final class VideoProcessor {
                 eventLog.log(.rallyEnded, at: pts, detail: "hasBall=\(hasBall), isProjectile=\(isProjectile)")
             }
             previousRallyActive = isActive
+
+            // Resume checkpoint: written only at rally-idle so no FSM/tracker
+            // state spans the boundary. Periodic (~30s of video) plus an
+            // immediate write when background expiry asked for one.
+            if !isActive {
+                let nowSec = CMTimeGetSeconds(pts)
+                if urgentCheckpointRequested || nowSec - lastCheckpointTime >= 30 {
+                    writeCheckpoint(nowSec)
+                    lastCheckpointTime = nowSec
+                    urgentCheckpointRequested = false
+                }
+            }
 
             // Update statistics
             if !tracker.tracks.isEmpty {
@@ -697,6 +823,8 @@ final class VideoProcessor {
         guard !keep.isEmpty else {
             print("❌ No rally segments found for metadata generation")
             eventLog.log(.processingFailed, detail: "noRalliesDetected")
+            // A completed run has nothing to resume — even a no-rally one.
+            if let checkpointURL { ProcessingCheckpoint.delete(at: checkpointURL) }
             await MainActor.run { isProcessing = false; backgroundGuard.end() }
             throw ProcessingError.noRalliesDetected
         }
@@ -857,6 +985,9 @@ final class VideoProcessor {
             await MainActor.run { backgroundGuard.end() }
             throw error // eventLog already embedded in metadata at this point
         }
+
+        // The run finished — its resume checkpoint is obsolete.
+        if let checkpointURL { ProcessingCheckpoint.delete(at: checkpointURL) }
 
         await MainActor.run {
             processedMetadata = metadata

@@ -447,6 +447,18 @@ extension MetadataStore {
     }
 }
 
+// MARK: - Processing Checkpoint Persistence
+
+extension MetadataStore {
+
+    /// Stable file location for a video's in-flight processing checkpoint.
+    /// The (non-main) processing loop reads/writes it directly so multi-MB
+    /// encodes never hop onto the main actor — see ProcessingCheckpoint.
+    func processingCheckpointFileURL(for videoId: UUID) -> URL {
+        metadataDirectory.appendingPathComponent("\(videoId.uuidString)_checkpoint.json")
+    }
+}
+
 // MARK: - Game Scoring Persistence
 
 extension MetadataStore {

@@ -68,6 +68,7 @@
 				Features/Processing/Logic/RallyScorer.swift,
 				Features/Processing/Logic/SegmentBuilder.swift,
 				Features/Processing/Optimization/RallySegmentationScorer.swift,
+				Features/Processing/ProcessingCheckpoint.swift,
 				Features/Processing/ProcessingEventLog.swift,
 				Features/Processing/Quality/TrajectoryQualityScore.swift,
 				Features/Processing/Tracking/KalmanBallTracker.swift,

@@ -18,6 +18,10 @@ import AVFoundation
     @State private var showSplash = !CommandLine.arguments.contains("--uitesting")
 
     init() {
+        // Background continuation for video processing (iOS 26+) must
+        // register its task handler before anything can submit one.
+        ProcessingBackgroundKeeper.register()
+
         #if DEBUG
         // UI Testing launch arguments
         if CommandLine.arguments.contains("--uitesting") {

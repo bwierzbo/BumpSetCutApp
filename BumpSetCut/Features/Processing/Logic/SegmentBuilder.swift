@@ -34,6 +34,14 @@ final class SegmentBuilder {
         segments.removeAll()
     }
 
+    /// Raw boundaries of segments closed so far — read at rally-idle moments
+    /// for processing checkpoints (excludes any open segment). Re-seeding a
+    /// fresh builder with `appendRaw` over these reproduces identical padded
+    /// segments, since padding derives deterministically from raw + config.
+    var closedRawRanges: [CMTimeRange] {
+        segments.map { $0.raw }
+    }
+
     /// Append a segment that is **already padded**.
     /// This will not apply additional pre/post roll; merging/filtering happens in `finalize`.
     func appendPadded(start: CMTime, end: CMTime) {

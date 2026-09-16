@@ -59,8 +59,37 @@ final class ProcessingCoordinator {
     private var processor = VideoProcessor()
     private var currentTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "BumpSetCut", category: "ProcessingCoordinator")
+    @ObservationIgnored private var backgroundObserver: NSObjectProtocol?
 
     private init() {}
+
+    /// Keep the screen awake while processing runs foregrounded; a long job
+    /// auto-locking the phone was the top way processing died before
+    /// background continuation existed.
+    private func setKeepAwake(_ on: Bool) {
+        UIApplication.shared.isIdleTimerDisabled = on
+    }
+
+    /// While processing, a trip to the background asks the pipeline to write
+    /// a resume checkpoint at its next rally-idle frame — the safety net for
+    /// the pre-iOS-26 path and for continued-processing expiration.
+    private func startBackgroundObserver() {
+        stopBackgroundObserver()
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.processor.requestCheckpoint()
+            }
+        }
+    }
+
+    private func stopBackgroundObserver() {
+        if let backgroundObserver {
+            NotificationCenter.default.removeObserver(backgroundObserver)
+        }
+        backgroundObserver = nil
+    }
 
     // MARK: - Start Processing
 
@@ -108,6 +137,20 @@ final class ProcessingCoordinator {
         runGeneration += 1
         let gen = runGeneration
 
+        // Survive leaving the app: iOS 26+ continues the run under a system
+        // progress UI; every version checkpoints on backgrounding and keeps
+        // the screen awake while foregrounded.
+        setKeepAwake(true)
+        startBackgroundObserver()
+        let keeper = ProcessingBackgroundKeeper.shared
+        keeper.onExpiration = { [weak self] in
+            self?.processor.requestCheckpoint()
+        }
+        keeper.onSystemCancel = { [weak self] in
+            self?.cancelProcessing()
+        }
+        keeper.begin(videoName: videoName)
+
         currentTask = Task { [weak self] in
             guard let self else { return }
 
@@ -118,6 +161,7 @@ final class ProcessingCoordinator {
                     guard let self else { break }
                     await MainActor.run {
                         self.progress = min(1.0, max(0.0, self.processor.progress))
+                        ProcessingBackgroundKeeper.shared.updateProgress(self.progress, videoName: self.videoName)
                     }
                 }
             }
@@ -125,13 +169,19 @@ final class ProcessingCoordinator {
             defer { progressTask.cancel() }
 
             do {
-                // Register background expiry cancellation
+                // Register background expiry cancellation. When a continued-
+                // processing task is keeping us alive (iOS 26+), the legacy
+                // 30s guard expiring must NOT kill the run — checkpoint and
+                // keep going instead.
                 let task = self.currentTask
                 processor.setBackgroundCancellationHandler { [weak self] in
-                    task?.cancel()
-                    Task { @MainActor in
-                        self?.handleCancellation(gen: gen)
+                    guard let self else { return }
+                    if ProcessingBackgroundKeeper.shared.isActive {
+                        self.processor.requestCheckpoint()
+                        return
                     }
+                    task?.cancel()
+                    self.handleCancellation(gen: gen)
                 }
 
                 if isDebugMode {
@@ -260,6 +310,11 @@ final class ProcessingCoordinator {
         isProcessing = false
         progress = 0.0
         showCompletionPill = false
+        setKeepAwake(false)
+        stopBackgroundObserver()
+        ProcessingBackgroundKeeper.shared.finish(success: false)
+        // The pipeline's resume checkpoint survives a cancel on purpose:
+        // processing the same video again picks up where this run stopped.
     }
 
     // MARK: - Consume Results (called by ProcessVideoViewModel)
@@ -299,12 +354,31 @@ final class ProcessingCoordinator {
         didComplete = true
         showCompletionPill = true
         currentTask = nil
+        setKeepAwake(false)
+        stopBackgroundObserver()
+        ProcessingBackgroundKeeper.shared.finish(success: errorMessage == nil)
         logger.info("Processing completed for \(self.videoName)")
 
         if noRalliesDetected || errorMessage != nil {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
         } else {
             UINotificationFeedbackGenerator.success()
+        }
+
+        // The user may have left mid-run (iOS 26 continues it in the
+        // background) — tell them the outcome without making them check.
+        if noRalliesDetected {
+            postLocalNotification(
+                title: "No rallies detected",
+                body: "\(videoName) finished processing but no rallies were found. Try Higher Sensitivity from the video."
+            )
+        } else if let errorMessage {
+            postLocalNotification(title: "Processing failed", body: "\(videoName): \(errorMessage)")
+        } else {
+            postLocalNotification(
+                title: "Your rallies are ready 🏐",
+                body: "\(videoName) finished processing. Open BumpSetCut to watch them."
+            )
         }
 
         // Auto-hide completion pill after 5 seconds if not consumed
@@ -329,18 +403,23 @@ final class ProcessingCoordinator {
         isProcessing = false
         progress = 0.0
         currentTask = nil
-        errorMessage = "Processing was interrupted — please start it again."
+        setKeepAwake(false)
+        stopBackgroundObserver()
+        ProcessingBackgroundKeeper.shared.finish(success: false)
+        errorMessage = "Processing was paused — your progress is saved. Start it again to continue."
         didComplete = true
         showCompletionPill = true
         logger.warning("Processing interrupted by background expiry for \(self.videoName)")
-        postInterruptionNotification()
+        postLocalNotification(
+            title: "Processing paused",
+            body: "\(videoName) couldn't keep running in the background. Your progress is saved — open BumpSetCut and start it again to continue."
+        )
     }
 
-    /// Local notification for background-expiry interruption, so the user learns
-    /// about it without having to reopen the app and notice the pill.
-    private func postInterruptionNotification() {
+    /// Local notification (no server involved) for outcomes the user may miss
+    /// while the app is backgrounded. No-op when the app is frontmost.
+    private func postLocalNotification(title: String, body: String) {
         guard UIApplication.shared.applicationState != .active else { return }
-        let name = videoName
         Task {
             let center = UNUserNotificationCenter.current()
             let settings = await center.notificationSettings()
@@ -355,10 +434,10 @@ final class ProcessingCoordinator {
                 break
             }
             let content = UNMutableNotificationContent()
-            content.title = "Processing was interrupted"
-            content.body = "\(name) couldn't finish in the background. Open BumpSetCut and start it again."
+            content.title = title
+            content.body = body
             let request = UNNotificationRequest(
-                identifier: "processing-interrupted-\(UUID().uuidString)",
+                identifier: "processing-\(UUID().uuidString)",
                 content: content,
                 trigger: nil
             )

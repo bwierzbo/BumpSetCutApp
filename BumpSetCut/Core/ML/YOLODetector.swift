@@ -71,8 +71,15 @@ final class YOLODetector {
     private var modelInputWidth: CGFloat = 960
     private var modelInputHeight: CGFloat = 960
 
-    init(modelName: String = "ball_v2_small") {
+    /// Which engines CoreML may use. `.all` includes the GPU, which iOS
+    /// restricts in the background — callers that must survive backgrounding
+    /// (in-app processing under a continued-processing task) pass
+    /// `.cpuAndNeuralEngine`; the ANE is this model's primary engine anyway.
+    private let computeUnits: MLComputeUnits
+
+    init(modelName: String = "ball_v2_small", computeUnits: MLComputeUnits = .all) {
         self.modelName = modelName
+        self.computeUnits = computeUnits
         loadModel()
     }
 
@@ -91,7 +98,7 @@ final class YOLODetector {
             if let url = Bundle.main.url(forResource: name, withExtension: ext) {
                 do {
                     let cfg = MLModelConfiguration()
-                    cfg.computeUnits = .all   // Use ANE/GPU if available
+                    cfg.computeUnits = computeUnits
                     let mlModel = try MLModel(contentsOf: url, configuration: cfg)
                     let vnModel = try VNCoreMLModel(for: mlModel)
                     // Let VNCoreMLModel auto-detect the image input feature
@@ -101,7 +108,7 @@ final class YOLODetector {
                         self.modelInputWidth = CGFloat(imgConstraint.pixelsWide)
                         self.modelInputHeight = CGFloat(imgConstraint.pixelsHigh)
                     }
-                    print("✅ Loaded CoreML model: \(name).\(ext) [computeUnits=.all, input=\(Int(modelInputWidth))x\(Int(modelInputHeight))]")
+                    print("✅ Loaded CoreML model: \(name).\(ext) [computeUnits=\(computeUnits.rawValue), input=\(Int(modelInputWidth))x\(Int(modelInputHeight))]")
                     return
                 } catch {
                     print("⚠️ Failed to load \(name).\(ext): \(error)")
