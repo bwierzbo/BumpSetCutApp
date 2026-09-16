@@ -16,7 +16,23 @@ struct GameExportSheet: View {
     let clips: [VideoExporter.StitchClip]
     let overlays: [VideoExporter.GameScoreOverlay?]
 
+    /// Scoreboard size choices offered before export, mapped to the exporter's scale.
+    enum ScoreboardSize: String, CaseIterable {
+        case small, medium, large
+
+        var scale: CGFloat {
+            switch self {
+            case .small: return 0.75
+            case .medium: return 1.0
+            case .large: return 1.35
+            }
+        }
+
+        var label: String { rawValue.capitalized }
+    }
+
     @Environment(\.dismiss) private var dismiss
+    @State private var isConfiguring = true
     @State private var exportStatus: RallyExportStatus = .preparing
     @State private var exportProgress: Double = 0.0
     @State private var exportTask: Task<Void, Never>?
@@ -24,17 +40,56 @@ struct GameExportSheet: View {
     @State private var exportedURL: URL?
     @State private var showShareSheet = false
 
+    // Remembered across exports — most people want the scoreboard in the same spot every game.
+    @AppStorage("gameExport.scoreboardPosition") private var scoreboardPositionRaw = VideoExporter.ScoreboardPosition.topLeft.rawValue
+    @AppStorage("gameExport.scoreboardSize") private var scoreboardSizeRaw = ScoreboardSize.medium.rawValue
+
+    private var scoreboardPosition: VideoExporter.ScoreboardPosition {
+        VideoExporter.ScoreboardPosition(rawValue: scoreboardPositionRaw) ?? .topLeft
+    }
+
+    private var scoreboardSize: ScoreboardSize {
+        ScoreboardSize(rawValue: scoreboardSizeRaw) ?? .medium
+    }
+
     var body: some View {
         NavigationView {
             VStack(spacing: BSCSpacing.xxl) {
-                Spacer()
-
-                if let storageError {
-                    storageErrorView(message: storageError)
-                    Spacer()
+                if isConfiguring {
+                    configureView
                 } else {
-                    switch exportStatus {
-                    case .preparing, .exporting:
+                    Spacer()
+                    exportPhaseView
+                }
+            }
+            .padding(BSCSpacing.xl)
+            .background(Color.bscBackground)
+            .navigationTitle("Export Scored Game")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if isConfiguring {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                            .foregroundColor(.bscTextSecondary)
+                    }
+                }
+            }
+        }
+        .onDisappear {
+            exportTask?.cancel()
+            cleanupExportedFile()
+        }
+        .interactiveDismissDisabled(!isConfiguring && (exportStatus == .exporting || exportStatus == .preparing))
+    }
+
+    @ViewBuilder
+    private var exportPhaseView: some View {
+        if let storageError {
+            storageErrorView(message: storageError)
+            Spacer()
+        } else {
+            switch exportStatus {
+            case .preparing, .exporting:
                         progressIndicator
                         statusText
                         Spacer()
@@ -59,20 +114,136 @@ struct GameExportSheet: View {
                     case .failed(let errorMessage):
                         failedView(errorMessage: errorMessage)
                         Spacer()
+            }
+        }
+    }
+
+    // MARK: - Configure
+
+    private var configureView: some View {
+        VStack(spacing: BSCSpacing.xxl) {
+            scoreboardPreview
+
+            VStack(alignment: .leading, spacing: BSCSpacing.sm) {
+                Text("Scoreboard Position")
+                    .bscFont(size: 15, weight: .semibold)
+                    .foregroundColor(.bscTextSecondary)
+                positionGrid
+            }
+
+            VStack(alignment: .leading, spacing: BSCSpacing.sm) {
+                Text("Scoreboard Size")
+                    .bscFont(size: 15, weight: .semibold)
+                    .foregroundColor(.bscTextSecondary)
+                Picker("Scoreboard Size", selection: $scoreboardSizeRaw) {
+                    ForEach(ScoreboardSize.allCases, id: \.rawValue) { size in
+                        Text(size.label).tag(size.rawValue)
                     }
                 }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier(AccessibilityID.GameScoring.scoreboardSize)
             }
-            .padding(BSCSpacing.xl)
-            .background(Color.bscBackground)
-            .navigationTitle("Export Scored Game")
-            .navigationBarTitleDisplayMode(.inline)
+
+            Spacer()
+
+            Button {
+                isConfiguring = false
+                startExport()
+            } label: {
+                Label("Export to Photos", systemImage: "square.and.arrow.up")
+                    .bscFont(size: 17, weight: .semibold)
+                    .foregroundColor(.bscOnPrimary)
+                    .padding(.vertical, BSCSpacing.md)
+                    .frame(maxWidth: .infinity)
+                    .background(LinearGradient.bscPrimaryGradient)
+                    .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md))
+            }
+            .accessibilityIdentifier(AccessibilityID.GameScoring.confirmExport)
         }
-        .onAppear { startExport() }
-        .onDisappear {
-            exportTask?.cancel()
-            cleanupExportedFile()
+        .padding(.top, BSCSpacing.md)
+    }
+
+    /// Live preview: a stand-in video frame with the scoreboard pill in the
+    /// chosen corner at the chosen size, using the real team names/colors.
+    private var scoreboardPreview: some View {
+        ZStack(alignment: previewAlignment) {
+            RoundedRectangle(cornerRadius: BSCRadius.md)
+                .fill(Color.black.opacity(0.85))
+            miniScoreboard
+                .padding(BSCSpacing.sm)
         }
-        .interactiveDismissDisabled(exportStatus == .exporting || exportStatus == .preparing)
+        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+        .animation(.bscSpring, value: scoreboardPositionRaw)
+        .animation(.bscSpring, value: scoreboardSizeRaw)
+    }
+
+    private var previewAlignment: Alignment {
+        switch scoreboardPosition {
+        case .topLeft: return .topLeading
+        case .topRight: return .topTrailing
+        case .bottomLeft: return .bottomLeading
+        case .bottomRight: return .bottomTrailing
+        }
+    }
+
+    private var previewOverlay: VideoExporter.GameScoreOverlay? {
+        overlays.compactMap { $0 }.first
+    }
+
+    private var miniScoreboard: some View {
+        let base: CGFloat = 11 * scoreboardSize.scale
+        return HStack(spacing: base * 0.35) {
+            Circle()
+                .fill(Color(previewOverlay?.teamAColor ?? .systemOrange))
+                .frame(width: base * 0.7, height: base * 0.7)
+            Text("\(previewOverlay?.teamAName ?? "Team A") 0")
+                .font(.system(size: base, weight: .bold))
+            Text("–")
+                .font(.system(size: base))
+                .opacity(0.6)
+            Text("0 \(previewOverlay?.teamBName ?? "Team B")")
+                .font(.system(size: base, weight: .bold))
+            Circle()
+                .fill(Color(previewOverlay?.teamBColor ?? .systemTeal))
+                .frame(width: base * 0.7, height: base * 0.7)
+        }
+        .foregroundColor(.white)
+        .lineLimit(1)
+        .padding(.horizontal, base * 0.8)
+        .padding(.vertical, base * 0.5)
+        .background(Capsule().fill(Color.black.opacity(0.6)))
+    }
+
+    private var positionGrid: some View {
+        let columns = [
+            GridItem(.flexible(), spacing: BSCSpacing.sm),
+            GridItem(.flexible(), spacing: BSCSpacing.sm)
+        ]
+        return LazyVGrid(columns: columns, spacing: BSCSpacing.sm) {
+            positionButton(.topLeft, label: "Top Left", icon: "arrow.up.left")
+            positionButton(.topRight, label: "Top Right", icon: "arrow.up.right")
+            positionButton(.bottomLeft, label: "Bottom Left", icon: "arrow.down.left")
+            positionButton(.bottomRight, label: "Bottom Right", icon: "arrow.down.right")
+        }
+    }
+
+    private func positionButton(_ position: VideoExporter.ScoreboardPosition, label: String, icon: String) -> some View {
+        let isSelected = scoreboardPosition == position
+        return Button {
+            scoreboardPositionRaw = position.rawValue
+        } label: {
+            Label(label, systemImage: icon)
+                .bscFont(size: 15, weight: isSelected ? .semibold : .regular)
+                .foregroundColor(isSelected ? .bscOnPrimary : .bscTextPrimary)
+                .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
+                .background(
+                    RoundedRectangle(cornerRadius: BSCRadius.md)
+                        .fill(isSelected
+                              ? AnyShapeStyle(LinearGradient.bscPrimaryGradient)
+                              : AnyShapeStyle(Color.bscSurfaceGlass))
+                )
+        }
+        .accessibilityIdentifier(AccessibilityID.GameScoring.scoreboardPositionPrefix + position.rawValue)
     }
 
     private var progressIndicator: some View {
@@ -262,6 +433,8 @@ struct GameExportSheet: View {
             let url = try await VideoExporter().exportScoredGameToPhotoLibrary(
                 clips: clips,
                 overlays: overlays,
+                scoreboardPosition: scoreboardPosition,
+                scoreboardScale: scoreboardSize.scale,
                 addWatermark: addWatermark
             ) { progress in
                 Task { @MainActor in

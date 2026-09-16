@@ -93,6 +93,34 @@ final class GameScoringViewModel {
                 return
             }
             isLoaded = true
+            // First open collects teams before anything plays — the video
+            // starting under the setup sheet was distracting (tester feedback).
+            if !needsSetup {
+                playCurrentRally()
+            }
+        } catch {
+            loadFailed = true
+        }
+    }
+
+    /// Re-sync after the timeline editor changed the rallies (added a missed
+    /// serve, re-timed or deleted one). The editor's save already remapped
+    /// pointWinners/setBreaks onto the new indices, and scores are computed —
+    /// never stored — so assigning the new rally's winner auto-adjusts every
+    /// score after it.
+    func reloadAfterTimelineEdit() async {
+        do {
+            let metadata = try metadataStore.loadMetadata(for: videoId)
+            segments = metadata.rallySegments
+            trimAdjustments = metadataStore.loadTrimAdjustments(for: videoId)
+            if let saved = metadataStore.loadGameScoring(for: videoId) {
+                scoring = saved
+            }
+            guard !segments.isEmpty else {
+                loadFailed = true
+                return
+            }
+            currentIndex = min(currentIndex, segments.count - 1)
             playCurrentRally()
         } catch {
             loadFailed = true
@@ -200,6 +228,8 @@ final class GameScoringViewModel {
         scoring.teamB = teamB
         needsSetup = false
         persist()
+        // Setup done — NOW the first rally starts playing.
+        playCurrentRally()
     }
 
     private func persist() {

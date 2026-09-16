@@ -36,10 +36,16 @@ struct RallyTimelineView: View {
     private let handleWidth: CGFloat = 18
     private let horizontalInset: CGFloat = BSCSpacing.lg
 
-    init(videoURL: URL, videoId: UUID, metadataStore: MetadataStore, onSaved: @escaping () -> Void) {
+    /// Where the playhead starts (seconds); nil = the first rally. Callers
+    /// chasing a specific problem (e.g. a missed serve noticed while scoring)
+    /// pass the time they were looking at so the editor opens right there.
+    private let initialTime: Double?
+
+    init(videoURL: URL, videoId: UUID, metadataStore: MetadataStore, initialTime: Double? = nil, onSaved: @escaping () -> Void) {
         self.videoURL = videoURL
         self.videoId = videoId
         self.metadataStore = metadataStore
+        self.initialTime = initialTime
         self.onSaved = onSaved
         _viewModel = State(initialValue: RallyTimelineViewModel(
             videoURL: videoURL, videoId: videoId, metadataStore: metadataStore))
@@ -107,6 +113,9 @@ struct RallyTimelineView: View {
         .environment(\.colorScheme, .dark)
         .task {
             await viewModel.load()
+            if let initialTime, viewModel.videoDuration > 0 {
+                viewModel.playhead = min(max(0, initialTime), viewModel.videoDuration)
+            }
             seek(to: viewModel.playhead, precise: true)
             installTimeObserver()
         }

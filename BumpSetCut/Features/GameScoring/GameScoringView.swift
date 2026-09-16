@@ -15,6 +15,7 @@ struct GameScoringView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: GameScoringViewModel
     @State private var showExportSheet = false
+    @State private var showTimelineEditor = false
 
     init(videoMetadata: VideoMetadata) {
         _viewModel = State(initialValue: GameScoringViewModel(videoMetadata: videoMetadata))
@@ -55,15 +56,31 @@ struct GameScoringView: View {
                         .foregroundColor(.bscTextSecondary)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        viewModel.player.pause()
-                        showExportSheet = true
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
+                    HStack(spacing: BSCSpacing.sm) {
+                        // Fix a wrong/missed rally without leaving the scoring
+                        // flow: opens the timeline editor at the current spot.
+                        Button {
+                            viewModel.player.pause()
+                            viewModel.isPlaying = false
+                            showTimelineEditor = true
+                        } label: {
+                            Image(systemName: "timeline.selection")
+                        }
+                        .disabled(!viewModel.isLoaded)
+                        .accessibilityLabel("Fix rallies on the timeline")
+                        .accessibilityIdentifier(AccessibilityID.GameScoring.editTimeline)
+
+                        Button {
+                            viewModel.player.pause()
+                            viewModel.isPlaying = false
+                            showExportSheet = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .disabled(!viewModel.isLoaded)
+                        .accessibilityLabel("Export scored game")
+                        .accessibilityIdentifier(AccessibilityID.GameScoring.export)
                     }
-                    .disabled(!viewModel.isLoaded)
-                    .accessibilityLabel("Export scored game")
-                    .accessibilityIdentifier(AccessibilityID.GameScoring.export)
                 }
             }
         }
@@ -86,6 +103,19 @@ struct GameScoringView: View {
                 gameName: viewModel.videoMetadata.displayName,
                 clips: viewModel.exportClips(),
                 overlays: exportOverlays()
+            )
+        }
+        .fullScreenCover(isPresented: $showTimelineEditor) {
+            RallyTimelineView(
+                videoURL: viewModel.videoMetadata.originalURL,
+                videoId: viewModel.videoMetadata.originalVideoId ?? viewModel.videoMetadata.id,
+                metadataStore: viewModel.metadataStore,
+                // Open where the scorer was looking — the missed serve is
+                // usually in the dead time right around the current rally.
+                initialTime: viewModel.effectiveStart(for: viewModel.currentIndex),
+                onSaved: {
+                    Task { await viewModel.reloadAfterTimelineEdit() }
+                }
             )
         }
     }

@@ -25,6 +25,12 @@ enum AccessibilityID {
         static let help = "home.help"
         static let settings = "home.settings"
         static let statsCard = "home.statsCard"
+        static let notifications = "home.notifications"
+    }
+
+    enum Notifications {
+        static let list = "notifications.list"
+        static let done = "notifications.done"
     }
 
     enum Onboarding {
@@ -167,6 +173,11 @@ enum AccessibilityID {
         static let teamAField = "gameScoring.teamAField"
         static let teamBField = "gameScoring.teamBField"
         static let startScoring = "gameScoring.startScoring"
+        static let editTimeline = "gameScoring.editTimeline"
+        static let confirmExport = "gameScoring.confirmExport"
+        /// Append ScoreboardPosition.rawValue, e.g. "gameScoring.scoreboardPosition.topLeft".
+        static let scoreboardPositionPrefix = "gameScoring.scoreboardPosition."
+        static let scoreboardSize = "gameScoring.scoreboardSize"
     }
 
     enum SpaceSaver {

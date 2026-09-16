@@ -191,22 +191,46 @@ final class VideoExporter {
         let showsSets: Bool
     }
 
+    /// Where the burned-in scoreboard sits on the exported video.
+    enum ScoreboardPosition: String, CaseIterable {
+        case topLeft
+        case topRight
+        case bottomLeft
+        case bottomRight
+    }
+
     /// Stitch a full game into ONE video with a running scoreboard burned in.
     /// `overlays` aligns with `clips` by index (nil = no scoreboard for that
     /// clip). Uses the same Core Animation mechanism as the watermark.
     func exportScoredGame(
         clips: [StitchClip],
         overlays: [GameScoreOverlay?],
+        scoreboardPosition: ScoreboardPosition = .topLeft,
+        scoreboardScale: CGFloat = 1.0,
         addWatermark: Bool = false,
         progressHandler: (@Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         let build = try await buildStitchComposition(clips: clips)
         let videoSize = build.videoComposition.renderSize
 
+        // The watermark occupies the bottom-right corner — lift a bottom-right
+        // scoreboard above it so the two never stack.
+        let watermarkClearance: CGFloat
+        if addWatermark, scoreboardPosition == .bottomRight {
+            let watermarkFontSize = min(max(videoSize.height * 0.028, 13), 44)
+            watermarkClearance = ceil(watermarkFontSize * 2.2)
+        } else {
+            watermarkClearance = 0
+        }
+
         var overlayLayers: [CALayer] = []
         for (index, range) in build.clipRanges.enumerated() {
             guard let range, index < overlays.count, let overlay = overlays[index] else { continue }
-            overlayLayers.append(makeScoreboardLayer(overlay, timeRange: range, videoSize: videoSize))
+            overlayLayers.append(makeScoreboardLayer(
+                overlay, timeRange: range, videoSize: videoSize,
+                position: scoreboardPosition, scale: scoreboardScale,
+                bottomClearance: watermarkClearance
+            ))
         }
         if addWatermark {
             overlayLayers.append(createWatermarkLayer(videoSize: videoSize, videoDuration: build.composition.duration))
@@ -227,11 +251,15 @@ final class VideoExporter {
     func exportScoredGameToPhotoLibrary(
         clips: [StitchClip],
         overlays: [GameScoreOverlay?],
+        scoreboardPosition: ScoreboardPosition = .topLeft,
+        scoreboardScale: CGFloat = 1.0,
         addWatermark: Bool = false,
         progressHandler: (@Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         let url = try await exportScoredGame(
-            clips: clips, overlays: overlays, addWatermark: addWatermark, progressHandler: progressHandler
+            clips: clips, overlays: overlays,
+            scoreboardPosition: scoreboardPosition, scoreboardScale: scoreboardScale,
+            addWatermark: addWatermark, progressHandler: progressHandler
         )
         try await saveVideoToPhotoLibrary(url: url)
         return url
@@ -239,8 +267,8 @@ final class VideoExporter {
 
     /// One scoreboard pill, visible only during its clip's output range.
     /// Video-composition layer space has its origin at the BOTTOM-left.
-    private func makeScoreboardLayer(_ overlay: GameScoreOverlay, timeRange: CMTimeRange, videoSize: CGSize) -> CALayer {
-        let fontSize = min(max(videoSize.height * 0.034, 18), 46)
+    private func makeScoreboardLayer(_ overlay: GameScoreOverlay, timeRange: CMTimeRange, videoSize: CGSize, position: ScoreboardPosition, scale: CGFloat, bottomClearance: CGFloat = 0) -> CALayer {
+        let fontSize = min(max(videoSize.height * 0.034 * scale, 14), 64)
         let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
         let subFont = UIFont.systemFont(ofSize: fontSize * 0.62, weight: .semibold)
 
@@ -274,13 +302,22 @@ final class VideoExporter {
         textLayer.frame = CGRect(x: hPadding, y: vPadding, width: ceil(textSize.width), height: ceil(textSize.height))
 
         let margin = fontSize * 0.6
+        let originX: CGFloat
+        switch position {
+        case .topLeft, .bottomLeft:
+            originX = margin
+        case .topRight, .bottomRight:
+            originX = videoSize.width - pillSize.width - margin
+        }
+        let originY: CGFloat
+        switch position {
+        case .topLeft, .topRight:
+            originY = videoSize.height - pillSize.height - margin
+        case .bottomLeft, .bottomRight:
+            originY = margin + bottomClearance
+        }
         let pill = CALayer()
-        pill.frame = CGRect(
-            x: margin,
-            y: videoSize.height - pillSize.height - margin,
-            width: pillSize.width,
-            height: pillSize.height
-        )
+        pill.frame = CGRect(x: originX, y: originY, width: pillSize.width, height: pillSize.height)
         pill.backgroundColor = UIColor.black.withAlphaComponent(0.55).cgColor
         pill.cornerRadius = pillSize.height / 2
         pill.masksToBounds = true
