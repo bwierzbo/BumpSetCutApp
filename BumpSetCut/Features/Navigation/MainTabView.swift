@@ -340,11 +340,25 @@ struct MainTabView: View {
                             .bscFont(size: 20)
                             .foregroundColor(.bscError)
                     } trailing: {}
-                } else {
-                    BSCStatusPill(title: processingCoordinator.noRalliesDetected ? "No rallies found" : "Processing complete!") {
-                        Image(systemName: processingCoordinator.noRalliesDetected ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                } else if processingCoordinator.noRalliesDetected {
+                    BSCStatusPill(
+                        title: "No rallies found",
+                        subtitle: "\(processingCoordinator.videoName) \u{2022} tap for options"
+                    ) {
+                        Image(systemName: "exclamationmark.circle.fill")
                             .bscFont(size: 20)
-                            .foregroundColor(processingCoordinator.noRalliesDetected ? .bscTextSecondary : .bscSuccessText)
+                            .foregroundColor(.bscTextSecondary)
+                    } trailing: {}
+                } else {
+                    // A summary that survives a trip away from the app — the
+                    // user shouldn't have to hunt for the processed video.
+                    BSCStatusPill(
+                        title: "\(processingCoordinator.completedRallyCount) \(processingCoordinator.completedRallyCount == 1 ? "rally" : "rallies") found",
+                        subtitle: "\(processingCoordinator.videoName) \u{2022} tap to view"
+                    ) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .bscFont(size: 20)
+                            .foregroundColor(.bscSuccessText)
                     } trailing: {}
                 }
             } else {

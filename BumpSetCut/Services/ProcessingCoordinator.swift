@@ -33,6 +33,8 @@ final class ProcessingCoordinator {
     private(set) var pendingDebugData: TrajectoryDebugger?
     private(set) var didComplete = false
     private(set) var showCompletionPill = false
+    /// Rally count of the last successful run — the completion pill's summary.
+    private(set) var completedRallyCount = 0
 
     var progressPercent: Int { Int(min(1.0, max(0.0, progress)) * 100) }
     var hasResult: Bool { pendingSaveURL != nil || noRalliesDetected || errorMessage != nil }
@@ -126,6 +128,7 @@ final class ProcessingCoordinator {
         self.pendingDebugData = nil
         self.didComplete = false
         self.showCompletionPill = false
+        self.completedRallyCount = 0
 
         // Create fresh processor
         self.processor = VideoProcessor()
@@ -222,6 +225,11 @@ final class ProcessingCoordinator {
                     // Meter weekly usage by exported rally length (what the user actually gets),
                     // not source video length.
                     let exportedSeconds = metadata.totalRallyDuration
+
+                    await MainActor.run {
+                        guard gen == self.runGeneration else { return }
+                        self.completedRallyCount = metadata.rallyCount
+                    }
 
                     await MainActor.run {
                         // Lifetime stats: accumulate dead time removed + rallies for this
@@ -378,6 +386,7 @@ final class ProcessingCoordinator {
 
         // The user may have left mid-run (iOS 26 continues it in the
         // background) — tell them the outcome without making them check.
+        // The pill above does the same for their return to the app.
         if noRalliesDetected {
             postLocalNotification(
                 title: "No rallies detected",
@@ -386,17 +395,27 @@ final class ProcessingCoordinator {
         } else if let errorMessage {
             postLocalNotification(title: "Processing failed", body: "\(videoName): \(errorMessage)")
         } else {
+            let count = completedRallyCount
             postLocalNotification(
                 title: "Your rallies are ready 🏐",
-                body: "\(videoName) finished processing. Open BumpSetCut to watch them."
+                body: count > 0
+                    ? "Found \(count) \(count == 1 ? "rally" : "rallies") in \(videoName). Open BumpSetCut to watch them."
+                    : "\(videoName) finished processing. Open BumpSetCut to watch your rallies."
             )
         }
 
-        // Auto-hide completion pill after 5 seconds if not consumed
+        // Auto-hide the completion pill after ~6s of FOREGROUND time. The
+        // countdown must not burn while the user is away (with background
+        // continuation the app keeps running after they leave) — coming back
+        // to a vanished summary meant hunting for the processed video.
+        let gen = runGeneration
         Task {
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            while UIApplication.shared.applicationState != .active {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
             await MainActor.run {
-                if self.showCompletionPill && self.didComplete {
+                if gen == self.runGeneration && self.showCompletionPill && self.didComplete {
                     self.showCompletionPill = false
                 }
             }
