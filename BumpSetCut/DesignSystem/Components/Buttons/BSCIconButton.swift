@@ -69,22 +69,23 @@ struct BSCIconButton: View {
                     .bscFont(size: size.iconSize, weight: .semibold)
                     .foregroundColor(foregroundColor)
             }
+            // Anchored to the circle, not to the touch frame. A toolbar item
+            // clips to the glass capsule behind it, and the touch frame's top
+            // edge sits right on that boundary — a badge placed there is sliced
+            // flat. The circle is inset within the frame, so a badge on its
+            // corner stays comfortably inside anything that clips us.
+            .frame(width: size.dimension, height: size.dimension)
+            .overlay(alignment: .topTrailing) {
+                if let badge, badge > 0 {
+                    badgeView(count: badge)
+                }
+            }
             .frame(
                 width: max(size.dimension, BSCTouchTarget.standard),
                 height: max(size.dimension, BSCTouchTarget.standard)
             )
             .contentShape(Rectangle())
             .bscShadow(shadowStyle)
-            // Anchored inside the touch frame rather than offset out of it: a
-            // toolbar item clips to its own bounds (and on iOS 26 to the glass
-            // capsule behind it), so anything that overhangs gets sliced off.
-            // The frame is at least 44pt while a compact circle is 32pt, which
-            // leaves the corner free for the badge to sit in.
-            .overlay(alignment: .topTrailing) {
-                if let badge, badge > 0 {
-                    badgeView(count: badge)
-                }
-            }
             .opacity(isEnabled ? 1.0 : 0.5)
         }
         .buttonStyle(BSCIconButtonPressStyle())
