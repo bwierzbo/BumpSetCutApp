@@ -62,6 +62,97 @@ final class SocialModelCodingTests: XCTestCase {
         XCTAssertEqual(profile.privacyLevel, .followersOnly)
     }
 
+    // MARK: - PlayerInfo (embedded profile_details)
+
+    func testUserProfileDecodesEmbeddedPlayerDetails() throws {
+        let json = """
+        {
+            "id": "u1",
+            "username": "alice",
+            "created_at": "2026-01-15T14:30:45Z",
+            "details": {
+                "user_id": "u1",
+                "play_types": ["grass", "indoor"],
+                "height_cm": 180,
+                "level": "aa",
+                "handedness": "left",
+                "indoor_position": "setter",
+                "instagram_handle": "alice_v",
+                "updated_at": "2026-09-17T10:00:00Z"
+            }
+        }
+        """
+        let profile = try decode(UserProfile.self, from: json)
+        let details = try XCTUnwrap(profile.details)
+
+        XCTAssertEqual(details.playTypes, [.grass, .indoor])
+        XCTAssertEqual(details.heightCm, 180)
+        XCTAssertEqual(details.level, .aa)
+        XCTAssertEqual(details.handedness, .left)
+        XCTAssertEqual(details.indoorPosition, .setter)
+        XCTAssertEqual(details.instagramHandle, "alice_v")
+        XCTAssertEqual(details.heightDisplay, "5'11\"")
+        XCTAssertEqual(details.instagramURL?.absoluteString, "https://instagram.com/alice_v")
+        XCTAssertFalse(details.isEmpty)
+    }
+
+    /// RLS hides the row from viewers who may not see it — PostgREST sends
+    /// `null` — and embeds that don't select details omit the key entirely.
+    func testUserProfileDecodesWithoutPlayerDetails() throws {
+        let nullJSON = """
+        {"id": "u1", "username": "alice", "created_at": "2026-01-15T14:30:45Z", "details": null}
+        """
+        XCTAssertNil(try decode(UserProfile.self, from: nullJSON).details)
+
+        let missingJSON = """
+        {"id": "u1", "username": "alice", "created_at": "2026-01-15T14:30:45Z"}
+        """
+        XCTAssertNil(try decode(UserProfile.self, from: missingJSON).details)
+    }
+
+    func testPlayerInfoUpdateEncodesSnakeCaseAndExplicitNulls() throws {
+        let info = PlayerInfo(playTypes: [], heightCm: nil, level: nil,
+                              handedness: nil, indoorPosition: nil, instagramHandle: nil)
+        let json = try encodedJSON(PlayerInfoUpdate(userId: "u1", info: info))
+
+        XCTAssertTrue(json.contains("\"user_id\":\"u1\""))
+        XCTAssertTrue(json.contains("\"play_types\":[]"))
+        // Explicit nulls are what let a user CLEAR a field — encodeIfPresent
+        // would omit the key and PostgREST would leave the column untouched.
+        XCTAssertTrue(json.contains("\"height_cm\":null"))
+        XCTAssertTrue(json.contains("\"indoor_position\":null"))
+        XCTAssertTrue(json.contains("\"instagram_handle\":null"))
+        XCTAssertTrue(json.contains("\"level\":null"))
+        XCTAssertTrue(json.contains("\"handedness\":null"))
+    }
+
+    func testPlayerInfoHeightRoundTripsThroughCentimetres() {
+        for feet in 4...7 {
+            for inches in 0...11 {
+                let cm = PlayerInfo.cm(feet: feet, inches: inches)
+                let info = PlayerInfo(heightCm: cm)
+                let round = try? XCTUnwrap(info.heightFeetInches)
+                XCTAssertEqual(round?.feet, feet, "feet drifted at \(feet)'\(inches)\"")
+                XCTAssertEqual(round?.inches, inches, "inches drifted at \(feet)'\(inches)\"")
+            }
+        }
+    }
+
+    func testInstagramNormalizationAcceptsWhatPeoplePaste() {
+        XCTAssertEqual(PlayerInfo.normalizeInstagram("@Alice.v"), "Alice.v")
+        XCTAssertEqual(PlayerInfo.normalizeInstagram("https://www.instagram.com/alice.v/"), "alice.v")
+        XCTAssertEqual(PlayerInfo.normalizeInstagram("instagram.com/alice.v"), "alice.v")
+        XCTAssertEqual(PlayerInfo.normalizeInstagram("  alice.v  "), "alice.v")
+        XCTAssertNil(PlayerInfo.normalizeInstagram(""))
+        XCTAssertNil(PlayerInfo.normalizeInstagram("   "))
+
+        XCTAssertTrue(PlayerInfo.isValidInstagram("alice.v"))
+        XCTAssertTrue(PlayerInfo.isValidInstagram("a_b.1"))
+        XCTAssertFalse(PlayerInfo.isValidInstagram("bad handle"))
+        XCTAssertFalse(PlayerInfo.isValidInstagram("nope!"))
+        XCTAssertFalse(PlayerInfo.isValidInstagram(String(repeating: "a", count: 31)))
+    }
+
     // MARK: - Highlight (regression: thumbnail_url + nested author/metadata)
 
     func testHighlightDecodesIncludingNestedAuthorAndMetadata() throws {

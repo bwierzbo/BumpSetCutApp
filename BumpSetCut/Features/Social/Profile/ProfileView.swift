@@ -14,6 +14,7 @@ struct ProfileView: View {
     @State private var showReportSheet = false
     @State private var showBlockAlert = false
     @State private var showingSettings = false
+    @State private var showingEditProfile = false
     @State private var toast: BSCToastMessage?
     @Environment(AuthenticationService.self) private var authService
     @Environment(AppSettings.self) private var appSettings
@@ -39,6 +40,12 @@ struct ProfileView: View {
                         profileHeader(profile)
                         statsRow(profile)
                         actionButtons(profile)
+                        PlayerInfoCard(
+                            state: viewModel.playerInfoState(isOwnProfile: isOwnProfile),
+                            isOwnProfile: isOwnProfile,
+                            onAddTapped: { showingEditProfile = true }
+                        )
+                        .padding(.horizontal, BSCSpacing.lg)
                         highlightsGrid
                     }
                     .padding(.top, BSCSpacing.md)
@@ -55,6 +62,12 @@ struct ProfileView: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        // "Add your player info" pushes the same editor as the Edit Profile pill.
+        .navigationDestination(isPresented: $showingEditProfile) {
+            EditProfileView(onSaved: {
+                Task { await viewModel.loadProfile() }
+            })
+        }
         .bscToast($toast)
         .onChange(of: viewModel.actionError) { _, message in
             if let message {

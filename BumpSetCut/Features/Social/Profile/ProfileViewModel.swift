@@ -59,6 +59,31 @@ final class ProfileViewModel {
         isLoading = false
     }
 
+    // MARK: - Player Info
+
+    /// What the Player Info card should show. The lock is derived entirely
+    /// from state the client already has — RLS is the real enforcement, and it
+    /// simply returns no row, which is indistinguishable from "not filled in".
+    enum PlayerInfoState: Equatable {
+        case locked
+        case empty
+        case visible(PlayerInfo)
+    }
+
+    func playerInfoState(isOwnProfile: Bool) -> PlayerInfoState {
+        guard let profile else { return .empty }
+        if !isOwnProfile && profile.privacyLevel != .public && !isFollowing { return .locked }
+        if let details = profile.details, !details.isEmpty { return .visible(details) }
+        return .empty
+    }
+
+    /// Re-fetch just the profile. Used after following someone, so the details
+    /// embed — which RLS withheld a moment ago — appears without a full reload.
+    private func reloadProfileOnly() async {
+        guard let refreshed: UserProfile = try? await apiClient.request(.getProfile(userId: userId)) else { return }
+        profile = refreshed
+    }
+
     func deleteHighlight(_ highlight: Highlight) async -> Bool {
         do {
             let _: EmptyResponse = try await apiClient.request(.deleteHighlight(id: highlight.id))
@@ -112,6 +137,9 @@ final class ProfileViewModel {
             } else {
                 let _: EmptyResponse = try await apiClient.request(.unfollow(userId: userId))
             }
+            // Following/unfollowing changes what the viewer may see, so pick up
+            // (or lose) the player-info embed right away.
+            await reloadProfileOnly()
             return true
         } catch {
             // Revert

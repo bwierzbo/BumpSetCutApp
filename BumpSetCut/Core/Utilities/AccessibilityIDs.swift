@@ -130,6 +130,26 @@ enum AccessibilityID {
         static let username = "profile.username"
         static let bio = "profile.bio"
         static let emptyHighlights = "profile.emptyHighlights"
+        static let playerInfoCard = "profile.playerInfoCard"
+        static let playerInfoLocked = "profile.playerInfoLocked"
+        static let addPlayerInfo = "profile.addPlayerInfo"
+        static let instagramLink = "profile.instagramLink"
+    }
+
+    enum EditProfile {
+        static let usernameField = "editProfile.username"
+        static let bioField = "editProfile.bio"
+        static let teamField = "editProfile.team"
+        static let privacyPicker = "editProfile.privacy"
+        static let levelPicker = "editProfile.level"
+        static let positionPicker = "editProfile.position"
+        static let handednessPicker = "editProfile.handedness"
+        static let heightFeetPicker = "editProfile.heightFeet"
+        static let heightInchesPicker = "editProfile.heightInches"
+        static let instagramField = "editProfile.instagram"
+        static let saveButton = "editProfile.save"
+
+        static func playType(_ type: PlayType) -> String { "editProfile.playType.\(type.rawValue)" }
     }
 
     enum Search {

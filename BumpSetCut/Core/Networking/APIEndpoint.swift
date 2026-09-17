@@ -20,6 +20,7 @@ enum APIEndpoint {
     // User
     case getProfile(userId: String)
     case updateProfile(UserProfileUpdate)
+    case updateProfileDetails(PlayerInfoUpdate)
     case searchUsers(query: String, page: Int)
 
     // Highlights
@@ -82,6 +83,7 @@ enum APIEndpoint {
         case .signOut: return "/auth/signout"
         case .getProfile(let userId): return "/profiles/\(userId)"
         case .updateProfile: return "/profiles/me"
+        case .updateProfileDetails: return "/profiles/me/details"
         case .searchUsers: return "/profiles/search"
         case .getFeed: return "/highlights/feed"
         case .getFollowingFeed: return "/highlights/following"
@@ -138,6 +140,8 @@ enum APIEndpoint {
             return .delete
         case .updateProfile, .markAllNotificationsRead:
             return .patch
+        case .updateProfileDetails:
+            return .put
         default:
             return .get
         }
@@ -157,6 +161,45 @@ enum APIEndpoint {
 }
 
 // MARK: - Request Payload Types
+
+/// Full-row upsert for `profile_details`. Unlike `UserProfileUpdate`, this
+/// encodes EVERY key — nil becomes JSON null — so clearing a field actually
+/// clears it instead of being omitted from the payload and left untouched.
+struct PlayerInfoUpdate: Encodable {
+    let userId: String
+    var playTypes: [PlayType]
+    var heightCm: Int?
+    var level: PlayLevel?
+    var handedness: Handedness?
+    var indoorPosition: IndoorPosition?
+    var instagramHandle: String?
+
+    init(userId: String, info: PlayerInfo) {
+        self.userId = userId
+        self.playTypes = info.playTypes
+        self.heightCm = info.heightCm
+        self.level = info.level
+        self.handedness = info.handedness
+        self.indoorPosition = info.indoorPosition
+        self.instagramHandle = info.instagramHandle
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case userId, playTypes, heightCm, level, handedness, indoorPosition, instagramHandle
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userId, forKey: .userId)
+        try container.encode(playTypes, forKey: .playTypes)
+        // `encode`, not `encodeIfPresent`: nil must reach the row as null.
+        try container.encode(heightCm, forKey: .heightCm)
+        try container.encode(level, forKey: .level)
+        try container.encode(handedness, forKey: .handedness)
+        try container.encode(indoorPosition, forKey: .indoorPosition)
+        try container.encode(instagramHandle, forKey: .instagramHandle)
+    }
+}
 
 struct UserProfileUpdate: Codable {
     var username: String?

@@ -29,11 +29,17 @@ struct UserProfile: Codable, Identifiable, Hashable {
     var highlightsCount: Int
     var privacyLevel: PrivacyLevel
     let createdAt: Date
+    /// Volleyball details from the embedded `profile_details` row. Nil when the
+    /// viewer can't see them (RLS hides the row for a non-follower of a private
+    /// profile), when the user hasn't filled them in, or when the profile came
+    /// from an embed that didn't select them (e.g. a highlight's author).
+    var details: PlayerInfo?
 
     init(id: String, username: String, avatarURL: URL? = nil,
          bio: String? = nil, teamName: String? = nil, followersCount: Int = 0,
          followingCount: Int = 0, highlightsCount: Int = 0,
-         privacyLevel: PrivacyLevel = .public, createdAt: Date = Date()) {
+         privacyLevel: PrivacyLevel = .public, createdAt: Date = Date(),
+         details: PlayerInfo? = nil) {
         self.id = id
         self.username = username
         self.avatarURL = avatarURL
@@ -44,6 +50,7 @@ struct UserProfile: Codable, Identifiable, Hashable {
         self.highlightsCount = highlightsCount
         self.privacyLevel = privacyLevel
         self.createdAt = createdAt
+        self.details = details
     }
 
     init(from decoder: Decoder) throws {
@@ -58,10 +65,13 @@ struct UserProfile: Codable, Identifiable, Hashable {
         highlightsCount = try container.decodeIfPresent(Int.self, forKey: .highlightsCount) ?? 0
         privacyLevel = try container.decodeIfPresent(PrivacyLevel.self, forKey: .privacyLevel) ?? .public
         createdAt = try container.decode(Date.self, forKey: .createdAt)
+        // PostgREST sends `"details": null` when RLS hides the row, and omits
+        // the key entirely on embeds that don't select it.
+        details = try container.decodeIfPresent(PlayerInfo.self, forKey: .details)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, username, bio, teamName
+        case id, username, bio, teamName, details
         case followersCount, followingCount, highlightsCount, privacyLevel, createdAt
         // The Supabase decoder uses `.convertFromSnakeCase`, which turns the
         // `avatar_url` column into `avatarUrl` (Foundation lowercases acronyms).

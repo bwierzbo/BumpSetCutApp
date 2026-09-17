@@ -67,6 +67,10 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
 
     private let supabase = SupabaseConfig.client
 
+    /// Profiles plus their volleyball details. RLS on `profile_details` hides
+    /// the embed (null) from viewers who shouldn't see a private player's info.
+    private static let profileSelect = "*, details:profile_details(*)"
+
     private init() {}
 
     // MARK: - APIClient
@@ -279,7 +283,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         case .getProfile(let userId):
             let response: T = try await supabase
                 .from("profiles")
-                .select()
+                .select(Self.profileSelect)
                 .eq("id", value: userId)
                 .single()
                 .execute()
@@ -292,6 +296,20 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .from("profiles")
                 .update(update)
                 .eq("id", value: userId)
+                // Return the details embed too, so the cached local profile
+                // keeps them after a save.
+                .select(Self.profileSelect)
+                .single()
+                .execute()
+                .value
+            return response
+
+        case .updateProfileDetails(let update):
+            let userId = try await currentUserId()
+            guard update.userId == userId else { throw APIError.unauthorized }
+            let response: T = try await supabase
+                .from("profile_details")
+                .upsert(update, onConflict: "user_id")
                 .select()
                 .single()
                 .execute()
@@ -304,7 +322,7 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
             let to = from + pageSize - 1
             let response: T = try await supabase
                 .from("profiles")
-                .select()
+                .select(Self.profileSelect)
                 .ilike("username", pattern: "%\(query)%")
                 .range(from: from, to: to)
                 .execute()

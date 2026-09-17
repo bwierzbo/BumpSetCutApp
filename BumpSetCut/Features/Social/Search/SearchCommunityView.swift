@@ -233,6 +233,20 @@ struct SearchCommunityView: View {
                 Text(user.username)
                     .bscFont(size: 15, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
+
+                // Where and at what level they play — the two things that
+                // matter when you're looking for someone to play with. Absent
+                // for private players you don't follow (RLS hides the embed).
+                if let details = user.details, !details.playTypes.isEmpty || details.level != nil {
+                    HStack(spacing: BSCSpacing.xxs) {
+                        ForEach(details.playTypes, id: \.self) { type in
+                            PlayTypeChip(type: type, compact: true)
+                        }
+                        if let level = details.level {
+                            LevelBadge(level: level)
+                        }
+                    }
+                }
             }
 
             Spacer()
