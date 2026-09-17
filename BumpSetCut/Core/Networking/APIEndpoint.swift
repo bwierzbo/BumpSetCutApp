@@ -70,6 +70,21 @@ enum APIEndpoint {
     case getUnreadNotificationCount
     case markAllNotificationsRead
 
+    // Direct Messages
+    case getConversations(page: Int)
+    case getConversationRequests(page: Int)
+    case getConversation(id: String)
+    case getMessages(conversationId: String, before: Date?, limit: Int)
+    case sendMessage(SendMessageParams)
+    case getOrCreateConversation(otherUserId: String)
+    case acceptConversation(id: String)
+    case leaveConversation(id: String)
+    case markConversationRead(id: String)
+    case unreadMessageCount
+    case pendingRequestCount
+    case registerDeviceToken(DeviceTokenRegistration)
+    case deleteDeviceToken(token: String)
+
     // Lifetime Stats (account-linked)
     case getMyStats
     case addMyStats(rallies: Int, timeCutSeconds: Double)
@@ -120,6 +135,19 @@ enum APIEndpoint {
         case .getNotifications: return "/notifications"
         case .getUnreadNotificationCount: return "/notifications/unread-count"
         case .markAllNotificationsRead: return "/notifications/read-all"
+        case .getConversations: return "/conversations"
+        case .getConversationRequests: return "/conversations/requests"
+        case .getConversation(let id): return "/conversations/\(id)"
+        case .getMessages(let conversationId, _, _): return "/conversations/\(conversationId)/messages"
+        case .sendMessage: return "/messages"
+        case .getOrCreateConversation(let otherUserId): return "/conversations/with/\(otherUserId)"
+        case .acceptConversation(let id): return "/conversations/\(id)/accept"
+        case .leaveConversation(let id): return "/conversations/\(id)/leave"
+        case .markConversationRead(let id): return "/conversations/\(id)/read"
+        case .unreadMessageCount: return "/messages/unread-count"
+        case .pendingRequestCount: return "/conversations/requests/count"
+        case .registerDeviceToken: return "/device-tokens"
+        case .deleteDeviceToken(let token): return "/device-tokens/\(token)"
         case .getMyStats: return "/stats/me"
         case .addMyStats: return "/stats/me/add"
         case .createUploadURL: return "/uploads"
@@ -130,15 +158,17 @@ enum APIEndpoint {
         switch self {
         case .createHighlight, .addComment, .likeHighlight, .likeComment,
              .follow, .createUploadURL, .checkFollowStatusBatch, .createReport, .blockUser,
-             .createPoll, .createPollOptions, .votePoll, .addMyStats:
+             .createPoll, .createPollOptions, .votePoll, .addMyStats,
+             .sendMessage, .getOrCreateConversation, .acceptConversation, .registerDeviceToken:
             return .post
         case .refreshToken:
             return .post
         case .signOut:
             return .post
-        case .deleteHighlight, .deleteComment, .unlikeHighlight, .unlikeComment, .unfollow, .unblockUser:
+        case .deleteHighlight, .deleteComment, .unlikeHighlight, .unlikeComment, .unfollow, .unblockUser,
+             .leaveConversation, .deleteDeviceToken:
             return .delete
-        case .updateProfile, .markAllNotificationsRead:
+        case .updateProfile, .markAllNotificationsRead, .markConversationRead:
             return .patch
         case .updateProfileDetails:
             return .put

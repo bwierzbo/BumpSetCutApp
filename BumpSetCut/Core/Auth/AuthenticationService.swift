@@ -27,11 +27,13 @@ final class AuthenticationService {
                 Task { await ModerationService.shared.ensureBlocksLoaded() }
                 if let userId = currentUser?.id {
                     SocialNotificationService.shared.start(userId: userId)
+                    DirectMessageService.shared.start(userId: userId)
                     Task { await LifetimeStatsStore.shared.signIn(userId: userId) }
                 }
             } else if authState == .unauthenticated {
                 ModerationService.shared.resetForSignOut()
                 SocialNotificationService.shared.stop()
+                DirectMessageService.shared.stop()
                 LifetimeStatsStore.shared.signOut()
             }
         }
@@ -198,6 +200,9 @@ final class AuthenticationService {
 
     func signOut() {
         Task {
+            // Drop this device's push token before the session goes away —
+            // deleting the row needs it.
+            await DirectMessageService.shared.unregisterDeviceToken()
             try? await supabase.auth.signOut()
         }
         clearStoredCredentials()

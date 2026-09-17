@@ -46,6 +46,18 @@ struct HighlightLikeRow: Decodable {
     let highlightId: String
 }
 
+/// Single-argument RPC parameter wrappers. These live at file scope because
+/// Swift forbids nested types inside the generic `request<T>` function.
+struct OtherUserParams: Encodable {
+    let otherUserId: String
+    enum CodingKeys: String, CodingKey { case otherUserId = "p_other_user_id" }
+}
+
+struct ConversationIdParams: Encodable {
+    let conversationId: String
+    enum CodingKeys: String, CodingKey { case conversationId = "p_conversation_id" }
+}
+
 /// Parameters for the `add_user_stats` RPC — explicit keys so the encoder's
 /// key strategy can't drift from the SQL parameter names.
 struct AddUserStatsParams: Encodable {
@@ -61,7 +73,7 @@ struct AddUserStatsParams: Encodable {
 
 // MARK: - Supabase API Client
 
-final class SupabaseAPIClient: APIClient, @unchecked Sendable {
+final class SupabaseAPIClient: APIClient, MessageMediaClient, @unchecked Sendable {
 
     static let shared = SupabaseAPIClient()
 
@@ -71,7 +83,24 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
     /// the embed (null) from viewers who shouldn't see a private player's info.
     private static let profileSelect = "*, details:profile_details(*)"
 
+    /// Messages plus the attached post (if any). Nil when it was deleted or
+    /// the viewer may not see it.
+    private static let messageSelect =
+        "*, highlight:highlights!highlight_id(*, author:profiles(*), poll:polls(*, options:poll_options(*)))"
+    private static let conversationPageSize = 30
+
     private init() {}
+
+    /// The messaging RPCs raise `DM_*`-prefixed errors. PostgREST surfaces
+    /// those as a `PostgrestError`; re-wrap them as `APIError.serverError` so
+    /// callers only ever pattern-match one error type (`DirectMessageError`).
+    private nonisolated func mappingDMErrors<T>(_ work: () async throws -> T) async throws -> T {
+        do {
+            return try await work()
+        } catch let error as PostgrestError {
+            throw APIError.serverError(statusCode: 400, message: error.message)
+        }
+    }
 
     // MARK: - APIClient
 
@@ -578,6 +607,112 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
                 .execute()
             return try safeCast(EmptyResponse())
 
+        // MARK: Direct Messages
+
+        case .getConversations(let page), .getConversationRequests(let page):
+            let myId = try await currentUserId()
+            let status: String
+            if case .getConversations = endpoint { status = "accepted" } else { status = "pending" }
+            let from = page * Self.conversationPageSize
+            let to = from + Self.conversationPageSize - 1
+            let rows: [ConversationSummary] = try await supabase
+                .from("conversation_overview")
+                .select()
+                .eq("user_id", value: myId)
+                .eq("my_status", value: status)
+                .order("last_message_at", ascending: false)
+                .range(from: from, to: to)
+                .execute()
+                .value
+            return try safeCast(rows)
+
+        case .getConversation(let id):
+            // 406 here means "no messages yet" (the view hides empty shells),
+            // "not a member", or blocked — all handled by the caller.
+            let row: ConversationSummary = try await supabase
+                .from("conversation_overview")
+                .select()
+                .eq("conversation_id", value: id)
+                .single()
+                .execute()
+                .value
+            return try safeCast(row)
+
+        case .getMessages(let conversationId, let before, let limit):
+            var query = supabase
+                .from("messages")
+                .select(Self.messageSelect)
+                .eq("conversation_id", value: conversationId)
+            if let before {
+                // Fractional seconds are required — ISO8601Format() truncates
+                // them, which makes the cursor skip or repeat messages.
+                query = query.lt("created_at", value: before.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
+            }
+            let messages: [DirectMessage] = try await query
+                .order("created_at", ascending: false)
+                .limit(limit)
+                .execute()
+                .value
+            return try safeCast(messages)
+
+        case .sendMessage(let params):
+            // The RPC returns the bare row; re-read it with embeds so the
+            // decode path matches getMessages.
+            let inserted: DirectMessage = try await mappingDMErrors {
+                try await supabase.rpc("send_message", params: params).single().execute().value
+            }
+            let full: DirectMessage = try await supabase
+                .from("messages")
+                .select(Self.messageSelect)
+                .eq("id", value: inserted.id)
+                .single()
+                .execute()
+                .value
+            return try safeCast(full)
+
+        case .getOrCreateConversation(let otherUserId):
+            let id: String = try await mappingDMErrors {
+                try await supabase
+                    .rpc("get_or_create_conversation", params: OtherUserParams(otherUserId: otherUserId))
+                    .execute()
+                    .value
+            }
+            return try safeCast(id)
+
+        case .acceptConversation(let id), .leaveConversation(let id), .markConversationRead(let id):
+            let function: String
+            switch endpoint {
+            case .acceptConversation: function = "accept_conversation"
+            case .leaveConversation: function = "leave_conversation"
+            default: function = "mark_conversation_read"
+            }
+            try await mappingDMErrors {
+                try await supabase.rpc(function, params: ConversationIdParams(conversationId: id)).execute()
+            }
+            return try safeCast(EmptyResponse())
+
+        case .unreadMessageCount:
+            let count: Int = try await supabase.rpc("unread_message_count").execute().value
+            return try safeCast(count)
+
+        case .pendingRequestCount:
+            let count: Int = try await supabase.rpc("pending_request_count").execute().value
+            return try safeCast(count)
+
+        case .registerDeviceToken(let registration):
+            try await supabase.rpc("register_device_token", params: registration).execute()
+            return try safeCast(EmptyResponse())
+
+        case .deleteDeviceToken(let token):
+            let myId = try await currentUserId()
+            try await supabase
+                .from("device_tokens")
+                .delete()
+                .eq("token", value: token)
+                .eq("user_id", value: myId)
+                .execute()
+            return try safeCast(EmptyResponse())
+
         // MARK: Lifetime Stats
 
         case .getMyStats:
@@ -802,6 +937,22 @@ final class SupabaseAPIClient: APIClient, @unchecked Sendable {
         }
         components.queryItems = [URLQueryItem(name: "t", value: "\(Int(Date().timeIntervalSince1970))")]
         return components.url ?? publicURL
+    }
+
+    // MARK: - Message Media (private DM clips)
+
+    /// Streams a clip into the private `message-media` bucket. The `{userId}/`
+    /// folder prefix is required by the bucket's insert policy.
+    nonisolated func uploadMessageClip(fileURL: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> String {
+        try await streamUpload(fileURL: fileURL, bucket: "message-media", progress: progress)
+    }
+
+    nonisolated func signedURL(forMessageClip path: String) async throws -> URL {
+        try await supabase.storage.from("message-media").createSignedURL(path: path, expiresIn: 3600)
+    }
+
+    nonisolated func deleteMessageClip(path: String) async throws {
+        _ = try await supabase.storage.from("message-media").remove(paths: [path])
     }
 
     // MARK: - Private

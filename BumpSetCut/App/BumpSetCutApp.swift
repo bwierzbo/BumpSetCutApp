@@ -116,7 +116,7 @@ import AVFoundation
 }
 
 // MARK: App Delegate
-class AppDelegate: NSObject, UIApplicationDelegate {
+class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     static var orientationLock = UIInterfaceOrientationMask.all
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
@@ -125,8 +125,41 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // keyboard presentation by seconds on real devices. AVPlayer activates
         // the session on demand when it plays; we release it on keyboard-show.
         AudioSessionManager.configureCategory()
+        UNUserNotificationCenter.current().delegate = self
         return true
     }
 
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask { AppDelegate.orientationLock }
+
+    // MARK: Remote Notifications
+
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Task { @MainActor in
+            await DirectMessageService.shared.registerDeviceToken(deviceToken)
+        }
+    }
+
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("⚠️ APNs registration failed: \(error.localizedDescription)")
+    }
+
+    /// Don't banner a message for the thread that's already open.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                               willPresent notification: UNNotification) async
+    -> UNNotificationPresentationOptions {
+        let conversationId = notification.request.content.userInfo["conversationId"] as? String
+        if let conversationId, conversationId == DirectMessageService.shared.activeConversationId {
+            return []
+        }
+        return [.banner, .sound, .badge]
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                               didReceive response: UNNotificationResponse) async {
+        if let conversationId = response.notification.request.content.userInfo["conversationId"] as? String {
+            DirectMessageService.shared.pendingConversationId = conversationId
+        }
+    }
 }
