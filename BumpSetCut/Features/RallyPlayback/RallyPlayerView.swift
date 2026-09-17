@@ -509,8 +509,22 @@ struct RallyPlayerView: View {
             viewModel.seedZoomForCurrentRally()
         }
         .onChange(of: geometry.size) { _, newSize in
-            viewModel.updateCardSize(newSize)
-            if !viewModel.isTrimmingMode {
+            // Outside any animation: this is a correction, not a move the user
+            // asked for. Left inside the rotation's transaction, SwiftUI
+            // animates the pan from its stale value to the right one, which is
+            // the slide-to-centre you see after the device turns.
+            withTransaction(Transaction(animation: nil)) {
+                viewModel.updateCardSize(newSize)
+                if !viewModel.isTrimmingMode {
+                    viewModel.seedZoomForCurrentRally()
+                }
+            }
+        }
+        // The size class flips as part of the rotation rather than after the
+        // size settles, so re-seeding here lands the correct framing earlier.
+        .onChange(of: verticalSizeClass) { _, _ in
+            guard !viewModel.isTrimmingMode else { return }
+            withTransaction(Transaction(animation: nil)) {
                 viewModel.seedZoomForCurrentRally()
             }
         }

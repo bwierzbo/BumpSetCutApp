@@ -79,6 +79,19 @@ final class PlayerUIView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Never animate the backing layer's geometry. `AVPlayerLayer` is this
+    /// view's own layer, so a bounds change (rotation, most visibly) would
+    /// animate implicitly on Core Animation's schedule while SwiftUI is already
+    /// animating the frame of the card around it. The two run out of step and
+    /// the video visibly lags and shears inside its card. Everything else keeps
+    /// the default behaviour.
+    override func action(for layer: CALayer, forKey event: String) -> CAAction? {
+        if event == "bounds" || event == "position" || event == "frame" {
+            return NSNull()
+        }
+        return super.action(for: layer, forKey: event)
+    }
+
     deinit {
         readyObserver?.invalidate()
     }

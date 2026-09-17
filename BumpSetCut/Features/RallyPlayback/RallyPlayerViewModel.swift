@@ -265,7 +265,35 @@ final class RallyPlayerViewModel {
     /// Last known rally-card size, kept fresh by the view's GeometryReader.
     /// Used to denormalize persisted pan (stored as a fraction of card size).
     private(set) var cardSize: CGSize = .zero
-    func updateCardSize(_ size: CGSize) { cardSize = size }
+    /// Record the card's size and carry the live pan across with it.
+    ///
+    /// The persisted per-rally pan is normalized, but the *live* gesture offset
+    /// is in points against the card it was last measured on. On rotation the
+    /// card's dimensions swap, so an offset captured in portrait would be
+    /// applied to a landscape card and push the video off-centre until
+    /// something re-seeds it — the visible "it re-centers itself" lurch.
+    /// Rescaling here keeps the framing correct through the rotation, and
+    /// unlike re-seeding it also holds in trim mode, where the user's
+    /// in-progress edit must not be thrown away.
+    func updateCardSize(_ size: CGSize) {
+        let previous = cardSize
+        cardSize = size
+
+        guard previous.width > 0, previous.height > 0,
+              size.width > 0, size.height > 0,
+              previous != size else { return }
+
+        let scaleX = size.width / previous.width
+        let scaleY = size.height / previous.height
+        gesture.zoomOffset = CGSize(
+            width: gesture.zoomOffset.width * scaleX,
+            height: gesture.zoomOffset.height * scaleY
+        )
+        gesture.baseZoomOffset = CGSize(
+            width: gesture.baseZoomOffset.width * scaleX,
+            height: gesture.baseZoomOffset.height * scaleY
+        )
+    }
 
     /// Rotation (in degrees) to apply at playback for the given rally.
     /// During trim mode for the current rally, reflects the live edit value.
