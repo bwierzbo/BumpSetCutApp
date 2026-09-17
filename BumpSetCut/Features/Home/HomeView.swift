@@ -428,60 +428,31 @@ struct HomeView: View {
     // MARK: - Messages Button
     private var messagesButton: some View {
         let unread = DirectMessageService.shared.unreadCount
-        return ZStack(alignment: .topTrailing) {
-            BSCIconButton(icon: "envelope.fill", style: .glass, size: .compact) {
-                showingInbox = true
-            }
-            if unread > 0 {
-                Text(unread > 99 ? "99+" : "\(unread)")
-                    .bscFont(size: 11, weight: .bold)
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                    .padding(.horizontal, 5)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(Capsule().fill(Color.bscError))
-                    .fixedSize()
-                    .offset(x: 6, y: -6)
-                    .allowsHitTesting(false)
-            }
+        return BSCIconButton(
+            icon: "envelope.fill",
+            style: .glass,
+            size: .compact,
+            badge: unread,
+            accessibilityLabel: unread > 0 ? "Messages, \(unread) unread" : "Messages"
+        ) {
+            showingInbox = true
         }
-        // Same overhang reservation as the bell — a toolbar item clips
-        // anything drawn outside its bounds.
-        .padding(.vertical, 6)
-        .padding(.trailing, 6)
-        .accessibilityElement(children: .combine)
         .accessibilityIdentifier(AccessibilityID.Home.messages)
-        .accessibilityLabel(unread > 0 ? "Messages, \(unread) unread" : "Messages")
     }
 
     // MARK: - Notifications Button
     private var notificationsButton: some View {
         let unread = SocialNotificationService.shared.unreadCount
-        return ZStack(alignment: .topTrailing) {
-            BSCIconButton(icon: "bell.fill", style: .glass, size: .compact) {
-                showingNotifications = true
-            }
-            if unread > 0 {
-                Text(unread > 99 ? "99+" : "\(unread)")
-                    .bscFont(size: 11, weight: .bold)
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                    .padding(.horizontal, 5)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(Capsule().fill(Color.bscError))
-                    // Size to the number, never to the 36pt button underneath.
-                    .fixedSize()
-                    .offset(x: 6, y: -6)
-                    .allowsHitTesting(false)
-            }
+        return BSCIconButton(
+            icon: "bell.fill",
+            style: .glass,
+            size: .compact,
+            badge: unread,
+            accessibilityLabel: unread > 0 ? "Notifications, \(unread) unread" : "Notifications"
+        ) {
+            showingNotifications = true
         }
-        // Reserve the room the badge overhangs into — a toolbar item clips
-        // anything drawn outside its bounds, which cut the count off.
-        .padding(.vertical, 6)
-        .padding(.trailing, 6)
-        .accessibilityElement(children: .combine)
         .accessibilityIdentifier(AccessibilityID.Home.notifications)
-        .accessibilityLabel(unread > 0 ? "Notifications, \(unread) unread" : "Notifications")
     }
 }
 

@@ -68,11 +68,6 @@ struct BSCIconButton: View {
                 Image(systemName: icon)
                     .bscFont(size: size.iconSize, weight: .semibold)
                     .foregroundColor(foregroundColor)
-
-                // Badge
-                if let badge = badge, badge > 0 {
-                    badgeView(count: badge)
-                }
             }
             .frame(
                 width: max(size.dimension, BSCTouchTarget.standard),
@@ -80,6 +75,16 @@ struct BSCIconButton: View {
             )
             .contentShape(Rectangle())
             .bscShadow(shadowStyle)
+            // Anchored inside the touch frame rather than offset out of it: a
+            // toolbar item clips to its own bounds (and on iOS 26 to the glass
+            // capsule behind it), so anything that overhangs gets sliced off.
+            // The frame is at least 44pt while a compact circle is 32pt, which
+            // leaves the corner free for the badge to sit in.
+            .overlay(alignment: .topTrailing) {
+                if let badge, badge > 0 {
+                    badgeView(count: badge)
+                }
+            }
             .opacity(isEnabled ? 1.0 : 0.5)
         }
         .buttonStyle(BSCIconButtonPressStyle())
@@ -95,11 +100,13 @@ struct BSCIconButton: View {
         Text(badgeText)
             .bscFont(size: 10, weight: .bold)
             .foregroundColor(.white)
-            .padding(.horizontal, BSCSpacing.xs)
-            .padding(.vertical, BSCSpacing.xxs)
-            .background(Color.bscErrorText)
-            .clipShape(Capsule())
-            .offset(x: size.dimension / 3, y: -size.dimension / 3)
+            .lineLimit(1)
+            // Size to the number, never to the button underneath.
+            .fixedSize()
+            .padding(.horizontal, 4)
+            .frame(minWidth: 16, minHeight: 16)
+            .background(Capsule().fill(Color.bscErrorText))
+            .allowsHitTesting(false)
     }
 
     // MARK: - Computed Properties
