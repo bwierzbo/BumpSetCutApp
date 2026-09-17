@@ -73,9 +73,6 @@ struct FollowListView: View {
                         }
                     }
                 }
-                .navigationDestination(for: String.self) { userId in
-                    ProfileView(userId: userId)
-                }
             }
         }
         .navigationTitle(viewModel.title)

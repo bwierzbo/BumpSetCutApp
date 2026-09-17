@@ -21,5 +21,13 @@ struct ProfileTabView: View {
                 })
             }
         }
+        // Registered once for the whole tab stack. A follower list can sit at
+        // any depth (profile → followers → profile → followers), and each one
+        // declaring its own String destination would be a duplicate
+        // registration — SwiftUI drops the second push and you bounce back to
+        // the list you tapped from.
+        .navigationDestination(for: String.self) { userId in
+            ProfileView(userId: userId)
+        }
     }
 }

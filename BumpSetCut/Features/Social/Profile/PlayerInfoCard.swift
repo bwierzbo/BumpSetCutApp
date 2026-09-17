@@ -9,10 +9,14 @@
 
 import SwiftUI
 
-struct PlayerInfoCard: View {
+struct PlayerInfoCard<AddDestination: View>: View {
     let state: ProfileViewModel.PlayerInfoState
     let isOwnProfile: Bool
-    var onAddTapped: () -> Void = {}
+    /// Where "Add your player info" goes. A NavigationLink closure, not a
+    /// stack-scoped `navigationDestination`: a profile can be pushed on top of
+    /// another profile (via a follower list), and two stack-scoped destinations
+    /// in one NavigationStack fight — the second push bounces straight back.
+    @ViewBuilder var addDestination: () -> AddDestination
 
     var body: some View {
         switch state {
@@ -114,7 +118,7 @@ struct PlayerInfoCard: View {
     // MARK: - Empty (own profile)
 
     private var addPrompt: some View {
-        Button(action: onAddTapped) {
+        NavigationLink { addDestination() } label: {
             BSCCard(style: .glass) {
                 HStack(spacing: BSCSpacing.sm) {
                     Image(systemName: "plus.circle")
