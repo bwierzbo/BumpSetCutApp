@@ -51,9 +51,7 @@ struct InboxView: View {
             .navigationDestination(for: ConversationRoute.self) { route in
                 ConversationView(route: route, currentUserId: viewModel.currentUserId)
             }
-            .navigationDestination(for: String.self) { userId in
-                ProfileView(userId: userId)
-            }
+            .profileNavigationDestinations()
         }
         .bscToast($toast)
         .task {

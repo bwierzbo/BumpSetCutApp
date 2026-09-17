@@ -250,17 +250,13 @@ struct ProfileView: View {
             statItem(count: profile.highlightsCount, label: "Highlights")
                 .accessibilityIdentifier(AccessibilityID.Profile.highlightsCount)
             Divider().frame(height: 30)
-            NavigationLink {
-                FollowListView(userId: viewModel.userId, mode: .followers)
-            } label: {
+            NavigationLink(value: FollowListRoute(userId: viewModel.userId, mode: .followers)) {
                 statItem(count: profile.followersCount, label: "Followers")
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier(AccessibilityID.Profile.followersCount)
             Divider().frame(height: 30)
-            NavigationLink {
-                FollowListView(userId: viewModel.userId, mode: .following)
-            } label: {
+            NavigationLink(value: FollowListRoute(userId: viewModel.userId, mode: .following)) {
                 statItem(count: profile.followingCount, label: "Following")
             }
             .buttonStyle(.plain)
@@ -279,6 +275,11 @@ struct ProfileView: View {
                 .foregroundColor(.bscTextSecondary)
         }
         .frame(maxWidth: .infinity)
+        // Followers/Following wrap this in a plain-styled NavigationLink, where
+        // only drawn glyphs are hit-tested. Without a shape the full-width frame
+        // and the gap between the two lines are dead, so most of the stat
+        // swallowed taps and the list appeared not to open at all.
+        .contentShape(Rectangle())
     }
 
     // MARK: - Actions

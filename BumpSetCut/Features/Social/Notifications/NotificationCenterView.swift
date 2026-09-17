@@ -46,9 +46,7 @@ struct NotificationCenterView: View {
                         .accessibilityIdentifier(AccessibilityID.Notifications.done)
                 }
             }
-            .navigationDestination(for: String.self) { userId in
-                ProfileView(userId: userId)
-            }
+            .profileNavigationDestinations()
         }
         .task { await viewModel.loadInitial() }
         .refreshable { await viewModel.loadInitial() }

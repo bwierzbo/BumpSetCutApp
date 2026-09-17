@@ -35,9 +35,7 @@ struct SearchCommunityView: View {
         .navigationBarTitleDisplayMode(.inline)
         // Declared on the stable root (not inside the results list) so re-renders
         // don't deactivate an active push and pop the profile back.
-        .navigationDestination(for: String.self) { userId in
-            ProfileView(userId: userId)
-        }
+        .profileNavigationDestinations()
         .searchable(text: $viewModel.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search users or posts")
         .searchScopes($viewModel.searchScope) {
             ForEach(SearchScope.allCases, id: \.self) { scope in

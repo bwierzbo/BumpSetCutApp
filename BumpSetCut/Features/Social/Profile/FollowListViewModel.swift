@@ -8,9 +8,18 @@
 import Foundation
 import Observation
 
-enum FollowListMode {
+enum FollowListMode: Hashable {
     case followers
     case following
+}
+
+/// Route for a follower/following list. Value-based navigation, so the
+/// destination is registered once per stack rather than built inline at every
+/// link — a profile can be pushed on top of another profile, and inline
+/// destinations in that position proved unreliable.
+struct FollowListRoute: Hashable {
+    let userId: String
+    let mode: FollowListMode
 }
 
 @MainActor

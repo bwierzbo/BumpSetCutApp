@@ -95,9 +95,7 @@ struct SocialFeedView: View {
                     }
                     // This sheet is its own NavigationStack, so it needs its own
                     // profile destination for the follower/following lists.
-                    .navigationDestination(for: String.self) { userId in
-                        ProfileView(userId: userId)
-                    }
+                    .profileNavigationDestinations()
             }
             .presentationDragIndicator(.visible)
         }

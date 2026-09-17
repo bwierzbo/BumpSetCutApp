@@ -7,6 +7,22 @@
 
 import SwiftUI
 
+/// Registers every destination the profile stack can push. Apply once to the
+/// root of each NavigationStack that can show a ProfileView — the profile is
+/// reachable from five separate stacks, and a stack missing a registration
+/// silently ignores the links instead of failing.
+extension View {
+    func profileNavigationDestinations() -> some View {
+        self
+            .navigationDestination(for: String.self) { userId in
+                ProfileView(userId: userId)
+            }
+            .navigationDestination(for: FollowListRoute.self) { route in
+                FollowListView(userId: route.userId, mode: route.mode)
+            }
+    }
+}
+
 struct FollowListView: View {
     @State private var viewModel: FollowListViewModel
 
