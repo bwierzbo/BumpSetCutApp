@@ -341,6 +341,16 @@ final class RallyPlayerViewModel {
         // Idempotent: already loaded once for this video — keep current playback state.
         // Rotation and other view re-eval cycles must not seek back to the start.
         if processingMetadata != nil, case .loaded = loadingState {
+            // ...unless the players were torn down underneath us. onDisappear
+            // calls cleanup(), and SwiftUI fires that when a sheet covers this
+            // view, not only when it is really going away. Returning early then
+            // leaves currentPlayer nil: the frame freezes and play/pause become
+            // silent no-ops while the swipe actions keep working, because they
+            // are pure view-model state. Re-prime instead of reloading, so the
+            // current rally and its framing are preserved.
+            if playerCache.currentPlayer == nil {
+                await repopulatePlayers()
+            }
             return
         }
 
@@ -932,6 +942,29 @@ final class RallyPlayerViewModel {
         if failureCount > 0 {
             favoritesErrorMessage = "\(failureCount) favorite\(failureCount == 1 ? "" : "s") couldn't be saved"
         }
+    }
+
+    /// Rebuild the player window for the current rally after the cache was
+    /// cleaned while this view stayed on screen. Keeps `currentRallyIndex`,
+    /// trims and framing — only the AVPlayers are recreated.
+    private func repopulatePlayers() async {
+        guard let metadata = processingMetadata,
+              !rallyVideoURLs.isEmpty,
+              let url = currentRallyURL else { return }
+
+        updateVisibleStack()
+        playerCache.setCurrentPlayer(for: url)
+        seekToCurrentRallyStart()
+
+        let windowIndices = navigation.playerWindowIndices(totalCount: rallyVideoURLs.count)
+        await lifecycle.preloadWindowedVideos(
+            indices: windowIndices, urls: rallyVideoURLs,
+            segments: metadata.rallySegments, playerCache: playerCache,
+            thumbnailCache: thumbnailCache, allURLs: rallyVideoURLs
+        )
+
+        setupRallyLooping()
+        playerCache.play()
     }
 
     // MARK: - Cleanup
