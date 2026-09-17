@@ -443,6 +443,9 @@ private extension SettingsView {
                                     .foregroundColor(appSettings.appearanceMode == theme ? .bscBlue : .bscTextSecondary)
                             }
                             .frame(maxWidth: .infinity)
+                            // The swatch is a filled shape and hit-tests itself, but
+                            // the name under it and the gap beside it did not.
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("\(theme.rawValue) theme\(appSettings.appearanceMode == theme ? ", selected" : "")")
