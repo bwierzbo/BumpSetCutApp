@@ -1,4 +1,4 @@
-// delete-account — Supabase Edge Function (deployed: version 3)
+// delete-account — Supabase Edge Function (deployed: version 4)
 //
 // In-app account deletion (App Store Guideline 5.1.1(v)). Called from
 // AuthenticationService.deleteAccount() with the user's Bearer token.
@@ -50,7 +50,7 @@ Deno.serve(async (req: Request) => {
     const userId = user.id;
 
     // Clean up storage files before deleting DB records
-    for (const bucket of ["videos", "avatars"]) {
+    for (const bucket of ["videos", "avatars", "message-media"]) {
       const { data: files } = await adminClient.storage
         .from(bucket)
         .list(userId, { limit: 1000 });
