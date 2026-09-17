@@ -44,6 +44,10 @@ final class ProfileViewModel {
             profile = try await profileResult
             highlights = try await highlightsResult
             currentPage = 1
+        } catch is CancellationError {
+            // Navigated away mid-load. Showing "couldn't load this profile"
+            // for a request we ourselves cancelled is just noise.
+        } catch let error as URLError where error.code == .cancelled {
         } catch {
             self.error = error
         }
