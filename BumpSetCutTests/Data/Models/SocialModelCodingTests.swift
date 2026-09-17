@@ -153,6 +153,23 @@ final class SocialModelCodingTests: XCTestCase {
         XCTAssertFalse(PlayerInfo.isValidInstagram(String(repeating: "a", count: 31)))
     }
 
+    // MARK: - Avatar object paths
+
+    /// Replacing an avatar deletes the previous object, so the path has to be
+    /// recovered from the stored public URL — including legacy URLs that still
+    /// carry the old `?t=` cache-buster.
+    func testAvatarObjectPathIsRecoveredFromPublicURL() throws {
+        let modern = URL(string: "https://x.supabase.co/storage/v1/object/public/avatars/u1/avatar_abc.jpg")!
+        XCTAssertEqual(SupabaseAPIClient.avatarObjectPath(from: modern), "u1/avatar_abc.jpg")
+
+        let legacy = URL(string: "https://x.supabase.co/storage/v1/object/public/avatars/u1/avatar.jpg?t=1780865554")!
+        XCTAssertEqual(SupabaseAPIClient.avatarObjectPath(from: legacy), "u1/avatar.jpg")
+
+        // Not an avatar URL — nothing to delete.
+        let other = URL(string: "https://x.supabase.co/storage/v1/object/public/videos/u1/clip.mp4")!
+        XCTAssertNil(SupabaseAPIClient.avatarObjectPath(from: other))
+    }
+
     // MARK: - Highlight (regression: thumbnail_url + nested author/metadata)
 
     func testHighlightDecodesIncludingNestedAuthorAndMetadata() throws {

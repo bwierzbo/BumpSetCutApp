@@ -169,6 +169,17 @@ struct HighlightCardView: View {
             // Full-screen video is a dark context regardless of system appearance.
             .environment(\.colorScheme, .dark)
         }
+        // Your own post: press and hold anywhere to delete, instead of a
+        // permanent button over the video.
+        .contextMenu {
+            if onDelete != nil {
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("Delete Post", systemImage: "trash")
+                }
+            }
+        }
         .alert("Delete Post?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
@@ -306,17 +317,11 @@ struct HighlightCardView: View {
 
                 // Right: action buttons
                 VStack(spacing: BSCSpacing.lg) {
-                    // More menu
-                    Menu {
-                        // Delete (only for own posts)
-                        if onDelete != nil {
-                            Button(role: .destructive) {
-                                showDeleteConfirmation = true
-                            } label: {
-                                Label("Delete Post", systemImage: "trash")
-                            }
-                        } else {
-                            // Report and Block (for other users' posts)
+                    // Report / block for other people's posts. Your own post has
+                    // only one action — delete — which lives on a press-and-hold
+                    // instead of a permanent button.
+                    if onDelete == nil {
+                        Menu {
                             Button {
                                 showReportSheet = true
                             } label: {
@@ -328,15 +333,15 @@ struct HighlightCardView: View {
                             } label: {
                                 Label("Block @\(highlight.author?.username ?? "user")", systemImage: "hand.raised")
                             }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .bscFont(size: 22)
+                                .foregroundColor(.bscOnMedia)
+                                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+                                .shadow(color: Color.bscMediaScrimBase.opacity(0.4), radius: 4)
                         }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .bscFont(size: 22)
-                            .foregroundColor(.bscOnMedia)
-                            .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                            .shadow(color: Color.bscMediaScrimBase.opacity(0.4), radius: 4)
+                        .accessibilityLabel("More options")
                     }
-                    .accessibilityLabel("More options")
 
                     // Like
                     Button {

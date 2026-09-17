@@ -124,6 +124,9 @@ struct EditProfileView: View {
             Button("Use Photo") {
                 avatarImage = pendingAvatarImage
                 pendingAvatarImage = nil
+                // Clear the picker selection, or choosing the same photo again
+                // later won't fire onChange and nothing will happen.
+                selectedPhotoItem = nil
             }
             Button("Cancel", role: .cancel) {
                 pendingAvatarImage = nil
@@ -331,10 +334,15 @@ struct EditProfileView: View {
                 // Upload avatar if user picked a new one
                 if let image = avatarImage {
                     isUploadingAvatar = true
-                    let jpegData = image.resizedForAvatar().jpegData(compressionQuality: 0.8)!
-                    let url = try await SupabaseAPIClient.shared.uploadAvatar(imageData: jpegData)
+                    defer { isUploadingAvatar = false }
+                    guard let jpegData = image.resizedForAvatar().jpegData(compressionQuality: 0.8) else {
+                        throw APIError.invalidRequest("That image couldn't be prepared. Try a different photo.")
+                    }
+                    let url = try await SupabaseAPIClient.shared.uploadAvatar(
+                        imageData: jpegData,
+                        replacing: currentAvatarURL
+                    )
                     avatarURLString = url.absoluteString
-                    isUploadingAvatar = false
                 }
 
                 // Player info first: the profile update below re-reads the row

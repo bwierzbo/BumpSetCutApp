@@ -403,6 +403,8 @@ struct ProfileView: View {
                             profileGridCell(highlight)
                         }
                         .buttonStyle(.plain)
+                        // Press and hold to delete — no permanent chrome over
+                        // every thumbnail. The alert below still confirms.
                         .contextMenu {
                             if isOwnProfile {
                                 Button(role: .destructive) {
@@ -412,26 +414,7 @@ struct ProfileView: View {
                                 }
                             }
                         }
-                        .overlay(alignment: .topLeading) {
-                            if isOwnProfile {
-                                Menu {
-                                    Button(role: .destructive) {
-                                        highlightToDelete = highlight
-                                    } label: {
-                                        Label("Delete Post", systemImage: "trash")
-                                    }
-                                } label: {
-                                    Image(systemName: "ellipsis")
-                                        .bscFont(size: 12, weight: .semibold)
-                                        .foregroundColor(.bscOnMedia)
-                                        .padding(BSCSpacing.sm)
-                                        .background(Color.bscMediaScrim, in: Circle())
-                                        .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                                        .contentShape(Rectangle())
-                                }
-                                .accessibilityLabel("Post options")
-                            }
-                        }
+                        .accessibilityHint(isOwnProfile ? "Press and hold to delete" : "")
                     }
                 }
                 .padding(.horizontal, BSCSpacing.xs)
