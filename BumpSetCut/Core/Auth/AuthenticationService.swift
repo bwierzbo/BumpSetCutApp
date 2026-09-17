@@ -264,7 +264,7 @@ final class AuthenticationService {
     private func fetchProfile(userId: String) async throws -> UserProfile? {
         let rows: [UserProfile] = try await SupabaseConfig.client
             .from("profiles")
-            .select()
+            .select(SupabaseAPIClient.profileSelect)
             .eq("id", value: userId)
             .limit(1)
             .execute()
@@ -284,7 +284,7 @@ final class AuthenticationService {
                     .from("profiles")
                     .update(["username": username])
                     .eq("id", value: userId)
-                    .select()
+                    .select(SupabaseAPIClient.profileSelect)
                     .single()
                     .execute()
                     .value

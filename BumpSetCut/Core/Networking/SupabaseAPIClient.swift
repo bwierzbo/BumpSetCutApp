@@ -81,7 +81,11 @@ final class SupabaseAPIClient: APIClient, MessageMediaClient, @unchecked Sendabl
 
     /// Profiles plus their volleyball details. RLS on `profile_details` hides
     /// the embed (null) from viewers who shouldn't see a private player's info.
-    private static let profileSelect = "*, details:profile_details(*)"
+    /// Every profile read must carry the player-info embed. A bare `select()`
+    /// yields a UserProfile whose `details` is nil, which is indistinguishable
+    /// from "this user has set none" — and the editor then saves that emptiness
+    /// back over real data.
+    static let profileSelect = "*, details:profile_details(*)"
 
     /// Messages plus the attached post (if any). Nil when it was deleted or
     /// the viewer may not see it.

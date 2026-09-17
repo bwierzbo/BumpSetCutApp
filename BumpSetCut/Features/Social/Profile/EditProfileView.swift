@@ -29,6 +29,10 @@ struct EditProfileView: View {
     @State private var heightFeet: Int?
     @State private var heightInches: Int = 0
     @State private var instagram: String = ""
+    /// True once we've read the player-info row from a source that can tell
+    /// "no values set" apart from "not loaded". Saving sends explicit nulls so
+    /// fields can be cleared, so an unloaded form must never be saved.
+    @State private var detailsLoaded = false
 
     // Avatar state
     @State private var selectedPhotoItem: PhotosPickerItem?
@@ -143,18 +147,40 @@ struct EditProfileView: View {
                 privacyLevel = user.privacyLevel
 
                 if let details = user.details {
-                    playTypes = Set(details.playTypes)
-                    level = details.level
-                    handedness = details.handedness
-                    indoorPosition = details.indoorPosition
-                    instagram = details.instagramHandle ?? ""
-                    if let (feet, inches) = details.heightFeetInches {
-                        heightFeet = feet
-                        heightInches = inches
-                    }
+                    apply(details)
                 }
             }
         }
+        .task {
+            // The cached profile can predate the player-info embed (or an older
+            // build that never fetched it). Confirm against the server before
+            // letting Save write nulls over fields we never showed.
+            guard !detailsLoaded, let userId = authService.currentUser?.id else { return }
+            guard let profile: UserProfile = try? await SupabaseAPIClient.shared.request(
+                .getProfile(userId: userId)
+            ) else { return }
+            // A nil embed from a successful read genuinely means "nothing set" —
+            // record that without touching fields the user may already be editing.
+            if let details = profile.details {
+                apply(details)
+            } else {
+                detailsLoaded = true
+            }
+            authService.updateLocalProfile(profile)
+        }
+    }
+
+    private func apply(_ details: PlayerInfo) {
+        playTypes = Set(details.playTypes)
+        level = details.level
+        handedness = details.handedness
+        indoorPosition = details.indoorPosition
+        instagram = details.instagramHandle ?? ""
+        if let (feet, inches) = details.heightFeetInches {
+            heightFeet = feet
+            heightInches = inches
+        }
+        detailsLoaded = true
     }
 
     // MARK: - Player Info Sections
@@ -347,7 +373,10 @@ struct EditProfileView: View {
 
                 // Player info first: the profile update below re-reads the row
                 // with its details embed, so the local cache lands consistent.
-                if let userId = authService.currentUser?.id {
+                // Skipped when the form never loaded the existing values —
+                // PlayerInfoUpdate encodes nils as explicit nulls, so saving an
+                // unloaded form would wipe every field instead of leaving them.
+                if detailsLoaded, let userId = authService.currentUser?.id {
                     let info = PlayerInfo(
                         playTypes: PlayType.allCases.filter(playTypes.contains),
                         heightCm: heightFeet.map { PlayerInfo.cm(feet: $0, inches: heightInches) },
