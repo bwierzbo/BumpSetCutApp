@@ -100,5 +100,9 @@ struct FollowListView: View {
         }
         .padding(.horizontal, BSCSpacing.lg)
         .padding(.vertical, BSCSpacing.md)
+        // Without this only the avatar, the name and the chevron are tappable —
+        // the Spacer between them is the widest part of the row and swallowed
+        // every tap that landed in it.
+        .contentShape(Rectangle())
     }
 }

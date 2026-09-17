@@ -261,6 +261,10 @@ struct SearchCommunityView: View {
         }
         .padding(.horizontal, BSCSpacing.lg)
         .padding(.vertical, BSCSpacing.md)
+        // Same dead zone the follower list had: the Spacer isn't hit-testable
+        // on its own, so taps in the middle of the row did nothing. The Follow
+        // button sits on top and keeps its own hit area.
+        .contentShape(Rectangle())
     }
 
     private func followButton(for user: UserProfile) -> some View {
