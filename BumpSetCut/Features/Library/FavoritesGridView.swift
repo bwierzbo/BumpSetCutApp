@@ -169,7 +169,16 @@ struct FavoritesGridView: View {
         .sheet(item: $clipPickerTarget) { target in
             ClipPickerSheet(
                 title: target.title,
-                clips: target.clips,
+                items: target.clips.map { clip in
+                    ClipPickerItem(
+                        id: clip.id,
+                        payload: clip,
+                        url: clip.url,
+                        timeRange: clip.timeRange,
+                        displayName: clip.displayName,
+                        duration: clip.duration
+                    )
+                },
                 maxSelection: ShareRallyViewModel.maxClipsPerPost,
                 onConfirm: { selected in
                     clipPickerTarget = nil

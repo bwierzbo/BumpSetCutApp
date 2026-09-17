@@ -44,12 +44,17 @@ struct RallyReviewSelections: Codable {
     /// general Favorites root. Name-keyed so a collection deleted between the
     /// choice and the copy-to-library pass can be recreated.
     var favoriteCollections: [Int: String]
+    /// Rallies already posted to the community feed, so a later post from the
+    /// same game can show what's been shared.
+    var posted: Set<Int>
 
-    init(saved: Set<Int> = [], removed: Set<Int> = [], favorited: Set<Int> = [], favoriteCollections: [Int: String] = [:]) {
+    init(saved: Set<Int> = [], removed: Set<Int> = [], favorited: Set<Int> = [],
+         favoriteCollections: [Int: String] = [:], posted: Set<Int> = []) {
         self.saved = saved
         self.removed = removed
         self.favorited = favorited
         self.favoriteCollections = favoriteCollections
+        self.posted = posted
     }
 
     init(from decoder: Decoder) throws {
@@ -58,6 +63,7 @@ struct RallyReviewSelections: Codable {
         removed = try container.decode(Set<Int>.self, forKey: .removed)
         favorited = try container.decodeIfPresent(Set<Int>.self, forKey: .favorited) ?? []
         favoriteCollections = try container.decodeIfPresent([Int: String].self, forKey: .favoriteCollections) ?? [:]
+        posted = try container.decodeIfPresent(Set<Int>.self, forKey: .posted) ?? []
     }
 
     var isEmpty: Bool { saved.isEmpty && removed.isEmpty && favorited.isEmpty }

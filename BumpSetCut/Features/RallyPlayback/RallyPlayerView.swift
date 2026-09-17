@@ -22,6 +22,8 @@ struct RallyPlayerView: View {
     @State private var showReportMistake = false
     @State private var showAddMissedRallyPrompt = false
     @State private var rallyIndexToShare: ShareableRallyIndex?
+    @State private var pendingRallyPicker: RallyPickerTarget?
+    @State private var showPostAnotherPrompt = false
     /// Rotation captured at the start of a two-finger twist (RotationGesture
     /// reports angle relative to its own start).
     @State private var twistBaseRotation: Double?
@@ -105,7 +107,15 @@ struct RallyPlayerView: View {
                     onPostToCommunity: { index, postAll in
                         viewModel.showOverviewSheet = false
                         Task { await viewModel.copyFavoritesToLibrary() }
-                        rallyIndexToShare = ShareableRallyIndex(index: index, postAllSaved: postAll)
+                        // More than one saved rally: choose which ones go in
+                        // the post rather than posting them all.
+                        if postAll, let target = rallyPickerTarget() {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                pendingRallyPicker = target
+                            }
+                        } else {
+                            rallyIndexToShare = ShareableRallyIndex(index: index, postAllSaved: false)
+                        }
                     },
                     onSaveAll: { viewModel.saveAllRallies() },
                     onDeselectAll: { viewModel.deselectAllRallies() },
@@ -132,11 +142,32 @@ struct RallyPlayerView: View {
                     }
                 )
             }
+            .sheet(item: $pendingRallyPicker) { target in
+                ClipPickerSheet(
+                    title: "Saved rallies",
+                    items: target.items,
+                    maxSelection: ShareRallyViewModel.maxClipsPerPost,
+                    onConfirm: { indices in
+                        pendingRallyPicker = nil
+                        guard let first = indices.first else { return }
+                        // Let the picker finish dismissing before the share
+                        // sheet comes up (same pattern as favorites).
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            rallyIndexToShare = ShareableRallyIndex(
+                                index: first,
+                                postAllSaved: indices.count > 1,
+                                selectedIndices: indices
+                            )
+                        }
+                    },
+                    onCancel: { pendingRallyPicker = nil }
+                )
+            }
             .sheet(item: $rallyIndexToShare) { item in
                 ShareRallySheet(
                     originalVideoURL: viewModel.videoMetadata.originalURL,
                     rallyVideoURLs: viewModel.rallyVideoURLs,
-                    savedRallyIndices: viewModel.savedRalliesArray,
+                    savedRallyIndices: item.selectedIndices ?? viewModel.savedRalliesArray,
                     initialRallyIndex: item.index,
                     thumbnailCache: viewModel.thumbnailCache,
                     videoId: viewModel.videoMetadata.id,
@@ -223,10 +254,29 @@ struct RallyPlayerView: View {
             viewModel.cleanup()
         }
         .onChange(of: navigationState.postedHighlight) { _, highlight in
-            if highlight != nil {
-                rallyIndexToShare = nil
+            guard highlight != nil else { return }
+            // Remember what just went up, then offer another post from this
+            // same game rather than dropping the user straight into the feed.
+            let justPosted = rallyIndexToShare.map { $0.selectedIndices ?? [$0.index] } ?? []
+            rallyIndexToShare = nil
+            viewModel.markRalliesPosted(justPosted)
+
+            if rallyPickerTarget() != nil {
+                showPostAnotherPrompt = true
+            } else {
                 dismiss()
             }
+        }
+        .alert("Posted", isPresented: $showPostAnotherPrompt) {
+            Button("Post Another") {
+                // Fresh target so the picker reflects what's now posted.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    pendingRallyPicker = rallyPickerTarget()
+                }
+            }
+            Button("Done", role: .cancel) { dismiss() }
+        } message: {
+            Text("Your rally is live. Post another from this game?")
         }
     }
 
@@ -712,6 +762,32 @@ struct RallyPlayerView: View {
         let direction: RallySwipeDirection = action == .save ? .right : .left
         viewModel.performAction(action, direction: direction)
     }
+
+    /// Saved rallies as picker items. All rallies live in the one source
+    /// video, so each item is that file plus the rally's time range — which
+    /// is also what the hold-to-preview player uses. Nil when there's
+    /// nothing to choose between.
+    private func rallyPickerTarget() -> RallyPickerTarget? {
+        let info = viewModel.savedRallyShareInfo
+        let items: [ClipPickerItem<Int>] = viewModel.savedRalliesArray.sorted().compactMap { index in
+            guard let rally = info[index] else { return nil }
+            let duration = max(0, rally.endTime - rally.startTime)
+            return ClipPickerItem(
+                id: UUID(),
+                payload: index,
+                url: viewModel.videoMetadata.originalURL,
+                timeRange: CMTimeRange(
+                    start: CMTime(seconds: rally.startTime, preferredTimescale: 600),
+                    duration: CMTime(seconds: duration, preferredTimescale: 600)
+                ),
+                displayName: "Rally \(index + 1)",
+                duration: duration,
+                isPosted: viewModel.postedRallies.contains(index)
+            )
+        }
+        guard items.count > 1 else { return nil }
+        return RallyPickerTarget(items: items)
+    }
 }
 
 // MARK: - Top Card Drag Modifier
@@ -918,6 +994,15 @@ struct ShareableRallyIndex: Identifiable {
     let id = UUID()
     let index: Int
     var postAllSaved: Bool = false
+    /// Rallies chosen in the picker, in post order. Nil posts every saved
+    /// rally (the single-rally path, where there's nothing to choose).
+    var selectedIndices: [Int]? = nil
+}
+
+/// Pending "choose which saved rallies to post" step.
+struct RallyPickerTarget: Identifiable {
+    let id = UUID()
+    let items: [ClipPickerItem<Int>]
 }
 
 // MARK: - Preview

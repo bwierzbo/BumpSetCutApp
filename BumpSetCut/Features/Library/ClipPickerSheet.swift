@@ -2,24 +2,46 @@
 //  ClipPickerSheet.swift
 //  BumpSetCut
 //
-//  Choose which favorites clips go into a multi-rally community post.
-//  Instagram-style multi-select: distinct cells, numbered badges in tap
-//  order (which is the post order), Select All when everything fits.
+//  Choose which clips go into a multi-rally community post. Instagram-style
+//  multi-select: distinct cells, numbered badges in tap order (which is the
+//  post order), Select All when everything fits. Press and hold a cell to
+//  watch the clip before deciding.
+//
+//  Shared by favorites folders (payload: FavoriteShareClip) and the rally
+//  player's saved rallies (payload: rally index).
 //
 
 import SwiftUI
+import AVFoundation
 
-struct ClipPickerSheet: View {
+/// One selectable clip: where to find its video, how to label it, and the
+/// caller's own value to hand back on confirm.
+struct ClipPickerItem<Payload>: Identifiable {
+    let id: UUID
+    let payload: Payload
+    let url: URL
+    /// Slice of `url` this clip covers; nil means the whole file.
+    let timeRange: CMTimeRange?
+    let displayName: String
+    let duration: Double
+    /// Already shared to the community feed — shown as a badge so a second
+    /// post from the same game doesn't repeat one by accident.
+    var isPosted: Bool = false
+}
+
+struct ClipPickerSheet<Payload>: View {
     let title: String
-    let clips: [FavoriteShareClip]
+    let items: [ClipPickerItem<Payload>]
     let maxSelection: Int
-    let onConfirm: ([FavoriteShareClip]) -> Void
+    let onConfirm: ([Payload]) -> Void
     let onCancel: () -> Void
 
-    /// Selected clip ids in tap order — order in the post follows it.
+    /// Selected ids in tap order — order in the post follows it.
     @State private var selection: [UUID] = []
+    /// Suppresses the selection tap for the gesture that started a preview.
+    @State private var previewingID: UUID?
 
-    private var canSelectAll: Bool { clips.count <= maxSelection }
+    private var canSelectAll: Bool { items.count <= maxSelection }
     private var atCapacity: Bool { selection.count >= maxSelection }
 
     var body: some View {
@@ -28,29 +50,23 @@ struct ClipPickerSheet: View {
                 Color.bscBackground.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    if clips.count > maxSelection {
-                        Text("This folder has \(clips.count) rallies — a post can hold up to \(maxSelection). Tap rallies in the order they should appear.")
-                            .bscFont(size: 13)
-                            .foregroundColor(.bscTextSecondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, BSCSpacing.xl)
-                            .padding(.vertical, BSCSpacing.sm)
-                    }
+                    header
 
                     ScrollView {
                         LazyVGrid(
                             columns: Array(repeating: GridItem(.flexible(), spacing: BSCSpacing.md), count: 2),
                             spacing: BSCSpacing.md
                         ) {
-                            ForEach(clips) { clip in
-                                clipCell(clip)
+                            ForEach(items) { item in
+                                clipCell(item)
                             }
                         }
                         .padding(BSCSpacing.lg)
                     }
 
                     Button {
-                        onConfirm(selection.compactMap { id in clips.first { $0.id == id } })
+                        let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.payload) })
+                        onConfirm(selection.compactMap { byID[$0] })
                     } label: {
                         Text("Post \(selection.count) \(selection.count == 1 ? "Rally" : "Rallies")")
                             .bscFont(size: 16, weight: .bold)
@@ -77,11 +93,11 @@ struct ClipPickerSheet: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack(spacing: BSCSpacing.md) {
                         if canSelectAll {
-                            Button(selection.count == clips.count ? "Deselect All" : "Select All") {
-                                if selection.count == clips.count {
+                            Button(selection.count == items.count ? "Deselect All" : "Select All") {
+                                if selection.count == items.count {
                                     selection = []
                                 } else {
-                                    selection = clips.map(\.id)
+                                    selection = items.map(\.id)
                                 }
                             }
                             .bscFont(size: 14, weight: .semibold)
@@ -98,73 +114,108 @@ struct ClipPickerSheet: View {
         }
     }
 
-    private func clipCell(_ clip: FavoriteShareClip) -> some View {
-        let order = selection.firstIndex(of: clip.id)
-        let dimmed = order == nil && atCapacity
-
-        return Button {
-            toggle(clip)
-        } label: {
-            VStack(alignment: .leading, spacing: BSCSpacing.xs) {
-                ZStack(alignment: .topTrailing) {
-                    // Thumbnail clipped to its own cell — fill without clipping
-                    // smeared neighboring cells together (tester bug).
-                    GeometryReader { geo in
-                        VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .clipped()
-                    }
-                    .aspectRatio(16/10, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
-                    .opacity(dimmed ? 0.35 : 1)
-
-                    // Selection badge: tap-order number, Instagram-style
-                    Group {
-                        if let order {
-                            Text("\(order + 1)")
-                                .bscFont(size: 14, weight: .bold, design: .monospaced)
-                                .foregroundColor(.bscOnPrimary)
-                                .frame(width: 28, height: 28)
-                                .background(Circle().fill(Color.bscPrimary))
-                        } else {
-                            Circle()
-                                .stroke(Color.white.opacity(0.9), lineWidth: 2)
-                                .background(Circle().fill(Color.black.opacity(0.25)))
-                                .frame(width: 28, height: 28)
-                        }
-                    }
-                    .padding(BSCSpacing.sm)
-                    .shadow(color: .black.opacity(0.4), radius: 2)
-                }
-
-                HStack(spacing: BSCSpacing.xs) {
-                    Text(clip.displayName)
-                        .bscFont(size: 12, weight: .medium)
-                        .foregroundColor(.bscTextPrimary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text(formatDuration(clip.duration))
-                        .bscFont(size: 11, design: .monospaced)
-                        .foregroundColor(.bscTextSecondary)
-                }
+    private var header: some View {
+        VStack(spacing: BSCSpacing.xxs) {
+            if items.count > maxSelection {
+                Text("\(title) has \(items.count) rallies — a post can hold up to \(maxSelection). Tap rallies in the order they should appear.")
+                    .bscFont(size: 13)
+                    .foregroundColor(.bscTextSecondary)
+                    .multilineTextAlignment(.center)
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
-                    .stroke(order != nil ? Color.bscPrimary : Color.clear, lineWidth: 2.5)
-                    .padding(-2)
-            )
+
+            Label("Press and hold a rally to preview it", systemImage: "hand.tap.fill")
+                .bscFont(size: 12)
+                .foregroundColor(.bscTextSecondary)
         }
-        .buttonStyle(.plain)
-        .animation(.bscQuick, value: order)
-        .accessibilityLabel(clip.displayName)
-        .accessibilityAddTraits(order != nil ? .isSelected : [])
+        .padding(.horizontal, BSCSpacing.xl)
+        .padding(.vertical, BSCSpacing.sm)
     }
 
-    private func toggle(_ clip: FavoriteShareClip) {
-        if let index = selection.firstIndex(of: clip.id) {
+    private func clipCell(_ item: ClipPickerItem<Payload>) -> some View {
+        let order = selection.firstIndex(of: item.id)
+        let dimmed = order == nil && atCapacity
+        let isPreviewing = previewingID == item.id
+
+        return VStack(alignment: .leading, spacing: BSCSpacing.xs) {
+            ZStack(alignment: .topTrailing) {
+                PressToPlayThumbnail(
+                    videoURL: item.url,
+                    timeRange: item.timeRange,
+                    onPreviewChanged: { previewing in
+                        previewingID = previewing ? item.id : nil
+                    }
+                )
+                .aspectRatio(16/10, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+                .opacity(dimmed ? 0.35 : 1)
+
+                // Selection badge: tap-order number, Instagram-style. Hidden
+                // while previewing so it doesn't sit over the playing clip.
+                Group {
+                    if let order {
+                        Text("\(order + 1)")
+                            .bscFont(size: 14, weight: .bold, design: .monospaced)
+                            .foregroundColor(.bscOnPrimary)
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(Color.bscPrimary))
+                    } else {
+                        Circle()
+                            .stroke(Color.white.opacity(0.9), lineWidth: 2)
+                            .background(Circle().fill(Color.black.opacity(0.25)))
+                            .frame(width: 28, height: 28)
+                    }
+                }
+                .padding(BSCSpacing.sm)
+                .shadow(color: .black.opacity(0.4), radius: 2)
+                .opacity(isPreviewing ? 0 : 1)
+                .animation(.bscQuick, value: isPreviewing)
+
+                if item.isPosted {
+                    Label("Posted", systemImage: "checkmark.circle.fill")
+                        .bscFont(size: 11, weight: .semibold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, BSCSpacing.xs)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.black.opacity(0.6)))
+                        .padding(BSCSpacing.sm)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .opacity(isPreviewing ? 0 : 1)
+                        .animation(.bscQuick, value: isPreviewing)
+                        .allowsHitTesting(false)
+                }
+            }
+
+            HStack(spacing: BSCSpacing.xs) {
+                Text(item.displayName)
+                    .bscFont(size: 12, weight: .medium)
+                    .foregroundColor(.bscTextPrimary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text(formatDuration(item.duration))
+                    .bscFont(size: 11, design: .monospaced)
+                    .foregroundColor(.bscTextSecondary)
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                .stroke(order != nil ? Color.bscPrimary : Color.clear, lineWidth: 2.5)
+                .padding(-2)
+        )
+        .contentShape(Rectangle())
+        // Tap selects; the hold gesture inside the thumbnail handles preview.
+        .onTapGesture { toggle(item) }
+        .animation(.bscQuick, value: order)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(item.isPosted ? "\(item.displayName), already posted" : item.displayName)
+        .accessibilityAddTraits(order != nil ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { toggle(item) }
+    }
+
+    private func toggle(_ item: ClipPickerItem<Payload>) {
+        if let index = selection.firstIndex(of: item.id) {
             selection.remove(at: index)
         } else if !atCapacity {
-            selection.append(clip.id)
+            selection.append(item.id)
         }
     }
 

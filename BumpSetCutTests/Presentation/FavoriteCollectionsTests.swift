@@ -167,7 +167,8 @@ final class FavoriteCollectionsTests: XCTestCase {
         try metadataStore.saveReviewSelections(
             RallyReviewSelections(
                 saved: [0, 1, 2], removed: [], favorited: [0, 2],
-                favoriteCollections: [0: "Keep", 2: "Shifted"]
+                favoriteCollections: [0: "Keep", 2: "Shifted"],
+                posted: [2]
             ),
             for: videoId
         )
@@ -186,6 +187,35 @@ final class FavoriteCollectionsTests: XCTestCase {
         XCTAssertEqual(remapped.favoriteCollections, [0: "Keep", 1: "Shifted"])
         XCTAssertEqual(remapped.favorited, [0, 1])
         XCTAssertEqual(remapped.saved, [0, 1])
+        // "Already posted" must follow its rally too, or the picker badges
+        // point at the wrong clips after a timeline edit.
+        XCTAssertEqual(remapped.posted, [1])
+    }
+
+    // MARK: - Posted rallies
+
+    func testMarkPostedPersistsAndSurvivesDeselectAll() throws {
+        let actions = RallyActionManager()
+        actions.loadSavedSelections(videoId: videoId, metadataStore: metadataStore)
+
+        actions.markPosted([0, 2])
+        XCTAssertEqual(actions.postedRallies, [0, 2])
+        XCTAssertEqual(metadataStore.loadReviewSelections(for: videoId).posted, [0, 2])
+
+        // A second post adds to the record rather than replacing it.
+        actions.markPosted([1])
+        XCTAssertEqual(actions.postedRallies, [0, 1, 2])
+
+        // Clearing the review clears selections, not the posting history.
+        actions.deselectAll()
+        XCTAssertEqual(actions.postedRallies, [0, 1, 2])
+        XCTAssertEqual(metadataStore.loadReviewSelections(for: videoId).posted, [0, 1, 2])
+    }
+
+    func testReviewSelectionsLegacyDecodeDefaultsPosted() throws {
+        let legacyJSON = #"{"saved":[0,2],"removed":[1]}"#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(RallyReviewSelections.self, from: legacyJSON)
+        XCTAssertTrue(decoded.posted.isEmpty)
     }
 
     // MARK: - Fixture helpers

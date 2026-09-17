@@ -15,6 +15,8 @@ final class RallyActionManager {
     private(set) var favoritedRallies: Set<Int> = []
     /// Rally index → favorites collection folder NAME (absent = general Favorites)
     private(set) var favoriteCollections: [Int: String] = [:]
+    /// Rallies already posted to the community feed.
+    private(set) var postedRallies: Set<Int> = []
     private(set) var actionHistory: [RallyActionResult] = []
 
     // MARK: - Persistence
@@ -55,13 +57,22 @@ final class RallyActionManager {
         removedRallies = selections.removed
         favoritedRallies = selections.favorited
         favoriteCollections = selections.favoriteCollections
+        postedRallies = selections.posted
     }
 
     private func persistSelections() {
         guard let videoId, let metadataStore else { return }
         let selections = RallyReviewSelections(saved: savedRallies, removed: removedRallies,
-                                               favorited: favoritedRallies, favoriteCollections: favoriteCollections)
+                                               favorited: favoritedRallies, favoriteCollections: favoriteCollections,
+                                               posted: postedRallies)
         try? metadataStore.saveReviewSelections(selections, for: videoId)
+    }
+
+    /// Record rallies that just went up as a community post.
+    func markPosted(_ indices: [Int]) {
+        guard !indices.isEmpty else { return }
+        postedRallies.formUnion(indices)
+        persistSelections()
     }
 
     /// Files a favorited rally into a named collection (nil = general Favorites).
@@ -176,6 +187,8 @@ final class RallyActionManager {
         favoritedRallies = []
         favoriteCollections = [:]
         actionHistory = []
+        // postedRallies is history, not a selection — clearing the review
+        // doesn't un-post anything.
         persistSelections()
     }
 

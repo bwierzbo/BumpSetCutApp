@@ -190,6 +190,10 @@ final class RallyPlayerViewModel {
     var currentRallyIsRemoved: Bool { actions.isRemoved(at: currentRallyIndex) }
     var currentRallyIsFavorited: Bool { actions.isFavorited(at: currentRallyIndex) }
     var savedRalliesArray: [Int] { actions.savedRalliesArray }
+    var postedRallies: Set<Int> { actions.postedRallies }
+
+    /// Record rallies that just went up as a community post.
+    func markRalliesPosted(_ indices: [Int]) { actions.markPosted(indices) }
     var canUndo: Bool { actions.canUndo }
     var actionFeedback: RallyActionFeedback? { actions.actionFeedback }
     var showActionFeedback: Bool { actions.showActionFeedback }
