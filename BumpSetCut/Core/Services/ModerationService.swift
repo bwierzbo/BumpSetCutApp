@@ -95,6 +95,26 @@ final class ModerationService {
         persistReportedIds()
     }
 
+    /// Report a direct message. Unlike highlights and comments there's no feed
+    /// to hide it from — the report goes to moderation and the sender can be
+    /// blocked separately.
+    func reportMessage(
+        _ messageId: UUID,
+        reportedUserId: UUID,
+        type: ReportType,
+        description: String?
+    ) async throws {
+        let request = CreateReportRequest(
+            reportedType: .message,
+            reportedId: messageId,
+            reportedUserId: reportedUserId,
+            reportType: type,
+            description: description
+        )
+
+        let _: ContentReport = try await apiClient.request(.createReport(request))
+    }
+
     /// Report a user profile
     func reportUser(
         _ userId: UUID,

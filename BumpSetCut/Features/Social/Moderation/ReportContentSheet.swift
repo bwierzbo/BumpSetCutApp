@@ -152,6 +152,13 @@ struct ReportContentSheet: View {
                     type: type,
                     description: description.isEmpty ? nil : description
                 )
+            case .message:
+                try await moderationService.reportMessage(
+                    contentId,
+                    reportedUserId: reportedUserId,
+                    type: type,
+                    description: description.isEmpty ? nil : description
+                )
             }
 
             showSuccess = true
@@ -217,6 +224,8 @@ extension ReportedContentType {
             return "Comment"
         case .userProfile:
             return "Profile"
+        case .message:
+            return "Message"
         }
     }
 }

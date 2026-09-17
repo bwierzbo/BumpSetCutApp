@@ -29,6 +29,7 @@ extension EnvironmentValues {
 struct MainTabView: View {
     @State private var selectedTab: AppTab = .home
     @State private var followToast: BSCToastMessage?
+    @State private var messageToast: BSCToastMessage?
     @State private var mediaStore: MediaStore
     @State private var metadataStore = MetadataStore()
     @State private var navigationState = AppNavigationState()
@@ -164,6 +165,25 @@ struct MainTabView: View {
         } message: {
             Text(uploadCoordinator.importErrorMessage)
         }
+        .bscToast($messageToast)
+        // A push tap reaches the service, not this @State object — bridge it.
+        .onChange(of: DirectMessageService.shared.pendingConversationId) { _, id in
+            guard let id else { return }
+            navigationState.pendingConversationId = id
+            DirectMessageService.shared.pendingConversationId = nil
+        }
+        .onChange(of: DirectMessageService.shared.incomingToast) { _, incoming in
+            guard let incoming else { return }
+            messageToast = BSCToastMessage(text: incoming.text, style: .info)
+            DirectMessageService.shared.incomingToast = nil
+        }
+        .onChange(of: navigationState.pendingConversationId) { _, id in
+            // The inbox lives on Home; make sure that's the visible tab.
+            if id != nil { selectedTab = .home }
+        }
+        .onChange(of: navigationState.pendingMessageRecipientId) { _, userId in
+            if userId != nil { selectedTab = .home }
+        }
         .bscToast($followToast)
         .onChange(of: SocialNotificationService.shared.followToast) { _, message in
             // A follow arrived while the app is active — surface it on whatever
@@ -221,9 +241,18 @@ struct MainTabView: View {
 
     /// Handle `bumpsetcut://highlight/<id>` by fetching the post and presenting it.
     private func handleDeepLink(_ url: URL) {
-        guard url.scheme == "bumpsetcut", url.host == "highlight" else { return }
+        guard url.scheme == "bumpsetcut" else { return }
+
         // Validate the path component is a real UUID before feeding external input to the
         // backend — never pass arbitrary deep-link strings straight into a query.
+        if url.host == "conversation" {
+            let id = url.lastPathComponent
+            guard UUID(uuidString: id) != nil else { return }
+            navigationState.pendingConversationId = id
+            return
+        }
+
+        guard url.host == "highlight" else { return }
         let id = url.lastPathComponent
         guard UUID(uuidString: id) != nil else { return }
         Task {
@@ -235,22 +264,8 @@ struct MainTabView: View {
 
     /// Full-screen viewer for a deep-linked highlight (mirrors Search's detail).
     private func deepLinkHighlightView(_ highlight: Highlight) -> some View {
-        ZStack(alignment: .topTrailing) {
-            HighlightCardView(
-                highlight: highlight,
-                onLike: {},
-                onComment: {
-                    deepLinkedComments = highlight
-                },
-                onProfile: { _ in }
-            )
-
-            // xs outer padding keeps the icon visually 12pt from the edge
-            // (the component's 44pt hit frame supplies the other 8pt).
-            BSCMediaCloseButton {
-                deepLinkedHighlight = nil
-            }
-            .padding(BSCSpacing.xs)
+        HighlightDetailCover(highlight: highlight) {
+            deepLinkedHighlight = nil
         }
     }
 

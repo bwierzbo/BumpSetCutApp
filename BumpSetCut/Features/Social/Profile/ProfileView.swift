@@ -18,6 +18,7 @@ struct ProfileView: View {
     @State private var toast: BSCToastMessage?
     @Environment(AuthenticationService.self) private var authService
     @Environment(AppSettings.self) private var appSettings
+    @Environment(AppNavigationState.self) private var navigationState
     @Environment(\.dismiss) private var dismiss
 
     init(userId: String) {
@@ -184,6 +185,33 @@ struct ProfileView: View {
         }
     }
 
+    // MARK: - Message Button
+
+    /// Opens (or starts) a thread with this person. The inbox owns thread
+    /// navigation, so route through it rather than pushing a thread into
+    /// whichever stack this profile happens to be in.
+    private var messageButton: some View {
+        Button {
+            UIImpactFeedbackGenerator.light()
+            navigationState.pendingMessageRecipientId = viewModel.userId
+            dismiss()
+        } label: {
+            Label("Message", systemImage: "bubble.left")
+                .bscFont(size: 14, weight: .semibold)
+                .foregroundColor(.bscTextPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, BSCSpacing.sm)
+                .background(Color.bscSurfaceGlass)
+                .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
+                        .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(AccessibilityID.Profile.messageButton)
+    }
+
     // MARK: - Header
 
     private func profileHeader(_ profile: UserProfile) -> some View {
@@ -281,6 +309,7 @@ struct ProfileView: View {
                 }
                 .accessibilityIdentifier(AccessibilityID.Profile.editProfileButton)
             } else {
+                messageButton
                 Button {
                     UIImpactFeedbackGenerator.light()
                     Task {

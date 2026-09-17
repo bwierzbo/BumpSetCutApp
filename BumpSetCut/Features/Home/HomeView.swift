@@ -12,6 +12,7 @@ struct HomeView: View {
     @State private var showingSettings = false
     @Environment(AppSettings.self) private var appSettings
     @Environment(AuthenticationService.self) private var authService
+    @Environment(AppNavigationState.self) private var navigationState
 
     @State private var hasAppeared = false
 
@@ -32,6 +33,9 @@ struct HomeView: View {
 
     // Social notifications
     @State private var showingNotifications = false
+
+    // Direct messages
+    @State private var showingInbox = false
 
     // Account-linked stats: sign-in prompt from the stats slot
     @State private var showingStatsSignIn = false
@@ -63,6 +67,7 @@ struct HomeView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: BSCSpacing.sm) {
                     if authService.isAuthenticated {
+                        messagesButton
                         notificationsButton
                     }
                     settingsButton
@@ -75,6 +80,25 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showingNotifications) {
             NotificationCenterView()
+        }
+        .sheet(isPresented: $showingInbox) {
+            if let userId = authService.currentUser?.id {
+                InboxView(currentUserId: userId)
+            }
+        }
+        // A push tap, deep link, or "Message" from a profile opens the inbox,
+        // which then pushes the thread.
+        .onChange(of: navigationState.pendingConversationId, initial: true) { _, id in
+            guard id != nil else { return }
+            showingSettings = false
+            showingNotifications = false
+            showingInbox = true
+        }
+        .onChange(of: navigationState.pendingMessageRecipientId, initial: true) { _, userId in
+            guard userId != nil else { return }
+            showingSettings = false
+            showingNotifications = false
+            showingInbox = true
         }
         .sheet(isPresented: $showingStatsSignIn) {
             AuthGateView(onSkip: { showingStatsSignIn = false })
@@ -399,6 +423,35 @@ struct HomeView: View {
         }
         .accessibilityIdentifier(AccessibilityID.Home.settings)
         .accessibilityLabel("Settings")
+    }
+
+    // MARK: - Messages Button
+    private var messagesButton: some View {
+        let unread = DirectMessageService.shared.unreadCount
+        return ZStack(alignment: .topTrailing) {
+            BSCIconButton(icon: "envelope.fill", style: .glass, size: .compact) {
+                showingInbox = true
+            }
+            if unread > 0 {
+                Text(unread > 99 ? "99+" : "\(unread)")
+                    .bscFont(size: 11, weight: .bold)
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .padding(.horizontal, 5)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .background(Capsule().fill(Color.bscError))
+                    .fixedSize()
+                    .offset(x: 6, y: -6)
+                    .allowsHitTesting(false)
+            }
+        }
+        // Same overhang reservation as the bell — a toolbar item clips
+        // anything drawn outside its bounds.
+        .padding(.vertical, 6)
+        .padding(.trailing, 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(AccessibilityID.Home.messages)
+        .accessibilityLabel(unread > 0 ? "Messages, \(unread) unread" : "Messages")
     }
 
     // MARK: - Notifications Button

@@ -111,6 +111,7 @@ enum ReportedContentType: String, Codable {
     case highlight
     case comment
     case userProfile = "user_profile"
+    case message
 }
 
 // MARK: - Content Report Model

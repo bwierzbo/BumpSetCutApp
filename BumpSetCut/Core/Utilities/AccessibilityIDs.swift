@@ -27,11 +27,31 @@ enum AccessibilityID {
         static let statsCard = "home.statsCard"
         static let notifications = "home.notifications"
         static let statsSignIn = "home.statsSignIn"
+        static let messages = "home.messages"
     }
 
     enum Notifications {
         static let list = "notifications.list"
         static let done = "notifications.done"
+    }
+
+    enum Messages {
+        static let list = "messages.list"
+        static let done = "messages.done"
+        static let segmentChats = "messages.segment.chats"
+        static let segmentRequests = "messages.segment.requests"
+        static let row = "messages.row"
+        static let emptyState = "messages.emptyState"
+        static let acceptRequest = "messages.acceptRequest"
+        static let deleteRequest = "messages.deleteRequest"
+        static let threadList = "messages.thread.list"
+        static let threadHeader = "messages.thread.header"
+        static let threadMenu = "messages.thread.menu"
+        static let inputField = "messages.input"
+        static let sendButton = "messages.send"
+        static let attachButton = "messages.attach"
+        static let bubble = "messages.bubble"
+        static let retry = "messages.retry"
     }
 
     enum Onboarding {
@@ -134,6 +154,7 @@ enum AccessibilityID {
         static let playerInfoLocked = "profile.playerInfoLocked"
         static let addPlayerInfo = "profile.addPlayerInfo"
         static let instagramLink = "profile.instagramLink"
+        static let messageButton = "profile.message"
     }
 
     enum EditProfile {
