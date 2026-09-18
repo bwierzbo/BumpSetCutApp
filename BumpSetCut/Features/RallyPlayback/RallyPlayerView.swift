@@ -23,6 +23,11 @@ struct RallyPlayerView: View {
     @State private var showAddMissedRallyPrompt = false
     @State private var rallyIndexToShare: ShareableRallyIndex?
     @State private var pendingRallyPicker: RallyPickerTarget?
+    /// Export runs the same choose-then-act flow as posting.
+    @State private var pendingExportPicker: RallyPickerTarget?
+    /// Which rallies the export sheet should work on. nil means every saved
+    /// rally, which is the case when there was only one to begin with.
+    @State private var exportSelection: [Int]?
     @State private var showPostAnotherPrompt = false
     /// Rotation captured at the start of a two-finger twist (RotationGesture
     /// reports angle relative to its own start).
@@ -77,9 +82,9 @@ struct RallyPlayerView: View {
                     rallyContent(geometry: geometry)
                 }
             }
-            .sheet(isPresented: $viewModel.showExportOptions) {
+            .sheet(isPresented: $viewModel.showExportOptions, onDismiss: { exportSelection = nil }) {
                 RallyExportSheet(
-                    savedRallies: viewModel.savedRalliesArray,
+                    savedRallies: exportSelection ?? viewModel.savedRalliesArray,
                     totalRallies: viewModel.totalRallies,
                     processingMetadata: viewModel.processingMetadata,
                     videoMetadata: videoMetadata,
@@ -102,7 +107,16 @@ struct RallyPlayerView: View {
                     onExport: {
                         viewModel.showOverviewSheet = false
                         Task { await viewModel.copyFavoritesToLibrary() }
-                        viewModel.showExportOptions = true
+                        // Same as posting: more than one saved rally means
+                        // choosing which ones, rather than taking them all.
+                        if let target = rallyPickerTarget() {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                pendingExportPicker = target
+                            }
+                        } else {
+                            exportSelection = nil
+                            viewModel.showExportOptions = true
+                        }
                     },
                     onPostToCommunity: { index, postAll in
                         viewModel.showOverviewSheet = false
@@ -161,6 +175,26 @@ struct RallyPlayerView: View {
                         }
                     },
                     onCancel: { pendingRallyPicker = nil }
+                )
+            }
+            .sheet(item: $pendingExportPicker) { target in
+                ClipPickerSheet(
+                    title: "Saved rallies",
+                    items: target.items,
+                    // No cap: unlike a post, an export can take every rally.
+                    maxSelection: target.items.count,
+                    confirmTitle: { "Export \($0) \($0 == 1 ? "Rally" : "Rallies")" },
+                    onConfirm: { indices in
+                        pendingExportPicker = nil
+                        guard !indices.isEmpty else { return }
+                        // Let the picker finish dismissing before the export
+                        // sheet comes up (same pattern as posting).
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            exportSelection = indices.sorted()
+                            viewModel.showExportOptions = true
+                        }
+                    },
+                    onCancel: { pendingExportPicker = nil }
                 )
             }
             .sheet(item: $rallyIndexToShare) { item in

@@ -33,6 +33,9 @@ struct ClipPickerSheet<Payload>: View {
     let title: String
     let items: [ClipPickerItem<Payload>]
     let maxSelection: Int
+    /// Label for the confirm button, given the number selected. Posting and
+    /// exporting share this sheet but finish with different verbs.
+    var confirmTitle: (Int) -> String = { "Post \($0) \($0 == 1 ? "Rally" : "Rallies")" }
     let onConfirm: ([Payload]) -> Void
     let onCancel: () -> Void
 
@@ -72,7 +75,7 @@ struct ClipPickerSheet<Payload>: View {
                         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.payload) })
                         onConfirm(selection.compactMap { byID[$0] })
                     } label: {
-                        Text("Post \(selection.count) \(selection.count == 1 ? "Rally" : "Rallies")")
+                        Text(confirmTitle(selection.count))
                             .bscFont(size: 16, weight: .bold)
                             .foregroundColor(.bscOnPrimary)
                             .frame(maxWidth: .infinity)

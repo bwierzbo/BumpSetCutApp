@@ -262,7 +262,7 @@ struct RallyOverviewSheet: View {
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "square.and.arrow.down")
                             .bscFont(size: 15, weight: .semibold)
-                        Text("Export \(savedRallies.count)")
+                        Text(savedRallies.count > 1 ? "Export Rallies" : "Export")
                             .bscFont(size: 15, weight: .semibold)
                     }
                     .foregroundColor(.bscOnPrimary)
@@ -342,7 +342,9 @@ struct RallyOverviewSheet: View {
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: "square.and.arrow.down")
                             .bscFont(size: 16, weight: .semibold)
-                        Text("Export \(savedRallies.count) \(savedRallies.count == 1 ? "Rally" : "Rallies")")
+                        // Count omitted for the same reason as Post: this opens the
+                        // picker, where the user chooses what actually gets exported.
+                        Text(savedRallies.count > 1 ? "Export Rallies" : "Export Rally")
                             .bscFont(size: 16, weight: .semibold)
                     }
                     .foregroundColor(.bscOnPrimary)
