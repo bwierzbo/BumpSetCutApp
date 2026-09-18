@@ -283,7 +283,7 @@ struct RallyOverviewSheet: View {
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: savedRallies.count > 1 ? "square.stack.fill" : "paperplane.fill")
                             .bscFont(size: 15, weight: .semibold)
-                        Text(savedRallies.count > 1 ? "Post \(savedRallies.count)" : "Post")
+                        Text(savedRallies.count > 1 ? "Post Rallies" : "Post")
                             .bscFont(size: 15, weight: .semibold)
                     }
                     .foregroundColor(.bscTextPrimary)
@@ -363,8 +363,10 @@ struct RallyOverviewSheet: View {
                     HStack(spacing: BSCSpacing.sm) {
                         Image(systemName: savedRallies.count > 1 ? "square.stack.fill" : "paperplane.fill")
                             .bscFont(size: 16, weight: .semibold)
+                        // Count deliberately omitted: this opens the picker, where the
+                        // user chooses which of the saved rallies actually go up.
                         Text(savedRallies.count > 1
-                             ? "Post \(savedRallies.count) Rallies"
+                             ? "Post Rallies"
                              : "Post to Community")
                             .bscFont(size: 16, weight: .semibold)
                     }

@@ -40,6 +40,10 @@ struct ClipPickerSheet<Payload>: View {
     @State private var selection: [UUID] = []
     /// Suppresses the selection tap for the gesture that started a preview.
     @State private var previewingID: UUID?
+    /// The held clip, played full-screen above the grid. A cell can't draw
+    /// outside the scroll view that clips it, so the preview lives up here.
+    @State private var previewPlayer: AVPlayer?
+    @State private var previewName: String?
 
     private var canSelectAll: Bool { items.count <= maxSelection }
     private var atCapacity: Bool { selection.count >= maxSelection }
@@ -82,7 +86,10 @@ struct ClipPickerSheet<Payload>: View {
                     .background(Color.bscBackgroundElevated)
                     .accessibilityIdentifier(AccessibilityID.Favorites.clipPickerConfirm)
                 }
+
+                heldClipPreview
             }
+            .animation(.bscQuick, value: previewingID)
             .navigationTitle("Choose Rallies")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -131,6 +138,38 @@ struct ClipPickerSheet<Payload>: View {
         .padding(.vertical, BSCSpacing.sm)
     }
 
+    /// The held clip, filling the sheet. Aspect-fit rather than filled so the
+    /// whole rally is visible — the point of holding is to judge it. Never
+    /// hit-testable: the long press that opened it is still in progress
+    /// underneath, and swallowing it would strand the preview on screen.
+    @ViewBuilder
+    private var heldClipPreview: some View {
+        if let previewPlayer {
+            ZStack {
+                Color.black.opacity(0.92).ignoresSafeArea()
+
+                CustomVideoPlayerView(player: previewPlayer, gravity: .resizeAspect) { _ in }
+                    .ignoresSafeArea()
+
+                if let previewName {
+                    VStack {
+                        Spacer()
+                        Text(previewName)
+                            .bscFont(size: 15, weight: .semibold)
+                            .foregroundColor(.bscOnMedia)
+                            .padding(.horizontal, BSCSpacing.lg)
+                            .padding(.vertical, BSCSpacing.sm)
+                            .background(Capsule().fill(Color.black.opacity(0.55)))
+                            .padding(.bottom, BSCSpacing.xxl)
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+            .transition(.opacity.combined(with: .scale(scale: 0.92)))
+            .accessibilityHidden(true)
+        }
+    }
+
     private func clipCell(_ item: ClipPickerItem<Payload>) -> some View {
         let order = selection.firstIndex(of: item.id)
         let dimmed = order == nil && atCapacity
@@ -141,8 +180,10 @@ struct ClipPickerSheet<Payload>: View {
                 PressToPlayThumbnail(
                     videoURL: item.url,
                     timeRange: item.timeRange,
-                    onPreviewChanged: { previewing in
-                        previewingID = previewing ? item.id : nil
+                    onPreviewChanged: { player in
+                        previewPlayer = player
+                        previewName = player == nil ? nil : item.displayName
+                        previewingID = player == nil ? nil : item.id
                     }
                 )
                 .aspectRatio(16/10, contentMode: .fit)

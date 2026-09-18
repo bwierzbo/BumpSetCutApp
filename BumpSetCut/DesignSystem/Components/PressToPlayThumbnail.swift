@@ -2,10 +2,15 @@
 //  PressToPlayThumbnail.swift
 //  BumpSetCut
 //
-//  A clip thumbnail that plays inline while pressed and held — the way a
-//  Live Photo does in Photos — and returns to the still frame on release.
-//  Used by the pickers, where seeing the rally move is the whole point of
-//  deciding whether to post it.
+//  A clip thumbnail that plays while pressed and held — the way a Live Photo
+//  does in Photos — and returns to the still frame on release. Used by the
+//  pickers, where seeing the rally move is the whole point of deciding
+//  whether to post it.
+//
+//  The clip plays at full size rather than in the cell: a grid cell is barely
+//  big enough to judge a rally by, and a cell can't draw outside the scroll
+//  view that clips it. So this owns the player's lifecycle and hands it to the
+//  container through `onPreviewChanged`, which presents it above the grid.
 //
 
 import SwiftUI
@@ -16,9 +21,9 @@ struct PressToPlayThumbnail: View {
     let videoURL: URL
     /// The slice of `videoURL` this clip covers; nil plays the whole file.
     var timeRange: CMTimeRange?
-    /// Fires when the hold preview starts and ends, so a container can dim
-    /// its own chrome while the clip plays.
-    var onPreviewChanged: (Bool) -> Void = { _ in }
+    /// Hands over the playing clip when the hold starts, and nil when it ends.
+    /// The container presents it at full size and dims its own chrome.
+    var onPreviewChanged: (AVPlayer?) -> Void = { _ in }
 
     @State private var player: AVPlayer?
     @State private var isPreviewing = false
@@ -27,24 +32,10 @@ struct PressToPlayThumbnail: View {
 
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                VideoThumbnailView(thumbnailURL: nil, videoURL: videoURL)
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-
-                if let player {
-                    // Fades in over the still, so there's no black frame while
-                    // the first video frame is decoded.
-                    CustomVideoPlayerView(player: player, gravity: .resizeAspectFill) { _ in }
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                        .opacity(isPreviewing ? 1 : 0)
-                        .allowsHitTesting(false)
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
+            VideoThumbnailView(thumbnailURL: nil, videoURL: videoURL)
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
         }
-        .animation(.bscQuick, value: isPreviewing)
         .onLongPressGesture(minimumDuration: 0.3) {
             startPreview()
         } onPressingChanged: { pressing in
@@ -84,7 +75,7 @@ struct PressToPlayThumbnail: View {
         player = preview
         preview.play()
         isPreviewing = true
-        onPreviewChanged(true)
+        onPreviewChanged(preview)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
@@ -101,6 +92,6 @@ struct PressToPlayThumbnail: View {
         player?.pause()
         player = nil
         isPreviewing = false
-        onPreviewChanged(false)
+        onPreviewChanged(nil)
     }
 }
