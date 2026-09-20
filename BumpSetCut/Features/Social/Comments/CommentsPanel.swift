@@ -2,9 +2,16 @@
 //  CommentsPanel.swift
 //  BumpSetCut
 //
-//  Custom comments overlay that keeps the post visible:
-//  - Portrait: full-width slide-up sheet (TikTok-style), reaching the screen bottom.
-//  - Landscape: full-height side panel on the right, video on the left.
+//  Custom comments overlay:
+//  - Portrait: full-width slide-up sheet (TikTok-style) covering most of the
+//    screen, with the post still visible above it.
+//  - Landscape: covers the post entirely. A side panel left too little width
+//    for a comment and the keyboard swallowed what was left.
+//
+//  The overlay ignores the container's safe area so it can reach the screen
+//  edges, but never the keyboard's: that inset is what lifts the input bar
+//  clear of the keyboard. While the field holds focus the sheet takes the
+//  whole space the keyboard leaves, so the text being typed is always visible.
 //
 
 import SwiftUI
@@ -19,68 +26,84 @@ extension View {
 private struct CommentsPanelModifier: ViewModifier {
     @Binding var item: Highlight?
     @State private var dragOffset: CGFloat = 0
+    /// True while the comment field holds focus — the sheet then fills the
+    /// space above the keyboard instead of sitting at its resting height.
+    @State private var isTyping = false
 
-    /// Real bottom safe-area inset (overlay ignores safe area, so read the window).
-    private var bottomSafeInset: CGFloat {
+    /// Real safe-area insets (the overlay ignores the container's, so read the
+    /// window directly).
+    private var keyWindowInsets: UIEdgeInsets {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
             .first { $0.isKeyWindow }?
-            .safeAreaInsets.bottom ?? 0
+            .safeAreaInsets ?? .zero
     }
+
+    private var bottomSafeInset: CGFloat { keyWindowInsets.bottom }
+    private var topSafeInset: CGFloat { keyWindowInsets.top }
 
     func body(content: Content) -> some View {
         content.overlay {
             GeometryReader { geo in
                 let landscape = geo.size.width > geo.size.height
-                ZStack(alignment: landscape ? .trailing : .bottom) {
+                ZStack(alignment: .bottom) {
                     if let highlight = item {
-                        // Dim backdrop over the post — tap to dismiss, post stays visible.
-                        Color.bscMediaScrimBase.opacity(0.18)
+                        // Portrait dims the post, which stays visible above the
+                        // sheet. Landscape covers it outright — and opaquely,
+                        // so that when the keyboard shortens the sheet the post
+                        // doesn't reappear in the gap above it.
+                        (landscape ? Color.bscBackground : Color.bscMediaScrimBase.opacity(0.18))
                             .ignoresSafeArea()
                             .contentShape(Rectangle())
                             .onTapGesture { dismiss() }
                             .transition(.opacity)
 
                         panel(highlight: highlight, geo: geo, landscape: landscape)
-                            .transition(.move(edge: landscape ? .trailing : .bottom))
+                            .transition(.move(edge: .bottom))
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity,
-                       alignment: landscape ? .trailing : .bottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .animation(.bscSnappy, value: item != nil)
+                .animation(.bscSnappy, value: isTyping)
             }
-            .ignoresSafeArea()
+            // Container only: the keyboard's inset is what keeps the input bar
+            // visible, so it must not be ignored here.
+            .ignoresSafeArea(.container)
         }
     }
 
     @ViewBuilder
     private func panel(highlight: Highlight, geo: GeometryProxy, landscape: Bool) -> some View {
-        let width = landscape ? min(460, geo.size.width * 0.46) : geo.size.width
-        let height = landscape ? geo.size.height : geo.size.height * 0.78
+        // geo excludes the keyboard, so while typing this is exactly the space
+        // left above it — the sheet fills it and the input bar lands on top of
+        // the keyboard rather than behind it. Landscape covers the post
+        // outright; there isn't room to read comments beside it.
+        let height = (landscape || isTyping) ? geo.size.height : geo.size.height * 0.78
 
         CommentsSheet(
             highlight: highlight,
             onClose: { dismiss() },
-            onHeaderDrag: { value in
-                if !landscape { dragOffset = max(0, value) }
-            },
+            onHeaderDrag: { value in dragOffset = max(0, value) },
             onHeaderDragEnd: { value in
-                if !landscape, value > 120 {
+                if value > 120 {
                     dismiss()
                 } else {
                     withAnimation(.bscSnappy) { dragOffset = 0 }
                 }
-            }
+            },
+            onFocusChanged: { isTyping = $0 }
         )
-        // Keep the input bar above the home indicator (overlay ignores safe area).
-        .padding(.bottom, bottomSafeInset)
-        .frame(width: width, height: height, alignment: .top)
+        // Clear the home indicator, but not while the keyboard is up — it
+        // already occupies that strip, and the gap reads as a misalignment.
+        .padding(.bottom, isTyping ? 0 : bottomSafeInset)
+        // At full height the sheet's top reaches the screen edge, where the
+        // header would otherwise sit under the status bar.
+        .padding(.top, (landscape || isTyping) ? topSafeInset : 0)
+        .frame(width: geo.size.width, height: height, alignment: .top)
         .background(Color.bscBackground)
-        .clipShape(landscape
-            ? .rect(topLeadingRadius: BSCRadius.xl, bottomLeadingRadius: BSCRadius.xl)
-            : .rect(topLeadingRadius: BSCRadius.xl, topTrailingRadius: BSCRadius.xl))
-        .offset(y: landscape ? 0 : max(0, dragOffset))
+        .clipShape(.rect(topLeadingRadius: BSCRadius.xl, topTrailingRadius: BSCRadius.xl))
+        .offset(y: max(0, dragOffset))
     }
 
     private func dismiss() {

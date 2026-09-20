@@ -12,6 +12,9 @@ struct CommentsSheet: View {
     var onClose: () -> Void = {}
     var onHeaderDrag: (CGFloat) -> Void = { _ in }
     var onHeaderDragEnd: (CGFloat) -> Void = { _ in }
+    /// Reports whether the comment field holds focus, so the panel around this
+    /// can grow to fill the space the keyboard leaves.
+    var onFocusChanged: (Bool) -> Void = { _ in }
     @State private var viewModel: CommentsViewModel
     @State private var toast: BSCToastMessage?
     @FocusState private var isCommentFocused: Bool
@@ -20,10 +23,12 @@ struct CommentsSheet: View {
     init(highlight: Highlight,
          onClose: @escaping () -> Void = {},
          onHeaderDrag: @escaping (CGFloat) -> Void = { _ in },
-         onHeaderDragEnd: @escaping (CGFloat) -> Void = { _ in }) {
+         onHeaderDragEnd: @escaping (CGFloat) -> Void = { _ in },
+         onFocusChanged: @escaping (Bool) -> Void = { _ in }) {
         self.onClose = onClose
         self.onHeaderDrag = onHeaderDrag
         self.onHeaderDragEnd = onHeaderDragEnd
+        self.onFocusChanged = onFocusChanged
         self.highlight = highlight
         _viewModel = State(initialValue: CommentsViewModel(highlight: highlight))
     }
@@ -100,6 +105,9 @@ struct CommentsSheet: View {
             }
             .animation(.bscQuick, value: viewModel.sendError != nil)
             .background(Color.bscBackground)
+            .onChange(of: isCommentFocused) { _, focused in
+                onFocusChanged(focused)
+            }
             .bscToast($toast)
             .onChange(of: viewModel.actionError) { _, message in
                 if let message {
