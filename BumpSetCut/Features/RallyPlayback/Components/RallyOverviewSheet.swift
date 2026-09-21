@@ -39,11 +39,7 @@ struct RallyOverviewSheet: View {
                 .padding(.bottom, isCompactHeight ? BSCSpacing.xs : BSCSpacing.md)
 
             // Header
-            if isCompactHeight {
-                compactHeaderSection
-            } else {
-                headerSection
-            }
+            headerSection
 
             // Thumbnail grid
             ScrollView {
@@ -72,141 +68,105 @@ struct RallyOverviewSheet: View {
         .onAppear { appeared = true }
     }
 
-    // MARK: - Compact Header (landscape)
-
-    private var compactHeaderSection: some View {
-        HStack(spacing: BSCSpacing.md) {
-            Image(systemName: "checkmark.circle.fill")
-                .bscFont(size: 20, weight: .medium)
-                .foregroundStyle(Color.bscSuccessText)
-
-            // Inline stats
-            HStack(spacing: BSCSpacing.md) {
-                statPill(count: savedRallies.count, label: "saved", color: .bscSuccessText)
-                statPill(count: removedRallies.count, label: "removed", color: .bscErrorText)
-                if !favoritedRallies.isEmpty {
-                    statPill(count: favoritedRallies.count, label: "favorited", color: .bscPrimaryText)
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            // Quick select/deselect actions
-            Button {
-                UINotificationFeedbackGenerator.success()
-                onSaveAll()
-            } label: {
-                HStack(spacing: BSCSpacing.xs) {
-                    Image(systemName: "heart.fill")
-                        .bscFont(size: 11, weight: .bold)
-                    Text("Save All")
-                        .bscFont(size: 13, weight: .semibold)
-                }
-                .foregroundColor(.bscSuccessText)
-                .padding(.horizontal, BSCSpacing.md)
-                .padding(.vertical, BSCSpacing.xs)
-                .background(Color.bscSuccess.opacity(0.15))
-                .clipShape(Capsule())
-            }
-            .disabled(savedRallies.count == rallyVideoURLs.count)
-            .opacity(savedRallies.count == rallyVideoURLs.count ? 0.4 : 1.0)
-
-            Button {
-                UIImpactFeedbackGenerator.light()
-                onDeselectAll()
-            } label: {
-                HStack(spacing: BSCSpacing.xs) {
-                    Image(systemName: "arrow.uturn.backward")
-                        .bscFont(size: 11, weight: .bold)
-                    Text("Clear All")
-                        .bscFont(size: 13, weight: .semibold)
-                }
-                .foregroundColor(.bscTextSecondary)
-                .padding(.horizontal, BSCSpacing.md)
-                .padding(.vertical, BSCSpacing.xs)
-                .background(Color.bscSurfaceGlass)
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(Color.bscSurfaceBorder, lineWidth: 1)
-                )
-            }
-            .disabled(savedRallies.isEmpty && removedRallies.isEmpty)
-            .opacity(savedRallies.isEmpty && removedRallies.isEmpty ? 0.4 : 1.0)
-        }
-        .padding(.horizontal, BSCSpacing.lg)
-        .padding(.bottom, BSCSpacing.sm)
-    }
-
     // MARK: - Header
 
+    @ViewBuilder
     private var headerSection: some View {
-        VStack(spacing: BSCSpacing.md) {
-            Image(systemName: "checkmark.circle.fill")
-                .bscFont(size: 48, weight: .medium)
-                .foregroundStyle(Color.bscSuccessText)
-                .symbolEffect(.bounce, value: appeared)
+        if isCompactHeight {
+            // Landscape: everything on one inline row so the grid keeps the space.
+            HStack(spacing: BSCSpacing.md) {
+                completionIcon(size: 20)
+                statPillRow(spacing: BSCSpacing.md)
 
-            Text("Review Complete")
-                .bscFont(size: 22, weight: .bold)
-                .foregroundColor(.bscTextPrimary)
+                Spacer(minLength: 0)
 
-            // Compact stats pill row
-            HStack(spacing: BSCSpacing.lg) {
-                statPill(count: savedRallies.count, label: "saved", color: .bscSuccessText)
-                statPill(count: removedRallies.count, label: "removed", color: .bscErrorText)
-                if !favoritedRallies.isEmpty {
-                    statPill(count: favoritedRallies.count, label: "favorited", color: .bscPrimaryText)
+                saveAllButton
+                clearAllButton
+            }
+            .padding(.horizontal, BSCSpacing.lg)
+            .padding(.bottom, BSCSpacing.sm)
+        } else {
+            VStack(spacing: BSCSpacing.md) {
+                completionIcon(size: 48)
+                    .symbolEffect(.bounce, value: appeared)
+
+                Text("Review Complete")
+                    .bscFont(size: 22, weight: .bold)
+                    .foregroundColor(.bscTextPrimary)
+
+                statPillRow(spacing: BSCSpacing.lg)
+                    .padding(.horizontal, BSCSpacing.xl)
+
+                // Quick select/deselect actions
+                HStack(spacing: BSCSpacing.md) {
+                    saveAllButton
+                    clearAllButton
                 }
             }
-            .padding(.horizontal, BSCSpacing.xl)
+            .padding(.bottom, BSCSpacing.lg)
+        }
+    }
 
-            // Quick select/deselect actions
-            HStack(spacing: BSCSpacing.md) {
-                Button {
-                    UINotificationFeedbackGenerator.success()
-                    onSaveAll()
-                } label: {
-                    HStack(spacing: BSCSpacing.xs) {
-                        Image(systemName: "heart.fill")
-                            .bscFont(size: 11, weight: .bold)
-                        Text("Save All")
-                            .bscFont(size: 13, weight: .semibold)
-                    }
-                    .foregroundColor(.bscSuccessText)
-                    .padding(.horizontal, BSCSpacing.md)
-                    .padding(.vertical, BSCSpacing.xs)
-                    .background(Color.bscSuccess.opacity(0.15))
-                    .clipShape(Capsule())
-                }
-                .disabled(savedRallies.count == rallyVideoURLs.count)
-                .opacity(savedRallies.count == rallyVideoURLs.count ? 0.4 : 1.0)
+    private func completionIcon(size: CGFloat) -> some View {
+        Image(systemName: "checkmark.circle.fill")
+            .bscFont(size: size, weight: .medium)
+            .foregroundStyle(Color.bscSuccessText)
+    }
 
-                Button {
-                    UIImpactFeedbackGenerator.light()
-                    onDeselectAll()
-                } label: {
-                    HStack(spacing: BSCSpacing.xs) {
-                        Image(systemName: "arrow.uturn.backward")
-                            .bscFont(size: 11, weight: .bold)
-                        Text("Clear All")
-                            .bscFont(size: 13, weight: .semibold)
-                    }
-                    .foregroundColor(.bscTextSecondary)
-                    .padding(.horizontal, BSCSpacing.md)
-                    .padding(.vertical, BSCSpacing.xs)
-                    .background(Color.bscSurfaceGlass)
-                    .clipShape(Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.bscSurfaceBorder, lineWidth: 1)
-                    )
-                }
-                .disabled(savedRallies.isEmpty && removedRallies.isEmpty)
-                .opacity(savedRallies.isEmpty && removedRallies.isEmpty ? 0.4 : 1.0)
+    private var saveAllButton: some View {
+        Button {
+            UINotificationFeedbackGenerator.success()
+            onSaveAll()
+        } label: {
+            HStack(spacing: BSCSpacing.xs) {
+                Image(systemName: "heart.fill")
+                    .bscFont(size: 11, weight: .bold)
+                Text("Save All")
+                    .bscFont(size: 13, weight: .semibold)
+            }
+            .foregroundColor(.bscSuccessText)
+            .padding(.horizontal, BSCSpacing.md)
+            .padding(.vertical, BSCSpacing.xs)
+            .background(Color.bscSuccess.opacity(0.15))
+            .clipShape(Capsule())
+        }
+        .disabled(savedRallies.count == rallyVideoURLs.count)
+        .opacity(savedRallies.count == rallyVideoURLs.count ? 0.4 : 1.0)
+    }
+
+    private var clearAllButton: some View {
+        Button {
+            UIImpactFeedbackGenerator.light()
+            onDeselectAll()
+        } label: {
+            HStack(spacing: BSCSpacing.xs) {
+                Image(systemName: "arrow.uturn.backward")
+                    .bscFont(size: 11, weight: .bold)
+                Text("Clear All")
+                    .bscFont(size: 13, weight: .semibold)
+            }
+            .foregroundColor(.bscTextSecondary)
+            .padding(.horizontal, BSCSpacing.md)
+            .padding(.vertical, BSCSpacing.xs)
+            .background(Color.bscSurfaceGlass)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color.bscSurfaceBorder, lineWidth: 1)
+            )
+        }
+        .disabled(savedRallies.isEmpty && removedRallies.isEmpty)
+        .opacity(savedRallies.isEmpty && removedRallies.isEmpty ? 0.4 : 1.0)
+    }
+
+    private func statPillRow(spacing: CGFloat) -> some View {
+        HStack(spacing: spacing) {
+            statPill(count: savedRallies.count, label: "saved", color: .bscSuccessText)
+            statPill(count: removedRallies.count, label: "removed", color: .bscErrorText)
+            if !favoritedRallies.isEmpty {
+                statPill(count: favoritedRallies.count, label: "favorited", color: .bscPrimaryText)
             }
         }
-        .padding(.bottom, BSCSpacing.lg)
     }
 
     private func statPill(count: Int, label: String, color: Color) -> some View {
@@ -241,12 +201,18 @@ struct RallyOverviewSheet: View {
     // MARK: - Bottom Actions
 
     private var bottomActions: some View {
-        Group {
-            if isCompactHeight {
-                compactBottomActions
-            } else {
-                regularBottomActions
+        // Compact height lays the actions out in a row; regular stacks them.
+        let layout = isCompactHeight
+            ? AnyLayout(HStackLayout(spacing: BSCSpacing.md))
+            : AnyLayout(VStackLayout(spacing: BSCSpacing.md))
+
+        return layout {
+            if !savedRallies.isEmpty {
+                exportButton
+                postButton
             }
+            editTimelineButton
+            doneButton
         }
         .padding(.horizontal, BSCSpacing.lg)
         .padding(.top, BSCSpacing.md)
@@ -254,164 +220,64 @@ struct RallyOverviewSheet: View {
         .background(Color.bscBackground)
     }
 
-    private var compactBottomActions: some View {
-        HStack(spacing: BSCSpacing.md) {
-            if !savedRallies.isEmpty {
-                // Export to Camera Roll
-                Button(action: onExport) {
-                    HStack(spacing: BSCSpacing.sm) {
-                        Image(systemName: "square.and.arrow.down")
-                            .bscFont(size: 15, weight: .semibold)
-                        Text(savedRallies.count > 1 ? "Export Rallies" : "Export")
-                            .bscFont(size: 15, weight: .semibold)
-                    }
-                    .foregroundColor(.bscOnPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, BSCSpacing.sm)
-                    .background(
-                        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                            .fill(LinearGradient.bscPrimaryGradient)
-                    )
-                }
-
-                // Post to Community
-                Button {
-                    if let firstSaved = savedRallies.sorted().first {
-                        onPostToCommunity(firstSaved, savedRallies.count > 1)
-                    }
-                } label: {
-                    HStack(spacing: BSCSpacing.sm) {
-                        Image(systemName: savedRallies.count > 1 ? "square.stack.fill" : "paperplane.fill")
-                            .bscFont(size: 15, weight: .semibold)
-                        Text(savedRallies.count > 1 ? "Post Rallies" : "Post")
-                            .bscFont(size: 15, weight: .semibold)
-                    }
-                    .foregroundColor(.bscTextPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, BSCSpacing.sm)
-                    .background(
-                        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                            .stroke(Color.bscSurfaceBorder, lineWidth: 1.5)
-                            .fill(Color.bscBackgroundElevated)
-                    )
-                }
-            }
-
-            // Edit timeline (icon-only in compact height)
-            Button(action: onEditTimeline) {
-                Image(systemName: "slider.horizontal.below.rectangle")
-                    .bscFont(size: 15, weight: .semibold)
-                    .foregroundColor(.bscTextPrimary)
-                    .frame(minWidth: BSCTouchTarget.standard, minHeight: BSCTouchTarget.standard)
-                    .background(
-                        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                            .stroke(Color.bscSurfaceBorder, lineWidth: 1.5)
-                            .fill(Color.bscBackgroundElevated)
-                    )
-            }
-            .accessibilityLabel("Add or fix rallies")
-
-            // Done
-            Button(action: onDismiss) {
-                HStack(spacing: BSCSpacing.sm) {
-                    Image(systemName: "checkmark")
-                        .bscFont(size: 15, weight: .semibold)
-                    Text("Done")
-                        .bscFont(size: 15, weight: .semibold)
-                }
-                .foregroundColor(.bscTextPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, BSCSpacing.sm)
+    // Export to Camera Roll
+    private var exportButton: some View {
+        Button(action: onExport) {
+            // Count omitted for the same reason as Post: this opens the
+            // picker, where the user chooses what actually gets exported.
+            actionLabel(icon: "square.and.arrow.down", title: exportTitle)
+                .foregroundColor(.bscOnPrimary)
                 .background(
                     RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                        .fill(Color.bscSurfaceGlass)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                                .stroke(Color.bscSurfaceBorder, lineWidth: 1)
-                        )
+                        .fill(LinearGradient.bscPrimaryGradient)
                 )
+        }
+    }
+
+    // Post to Community
+    private var postButton: some View {
+        Button {
+            if let firstSaved = savedRallies.sorted().first {
+                onPostToCommunity(firstSaved, savedRallies.count > 1)
+            }
+        } label: {
+            // Count deliberately omitted: this opens the picker, where the
+            // user chooses which of the saved rallies actually go up.
+            actionLabel(
+                icon: savedRallies.count > 1 ? "square.stack.fill" : "paperplane.fill",
+                title: postTitle
+            )
+            .foregroundColor(.bscTextPrimary)
+            .background(outlinedActionBackground)
+        }
+    }
+
+    // Edit timeline (add missed rallies, delete false positives)
+    @ViewBuilder
+    private var editTimelineButton: some View {
+        if isCompactHeight {
+            // Icon-only in compact height, so the title moves to the a11y label.
+            Button(action: onEditTimeline) {
+                Image(systemName: "slider.horizontal.below.rectangle")
+                    .bscFont(size: actionFontSize, weight: .semibold)
+                    .foregroundColor(.bscTextPrimary)
+                    .frame(minWidth: BSCTouchTarget.standard, minHeight: BSCTouchTarget.standard)
+                    .background(outlinedActionBackground)
+            }
+            .accessibilityLabel("Add or fix rallies")
+        } else {
+            Button(action: onEditTimeline) {
+                actionLabel(icon: "slider.horizontal.below.rectangle", title: "Add or Fix Rallies")
+                    .foregroundColor(.bscTextPrimary)
+                    .background(outlinedActionBackground)
             }
         }
     }
 
-    private var regularBottomActions: some View {
-        VStack(spacing: BSCSpacing.md) {
-            if !savedRallies.isEmpty {
-                // Export to Camera Roll
-                Button(action: onExport) {
-                    HStack(spacing: BSCSpacing.sm) {
-                        Image(systemName: "square.and.arrow.down")
-                            .bscFont(size: 16, weight: .semibold)
-                        // Count omitted for the same reason as Post: this opens the
-                        // picker, where the user chooses what actually gets exported.
-                        Text(savedRallies.count > 1 ? "Export Rallies" : "Export Rally")
-                            .bscFont(size: 16, weight: .semibold)
-                    }
-                    .foregroundColor(.bscOnPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, BSCSpacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                            .fill(LinearGradient.bscPrimaryGradient)
-                    )
-                }
-
-                // Post to Community
-                Button {
-                    if let firstSaved = savedRallies.sorted().first {
-                        onPostToCommunity(firstSaved, savedRallies.count > 1)
-                    }
-                } label: {
-                    HStack(spacing: BSCSpacing.sm) {
-                        Image(systemName: savedRallies.count > 1 ? "square.stack.fill" : "paperplane.fill")
-                            .bscFont(size: 16, weight: .semibold)
-                        // Count deliberately omitted: this opens the picker, where the
-                        // user chooses which of the saved rallies actually go up.
-                        Text(savedRallies.count > 1
-                             ? "Post Rallies"
-                             : "Post to Community")
-                            .bscFont(size: 16, weight: .semibold)
-                    }
-                    .foregroundColor(.bscTextPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, BSCSpacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                            .stroke(Color.bscSurfaceBorder, lineWidth: 1.5)
-                            .fill(Color.bscBackgroundElevated)
-                    )
-                }
-            }
-
-            // Edit timeline (add missed rallies, delete false positives)
-            Button(action: onEditTimeline) {
-                HStack(spacing: BSCSpacing.sm) {
-                    Image(systemName: "slider.horizontal.below.rectangle")
-                        .bscFont(size: 16, weight: .semibold)
-                    Text("Add or Fix Rallies")
-                        .bscFont(size: 16, weight: .semibold)
-                }
+    private var doneButton: some View {
+        Button(action: onDismiss) {
+            actionLabel(icon: "checkmark", title: "Done")
                 .foregroundColor(.bscTextPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, BSCSpacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-                        .stroke(Color.bscSurfaceBorder, lineWidth: 1.5)
-                        .fill(Color.bscBackgroundElevated)
-                )
-            }
-
-            // Done
-            Button(action: onDismiss) {
-                HStack(spacing: BSCSpacing.sm) {
-                    Image(systemName: "checkmark")
-                        .bscFont(size: 16, weight: .semibold)
-                    Text("Done")
-                        .bscFont(size: 16, weight: .semibold)
-                }
-                .foregroundColor(.bscTextPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, BSCSpacing.md)
                 .background(
                     RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
                         .fill(Color.bscSurfaceGlass)
@@ -420,8 +286,36 @@ struct RallyOverviewSheet: View {
                                 .stroke(Color.bscSurfaceBorder, lineWidth: 1)
                         )
                 )
-            }
         }
+    }
+
+    private var exportTitle: String {
+        if savedRallies.count > 1 { return "Export Rallies" }
+        return isCompactHeight ? "Export" : "Export Rally"
+    }
+
+    private var postTitle: String {
+        if savedRallies.count > 1 { return "Post Rallies" }
+        return isCompactHeight ? "Post" : "Post to Community"
+    }
+
+    private var actionFontSize: CGFloat { isCompactHeight ? 15 : 16 }
+
+    private func actionLabel(icon: String, title: String) -> some View {
+        HStack(spacing: BSCSpacing.sm) {
+            Image(systemName: icon)
+                .bscFont(size: actionFontSize, weight: .semibold)
+            Text(title)
+                .bscFont(size: actionFontSize, weight: .semibold)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, isCompactHeight ? BSCSpacing.sm : BSCSpacing.md)
+    }
+
+    private var outlinedActionBackground: some View {
+        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
+            .stroke(Color.bscSurfaceBorder, lineWidth: 1.5)
+            .fill(Color.bscBackgroundElevated)
     }
 }
 
