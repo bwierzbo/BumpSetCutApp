@@ -52,6 +52,14 @@ enum AccessibilityID {
         static let attachButton = "messages.attach"
         static let bubble = "messages.bubble"
         static let retry = "messages.retry"
+        static let attachMyPosts = "messages.attach.myPosts"
+        static let attachFavorites = "messages.attach.favorites"
+        static let attachCell = "messages.attach.cell"
+        static let recipientSearch = "messages.recipient.search"
+        static let recipientRow = "messages.recipient.row"
+        static let sendToNote = "messages.sendTo.note"
+        static let sendToProgress = "messages.sendTo.progress"
+        static let sendToRetry = "messages.sendTo.retry"
     }
 
     enum Onboarding {
@@ -104,6 +112,7 @@ enum AccessibilityID {
         static let feedCounter = "favorites.feed.counter"
         static let feedPauseIcon = "favorites.feed.pauseIcon"
         static let feedVideoName = "favorites.feed.videoName"
+        static let sendToFriend = "favorites.sendToFriend"
     }
 
     enum AuthGate {
@@ -130,6 +139,7 @@ enum AccessibilityID {
         static let commentButton = "feed.comment"
         static let profileButton = "feed.profile"
         static let profileBack = "feed.profileBack"
+        static let sendButton = "feed.send"
     }
 
     enum Comments {
@@ -205,6 +215,7 @@ enum AccessibilityID {
         static let save = "rallyPlayer.save"
         static let favorite = "rallyPlayer.favorite"
         static let chooseFolder = "rallyPlayer.chooseFolder"
+        static let sendToFriend = "rallyPlayer.sendToFriend"
     }
 
     enum Share {

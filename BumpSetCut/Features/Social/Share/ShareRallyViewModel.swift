@@ -268,11 +268,9 @@ final class ShareRallyViewModel {
                 }
 
                 // Step 1: Export just the rally segment (a few seconds, not the whole video)
-                let asset = AVURLAsset(url: originalVideoURL)
                 let startCM = CMTime(seconds: shareInfo.startTime, preferredTimescale: 600)
                 let endCM = CMTime(seconds: shareInfo.endTime, preferredTimescale: 600)
                 let clipURL = try await exportRallyClip(
-                    asset: asset,
                     startTime: startCM,
                     endTime: endCM,
                     rallyIndex: rallyIndex,
@@ -444,8 +442,6 @@ final class ShareRallyViewModel {
                 var uploadedURLs: [String] = []
                 var clipURLsToClean: [URL] = []
 
-                let asset = AVURLAsset(url: originalVideoURL)
-
                 // Export and upload each rally
                 for (i, rallyIndex) in indicesToUpload.enumerated() {
                     try Task.checkCancellation()
@@ -455,7 +451,7 @@ final class ShareRallyViewModel {
                     let endCM = CMTime(seconds: info.endTime, preferredTimescale: 600)
 
                     let clipURL = try await exportRallyClip(
-                        asset: asset, startTime: startCM, endTime: endCM, rallyIndex: rallyIndex,
+                        startTime: startCM, endTime: endCM, rallyIndex: rallyIndex,
                         cropPage: i
                     )
                     clipURLsToClean.append(clipURL)
@@ -575,32 +571,13 @@ final class ShareRallyViewModel {
     /// Export just the rally time range from the source video, applying any
     /// crop set for its carousel page. Uses passthrough when possible; a crop
     /// or watermark forces the composition path.
-    private func exportRallyClip(asset: AVAsset, startTime: CMTime, endTime: CMTime, rallyIndex: Int, cropPage: Int) async throws -> URL {
-        let timeRange = CMTimeRange(start: startTime, end: endTime)
-        let addWatermark = SubscriptionService.shared.shouldAddWatermark
-
-        if let crop = crops[cropPage], !crop.isIdentity {
-            // Composition space is bottom-left origin — flip the preview's Y pan.
-            return try await VideoExporter().exportStitchedClips(
-                [VideoExporter.StitchClip(
-                    url: originalVideoURL,
-                    timeRange: timeRange,
-                    zoom: crop.zoom,
-                    panX: crop.offsetXNorm,
-                    panY: -crop.offsetYNorm
-                )],
-                addWatermark: addWatermark
-            )
-        }
-
-        let outURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("share_rally_\(rallyIndex)_\(UUID().uuidString).mp4")
-
-        return try await VideoExporter().exportClip(
-            asset: asset,
-            timeRange: timeRange,
-            to: outURL,
-            addWatermark: addWatermark
+    private func exportRallyClip(startTime: CMTime, endTime: CMTime, rallyIndex: Int, cropPage: Int) async throws -> URL {
+        try await RallyClipExporter().export(
+            url: originalVideoURL,
+            timeRange: CMTimeRange(start: startTime, end: endTime),
+            crop: crops[cropPage],
+            addWatermark: SubscriptionService.shared.shouldAddWatermark,
+            fileTag: "share_rally_\(rallyIndex)"
         )
     }
 }

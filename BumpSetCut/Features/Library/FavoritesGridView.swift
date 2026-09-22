@@ -643,50 +643,11 @@ struct FavoritesGridView: View {
 
     // MARK: - Highlight Reel & Posting
 
-    /// One clip resolved for export/posting: file, optional trim window, and
-    /// effective duration.
-    private struct ResolvedClip {
-        let video: VideoMetadata
-        let timeRange: CMTimeRange?
-        let duration: Double
-    }
-
-    /// Resolve videos into clips (createdDate order), applying each clip's
-    /// favorites-feed trim (a single adjustment stored under index 0).
-    private func resolvedClips(from videos: [VideoMetadata]) async -> [ResolvedClip] {
-        let store = MetadataStore()
-        var clips: [ResolvedClip] = []
-        for video in videos.sorted(by: { $0.createdDate < $1.createdDate }) {
-            let assetDuration = try? await AVURLAsset(url: video.originalURL).load(.duration)
-            let durationSecs = assetDuration.map(CMTimeGetSeconds) ?? (video.duration ?? 0)
-            guard durationSecs > 0 else { continue }
-
-            guard let adj = store.loadTrimAdjustments(for: video.id)[0],
-                  adj.before < 0 || adj.after < 0 else {
-                clips.append(ResolvedClip(video: video, timeRange: nil, duration: durationSecs))
-                continue
-            }
-            // Negative before/after cut into the clip; positive extends don't
-            // apply to standalone favorites clips (they start/end at the file).
-            let start = max(0, -adj.before)
-            let end = min(durationSecs, max(start + 0.1, durationSecs + min(0, adj.after)))
-            clips.append(ResolvedClip(
-                video: video,
-                timeRange: CMTimeRange(
-                    start: CMTime(seconds: start, preferredTimescale: 600),
-                    end: CMTime(seconds: end, preferredTimescale: 600)
-                ),
-                duration: end - start
-            ))
-        }
-        return clips
-    }
-
     /// Export Highlight Video: stitch everything into ONE video for Photos.
     /// No clip-count or duration caps.
     private func presentStitchExport(folderName: String, videos: [VideoMetadata]) {
         Task {
-            let clips = await resolvedClips(from: videos).map {
+            let clips = await FavoriteClipResolver.resolve(videos).map {
                 VideoExporter.StitchClip(url: $0.video.originalURL, timeRange: $0.timeRange)
             }
             guard !clips.isEmpty else {
@@ -702,7 +663,7 @@ struct FavoritesGridView: View {
     /// the per-post maximum open a picker to choose which clips to include.
     private func preparePost(title: String, videos: [VideoMetadata]) {
         Task {
-            let all = await resolvedClips(from: videos).map {
+            let all = await FavoriteClipResolver.resolve(videos).map {
                 FavoriteShareClip(
                     url: $0.video.originalURL,
                     timeRange: $0.timeRange,

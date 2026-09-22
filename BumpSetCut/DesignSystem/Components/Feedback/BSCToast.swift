@@ -26,6 +26,20 @@ struct BSCToastMessage: Equatable {
 
     let text: String
     var style: Style = .info
+    /// Optional trailing button — e.g. "View" on "Sent to @x". Tapping runs the
+    /// handler and dismisses the toast.
+    var action: BSCToastAction? = nil
+
+    // Closures aren't Equatable; two toasts are the same toast when their
+    // visible content is.
+    static func == (lhs: BSCToastMessage, rhs: BSCToastMessage) -> Bool {
+        lhs.text == rhs.text && lhs.style == rhs.style && lhs.action?.title == rhs.action?.title
+    }
+}
+
+struct BSCToastAction {
+    let title: String
+    let handler: () -> Void
 }
 
 // MARK: - View Modifier
@@ -57,6 +71,16 @@ private struct BSCToastModifier: ViewModifier {
                             .foregroundColor(.bscTextPrimary)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
+
+                        if let action = toast.action {
+                            Button(action.title) {
+                                message = nil
+                                action.handler()
+                            }
+                            .bscFont(size: 14, weight: .bold)
+                            .foregroundColor(.bscPrimaryText)
+                            .padding(.leading, BSCSpacing.xs)
+                        }
                     }
                     .padding(.horizontal, BSCSpacing.lg)
                     .padding(.vertical, BSCSpacing.md)
@@ -66,7 +90,9 @@ private struct BSCToastModifier: ViewModifier {
                     .padding(.horizontal, BSCSpacing.lg)
                     .padding(.bottom, BSCSpacing.xl)
                     .transition(.bscSlideUp)
-                    .accessibilityElement(children: .combine)
+                    // Combined into one element normally; with an action the
+                    // button must stay its own element or VoiceOver can't reach it.
+                    .accessibilityElement(children: toast.action == nil ? .combine : .contain)
                     .task(id: toast) {
                         switch toast.style {
                         case .success:
