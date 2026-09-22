@@ -20,11 +20,6 @@
 			</array>
 		</dict>
 	</array>
-	<key>UIAppFonts</key>
-	<array>
-		<string>Inter-Bold.otf</string>
-		<string>Inter-Regular.otf</string>
-	</array>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

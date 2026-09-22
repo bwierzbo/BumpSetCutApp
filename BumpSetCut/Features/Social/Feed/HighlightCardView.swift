@@ -389,6 +389,7 @@ struct HighlightCardView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Comments")
                     .accessibilityHint("\(highlight.commentsCount) comments")
+                    .accessibilityIdentifier(AccessibilityID.Feed.commentButton)
 
                     // Send to a friend as a direct message
                     if let onSend {

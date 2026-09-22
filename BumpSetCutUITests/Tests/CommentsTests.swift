@@ -40,13 +40,9 @@ final class CommentsTests: BSCUITestCase {
             return
         }
 
-        // Look for any comment button in the UI
-        // In search results, tapping a post opens a detail with comment button
         // Since we can't guarantee posts exist, we verify the sheet structure
-        // is correct when comments are available
-        let commentButton = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS[c] 'comment'")
-        ).firstMatch
+        // is correct when a card with a comment button is on screen
+        let commentButton = app.buttons["feed.comment"].firstMatch
 
         if commentButton.waitForExistence(timeout: 5) {
             commentButton.tap()
@@ -69,9 +65,7 @@ final class CommentsTests: BSCUITestCase {
         // Requires navigating to a highlight's comments
         tapSearchTab()
 
-        let commentButton = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS[c] 'comment'")
-        ).firstMatch
+        let commentButton = app.buttons["feed.comment"].firstMatch
 
         if commentButton.waitForExistence(timeout: 5) {
             commentButton.tap()
