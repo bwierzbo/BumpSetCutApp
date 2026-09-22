@@ -15,6 +15,10 @@ struct ProfileView: View {
     @State private var showBlockAlert = false
     @State private var showingSettings = false
     @State private var toast: BSCToastMessage?
+    /// "Send to Friend" from the full-screen post viewer; its toast lives on
+    /// the cover content so it is actually visible there.
+    @State private var sendRequest: SendToRequest?
+    @State private var sendToast: BSCToastMessage?
     @Environment(AuthenticationService.self) private var authService
     @Environment(AppSettings.self) private var appSettings
     @Environment(AppNavigationState.self) private var navigationState
@@ -101,8 +105,20 @@ struct ProfileView: View {
                             }
                         }
                     } : nil,
+                    onSend: authService.isAuthenticated
+                        ? { highlight in sendRequest = SendToRequest(payload: .highlight(highlight)) }
+                        : nil,
                     onDismiss: { selectedHighlightIndex = nil }
                 )
+                // Presented over the cover's own content, not over ProfileView —
+                // a sheet or toast on the view beneath a full-screen cover is
+                // never seen.
+                .sheet(item: $sendRequest) { request in
+                    SendToSheet(payload: request.payload) { conversationId, username in
+                        sendToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
+                    }
+                }
+                .bscToast($sendToast)
             }
         }
         .alert("Delete Post?", isPresented: Binding(

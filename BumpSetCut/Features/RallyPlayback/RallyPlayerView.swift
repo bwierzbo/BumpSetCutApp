@@ -28,6 +28,10 @@ struct RallyPlayerView: View {
     /// Which rallies the export sheet should work on. nil means every saved
     /// rally, which is the case when there was only one to begin with.
     @State private var exportSelection: [Int]?
+    /// "Send to Friend": the rally on its way to the send sheet, and the
+    /// "Sent to @x" toast once it has gone.
+    @State private var sendRequest: SendToRequest?
+    @State private var sendToast: BSCToastMessage?
     @State private var showPostAnotherPrompt = false
     /// Rotation captured at the start of a two-finger twist (RotationGesture
     /// reports angle relative to its own start).
@@ -121,6 +125,19 @@ struct RallyPlayerView: View {
                             rallyIndexToShare = ShareableRallyIndex(index: index, postAllSaved: false)
                         }
                     },
+                    onSendToFriend: {
+                        leaveOverview()
+                        // Several saved: choose one in the picker. One saved:
+                        // straight to the send sheet, after the overview has
+                        // finished dismissing (same hand-off as the picker).
+                        if let target = rallyPickerTarget(for: .send) {
+                            presentPickerAfterOverview(target)
+                        } else if let index = viewModel.savedRalliesArray.first {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                sendRequest = sendRequestForRally(index)
+                            }
+                        }
+                    },
                     onSaveAll: { viewModel.saveAllRallies() },
                     onDeselectAll: { viewModel.deselectAllRallies() },
                     onEditTimeline: {
@@ -164,6 +181,12 @@ struct RallyPlayerView: View {
                     onCancel: { pendingPicker = nil }
                 )
             }
+            .sheet(item: $sendRequest) { request in
+                SendToSheet(payload: request.payload) { conversationId, username in
+                    sendToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
+                }
+            }
+            .bscToast($sendToast)
             .sheet(item: $rallyIndexToShare) { item in
                 ShareRallySheet(
                     originalVideoURL: viewModel.videoMetadata.originalURL,
@@ -803,7 +826,26 @@ struct RallyPlayerView: View {
         case .export:
             exportSelection = indices.sorted()
             viewModel.showExportOptions = true
+        case .send:
+            sendRequest = sendRequestForRally(indices[0])
         }
+    }
+
+    /// One saved rally as a private clip: the source file plus this rally's
+    /// time range — the same slice the picker previews and posting exports.
+    private func sendRequestForRally(_ index: Int) -> SendToRequest? {
+        guard let rally = viewModel.savedRallyShareInfo[index] else { return nil }
+        let duration = max(0, rally.endTime - rally.startTime)
+        let clip = FavoriteShareClip(
+            url: viewModel.videoMetadata.originalURL,
+            timeRange: CMTimeRange(
+                start: CMTime(seconds: rally.startTime, preferredTimescale: 600),
+                duration: CMTime(seconds: duration, preferredTimescale: 600)
+            ),
+            duration: duration,
+            displayName: "Rally \(index + 1)"
+        )
+        return SendToRequest(payload: .clip(clip))
     }
 
     /// Saved rallies as picker items. All rallies live in the one source
@@ -1046,21 +1088,26 @@ struct ShareableRallyIndex: Identifiable {
 enum RallyPickerPurpose {
     case post
     case export
+    /// One rally, sent privately to a friend.
+    case send
 
-    /// A post holds a limited number of clips; an export can take every rally.
+    /// A post holds a limited number of clips; an export can take every rally;
+    /// a message carries exactly one.
     func maxSelection(itemCount: Int) -> Int {
         switch self {
         case .post: return ShareRallyViewModel.maxClipsPerPost
         case .export: return itemCount
+        case .send: return 1
         }
     }
 
-    /// Confirm-button label — the two flows finish with different verbs.
+    /// Confirm-button label — the flows finish with different verbs.
     func confirmTitle(_ count: Int) -> String {
         let noun = count == 1 ? "Rally" : "Rallies"
         switch self {
         case .post: return "Post \(count) \(noun)"
         case .export: return "Export \(count) \(noun)"
+        case .send: return "Send Rally"
         }
     }
 }

@@ -14,6 +14,8 @@ struct ProfileHighlightFeedView: View {
     let isOwnProfile: Bool
     let onLike: (Highlight) -> Void
     let onDelete: ((Highlight) -> Void)?
+    /// Send a post to a friend. Nil hides the button (signed out).
+    var onSend: ((Highlight) -> Void)? = nil
     let onDismiss: () -> Void
 
     @State private var currentIndex: Int?
@@ -33,7 +35,8 @@ struct ProfileHighlightFeedView: View {
                             onLike: { onLike(highlight) },
                             onComment: { commentsHighlight = highlight },
                             onProfile: { _ in },
-                            onDelete: isOwnProfile ? { onDelete?(highlight) } : nil
+                            onDelete: isOwnProfile ? { onDelete?(highlight) } : nil,
+                            onSend: onSend.map { send in { send(highlight) } }
                         )
                         .containerRelativeFrame(.vertical)
                         .id(index)

@@ -11,6 +11,8 @@ struct SearchCommunityView: View {
     @State private var viewModel = SearchCommunityViewModel()
     @State private var selectedHighlight: Highlight?
     @State private var selectedHighlightForComments: Highlight?
+    @State private var sendRequest: SendToRequest?
+    @State private var sendToast: BSCToastMessage?
     @Environment(AuthenticationService.self) private var authService
     @Environment(AppNavigationState.self) private var navigationState
 
@@ -61,6 +63,12 @@ struct SearchCommunityView: View {
         .fullScreenCover(item: $selectedHighlight) { highlight in
             highlightDetail(highlight)
                 .commentsPanel(item: $selectedHighlightForComments)
+                .sheet(item: $sendRequest) { request in
+                    SendToSheet(payload: request.payload) { conversationId, username in
+                        sendToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
+                    }
+                }
+                .bscToast($sendToast)
         }
     }
 
@@ -373,7 +381,10 @@ struct SearchCommunityView: View {
                 onComment: {
                     selectedHighlightForComments = highlight
                 },
-                onProfile: { _ in }
+                onProfile: { _ in },
+                onSend: authService.isAuthenticated
+                    ? { sendRequest = SendToRequest(payload: .highlight(highlight)) }
+                    : nil
             )
 
             VStack {

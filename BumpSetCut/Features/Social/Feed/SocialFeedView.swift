@@ -19,6 +19,7 @@ struct SocialFeedView: View {
     @State private var currentIndex: Int? = 0
     @State private var selectedTab: FeedTab = .forYou
     @State private var toast: BSCToastMessage?
+    @State private var sendRequest: SendToRequest?
     @Environment(AppNavigationState.self) private var navigationState
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -77,6 +78,11 @@ struct SocialFeedView: View {
             }
         }
         .commentsPanel(item: $selectedHighlightForComments)
+        .sheet(item: $sendRequest) { request in
+            SendToSheet(payload: request.payload) { conversationId, username in
+                toast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
+            }
+        }
         // The comments input bar reaches the screen bottom; hide the floating
         // tab bar while the panel is open so it doesn't cover the input.
         .toolbarVisibility(selectedHighlightForComments == nil ? .automatic : .hidden, for: .tabBar)
@@ -168,6 +174,9 @@ struct SocialFeedView: View {
             onLocation: { location in
                 navigationState.pendingSearchQuery = location
             },
+            onSend: authService.isAuthenticated
+                ? { sendRequest = SendToRequest(payload: .highlight(highlight)) }
+                : nil,
             // Landscape pages are full-bleed (see feedContent), so chrome needs
             // the bottom inset back; portrait cards end above the tab bar.
             extendsUnderBottomSafeArea: isLandscape

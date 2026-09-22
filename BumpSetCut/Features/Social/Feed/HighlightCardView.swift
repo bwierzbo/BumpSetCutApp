@@ -17,6 +17,9 @@ struct HighlightCardView: View {
     let onProfile: (String) -> Void
     var onDelete: (() -> Void)?
     var onLocation: ((String) -> Void)?
+    /// Send this post to someone as a direct message. Nil hides the button —
+    /// signed out, or a context with no messaging.
+    var onSend: (() -> Void)?
     /// Whether the card is laid out edge-to-edge under the bottom safe area
     /// (profile/search full-bleed contexts). False in the main feed, where the
     /// card ends above the tab bar so bottom chrome hugs the card's edge.
@@ -386,6 +389,29 @@ struct HighlightCardView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Comments")
                     .accessibilityHint("\(highlight.commentsCount) comments")
+
+                    // Send to a friend as a direct message
+                    if let onSend {
+                        Button {
+                            UIImpactFeedbackGenerator.light()
+                            onSend()
+                        } label: {
+                            VStack(spacing: BSCSpacing.xs) {
+                                Image(systemName: "envelope")
+                                    .bscFont(size: 26)
+                                    .foregroundColor(.bscOnMedia)
+
+                                Text("Send")
+                                    .bscFont(size: 12, weight: .medium)
+                                    .foregroundColor(.bscOnMedia)
+                            }
+                            .frame(minWidth: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Send to friend")
+                        .accessibilityIdentifier(AccessibilityID.Feed.sendButton)
+                    }
 
                     // Share — deep link that opens this post in the app
                     ShareLink(

@@ -11,7 +11,10 @@ struct RallyOverviewSheet: View {
     let thumbnailCache: RallyThumbnailCache
     let onSelectRally: (Int) -> Void
     let onExport: () -> Void
-    let onPostToCommunity: (Int, Bool) -> Void  // (rallyIndex, postAllSaved)
+    let onPostToCommunity: (Int, Bool) -> Void
+    /// Send one saved rally to a friend. The player decides which — a picker
+    /// when several are saved — so this carries no index.
+    var onSendToFriend: () -> Void = {}  // (rallyIndex, postAllSaved)
     let onSaveAll: () -> Void
     let onDeselectAll: () -> Void
     let onEditTimeline: () -> Void
@@ -210,6 +213,7 @@ struct RallyOverviewSheet: View {
             if !savedRallies.isEmpty {
                 exportButton
                 postButton
+                sendButton
             }
             editTimelineButton
             doneButton
@@ -249,6 +253,30 @@ struct RallyOverviewSheet: View {
             )
             .foregroundColor(.bscTextPrimary)
             .background(outlinedActionBackground)
+        }
+    }
+
+    // Send one saved rally to a friend as a direct message. Icon-only in
+    // compact height — the row already holds four actions.
+    @ViewBuilder
+    private var sendButton: some View {
+        if isCompactHeight {
+            Button(action: onSendToFriend) {
+                Image(systemName: "envelope")
+                    .bscFont(size: actionFontSize, weight: .semibold)
+                    .foregroundColor(.bscTextPrimary)
+                    .frame(minWidth: BSCTouchTarget.standard, minHeight: BSCTouchTarget.standard)
+                    .background(outlinedActionBackground)
+            }
+            .accessibilityLabel("Send to friend")
+            .accessibilityIdentifier(AccessibilityID.RallyPlayer.sendToFriend)
+        } else {
+            Button(action: onSendToFriend) {
+                actionLabel(icon: "envelope", title: "Send to Friend")
+                    .foregroundColor(.bscTextPrimary)
+                    .background(outlinedActionBackground)
+            }
+            .accessibilityIdentifier(AccessibilityID.RallyPlayer.sendToFriend)
         }
     }
 
