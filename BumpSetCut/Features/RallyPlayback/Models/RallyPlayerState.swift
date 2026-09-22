@@ -7,8 +7,8 @@ struct RallyTrimAdjustment: Codable {
     var after: Double     // seconds to add after rally (negative = trim into rally)
     var rotation: Double  // degrees applied at playback (0 = no rotation)
     var zoom: Double      // playback zoom scale (1.0 = no zoom)
-    var panX: Double      // focal pan X, normalized as a fraction of card width (0 = centered)
-    var panY: Double      // focal pan Y, normalized as a fraction of card height (0 = centered)
+    var panX: Double      // focal pan X, fraction of the rendered video's width (0 = centered)
+    var panY: Double      // focal pan Y, fraction of the rendered video's height (0 = centered)
 
     init(before: Double, after: Double, rotation: Double = 0, zoom: Double = 1.0, panX: Double = 0, panY: Double = 0) {
         self.before = before

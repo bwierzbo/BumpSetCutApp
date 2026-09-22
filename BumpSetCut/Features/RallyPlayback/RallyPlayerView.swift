@@ -521,7 +521,7 @@ struct RallyPlayerView: View {
                 }
         )
         .onAppear {
-            viewModel.updateCardSize(geometry.size)
+            viewModel.updateCardSize(geometry.size, isPortrait: isPortrait)
             viewModel.seedZoomForCurrentRally()
         }
         .onChange(of: geometry.size) { _, newSize in
@@ -530,20 +530,29 @@ struct RallyPlayerView: View {
             // animates the pan from its stale value to the right one, which is
             // the slide-to-centre you see after the device turns.
             withTransaction(Transaction(animation: nil)) {
-                viewModel.updateCardSize(newSize)
+                viewModel.updateCardSize(newSize, isPortrait: isPortrait)
                 if !viewModel.isTrimmingMode {
                     viewModel.seedZoomForCurrentRally()
                 }
             }
         }
         // The size class flips as part of the rotation rather than after the
-        // size settles, so re-seeding here lands the correct framing earlier.
+        // size settles, so re-measuring here lands the correct framing earlier.
+        // Fit vs fill follows the size class, so the video rect changes now
+        // even though the card's points haven't yet.
         .onChange(of: verticalSizeClass) { _, _ in
-            guard !viewModel.isTrimmingMode else { return }
             withTransaction(Transaction(animation: nil)) {
-                viewModel.seedZoomForCurrentRally()
+                viewModel.updateCardSize(geometry.size, isPortrait: isPortrait)
+                if !viewModel.isTrimmingMode {
+                    viewModel.seedZoomForCurrentRally()
+                }
             }
         }
+    }
+
+    /// Same rule the card uses to choose fit (portrait) or fill (landscape).
+    private var isPortrait: Bool {
+        verticalSizeClass == .regular
     }
 
     /// Trimming, or the propagation prompt waiting for an answer: swiping and

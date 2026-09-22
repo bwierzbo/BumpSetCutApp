@@ -263,28 +263,44 @@ final class RallyPlayerViewModel {
     }
 
     /// Last known rally-card size, kept fresh by the view's GeometryReader.
-    /// Used to denormalize persisted pan (stored as a fraction of card size).
-    private(set) var cardSize: CGSize = .zero
-    /// Record the card's size and carry the live pan across with it.
+    private var cardSize: CGSize = .zero
+    private var cardIsPortrait = true
+    /// The rect the video itself is drawn into at zoom 1: aspect-fit inside
+    /// the card in portrait (letterboxed), aspect-fill in landscape (overflow
+    /// and all). The persisted pan is a fraction of *this*, not of the card —
+    /// the card changes shape with the device, the video doesn't, so a pan
+    /// stored against the video lands on the same spot in either orientation.
+    private(set) var renderedVideoSize: CGSize = .zero
+
+    /// Record the card's size and orientation, and carry the live pan across.
     ///
     /// The persisted per-rally pan is normalized, but the *live* gesture offset
-    /// is in points against the card it was last measured on. On rotation the
-    /// card's dimensions swap, so an offset captured in portrait would be
+    /// is in points against the video rect it was last measured on. On
+    /// rotation that rect changes, so an offset captured in portrait would be
     /// applied to a landscape card and push the video off-centre until
     /// something re-seeds it — the visible "it re-centers itself" lurch.
     /// Rescaling here keeps the framing correct through the rotation, and
     /// unlike re-seeding it also holds in trim mode, where the user's
     /// in-progress edit must not be thrown away.
-    func updateCardSize(_ size: CGSize) {
-        let previous = cardSize
+    func updateCardSize(_ size: CGSize, isPortrait: Bool) {
         cardSize = size
+        cardIsPortrait = isPortrait
+        recomputeRenderedVideoSize()
+    }
+
+    private func recomputeRenderedVideoSize() {
+        let previous = renderedVideoSize
+        let content = videoDisplaySize ?? cardSize
+        renderedVideoSize = cardIsPortrait
+            ? RotationGeometry.aspectFitSize(content: content, in: cardSize)
+            : RotationGeometry.aspectFillSize(content: content, in: cardSize)
 
         guard previous.width > 0, previous.height > 0,
-              size.width > 0, size.height > 0,
-              previous != size else { return }
+              renderedVideoSize.width > 0, renderedVideoSize.height > 0,
+              previous != renderedVideoSize else { return }
 
-        let scaleX = size.width / previous.width
-        let scaleY = size.height / previous.height
+        let scaleX = renderedVideoSize.width / previous.width
+        let scaleY = renderedVideoSize.height / previous.height
         gesture.zoomOffset = CGSize(
             width: gesture.zoomOffset.width * scaleX,
             height: gesture.zoomOffset.height * scaleY
@@ -310,10 +326,11 @@ final class RallyPlayerViewModel {
         CGFloat(trim.zoom(for: rallyIndex))
     }
 
-    /// Persisted pan offset (in points) for a rally, denormalized by card size.
+    /// Persisted pan offset (in points) for a rally, denormalized by the
+    /// rendered video size.
     func panOffset(for rallyIndex: Int) -> CGSize {
         let pan = trim.pan(for: rallyIndex)
-        return CGSize(width: pan.width * cardSize.width, height: pan.height * cardSize.height)
+        return CGSize(width: pan.width * renderedVideoSize.width, height: pan.height * renderedVideoSize.height)
     }
 
     /// Seed the transient gesture zoom from the current rally's persisted
@@ -399,6 +416,8 @@ final class RallyPlayerViewModel {
                let natural = try? await track.load(.naturalSize),
                let preferred = try? await track.load(.preferredTransform) {
                 videoDisplaySize = RotationGeometry.uprightSize(naturalSize: natural, preferredTransform: preferred)
+                // The card may already be measured against the fallback size.
+                recomputeRenderedVideoSize()
             }
 
             guard !metadata.rallySegments.isEmpty else {
@@ -811,11 +830,11 @@ final class RallyPlayerViewModel {
     func confirmTrim() {
         UINotificationFeedbackGenerator.success()
         // Capture the live pinch/pan from the gesture state into the trim values
-        // (zoom is size-independent; pan is normalized to card size).
+        // (zoom is size-independent; pan is normalized to the rendered video).
         trim.currentTrimZoom = Double(gesture.zoomScale)
-        if cardSize.width > 0, cardSize.height > 0 {
-            trim.currentTrimPanX = Double(gesture.zoomOffset.width / cardSize.width)
-            trim.currentTrimPanY = Double(gesture.zoomOffset.height / cardSize.height)
+        if renderedVideoSize.width > 0, renderedVideoSize.height > 0 {
+            trim.currentTrimPanX = Double(gesture.zoomOffset.width / renderedVideoSize.width)
+            trim.currentTrimPanY = Double(gesture.zoomOffset.height / renderedVideoSize.height)
         }
 
         let metadataVideoId = videoMetadata.originalVideoId ?? videoMetadata.id

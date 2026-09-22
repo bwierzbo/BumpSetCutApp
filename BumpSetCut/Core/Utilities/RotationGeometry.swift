@@ -49,4 +49,19 @@ enum RotationGeometry {
             return CGSize(width: bounds.height * contentAspect, height: bounds.height)
         }
     }
+
+    /// Smallest rect with `content`'s aspect ratio that covers `bounds`
+    /// (aspect-fill) — what `.resizeAspectFill` actually draws, overflow
+    /// included. Falls back to `bounds` if either dimension is non-positive.
+    static func aspectFillSize(content: CGSize, in bounds: CGSize) -> CGSize {
+        guard content.width > 0, content.height > 0,
+              bounds.width > 0, bounds.height > 0 else { return bounds }
+        let contentAspect = content.width / content.height
+        let boundsAspect = bounds.width / bounds.height
+        if contentAspect > boundsAspect {
+            return CGSize(width: bounds.height * contentAspect, height: bounds.height)
+        } else {
+            return CGSize(width: bounds.width, height: bounds.width / contentAspect)
+        }
+    }
 }
