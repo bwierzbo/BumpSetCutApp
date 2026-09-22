@@ -161,19 +161,9 @@ private extension SettingsView {
                         }
 
                         Button {
-                            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                                Task {
-                                    try? await AppStore.showManageSubscriptions(in: scene)
-                                }
-                            }
+                            showManageSubscriptions()
                         } label: {
-                            HStack {
-                                Text("Manage Subscription")
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .bscFont(size: 12)
-                                    .foregroundStyle(Color.bscTextSecondary)
-                            }
+                            manageSubscriptionLabel
                         }
                         .foregroundStyle(Color.bscTextPrimary)
                     }
@@ -244,22 +234,12 @@ private extension SettingsView {
                     .disabled(isRestoringPurchases)
 
                     Button {
-                        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                            Task {
-                                try? await AppStore.showManageSubscriptions(in: scene)
-                            }
-                        }
+                        showManageSubscriptions()
                     } label: {
-                        HStack {
-                            Text("Manage Subscription")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .bscFont(size: 12)
-                                .foregroundStyle(Color.bscTextSecondary)
-                        }
-                        .foregroundStyle(Color.bscTextSecondary)
-                        .frame(minHeight: BSCTouchTarget.standard)
-                        .contentShape(Rectangle())
+                        manageSubscriptionLabel
+                            .foregroundStyle(Color.bscTextSecondary)
+                            .frame(minHeight: BSCTouchTarget.standard)
+                            .contentShape(Rectangle())
                     }
                 }
             }
@@ -271,6 +251,23 @@ private extension SettingsView {
             Button("OK", role: .cancel) {}
         } message: {
             Text(restoreResultMessage ?? "")
+        }
+    }
+
+    var manageSubscriptionLabel: some View {
+        HStack {
+            Text("Manage Subscription")
+            Spacer()
+            Image(systemName: "chevron.right")
+                .bscFont(size: 12)
+                .foregroundStyle(Color.bscTextSecondary)
+        }
+    }
+
+    func showManageSubscriptions() {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+        Task {
+            try? await AppStore.showManageSubscriptions(in: scene)
         }
     }
 
@@ -314,20 +311,28 @@ struct LimitRow: View {
     }
 }
 
+// MARK: - Pro Mode Toggle
+private extension SettingsView {
+    /// Tier override shared by the debug section and the TestFlight tester section.
+    var proModeToggle: some View {
+        BSCSettingsToggle(
+            title: "Pro Mode",
+            subtitle: "Switch between Pro and Free tier for testing",
+            icon: "crown.fill",
+            isOn: Binding(
+                get: { subscriptionService.isPro },
+                set: { subscriptionService.setProStatus($0) }
+            )
+        )
+    }
+}
+
 // MARK: - Tester Section (TestFlight release builds)
 #if !DEBUG
 private extension SettingsView {
     var testerSection: some View {
         BSCSettingsSection(title: "TestFlight", subtitle: "Visible to beta testers only", icon: "hammer.fill", iconColor: .bscTealText) {
-            BSCSettingsToggle(
-                title: "Pro Mode",
-                subtitle: "Switch between Pro and Free tier for testing",
-                icon: "crown.fill",
-                isOn: Binding(
-                    get: { subscriptionService.isPro },
-                    set: { subscriptionService.setProStatus($0) }
-                )
-            )
+            proModeToggle
         }
     }
 }
@@ -340,15 +345,7 @@ private extension SettingsView {
         @Bindable var appSettings = appSettings
         return BSCSettingsSection(title: "Debug", subtitle: "Debug builds only", icon: "ladybug.fill", iconColor: .bscTealText) {
             VStack(spacing: BSCSpacing.md) {
-                BSCSettingsToggle(
-                    title: "Pro Mode",
-                    subtitle: "Switch between Pro and Free tier for testing",
-                    icon: "crown.fill",
-                    isOn: Binding(
-                        get: { subscriptionService.isPro },
-                        set: { subscriptionService.setProStatus($0) }
-                    )
-                )
+                proModeToggle
 
                 Divider()
                     .overlay(Color.bscSurfaceBorder)
@@ -714,105 +711,73 @@ private extension SettingsView {
     var legalSection: some View {
         BSCSettingsSection(title: "Legal", icon: "doc.text.fill", iconColor: .bscTextSecondary) {
             VStack(spacing: BSCSpacing.sm) {
-                Button {
-                    if let url = URL(string: "https://bumpsetcut.com/privacy") {
-                        UIApplication.shared.open(url)
-                    }
-                } label: {
-                    HStack {
-                        Text("Privacy Policy")
-                            .bscFont(size: 15)
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .bscFont(size: 12)
-                            .foregroundStyle(Color.bscTextSecondary)
-                    }
-                    .foregroundStyle(Color.bscTextPrimary)
-                    .bscCardPadding()
-                    .background(
-                        RoundedRectangle(cornerRadius: BSCRadius.md)
-                            .fill(Color.bscSurfaceGlass)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .accessibilityHint("Opens in browser")
-                .accessibilityIdentifier(AccessibilityID.Settings.privacyPolicy)
+                legalLinkRow(
+                    title: "Privacy Policy",
+                    icon: "arrow.up.right",
+                    urlString: "https://bumpsetcut.com/privacy",
+                    hint: "Opens in browser",
+                    accessibilityID: AccessibilityID.Settings.privacyPolicy
+                )
 
-                Button {
-                    if let url = URL(string: "https://bumpsetcut.com/terms") {
-                        UIApplication.shared.open(url)
-                    }
-                } label: {
-                    HStack {
-                        Text("Terms of Service")
-                            .bscFont(size: 15)
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .bscFont(size: 12)
-                            .foregroundStyle(Color.bscTextSecondary)
-                    }
-                    .foregroundStyle(Color.bscTextPrimary)
-                    .bscCardPadding()
-                    .background(
-                        RoundedRectangle(cornerRadius: BSCRadius.md)
-                            .fill(Color.bscSurfaceGlass)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .accessibilityHint("Opens in browser")
-                .accessibilityIdentifier(AccessibilityID.Settings.termsOfService)
+                legalLinkRow(
+                    title: "Terms of Service",
+                    icon: "arrow.up.right",
+                    urlString: "https://bumpsetcut.com/terms",
+                    hint: "Opens in browser",
+                    accessibilityID: AccessibilityID.Settings.termsOfService
+                )
 
-                Button {
-                    if let url = URL(string: "https://bumpsetcut.com/community-guidelines") {
-                        UIApplication.shared.open(url)
-                    }
-                } label: {
-                    HStack {
-                        Text("Community Guidelines")
-                            .bscFont(size: 15)
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .bscFont(size: 12)
-                            .foregroundStyle(Color.bscTextSecondary)
-                    }
-                    .foregroundStyle(Color.bscTextPrimary)
-                    .bscCardPadding()
-                    .background(
-                        RoundedRectangle(cornerRadius: BSCRadius.md)
-                            .fill(Color.bscSurfaceGlass)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .accessibilityHint("Opens in browser")
-                .accessibilityIdentifier(AccessibilityID.Settings.communityGuidelines)
+                legalLinkRow(
+                    title: "Community Guidelines",
+                    icon: "arrow.up.right",
+                    urlString: "https://bumpsetcut.com/community-guidelines",
+                    hint: "Opens in browser",
+                    accessibilityID: AccessibilityID.Settings.communityGuidelines
+                )
 
                 // Developer contact — required alongside the UGC report/block
                 // tooling so users can reach a human.
-                Button {
-                    if let url = URL(string: "mailto:support@bumpsetcut.com") {
-                        UIApplication.shared.open(url)
-                    }
-                } label: {
-                    HStack {
-                        Text("Contact Support")
-                            .bscFont(size: 15)
-                        Spacer()
-                        Image(systemName: "envelope")
-                            .bscFont(size: 12)
-                            .foregroundStyle(Color.bscTextSecondary)
-                    }
-                    .foregroundStyle(Color.bscTextPrimary)
-                    .bscCardPadding()
-                    .background(
-                        RoundedRectangle(cornerRadius: BSCRadius.md)
-                            .fill(Color.bscSurfaceGlass)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .accessibilityHint("Opens your email app")
-                .accessibilityIdentifier(AccessibilityID.Settings.contactSupport)
+                legalLinkRow(
+                    title: "Contact Support",
+                    icon: "envelope",
+                    urlString: "mailto:support@bumpsetcut.com",
+                    hint: "Opens your email app",
+                    accessibilityID: AccessibilityID.Settings.contactSupport
+                )
             }
         }
+    }
+
+    func legalLinkRow(
+        title: String,
+        icon: String,
+        urlString: String,
+        hint: String,
+        accessibilityID: String
+    ) -> some View {
+        Button {
+            if let url = URL(string: urlString) {
+                UIApplication.shared.open(url)
+            }
+        } label: {
+            HStack {
+                Text(title)
+                    .bscFont(size: 15)
+                Spacer()
+                Image(systemName: icon)
+                    .bscFont(size: 12)
+                    .foregroundStyle(Color.bscTextSecondary)
+            }
+            .foregroundStyle(Color.bscTextPrimary)
+            .bscCardPadding()
+            .background(
+                RoundedRectangle(cornerRadius: BSCRadius.md)
+                    .fill(Color.bscSurfaceGlass)
+            )
+            .contentShape(Rectangle())
+        }
+        .accessibilityHint(hint)
+        .accessibilityIdentifier(accessibilityID)
     }
 }
 
