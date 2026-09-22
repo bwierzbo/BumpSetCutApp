@@ -279,101 +279,27 @@ private extension ProcessVideoView {
     }
 
     var pendingSaveContent: some View {
-        VStack(spacing: BSCSpacing.lg) {
-            ZStack {
-                Circle()
-                    .fill(Color.bscSuccess.opacity(0.15))
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: "checkmark.circle.fill")
-                    .bscFont(size: 48)
-                    .foregroundColor(.bscSuccessText)
-            }
-
-            VStack(spacing: BSCSpacing.xs) {
-                Text("Processing Complete!")
-                    .bscFont(size: 20, weight: .bold)
-                    .foregroundColor(.bscTextPrimary)
-
-                Text("Here's what the AI found in your video")
-                    .bscFont(size: 14)
-                    .foregroundColor(.bscTextSecondary)
-            }
-
-            // Rally summary stats
-            if viewModel.detectedRallyCount > 0 {
-                HStack(spacing: BSCSpacing.xl) {
-                    VStack(spacing: BSCSpacing.xxs) {
-                        Text("\(viewModel.detectedRallyCount)")
-                            .bscFont(size: 24, weight: .bold)
-                            .foregroundColor(.bscPrimaryText)
-                        Text(viewModel.detectedRallyCount == 1 ? "Rally" : "Rallies")
-                            .bscFont(size: 12)
-                            .foregroundColor(.bscTextSecondary)
-                    }
-                    if let timeCut = viewModel.timeCutFormatted {
-                        VStack(spacing: BSCSpacing.xxs) {
-                            Text(timeCut)
-                                .bscFont(size: 24, weight: .bold)
-                                .foregroundColor(.bscTealText)
-                            Text("Time Saved")
-                                .bscFont(size: 12)
-                                .foregroundColor(.bscTextSecondary)
-                        }
-                    }
-                    if let percent = viewModel.timeCutPercent {
-                        VStack(spacing: BSCSpacing.xxs) {
-                            Text("\(percent)%")
-                                .bscFont(size: 24, weight: .bold)
-                                .foregroundColor(.bscPrimaryText)
-                            Text("Dead Time Cut")
-                                .bscFont(size: 12)
-                                .foregroundColor(.bscTextSecondary)
-                        }
-                    }
-                }
-                .padding(.top, BSCSpacing.xs)
-            }
-        }
-        .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
+        completionSummary(
+            subtitle: "Here's what the AI found in your video",
+            showsRallyStats: true
+        )
     }
 
     var completeContent: some View {
-        VStack(spacing: BSCSpacing.lg) {
-            ZStack {
-                Circle()
-                    .fill(Color.bscSuccess.opacity(0.15))
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: "checkmark.circle.fill")
-                    .bscFont(size: 48)
-                    .foregroundColor(.bscSuccessText)
-            }
-
-            VStack(spacing: BSCSpacing.xs) {
-                Text("Processing Complete!")
-                    .bscFont(size: 20, weight: .bold)
-                    .foregroundColor(.bscTextPrimary)
-
-                Text("Your video has been processed and saved")
-                    .bscFont(size: 14)
-                    .foregroundColor(.bscTextSecondary)
-            }
-        }
-        .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
+        completionSummary(
+            subtitle: "Your video has been processed and saved",
+            showsRallyStats: false
+        )
     }
 
     var noRalliesContent: some View {
         VStack(spacing: BSCSpacing.lg) {
-            ZStack {
-                Circle()
-                    .fill(Color.bscWarning.opacity(0.15))
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: "volleyball.fill")
-                    .bscFont(size: 40)
-                    .foregroundColor(.bscWarningText)
-            }
+            statusBadge(
+                icon: "volleyball.fill",
+                iconSize: 40,
+                iconColor: .bscWarningText,
+                background: .bscWarning
+            )
 
             VStack(spacing: BSCSpacing.sm) {
                 Text("No Rallies Detected")
@@ -415,77 +341,21 @@ private extension ProcessVideoView {
     }
 
     var hasMetadataContent: some View {
-        VStack(spacing: BSCSpacing.lg) {
-            ZStack {
-                Circle()
-                    .fill(Color.bscSuccess.opacity(0.15))
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: "checkmark.circle.fill")
-                    .bscFont(size: 48)
-                    .foregroundColor(.bscSuccessText)
-            }
-
-            VStack(spacing: BSCSpacing.xs) {
-                Text("Processing Complete!")
-                    .bscFont(size: 20, weight: .bold)
-                    .foregroundColor(.bscTextPrimary)
-                    .multilineTextAlignment(.center)
-
-                Text("Here's what the AI found in your video")
-                    .bscFont(size: 14)
-                    .foregroundColor(.bscTextSecondary)
-            }
-
-            // Rally summary stats
-            if viewModel.detectedRallyCount > 0 {
-                HStack(spacing: BSCSpacing.xl) {
-                    VStack(spacing: BSCSpacing.xxs) {
-                        Text("\(viewModel.detectedRallyCount)")
-                            .bscFont(size: 24, weight: .bold)
-                            .foregroundColor(.bscPrimaryText)
-                        Text(viewModel.detectedRallyCount == 1 ? "Rally" : "Rallies")
-                            .bscFont(size: 12)
-                            .foregroundColor(.bscTextSecondary)
-                    }
-                    if let timeCut = viewModel.timeCutFormatted {
-                        VStack(spacing: BSCSpacing.xxs) {
-                            Text(timeCut)
-                                .bscFont(size: 24, weight: .bold)
-                                .foregroundColor(.bscTealText)
-                            Text("Time Saved")
-                                .bscFont(size: 12)
-                                .foregroundColor(.bscTextSecondary)
-                        }
-                    }
-                    if let percent = viewModel.timeCutPercent {
-                        VStack(spacing: BSCSpacing.xxs) {
-                            Text("\(percent)%")
-                                .bscFont(size: 24, weight: .bold)
-                                .foregroundColor(.bscPrimaryText)
-                            Text("Dead Time Cut")
-                                .bscFont(size: 12)
-                                .foregroundColor(.bscTextSecondary)
-                        }
-                    }
-                }
-                .padding(.top, BSCSpacing.xs)
-            }
-        }
-        .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
+        completionSummary(
+            subtitle: "Here's what the AI found in your video",
+            centersTitle: true,
+            showsRallyStats: true
+        )
     }
 
     var readyContent: some View {
         VStack(spacing: BSCSpacing.lg) {
-            ZStack {
-                Circle()
-                    .fill(Color.bscBlue.opacity(0.15))
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: "sparkles")
-                    .bscFont(size: 36)
-                    .foregroundColor(.bscBlue)
-            }
+            statusBadge(
+                icon: "sparkles",
+                iconSize: 36,
+                iconColor: .bscBlue,
+                background: .bscBlue
+            )
 
             VStack(spacing: BSCSpacing.xs) {
                 Text("Ready to Process")
@@ -504,15 +374,12 @@ private extension ProcessVideoView {
         let info = viewModel.statusInfo
 
         return VStack(spacing: BSCSpacing.xl) {
-            ZStack {
-                Circle()
-                    .fill(info.color.opacity(0.15))
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: info.icon)
-                    .bscFont(size: 40)
-                    .foregroundColor(info.color)
-            }
+            statusBadge(
+                icon: info.icon,
+                iconSize: 40,
+                iconColor: info.color,
+                background: info.color
+            )
 
             VStack(spacing: BSCSpacing.md) {
                 Text(info.title)
@@ -536,6 +403,81 @@ private extension ProcessVideoView {
             }
         }
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
+    }
+}
+
+// MARK: - Shared State Content Pieces
+private extension ProcessVideoView {
+    /// Circular icon badge that heads every state card.
+    func statusBadge(icon: String, iconSize: CGFloat, iconColor: Color, background: Color) -> some View {
+        ZStack {
+            Circle()
+                .fill(background.opacity(0.15))
+                .frame(width: 80, height: 80)
+
+            Image(systemName: icon)
+                .bscFont(size: iconSize)
+                .foregroundColor(iconColor)
+        }
+    }
+
+    /// Results summary shown once processing has finished — the state the view
+    /// stays on instead of auto-dismissing, so it must survive a background return.
+    func completionSummary(subtitle: String, centersTitle: Bool = false, showsRallyStats: Bool) -> some View {
+        VStack(spacing: BSCSpacing.lg) {
+            statusBadge(
+                icon: "checkmark.circle.fill",
+                iconSize: 48,
+                iconColor: .bscSuccessText,
+                background: .bscSuccess
+            )
+
+            VStack(spacing: BSCSpacing.xs) {
+                Text("Processing Complete!")
+                    .bscFont(size: 20, weight: .bold)
+                    .foregroundColor(.bscTextPrimary)
+                    .multilineTextAlignment(centersTitle ? .center : .leading)
+
+                Text(subtitle)
+                    .bscFont(size: 14)
+                    .foregroundColor(.bscTextSecondary)
+            }
+
+            if showsRallyStats && viewModel.detectedRallyCount > 0 {
+                rallyStats
+            }
+        }
+        .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
+    }
+
+    var rallyStats: some View {
+        HStack(spacing: BSCSpacing.xl) {
+            statTile(
+                value: "\(viewModel.detectedRallyCount)",
+                label: viewModel.detectedRallyCount == 1 ? "Rally" : "Rallies",
+                color: .bscPrimaryText
+            )
+
+            if let timeCut = viewModel.timeCutFormatted {
+                statTile(value: timeCut, label: "Time Saved", color: .bscTealText)
+            }
+
+            if let percent = viewModel.timeCutPercent {
+                statTile(value: "\(percent)%", label: "Dead Time Cut", color: .bscPrimaryText)
+            }
+        }
+        .padding(.top, BSCSpacing.xs)
+    }
+
+    func statTile(value: String, label: String, color: Color) -> some View {
+        VStack(spacing: BSCSpacing.xxs) {
+            Text(value)
+                .bscFont(size: 24, weight: .bold)
+                .foregroundColor(color)
+            Text(label)
+                .bscFont(size: 12)
+                .foregroundColor(.bscTextSecondary)
+        }
     }
 }
 
