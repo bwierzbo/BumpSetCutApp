@@ -40,6 +40,7 @@ struct RallyPlayerView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(AppNavigationState.self) private var navigationState
     @Environment(AppSettings.self) private var appSettings
+    @Environment(AuthenticationService.self) private var authService
 
     private var currentRallySegment: RallySegment? {
         guard let metadata = viewModel.processingMetadata,
@@ -123,19 +124,6 @@ struct RallyPlayerView: View {
                             presentPickerAfterOverview(target)
                         } else {
                             rallyIndexToShare = ShareableRallyIndex(index: index, postAllSaved: false)
-                        }
-                    },
-                    onSendToFriend: {
-                        leaveOverview()
-                        // Several saved: choose one in the picker. One saved:
-                        // straight to the send sheet, after the overview has
-                        // finished dismissing (same hand-off as the picker).
-                        if let target = rallyPickerTarget(for: .send) {
-                            presentPickerAfterOverview(target)
-                        } else if let index = viewModel.savedRalliesArray.first {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                sendRequest = sendRequestForRally(index)
-                            }
                         }
                     },
                     onSaveAll: { viewModel.saveAllRallies() },
@@ -369,6 +357,11 @@ struct RallyPlayerView: View {
                 onShowTips: { showingGestureTips = true },
                 onShowOverview: { viewModel.showOverviewSheet = true },
                 onShare: { viewModel.shareCurrentRally() },
+                // Sending needs an account; signed out, the button is just
+                // the system share sheet.
+                onSendToFriend: authService.isAuthenticated
+                    ? { sendRequest = sendRequestForRally(viewModel.currentRallyIndex) }
+                    : nil,
                 isPreparingShare: viewModel.isPreparingShare
             )
             .zIndex(200)
@@ -826,23 +819,23 @@ struct RallyPlayerView: View {
         case .export:
             exportSelection = indices.sorted()
             viewModel.showExportOptions = true
-        case .send:
-            sendRequest = sendRequestForRally(indices[0])
         }
     }
 
-    /// One saved rally as a private clip: the source file plus this rally's
-    /// time range — the same slice the picker previews and posting exports.
+    /// The rally on screen as a private clip: the source file plus this
+    /// rally's trim-aware time range — the same slice the share sheet exports.
+    /// It needn't be saved; sending is a share, not a review decision.
     private func sendRequestForRally(_ index: Int) -> SendToRequest? {
-        guard let rally = viewModel.savedRallyShareInfo[index] else { return nil }
-        let duration = max(0, rally.endTime - rally.startTime)
+        let start = viewModel.effectiveStartTime(for: index)
+        let end = viewModel.effectiveEndTime(for: index)
+        guard end > start else { return nil }
         let clip = FavoriteShareClip(
             url: viewModel.videoMetadata.originalURL,
             timeRange: CMTimeRange(
-                start: CMTime(seconds: rally.startTime, preferredTimescale: 600),
-                duration: CMTime(seconds: duration, preferredTimescale: 600)
+                start: CMTime(seconds: start, preferredTimescale: 600),
+                end: CMTime(seconds: end, preferredTimescale: 600)
             ),
-            duration: duration,
+            duration: end - start,
             displayName: "Rally \(index + 1)"
         )
         return SendToRequest(payload: .clip(clip))
@@ -1088,16 +1081,12 @@ struct ShareableRallyIndex: Identifiable {
 enum RallyPickerPurpose {
     case post
     case export
-    /// One rally, sent privately to a friend.
-    case send
 
-    /// A post holds a limited number of clips; an export can take every rally;
-    /// a message carries exactly one.
+    /// A post holds a limited number of clips; an export can take every rally.
     func maxSelection(itemCount: Int) -> Int {
         switch self {
         case .post: return ShareRallyViewModel.maxClipsPerPost
         case .export: return itemCount
-        case .send: return 1
         }
     }
 
@@ -1107,7 +1096,6 @@ enum RallyPickerPurpose {
         switch self {
         case .post: return "Post \(count) \(noun)"
         case .export: return "Export \(count) \(noun)"
-        case .send: return "Send Rally"
         }
     }
 }
