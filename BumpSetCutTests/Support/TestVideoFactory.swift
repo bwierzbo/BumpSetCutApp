@@ -25,18 +25,24 @@ enum TestVideoFactory {
         case writeFailed(String)
     }
 
+    /// Draws one frame into a bitmap context whose memory row 0 is the top of
+    /// the video frame (CG's y axis points up, so CG y = 0 is the bottom).
+    typealias FrameRenderer = (_ ctx: CGContext, _ size: CGSize, _ frameIndex: Int) -> Void
+
     /// Write a real H.264 .mp4 to `url`.
     /// - Parameters:
     ///   - url: destination (parent directory must exist).
     ///   - duration: clip length in seconds.
     ///   - size: frame dimensions.
     ///   - fps: frames per second.
+    ///   - frame: custom frame content; nil draws the default colour sweep.
     @discardableResult
     static func writeVideo(
         to url: URL,
         duration: Double = 1.0,
         size: CGSize = CGSize(width: 320, height: 240),
-        fps: Int32 = 30
+        fps: Int32 = 30,
+        frame: FrameRenderer? = nil
     ) throws -> URL {
         if FileManager.default.fileExists(atPath: url.path) {
             try? FileManager.default.removeItem(at: url)
@@ -75,7 +81,7 @@ enum TestVideoFactory {
             while !input.isReadyForMoreMediaData {
                 Thread.sleep(forTimeInterval: 0.005)
             }
-            guard let buffer = makePixelBuffer(size: size, frameIndex: frameIndex, totalFrames: totalFrames) else {
+            guard let buffer = makePixelBuffer(size: size, frameIndex: frameIndex, totalFrames: totalFrames, frame: frame) else {
                 throw FactoryError.pixelBufferCreationFailed
             }
             let time = CMTime(value: CMTimeValue(frameIndex), timescale: fps)
@@ -109,8 +115,9 @@ enum TestVideoFactory {
 
     // MARK: - Frame rendering
 
-    /// A solid-color frame whose hue shifts across the clip so frames differ.
-    private static func makePixelBuffer(size: CGSize, frameIndex: Int, totalFrames: Int) -> CVPixelBuffer? {
+    /// A solid-color frame whose hue shifts across the clip so frames differ,
+    /// or whatever `frame` draws.
+    private static func makePixelBuffer(size: CGSize, frameIndex: Int, totalFrames: Int, frame: FrameRenderer?) -> CVPixelBuffer? {
         var pixelBuffer: CVPixelBuffer?
         let attrs: [String: Any] = [
             kCVPixelBufferCGImageCompatibilityKey as String: true,
@@ -139,6 +146,11 @@ enum TestVideoFactory {
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
         ) else { return nil }
+
+        if let frame {
+            frame(ctx, size, frameIndex)
+            return buffer
+        }
 
         let progress = totalFrames > 1 ? CGFloat(frameIndex) / CGFloat(totalFrames - 1) : 0
         ctx.setFillColor(CGColor(red: progress, green: 0.4, blue: 1 - progress, alpha: 1))

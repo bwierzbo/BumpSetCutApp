@@ -37,18 +37,23 @@ struct RallyShareInfo {
     let startTime: Double
     let endTime: Double
     let metadata: RallyHighlightMetadata
+    /// Framing set in the player, seeded onto the share sheet's crop page.
+    var crop: ShareCrop? = nil
 }
 
 // MARK: - Share Source
 
-/// A standalone favorites clip prepared for posting: its own source file,
-/// optional trim range, and effective duration.
+/// A standalone clip prepared for posting or sending: its own source file,
+/// optional trim range, effective duration, and any framing not yet baked
+/// into the file (a rally straight from the player; library favorites have
+/// theirs burned in on copy).
 struct FavoriteShareClip: Identifiable {
     let id = UUID()
     let url: URL
     let timeRange: CMTimeRange?
     let duration: Double
     let displayName: String
+    var crop: ShareCrop? = nil
 }
 
 /// What is being posted: rallies clipped from one source video at upload
@@ -61,16 +66,39 @@ enum ShareSource {
 
 // MARK: - Share Crop
 
-/// Per-page crop set on the share sheet: zoom around center plus a pan,
-/// offsets normalized to the preview size (+Y down, SwiftUI space). Applied
-/// at upload by re-exporting the clip with the crop burned in.
+/// How a rally is framed on screen: a rotation about the center (degrees,
+/// clockwise like `.rotationEffect`), a zoom around center, and a pan with
+/// offsets normalized to the video's rendered size (+Y down, SwiftUI space).
+/// Set in the rally player's trim mode or on the share sheet's crop page;
+/// burned in by re-exporting the clip.
 struct ShareCrop: Equatable {
     var zoom: CGFloat
     var offsetXNorm: CGFloat
     var offsetYNorm: CGFloat
+    var rotation: Double = 0
 
     var isIdentity: Bool {
-        zoom <= 1.001 && offsetXNorm == 0 && offsetYNorm == 0
+        zoom <= 1.001 && offsetXNorm == 0 && offsetYNorm == 0 && abs(rotation) < 0.01
+    }
+
+    /// The framing saved with a rally in the player, or nil when it was never
+    /// framed (so callers can keep the cheap passthrough export).
+    init?(adjustment: RallyTrimAdjustment?) {
+        guard let adjustment else { return nil }
+        self.init(
+            zoom: CGFloat(adjustment.zoom),
+            offsetXNorm: CGFloat(adjustment.panX),
+            offsetYNorm: CGFloat(adjustment.panY),
+            rotation: adjustment.rotation
+        )
+        if isIdentity { return nil }
+    }
+
+    init(zoom: CGFloat, offsetXNorm: CGFloat, offsetYNorm: CGFloat, rotation: Double = 0) {
+        self.zoom = zoom
+        self.offsetXNorm = offsetXNorm
+        self.offsetYNorm = offsetYNorm
+        self.rotation = rotation
     }
 }
 
@@ -184,6 +212,10 @@ final class ShareRallyViewModel {
         self.rallyInfo = rallyInfo
         self.postAllSaved = postAllSaved
         self.apiClient = apiClient ?? SupabaseAPIClient.shared
+        // Start each page from the framing set in the player.
+        for (page, rallyIndex) in savedRallyIndices.enumerated() {
+            if let crop = rallyInfo[rallyIndex]?.crop { crops[page] = crop }
+        }
     }
 
     /// Post favorites clips (each its own file, trims applied at upload) as
@@ -200,6 +232,9 @@ final class ShareRallyViewModel {
         self.rallyInfo = [:]
         self.postAllSaved = favoriteClips.count > 1
         self.apiClient = apiClient ?? SupabaseAPIClient.shared
+        for (page, clip) in favoriteClips.enumerated() {
+            if let crop = clip.crop { crops[page] = crop }
+        }
     }
 
     var favoriteClips: [FavoriteShareClip] {
@@ -351,13 +386,7 @@ final class ShareRallyViewModel {
                     let crop = crops[i].flatMap { $0.isIdentity ? nil : $0 }
                     if let crop {
                         fileToUpload = try await VideoExporter().exportStitchedClips(
-                            [VideoExporter.StitchClip(
-                                url: clip.url,
-                                timeRange: clip.timeRange,
-                                zoom: crop.zoom,
-                                panX: crop.offsetXNorm,
-                                panY: -crop.offsetYNorm
-                            )],
+                            [VideoExporter.StitchClip(url: clip.url, timeRange: clip.timeRange, crop: crop)],
                             addWatermark: addWatermark
                         )
                         tempURLsToClean.append(fileToUpload)

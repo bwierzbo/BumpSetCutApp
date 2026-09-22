@@ -56,6 +56,7 @@ final class SendToViewModel {
             try await RallyClipExporter().export(
                 url: clip.url,
                 timeRange: clip.timeRange,
+                crop: clip.crop,
                 addWatermark: false,
                 fileTag: "send_rally"
             )

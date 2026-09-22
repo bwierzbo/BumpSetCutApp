@@ -845,7 +845,8 @@ struct RallyPlayerView: View {
                 end: CMTime(seconds: end, preferredTimescale: 600)
             ),
             duration: end - start,
-            displayName: "Rally \(index + 1)"
+            displayName: "Rally \(index + 1)",
+            crop: viewModel.framingCrop(for: index)
         )
         return SendToRequest(payload: .clip(clip))
     }

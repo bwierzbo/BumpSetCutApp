@@ -15,21 +15,32 @@ final class VideoExporter {
 
     /// One clip of a stitched highlight reel: a source file plus an optional
     /// sub-range (nil = the whole clip, e.g. a favorites clip with its trim
-    /// already applied at export time) and an optional crop (zoom around
-    /// center + pan, pan normalized as a fraction of the render size, +Y up).
+    /// already applied at export time) and an optional framing: a rotation
+    /// about the center (scaled up just enough to hide the corners, like the
+    /// player), then a zoom around center and a pan normalized as a fraction
+    /// of the render size. Pan and rotation are in the composition's own
+    /// coordinate space — see `StitchClip.init(url:timeRange:crop:)` for the
+    /// conversion from what the screen showed.
     struct StitchClip {
         let url: URL
         let timeRange: CMTimeRange?
+        let rotationDegrees: Double
         let zoom: CGFloat
         let panX: CGFloat
         let panY: CGFloat
 
-        init(url: URL, timeRange: CMTimeRange? = nil, zoom: CGFloat = 1, panX: CGFloat = 0, panY: CGFloat = 0) {
+        init(url: URL, timeRange: CMTimeRange? = nil, rotationDegrees: Double = 0,
+             zoom: CGFloat = 1, panX: CGFloat = 0, panY: CGFloat = 0) {
             self.url = url
             self.timeRange = timeRange
+            self.rotationDegrees = rotationDegrees
             self.zoom = zoom
             self.panX = panX
             self.panY = panY
+        }
+
+        var hasFraming: Bool {
+            abs(rotationDegrees) >= 0.01 || zoom > 1.001 || panX != 0 || panY != 0
         }
     }
 
@@ -110,16 +121,28 @@ final class VideoExporter {
                 y: (renderSize.height - uprightSize.height * scale) / 2
             ))
 
-            // Optional crop: zoom around the render center, then pan.
-            if clip.zoom > 1.001 || clip.panX != 0 || clip.panY != 0 {
+            // Optional framing, all about the render center: rotate (scaled to
+            // cover the frame, so no corner goes black), then zoom, then pan.
+            if clip.hasFraming {
+                let center = CGPoint(x: renderSize.width / 2, y: renderSize.height / 2)
+                var framing = CGAffineTransform(translationX: -center.x, y: -center.y)
+                if abs(clip.rotationDegrees) >= 0.01 {
+                    // The rotated rect is the fitted content, whose aspect is
+                    // what the cover scale depends on.
+                    let fitted = CGSize(width: uprightSize.width * scale, height: uprightSize.height * scale)
+                    let cover = RotationGeometry.coverScale(angleDegrees: clip.rotationDegrees, size: fitted)
+                    framing = framing
+                        .concatenating(CGAffineTransform(rotationAngle: CGFloat(clip.rotationDegrees * .pi / 180)))
+                        .concatenating(CGAffineTransform(scaleX: cover, y: cover))
+                }
                 let zoom = max(1, clip.zoom)
-                var crop = CGAffineTransform(translationX: -renderSize.width / 2, y: -renderSize.height / 2)
-                crop = crop.concatenating(CGAffineTransform(scaleX: zoom, y: zoom))
-                crop = crop.concatenating(CGAffineTransform(
-                    translationX: renderSize.width / 2 + clip.panX * renderSize.width,
-                    y: renderSize.height / 2 + clip.panY * renderSize.height
-                ))
-                transform = transform.concatenating(crop)
+                framing = framing
+                    .concatenating(CGAffineTransform(scaleX: zoom, y: zoom))
+                    .concatenating(CGAffineTransform(
+                        translationX: center.x + clip.panX * renderSize.width,
+                        y: center.y + clip.panY * renderSize.height
+                    ))
+                transform = transform.concatenating(framing)
             }
 
             let instruction = AVMutableVideoCompositionInstruction()

@@ -722,14 +722,7 @@ struct FavoritesGridView: View {
     /// the per-post maximum open a picker to choose which clips to include.
     private func preparePost(title: String, videos: [VideoMetadata]) {
         Task {
-            let all = await FavoriteClipResolver.resolve(videos).map {
-                FavoriteShareClip(
-                    url: $0.video.originalURL,
-                    timeRange: $0.timeRange,
-                    duration: $0.duration,
-                    displayName: $0.video.displayName
-                )
-            }
+            let all = await FavoriteClipResolver.shareClips(from: videos)
             let eligible = all.filter { $0.duration <= ShareRallyViewModel.maxDurationSeconds }
             let skipped = all.count - eligible.count
 

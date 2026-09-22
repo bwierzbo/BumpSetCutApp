@@ -98,6 +98,7 @@ final class ConversationViewModel {
             try await RallyClipExporter().export(
                 url: clip.url,
                 timeRange: clip.timeRange,
+                crop: clip.crop,
                 addWatermark: false,
                 fileTag: "message_clip"
             )

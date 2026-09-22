@@ -536,10 +536,17 @@ final class RallyPlayerViewModel {
                     confidence: segment.confidence,
                     quality: segment.quality,
                     detectionCount: segment.detectionCount
-                )
+                ),
+                crop: framingCrop(for: index)
             )
         }
         return dict
+    }
+
+    /// The rotation/zoom/pan the user set for a rally in trim mode, as the
+    /// crop every export path burns in. Nil when the rally was never framed.
+    func framingCrop(for rallyIndex: Int) -> ShareCrop? {
+        ShareCrop(adjustment: trimAdjustments[rallyIndex])
     }
 
     func navigateTo(index: Int, direction: NavigationDirection) {
@@ -960,10 +967,19 @@ final class RallyPlayerViewModel {
                 let endTime = CMTime(seconds: end, preferredTimescale: 600)
                 let timeRange = CMTimeRange(start: startTime, end: endTime)
 
-                // Export to temp
-                let tempURL = fileManager.temporaryDirectory
-                    .appendingPathComponent("fav_rally_\(index)_\(UUID().uuidString).mp4")
-                let exportedURL = try await exporter.exportClip(asset: asset, timeRange: timeRange, to: tempURL)
+                // Export to temp. A framed rally is burned in here, so the
+                // favorites clip looks like the player did; unframed rallies
+                // keep the cheap passthrough.
+                let exportedURL: URL
+                if let crop = framingCrop(for: index) {
+                    exportedURL = try await exporter.exportStitchedClips(
+                        [.init(url: videoMetadata.originalURL, timeRange: timeRange, crop: crop)]
+                    )
+                } else {
+                    let tempURL = fileManager.temporaryDirectory
+                        .appendingPathComponent("fav_rally_\(index)_\(UUID().uuidString).mp4")
+                    exportedURL = try await exporter.exportClip(asset: asset, timeRange: timeRange, to: tempURL)
+                }
 
                 // Move to persistent storage (into the chosen collection)
                 let destFolderPath = destinationFolderPath(forCollection: chosenCollection)

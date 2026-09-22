@@ -285,22 +285,32 @@ struct RallyExportProgress: View {
                 index < metadata.rallySegments.count ? (index, metadata.rallySegments[index]) : nil
             }
 
-            // Apply per-rally trim adjustments, filtering out invalid ranges
-            let selectedSegments = rawSegments.compactMap { (rallyIndex, segment) -> RallySegment? in
-                guard let adj = trimAdjustments[rallyIndex] else { return segment }
+            // Apply per-rally trim adjustments, filtering out invalid ranges.
+            // The framing (rotation/zoom/pan) rides along so it can be burned
+            // in; a rally that was never framed keeps the passthrough export.
+            let selectedSegments = rawSegments.compactMap { (rallyIndex, segment) -> (segment: RallySegment, crop: ShareCrop?)? in
+                let crop = ShareCrop(adjustment: trimAdjustments[rallyIndex])
+                guard let adj = trimAdjustments[rallyIndex] else { return (segment, crop) }
                 let adjustedStart = max(0, segment.startTime - adj.before)
                 let adjustedEnd = min(videoDuration, segment.endTime + adj.after)
                 // Skip segments where trim adjustments create invalid ranges
                 guard adjustedStart < adjustedEnd else { return nil }
-                return segment.withAdjustedTimes(
-                    startSeconds: adjustedStart,
-                    endSeconds: adjustedEnd
+                return (segment.withAdjustedTimes(startSeconds: adjustedStart, endSeconds: adjustedEnd), crop)
+            }
+            func stitchClip(_ item: (segment: RallySegment, crop: ShareCrop?)) -> VideoExporter.StitchClip {
+                let range = CMTimeRange(
+                    start: CMTime(seconds: item.segment.startTime, preferredTimescale: 600),
+                    end: CMTime(seconds: item.segment.endTime, preferredTimescale: 600)
                 )
+                if let crop = item.crop {
+                    return .init(url: videoMetadata.originalURL, timeRange: range, crop: crop)
+                }
+                return .init(url: videoMetadata.originalURL, timeRange: range)
             }
 
             if exportType == .individual {
                 // Export individual videos
-                for (index, segment) in selectedSegments.enumerated() {
+                for (index, item) in selectedSegments.enumerated() {
                     try Task.checkCancellation()
 
                     let progress = Double(index) / Double(selectedSegments.count)
@@ -309,21 +319,36 @@ struct RallyExportProgress: View {
                         exportedCount = index
                     }
 
-                    let url = try await exporter.exportRallyToPhotoLibrary(asset: asset, rally: segment, index: index, addWatermark: addWatermark)
+                    let url: URL
+                    if item.crop != nil {
+                        url = try await exporter.exportStitchedClipsToPhotoLibrary([stitchClip(item)], addWatermark: addWatermark)
+                    } else {
+                        url = try await exporter.exportRallyToPhotoLibrary(asset: asset, rally: item.segment, index: index, addWatermark: addWatermark)
+                    }
                     await MainActor.run {
                         exportedURLs.append(url)
                     }
                 }
             } else {
-                // Export stitched video with real progress polling
-                let url = try await exporter.exportStitchedRalliesToPhotoLibrary(
-                    asset: asset,
-                    rallies: selectedSegments,
-                    addWatermark: addWatermark
-                ) { progress in
+                let onProgress: @Sendable (Double) -> Void = { progress in
                     Task { @MainActor in
                         exportProgress = progress
                     }
+                }
+                // Export stitched video with real progress polling. Any framed
+                // rally puts the whole reel through the composition path.
+                let url: URL
+                if selectedSegments.contains(where: { $0.crop != nil }) {
+                    url = try await exporter.exportStitchedClipsToPhotoLibrary(
+                        selectedSegments.map(stitchClip), addWatermark: addWatermark, progressHandler: onProgress
+                    )
+                } else {
+                    url = try await exporter.exportStitchedRalliesToPhotoLibrary(
+                        asset: asset,
+                        rallies: selectedSegments.map(\.segment),
+                        addWatermark: addWatermark,
+                        progressHandler: onProgress
+                    )
                 }
                 await MainActor.run {
                     exportedURLs.append(url)

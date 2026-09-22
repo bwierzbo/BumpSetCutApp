@@ -271,6 +271,10 @@ struct ShareRallySheet: View {
                                 .allowsHitTesting(false)
                             }
                         }
+                        .rotationEffect(.degrees(displayCropRotation(for: pageIndex)))
+                        .scaleEffect(RotationGeometry.coverScale(
+                            angleDegrees: displayCropRotation(for: pageIndex), size: previewSize
+                        ))
                         .scaleEffect(displayCropZoom(for: pageIndex))
                         .offset(displayCropOffset(for: pageIndex))
 
@@ -323,6 +327,12 @@ struct ShareRallySheet: View {
     private func displayCropZoom(for page: Int) -> CGFloat {
         if isCropMode && page == viewModel.selectedPage { return liveCropZoom }
         return viewModel.crops[page]?.zoom ?? 1
+    }
+
+    /// Rotation comes from the player's trim mode; the crop page can't edit
+    /// it, so there is no live value.
+    private func displayCropRotation(for page: Int) -> Double {
+        viewModel.crops[page]?.rotation ?? 0
     }
 
     private func displayCropOffset(for page: Int) -> CGSize {
@@ -459,7 +469,8 @@ struct ShareRallySheet: View {
             let crop = ShareCrop(
                 zoom: liveCropZoom,
                 offsetXNorm: liveCropOffset.width / previewSize.width,
-                offsetYNorm: liveCropOffset.height / previewSize.height
+                offsetYNorm: liveCropOffset.height / previewSize.height,
+                rotation: displayCropRotation(for: viewModel.selectedPage)
             )
             if crop.isIdentity {
                 viewModel.crops.removeValue(forKey: viewModel.selectedPage)

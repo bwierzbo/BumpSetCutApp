@@ -33,15 +33,8 @@ struct RallyClipExporter {
         }
 
         if let crop, !crop.isIdentity {
-            // Composition space is bottom-left origin — flip the preview's Y pan.
             return try await VideoExporter().exportStitchedClips(
-                [VideoExporter.StitchClip(
-                    url: url,
-                    timeRange: range,
-                    zoom: crop.zoom,
-                    panX: crop.offsetXNorm,
-                    panY: -crop.offsetYNorm
-                )],
+                [VideoExporter.StitchClip(url: url, timeRange: range, crop: crop)],
                 addWatermark: addWatermark
             )
         }
@@ -53,6 +46,26 @@ struct RallyClipExporter {
             timeRange: range,
             to: outURL,
             addWatermark: addWatermark
+        )
+    }
+}
+
+extension VideoExporter.StitchClip {
+    /// A clip framed the way the screen showed it. Layer-instruction
+    /// transforms run in the same +Y-down, clockwise space as SwiftUI —
+    /// VideoExporterFramingTests pins this with rendered pixels, after an
+    /// earlier "bottom-left origin" flip here had been inverting vertical
+    /// pans. Pan fractions carry over directly: on screen they are relative
+    /// to the rendered video rect, in the composition to the render size —
+    /// the same rectangle.
+    init(url: URL, timeRange: CMTimeRange?, crop: ShareCrop) {
+        self.init(
+            url: url,
+            timeRange: timeRange,
+            rotationDegrees: crop.rotation,
+            zoom: crop.zoom,
+            panX: crop.offsetXNorm,
+            panY: crop.offsetYNorm
         )
     }
 }
