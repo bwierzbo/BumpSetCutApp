@@ -2,8 +2,8 @@
 //  SendToFlowTests.swift
 //  BumpSetCutTests
 //
-//  The send-a-rally pipeline: conversation first (so a blocked recipient
-//  fails before any export), then attachment, then the message row.
+//  Sending a post to a friend: conversation first (so a blocked recipient
+//  fails before anything else), then the message row referencing the post.
 //
 
 import XCTest
@@ -12,7 +12,6 @@ import XCTest
 @MainActor
 final class SendToFlowTests: XCTestCase {
 
-    private let me = "me"
     private let them = UserProfile(id: "them", username: "sandy")
 
     private func highlight() -> Highlight {
@@ -20,16 +19,6 @@ final class SendToFlowTests: XCTestCase {
             id: "hl-1", authorId: "someone", muxPlaybackId: "mux",
             rallyMetadata: RallyHighlightMetadata(duration: 5, confidence: 0.9, quality: 0.9, detectionCount: 12)
         )
-    }
-
-    private func clip() -> FavoriteShareClip {
-        FavoriteShareClip(url: URL(fileURLWithPath: "/tmp/source.mp4"), timeRange: nil, duration: 7.5, displayName: "Rally 3")
-    }
-
-    private func tempFile() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("send-test-\(UUID().uuidString).mp4")
-        try Data("x".utf8).write(to: url)
-        return url
     }
 
     /// Wait for the view model's background task to leave `previous` and reach
@@ -42,11 +31,9 @@ final class SendToFlowTests: XCTestCase {
         }
     }
 
-    // MARK: - Highlight
-
-    func testHighlight_createsConversationThenSendsInOrder() async {
+    func testCreatesConversationThenSendsInOrder() async {
         let client = MockMessagingClient()
-        let vm = SendToViewModel(payload: .highlight(highlight()), apiClient: client, media: MockMediaClient())
+        let vm = SendToViewModel(highlight: highlight(), apiClient: client)
         vm.choose(them)
         vm.send()
         await settle(vm)
@@ -60,101 +47,36 @@ final class SendToFlowTests: XCTestCase {
         XCTAssertNil(sent?["p_body"] as? String, "empty note must not become a body")
     }
 
-    // MARK: - Clip
-
-    func testClip_exportsUploadsThenSends_andCleansUpTempFile() async throws {
+    func testNoteIsTrimmedAndSentAsCaption() async {
         let client = MockMessagingClient()
-        let media = MockMediaClient()
-        let exported = try tempFile()
-        let exportBox = CallBox()
-        let vm = SendToViewModel(
-            payload: .clip(clip()), apiClient: client, media: media,
-            exportClip: { _ in exportBox.record("export"); return exported }
-        )
+        let vm = SendToViewModel(highlight: highlight(), apiClient: client)
         vm.note = "  nice one  "
         vm.choose(them)
         vm.send()
         await settle(vm)
 
-        XCTAssertEqual(vm.phase, .sent(conversationId: "conv-1", username: "sandy"))
-        // Conversation is resolved before the (expensive) export starts.
-        XCTAssertEqual(client.calls.first, "getOrCreateConversation:them")
-        XCTAssertEqual(exportBox.calls, ["export"])
-        XCTAssertEqual(media.uploadedFiles, [exported])
-        let sent = client.sentParams.first
-        XCTAssertEqual(sent?["p_attachment_type"] as? String, "clip")
-        XCTAssertEqual(sent?["p_clip_path"] as? String, "them/clip.mp4")
-        XCTAssertEqual(sent?["p_clip_duration"] as? Double, 7.5)
-        XCTAssertEqual(sent?["p_body"] as? String, "nice one", "note is trimmed and sent as the body")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: exported.path), "exported temp file is removed after sending")
-    }
-
-    func testClip_deletesUploadedObjectWhenSendFails() async throws {
-        let client = MockMessagingClient()
-        client.sendError = APIError.networkUnavailable
-        let media = MockMediaClient()
-        let exported = try tempFile()
-        let vm = SendToViewModel(
-            payload: .clip(clip()), apiClient: client, media: media,
-            exportClip: { _ in exported }
-        )
-        vm.choose(them)
-        vm.send()
-        await settle(vm)
-
-        XCTAssertEqual(vm.phase, .failed(.network))
-        XCTAssertEqual(media.deletedPaths, ["them/clip.mp4"], "an object with no message row pointing at it is an orphan")
-    }
-
-    func testCancelAfterUpload_deletesOrphanedObject_andSendsNothing() async throws {
-        let client = MockMessagingClient()
-        let media = MockMediaClient()
-        let exported = try tempFile()
-        let vm = SendToViewModel(
-            payload: .clip(clip()), apiClient: client, media: media,
-            exportClip: { _ in exported }
-        )
-        // Cancel lands while the upload is completing, so the object exists
-        // by the time the pipeline notices.
-        media.afterUpload = {
-            await MainActor.run { vm.cancel() }
-        }
-        vm.choose(them)
-        vm.send()
-
-        let deadline = Date().addingTimeInterval(2)
-        while media.deletedPaths.isEmpty, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-
-        XCTAssertEqual(media.deletedPaths, ["them/clip.mp4"], "cancelling after the upload must remove the object")
-        XCTAssertFalse(client.calls.contains("sendMessage"), "no message row for a cancelled send")
-        XCTAssertEqual(vm.phase, .idle)
+        XCTAssertEqual(client.sentParams.first?["p_body"] as? String, "nice one")
     }
 
     // MARK: - Failures
 
-    func testBlocked_failsBeforeExport_andIsNotRetryable() async {
+    func testBlocked_failsBeforeSending_andIsNotRetryable() async {
         let client = MockMessagingClient()
         client.conversationError = APIError.serverError(statusCode: 400, message: "DM_BLOCKED: cannot message this user")
-        let exportBox = CallBox()
-        let vm = SendToViewModel(
-            payload: .clip(clip()), apiClient: client, media: MockMediaClient(),
-            exportClip: { _ in exportBox.record("export"); return URL(fileURLWithPath: "/tmp/never.mp4") }
-        )
+        let vm = SendToViewModel(highlight: highlight(), apiClient: client)
         vm.choose(them)
         vm.send()
         await settle(vm)
 
         XCTAssertEqual(vm.phase, .failed(.messaging(.blocked)))
         XCTAssertEqual(vm.failure?.isRetryable, false)
-        XCTAssertTrue(exportBox.calls.isEmpty, "a blocked recipient must fail before the video export runs")
+        XCTAssertFalse(client.calls.contains("sendMessage"), "a blocked recipient must fail before any message is sent")
     }
 
     func testNetworkFailure_isRetryable_andRetrySucceeds() async {
         let client = MockMessagingClient()
         client.sendError = APIError.networkUnavailable
-        let vm = SendToViewModel(payload: .highlight(highlight()), apiClient: client, media: MockMediaClient())
+        let vm = SendToViewModel(highlight: highlight(), apiClient: client)
         vm.choose(them)
         vm.send()
         await settle(vm)
@@ -171,7 +93,7 @@ final class SendToFlowTests: XCTestCase {
     func testChangeRecipient_clearsSelectionAndFailure() async {
         let client = MockMessagingClient()
         client.conversationError = APIError.networkUnavailable
-        let vm = SendToViewModel(payload: .highlight(highlight()), apiClient: client, media: MockMediaClient())
+        let vm = SendToViewModel(highlight: highlight(), apiClient: client)
         vm.choose(them)
         vm.send()
         await settle(vm)
@@ -225,9 +147,7 @@ final class MockMessagingClient: APIClient, @unchecked Sendable {
                 recipientId: "them",
                 body: wire["p_body"] as? String,
                 attachmentType: (wire["p_attachment_type"] as? String).flatMap(DirectMessage.AttachmentType.init(rawValue:)),
-                highlightId: wire["p_highlight_id"] as? String,
-                clipPath: wire["p_clip_path"] as? String,
-                clipDuration: wire["p_clip_duration"] as? Double
+                highlightId: wire["p_highlight_id"] as? String
             ))
         case .getConversations:
             return try cast(conversations)
@@ -252,30 +172,5 @@ final class MockMessagingClient: APIClient, @unchecked Sendable {
 
     func submitFlywheelContribution(_ contribution: FlywheelContribution, frameURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws {
         throw APIError.serverError(statusCode: 501, message: "not used")
-    }
-}
-
-final class MockMediaClient: MessageMediaClient, @unchecked Sendable {
-    nonisolated(unsafe) var uploadedFiles: [URL] = []
-    nonisolated(unsafe) var deletedPaths: [String] = []
-    nonisolated(unsafe) var uploadError: Error?
-    /// Runs once the upload has "landed", before the path is returned —
-    /// the window in which a cancel leaves an orphan behind.
-    nonisolated(unsafe) var afterUpload: (@Sendable () async -> Void)?
-
-    func uploadMessageClip(fileURL: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> String {
-        uploadedFiles.append(fileURL)
-        if let uploadError { throw uploadError }
-        progress(1)
-        await afterUpload?()
-        return "them/clip.mp4"
-    }
-
-    func signedURL(forMessageClip path: String) async throws -> URL {
-        URL(string: "https://example.test/\(path)")!
-    }
-
-    func deleteMessageClip(path: String) async throws {
-        deletedPaths.append(path)
     }
 }

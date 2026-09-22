@@ -30,14 +30,11 @@ struct FavoritesGridView: View {
     @State private var carouselTarget: CarouselTarget?
     // Non-nil presents the clip picker (folders with more than 10 clips).
     @State private var clipPickerTarget: ClipPickerTarget?
-    /// "Send to Friend": the one clip on its way to the send sheet.
-    @State private var sendRequest: SendToRequest?
     // Grid ⇄ list, persisted like the library's toggle.
     @AppStorage("favorites.viewMode") private var viewMode: ViewMode = .grid
     // First-visit feature tour.
     @State private var showOnboarding = false
     @Environment(\.dismiss) private var dismiss
-    @Environment(AppNavigationState.self) private var navigationState
 
     struct ReelTarget: Identifiable {
         let id = UUID()
@@ -51,17 +48,10 @@ struct FavoritesGridView: View {
         let clips: [FavoriteShareClip]
     }
 
-    /// Posting takes several clips; sending to a friend takes exactly one.
-    enum ClipPickerPurpose {
-        case post
-        case send
-    }
-
     struct ClipPickerTarget: Identifiable {
         let id = UUID()
         let title: String
         let clips: [FavoriteShareClip]
-        var purpose: ClipPickerPurpose = .post
     }
 
     init(mediaStore: MediaStore) {
@@ -189,31 +179,19 @@ struct FavoritesGridView: View {
                         duration: clip.duration
                     )
                 },
-                maxSelection: target.purpose == .send ? 1 : ShareRallyViewModel.maxClipsPerPost,
-                confirmTitle: target.purpose == .send
-                    ? { _ in "Send Rally" }
-                    : { "Post \($0) \($0 == 1 ? "Rally" : "Rallies")" },
+                maxSelection: ShareRallyViewModel.maxClipsPerPost,
+                confirmTitle: { "Post \($0) \($0 == 1 ? "Rally" : "Rallies")" },
                 onConfirm: { selected in
                     clipPickerTarget = nil
-                    guard let first = selected.first else { return }
+                    guard !selected.isEmpty else { return }
                     // Let the picker sheet finish dismissing before presenting
                     // the next sheet (same pattern as alert-after-sheet).
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        switch target.purpose {
-                        case .post:
-                            carouselTarget = CarouselTarget(title: target.title, clips: selected)
-                        case .send:
-                            sendRequest = SendToRequest(payload: .clip(first))
-                        }
+                        carouselTarget = CarouselTarget(title: target.title, clips: selected)
                     }
                 },
                 onCancel: { clipPickerTarget = nil }
             )
-        }
-        .sheet(item: $sendRequest) { request in
-            SendToSheet(payload: request.payload) { conversationId, username in
-                mutationToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
-            }
         }
         .alert("Remove Favorite?", isPresented: Binding(
             get: { videoToDelete != nil },
@@ -474,12 +452,6 @@ struct FavoritesGridView: View {
             Label("Post to Community", systemImage: "paperplane")
         }
         Button {
-            prepareSend(videos: [video])
-        } label: {
-            Label("Send to Friend", systemImage: "envelope")
-        }
-        .accessibilityIdentifier(AccessibilityID.Favorites.sendToFriend)
-        Button {
             presentStitchExport(folderName: video.displayName, videos: [video])
         } label: {
             Label("Save to Photos", systemImage: "square.and.arrow.down")
@@ -573,12 +545,6 @@ struct FavoritesGridView: View {
                         } label: {
                             Label("Post to Community", systemImage: "paperplane")
                         }
-                        Button {
-                            prepareSend(videos: videos)
-                        } label: {
-                            Label("Send to Friend", systemImage: "envelope")
-                        }
-                        .accessibilityIdentifier(AccessibilityID.Favorites.sendToFriend)
                         Button {
                             presentStitchExport(folderName: title, videos: videos)
                         } label: {
@@ -691,29 +657,6 @@ struct FavoritesGridView: View {
                 return
             }
             reelTarget = ReelTarget(folderName: folderName, clips: clips)
-        }
-    }
-
-    /// Send to Friend: exactly one clip goes. A single video goes straight to
-    /// the send sheet; a folder opens the picker to choose which one. Same
-    /// per-clip length limit as posting — a message clip is exported and
-    /// uploaded the same way.
-    private func prepareSend(videos: [VideoMetadata]) {
-        Task {
-            let all = await FavoriteClipResolver.shareClips(from: videos)
-            let eligible = all.filter { $0.duration <= ShareRallyViewModel.maxDurationSeconds }
-            guard !eligible.isEmpty else {
-                mutationToast = BSCToastMessage(
-                    text: all.isEmpty ? "No clips to send" : "All clips are over 1 minute",
-                    style: .error
-                )
-                return
-            }
-            if eligible.count == 1 {
-                sendRequest = SendToRequest(payload: .clip(eligible[0]))
-            } else {
-                clipPickerTarget = ClipPickerTarget(title: "Send a rally", clips: eligible, purpose: .send)
-            }
         }
     }
 

@@ -161,12 +161,6 @@ struct SendMessageParams: Encodable, Equatable {
         SendMessageParams(conversationId: conversationId, body: caption,
                           attachmentType: .highlight, highlightId: id)
     }
-
-    static func clip(path: String, duration: Double?, caption: String? = nil,
-                     in conversationId: String) -> SendMessageParams {
-        SendMessageParams(conversationId: conversationId, body: caption,
-                          attachmentType: .clip, clipPath: path, clipDuration: duration)
-    }
 }
 
 // MARK: - Device Token

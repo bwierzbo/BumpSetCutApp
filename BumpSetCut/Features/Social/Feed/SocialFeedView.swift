@@ -79,7 +79,7 @@ struct SocialFeedView: View {
         }
         .commentsPanel(item: $selectedHighlightForComments)
         .sheet(item: $sendRequest) { request in
-            SendToSheet(payload: request.payload) { conversationId, username in
+            SendToSheet(highlight: request.highlight) { conversationId, username in
                 toast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
             }
         }
@@ -175,7 +175,7 @@ struct SocialFeedView: View {
                 navigationState.pendingSearchQuery = location
             },
             onSend: authService.isAuthenticated
-                ? { sendRequest = SendToRequest(payload: .highlight(highlight)) }
+                ? { sendRequest = SendToRequest(highlight: highlight) }
                 : nil,
             // Landscape pages are full-bleed (see feedContent), so chrome needs
             // the bottom inset back; portrait cards end above the tab bar.

@@ -64,7 +64,7 @@ struct SearchCommunityView: View {
             highlightDetail(highlight)
                 .commentsPanel(item: $selectedHighlightForComments)
                 .sheet(item: $sendRequest) { request in
-                    SendToSheet(payload: request.payload) { conversationId, username in
+                    SendToSheet(highlight: request.highlight) { conversationId, username in
                         sendToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
                     }
                 }
@@ -383,7 +383,7 @@ struct SearchCommunityView: View {
                 },
                 onProfile: { _ in },
                 onSend: authService.isAuthenticated
-                    ? { sendRequest = SendToRequest(payload: .highlight(highlight)) }
+                    ? { sendRequest = SendToRequest(highlight: highlight) }
                     : nil
             )
 

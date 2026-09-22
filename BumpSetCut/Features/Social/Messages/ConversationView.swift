@@ -14,21 +14,16 @@ struct ConversationView: View {
     @State private var showLeaveConfirm = false
     @State private var reportingMessage: DirectMessage?
     @State private var blockingUser = false
-    /// Attach a rally: the source chooser, then whichever picker was chosen.
-    @State private var showingAttachOptions = false
+    /// Attach one of your posts.
     @State private var showingMyPosts = false
-    @State private var favoriteClipsToPick: [FavoriteShareClip]?
     @FocusState private var isComposerFocused: Bool
 
     private let route: ConversationRoute
     private let currentUserId: String
-    /// For the favorites picker — attaching a favorite means listing the library.
-    private let mediaStore: MediaStore
 
-    init(route: ConversationRoute, currentUserId: String, mediaStore: MediaStore) {
+    init(route: ConversationRoute, currentUserId: String) {
         self.route = route
         self.currentUserId = currentUserId
-        self.mediaStore = mediaStore
         _viewModel = State(initialValue: ConversationViewModel(route: route, currentUserId: currentUserId))
     }
 
@@ -63,45 +58,15 @@ struct ConversationView: View {
                 reportedUserId: UUID(uuidString: message.senderId) ?? UUID()
             )
         }
-        .confirmationDialog("Attach a rally", isPresented: $showingAttachOptions, titleVisibility: .visible) {
-            Button("From my posts") { showingMyPosts = true }
-            Button("From favorites") { pickFromFavorites() }
-            Button("Cancel", role: .cancel) {}
-        }
         .sheet(isPresented: $showingMyPosts) {
             MyPostsPickerSheet(
                 currentUserId: currentUserId,
                 onPick: { highlight in
                     showingMyPosts = false
-                    viewModel.attach(.highlight(highlight))
+                    viewModel.attach(highlight)
                 },
                 onCancel: { showingMyPosts = false }
             )
-        }
-        .sheet(isPresented: Binding(
-            get: { favoriteClipsToPick != nil },
-            set: { if !$0 { favoriteClipsToPick = nil } }
-        )) {
-            if let clips = favoriteClipsToPick {
-                // The same picker posting uses, so a favorite can be held to
-                // play full size before it's chosen. One clip per message.
-                ClipPickerSheet(
-                    title: "Favorites",
-                    items: clips.map { clip in
-                        ClipPickerItem(
-                            id: clip.id, payload: clip, url: clip.url, timeRange: clip.timeRange,
-                            displayName: clip.displayName, duration: clip.duration
-                        )
-                    },
-                    maxSelection: 1,
-                    confirmTitle: { _ in "Attach" },
-                    onConfirm: { picked in
-                        favoriteClipsToPick = nil
-                        if let clip = picked.first { viewModel.attach(.clip(clip)) }
-                    },
-                    onCancel: { favoriteClipsToPick = nil }
-                )
-            }
         }
         .blockUserAlert(
             isPresented: $blockingUser,
@@ -286,53 +251,22 @@ struct ConversationView: View {
 
     // MARK: - Composer
 
-    /// Favorites resolve asynchronously (each clip's trim window is read from
-    /// its sidecar), then open in the shared picker. Same per-clip length cap
-    /// as posting — a message clip is exported and uploaded the same way.
-    private func pickFromFavorites() {
-        Task {
-            let all = await FavoriteClipResolver.shareClips(from: mediaStore.getAllVideos(in: .favorites))
-            let eligible = all.filter { $0.duration <= ShareRallyViewModel.maxDurationSeconds }
-            guard !eligible.isEmpty else {
-                toast = BSCToastMessage(
-                    text: all.isEmpty ? "No favorites yet" : "All favorites are over 1 minute",
-                    style: .error
-                )
-                return
-            }
-            favoriteClipsToPick = eligible
-        }
-    }
-
-    /// The rally waiting in the composer — a thumbnail, its name, and a way
+    /// The post waiting in the composer — a thumbnail, its caption, and a way
     /// to change your mind before it goes.
-    private func pendingAttachmentChip(_ payload: SendToViewModel.Payload) -> some View {
+    private func pendingAttachmentChip(_ highlight: Highlight) -> some View {
         HStack(spacing: BSCSpacing.sm) {
-            Group {
-                switch payload {
-                case .clip(let clip):
-                    VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url, time: clip.timeRange?.start ?? .zero)
-                case .highlight(let highlight):
-                    AsyncImage(url: highlight.thumbnailImageURL) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Color.bscSurfaceGlass
-                    }
-                }
+            AsyncImage(url: highlight.thumbnailImageURL) { image in
+                image.resizable().aspectRatio(contentMode: .fill)
+            } placeholder: {
+                Color.bscSurfaceGlass
             }
             .frame(width: 48, height: 30)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
 
-            Text({
-                switch payload {
-                case .clip(let clip): return clip.displayName
-                case .highlight(let highlight):
-                    return highlight.caption.flatMap { $0.isEmpty ? nil : $0 } ?? "Your post"
-                }
-            }())
-            .bscFont(size: 13, weight: .semibold)
-            .foregroundColor(.bscTextPrimary)
-            .lineLimit(1)
+            Text(highlight.caption.flatMap { $0.isEmpty ? nil : $0 } ?? "Your post")
+                .bscFont(size: 13, weight: .semibold)
+                .foregroundColor(.bscTextPrimary)
+                .lineLimit(1)
 
             Spacer()
 
@@ -371,25 +305,8 @@ struct ConversationView: View {
                 .padding(.horizontal, BSCSpacing.md)
             }
 
-            if let payload = viewModel.pendingAttachment {
-                pendingAttachmentChip(payload)
-            }
-
-            if let progress = viewModel.attachmentProgress, let stage = viewModel.attachmentStage {
-                HStack(spacing: BSCSpacing.sm) {
-                    BSCProgressRing(progress: progress) {
-                        Text("\(Int(progress * 100))")
-                            .bscFont(size: 10, weight: .bold)
-                            .foregroundColor(.bscTextPrimary)
-                    }
-                    .frame(width: 28, height: 28)
-                    Text(stage)
-                        .bscFont(size: 13, weight: .semibold)
-                        .foregroundColor(.bscTextSecondary)
-                    Spacer()
-                }
-                .padding(.horizontal, BSCSpacing.md)
-                .accessibilityElement(children: .combine)
+            if let highlight = viewModel.pendingAttachment {
+                pendingAttachmentChip(highlight)
             }
 
             HStack(spacing: BSCSpacing.sm) {
@@ -397,11 +314,11 @@ struct ConversationView: View {
                     icon: "video.badge.plus",
                     style: .glass,
                     size: .compact,
-                    accessibilityLabel: "Attach a rally"
+                    accessibilityLabel: "Attach one of your posts"
                 ) {
-                    showingAttachOptions = true
+                    showingMyPosts = true
                 }
-                .disabled(viewModel.isClosed || viewModel.attachmentProgress != nil)
+                .disabled(viewModel.isClosed)
                 .accessibilityIdentifier(AccessibilityID.Messages.attachButton)
 
                 TextField("Message…", text: $viewModel.draftText, axis: .vertical)

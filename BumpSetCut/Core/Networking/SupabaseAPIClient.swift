@@ -961,20 +961,10 @@ final class SupabaseAPIClient: APIClient, MessageMediaClient, @unchecked Sendabl
         return components[(bucketIndex + 1)...].joined(separator: "/")
     }
 
-    // MARK: - Message Media (private DM clips)
-
-    /// Streams a clip into the private `message-media` bucket. The `{userId}/`
-    /// folder prefix is required by the bucket's insert policy.
-    nonisolated func uploadMessageClip(fileURL: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> String {
-        try await streamUpload(fileURL: fileURL, bucket: "message-media", progress: progress)
-    }
+    // MARK: - Message Media (private DM clips, playback only)
 
     nonisolated func signedURL(forMessageClip path: String) async throws -> URL {
         try await supabase.storage.from("message-media").createSignedURL(path: path, expiresIn: 3600)
-    }
-
-    nonisolated func deleteMessageClip(path: String) async throws {
-        _ = try await supabase.storage.from("message-media").remove(paths: [path])
     }
 
     // MARK: - Private

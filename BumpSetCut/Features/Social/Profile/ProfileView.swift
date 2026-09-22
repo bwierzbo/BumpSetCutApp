@@ -106,7 +106,7 @@ struct ProfileView: View {
                         }
                     } : nil,
                     onSend: authService.isAuthenticated
-                        ? { highlight in sendRequest = SendToRequest(payload: .highlight(highlight)) }
+                        ? { highlight in sendRequest = SendToRequest(highlight: highlight) }
                         : nil,
                     onDismiss: { selectedHighlightIndex = nil }
                 )
@@ -114,7 +114,7 @@ struct ProfileView: View {
                 // a sheet or toast on the view beneath a full-screen cover is
                 // never seen.
                 .sheet(item: $sendRequest) { request in
-                    SendToSheet(payload: request.payload) { conversationId, username in
+                    SendToSheet(highlight: request.highlight) { conversationId, username in
                         sendToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
                     }
                 }

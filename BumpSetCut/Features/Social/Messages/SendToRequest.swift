@@ -8,11 +8,11 @@
 
 import Foundation
 
-/// A pending send. A fresh id per request means the same rally can be sent
+/// A pending send. A fresh id per request means the same post can be sent
 /// again right after — SwiftUI treats it as a new item, not a re-show.
 struct SendToRequest: Identifiable {
     let id = UUID()
-    let payload: SendToViewModel.Payload
+    let highlight: Highlight
 }
 
 extension BSCToastMessage {

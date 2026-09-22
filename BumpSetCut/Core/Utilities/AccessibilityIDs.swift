@@ -53,12 +53,10 @@ enum AccessibilityID {
         static let bubble = "messages.bubble"
         static let retry = "messages.retry"
         static let attachMyPosts = "messages.attach.myPosts"
-        static let attachFavorites = "messages.attach.favorites"
         static let attachCell = "messages.attach.cell"
         static let recipientSearch = "messages.recipient.search"
         static let recipientRow = "messages.recipient.row"
         static let sendToNote = "messages.sendTo.note"
-        static let sendToProgress = "messages.sendTo.progress"
         static let sendToRetry = "messages.sendTo.retry"
     }
 
@@ -112,7 +110,6 @@ enum AccessibilityID {
         static let feedCounter = "favorites.feed.counter"
         static let feedPauseIcon = "favorites.feed.pauseIcon"
         static let feedVideoName = "favorites.feed.videoName"
-        static let sendToFriend = "favorites.sendToFriend"
     }
 
     enum AuthGate {

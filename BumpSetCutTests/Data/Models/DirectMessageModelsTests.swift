@@ -150,14 +150,14 @@ final class DirectMessageModelsTests: XCTestCase {
     // MARK: - Send parameters
 
     func testSendMessageParamsEncodeRPCArgumentNames() throws {
-        let params = SendMessageParams.clip(path: "me/x.mp4", duration: 8, in: "c1")
+        let params = SendMessageParams.highlight("hl-9", in: "c1")
         let json = String(decoding: try encoder.encode(params), as: UTF8.self)
 
         XCTAssertTrue(json.contains("\"p_conversation_id\":\"c1\""))
-        XCTAssertTrue(json.contains("\"p_attachment_type\":\"clip\""))
-        XCTAssertTrue(json.contains("\"p_clip_path\":\"me\\/x.mp4\"") || json.contains("\"p_clip_path\":\"me/x.mp4\""))
+        XCTAssertTrue(json.contains("\"p_attachment_type\":\"highlight\""))
+        XCTAssertTrue(json.contains("\"p_highlight_id\":\"hl-9\""))
         // Nil arguments are omitted so the SQL DEFAULT NULLs apply.
-        XCTAssertFalse(json.contains("p_highlight_id"))
+        XCTAssertFalse(json.contains("p_clip_path"))
         XCTAssertFalse(json.contains("p_body"))
     }
 

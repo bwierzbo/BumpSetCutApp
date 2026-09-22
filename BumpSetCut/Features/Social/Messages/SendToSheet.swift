@@ -3,9 +3,9 @@
 //  BumpSetCut
 //
 //  "Send to Friend": pick a person, optionally add a note, send. Presented
-//  from the rally player, favorites, and feed cards. On success the presenter
-//  gets the conversation id and username back to show a "Sent to @x — View"
-//  toast; the sheet itself just closes.
+//  from feed, profile and search cards. On success the presenter gets the
+//  conversation id and username back to show a "Sent to @x — View" toast;
+//  the sheet itself just closes.
 //
 
 import SwiftUI
@@ -19,11 +19,10 @@ struct SendToSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthenticationService.self) private var authService
 
-    init(payload: SendToViewModel.Payload,
+    init(highlight: Highlight,
          apiClient: (any APIClient)? = nil,
-         media: (any MessageMediaClient)? = nil,
          onSent: @escaping (String, String) -> Void) {
-        _viewModel = State(initialValue: SendToViewModel(payload: payload, apiClient: apiClient, media: media))
+        _viewModel = State(initialValue: SendToViewModel(highlight: highlight, apiClient: apiClient))
         self.onSent = onSent
     }
 
@@ -56,7 +55,7 @@ struct SendToSheet: View {
             ScrollView {
                 VStack(spacing: BSCSpacing.lg) {
                     recipientRow
-                    payloadPreview
+                    postPreview
                     noteField
                     if let failure = viewModel.failure {
                         failureCard(failure)
@@ -69,12 +68,11 @@ struct SendToSheet: View {
             footer
         }
         .background(Color.bscBackground.ignoresSafeArea())
-        .navigationTitle("Send Rally")
+        .navigationTitle("Send Post")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                // Also the way out of a send in flight: the export/upload
-                // task is cancelled and any uploaded object is cleaned up.
+                // Also the way out of a send in flight.
                 Button("Cancel") {
                     viewModel.cancel()
                     dismiss()
@@ -111,34 +109,20 @@ struct SendToSheet: View {
         }
     }
 
-    private var payloadPreview: some View {
+    private var postPreview: some View {
         HStack(spacing: BSCSpacing.md) {
-            Group {
-                switch viewModel.payload {
-                case .clip(let clip):
-                    VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url, time: clip.timeRange?.start ?? .zero)
-                case .highlight(let highlight):
-                    AsyncImage(url: highlight.thumbnailURL) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Color.bscSurfaceGlass
-                    }
-                }
+            AsyncImage(url: viewModel.highlight.thumbnailURL) { image in
+                image.resizable().aspectRatio(contentMode: .fill)
+            } placeholder: {
+                Color.bscSurfaceGlass
             }
             .frame(width: 96, height: 60)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
 
-            VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                Text(viewModel.payloadDisplayName)
-                    .bscFont(size: 15, weight: .semibold)
-                    .foregroundColor(.bscTextPrimary)
-                    .lineLimit(2)
-                if case .clip(let clip) = viewModel.payload {
-                    Text(Self.durationText(clip.duration))
-                        .bscFont(size: 13)
-                        .foregroundColor(.bscTextSecondary)
-                }
-            }
+            Text(viewModel.displayName)
+                .bscFont(size: 15, weight: .semibold)
+                .foregroundColor(.bscTextPrimary)
+                .lineLimit(2)
             Spacer(minLength: 0)
         }
     }
@@ -180,44 +164,17 @@ struct SendToSheet: View {
         )
     }
 
-    /// One indicator at a time: the Send button while idle, a single
-    /// progress ring (overall, 0–100) while a send is in flight.
-    @ViewBuilder
     private var footer: some View {
-        VStack(spacing: BSCSpacing.sm) {
-            if let progress = viewModel.progress, let label = viewModel.busyLabel {
-                HStack(spacing: BSCSpacing.md) {
-                    BSCProgressRing(progress: progress) {
-                        Text("\(Int(progress * 100))")
-                            .bscFont(size: 11, weight: .bold)
-                            .foregroundColor(.bscTextPrimary)
-                    }
-                    .frame(width: 36, height: 36)
-                    Text(label)
-                        .bscFont(size: 14, weight: .semibold)
-                        .foregroundColor(.bscTextSecondary)
-                    Spacer()
-                }
-                .frame(minHeight: BSCTouchTarget.standard)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier(AccessibilityID.Messages.sendToProgress)
-            } else {
-                BSCButton(
-                    title: "Send",
-                    icon: "paperplane.fill",
-                    style: .primary,
-                    action: { viewModel.send() }
-                )
-                .disabled(!viewModel.canSend)
-                .accessibilityIdentifier(AccessibilityID.Messages.sendButton)
-            }
-        }
+        BSCButton(
+            title: "Send",
+            icon: "paperplane.fill",
+            style: .primary,
+            isLoading: viewModel.isBusy,
+            action: { viewModel.send() }
+        )
+        .disabled(!viewModel.canSend)
+        .accessibilityIdentifier(AccessibilityID.Messages.sendButton)
         .padding(BSCSpacing.lg)
         .background(Color.bscBackgroundElevated)
-    }
-
-    private static func durationText(_ seconds: Double) -> String {
-        let total = max(0, Int(seconds.rounded()))
-        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }

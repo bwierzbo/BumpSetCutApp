@@ -16,13 +16,8 @@ struct InboxView: View {
     @State private var path = SwiftUI.NavigationPath()
     @State private var toast: BSCToastMessage?
 
-    /// Threads can attach a favorite, which means enumerating the library —
-    /// the store is handed down from Home rather than opened a second time.
-    private let mediaStore: MediaStore
-
-    init(currentUserId: String, mediaStore: MediaStore) {
+    init(currentUserId: String) {
         _viewModel = State(initialValue: InboxViewModel(currentUserId: currentUserId))
-        self.mediaStore = mediaStore
     }
 
     var body: some View {
@@ -54,7 +49,7 @@ struct InboxView: View {
                 }
             }
             .navigationDestination(for: ConversationRoute.self) { route in
-                ConversationView(route: route, currentUserId: viewModel.currentUserId, mediaStore: mediaStore)
+                ConversationView(route: route, currentUserId: viewModel.currentUserId)
             }
             .profileNavigationDestinations()
         }
