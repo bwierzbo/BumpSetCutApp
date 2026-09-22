@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var showFlywheelConsent = false
     @State private var flywheelService = FlywheelCaptureService.shared
     @State private var showDeleteConfirmation = false
+    @State private var showSignOutConfirmation = false
     @State private var showBlockedUsers = false
     @State private var isDeletingAccount = false
     @State private var deleteError: String?
@@ -582,9 +583,10 @@ private extension SettingsView {
                     Divider()
                         .overlay(Color.bscSurfaceBorder)
 
-                    // Sign out button
+                    // Sign out button — confirmed first: it sits one row above
+                    // Delete Account and a stray tap used to sign out instantly.
                     Button {
-                        authService.signOut()
+                        showSignOutConfirmation = true
                     } label: {
                         HStack {
                             Image(systemName: "rectangle.portrait.and.arrow.right")
@@ -599,6 +601,14 @@ private extension SettingsView {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier(AccessibilityID.Settings.signOut)
+                    .alert("Sign Out?", isPresented: $showSignOutConfirmation) {
+                        Button("Cancel", role: .cancel) {}
+                        Button("Sign Out", role: .destructive) {
+                            authService.signOut()
+                        }
+                    } message: {
+                        Text("Your videos and favorites stay on this phone. You'll need to sign in again to post, message, or see your stats.")
+                    }
 
                     Divider()
                         .overlay(Color.bscSurfaceBorder)

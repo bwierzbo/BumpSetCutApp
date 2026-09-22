@@ -22,8 +22,13 @@ struct ProfileScreen {
         app.buttons["profile.editProfile"]
     }
 
+    var settingsButton: XCUIElement {
+        app.buttons["profile.settings"]
+    }
+
+    /// Sign Out is a row in the Settings sheet, opened from the gear.
     var signOutButton: XCUIElement {
-        app.buttons["profile.signOut"]
+        app.buttons["settings.signOut"]
     }
 
     var followButton: XCUIElement {

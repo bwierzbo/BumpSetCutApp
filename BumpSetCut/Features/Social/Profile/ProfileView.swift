@@ -147,6 +147,7 @@ struct ProfileView: View {
                         showingSettings = true
                     }
                     .accessibilityLabel("Settings")
+                    .accessibilityIdentifier(AccessibilityID.Profile.settingsButton)
                 }
             } else {
                 ToolbarItem(placement: .navigationBarTrailing) {

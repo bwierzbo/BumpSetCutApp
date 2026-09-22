@@ -151,7 +151,8 @@ enum AccessibilityID {
 
     enum Profile {
         static let editProfileButton = "profile.editProfile"
-        static let signOutButton = "profile.signOut"
+        /// Gear on your own profile; sign-out lives behind it in Settings.
+        static let settingsButton = "profile.settings"
         static let followButton = "profile.follow"
         static let highlightsCount = "profile.highlightsCount"
         static let followersCount = "profile.followersCount"

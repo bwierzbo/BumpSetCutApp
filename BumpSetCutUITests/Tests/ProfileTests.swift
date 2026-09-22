@@ -102,15 +102,16 @@ final class ProfileTests: BSCUITestCase {
 
     // MARK: - Sign Out from Profile (13.1.7)
 
-    /// Sign out button exists on own profile
+    /// Sign out is reachable from own profile via Settings
     func testSignOutButtonExists() {
         tapProfileTab()
         if authGate.signInButton.waitForExistence(timeout: 3) { return }
 
-        guard profileScreen.username.waitForExistence(timeout: 5) else { return }
+        guard profileScreen.settingsButton.waitForExistence(timeout: 5) else { return }
+        profileScreen.settingsButton.tap()
 
-        XCTAssertTrue(profileScreen.signOutButton.exists,
-                       "Sign Out button should exist on own profile")
+        XCTAssertTrue(profileScreen.signOutButton.waitForExistence(timeout: 3),
+                       "Sign Out row should exist in Settings for a signed-in user")
     }
 
     /// Sign out shows confirmation alert
@@ -118,6 +119,8 @@ final class ProfileTests: BSCUITestCase {
         tapProfileTab()
         if authGate.signInButton.waitForExistence(timeout: 3) { return }
 
+        guard profileScreen.settingsButton.waitForExistence(timeout: 5) else { return }
+        profileScreen.settingsButton.tap()
         guard profileScreen.signOutButton.waitForExistence(timeout: 5) else { return }
 
         profileScreen.signOutButton.tap()
