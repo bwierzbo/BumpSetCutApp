@@ -126,6 +126,18 @@ struct LibraryView: View {
     }
 }
 
+// MARK: - Mutations
+private extension LibraryView {
+    /// Runs a fire-and-forget library mutation, surfacing failures as a toast.
+    @MainActor
+    func runMutation(failureMessage: String, _ mutation: @escaping () async throws -> Void) {
+        Task {
+            do { try await mutation() }
+            catch { mutationToast = BSCToastMessage(text: failureMessage, style: .error) }
+        }
+    }
+}
+
 // MARK: - Main Content
 private extension LibraryView {
     @ViewBuilder
@@ -318,39 +330,7 @@ private extension LibraryView {
     var foldersList: some View {
         LazyVStack(spacing: BSCSpacing.sm) {
             ForEach(viewModel.filteredFolders, id: \.id) { folder in
-                BSCFolderCard(
-                    folder: folder,
-                    displayMode: .list,
-                    isDropTargeted: dropTargetFolderPath == folder.path,
-                    onTap: {
-                        withAnimation(.bscSpring) {
-                            viewModel.navigateToFolder(folder.path)
-                        }
-                    },
-                    onRename: { newName in
-                        Task {
-                            do { try await viewModel.renameFolder(folder, to: newName) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename folder", style: .error) }
-                        }
-                    },
-                    onDelete: {
-                        Task {
-                            do { try await viewModel.deleteFolder(folder) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't delete folder", style: .error) }
-                        }
-                    }
-                )
-                .dropDestination(for: VideoMetadata.self) { videos, _ in
-                    // Move dragged video to this folder
-                    guard let video = videos.first else { return false }
-                    Task {
-                        do { try await viewModel.moveVideo(video, to: folder.path) }
-                        catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
-                    }
-                    return true
-                } isTargeted: { targeted in
-                    updateDropTarget(folder.path, targeted: targeted)
-                }
+                folderCard(folder, displayMode: .list)
             }
         }
     }
@@ -361,40 +341,42 @@ private extension LibraryView {
 
         return LazyVGrid(columns: columns, spacing: BSCSpacing.md) {
             ForEach(viewModel.filteredFolders, id: \.id) { folder in
-                BSCFolderCard(
-                    folder: folder,
-                    displayMode: .grid,
-                    isDropTargeted: dropTargetFolderPath == folder.path,
-                    onTap: {
-                        withAnimation(.bscSpring) {
-                            viewModel.navigateToFolder(folder.path)
-                        }
-                    },
-                    onRename: { newName in
-                        Task {
-                            do { try await viewModel.renameFolder(folder, to: newName) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename folder", style: .error) }
-                        }
-                    },
-                    onDelete: {
-                        Task {
-                            do { try await viewModel.deleteFolder(folder) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't delete folder", style: .error) }
-                        }
-                    }
-                )
-                .dropDestination(for: VideoMetadata.self) { videos, _ in
-                    // Move dragged video to this folder
-                    guard let video = videos.first else { return false }
-                    Task {
-                        do { try await viewModel.moveVideo(video, to: folder.path) }
-                        catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
-                    }
-                    return true
-                } isTargeted: { targeted in
-                    updateDropTarget(folder.path, targeted: targeted)
+                folderCard(folder, displayMode: .grid)
+            }
+        }
+    }
+
+    /// Grid and list share every folder behavior — only the card's layout differs.
+    func folderCard(_ folder: FolderMetadata, displayMode: BSCFolderCard.DisplayMode) -> some View {
+        BSCFolderCard(
+            folder: folder,
+            displayMode: displayMode,
+            isDropTargeted: dropTargetFolderPath == folder.path,
+            onTap: {
+                withAnimation(.bscSpring) {
+                    viewModel.navigateToFolder(folder.path)
+                }
+            },
+            onRename: { newName in
+                runMutation(failureMessage: "Couldn't rename folder") {
+                    try await viewModel.renameFolder(folder, to: newName)
+                }
+            },
+            onDelete: {
+                runMutation(failureMessage: "Couldn't delete folder") {
+                    try await viewModel.deleteFolder(folder)
                 }
             }
+        )
+        .dropDestination(for: VideoMetadata.self) { videos, _ in
+            // Move dragged video to this folder
+            guard let video = videos.first else { return false }
+            runMutation(failureMessage: "Couldn't move video") {
+                try await viewModel.moveVideo(video, to: folder.path)
+            }
+            return true
+        } isTargeted: { targeted in
+            updateDropTarget(folder.path, targeted: targeted)
         }
     }
 
@@ -432,35 +414,7 @@ private extension LibraryView {
     var videosList: some View {
         LazyVStack(spacing: BSCSpacing.sm) {
             ForEach(viewModel.filteredVideos, id: \.id) { video in
-                BSCVideoCard(
-                    video: video,
-                    mediaStore: viewModel.folderManager.store,
-                    displayMode: .list,
-                    onDelete: {
-                        Task {
-                            do { try await viewModel.deleteVideo(video) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't delete video", style: .error) }
-                        }
-                    },
-                    onRefresh: { viewModel.refresh() },
-                    onRename: { newName in
-                        Task {
-                            do { try await viewModel.renameVideo(video, to: newName) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename video", style: .error) }
-                        }
-                    },
-                    onMove: { targetFolder in
-                        Task {
-                            do { try await viewModel.moveVideo(video, to: targetFolder) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
-                        }
-                    },
-                    onPlayVideo: { playingVideo = video },
-                    onViewRallies: { viewingRalliesVideo = video },
-                    onScoreGame: { scoringVideo = video },
-                    onFreeUpSpace: { spaceSaverVideo = video }
-                )
-                .draggable(video)  // Make videos draggable
+                videoCard(video, displayMode: .list)
             }
         }
     }
@@ -471,37 +425,39 @@ private extension LibraryView {
 
         return LazyVGrid(columns: columns, spacing: BSCSpacing.md) {
             ForEach(viewModel.filteredVideos, id: \.id) { video in
-                BSCVideoCard(
-                    video: video,
-                    mediaStore: viewModel.folderManager.store,
-                    displayMode: .grid,
-                    onDelete: {
-                        Task {
-                            do { try await viewModel.deleteVideo(video) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't delete video", style: .error) }
-                        }
-                    },
-                    onRefresh: { viewModel.refresh() },
-                    onRename: { newName in
-                        Task {
-                            do { try await viewModel.renameVideo(video, to: newName) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't rename video", style: .error) }
-                        }
-                    },
-                    onMove: { targetFolder in
-                        Task {
-                            do { try await viewModel.moveVideo(video, to: targetFolder) }
-                            catch { mutationToast = BSCToastMessage(text: "Couldn't move video", style: .error) }
-                        }
-                    },
-                    onPlayVideo: { playingVideo = video },
-                    onViewRallies: { viewingRalliesVideo = video },
-                    onScoreGame: { scoringVideo = video },
-                    onFreeUpSpace: { spaceSaverVideo = video }
-                )
-                .draggable(video)  // Make videos draggable
+                videoCard(video, displayMode: .grid)
             }
         }
+    }
+
+    /// Grid and list share every video behavior — only the card's layout differs.
+    func videoCard(_ video: VideoMetadata, displayMode: BSCVideoCard.DisplayMode) -> some View {
+        BSCVideoCard(
+            video: video,
+            mediaStore: viewModel.folderManager.store,
+            displayMode: displayMode,
+            onDelete: {
+                runMutation(failureMessage: "Couldn't delete video") {
+                    try await viewModel.deleteVideo(video)
+                }
+            },
+            onRefresh: { viewModel.refresh() },
+            onRename: { newName in
+                runMutation(failureMessage: "Couldn't rename video") {
+                    try await viewModel.renameVideo(video, to: newName)
+                }
+            },
+            onMove: { targetFolder in
+                runMutation(failureMessage: "Couldn't move video") {
+                    try await viewModel.moveVideo(video, to: targetFolder)
+                }
+            },
+            onPlayVideo: { playingVideo = video },
+            onViewRallies: { viewingRalliesVideo = video },
+            onScoreGame: { scoringVideo = video },
+            onFreeUpSpace: { spaceSaverVideo = video }
+        )
+        .draggable(video)  // Make videos draggable
     }
 
     func sectionHeader(_ title: String, isLandscape: Bool) -> some View {
