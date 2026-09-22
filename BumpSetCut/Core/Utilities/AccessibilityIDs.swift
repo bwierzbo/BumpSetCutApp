@@ -216,7 +216,6 @@ enum AccessibilityID {
         static let save = "rallyPlayer.save"
         static let favorite = "rallyPlayer.favorite"
         static let chooseFolder = "rallyPlayer.chooseFolder"
-        static let sendToFriend = "rallyPlayer.sendToFriend"
     }
 
     enum Share {

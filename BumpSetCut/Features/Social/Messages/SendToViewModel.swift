@@ -89,10 +89,12 @@ final class SendToViewModel {
         }
     }
 
+    /// Stage only — the ring next to it carries the one overall percentage,
+    /// so a second per-stage number here would just disagree with it.
     var busyLabel: String? {
         switch phase {
         case .preparing: return "Preparing rally…"
-        case .uploading(let value): return "Uploading… \(Int(value * 100))%"
+        case .uploading: return "Uploading…"
         case .sending: return "Sending…"
         default: return nil
         }
@@ -168,7 +170,14 @@ final class SendToViewModel {
                         if case .uploading = self?.phase { self?.phase = .uploading(value) }
                     }
                 }
-                try Task.checkCancellation()
+                if Task.isCancelled {
+                    // Cancelled after the object landed: nothing will ever
+                    // reference it. Detached, because a request made from a
+                    // cancelled task is refused before it starts.
+                    let media = self.media
+                    Task.detached { try? await media.deleteMessageClip(path: path) }
+                    throw CancellationError()
+                }
 
                 phase = .sending
                 do {

@@ -28,10 +28,6 @@ struct RallyPlayerView: View {
     /// Which rallies the export sheet should work on. nil means every saved
     /// rally, which is the case when there was only one to begin with.
     @State private var exportSelection: [Int]?
-    /// "Send to Friend": the rally on its way to the send sheet, and the
-    /// "Sent to @x" toast once it has gone.
-    @State private var sendRequest: SendToRequest?
-    @State private var sendToast: BSCToastMessage?
     @State private var showPostAnotherPrompt = false
     /// Rotation captured at the start of a two-finger twist (RotationGesture
     /// reports angle relative to its own start).
@@ -40,7 +36,6 @@ struct RallyPlayerView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(AppNavigationState.self) private var navigationState
     @Environment(AppSettings.self) private var appSettings
-    @Environment(AuthenticationService.self) private var authService
 
     private var currentRallySegment: RallySegment? {
         guard let metadata = viewModel.processingMetadata,
@@ -169,12 +164,6 @@ struct RallyPlayerView: View {
                     onCancel: { pendingPicker = nil }
                 )
             }
-            .sheet(item: $sendRequest) { request in
-                SendToSheet(payload: request.payload) { conversationId, username in
-                    sendToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
-                }
-            }
-            .bscToast($sendToast)
             .sheet(item: $rallyIndexToShare) { item in
                 ShareRallySheet(
                     originalVideoURL: viewModel.videoMetadata.originalURL,
@@ -357,11 +346,6 @@ struct RallyPlayerView: View {
                 onShowTips: { showingGestureTips = true },
                 onShowOverview: { viewModel.showOverviewSheet = true },
                 onShare: { viewModel.shareCurrentRally() },
-                // Sending needs an account; signed out, the button is just
-                // the system share sheet.
-                onSendToFriend: authService.isAuthenticated
-                    ? { sendRequest = sendRequestForRally(viewModel.currentRallyIndex) }
-                    : nil,
                 isPreparingShare: viewModel.isPreparingShare
             )
             .zIndex(200)
@@ -829,26 +813,6 @@ struct RallyPlayerView: View {
             exportSelection = indices.sorted()
             viewModel.showExportOptions = true
         }
-    }
-
-    /// The rally on screen as a private clip: the source file plus this
-    /// rally's trim-aware time range — the same slice the share sheet exports.
-    /// It needn't be saved; sending is a share, not a review decision.
-    private func sendRequestForRally(_ index: Int) -> SendToRequest? {
-        let start = viewModel.effectiveStartTime(for: index)
-        let end = viewModel.effectiveEndTime(for: index)
-        guard end > start else { return nil }
-        let clip = FavoriteShareClip(
-            url: viewModel.videoMetadata.originalURL,
-            timeRange: CMTimeRange(
-                start: CMTime(seconds: start, preferredTimescale: 600),
-                end: CMTime(seconds: end, preferredTimescale: 600)
-            ),
-            duration: end - start,
-            displayName: "Rally \(index + 1)",
-            crop: viewModel.framingCrop(for: index)
-        )
-        return SendToRequest(payload: .clip(clip))
     }
 
     /// Saved rallies as picker items. All rallies live in the one source

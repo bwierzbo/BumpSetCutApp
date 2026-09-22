@@ -12,6 +12,9 @@ struct VideoThumbnailView: View {
     let thumbnailURL: URL?
     let videoURL: URL?
     var contentMode: ContentMode = .fill
+    /// Where in `videoURL` to take the still from. Rallies are slices of one
+    /// source file, so each needs its own moment or every card looks alike.
+    var time: CMTime = .zero
 
     @State private var generatedImage: UIImage?
     @State private var didFail = false
@@ -63,7 +66,8 @@ struct VideoThumbnailView: View {
         guard thumbnailURL == nil, generatedImage == nil, let videoURL else { return }
 
         // Use cache first
-        if let cached = ThumbnailCache.shared.get(for: videoURL) {
+        let cacheKey = ThumbnailCache.key(for: videoURL, at: time)
+        if let cached = ThumbnailCache.shared.get(for: cacheKey) {
             generatedImage = cached
             return
         }
@@ -82,8 +86,8 @@ struct VideoThumbnailView: View {
 
         do {
             let cgImage = try await withThrowingTaskGroup(of: CGImage.self) { group in
-                group.addTask {
-                    try await generator.image(at: .zero).image
+                group.addTask { [time] in
+                    try await generator.image(at: time).image
                 }
                 group.addTask {
                     try await Task.sleep(for: .seconds(8))
@@ -94,7 +98,7 @@ struct VideoThumbnailView: View {
                 return result
             }
             let image = UIImage(cgImage: cgImage)
-            ThumbnailCache.shared.set(image, for: videoURL)
+            ThumbnailCache.shared.set(image, for: cacheKey)
             generatedImage = image
         } catch is CancellationError {
             // Task cancelled by scroll or timeout — don't mark as failed so it retries
@@ -116,11 +120,17 @@ private final class ThumbnailCache: @unchecked Sendable {
         cache.countLimit = 100
     }
 
-    func get(for url: URL) -> UIImage? {
-        cache.object(forKey: url.absoluteString as NSString)
+    /// One entry per file *and* moment; the file alone would hand every
+    /// rally of a game the first rally's frame.
+    static func key(for url: URL, at time: CMTime) -> String {
+        time == .zero ? url.absoluteString : "\(url.absoluteString)#\(CMTimeGetSeconds(time))"
     }
 
-    func set(_ image: UIImage, for url: URL) {
-        cache.setObject(image, forKey: url.absoluteString as NSString)
+    func get(for key: String) -> UIImage? {
+        cache.object(forKey: key as NSString)
+    }
+
+    func set(_ image: UIImage, for key: String) {
+        cache.setObject(image, forKey: key as NSString)
     }
 }

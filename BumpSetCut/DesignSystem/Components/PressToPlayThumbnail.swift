@@ -32,7 +32,7 @@ struct PressToPlayThumbnail: View {
 
     var body: some View {
         GeometryReader { geo in
-            VideoThumbnailView(thumbnailURL: nil, videoURL: videoURL)
+            VideoThumbnailView(thumbnailURL: nil, videoURL: videoURL, time: timeRange?.start ?? .zero)
                 .frame(width: geo.size.width, height: geo.size.height)
                 .clipped()
         }

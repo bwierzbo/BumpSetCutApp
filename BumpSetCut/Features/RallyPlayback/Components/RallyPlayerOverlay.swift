@@ -11,10 +11,6 @@ struct RallyPlayerOverlay: View {
     var onShowTips: () -> Void = {}
     var onShowOverview: () -> Void = {}
     var onShare: () -> Void = {}
-    /// Send the current rally as a direct message. When set, the share button
-    /// becomes a menu offering this alongside the system share sheet; nil
-    /// (signed out) keeps it a plain share button.
-    var onSendToFriend: (() -> Void)? = nil
     var isPreparingShare: Bool = false
 
     var body: some View {
@@ -43,53 +39,31 @@ struct RallyPlayerOverlay: View {
     }
 
     // MARK: - Share Button
-    @ViewBuilder
     private var shareButton: some View {
-        if let onSendToFriend {
-            Menu {
-                Button(action: onSendToFriend) {
-                    Label("Send to a Friend", systemImage: "envelope")
+        Button(action: onShare) {
+            Group {
+                if isPreparingShare {
+                    ProgressView()
+                        .tint(.bscOnMedia)
+                } else {
+                    Image(systemName: "square.and.arrow.up")
+                        .bscFont(size: 16, weight: .medium)
+                        .foregroundColor(.bscOnMedia)
                 }
-                .accessibilityIdentifier(AccessibilityID.RallyPlayer.sendToFriend)
-                Button(action: onShare) {
-                    Label("Share…", systemImage: "square.and.arrow.up")
-                }
-            } label: {
-                shareGlyph
             }
-            .disabled(isPreparingShare)
-            .accessibilityLabel("Share rally")
-            .accessibilityIdentifier("rallyPlayer.share")
-        } else {
-            Button(action: onShare) {
-                shareGlyph
-            }
-            .disabled(isPreparingShare)
-            .accessibilityLabel("Share rally")
-            .accessibilityIdentifier("rallyPlayer.share")
+            .frame(width: 44, height: 44)
+            .background(
+                Circle()
+                    .fill(Color.bscMediaScrim)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1)
+                    )
+            )
         }
-    }
-
-    private var shareGlyph: some View {
-        Group {
-            if isPreparingShare {
-                ProgressView()
-                    .tint(.bscOnMedia)
-            } else {
-                Image(systemName: "square.and.arrow.up")
-                    .bscFont(size: 16, weight: .medium)
-                    .foregroundColor(.bscOnMedia)
-            }
-        }
-        .frame(width: 44, height: 44)
-        .background(
-            Circle()
-                .fill(Color.bscMediaScrim)
-                .overlay(
-                    Circle()
-                        .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1)
-                )
-        )
+        .disabled(isPreparingShare)
+        .accessibilityLabel("Share rally")
+        .accessibilityIdentifier("rallyPlayer.share")
     }
 
     // MARK: - Help Button

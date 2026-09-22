@@ -106,6 +106,32 @@ final class SendToFlowTests: XCTestCase {
         XCTAssertEqual(media.deletedPaths, ["them/clip.mp4"], "an object with no message row pointing at it is an orphan")
     }
 
+    func testCancelAfterUpload_deletesOrphanedObject_andSendsNothing() async throws {
+        let client = MockMessagingClient()
+        let media = MockMediaClient()
+        let exported = try tempFile()
+        let vm = SendToViewModel(
+            payload: .clip(clip()), apiClient: client, media: media,
+            exportClip: { _ in exported }
+        )
+        // Cancel lands while the upload is completing, so the object exists
+        // by the time the pipeline notices.
+        media.afterUpload = {
+            await MainActor.run { vm.cancel() }
+        }
+        vm.choose(them)
+        vm.send()
+
+        let deadline = Date().addingTimeInterval(2)
+        while media.deletedPaths.isEmpty, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(media.deletedPaths, ["them/clip.mp4"], "cancelling after the upload must remove the object")
+        XCTAssertFalse(client.calls.contains("sendMessage"), "no message row for a cancelled send")
+        XCTAssertEqual(vm.phase, .idle)
+    }
+
     // MARK: - Failures
 
     func testBlocked_failsBeforeExport_andIsNotRetryable() async {
@@ -233,11 +259,15 @@ final class MockMediaClient: MessageMediaClient, @unchecked Sendable {
     nonisolated(unsafe) var uploadedFiles: [URL] = []
     nonisolated(unsafe) var deletedPaths: [String] = []
     nonisolated(unsafe) var uploadError: Error?
+    /// Runs once the upload has "landed", before the path is returned —
+    /// the window in which a cancel leaves an orphan behind.
+    nonisolated(unsafe) var afterUpload: (@Sendable () async -> Void)?
 
     func uploadMessageClip(fileURL: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> String {
         uploadedFiles.append(fileURL)
         if let uploadError { throw uploadError }
         progress(1)
+        await afterUpload?()
         return "them/clip.mp4"
     }
 

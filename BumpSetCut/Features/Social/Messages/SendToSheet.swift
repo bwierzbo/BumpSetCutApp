@@ -73,9 +73,13 @@ struct SendToSheet: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-                    .foregroundColor(.bscTextSecondary)
-                    .disabled(viewModel.isBusy)
+                // Also the way out of a send in flight: the export/upload
+                // task is cancelled and any uploaded object is cleaned up.
+                Button("Cancel") {
+                    viewModel.cancel()
+                    dismiss()
+                }
+                .foregroundColor(.bscTextSecondary)
             }
         }
     }
@@ -112,7 +116,7 @@ struct SendToSheet: View {
             Group {
                 switch viewModel.payload {
                 case .clip(let clip):
-                    VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url)
+                    VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url, time: clip.timeRange?.start ?? .zero)
                 case .highlight(let highlight):
                     AsyncImage(url: highlight.thumbnailURL) { image in
                         image.resizable().aspectRatio(contentMode: .fill)
@@ -176,6 +180,8 @@ struct SendToSheet: View {
         )
     }
 
+    /// One indicator at a time: the Send button while idle, a single
+    /// progress ring (overall, 0–100) while a send is in flight.
     @ViewBuilder
     private var footer: some View {
         VStack(spacing: BSCSpacing.sm) {
@@ -192,19 +198,19 @@ struct SendToSheet: View {
                         .foregroundColor(.bscTextSecondary)
                     Spacer()
                 }
+                .frame(minHeight: BSCTouchTarget.standard)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AccessibilityID.Messages.sendToProgress)
+            } else {
+                BSCButton(
+                    title: "Send",
+                    icon: "paperplane.fill",
+                    style: .primary,
+                    action: { viewModel.send() }
+                )
+                .disabled(!viewModel.canSend)
+                .accessibilityIdentifier(AccessibilityID.Messages.sendButton)
             }
-
-            BSCButton(
-                title: "Send",
-                icon: "paperplane.fill",
-                style: .primary,
-                isLoading: viewModel.isBusy,
-                action: { viewModel.send() }
-            )
-            .disabled(!viewModel.canSend)
-            .accessibilityIdentifier(AccessibilityID.Messages.sendButton)
         }
         .padding(BSCSpacing.lg)
         .background(Color.bscBackgroundElevated)

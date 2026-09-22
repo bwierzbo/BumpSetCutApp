@@ -311,7 +311,7 @@ struct ConversationView: View {
             Group {
                 switch payload {
                 case .clip(let clip):
-                    VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url)
+                    VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url, time: clip.timeRange?.start ?? .zero)
                 case .highlight(let highlight):
                     AsyncImage(url: highlight.thumbnailImageURL) { image in
                         image.resizable().aspectRatio(contentMode: .fill)
