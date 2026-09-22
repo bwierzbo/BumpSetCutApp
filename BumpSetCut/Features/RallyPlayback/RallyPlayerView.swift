@@ -22,9 +22,9 @@ struct RallyPlayerView: View {
     @State private var showReportMistake = false
     @State private var showAddMissedRallyPrompt = false
     @State private var rallyIndexToShare: ShareableRallyIndex?
-    @State private var pendingRallyPicker: RallyPickerTarget?
-    /// Export runs the same choose-then-act flow as posting.
-    @State private var pendingExportPicker: RallyPickerTarget?
+    /// Pending "choose which saved rallies" step. Posting and exporting run the
+    /// same picker; the target's purpose says which one it is finishing.
+    @State private var pendingPicker: RallyPickerTarget?
     /// Which rallies the export sheet should work on. nil means every saved
     /// rally, which is the case when there was only one to begin with.
     @State private var exportSelection: [Int]?
@@ -36,10 +36,6 @@ struct RallyPlayerView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(AppNavigationState.self) private var navigationState
     @Environment(AppSettings.self) private var appSettings
-
-    private var isPortrait: Bool {
-        verticalSizeClass == .regular
-    }
 
     private var currentRallySegment: RallySegment? {
         guard let metadata = viewModel.processingMetadata,
@@ -105,28 +101,22 @@ struct RallyPlayerView: View {
                         viewModel.jumpToRally(index)
                     },
                     onExport: {
-                        viewModel.showOverviewSheet = false
-                        Task { await viewModel.copyFavoritesToLibrary() }
+                        leaveOverview()
                         // Same as posting: more than one saved rally means
                         // choosing which ones, rather than taking them all.
-                        if let target = rallyPickerTarget() {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                pendingExportPicker = target
-                            }
+                        if let target = rallyPickerTarget(for: .export) {
+                            presentPickerAfterOverview(target)
                         } else {
                             exportSelection = nil
                             viewModel.showExportOptions = true
                         }
                     },
                     onPostToCommunity: { index, postAll in
-                        viewModel.showOverviewSheet = false
-                        Task { await viewModel.copyFavoritesToLibrary() }
+                        leaveOverview()
                         // More than one saved rally: choose which ones go in
                         // the post rather than posting them all.
-                        if postAll, let target = rallyPickerTarget() {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                pendingRallyPicker = target
-                            }
+                        if postAll, let target = rallyPickerTarget(for: .post) {
+                            presentPickerAfterOverview(target)
                         } else {
                             rallyIndexToShare = ShareableRallyIndex(index: index, postAllSaved: false)
                         }
@@ -156,45 +146,22 @@ struct RallyPlayerView: View {
                     }
                 )
             }
-            .sheet(item: $pendingRallyPicker) { target in
+            .sheet(item: $pendingPicker) { target in
                 ClipPickerSheet(
                     title: "Saved rallies",
                     items: target.items,
-                    maxSelection: ShareRallyViewModel.maxClipsPerPost,
+                    maxSelection: target.purpose.maxSelection(itemCount: target.items.count),
+                    confirmTitle: target.purpose.confirmTitle,
                     onConfirm: { indices in
-                        pendingRallyPicker = nil
-                        guard let first = indices.first else { return }
-                        // Let the picker finish dismissing before the share
+                        pendingPicker = nil
+                        guard !indices.isEmpty else { return }
+                        // Let the picker finish dismissing before the next
                         // sheet comes up (same pattern as favorites).
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            rallyIndexToShare = ShareableRallyIndex(
-                                index: first,
-                                postAllSaved: indices.count > 1,
-                                selectedIndices: indices
-                            )
+                            finishPicking(indices, for: target.purpose)
                         }
                     },
-                    onCancel: { pendingRallyPicker = nil }
-                )
-            }
-            .sheet(item: $pendingExportPicker) { target in
-                ClipPickerSheet(
-                    title: "Saved rallies",
-                    items: target.items,
-                    // No cap: unlike a post, an export can take every rally.
-                    maxSelection: target.items.count,
-                    confirmTitle: { "Export \($0) \($0 == 1 ? "Rally" : "Rallies")" },
-                    onConfirm: { indices in
-                        pendingExportPicker = nil
-                        guard !indices.isEmpty else { return }
-                        // Let the picker finish dismissing before the export
-                        // sheet comes up (same pattern as posting).
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            exportSelection = indices.sorted()
-                            viewModel.showExportOptions = true
-                        }
-                    },
-                    onCancel: { pendingExportPicker = nil }
+                    onCancel: { pendingPicker = nil }
                 )
             }
             .sheet(item: $rallyIndexToShare) { item in
@@ -295,7 +262,7 @@ struct RallyPlayerView: View {
             rallyIndexToShare = nil
             viewModel.markRalliesPosted(justPosted)
 
-            if rallyPickerTarget() != nil {
+            if rallyPickerTarget(for: .post) != nil {
                 showPostAnotherPrompt = true
             } else {
                 dismiss()
@@ -305,7 +272,7 @@ struct RallyPlayerView: View {
             Button("Post Another") {
                 // Fresh target so the picker reflects what's now posted.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    pendingRallyPicker = rallyPickerTarget()
+                    pendingPicker = rallyPickerTarget(for: .post)
                 }
             }
             Button("Done", role: .cancel) { dismiss() }
@@ -385,7 +352,7 @@ struct RallyPlayerView: View {
 
             // Action buttons (above all cards) - hidden while trimming or while
             // the rotation-propagation prompt is up.
-            if !viewModel.isTrimmingMode && !viewModel.isAwaitingPropagationChoice {
+            if !interactionBlocked {
                 RallyActionButtons(
                     isSaved: viewModel.currentRallyIsSaved,
                     isRemoved: viewModel.currentRallyIsRemoved,
@@ -403,7 +370,7 @@ struct RallyPlayerView: View {
             // Report-a-mistake affordance (data flywheel, opted-in users only).
             // Top-trailing, below the overlay chrome — tester feedback: at the
             // bottom it sat nearly on top of the Save action button.
-            if viewModel.isFlywheelEnabled && !viewModel.isTrimmingMode && !viewModel.isAwaitingPropagationChoice {
+            if viewModel.isFlywheelEnabled && !interactionBlocked {
                 VStack {
                     HStack {
                         Spacer()
@@ -436,8 +403,7 @@ struct RallyPlayerView: View {
             // "Hold to trim" coach mark — shows every session until the user
             // actually enters trim mode once (tester feedback: the one-time
             // tips overlay wasn't enough to make trimming discoverable).
-            if showTrimHint && !appSettings.hasUsedRallyTrim && !showingGestureTips
-                && !viewModel.isTrimmingMode && !viewModel.isAwaitingPropagationChoice {
+            if showTrimHint && !appSettings.hasUsedRallyTrim && !showingGestureTips && !interactionBlocked {
                 VStack {
                     Spacer()
                     TrimCoachMark()
@@ -564,8 +530,8 @@ struct RallyPlayerView: View {
         }
     }
 
-    /// Swiping/long-pressing is disabled while trimming or while the
-    /// propagation prompt is waiting for an answer.
+    /// Trimming, or the propagation prompt waiting for an answer: swiping and
+    /// long-pressing are disabled, and the normal chrome stays hidden.
     private var interactionBlocked: Bool {
         viewModel.isTrimmingMode || viewModel.isAwaitingPropagationChoice
     }
@@ -811,11 +777,40 @@ struct RallyPlayerView: View {
         viewModel.performAction(action, direction: direction)
     }
 
+    // MARK: - Saved-Rally Picker (posting & exporting)
+
+    /// Shared prelude to posting or exporting from the overview.
+    private func leaveOverview() {
+        viewModel.showOverviewSheet = false
+        Task { await viewModel.copyFavoritesToLibrary() }
+    }
+
+    /// Put the picker up once the overview has finished animating out —
+    /// chaining one sheet straight onto another is flaky in SwiftUI.
+    private func presentPickerAfterOverview(_ target: RallyPickerTarget) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { pendingPicker = target }
+    }
+
+    /// Hand the chosen rallies to whichever flow opened the picker.
+    private func finishPicking(_ indices: [Int], for purpose: RallyPickerPurpose) {
+        switch purpose {
+        case .post:
+            rallyIndexToShare = ShareableRallyIndex(
+                index: indices[0],
+                postAllSaved: indices.count > 1,
+                selectedIndices: indices
+            )
+        case .export:
+            exportSelection = indices.sorted()
+            viewModel.showExportOptions = true
+        }
+    }
+
     /// Saved rallies as picker items. All rallies live in the one source
     /// video, so each item is that file plus the rally's time range — which
     /// is also what the hold-to-preview player uses. Nil when there's
     /// nothing to choose between.
-    private func rallyPickerTarget() -> RallyPickerTarget? {
+    private func rallyPickerTarget(for purpose: RallyPickerPurpose) -> RallyPickerTarget? {
         let info = viewModel.savedRallyShareInfo
         let items: [ClipPickerItem<Int>] = viewModel.savedRalliesArray.sorted().compactMap { index in
             guard let rally = info[index] else { return nil }
@@ -834,7 +829,7 @@ struct RallyPlayerView: View {
             )
         }
         guard items.count > 1 else { return nil }
-        return RallyPickerTarget(items: items)
+        return RallyPickerTarget(items: items, purpose: purpose)
     }
 }
 
@@ -1047,10 +1042,34 @@ struct ShareableRallyIndex: Identifiable {
     var selectedIndices: [Int]? = nil
 }
 
-/// Pending "choose which saved rallies to post" step.
+/// What a run of the saved-rally picker is choosing clips for.
+enum RallyPickerPurpose {
+    case post
+    case export
+
+    /// A post holds a limited number of clips; an export can take every rally.
+    func maxSelection(itemCount: Int) -> Int {
+        switch self {
+        case .post: return ShareRallyViewModel.maxClipsPerPost
+        case .export: return itemCount
+        }
+    }
+
+    /// Confirm-button label — the two flows finish with different verbs.
+    func confirmTitle(_ count: Int) -> String {
+        let noun = count == 1 ? "Rally" : "Rallies"
+        switch self {
+        case .post: return "Post \(count) \(noun)"
+        case .export: return "Export \(count) \(noun)"
+        }
+    }
+}
+
+/// Pending "choose which saved rallies" step.
 struct RallyPickerTarget: Identifiable {
     let id = UUID()
     let items: [ClipPickerItem<Int>]
+    let purpose: RallyPickerPurpose
 }
 
 // MARK: - Preview
