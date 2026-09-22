@@ -83,7 +83,7 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showingInbox) {
             if let userId = authService.currentUser?.id {
-                InboxView(currentUserId: userId)
+                InboxView(currentUserId: userId, mediaStore: mediaStore)
             }
         }
         // A push tap, deep link, or "Message" from a profile opens the inbox,

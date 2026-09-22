@@ -187,9 +187,22 @@ final class MockMessagingClient: APIClient, @unchecked Sendable {
         case .sendMessage(let params):
             calls.append("sendMessage")
             let data = try JSONEncoder().encode(params)
-            sentParams.append(try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
+            let wire = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            sentParams.append(wire)
             if let sendError { throw sendError }
-            return try cast(DirectMessage(id: "m-\(sentParams.count)", conversationId: "conv-1", senderId: "me", recipientId: "them"))
+            // Echo the row the way the RPC does — attachment fields included —
+            // so a merge into the optimistic item keeps what was sent.
+            return try cast(DirectMessage(
+                id: "m-\(sentParams.count)",
+                conversationId: wire["p_conversation_id"] as? String ?? "conv-1",
+                senderId: "me",
+                recipientId: "them",
+                body: wire["p_body"] as? String,
+                attachmentType: (wire["p_attachment_type"] as? String).flatMap(DirectMessage.AttachmentType.init(rawValue:)),
+                highlightId: wire["p_highlight_id"] as? String,
+                clipPath: wire["p_clip_path"] as? String,
+                clipDuration: wire["p_clip_duration"] as? Double
+            ))
         case .getConversations:
             return try cast(conversations)
         case .getFollowing:
@@ -219,9 +232,11 @@ final class MockMessagingClient: APIClient, @unchecked Sendable {
 final class MockMediaClient: MessageMediaClient, @unchecked Sendable {
     nonisolated(unsafe) var uploadedFiles: [URL] = []
     nonisolated(unsafe) var deletedPaths: [String] = []
+    nonisolated(unsafe) var uploadError: Error?
 
     func uploadMessageClip(fileURL: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> String {
         uploadedFiles.append(fileURL)
+        if let uploadError { throw uploadError }
         progress(1)
         return "them/clip.mp4"
     }

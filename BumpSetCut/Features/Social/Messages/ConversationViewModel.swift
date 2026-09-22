@@ -46,6 +46,11 @@ final class ConversationViewModel {
     private(set) var isClosed = false
     /// Bumped whenever the list should jump to the newest message.
     private(set) var scrollToBottomToken = 0
+    /// A rally waiting in the composer; the draft text becomes its caption.
+    private(set) var pendingAttachment: SendToViewModel.Payload?
+    /// Export/upload progress for a clip on its way out, 0…1; nil when idle.
+    private(set) var attachmentProgress: Double?
+    private(set) var attachmentStage: String?
 
     var draftText = "" {
         didSet {
@@ -59,6 +64,14 @@ final class ConversationViewModel {
     private let apiClient: any APIClient
     private let service: DirectMessageService
     private let inserts: () -> AsyncStream<DirectMessage>
+    private let media: any MessageMediaClient
+    /// Exports a clip to a temp file. Injectable so tests never touch
+    /// AVFoundation. The default never watermarks — a 1:1 message isn't
+    /// distribution, and the recipient can't save or re-share it.
+    private let exportClip: @Sendable (FavoriteShareClip) async throws -> URL
+    /// What each in-flight or failed attachment item was built from, so a
+    /// retry can rebuild its params (a clip is re-exported and re-uploaded).
+    private var attachmentPayloads: [String: SendToViewModel.Payload] = [:]
     private var listenTask: Task<Void, Never>?
     private var highlightCache: [String: Highlight?] = [:]
 
@@ -69,15 +82,26 @@ final class ConversationViewModel {
     init(route: ConversationRoute,
          currentUserId: String,
          apiClient: (any APIClient)? = nil,
+         media: (any MessageMediaClient)? = nil,
          service: DirectMessageService = .shared,
-         inserts: (() -> AsyncStream<DirectMessage>)? = nil) {
+         inserts: (() -> AsyncStream<DirectMessage>)? = nil,
+         exportClip: (@Sendable (FavoriteShareClip) async throws -> URL)? = nil) {
         self.conversationId = route.conversationId
         self.summary = route.summary
         self.otherUser = route.otherUser ?? route.summary?.otherUser
         self.currentUserId = currentUserId
         self.apiClient = apiClient ?? SupabaseAPIClient.shared
+        self.media = media ?? SupabaseAPIClient.shared
         self.service = service
         self.inserts = inserts ?? { DirectMessageService.shared.inserts() }
+        self.exportClip = exportClip ?? { clip in
+            try await RallyClipExporter().export(
+                url: clip.url,
+                timeRange: clip.timeRange,
+                addWatermark: false,
+                fileTag: "message_clip"
+            )
+        }
     }
 
     // MARK: - Derived
@@ -85,9 +109,11 @@ final class ConversationViewModel {
     var isRequest: Bool { summary?.myStatus == .pending }
 
     var canSend: Bool {
-        !isClosed
+        let hasText = !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return !isClosed
             && !isRequest
-            && !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && attachmentProgress == nil
+            && (hasText || pendingAttachment != nil)
     }
 
     var showsCharacterCount: Bool { draftText.count >= Self.warnLength }
@@ -171,31 +197,129 @@ final class ConversationViewModel {
 
     func send() async {
         let body = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty, !isClosed else { return }
+        guard canSend else { return }
         draftText = ""
         sendError = nil
 
+        guard let payload = pendingAttachment else {
+            let localId = "local-\(UUID().uuidString)"
+            let optimistic = DirectMessage(
+                id: localId, conversationId: conversationId, senderId: currentUserId,
+                recipientId: summary?.otherUserId ?? "", body: body, createdAt: Date()
+            )
+            items.append(Item(id: localId, message: optimistic, delivery: .sending, isMine: true))
+            scrollToBottomToken += 1
+            await deliver(SendMessageParams.text(body, in: conversationId), itemId: localId)
+            return
+        }
+
+        pendingAttachment = nil
         let localId = "local-\(UUID().uuidString)"
-        let optimistic = DirectMessage(
-            id: localId, conversationId: conversationId, senderId: currentUserId,
-            recipientId: summary?.otherUserId ?? "", body: body, createdAt: Date()
-        )
+        let caption = body.isEmpty ? nil : body
+        // The optimistic row carries enough for the bubble to render now: the
+        // post itself, or the clip's duration behind a placeholder path that
+        // the server's copy replaces on merge.
+        let optimistic: DirectMessage
+        switch payload {
+        case .highlight(let highlight):
+            optimistic = DirectMessage(
+                id: localId, conversationId: conversationId, senderId: currentUserId,
+                recipientId: summary?.otherUserId ?? "", body: caption,
+                attachmentType: .highlight, highlightId: highlight.id, createdAt: Date(), highlight: highlight
+            )
+        case .clip(let clip):
+            optimistic = DirectMessage(
+                id: localId, conversationId: conversationId, senderId: currentUserId,
+                recipientId: summary?.otherUserId ?? "", body: caption,
+                attachmentType: .clip, clipPath: "pending/\(localId)", clipDuration: clip.duration, createdAt: Date()
+            )
+        }
         items.append(Item(id: localId, message: optimistic, delivery: .sending, isMine: true))
+        attachmentPayloads[localId] = payload
         scrollToBottomToken += 1
 
-        await deliver(SendMessageParams.text(body, in: conversationId), itemId: localId)
+        await sendAttachment(payload, caption: caption, itemId: localId)
+    }
+
+    /// Put a rally in the composer. Replaces any earlier choice; the draft
+    /// text becomes the caption when it goes.
+    func attach(_ payload: SendToViewModel.Payload) {
+        guard !isClosed, !isRequest else { return }
+        pendingAttachment = payload
+    }
+
+    func clearAttachment() {
+        pendingAttachment = nil
+    }
+
+    /// A post is attached by id. A clip is exported and uploaded first; any
+    /// failure before the message row exists marks the item failed without
+    /// calling the server, and a clip whose message fails to send is deleted
+    /// again rather than left orphaned in the bucket.
+    private func sendAttachment(_ payload: SendToViewModel.Payload, caption: String?, itemId: String) async {
+        switch payload {
+        case .highlight(let highlight):
+            await deliver(.highlight(highlight.id, caption: caption, in: conversationId), itemId: itemId)
+
+        case .clip(let clip):
+            attachmentStage = "Preparing rally…"
+            attachmentProgress = 0
+            defer {
+                attachmentProgress = nil
+                attachmentStage = nil
+            }
+            do {
+                let fileURL = try await exportClip(clip)
+                defer { try? FileManager.default.removeItem(at: fileURL) }
+                try Task.checkCancellation()
+
+                attachmentStage = "Uploading…"
+                let path = try await media.uploadMessageClip(fileURL: fileURL) { [weak self] value in
+                    Task { @MainActor in
+                        guard let self, self.attachmentProgress != nil else { return }
+                        self.attachmentProgress = 0.2 + value * 0.8
+                    }
+                }
+                try Task.checkCancellation()
+
+                attachmentStage = "Sending…"
+                let before = items.first { $0.id == itemId }?.delivery
+                await deliver(.clip(path: path, duration: clip.duration, caption: caption, in: conversationId), itemId: itemId)
+                if case .failed = items.first(where: { $0.id == itemId })?.delivery, before == .sending {
+                    try? await media.deleteMessageClip(path: path)
+                }
+            } catch is CancellationError {
+                items.removeAll { $0.id == itemId }
+                attachmentPayloads[itemId] = nil
+            } catch {
+                let failure = SendFailure(error)
+                if let index = items.firstIndex(where: { $0.id == itemId }) {
+                    items[index].delivery = .failed(failure)
+                }
+                sendError = failure
+            }
+        }
     }
 
     func retry(_ itemId: String) async {
-        guard let index = items.firstIndex(where: { $0.id == itemId }),
-              let body = items[index].message.body else { return }
+        guard let index = items.firstIndex(where: { $0.id == itemId }) else { return }
         items[index].delivery = .sending
         sendError = nil
+
+        // An attachment is rebuilt from what it was made of — a clip is
+        // exported and uploaded again, since the failed attempt's object may
+        // never have existed or has been deleted.
+        if let payload = attachmentPayloads[itemId] {
+            await sendAttachment(payload, caption: items[index].message.body, itemId: itemId)
+            return
+        }
+        guard let body = items[index].message.body else { return }
         await deliver(SendMessageParams.text(body, in: conversationId), itemId: itemId)
     }
 
     func discard(_ itemId: String) {
         items.removeAll { $0.id == itemId }
+        attachmentPayloads[itemId] = nil
         sendError = nil
     }
 
@@ -220,6 +344,7 @@ final class ConversationViewModel {
         guard let index = items.firstIndex(where: { $0.id == itemId }) else { return }
         items[index].message = server
         items[index].delivery = .sent
+        attachmentPayloads[itemId] = nil
     }
 
     // MARK: - Requests
@@ -263,10 +388,15 @@ final class ConversationViewModel {
 
         // Our own message can arrive over Realtime before the RPC returns —
         // match it to the optimistic row instead of showing it twice.
+        // Attachment rows often have no body, so type and post id take part
+        // in the match — otherwise a pending clip and a pending post could
+        // claim each other's server copy.
         if message.senderId == currentUserId,
            let index = items.firstIndex(where: {
                $0.delivery == .sending
                    && $0.message.body == message.body
+                   && $0.message.attachmentType == message.attachmentType
+                   && $0.message.highlightId == message.highlightId
                    && abs($0.message.createdAt.timeIntervalSince(message.createdAt)) < 120
            }) {
             items[index].message = message
