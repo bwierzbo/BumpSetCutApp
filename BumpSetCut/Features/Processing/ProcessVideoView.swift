@@ -343,7 +343,6 @@ private extension ProcessVideoView {
     var hasMetadataContent: some View {
         completionSummary(
             subtitle: "Here's what the AI found in your video",
-            centersTitle: true,
             showsRallyStats: true
         )
     }
@@ -423,7 +422,7 @@ private extension ProcessVideoView {
 
     /// Results summary shown once processing has finished — the state the view
     /// stays on instead of auto-dismissing, so it must survive a background return.
-    func completionSummary(subtitle: String, centersTitle: Bool = false, showsRallyStats: Bool) -> some View {
+    func completionSummary(subtitle: String, showsRallyStats: Bool) -> some View {
         VStack(spacing: BSCSpacing.lg) {
             statusBadge(
                 icon: "checkmark.circle.fill",
@@ -436,7 +435,7 @@ private extension ProcessVideoView {
                 Text("Processing Complete!")
                     .bscFont(size: 20, weight: .bold)
                     .foregroundColor(.bscTextPrimary)
-                    .multilineTextAlignment(centersTitle ? .center : .leading)
+                    .multilineTextAlignment(.center)
 
                 Text(subtitle)
                     .bscFont(size: 14)
