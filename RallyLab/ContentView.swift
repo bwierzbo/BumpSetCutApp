@@ -9,12 +9,15 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var model: RallyLabModel
+    @State private var sampler = SamplerModel()
     @State private var showingImporter = false
 
     var body: some View {
         TabView {
             pipelineTab
                 .tabItem { Label("Pipeline", systemImage: "gearshape") }
+            SamplerTabView(lab: model, sampler: sampler)
+                .tabItem { Label("Sampler", systemImage: "photo.stack") }
             NetTabView(model: model)
                 .tabItem { Label("Net", systemImage: "rectangle.split.3x1") }
             CompareTabView(model: model)

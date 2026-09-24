@@ -122,21 +122,43 @@ final class YOLODetector {
         print("   3. The model should be a YOLO volleyball detection model")
     }
     
+    /// Off for tools that look at frames out of order (the RallyLab sampler):
+    /// static suppression assumes a video played forward, and for labeling a
+    /// ball that sits still is still a ball.
+    var suppressesStaticObjects = true
+
     /// Returns only "volleyball" detections from the model, after de-dupe and static suppression.
     func detect(in pixelBuffer: CVPixelBuffer, at time: CMTime) -> [DetectionResult] {
+        detect(
+            handler: VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:]),
+            srcW: CGFloat(CVPixelBufferGetWidth(pixelBuffer)),
+            srcH: CGFloat(CVPixelBufferGetHeight(pixelBuffer)),
+            time: time
+        )
+    }
+
+    /// Same, for an already-decoded upright frame (RallyLab sampling stills).
+    /// Boxes come back Vision-normalized against this image.
+    func detect(in cgImage: CGImage, at time: CMTime) -> [DetectionResult] {
+        detect(
+            handler: VNImageRequestHandler(cgImage: cgImage, options: [:]),
+            srcW: CGFloat(cgImage.width),
+            srcH: CGFloat(cgImage.height),
+            time: time
+        )
+    }
+
+    private func detect(handler: VNImageRequestHandler, srcW: CGFloat, srcH: CGFloat, time: CMTime) -> [DetectionResult] {
         guard let model = model else { return [] }
-        
+
         // Source frame size — drives the adaptive scaleFit decision and is needed
         // to undo letterbox padding in the raw-tensor path.
-        let srcW = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
-        let srcH = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
         let letterbox = shouldLetterbox(srcW: srcW, srcH: srcH)
 
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = letterbox ? .scaleFit : .scaleFill
         request.preferBackgroundProcessing = false
 
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
         do {
             try handler.perform([request])
         } catch {
@@ -166,10 +188,8 @@ final class YOLODetector {
         let deduped = dedupeByCenter(base, radius: nmsMergeRadius)
         
         // 2) Static-object suppression: drop cells that have repeated "no-motion" hits
-        let nowSec = time.seconds
-        let filtered = suppressStatic(deduped, nowSec: nowSec)
-        
-        return filtered
+        guard suppressesStaticObjects else { return deduped }
+        return suppressStatic(deduped, nowSec: time.seconds)
     }
 
     // MARK: - Output decoding
