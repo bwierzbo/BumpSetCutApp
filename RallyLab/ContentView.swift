@@ -3,7 +3,7 @@
 //  RallyLab
 //
 
-import AVKit
+import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -46,7 +46,7 @@ struct ContentView: View {
         VStack(spacing: 10) {
             if let player = model.player {
                 ZStack {
-                    VideoPlayer(player: player)
+                    LabPlayerView(player: player)
                     if model.showOverlay {
                         DetectionOverlayView(model: model)
                     }

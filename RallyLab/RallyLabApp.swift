@@ -16,6 +16,9 @@ struct RallyLabApp: App {
         // `RallyLab --export-training-data [path]` batch-exports classifier
         // training data and exits (no UI interaction needed).
         HeadlessTrainingExport.runIfRequested()
+        // `RallyLab --sample <video>` / `--sample-folder <dir>` runs the
+        // Sampler tab's pull → pre-label → export and exits.
+        HeadlessSampler.runIfRequested()
     }
 
     var body: some Scene {

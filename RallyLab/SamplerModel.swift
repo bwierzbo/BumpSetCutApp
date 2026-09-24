@@ -163,11 +163,14 @@ final class SamplerModel {
     // MARK: - Sampling
 
     func sample(from lab: RallyLabModel) async {
-        guard let url = lab.videoURL, !isSampling else { return }
-        let duration = lab.duration
-        guard duration > 0 else { status = "Couldn't read the video duration."; return }
+        guard let url = lab.videoURL else { return }
+        await sample(video: url, duration: lab.duration, rallies: ralliesToSample(from: lab), evidence: lab.evidence)
+    }
 
-        let rallies = ralliesToSample(from: lab)
+    /// The sampling pass itself, also driven headlessly by `RallyLab --sample`.
+    func sample(video url: URL, duration: Double, rallies: [Interval], evidence: [VideoProcessor.FrameEvidence]) async {
+        guard !isSampling else { return }
+        guard duration > 0 else { status = "Couldn't read the video duration."; return }
         guard !rallies.isEmpty || randomCount > 0 else {
             status = "No rallies to sample from — run the pipeline or mark some, or add random frames."
             return
@@ -179,7 +182,7 @@ final class SamplerModel {
 
         let plan = Self.plan(
             rallies: rallies,
-            evidence: lab.evidence,
+            evidence: evidence,
             duration: duration,
             burstFPS: burstFPS,
             padding: rallyPadding,

@@ -6,7 +6,7 @@
 //  a color-coded state timeline, the rally summary table, and the engine controls.
 //
 
-import AVKit
+import AVFoundation
 import SwiftUI
 
 struct FSMTabView: View {
@@ -27,7 +27,7 @@ struct FSMTabView: View {
         VStack(spacing: 10) {
             ZStack {
                 if let player = model.player {
-                    VideoPlayer(player: player)
+                    LabPlayerView(player: player)
                     FSMOverlayView(model: model)
                 } else {
                     ContentUnavailableView(
