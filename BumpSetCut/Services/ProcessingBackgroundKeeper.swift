@@ -96,14 +96,39 @@ final class ProcessingBackgroundKeeper {
         isActive = true
         continued.progress.totalUnitCount = 100
         continued.progress.completedUnitCount = 0
-        continued.expirationHandler = { [weak self] in
+        // A cancel from the system's progress UI cancels this progress
+        // object; that's the direct signal, delivered whether or not the
+        // job happens to report progress again.
+        continued.progress.cancellationHandler = { [weak self] in
+            Task { @MainActor in self?.handleSystemCancel() }
+        }
+        continued.expirationHandler = { [weak self, weak continued] in
             Task { @MainActor in
                 guard let self else { return }
-                // Give the job a beat to save state, then wind the task down.
-                self.onExpiration?()
-                self.finish(success: false)
+                // The system calls this for a user cancel as well as for
+                // running out of time, and the two mean opposite things: a
+                // cancel must stop the job, an expiry must not. (Before this,
+                // a cancel only wound the system task down and the import
+                // carried on in the app with no pill left to stop it.)
+                if continued?.progress.isCancelled == true {
+                    self.handleSystemCancel()
+                } else {
+                    // Give the job a beat to save state, then wind the task down.
+                    self.onExpiration?()
+                    self.finish(success: false)
+                }
             }
         }
+    }
+
+    /// Stop the job because the user cancelled from the system UI. Exactly
+    /// once: the first of the cancellation handler, the expiration handler
+    /// and the progress poll to see it wins.
+    private func handleSystemCancel() {
+        guard task != nil else { return }
+        let handler = onSystemCancel
+        finish(success: false)
+        handler?()
     }
 
     /// Mirror the job's progress into the system UI.
@@ -114,12 +139,9 @@ final class ProcessingBackgroundKeeper {
             continued.progress.completedUnitCount = clamped
             continued.updateTitle(title, subtitle: "\(subtitle) · \(clamped)%")
         }
-        // The system cancels the task's progress when the user taps cancel
-        // in its UI — surface that as a job cancel exactly once.
+        // Belt and braces for a cancel the handlers somehow didn't deliver.
         if continued.progress.isCancelled {
-            let handler = onSystemCancel
-            finish(success: false)
-            handler?()
+            handleSystemCancel()
         }
     }
 
