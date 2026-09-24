@@ -43,12 +43,16 @@ struct FrameSample: Identifiable {
         case missed
         /// Anywhere in the video.
         case random
+        /// A still loaded from disk (a flywheel zip, an older export) rather
+        /// than pulled from the open video.
+        case file(URL)
 
         var label: String {
             switch self {
             case .rally(let i): return "rally \(i + 1)"
             case .missed: return "missed"
             case .random: return "random"
+            case .file: return "file"
             }
         }
     }
@@ -99,8 +103,11 @@ final class SamplerModel {
     private(set) var samples: [FrameSample] = []
     private(set) var isSampling = false
     private(set) var isExporting = false
-    private(set) var status = "Run the pipeline (or label rallies), then Sample."
+    private(set) var status = "Run the pipeline (or label rallies), then Sample — or load a folder of frames."
     private(set) var lastExport: SampleExportSummary?
+    /// Folder name the export is written under: the video's name, or the
+    /// loaded folder's.
+    private(set) var datasetName = "dataset"
 
     var selectedId: UUID?
     /// The selected frame at review resolution.
@@ -110,8 +117,8 @@ final class SamplerModel {
     private var previewTask: Task<Void, Never>?
     private var videoURL: URL?
 
-    static let thumbnailWidth = 320
-    static let reviewMaxSize = CGSize(width: 1600, height: 1600)
+    nonisolated static let thumbnailWidth = 320
+    nonisolated static let reviewMaxSize = CGSize(width: 1600, height: 1600)
 
     // MARK: - Derived
 
@@ -131,7 +138,26 @@ final class SamplerModel {
         preview = nil
         lastExport = nil
         videoURL = nil
-        status = "Run the pipeline (or label rallies), then Sample."
+        datasetName = "dataset"
+        status = "Run the pipeline (or label rallies), then Sample — or load a folder of frames."
+    }
+
+    private func beginSession(name: String, video: URL?) {
+        previewTask?.cancel()
+        samples = []
+        selectedId = nil
+        selectedBoxId = nil
+        preview = nil
+        lastExport = nil
+        videoURL = video
+        datasetName = name
+    }
+
+    private func makeDetector() -> YOLODetector {
+        let detector = YOLODetector()
+        detector.minConfidence = Float(prelabelConfidence)
+        detector.suppressesStaticObjects = false
+        return detector
     }
 
     // MARK: - Sampling
@@ -149,13 +175,7 @@ final class SamplerModel {
 
         isSampling = true
         defer { isSampling = false }
-        previewTask?.cancel()
-        samples = []
-        selectedId = nil
-        selectedBoxId = nil
-        preview = nil
-        lastExport = nil
-        videoURL = url
+        beginSession(name: url.deletingPathExtension().lastPathComponent, video: url)
 
         let plan = Self.plan(
             rallies: rallies,
@@ -169,10 +189,7 @@ final class SamplerModel {
         )
         status = "Extracting \(plan.count) frames…"
 
-        let detector = YOLODetector()
-        detector.minConfidence = Float(prelabelConfidence)
-        detector.suppressesStaticObjects = false
-
+        let detector = makeDetector()
         let generator = Self.generator(for: url, maximumSize: Self.reviewMaxSize)
         var out: [FrameSample] = []
         out.reserveCapacity(plan.count)
@@ -200,6 +217,68 @@ final class SamplerModel {
         let withBall = out.filter { !$0.boxes.isEmpty }.count
         status = "\(out.count) frames · detector found a ball in \(withBall) · review, then Export."
         loadPreviewForSelection()
+    }
+
+    /// Stills already on disk — a flywheel zip from /admin/flywheel, or an
+    /// earlier export — pre-labeled and reviewed the same way. Subfolders are
+    /// included; files are taken in name order.
+    func loadFolder(_ folder: URL) async {
+        guard !isSampling else { return }
+        let files = Self.imageFiles(in: folder)
+        guard !files.isEmpty else {
+            status = "No JPEG or PNG files in \(folder.lastPathComponent)."
+            return
+        }
+
+        isSampling = true
+        defer { isSampling = false }
+        beginSession(name: folder.lastPathComponent, video: nil)
+        status = "Pre-labeling \(files.count) files…"
+
+        let detector = makeDetector()
+        var out: [FrameSample] = []
+        out.reserveCapacity(files.count)
+
+        for (i, file) in files.enumerated() {
+            if Task.isCancelled { break }
+            // Off the main thread: decoding a native-resolution JPEG per file
+            // would otherwise stall the window for the whole folder.
+            let decoded = await Task.detached(priority: .userInitiated) {
+                Self.loadImage(file, maxPixelSize: Int(Self.reviewMaxSize.width))
+            }.value
+            guard let image = decoded,
+                  let thumb = Self.downscale(image, toWidth: Self.thumbnailWidth) else { continue }
+            let dets = detector.detect(in: image, at: CMTime(value: CMTimeValue(i), timescale: 1))
+            out.append(FrameSample(
+                time: Double(i),
+                source: .file(file),
+                thumbnail: thumb,
+                boxes: dets.map { SampleBox(rect: $0.bbox, confidence: $0.confidence) }
+            ))
+            if i % 10 == 0 {
+                status = "Pre-labeling… \(i + 1)/\(files.count)"
+                samples = out
+            }
+        }
+
+        samples = out
+        selectedId = out.first?.id
+        let withBall = out.filter { !$0.boxes.isEmpty }.count
+        status = "\(out.count) files · detector found a ball in \(withBall) · review, then Export."
+        loadPreviewForSelection()
+    }
+
+    private nonisolated static func imageFiles(in folder: URL) -> [URL] {
+        let types: Set<String> = ["jpg", "jpeg", "png"]
+        guard let walker = FileManager.default.enumerator(
+            at: folder, includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return [] }
+        var files: [URL] = []
+        for case let url as URL in walker where types.contains(url.pathExtension.lowercased()) {
+            files.append(url)
+        }
+        return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
     /// Rally windows to burst-sample: hand labels when present and preferred,
@@ -346,12 +425,22 @@ final class SamplerModel {
     private func loadPreviewForSelection() {
         previewTask?.cancel()
         preview = nil
-        guard let url = videoURL, let sample = selected else { return }
-        let time = sample.time
+        guard let sample = selected else { return }
         let id = sample.id
+        let time = sample.time
+        let video = videoURL
         previewTask = Task {
-            let generator = Self.generator(for: url, maximumSize: Self.reviewMaxSize)
-            let image = try? await generator.image(at: CMTime(seconds: time, preferredTimescale: 600)).image
+            let image: CGImage?
+            if case .file(let file) = sample.source {
+                image = await Task.detached {
+                    Self.loadImage(file, maxPixelSize: Int(Self.reviewMaxSize.width))
+                }.value
+            } else if let video {
+                let generator = Self.generator(for: video, maximumSize: Self.reviewMaxSize)
+                image = try? await generator.image(at: CMTime(seconds: time, preferredTimescale: 600)).image
+            } else {
+                image = nil
+            }
             guard !Task.isCancelled, selectedId == id else { return }
             preview = image
         }
@@ -360,16 +449,18 @@ final class SamplerModel {
     // MARK: - Export
 
     /// Writes the kept frames as a YOLO dataset under a folder named after the
-    /// video. Frames are re-read at native resolution for the files; the
-    /// review copies were downscaled. Returns nil when nothing was kept.
-    func export(to root: URL, videoName: String) async -> SampleExportSummary? {
-        guard let url = videoURL, !isExporting else { return nil }
+    /// video (or the loaded folder). Video frames are re-read at native
+    /// resolution — the review copies were downscaled; files are copied as
+    /// they are. Returns nil when nothing was kept.
+    func export(to root: URL) async -> SampleExportSummary? {
+        guard !isExporting else { return nil }
         let kept = samples.filter(\.keep)
         guard !kept.isEmpty else { status = "Nothing kept to export."; return nil }
 
         isExporting = true
         defer { isExporting = false }
 
+        let videoName = datasetName
         let dir = root.appendingPathComponent(Self.safeName(videoName), isDirectory: true)
         let fm = FileManager.default
         do {
@@ -390,26 +481,44 @@ final class SamplerModel {
             switch s.source {
             case .rally(let index): key = UInt64(index) &+ 1
             case .missed, .random: key = UInt64(max(0, s.time) * 1000) &+ 7_919
+            case .file(let url): key = UInt64(truncatingIfNeeded: url.lastPathComponent.hashValue.magnitude)
             }
             let hashed = (key &* 0x9E37_79B9_7F4A_7C15) >> 33
             return Double(hashed % 10_000) / 10_000 < validationFraction
         }
 
-        let generator = Self.generator(for: url, maximumSize: .zero)
+        let generator = videoURL.map { Self.generator(for: $0, maximumSize: .zero) }
         var manifest = ["file,time,source,split,boxes,reviewed"]
         var images = 0, boxes = 0, validation = 0
 
         for (i, s) in kept.enumerated() {
             let split = isValidation(s) ? "val" : "train"
-            let base = String(format: "%@_%08.3f", Self.safeName(videoName), s.time).replacingOccurrences(of: ".", with: "_")
-            let imageURL = dir.appendingPathComponent("images/\(split)/\(base).jpg")
-            let labelURL = dir.appendingPathComponent("labels/\(split)/\(base).txt")
-
-            guard let frame = try? await generator.image(at: CMTime(seconds: s.time, preferredTimescale: 600)).image,
-                  Self.writeJPEG(frame, to: imageURL, quality: jpegQuality) else {
-                status = "Skipped a frame at \(String(format: "%.2f", s.time))s that couldn't be read."
-                continue
+            let base: String
+            let imageURL: URL
+            switch s.source {
+            case .file(let file):
+                base = Self.safeName(file.deletingPathExtension().lastPathComponent)
+                imageURL = dir.appendingPathComponent("images/\(split)/\(base).\(file.pathExtension.lowercased())")
+                do {
+                    if FileManager.default.fileExists(atPath: imageURL.path) {
+                        try FileManager.default.removeItem(at: imageURL)
+                    }
+                    try FileManager.default.copyItem(at: file, to: imageURL)
+                } catch {
+                    status = "Couldn't copy \(file.lastPathComponent): \(error.localizedDescription)"
+                    continue
+                }
+            case .rally, .missed, .random:
+                base = String(format: "%@_%08.3f", Self.safeName(videoName), s.time).replacingOccurrences(of: ".", with: "_")
+                imageURL = dir.appendingPathComponent("images/\(split)/\(base).jpg")
+                guard let generator,
+                      let frame = try? await generator.image(at: CMTime(seconds: s.time, preferredTimescale: 600)).image,
+                      Self.writeJPEG(frame, to: imageURL, quality: jpegQuality) else {
+                    status = "Skipped a frame at \(String(format: "%.2f", s.time))s that couldn't be read."
+                    continue
+                }
             }
+            let labelURL = dir.appendingPathComponent("labels/\(split)/\(base).txt")
             let lines = s.boxes.map(Self.yoloLine)
             do {
                 try (lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n"))
@@ -418,7 +527,7 @@ final class SamplerModel {
                 status = "Couldn't write \(labelURL.lastPathComponent): \(error.localizedDescription)"
                 return nil
             }
-            manifest.append("\(base).jpg,\(String(format: "%.3f", s.time)),\(s.source.label),\(split),\(s.boxes.count),\(s.reviewed)")
+            manifest.append("\(imageURL.lastPathComponent),\(String(format: "%.3f", s.time)),\(s.source.label),\(split),\(s.boxes.count),\(s.reviewed)")
             images += 1
             boxes += s.boxes.count
             if split == "val" { validation += 1 }
@@ -476,6 +585,19 @@ final class SamplerModel {
         gen.requestedTimeToleranceBefore = .zero
         gen.requestedTimeToleranceAfter = .zero
         return gen
+    }
+
+    /// Decode a still from disk, capped to `maxPixelSize` on its longer side.
+    /// Orientation metadata is applied so a phone JPEG comes up upright,
+    /// matching what the detector and the export see.
+    private nonisolated static func loadImage(_ url: URL, maxPixelSize: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
     private nonisolated static func downscale(_ image: CGImage, toWidth width: Int) -> CGImage? {

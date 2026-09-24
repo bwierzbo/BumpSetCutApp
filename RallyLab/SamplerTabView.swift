@@ -31,20 +31,22 @@ struct SamplerTabView: View {
     private var mainColumn: some View {
         VStack(spacing: 10) {
             Group {
-                if lab.videoURL == nil {
+                if let sample = sampler.selected {
+                    ReviewCanvas(sampler: sampler, sample: sample)
+                } else if sampler.isSampling {
+                    ContentUnavailableView("Working…", systemImage: "photo.on.rectangle.angled", description: Text(sampler.status))
+                } else if lab.videoURL == nil {
                     ContentUnavailableView(
                         "No Video",
                         systemImage: "film",
-                        description: Text("Open a video in the Pipeline tab (or drag one in), run the pipeline, then Sample.")
+                        description: Text("Open a video in the Pipeline tab (or drag one in), run the pipeline, then Sample — or load a folder of frames.")
                     )
-                } else if sampler.samples.isEmpty {
+                } else {
                     ContentUnavailableView(
                         "No Frames Yet",
                         systemImage: "photo.on.rectangle.angled",
-                        description: Text(sampler.isSampling ? sampler.status : "Press Sample to pull frames from the rallies and across the video.")
+                        description: Text("Press Sample to pull frames from the rallies and across the video.")
                     )
-                } else if let sample = sampler.selected {
-                    ReviewCanvas(sampler: sampler, sample: sample)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -134,6 +136,21 @@ struct SamplerTabView: View {
                     .padding(4)
                 }
 
+                GroupBox("Frames on Disk") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("A folder of JPEG/PNG stills — a flywheel download, an older export — pre-labeled at the same threshold and reviewed here. Replaces the current frames.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button {
+                            chooseFramesFolder()
+                        } label: {
+                            Label("Load Frames Folder…", systemImage: "folder.badge.plus")
+                        }
+                        .disabled(sampler.isSampling)
+                    }
+                    .padding(4)
+                }
+
                 if !sampler.samples.isEmpty {
                     GroupBox("Review") {
                         VStack(alignment: .leading, spacing: 6) {
@@ -159,7 +176,7 @@ struct SamplerTabView: View {
 
                     GroupBox("Export") {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Kept frames at native resolution, YOLO labels (class 0 = volleyball), data.yaml and a manifest. A folder named after the video is created inside the one you pick.")
+                            Text("Kept frames at native resolution, YOLO labels (class 0 = volleyball), data.yaml and a manifest. A folder named “\(sampler.datasetName)” is created inside the one you pick.")
                                 .font(.caption2).foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             labeledSlider("val split", value: $sampler.validationFraction, in: 0...0.5, step: 0.05,
@@ -209,8 +226,17 @@ struct SamplerTabView: View {
         panel.prompt = "Export Here"
         panel.message = "Pick the folder to hold the dataset."
         guard panel.runModal() == .OK, let root = panel.url else { return }
-        let name = lab.videoURL?.deletingPathExtension().lastPathComponent ?? "video"
-        Task { _ = await sampler.export(to: root, videoName: name) }
+        Task { _ = await sampler.export(to: root) }
+    }
+
+    private func chooseFramesFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Load"
+        panel.message = "Pick a folder of JPEG or PNG frames."
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        Task { await sampler.loadFolder(folder) }
     }
 
     /// Keyboard shortcuts hang on invisible buttons so they work wherever
@@ -282,7 +308,7 @@ private struct SampleThumb: View {
         .overlay(alignment: .bottomLeading) {
             HStack(spacing: 3) {
                 Circle().fill(sourceColor).frame(width: 6, height: 6)
-                Text(String(format: "%.1fs · %@", sample.time, sample.source.label))
+                Text(caption)
             }
             .font(.system(size: 9, design: .monospaced))
             .padding(.horizontal, 3).padding(.vertical, 1)
@@ -300,11 +326,17 @@ private struct SampleThumb: View {
         .opacity(sample.keep ? 1 : 0.6)
     }
 
+    private var caption: String {
+        if case .file(let url) = sample.source { return url.lastPathComponent }
+        return String(format: "%.1fs · %@", sample.time, sample.source.label)
+    }
+
     private var sourceColor: Color {
         switch sample.source {
         case .rally: return .yellow
         case .missed: return .orange
         case .random: return .cyan
+        case .file: return .purple
         }
     }
 }
