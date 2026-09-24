@@ -57,10 +57,12 @@ final class VideoExporter {
 
     /// Stitch multiple source files into one reel. Every clip gets its own
     /// composition instruction: its preferred transform normalized to upright,
-    /// then aspect-fit into the render size (the first clip's upright size).
-    /// Clips without audio insert an empty audio range so later clips stay in
-    /// sync. Separated from export so tests can inspect the build.
-    func buildStitchComposition(clips: [StitchClip]) async throws -> StitchBuild {
+    /// then aspect-fit into the render size (the first clip's upright size,
+    /// scaled down when its long edge exceeds `maxLongEdge` — posts don't
+    /// need 4K, and the upload is the slow part). Clips without audio insert
+    /// an empty audio range so later clips stay in sync. Separated from
+    /// export so tests can inspect the build.
+    func buildStitchComposition(clips: [StitchClip], maxLongEdge: CGFloat? = nil) async throws -> StitchBuild {
         guard !clips.isEmpty else {
             throw ProcessingError.compositionFailed
         }
@@ -105,7 +107,7 @@ final class VideoExporter {
             let naturalSize = try await vTrack.load(.naturalSize)
             let preferredTransform = (try? await vTrack.load(.preferredTransform)) ?? .identity
             let uprightSize = videoSizeAfterTransform(naturalSize: naturalSize, transform: preferredTransform)
-            if renderSize == .zero { renderSize = uprightSize }
+            if renderSize == .zero { renderSize = Self.capped(uprightSize, maxLongEdge: maxLongEdge) }
             maxFrameRate = max(maxFrameRate, (try? await vTrack.load(.nominalFrameRate)) ?? 0)
 
             // Normalize the transform so the upright video starts at the origin,
@@ -174,10 +176,20 @@ final class VideoExporter {
         return StitchBuild(composition: composition, videoComposition: videoComposition, clipRanges: clipRanges)
     }
 
+    /// Scale a frame size down so its long edge is at most `maxLongEdge`,
+    /// keeping the aspect and even dimensions (encoders want them even).
+    static func capped(_ size: CGSize, maxLongEdge: CGFloat?) -> CGSize {
+        guard let maxLongEdge, maxLongEdge > 0, max(size.width, size.height) > maxLongEdge else { return size }
+        let scale = maxLongEdge / max(size.width, size.height)
+        func even(_ v: CGFloat) -> CGFloat { max(2, (v * scale / 2).rounded() * 2) }
+        return CGSize(width: even(size.width), height: even(size.height))
+    }
+
     /// Export multiple source clips as ONE stitched reel to a tmp file
     /// (`stitched_rallies_` prefix — covered by the existing tmp sweeper).
-    func exportStitchedClips(_ clips: [StitchClip], addWatermark: Bool = false, progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
-        let build = try await buildStitchComposition(clips: clips)
+    func exportStitchedClips(_ clips: [StitchClip], addWatermark: Bool = false, maxLongEdge: CGFloat? = nil,
+                             progressHandler: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
+        let build = try await buildStitchComposition(clips: clips, maxLongEdge: maxLongEdge)
         if addWatermark {
             attachWatermarkTool(to: build.videoComposition, videoSize: build.videoComposition.renderSize)
         }

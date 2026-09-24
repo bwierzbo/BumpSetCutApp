@@ -806,13 +806,11 @@ struct ShareRallySheet: View {
                 .bscFont(size: 12)
                 .foregroundColor(.bscTextSecondary)
             } else {
-                let meta = viewModel.currentMetadata
-                HStack(spacing: BSCSpacing.lg) {
-                    Label("\(String(format: "%.1f", meta.duration))s", systemImage: "timer")
-                    Label("\(meta.detectionCount) detections", systemImage: "eye")
-                }
-                .bscFont(size: 12)
-                .foregroundColor(.bscTextSecondary)
+                // Duration only: the detection count is a pipeline internal
+                // (physics-validated frames) that reads as a bug when it's 0.
+                Label("\(String(format: "%.1f", viewModel.currentMetadata.duration))s", systemImage: "timer")
+                    .bscFont(size: 12)
+                    .foregroundColor(.bscTextSecondary)
 
                 if viewModel.isTooLong {
                     Label("Rally must be under 1 minute to share", systemImage: "exclamationmark.triangle.fill")

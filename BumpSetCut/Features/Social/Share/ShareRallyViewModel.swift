@@ -380,29 +380,16 @@ final class ShareRallyViewModel {
                 for (i, clip) in clips.enumerated() {
                     try Task.checkCancellation()
 
-                    // Crop, trim, or watermark forces a re-export; otherwise
-                    // the library file uploads as-is (never delete originals).
-                    let fileToUpload: URL
-                    let crop = crops[i].flatMap { $0.isIdentity ? nil : $0 }
-                    if let crop {
-                        fileToUpload = try await VideoExporter().exportStitchedClips(
-                            [VideoExporter.StitchClip(url: clip.url, timeRange: clip.timeRange, crop: crop)],
-                            addWatermark: addWatermark
-                        )
-                        tempURLsToClean.append(fileToUpload)
-                    } else if clip.timeRange != nil || addWatermark {
-                        let asset = AVURLAsset(url: clip.url)
-                        let fullRange = CMTimeRange(start: .zero, duration: try await asset.load(.duration))
-                        let range = clip.timeRange.map { CMTimeRangeGetIntersection($0, otherRange: fullRange) } ?? fullRange
-                        let temp = FileManager.default.temporaryDirectory
-                            .appendingPathComponent("share_rally_fav_\(i)_\(UUID().uuidString).mp4")
-                        fileToUpload = try await VideoExporter().exportClip(
-                            asset: asset, timeRange: range, to: temp, addWatermark: addWatermark
-                        )
-                        tempURLsToClean.append(fileToUpload)
-                    } else {
-                        fileToUpload = clip.url
-                    }
+                    // Every clip goes through the same post export (trim, crop,
+                    // watermark, 1080p cap); the library file is never touched.
+                    let fileToUpload = try await RallyClipExporter().export(
+                        url: clip.url,
+                        timeRange: clip.timeRange,
+                        crop: crops[i],
+                        addWatermark: addWatermark,
+                        fileTag: "share_rally_fav_\(i)"
+                    )
+                    tempURLsToClean.append(fileToUpload)
 
                     try Task.checkCancellation()
 

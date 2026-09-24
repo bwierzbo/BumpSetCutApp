@@ -522,17 +522,23 @@ final class RallyPlayerViewModel {
         await loadRallies()
     }
 
+    /// What posting works from: each saved rally's trim-aware window (the
+    /// same slice the player shows and exports), its framing, and the
+    /// detection stats that ride along in the post's metadata.
     var savedRallyShareInfo: [Int: RallyShareInfo] {
         guard let metadata = processingMetadata else { return [:] }
         var dict: [Int: RallyShareInfo] = [:]
         for index in savedRalliesArray {
             guard index < metadata.rallySegments.count else { continue }
             let segment = metadata.rallySegments[index]
+            let start = effectiveStartTime(for: index)
+            let end = effectiveEndTime(for: index)
+            guard end > start else { continue }
             dict[index] = RallyShareInfo(
-                startTime: segment.startTime,
-                endTime: segment.endTime,
+                startTime: start,
+                endTime: end,
                 metadata: RallyHighlightMetadata(
-                    duration: segment.duration,
+                    duration: end - start,
                     confidence: segment.confidence,
                     quality: segment.quality,
                     detectionCount: segment.detectionCount

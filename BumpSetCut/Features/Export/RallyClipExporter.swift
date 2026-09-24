@@ -3,10 +3,10 @@
 //  BumpSetCut
 //
 //  Exports one rally — a time range of a source file — to a standalone .mp4
-//  in the temporary directory. Shared by community posting (which watermarks
-//  on the free tier) and private sending to a friend (which never does:
-//  a 1:1 message isn't distribution, and the recipient can't save or
-//  re-share it).
+//  in the temporary directory for community posting. Always re-encodes,
+//  capped at 1080p-class: the feed is watched on phones and Mux transcodes
+//  on arrival, so a 4K passthrough only made the upload four to six times
+//  larger for nothing. Watermarks the free tier.
 //
 
 import AVFoundation
@@ -14,9 +14,12 @@ import Foundation
 
 struct RallyClipExporter {
 
-    /// Export `timeRange` of `url` (the whole file when nil), applying `crop`
-    /// when one is set. Passthrough when nothing needs re-encoding; a crop or
-    /// watermark forces the composition path.
+    /// Long edge of a posted clip. 1920 keeps 1080p sources untouched and
+    /// brings 4K down to the same size.
+    static let postMaxLongEdge: CGFloat = 1920
+
+    /// Export `timeRange` of `url` (the whole file when nil), burning in
+    /// `crop` when one is set.
     func export(
         url: URL,
         timeRange: CMTimeRange?,
@@ -24,28 +27,14 @@ struct RallyClipExporter {
         addWatermark: Bool,
         fileTag: String = "rally"
     ) async throws -> URL {
-        let asset = AVURLAsset(url: url)
-        let range: CMTimeRange
-        if let timeRange {
-            range = timeRange
-        } else {
-            range = CMTimeRange(start: .zero, duration: try await asset.load(.duration))
-        }
-
+        let clip: VideoExporter.StitchClip
         if let crop, !crop.isIdentity {
-            return try await VideoExporter().exportStitchedClips(
-                [VideoExporter.StitchClip(url: url, timeRange: range, crop: crop)],
-                addWatermark: addWatermark
-            )
+            clip = VideoExporter.StitchClip(url: url, timeRange: timeRange, crop: crop)
+        } else {
+            clip = VideoExporter.StitchClip(url: url, timeRange: timeRange)
         }
-
-        let outURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(fileTag)_\(UUID().uuidString).mp4")
-        return try await VideoExporter().exportClip(
-            asset: asset,
-            timeRange: range,
-            to: outURL,
-            addWatermark: addWatermark
+        return try await VideoExporter().exportStitchedClips(
+            [clip], addWatermark: addWatermark, maxLongEdge: Self.postMaxLongEdge
         )
     }
 }

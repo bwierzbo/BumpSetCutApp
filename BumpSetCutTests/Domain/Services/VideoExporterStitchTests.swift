@@ -70,6 +70,22 @@ final class VideoExporterStitchTests: XCTestCase {
         XCTAssertEqual(build.videoComposition.renderSize, CGSize(width: 320, height: 240))
     }
 
+    func testStitchCapsRenderSizeToMaxLongEdge() async throws {
+        let big = try makeClip(name: "big", duration: 0.5, size: CGSize(width: 640, height: 360))
+        let capped = try await VideoExporter().buildStitchComposition(clips: [.init(url: big)], maxLongEdge: 320)
+        XCTAssertEqual(capped.videoComposition.renderSize, CGSize(width: 320, height: 180))
+
+        // A source already under the cap is left alone.
+        let small = try makeClip(name: "small", duration: 0.5, size: CGSize(width: 320, height: 240))
+        let untouched = try await VideoExporter().buildStitchComposition(clips: [.init(url: small)], maxLongEdge: 1920)
+        XCTAssertEqual(untouched.videoComposition.renderSize, CGSize(width: 320, height: 240))
+
+        // Odd results are rounded to even dimensions for the encoder.
+        XCTAssertEqual(VideoExporter.capped(CGSize(width: 3840, height: 2160), maxLongEdge: 1920), CGSize(width: 1920, height: 1080))
+        XCTAssertEqual(VideoExporter.capped(CGSize(width: 1080, height: 1920), maxLongEdge: 1920), CGSize(width: 1080, height: 1920))
+        XCTAssertEqual(VideoExporter.capped(CGSize(width: 4030, height: 2160), maxLongEdge: 1920), CGSize(width: 1920, height: 1030))
+    }
+
     func testStitchRespectsClipTimeRange() async throws {
         let clip = try makeClip(name: "trimmed", duration: 2.0, size: CGSize(width: 320, height: 240))
         let range = CMTimeRange(
