@@ -2,13 +2,13 @@
 //  HeadlessSampler.swift
 //  RallyLab
 //
-//  `RallyLab --sample <video> [--out dir] [--burst fps] [--random n]` and
-//  `RallyLab --sample-folder <frames dir> [--out dir]` run the Sampler
-//  without the UI — the pipeline (or the video's .rallylabels.json), the
-//  frame pull, the detector pre-labels and the dataset export — then exit.
-//  Every frame is kept, since nobody reviewed them; the manifest says so
-//  (reviewed=false), and the review can happen later by loading the
-//  exported images folder back into the tab.
+//  `RallyLab --sample <video-or-folder> [more…] [--dataset dir] [--burst fps]
+//  [--random n] [--confidence c] [--all-frames]` runs the Sampler tab's
+//  ingest queue without the UI — every argument after --sample that isn't a
+//  flag is a video or a folder of frames — then writes the labels and
+//  data.yaml and exits. Nothing is reviewed, so with the default policy the
+//  new frames are parked until they're looked at in the tab; --all-frames
+//  labels them anyway.
 //
 
 import Foundation
@@ -17,30 +17,51 @@ enum HeadlessSampler {
 
     static func runIfRequested() {
         let args = CommandLine.arguments
-        let videoPath = value(after: "--sample", in: args)
-        let folderPath = value(after: "--sample-folder", in: args)
-        guard videoPath != nil || folderPath != nil else { return }
+        guard let start = args.firstIndex(of: "--sample") else { return }
 
-        let defaultOut = FileManager.default
-            .urls(for: .moviesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("RallyLab/datasets", isDirectory: true).path
-        let out = URL(fileURLWithPath: value(after: "--out", in: args) ?? defaultOut, isDirectory: true)
-        let burst = value(after: "--burst", in: args).flatMap(Double.init)
-        let random = value(after: "--random", in: args).flatMap(Double.init)
-        let confidence = value(after: "--confidence", in: args).flatMap(Double.init)
+        var inputs: [URL] = []
+        var i = start + 1
+        while i < args.count, !args[i].hasPrefix("--") {
+            inputs.append(URL(fileURLWithPath: args[i]))
+            i += 1
+        }
+        guard !inputs.isEmpty else {
+            log("usage: RallyLab --sample <video-or-folder>… [--dataset dir] [--burst fps] [--random n] [--confidence c] [--all-frames]")
+            exit(2)
+        }
 
         Task { @MainActor in
             let sampler = SamplerModel()
-            if let burst { sampler.burstFPS = burst }
-            if let random { sampler.randomCount = random }
-            if let confidence { sampler.prelabelConfidence = confidence }
-
-            let ok: Bool
-            if let videoPath {
-                ok = await sampleVideo(URL(fileURLWithPath: videoPath), sampler: sampler, out: out)
-            } else {
-                ok = await sampleFolder(URL(fileURLWithPath: folderPath!, isDirectory: true), sampler: sampler, out: out)
+            if let dir = value(after: "--dataset", in: args) {
+                sampler.setDatasetRoot(URL(fileURLWithPath: dir, isDirectory: true))
             }
+            if let v = value(after: "--burst", in: args).flatMap(Double.init) { sampler.burstFPS = v }
+            if let v = value(after: "--random", in: args).flatMap(Double.init) { sampler.randomCount = v }
+            if let v = value(after: "--confidence", in: args).flatMap(Double.init) { sampler.prelabelConfidence = v }
+            if args.contains("--all-frames") { sampler.reviewedOnly = false }
+
+            log("Dataset: \(sampler.datasetRoot.path)")
+            sampler.enqueue(inputs)
+            // enqueue() starts the queue on its own task; wait for that to
+            // pick the jobs up, then for the queue to drain.
+            while !sampler.isIngesting, sampler.queue.contains(where: { $0.state == .pending }) {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            await sampler.processQueue()
+            while sampler.isIngesting { try? await Task.sleep(nanoseconds: 100_000_000) }
+
+            var ok = true
+            for job in sampler.queue {
+                switch job.state {
+                case .done(let text): log("✅ \(job.url.lastPathComponent): \(text)")
+                case .failed(let text): log("❌ \(job.url.lastPathComponent): \(text)"); ok = false
+                default: log("⚠️ \(job.url.lastPathComponent): \(job.state)"); ok = false
+                }
+            }
+            sampler.writeDataset()
+            log(sampler.status)
+            let s = sampler.stats
+            log("Dataset now: \(s.videos) videos (\(s.valVideos) val), \(s.frames) frames, \(s.reviewed) reviewed, \(s.boxes) boxes")
             exit(ok ? 0 : 1)
         }
     }
@@ -53,74 +74,5 @@ enum HeadlessSampler {
 
     private static func log(_ message: String) {
         FileHandle.standardOutput.write(Data((message + "\n").utf8))
-    }
-
-    @MainActor
-    private static func sampleVideo(_ video: URL, sampler: SamplerModel, out: URL) async -> Bool {
-        guard FileManager.default.fileExists(atPath: video.path) else {
-            log("❌ No such video: \(video.path)")
-            return false
-        }
-
-        // Hand labels when the video has them, else the pipeline's rallies.
-        let labelsURL = video.deletingPathExtension().appendingPathExtension("rallylabels.json")
-        let labeled = (try? Data(contentsOf: labelsURL))
-            .flatMap { try? JSONDecoder().decode([LabeledRally].self, from: $0) } ?? []
-
-        log("▸ \(video.lastPathComponent): running pipeline…")
-        let processor = VideoProcessor()
-        processor.config = ProcessorConfig()
-        processor.collectFrameEvidence = true
-        do {
-            _ = try await processor.processVideo(video, videoId: UUID())
-        } catch ProcessingError.noRalliesDetected {
-        } catch {
-            log("❌ pipeline failed: \(error.localizedDescription)")
-            return false
-        }
-        let evidence = processor.frameEvidence
-        let duration = processor.lastVideoDurationSec
-        let rallies: [Interval]
-        if labeled.isEmpty {
-            rallies = EvidenceReplayer.decidedRanges(
-                evidence: evidence, duration: duration, config: ProcessorConfig(),
-                minRallySec: 1.1653, padded: false)
-            log("  \(rallies.count) predicted rallies, \(evidence.count) evidence frames")
-        } else {
-            rallies = labeled.map { Interval(start: $0.startTime, end: $0.endTime) }
-            log("  \(rallies.count) hand-labeled rallies, \(evidence.count) evidence frames")
-        }
-
-        await sampler.sample(video: video, duration: duration, rallies: rallies, evidence: evidence)
-        log("  \(sampler.status)")
-        return await finish(sampler, out: out)
-    }
-
-    @MainActor
-    private static func sampleFolder(_ folder: URL, sampler: SamplerModel, out: URL) async -> Bool {
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDir), isDir.boolValue else {
-            log("❌ No such folder: \(folder.path)")
-            return false
-        }
-        log("▸ \(folder.lastPathComponent): pre-labeling files…")
-        await sampler.loadFolder(folder)
-        log("  \(sampler.status)")
-        return await finish(sampler, out: out)
-    }
-
-    @MainActor
-    private static func finish(_ sampler: SamplerModel, out: URL) async -> Bool {
-        guard !sampler.samples.isEmpty else { return false }
-        var bySource: [String: Int] = [:]
-        for s in sampler.samples { bySource[s.source.label.components(separatedBy: " ")[0], default: 0] += 1 }
-        log("  by source: " + bySource.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
-
-        guard let summary = await sampler.export(to: out) else {
-            log("❌ \(sampler.status)")
-            return false
-        }
-        log("✅ \(summary.images) images, \(summary.boxes) boxes, \(summary.validation) val → \(summary.directory.path)")
-        return true
     }
 }

@@ -2,10 +2,12 @@
 //  SamplerTabView.swift
 //  RallyLab
 //
-//  Sample → review → export. Left: the selected frame at review size with
-//  its boxes (drag on empty space to draw one, drag a box to move it, drag a
-//  corner to resize, Delete to remove) above a grid of every sampled frame.
-//  Right: what to sample, the pre-label threshold, and the export.
+//  Ingest → review → train. Left: the dataset's videos and the ingest queue.
+//  Centre: the selected frame at review size with its boxes (drag on empty
+//  space to draw one, drag a box to move it, drag a corner to resize, Delete
+//  to remove) above a filmstrip. Right: sampling settings for new videos,
+//  the label policy, and the training hand-off. The whole tab is a drop
+//  target for videos and folders.
 //
 
 import AppKit
@@ -14,45 +16,200 @@ import SwiftUI
 struct SamplerTabView: View {
     @Bindable var lab: RallyLabModel
     @Bindable var sampler: SamplerModel
+    @State private var isDropTargeted = false
 
     var body: some View {
         HSplitView {
+            librarySidebar
+                .frame(minWidth: 240, idealWidth: 270, maxWidth: 340)
             mainColumn
-                .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
             controls
-                .frame(minWidth: 300, idealWidth: 340, maxWidth: 420)
+                .frame(minWidth: 300, idealWidth: 330, maxWidth: 400)
         }
-        .onChange(of: lab.videoURL) { _, _ in sampler.reset() }
+        .background(
+            SamplerDropView(
+                onDrop: { sampler.enqueue($0) },
+                onStatus: { sampler.note($0) }
+            )
+        )
         .background(shortcuts)
+    }
+
+    // MARK: - Library (left)
+
+    private var librarySidebar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Dataset").font(.headline)
+                Spacer()
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([sampler.datasetRoot])
+                } label: { Image(systemName: "folder") }
+                .buttonStyle(.plain)
+                .help(sampler.datasetRoot.path)
+            }
+            Text(sampler.datasetRoot.path)
+                .font(.caption2).foregroundStyle(.secondary)
+                .lineLimit(2).truncationMode(.middle)
+
+            HStack(spacing: 8) {
+                Button {
+                    chooseInputs()
+                } label: { Label("Add…", systemImage: "plus") }
+                Button("Change Folder…") { chooseDatasetRoot() }
+                    .controlSize(.small)
+            }
+
+            dropHint
+
+            if !sampler.queue.isEmpty {
+                queueList
+            }
+
+            Divider()
+            HStack {
+                Text("Videos (\(sampler.sessions.count))").font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(sampler.stats.reviewed)/\(sampler.stats.frames) reviewed")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            sessionList
+        }
+        .padding(12)
+    }
+
+    private var dropHint: some View {
+        VStack(spacing: 4) {
+            Image(systemName: "arrow.down.doc").font(.title3)
+            Text("Drop videos from Photos or Finder,\nor folders of frames")
+                .font(.caption2).multilineTextAlignment(.center)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 6).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3])).foregroundStyle(.quaternary))
+    }
+
+    private var queueList: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Queue").font(.subheadline.weight(.semibold))
+                if sampler.isIngesting { ProgressView().controlSize(.mini) }
+                Spacer()
+                Button("Clear done") { sampler.clearFinishedJobs() }
+                    .controlSize(.mini)
+                    .disabled(!sampler.queue.contains(where: \.isFinished))
+            }
+            ForEach(sampler.queue) { job in
+                HStack(spacing: 6) {
+                    Image(systemName: jobIcon(job))
+                        .foregroundStyle(jobColor(job))
+                        .frame(width: 14)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(job.url.lastPathComponent).font(.caption).lineLimit(1)
+                        Text(jobText(job)).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    private func jobIcon(_ job: IngestJob) -> String {
+        switch job.state {
+        case .pending: return "clock"
+        case .running: return "gearshape.2"
+        case .done: return "checkmark.circle.fill"
+        case .failed: return "xmark.octagon.fill"
+        }
+    }
+
+    private func jobColor(_ job: IngestJob) -> Color {
+        switch job.state {
+        case .pending: return .secondary
+        case .running: return .accentColor
+        case .done: return .green
+        case .failed: return .red
+        }
+    }
+
+    private func jobText(_ job: IngestJob) -> String {
+        switch job.state {
+        case .pending: return job.kind == .video ? "waiting" : "waiting (frames folder)"
+        case .running(let t), .done(let t), .failed(let t): return t
+        }
+    }
+
+    private var sessionList: some View {
+        List(selection: Binding(
+            get: { sampler.currentSession?.name },
+            set: { name in
+                if let name, let s = sampler.sessions.first(where: { $0.name == name }) { sampler.openSession(s) }
+            }
+        )) {
+            ForEach(sampler.sessions) { session in
+                HStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(session.name).font(.caption).lineLimit(1)
+                        Text("\(session.reviewedCount)/\(session.frames.count) reviewed · \(session.boxCount) boxes")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Text(session.split)
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(session.split == "val" ? Color.orange.opacity(0.25) : Color.gray.opacity(0.2), in: Capsule())
+                }
+                .tag(session.name)
+                .contextMenu {
+                    Button("Show in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([sampler.datasetRoot.appendingPathComponent("sessions/\(session.name).json")])
+                    }
+                    Button("Remove from Dataset", role: .destructive) { sampler.deleteSession(session) }
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .frame(minHeight: 120)
     }
 
     // MARK: - Main column
 
     private var mainColumn: some View {
         VStack(spacing: 10) {
+            if sampler.currentSession != nil {
+                reviewToolbar
+            }
             Group {
                 if let sample = sampler.selected {
                     ReviewCanvas(sampler: sampler, sample: sample)
-                } else if sampler.isSampling {
-                    ContentUnavailableView("Working…", systemImage: "photo.on.rectangle.angled", description: Text(sampler.status))
-                } else if lab.videoURL == nil {
+                } else if sampler.isLoadingSession {
+                    ContentUnavailableView("Loading frames…", systemImage: "photo.on.rectangle.angled")
+                } else if let session = sampler.currentSession {
                     ContentUnavailableView(
-                        "No Video",
-                        systemImage: "film",
-                        description: Text("Open a video in the Pipeline tab (or drag one in), run the pipeline, then Sample — or load a folder of frames.")
+                        "Nothing to show",
+                        systemImage: "line.3.horizontal.decrease.circle",
+                        description: Text("\(session.name) has no frames matching “\(sampler.filter.rawValue)”.")
+                    )
+                } else if sampler.sessions.isEmpty {
+                    ContentUnavailableView(
+                        "Empty Dataset",
+                        systemImage: "photo.stack",
+                        description: Text("Drop a video from Photos or Finder — or a folder of frames — anywhere on this tab. The pipeline finds the rallies, frames are pulled and pre-labeled, and they show up here to review.")
                     )
                 } else {
                     ContentUnavailableView(
-                        "No Frames Yet",
-                        systemImage: "photo.on.rectangle.angled",
-                        description: Text("Press Sample to pull frames from the rallies and across the video.")
+                        "Pick a Video",
+                        systemImage: "photo.stack",
+                        description: Text("Choose a video on the left to review its frames.")
                     )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if !sampler.samples.isEmpty {
-                grid
+                filmstrip
             }
             Text(sampler.status)
                 .font(.callout)
@@ -63,11 +220,29 @@ struct SamplerTabView: View {
         .padding(12)
     }
 
-    private var grid: some View {
+    private var reviewToolbar: some View {
+        HStack(spacing: 12) {
+            Picker("", selection: $sampler.filter) {
+                ForEach(ReviewFilter.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 360)
+            Toggle("Lowest confidence first", isOn: $sampler.lowestConfidenceFirst)
+                .toggleStyle(.checkbox)
+                .font(.caption)
+            Spacer()
+            if let session = sampler.currentSession {
+                Text("\(session.reviewedCount)/\(session.frames.count) reviewed")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var filmstrip: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: true) {
                 LazyHStack(spacing: 6) {
-                    ForEach(sampler.samples) { s in
+                    ForEach(sampler.visibleSamples) { s in
                         SampleThumb(sample: s, isSelected: s.id == sampler.selectedId)
                             .id(s.id)
                             .onTapGesture { sampler.select(s.id) }
@@ -82,125 +257,92 @@ struct SamplerTabView: View {
         }
     }
 
-    // MARK: - Controls
+    // MARK: - Controls (right)
 
     private var controls: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                GroupBox("Sources") {
+                GroupBox("Sampling (new videos)") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(sourceSummary)
+                        Text("Bursts inside each rally (its hand labels when the video has them, else the pipeline's), the in-rally frames the pipeline saw no ball in, and random frames across the video. Near-identical bursts are dropped.")
                             .font(.caption2).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        Toggle(isOn: $sampler.preferHandLabels) {
-                            Text("prefer hand labels over predictions").font(.caption)
-                        }
-                        .toggleStyle(.checkbox)
-                        .disabled(lab.labels.isEmpty)
-                        labeledSlider("burst fps", value: $sampler.burstFPS, in: 1...30, step: 1,
-                                      text: "\(Int(sampler.burstFPS))")
-                        labeledSlider("padding s", value: $sampler.rallyPadding, in: 0...3, step: 0.25,
-                                      text: String(format: "%.2f", sampler.rallyPadding))
-                        Toggle(isOn: $sampler.includeMissed) {
-                            Text("frames inside rallies with no ball seen").font(.caption)
-                        }
-                        .toggleStyle(.checkbox)
-                        .help("The pipeline ran the detector at its production threshold and saw nothing here — either the ball is hard to see or it's genuinely gone. Both are worth a label.")
-                        labeledSlider("max missed", value: $sampler.maxMissed, in: 0...300, step: 10,
-                                      text: "\(Int(sampler.maxMissed))")
+                        labeledSlider("burst fps", value: $sampler.burstFPS, in: 1...30, step: 1, text: "\(Int(sampler.burstFPS))")
+                        labeledSlider("padding s", value: $sampler.rallyPadding, in: 0...3, step: 0.25, text: String(format: "%.2f", sampler.rallyPadding))
+                        Toggle(isOn: $sampler.includeMissed) { Text("frames the pipeline missed the ball in").font(.caption) }
+                            .toggleStyle(.checkbox)
+                        labeledSlider("max missed", value: $sampler.maxMissed, in: 0...300, step: 10, text: "\(Int(sampler.maxMissed))")
                             .disabled(!sampler.includeMissed)
-                        labeledSlider("random", value: $sampler.randomCount, in: 0...300, step: 10,
-                                      text: "\(Int(sampler.randomCount))")
-                            .help("Frames anywhere in the video: negatives (no ball), warm-ups, timeouts — the variety that keeps the detector honest.")
+                        labeledSlider("random", value: $sampler.randomCount, in: 0...300, step: 10, text: "\(Int(sampler.randomCount))")
+                        labeledSlider("dedupe", value: $sampler.duplicateThreshold, in: 0...16, step: 1, text: "\(Int(sampler.duplicateThreshold))")
+                            .help("Perceptual-hash distance under which a burst frame counts as a repeat of the previous one. 0 keeps everything.")
+                        labeledSlider("pre-label", value: $sampler.prelabelConfidence, in: 0.05...0.9, step: 0.05, text: String(format: "%.2f", sampler.prelabelConfidence))
+                            .help("Detector threshold for the boxes every frame starts with. Low on purpose: its doubtful calls are what you're here to confirm or delete.")
+                        Toggle(isOn: $sampler.preferHandLabels) { Text("prefer a video's hand labels").font(.caption) }
+                            .toggleStyle(.checkbox)
                     }
                     .padding(4)
                 }
 
-                GroupBox("Pre-label") {
+                GroupBox("Dataset") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Every frame gets the shipping detector's boxes at this threshold. Low on purpose — its doubtful calls are what you're here to confirm or delete.")
-                            .font(.caption2).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        labeledSlider("confidence", value: $sampler.prelabelConfidence, in: 0.05...0.9, step: 0.05,
-                                      text: String(format: "%.2f", sampler.prelabelConfidence))
-                        HStack {
-                            Button {
-                                Task { await sampler.sample(from: lab) }
-                            } label: {
-                                Label("Sample", systemImage: "wand.and.stars")
+                        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
+                            GridRow {
+                                stat("videos", "\(sampler.stats.videos) (\(sampler.stats.valVideos) val)")
+                                stat("frames", "\(sampler.stats.frames)")
                             }
-                            .disabled(lab.videoURL == nil || sampler.isSampling || lab.isProcessing)
-                            if sampler.isSampling { ProgressView().controlSize(.small) }
+                            GridRow {
+                                stat("reviewed", "\(sampler.stats.reviewed)")
+                                stat("boxes", "\(sampler.stats.boxes)")
+                            }
                         }
-                    }
-                    .padding(4)
-                }
-
-                GroupBox("Frames on Disk") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("A folder of JPEG/PNG stills — a flywheel download, an older export — pre-labeled at the same threshold and reviewed here. Replaces the current frames.")
-                            .font(.caption2).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        labeledSlider("val videos", value: $sampler.validationFraction, in: 0...0.5, step: 0.05, text: String(format: "%.0f%%", sampler.validationFraction * 100))
+                            .help("Share of videos assigned to validation as they're added. Whole videos, never frames.")
+                        Toggle(isOn: $sampler.reviewedOnly) { Text("only reviewed frames get labels").font(.caption) }
+                            .toggleStyle(.checkbox)
+                            .help("Unreviewed frames are parked out of images/ so the trainer never learns from the detector's own guesses.")
                         Button {
-                            chooseFramesFolder()
-                        } label: {
-                            Label("Load Frames Folder…", systemImage: "folder.badge.plus")
-                        }
-                        .disabled(sampler.isSampling)
+                            sampler.writeDataset()
+                        } label: { Label("Write Labels + data.yaml", systemImage: "square.and.arrow.down") }
+                        .disabled(sampler.sessions.isEmpty || sampler.isIngesting)
                     }
                     .padding(4)
                 }
 
-                if !sampler.samples.isEmpty {
-                    GroupBox("Review") {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
-                                GridRow {
-                                    stat("frames", "\(sampler.samples.count)")
-                                    stat("kept", "\(sampler.keptCount)")
-                                }
-                                GridRow {
-                                    stat("reviewed", "\(sampler.reviewedCount)")
-                                    stat("boxes", "\(sampler.boxCount)")
-                                }
-                            }
-                            Divider()
-                            keyRow("← →", "previous / next frame")
-                            keyRow("K", "keep / discard frame")
-                            keyRow("Return", "accept frame, next")
-                            keyRow("⌫", "delete selected box")
-                            keyRow("drag", "draw a box · move a box · resize at a corner")
+                GroupBox("Train") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Copies the Ultralytics command for this dataset. Run it in Terminal; the run lands in <dataset>/runs/ball.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(spacing: 8) {
+                            Text("base").font(.caption).frame(width: 76, alignment: .leading)
+                            TextField("yolo26s.pt", text: $sampler.trainBaseModel).font(.caption)
                         }
-                        .padding(4)
+                        labeledSlider("imgsz", value: $sampler.trainImageSize, in: 640...1600, step: 64, text: "\(Int(sampler.trainImageSize))")
+                        labeledSlider("epochs", value: $sampler.trainEpochs, in: 20...300, step: 10, text: "\(Int(sampler.trainEpochs))")
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(sampler.trainCommand, forType: .string)
+                            sampler.note("Train command copied.")
+                        } label: { Label("Copy Train Command", systemImage: "doc.on.clipboard") }
+                        Text(sampler.trainCommand)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(4)
                     }
+                    .padding(4)
+                }
 
-                    GroupBox("Export") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Kept frames at native resolution, YOLO labels (class 0 = volleyball), data.yaml and a manifest. A folder named “\(sampler.datasetName)” is created inside the one you pick.")
-                                .font(.caption2).foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            labeledSlider("val split", value: $sampler.validationFraction, in: 0...0.5, step: 0.05,
-                                          text: String(format: "%.0f%%", sampler.validationFraction * 100))
-                            HStack {
-                                Button {
-                                    chooseExportFolder()
-                                } label: {
-                                    Label("Export Dataset…", systemImage: "square.and.arrow.up")
-                                }
-                                .disabled(sampler.keptCount == 0 || sampler.isExporting || sampler.isSampling)
-                                if sampler.isExporting { ProgressView().controlSize(.small) }
-                            }
-                            if let done = sampler.lastExport {
-                                Button {
-                                    NSWorkspace.shared.activateFileViewerSelecting([done.directory])
-                                } label: {
-                                    Label("Show in Finder", systemImage: "folder")
-                                }
-                                .buttonStyle(.link)
-                            }
-                        }
-                        .padding(4)
+                GroupBox("Review keys") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        keyRow("← →", "previous / next frame")
+                        keyRow("K", "keep / discard frame")
+                        keyRow("Return", "accept frame, next")
+                        keyRow("⌫", "delete selected box")
+                        keyRow("drag", "draw · move · resize at a corner")
                     }
+                    .padding(4)
                 }
 
                 Spacer(minLength: 0)
@@ -209,34 +351,30 @@ struct SamplerTabView: View {
         }
     }
 
-    private var sourceSummary: String {
-        let usingLabels = sampler.preferHandLabels && !lab.labels.isEmpty
-        let count = usingLabels ? lab.labels.count : lab.rawPredictions.count
-        if count == 0 {
-            return "No rally windows yet — run the pipeline or mark rallies in the Pipeline tab. Random frames still work."
-        }
-        return "Bursting \(count) \(usingLabels ? "hand-labeled" : "predicted") rall\(count == 1 ? "y" : "ies")."
+    // MARK: - Panels
+
+    private func chooseInputs() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.movie, .video, .folder]
+        panel.prompt = "Add"
+        panel.message = "Videos, or folders of JPEG/PNG frames."
+        guard panel.runModal() == .OK else { return }
+        sampler.enqueue(panel.urls)
     }
 
-    private func chooseExportFolder() {
+    private func chooseDatasetRoot() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
-        panel.prompt = "Export Here"
-        panel.message = "Pick the folder to hold the dataset."
-        guard panel.runModal() == .OK, let root = panel.url else { return }
-        Task { _ = await sampler.export(to: root) }
-    }
-
-    private func chooseFramesFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.prompt = "Load"
-        panel.message = "Pick a folder of JPEG or PNG frames."
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
-        Task { await sampler.loadFolder(folder) }
+        panel.prompt = "Use"
+        panel.message = "The folder that holds the dataset (images/, labels/, data.yaml)."
+        panel.directoryURL = sampler.datasetRoot
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        sampler.setDatasetRoot(url)
     }
 
     /// Keyboard shortcuts hang on invisible buttons so they work wherever
@@ -259,7 +397,7 @@ struct SamplerTabView: View {
         HStack(spacing: 8) {
             Text(name).font(.caption).frame(width: 76, alignment: .leading)
             if let step { Slider(value: value, in: range, step: step) } else { Slider(value: value, in: range) }
-            Text(text).font(.system(.caption, design: .monospaced)).frame(width: 38, alignment: .trailing)
+            Text(text).font(.system(.caption, design: .monospaced)).frame(width: 44, alignment: .trailing)
         }
     }
 
@@ -327,7 +465,9 @@ private struct SampleThumb: View {
     }
 
     private var caption: String {
-        if case .file(let url) = sample.source { return url.lastPathComponent }
+        if case .file = sample.source {
+            return (sample.file as NSString).lastPathComponent
+        }
         return String(format: "%.1fs · %@", sample.time, sample.source.label)
     }
 
