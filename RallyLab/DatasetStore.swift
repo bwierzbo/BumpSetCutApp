@@ -59,12 +59,11 @@ struct VideoSession: Codable, Identifiable, Equatable {
     var frames: [FrameRecord]
 
     var reviewedCount: Int { frames.filter(\.reviewed).count }
-    var keptCount: Int { frames.filter(\.keep).count }
     var boxCount: Int { frames.filter(\.keep).reduce(0) { $0 + $1.boxes.count } }
 }
 
 struct DatasetStats {
-    var videos = 0, valVideos = 0, frames = 0, reviewed = 0, kept = 0, boxes = 0
+    var videos = 0, valVideos = 0, frames = 0, reviewed = 0, boxes = 0
 }
 
 final class DatasetStore: @unchecked Sendable {
@@ -80,8 +79,8 @@ final class DatasetStore: @unchecked Sendable {
         self.root = root
     }
 
-    var sessionsDir: URL { root.appendingPathComponent("sessions", isDirectory: true) }
-    var dataYAML: URL { root.appendingPathComponent("data.yaml") }
+    private var sessionsDir: URL { root.appendingPathComponent("sessions", isDirectory: true) }
+    private var dataYAML: URL { root.appendingPathComponent("data.yaml") }
 
     func prepare() throws {
         for sub in ["images/train", "images/val", "labels/train", "labels/val", "sessions"] {
@@ -147,10 +146,6 @@ final class DatasetStore: @unchecked Sendable {
     }
 
     // MARK: - Files
-
-    func imageURL(for session: VideoSession, relative file: String) -> URL {
-        root.appendingPathComponent(file)
-    }
 
     func imageRelativePath(session name: String, split: String, time: Double) -> String {
         let stamp = String(format: "%08.3f", time).replacingOccurrences(of: ".", with: "_")
@@ -224,7 +219,6 @@ final class DatasetStore: @unchecked Sendable {
         for session in sessions {
             s.frames += session.frames.count
             s.reviewed += session.reviewedCount
-            s.kept += session.keptCount
             s.boxes += session.boxCount
         }
         return s

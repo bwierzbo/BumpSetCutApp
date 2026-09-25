@@ -14,11 +14,9 @@
 //
 
 import AVFoundation
-import AppKit
 import CoreGraphics
 import Foundation
 import Observation
-import UniformTypeIdentifiers
 
 // MARK: - Types
 
@@ -30,8 +28,8 @@ struct SampleBox: Identifiable, Equatable {
     /// nil for a box drawn by hand.
     var confidence: Float?
 
-    init(id: UUID = UUID(), rect: CGRect, confidence: Float?) {
-        self.id = id
+    init(rect: CGRect, confidence: Float?) {
+        id = UUID()
         self.rect = rect
         self.confidence = confidence
     }
@@ -332,14 +330,19 @@ final class SamplerModel {
         let name: String, split: String, root: URL
     }
 
-    private var ingestSettings: (String, String) -> IngestSettings {
-        { [self] name, split in
-            IngestSettings(
-                burstFPS: burstFPS, padding: rallyPadding, includeMissed: includeMissed,
-                maxMissed: Int(maxMissed), randomCount: Int(randomCount),
-                confidence: Float(prelabelConfidence), duplicateThreshold: Int(duplicateThreshold),
-                jpegQuality: jpegQuality, name: name, split: split, root: datasetRoot
-            )
+    private func ingestSettings(name: String, split: String) -> IngestSettings {
+        IngestSettings(
+            burstFPS: burstFPS, padding: rallyPadding, includeMissed: includeMissed,
+            maxMissed: Int(maxMissed), randomCount: Int(randomCount),
+            confidence: Float(prelabelConfidence), duplicateThreshold: Int(duplicateThreshold),
+            jpegQuality: jpegQuality, name: name, split: split, root: datasetRoot
+        )
+    }
+
+    /// Reports pre-labeling progress from the detached ingest back onto the job.
+    private func prelabelProgress(for jobId: UUID) -> @Sendable (Int, Int) -> Void {
+        { done, total in
+            Task { @MainActor [weak self] in self?.setJob(jobId, .running("Pre-labeling… \(done)/\(total)")) }
         }
     }
 
@@ -367,7 +370,7 @@ final class SamplerModel {
                                              minRallySec: 1.1653, padded: false)
             : labeled.map { Interval(start: $0.startTime, end: $0.endTime) }
 
-        let settings = ingestSettings(name, split)
+        let settings = ingestSettings(name: name, split: split)
         let plan = Self.plan(rallies: rallies, evidence: evidence, duration: duration,
                              burstFPS: settings.burstFPS, padding: settings.padding,
                              includeMissed: settings.includeMissed, maxMissed: settings.maxMissed,
@@ -375,24 +378,18 @@ final class SamplerModel {
         guard !plan.isEmpty else { throw IngestError.nothingToSample }
         setJob(job.id, .running("Extracting \(plan.count) frames (\(rallies.count) rallies)…"))
 
-        let jobId = job.id
-        let progress: @Sendable (Int, Int) -> Void = { done, total in
-            Task { @MainActor [weak self] in self?.setJob(jobId, .running("Pre-labeling… \(done)/\(total)")) }
-        }
+        let progress = prelabelProgress(for: job.id)
         return try await Task.detached(priority: .userInitiated) {
             try Self.extractAndLabel(video: video, plan: plan, settings: settings, progress: progress)
         }.value
     }
 
     private func ingestFolder(_ job: IngestJob, name: String, split: String) async throws -> [FrameRecord] {
-        let files = Self.imageFiles(in: job.url)
+        let files = SamplerImageTools.imageFiles(in: job.url)
         guard !files.isEmpty else { throw IngestError.noImages }
         setJob(job.id, .running("Pre-labeling \(files.count) files…"))
-        let settings = ingestSettings(name, split)
-        let jobId = job.id
-        let progress: @Sendable (Int, Int) -> Void = { done, total in
-            Task { @MainActor [weak self] in self?.setJob(jobId, .running("Pre-labeling… \(done)/\(total)")) }
-        }
+        let settings = ingestSettings(name: name, split: split)
+        let progress = prelabelProgress(for: job.id)
         return try await Task.detached(priority: .userInitiated) {
             try Self.copyAndLabel(files: files, settings: settings, progress: progress)
         }.value
@@ -411,6 +408,25 @@ final class SamplerModel {
 
     // MARK: - Ingest work (off the main thread)
 
+    /// The shipping detector at the pre-label threshold, with static-object
+    /// suppression off: every frame is judged on its own.
+    private nonisolated static func makePrelabeler(confidence: Float) -> YOLODetector {
+        let detector = YOLODetector()
+        detector.minConfidence = confidence
+        detector.suppressesStaticObjects = false
+        return detector
+    }
+
+    private nonisolated static func unreviewedRecord(
+        file: String, time: Double, source: FrameSample.Source, detections: [DetectionResult]
+    ) -> FrameRecord {
+        FrameRecord(
+            id: UUID(), file: file, time: time, source: source.key,
+            boxes: detections.map { BoxRecord(SampleBox(rect: $0.bbox, confidence: $0.confidence)) },
+            keep: true, reviewed: false
+        )
+    }
+
     /// Pull each planned frame at native resolution, drop near-duplicates,
     /// pre-label, and write the JPEG into the dataset.
     private nonisolated static func extractAndLabel(
@@ -423,9 +439,8 @@ final class SamplerModel {
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
 
-        let detector = YOLODetector()
-        detector.minConfidence = settings.confidence
-        detector.suppressesStaticObjects = false
+        let detector = makePrelabeler(confidence: settings.confidence)
+        let store = DatasetStore(root: settings.root)
 
         var records: [FrameRecord] = []
         var lastKept: [String: (hash: UInt64, centers: [CGPoint])] = [:]
@@ -440,26 +455,21 @@ final class SamplerModel {
             // for a ball detector is whether the ball moved. With detections
             // on both frames, compare where they are; with none on either,
             // fall back to the picture hash.
-            if settings.duplicateThreshold > 0, let thumb = downscale(frame, toWidth: 64) {
-                let hash = dHash(thumb)
+            if settings.duplicateThreshold > 0, let thumb = SamplerImageTools.downscale(frame, toWidth: 64) {
+                let hash = SamplerImageTools.dHash(thumb)
                 let centers = dets.map { CGPoint(x: $0.bbox.midX, y: $0.bbox.midY) }
                 let group = item.source.key
                 if let previous = lastKept[group],
-                   isSameMoment(previous, (hash, centers), hashThreshold: settings.duplicateThreshold) {
+                   SamplerImageTools.isSameMoment(previous, (hash, centers), hashThreshold: settings.duplicateThreshold) {
                     continue
                 }
                 lastKept[group] = (hash, centers)
             }
 
-            let relative = DatasetStore(root: settings.root)
-                .imageRelativePath(session: settings.name, split: settings.split, time: item.time)
+            let relative = store.imageRelativePath(session: settings.name, split: settings.split, time: item.time)
             let url = settings.root.appendingPathComponent(relative)
-            guard writeJPEG(frame, to: url, quality: settings.jpegQuality) else { continue }
-            records.append(FrameRecord(
-                id: UUID(), file: relative, time: item.time, source: item.source.key,
-                boxes: dets.map { BoxRecord(SampleBox(rect: $0.bbox, confidence: $0.confidence)) },
-                keep: true, reviewed: false
-            ))
+            guard SamplerImageTools.writeJPEG(frame, to: url, quality: settings.jpegQuality) else { continue }
+            records.append(unreviewedRecord(file: relative, time: item.time, source: item.source, detections: dets))
             if i % 10 == 0 { progress(i + 1, plan.count) }
         }
         return records
@@ -468,25 +478,19 @@ final class SamplerModel {
     private nonisolated static func copyAndLabel(
         files: [URL], settings: IngestSettings, progress: @escaping @Sendable (Int, Int) -> Void
     ) throws -> [FrameRecord] {
-        let detector = YOLODetector()
-        detector.minConfidence = settings.confidence
-        detector.suppressesStaticObjects = false
+        let detector = makePrelabeler(confidence: settings.confidence)
         let store = DatasetStore(root: settings.root)
         let fm = FileManager.default
 
         var records: [FrameRecord] = []
         for (i, file) in files.enumerated() {
-            guard let image = loadImage(file, maxPixelSize: reviewMaxPixel) else { continue }
+            guard let image = SamplerImageTools.loadImage(file, maxPixelSize: reviewMaxPixel) else { continue }
             let dets = detector.detect(in: image, at: CMTime(value: CMTimeValue(i), timescale: 1))
             let relative = store.imageRelativePath(session: settings.name, split: settings.split, copiedFile: file)
             let dest = settings.root.appendingPathComponent(relative)
             try? fm.removeItem(at: dest)
             do { try fm.copyItem(at: file, to: dest) } catch { continue }
-            records.append(FrameRecord(
-                id: UUID(), file: relative, time: Double(i), source: FrameSample.Source.file.key,
-                boxes: dets.map { BoxRecord(SampleBox(rect: $0.bbox, confidence: $0.confidence)) },
-                keep: true, reviewed: false
-            ))
+            records.append(unreviewedRecord(file: relative, time: Double(i), source: .file, detections: dets))
             if i % 10 == 0 { progress(i + 1, files.count) }
         }
         return records
@@ -597,7 +601,7 @@ final class SamplerModel {
                 for record in frames {
                     if Task.isCancelled { break }
                     let url = store.currentImageURL(for: record)
-                    guard let thumb = Self.loadImage(url, maxPixelSize: Self.thumbnailWidth) else { continue }
+                    guard let thumb = SamplerImageTools.loadImage(url, maxPixelSize: Self.thumbnailWidth) else { continue }
                     out.append(FrameSample(record: record, thumbnail: thumb))
                 }
                 return out
@@ -706,99 +710,9 @@ final class SamplerModel {
         let id = sample.id
         let url = store.currentImageURL(for: sample.record)
         previewTask = Task {
-            let image = await Task.detached { Self.loadImage(url, maxPixelSize: Self.reviewMaxPixel) }.value
+            let image = await Task.detached { SamplerImageTools.loadImage(url, maxPixelSize: Self.reviewMaxPixel) }.value
             guard !Task.isCancelled, selectedId == id else { return }
             preview = image
-        }
-    }
-
-    // MARK: - Image helpers
-
-    nonisolated static func imageFiles(in folder: URL) -> [URL] {
-        let types: Set<String> = ["jpg", "jpeg", "png"]
-        guard let walker = FileManager.default.enumerator(
-            at: folder, includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else { return [] }
-        var files: [URL] = []
-        for case let url as URL in walker where types.contains(url.pathExtension.lowercased()) {
-            files.append(url)
-        }
-        return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-    }
-
-    /// Decode a still from disk, capped to `maxPixelSize` on its longer side,
-    /// orientation applied so a phone JPEG comes up upright.
-    nonisolated static func loadImage(_ url: URL, maxPixelSize: Int) -> CGImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-    }
-
-    nonisolated static func downscale(_ image: CGImage, toWidth width: Int) -> CGImage? {
-        guard image.width > width else { return image }
-        let height = max(1, Int((Double(image.height) * Double(width) / Double(image.width)).rounded()))
-        guard let ctx = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
-        ) else { return nil }
-        ctx.interpolationQuality = .medium
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        return ctx.makeImage()
-    }
-
-    nonisolated static func writeJPEG(_ image: CGImage, to url: URL, quality: Double) -> Bool {
-        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
-            return false
-        }
-        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
-        return CGImageDestinationFinalize(dest)
-    }
-
-    /// Difference hash: 9×8 grayscale, each bit = "left pixel brighter than
-    /// its right neighbour". Two frames of the same moment differ in a
-    /// handful of bits; a ball moving across the frame flips many.
-    nonisolated static func dHash(_ image: CGImage) -> UInt64 {
-        let w = 9, h = 8
-        var pixels = [UInt8](repeating: 0, count: w * h)
-        guard let ctx = CGContext(
-            data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
-            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
-        ) else { return 0 }
-        ctx.interpolationQuality = .medium
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        var hash: UInt64 = 0
-        for row in 0..<h {
-            for col in 0..<(w - 1) {
-                hash <<= 1
-                if pixels[row * w + col] > pixels[row * w + col + 1] { hash |= 1 }
-            }
-        }
-        return hash
-    }
-
-    nonisolated static func hamming(_ a: UInt64, _ b: UInt64) -> Int {
-        (a ^ b).nonzeroBitCount
-    }
-
-    /// Two frames are the same moment when the ball(s) haven't moved: every
-    /// detection in one sits within 1% of the frame of one in the other.
-    /// A frame with a ball and one without are always different; two frames
-    /// with no ball at all fall back to the picture hash.
-    nonisolated static func isSameMoment(
-        _ a: (hash: UInt64, centers: [CGPoint]), _ b: (hash: UInt64, centers: [CGPoint]), hashThreshold: Int
-    ) -> Bool {
-        if a.centers.isEmpty && b.centers.isEmpty {
-            return hamming(a.hash, b.hash) <= hashThreshold
-        }
-        guard a.centers.count == b.centers.count else { return false }
-        let tolerance: CGFloat = 0.01
-        return b.centers.allSatisfy { c in
-            a.centers.contains { abs($0.x - c.x) <= tolerance && abs($0.y - c.y) <= tolerance }
         }
     }
 }
