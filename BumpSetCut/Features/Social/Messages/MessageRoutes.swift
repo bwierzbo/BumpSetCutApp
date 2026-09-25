@@ -31,7 +31,6 @@ struct ConversationRoute: Hashable, Identifiable {
 enum SendFailure: Error, Equatable {
     case messaging(DirectMessageError)
     case network
-    case upload
     case unknown
 
     init(_ error: Error) {
@@ -41,8 +40,6 @@ enum SendFailure: Error, Equatable {
             self = .network
         } else if case APIError.networkUnavailable = error {
             self = .network
-        } else if case APIError.uploadFailed = error {
-            self = .upload
         } else {
             self = .unknown
         }
@@ -52,7 +49,6 @@ enum SendFailure: Error, Equatable {
         switch self {
         case .messaging(let error): return error.userMessage
         case .network: return "No connection. Tap to retry."
-        case .upload: return "Couldn't upload that rally."
         case .unknown: return "Couldn't send. Tap to retry."
         }
     }
@@ -62,7 +58,7 @@ enum SendFailure: Error, Equatable {
         switch self {
         case .messaging(let error):
             return error != .blocked && error != .notMember && error != .notFound
-        case .network, .upload, .unknown:
+        case .network, .unknown:
             return true
         }
     }

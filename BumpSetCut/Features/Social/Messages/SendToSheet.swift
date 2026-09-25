@@ -19,10 +19,8 @@ struct SendToSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthenticationService.self) private var authService
 
-    init(highlight: Highlight,
-         apiClient: (any APIClient)? = nil,
-         onSent: @escaping (String, String) -> Void) {
-        _viewModel = State(initialValue: SendToViewModel(highlight: highlight, apiClient: apiClient))
+    init(highlight: Highlight, onSent: @escaping (String, String) -> Void) {
+        _viewModel = State(initialValue: SendToViewModel(highlight: highlight))
         self.onSent = onSent
     }
 

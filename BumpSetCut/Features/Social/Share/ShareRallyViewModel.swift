@@ -43,17 +43,15 @@ struct RallyShareInfo {
 
 // MARK: - Share Source
 
-/// A standalone clip prepared for posting or sending: its own source file,
-/// optional trim range, effective duration, and any framing not yet baked
-/// into the file (a rally straight from the player; library favorites have
-/// theirs burned in on copy).
+/// A standalone favorites clip prepared for posting: its own source file,
+/// optional trim range, and effective duration. Library favorites have their
+/// framing burned in on copy.
 struct FavoriteShareClip: Identifiable {
     let id = UUID()
     let url: URL
     let timeRange: CMTimeRange?
     let duration: Double
     let displayName: String
-    var crop: ShareCrop? = nil
 }
 
 /// What is being posted: rallies clipped from one source video at upload
@@ -232,9 +230,6 @@ final class ShareRallyViewModel {
         self.rallyInfo = [:]
         self.postAllSaved = favoriteClips.count > 1
         self.apiClient = apiClient ?? SupabaseAPIClient.shared
-        for (page, clip) in favoriteClips.enumerated() {
-            if let crop = clip.crop { crops[page] = crop }
-        }
     }
 
     var favoriteClips: [FavoriteShareClip] {

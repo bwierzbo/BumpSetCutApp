@@ -62,9 +62,6 @@ final class ConversationViewModel {
     private let apiClient: any APIClient
     private let service: DirectMessageService
     private let inserts: () -> AsyncStream<DirectMessage>
-    /// The post behind each in-flight or failed attachment item, so a retry
-    /// can rebuild its params.
-    private var attachmentPayloads: [String: Highlight] = [:]
     private var listenTask: Task<Void, Never>?
     private var highlightCache: [String: Highlight?] = [:]
 
@@ -182,32 +179,30 @@ final class ConversationViewModel {
         draftText = ""
         sendError = nil
 
-        guard let highlight = pendingAttachment else {
-            let localId = "local-\(UUID().uuidString)"
-            let optimistic = DirectMessage(
-                id: localId, conversationId: conversationId, senderId: currentUserId,
-                recipientId: summary?.otherUserId ?? "", body: body, createdAt: Date()
-            )
-            items.append(Item(id: localId, message: optimistic, delivery: .sending, isMine: true))
-            scrollToBottomToken += 1
-            await deliver(SendMessageParams.text(body, in: conversationId), itemId: localId)
-            return
-        }
-
-        pendingAttachment = nil
         let localId = "local-\(UUID().uuidString)"
-        let caption = body.isEmpty ? nil : body
-        // The optimistic row carries the post itself so the bubble renders now.
-        let optimistic = DirectMessage(
-            id: localId, conversationId: conversationId, senderId: currentUserId,
-            recipientId: summary?.otherUserId ?? "", body: caption,
-            attachmentType: .highlight, highlightId: highlight.id, createdAt: Date(), highlight: highlight
-        )
+        let recipientId = summary?.otherUserId ?? ""
+        let optimistic: DirectMessage
+        let params: SendMessageParams
+        if let highlight = pendingAttachment {
+            pendingAttachment = nil
+            let caption = body.isEmpty ? nil : body
+            // The optimistic row carries the post itself so the bubble renders now.
+            optimistic = DirectMessage(
+                id: localId, conversationId: conversationId, senderId: currentUserId,
+                recipientId: recipientId, body: caption,
+                attachmentType: .highlight, highlightId: highlight.id, createdAt: Date(), highlight: highlight
+            )
+            params = .highlight(highlight.id, caption: caption, in: conversationId)
+        } else {
+            optimistic = DirectMessage(
+                id: localId, conversationId: conversationId, senderId: currentUserId,
+                recipientId: recipientId, body: body, createdAt: Date()
+            )
+            params = .text(body, in: conversationId)
+        }
         items.append(Item(id: localId, message: optimistic, delivery: .sending, isMine: true))
-        attachmentPayloads[localId] = highlight
         scrollToBottomToken += 1
-
-        await deliver(.highlight(highlight.id, caption: caption, in: conversationId), itemId: localId)
+        await deliver(params, itemId: localId)
     }
 
     /// Put one of your posts in the composer. Replaces any earlier choice;
@@ -226,17 +221,19 @@ final class ConversationViewModel {
         items[index].delivery = .sending
         sendError = nil
 
-        if let highlight = attachmentPayloads[itemId] {
-            await deliver(.highlight(highlight.id, caption: items[index].message.body, in: conversationId), itemId: itemId)
+        // A failed item still holds its optimistic message, which is enough
+        // to rebuild the params.
+        let message = items[index].message
+        if let highlightId = message.highlightId {
+            await deliver(.highlight(highlightId, caption: message.body, in: conversationId), itemId: itemId)
             return
         }
-        guard let body = items[index].message.body else { return }
-        await deliver(SendMessageParams.text(body, in: conversationId), itemId: itemId)
+        guard let body = message.body else { return }
+        await deliver(.text(body, in: conversationId), itemId: itemId)
     }
 
     func discard(_ itemId: String) {
         items.removeAll { $0.id == itemId }
-        attachmentPayloads[itemId] = nil
         sendError = nil
     }
 
@@ -261,7 +258,6 @@ final class ConversationViewModel {
         guard let index = items.firstIndex(where: { $0.id == itemId }) else { return }
         items[index].message = server
         items[index].delivery = .sent
-        attachmentPayloads[itemId] = nil
     }
 
     // MARK: - Requests
@@ -306,8 +302,8 @@ final class ConversationViewModel {
         // Our own message can arrive over Realtime before the RPC returns —
         // match it to the optimistic row instead of showing it twice.
         // Attachment rows often have no body, so type and post id take part
-        // in the match — otherwise a pending clip and a pending post could
-        // claim each other's server copy.
+        // in the match — otherwise two uncaptioned pending posts could claim
+        // each other's server copy.
         if message.senderId == currentUserId,
            let index = items.firstIndex(where: {
                $0.delivery == .sending

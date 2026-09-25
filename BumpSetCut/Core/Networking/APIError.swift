@@ -10,7 +10,6 @@ enum APIError: Error, LocalizedError {
     case notFound
     case rateLimited
     case invalidRequest(String)
-    case uploadFailed(Error)
     case unknown(Error)
 
     var errorDescription: String? {
@@ -29,8 +28,6 @@ enum APIError: Error, LocalizedError {
             return "Too many requests. Please try again later."
         case .invalidRequest(let reason):
             return "Invalid request: \(reason)"
-        case .uploadFailed(let error):
-            return "Upload failed: \(error.localizedDescription)"
         case .unknown(let error):
             return "Unexpected error: \(error.localizedDescription)"
         }

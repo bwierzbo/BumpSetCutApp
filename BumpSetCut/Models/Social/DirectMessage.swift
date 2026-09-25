@@ -128,19 +128,6 @@ struct SendMessageParams: Encodable, Equatable {
     var body: String?
     var attachmentType: DirectMessage.AttachmentType?
     var highlightId: String?
-    var clipPath: String?
-    var clipDuration: Double?
-
-    init(conversationId: String, body: String? = nil,
-         attachmentType: DirectMessage.AttachmentType? = nil,
-         highlightId: String? = nil, clipPath: String? = nil, clipDuration: Double? = nil) {
-        self.conversationId = conversationId
-        self.body = body
-        self.attachmentType = attachmentType
-        self.highlightId = highlightId
-        self.clipPath = clipPath
-        self.clipDuration = clipDuration
-    }
 
     // Pinned to the SQL argument names — the global `.convertToSnakeCase`
     // strategy would produce `conversation_id`, not `p_conversation_id`.
@@ -149,8 +136,6 @@ struct SendMessageParams: Encodable, Equatable {
         case body = "p_body"
         case attachmentType = "p_attachment_type"
         case highlightId = "p_highlight_id"
-        case clipPath = "p_clip_path"
-        case clipDuration = "p_clip_duration"
     }
 
     static func text(_ body: String, in conversationId: String) -> SendMessageParams {

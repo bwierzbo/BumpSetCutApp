@@ -77,7 +77,6 @@ enum AccessibilityID {
         static let deleteAccount = "settings.deleteAccount"
         static let blockedUsers = "settings.blockedUsers"
         static let contactSupport = "settings.contactSupport"
-        static let upgrade = "settings.upgrade"
         static let privacyPolicy = "settings.privacyPolicy"
         static let termsOfService = "settings.termsOfService"
         static let communityGuidelines = "settings.communityGuidelines"
@@ -131,10 +130,7 @@ enum AccessibilityID {
         static let followingTab = "feed.following"
         static let emptyState = "feed.emptyState"
         static let refreshButton = "feed.refresh"
-        static let highlightCard = "feed.highlightCard"
-        static let likeButton = "feed.like"
         static let commentButton = "feed.comment"
-        static let profileButton = "feed.profile"
         static let profileBack = "feed.profileBack"
         static let sendButton = "feed.send"
     }
@@ -143,7 +139,6 @@ enum AccessibilityID {
         static let inputField = "comments.input"
         static let sendButton = "comments.send"
         static let emptyState = "comments.emptyState"
-        static let commentRow = "comments.row"
     }
 
     enum Profile {
@@ -154,10 +149,8 @@ enum AccessibilityID {
         static let highlightsCount = "profile.highlightsCount"
         static let followersCount = "profile.followersCount"
         static let followingCount = "profile.followingCount"
-        static let highlightsGrid = "profile.highlightsGrid"
         static let username = "profile.username"
         static let bio = "profile.bio"
-        static let emptyHighlights = "profile.emptyHighlights"
         static let playerInfoCard = "profile.playerInfoCard"
         static let playerInfoLocked = "profile.playerInfoLocked"
         static let addPlayerInfo = "profile.addPlayerInfo"
@@ -182,12 +175,7 @@ enum AccessibilityID {
     }
 
     enum Search {
-        static let searchField = "search.field"
-        static let usersScope = "search.users"
-        static let postsScope = "search.posts"
         static let trendingSection = "search.trending"
-        static let userRow = "search.userRow"
-        static let postCell = "search.postCell"
         static let emptyResult = "search.emptyResult"
     }
 

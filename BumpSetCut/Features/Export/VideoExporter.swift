@@ -793,7 +793,6 @@ final class VideoExporter {
     }
 
     /// Export a single time range to a URL, optionally with watermark overlay.
-    /// Used by ShareRallyViewModel for community posts.
     func exportClip(asset: AVAsset, timeRange: CMTimeRange, to outputURL: URL, addWatermark: Bool = false) async throws -> URL {
         if addWatermark {
             return try await exportWithReencoding(asset: asset, timeRange: timeRange, to: outputURL, rallyIndex: 0, addWatermark: true)

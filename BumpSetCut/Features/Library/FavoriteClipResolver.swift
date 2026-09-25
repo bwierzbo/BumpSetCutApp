@@ -2,10 +2,9 @@
 //  FavoriteClipResolver.swift
 //  BumpSetCut
 //
-//  Turns favorited videos into clips ready to export, post, or send: the
-//  file, the trim window the user set in the favorites feed, and the
-//  effective duration. Shared by the favorites grid's reel export and
-//  posting, and by sending a favorite to a friend.
+//  Turns favorited videos into clips ready to export or post: the file, the
+//  trim window the user set in the favorites feed, and the effective
+//  duration. Shared by the favorites grid's reel export and posting.
 //
 
 import AVFoundation
@@ -54,7 +53,7 @@ enum FavoriteClipResolver {
         return clips
     }
 
-    /// The same clips shaped for the share/send pipelines.
+    /// The same clips shaped for the share pipeline.
     static func shareClips(from videos: [VideoMetadata]) async -> [FavoriteShareClip] {
         await resolve(videos).map {
             FavoriteShareClip(
