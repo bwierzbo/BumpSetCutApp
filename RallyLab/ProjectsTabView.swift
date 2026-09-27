@@ -277,7 +277,6 @@ private struct ClipDetailPane: View {
     @State private var start = "0:00"
     @State private var length = "5:00"
     @State private var license = ""
-    @State private var isDropTargeted = false
 
     var body: some View {
         ScrollView {
@@ -297,7 +296,7 @@ private struct ClipDetailPane: View {
 
                 GroupBox("Footage") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Paste a video link, or drop a video file here. Use footage you have permission for.")
+                        Text("Paste a video link, or drop a video here from Photos or Finder. Use footage you have permission for.")
                             .font(.caption2).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         HStack {
@@ -331,18 +330,19 @@ private struct ClipDetailPane: View {
                     }
                     .padding(4)
                 }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.accentColor, lineWidth: isDropTargeted ? 2 : 0)
+                // AppKit drop target: Photos hands over file promises, which
+                // SwiftUI's onDrop can't receive. Photos videos are copied
+                // into ~/Movies/RallyLab first, then cut from there.
+                .background(
+                    SamplerDropView(
+                        onDrop: { urls in
+                            if let video = urls.first(where: {
+                                ["mov", "mp4", "m4v"].contains($0.pathExtension.lowercased())
+                            }) { source = video.path }
+                        },
+                        onStatus: { projects.note($0) }
+                    )
                 )
-                .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
-                    guard let provider = providers.first else { return false }
-                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                        guard let url else { return }
-                        Task { @MainActor in source = url.path }
-                    }
-                    return true
-                }
 
                 GroupBox("Split") {
                     Picker("", selection: Binding(

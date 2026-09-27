@@ -96,6 +96,10 @@ final class ProjectsModel {
         }
     }
 
+    func note(_ message: String) {
+        status = message
+    }
+
     var selectedClip: PlannedClip? {
         project?.clips.first { $0.id == selectedClipId }
     }
