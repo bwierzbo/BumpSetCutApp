@@ -114,6 +114,8 @@ final class DatasetStore: @unchecked Sendable {
     func remove(_ session: VideoSession) throws {
         for frame in session.frames {
             try? fm.removeItem(at: root.appendingPathComponent(frame.file))
+            // Unreviewed and discarded frames sit parked under excluded/.
+            try? fm.removeItem(at: parkedImageURL(for: frame))
             try? fm.removeItem(at: root.appendingPathComponent(frame.labelFile))
         }
         try? fm.removeItem(at: sessionURL(session.name))

@@ -9,21 +9,44 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var model: RallyLabModel
-    @State private var sampler = SamplerModel()
+    @State private var sampler: SamplerModel
+    /// Owns the Sampler's dataset folder while a project is open.
+    @State private var projects: ProjectsModel
     @State private var showingImporter = false
+    @State private var tab: Tab = .pipeline
+
+    enum Tab: Hashable { case pipeline, projects, sampler, net, compare, fsm }
+
+    init(model: RallyLabModel) {
+        self.model = model
+        let sampler = SamplerModel()
+        _sampler = State(initialValue: sampler)
+        _projects = State(initialValue: ProjectsModel(sampler: sampler))
+    }
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             pipelineTab
                 .tabItem { Label("Pipeline", systemImage: "gearshape") }
+                .tag(Tab.pipeline)
+            ProjectsTabView(projects: projects) { session in
+                sampler.openSession(session)
+                tab = .sampler
+            }
+            .tabItem { Label("Projects", systemImage: "tablecells") }
+            .tag(Tab.projects)
             SamplerTabView(lab: model, sampler: sampler)
                 .tabItem { Label("Sampler", systemImage: "photo.stack") }
+                .tag(Tab.sampler)
             NetTabView(model: model)
                 .tabItem { Label("Net", systemImage: "rectangle.split.3x1") }
+                .tag(Tab.net)
             CompareTabView(model: model)
                 .tabItem { Label("Compare", systemImage: "square.split.2x1") }
+                .tag(Tab.compare)
             FSMTabView(model: model)
                 .tabItem { Label("Phase 1", systemImage: "point.topleft.down.curvedto.point.bottomright.up") }
+                .tag(Tab.fsm)
         }
         .frame(minWidth: 1040, minHeight: 680)
         .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.movie, .video]) { result in
