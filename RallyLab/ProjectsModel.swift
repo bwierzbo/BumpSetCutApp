@@ -9,10 +9,8 @@
 //  the project's dataset under the row's Clip ID. The Sampler tab reviews
 //  it like any other video.
 //
-//  On disk, one folder per project:
-//    ~/Movies/RallyLab/Projects/<name>/project.json   the plan + each clip's source
-//    ~/Movies/RallyLab/Projects/<name>/footage/        cut clips + meta/sources.csv
-//    ~/Movies/RallyLab/Projects/<name>/images|labels|sessions|data.yaml
+//  On disk, one folder per project, wherever you create it — see
+//  ProjectLayout for what's inside.
 //
 
 import Foundation
@@ -68,13 +66,17 @@ enum ClipProgress: Equatable {
 @Observable
 final class ProjectsModel {
 
-    static let projectsRoot = FileManager.default
+    /// Where the New Project sheet suggests creating a project.
+    static let defaultLocation = FileManager.default
         .urls(for: .moviesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("RallyLab/Projects", isDirectory: true)
-    private static let lastProjectKey = "RallyLab.lastProject"
+    private static let knownProjectsKey = "RallyLab.projects"
+    private static let lastProjectKey = "RallyLab.lastProjectPath"
 
-    private(set) var projectNames: [String] = []
+    /// Every project folder RallyLab knows about, wherever it lives.
+    private(set) var knownProjects: [URL] = []
     private(set) var project: Project?
+    private(set) var projectDir: URL?
     private(set) var status = "Create a project to start a training set."
 
     var selectedClipId: String?
@@ -87,14 +89,11 @@ final class ProjectsModel {
 
     init(sampler: SamplerModel) {
         self.sampler = sampler
-        reloadProjectList()
-        if let last = UserDefaults.standard.string(forKey: Self.lastProjectKey), projectNames.contains(last) {
-            open(last)
+        loadKnownProjects()
+        if let last = UserDefaults.standard.string(forKey: Self.lastProjectKey) {
+            let dir = URL(fileURLWithPath: last, isDirectory: true)
+            if knownProjects.contains(dir) { open(dir) }
         }
-    }
-
-    var projectDir: URL? {
-        project.map { Self.projectsRoot.appendingPathComponent(DatasetStore.safeName($0.name), isDirectory: true) }
     }
 
     var selectedClip: PlannedClip? {
@@ -103,54 +102,111 @@ final class ProjectsModel {
 
     // MARK: - Projects
 
-    func reloadProjectList() {
-        let dirs = (try? FileManager.default.contentsOfDirectory(
-            at: Self.projectsRoot, includingPropertiesForKeys: nil)) ?? []
-        projectNames = dirs
-            .filter { FileManager.default.fileExists(atPath: $0.appendingPathComponent("project.json").path) }
-            .map(\.lastPathComponent)
-            .sorted()
+    private static func isProject(_ dir: URL) -> Bool {
+        FileManager.default.fileExists(atPath: dir.appendingPathComponent("project.json").path)
     }
 
-    func create(name: String) {
+    /// The remembered list, plus anything in the default location, minus
+    /// folders that have since been moved or deleted.
+    private func loadKnownProjects() {
+        let saved = (UserDefaults.standard.stringArray(forKey: Self.knownProjectsKey) ?? [])
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let inDefault = (try? FileManager.default.contentsOfDirectory(
+            at: Self.defaultLocation, includingPropertiesForKeys: nil)) ?? []
+        var seen = Set<String>()
+        knownProjects = (saved + inDefault)
+            .map(\.standardizedFileURL)
+            .filter { Self.isProject($0) && seen.insert($0.path).inserted }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        storeKnownProjects()
+    }
+
+    private func storeKnownProjects() {
+        UserDefaults.standard.set(knownProjects.map(\.path), forKey: Self.knownProjectsKey)
+    }
+
+    private func remember(_ dir: URL) {
+        let dir = dir.standardizedFileURL
+        guard !knownProjects.contains(dir) else { return }
+        knownProjects.append(dir)
+        knownProjects.sort { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        storeKnownProjects()
+    }
+
+    /// Take a project off the list. Its folder is left untouched.
+    func forget(_ dir: URL) {
+        knownProjects.removeAll { $0 == dir.standardizedFileURL }
+        storeKnownProjects()
+        if projectDir == dir.standardizedFileURL {
+            project = nil
+            projectDir = nil
+            UserDefaults.standard.removeObject(forKey: Self.lastProjectKey)
+        }
+    }
+
+    /// The folder a new project called `name` would get inside `location`.
+    static func folder(for name: String, in location: URL) -> URL {
+        location.appendingPathComponent(DatasetStore.safeName(name.trimmingCharacters(in: .whitespacesAndNewlines)),
+                                        isDirectory: true)
+    }
+
+    /// Make `<location>/<name>/` with its whole layout up front, seeded with
+    /// the standard clip plan. An existing project there is opened instead.
+    func create(name: String, in location: URL) {
         let clean = DatasetStore.safeName(name.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !clean.isEmpty else { return }
-        guard !projectNames.contains(clean) else { open(clean); return }
+        let dir = Self.folder(for: clean, in: location)
+        if Self.isProject(dir) { open(dir); return }
+        do {
+            try ProjectLayout.create(at: dir)
+        } catch {
+            status = "Couldn't create \(dir.path): \(error.localizedDescription)"
+            return
+        }
         project = Project(name: clean, createdAt: Date(), targetFrames: StandardClipPlan.targetFrames,
                           clips: StandardClipPlan.clips)
+        projectDir = dir.standardizedFileURL
         save()
-        reloadProjectList()
+        remember(dir)
         activate()
-        status = "Created \(clean) with the \(StandardClipPlan.clips.count)-clip plan. Pick a clip to give it footage."
+        status = "Created \(clean) at \(dir.path) with the \(StandardClipPlan.clips.count)-clip plan."
     }
 
-    func open(_ name: String) {
-        let url = Self.projectsRoot.appendingPathComponent(name).appendingPathComponent("project.json")
-        guard let data = try? Data(contentsOf: url) else { status = "Couldn't open \(name)."; return }
+    /// Open a project folder (one with a project.json).
+    func open(_ dir: URL) {
+        let url = dir.appendingPathComponent("project.json")
+        guard let data = try? Data(contentsOf: url) else {
+            status = "\(dir.lastPathComponent) isn't a RallyLab project (no project.json)."
+            return
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let loaded = try? decoder.decode(Project.self, from: data) else { status = "\(name)/project.json is unreadable."; return }
+        guard let loaded = try? decoder.decode(Project.self, from: data) else {
+            status = "\(dir.lastPathComponent)/project.json is unreadable."
+            return
+        }
         project = loaded
+        projectDir = dir.standardizedFileURL
+        try? ProjectLayout.create(at: dir)
         addNewPlanClips()
         selectedClipId = nil
         cutting = [:]
         failures = [:]
+        remember(dir)
         activate()
         status = "\(loaded.name): \(loaded.clips.count) planned clips."
     }
 
     /// Point the Sampler at this project's dataset.
     private func activate() {
-        guard let dir = projectDir, let project else { return }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard let dir = projectDir else { return }
         sampler.setDatasetRoot(dir)
-        UserDefaults.standard.set(DatasetStore.safeName(project.name), forKey: Self.lastProjectKey)
+        UserDefaults.standard.set(dir.path, forKey: Self.lastProjectKey)
     }
 
     private func save() {
         guard let project, let dir = projectDir else { return }
         do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -405,5 +461,39 @@ private final class LineCollector: @unchecked Sendable {
             if !line.isEmpty { complete.append(line); all.append(line) }
         }
         return complete
+    }
+}
+
+/// The folders a project is made of, created when the project is so the
+/// structure is there to look at before any footage arrives:
+///
+///   project.json                    the plan + each clip's source
+///   footage/raw/self/<env>/          clips you recorded
+///   footage/raw/online/<env>/        clips from links
+///   footage/raw/negatives/           hard-negative clips
+///   footage/meta/sources.csv         where every clip came from, and its licence
+///   images/{train,val}/              frames that train / validate the model
+///   labels/{train,val}/              one YOLO label file per image
+///   sessions/                        each clip's frames and review state
+///   excluded/                        unreviewed or discarded frames, parked
+///   runs/                            training output
+///   data.yaml                        what `yolo train` reads
+enum ProjectLayout {
+    static let folders: [String] = {
+        let envs = ["indoor", "beach", "grass"]
+        return envs.map { "footage/raw/self/\($0)" }
+            + envs.map { "footage/raw/online/\($0)" }
+            + ["footage/raw/negatives", "footage/meta",
+               "images/train", "images/val", "labels/train", "labels/val",
+               "sessions", "excluded", "runs"]
+    }()
+
+    static func create(at dir: URL) throws {
+        let fm = FileManager.default
+        for folder in folders {
+            try fm.createDirectory(at: dir.appendingPathComponent(folder, isDirectory: true),
+                                   withIntermediateDirectories: true)
+        }
+        try DatasetStore(root: dir).writeDataYAML()
     }
 }

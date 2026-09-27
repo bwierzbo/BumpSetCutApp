@@ -17,6 +17,7 @@ struct ProjectsTabView: View {
     let review: (VideoSession) -> Void
 
     @State private var newProjectName = ""
+    @State private var newProjectLocation = ProjectsModel.defaultLocation
     @State private var showingNewProject = false
 
     var body: some View {
@@ -28,7 +29,7 @@ struct ProjectsTabView: View {
                     ContentUnavailableView {
                         Label("No Project", systemImage: "folder.badge.plus")
                     } description: {
-                        Text("A project is one training set. It starts with the standard 50-clip plan.")
+                        Text("A project is one training set. Pick where its folder goes; it starts with the standard 50-clip plan.")
                     } actions: {
                         Button("New Project…") { showingNewProject = true }
                     }
@@ -63,11 +64,20 @@ struct ProjectsTabView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Menu {
-                    ForEach(projects.projectNames, id: \.self) { name in
-                        Button(name) { projects.open(name) }
+                    ForEach(projects.knownProjects, id: \.self) { dir in
+                        Button {
+                            projects.open(dir)
+                        } label: {
+                            Text("\(dir.lastPathComponent)  —  \(dir.deletingLastPathComponent().path)")
+                        }
                     }
-                    if !projects.projectNames.isEmpty { Divider() }
+                    if !projects.knownProjects.isEmpty { Divider() }
                     Button("New Project…") { showingNewProject = true }
+                    Button("Open Existing Project…") { chooseExisting() }
+                    if let dir = projects.projectDir {
+                        Divider()
+                        Button("Remove “\(dir.lastPathComponent)” from List") { projects.forget(dir) }
+                    }
                 } label: {
                     Label(projects.project?.name ?? "Choose Project", systemImage: "folder")
                 }
@@ -138,13 +148,48 @@ struct ProjectsTabView: View {
     // MARK: - Sheets & panels
 
     private var newProjectSheet: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let folder = ProjectsModel.folder(for: newProjectName.isEmpty ? "name" : newProjectName,
+                                          in: newProjectLocation)
+        return VStack(alignment: .leading, spacing: 14) {
             Text("New Project").font(.headline)
-            Text("One project is one training set with its own dataset folder.")
+            Text("One project is one training set. It starts with the standard \(StandardClipPlan.clips.count)-clip plan.")
                 .font(.caption).foregroundStyle(.secondary)
-            TextField("Name, e.g. v3", text: $newProjectName)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(createProject)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Name").font(.caption.weight(.semibold))
+                TextField("e.g. v3", text: $newProjectName)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(createProject)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Location").font(.caption.weight(.semibold))
+                HStack {
+                    Text(newProjectLocation.path)
+                        .font(.caption).lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 5))
+                    Button("Choose…") { chooseLocation() }
+                }
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(folder.path).font(.caption.weight(.semibold)).lineLimit(1).truncationMode(.head)
+                    Group {
+                        Text("footage/raw/self · online · negatives — clips by environment")
+                        Text("footage/meta/sources.csv — where each clip came from")
+                        Text("images/train · images/val, labels/train · labels/val")
+                        Text("sessions · excluded · runs · data.yaml")
+                    }
+                    .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } label: {
+                Text("Will create").font(.caption)
+            }
+
             HStack {
                 Spacer()
                 Button("Cancel") { showingNewProject = false }
@@ -155,13 +200,36 @@ struct ProjectsTabView: View {
             }
         }
         .padding(20)
-        .frame(width: 360)
+        .frame(width: 460)
     }
 
     private func createProject() {
-        projects.create(name: newProjectName)
+        guard !newProjectName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        projects.create(name: newProjectName, in: newProjectLocation)
         newProjectName = ""
         showingNewProject = false
+    }
+
+    private func chooseLocation() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = newProjectLocation
+        panel.prompt = "Choose"
+        panel.message = "Where the project's folder will be created. Use New Folder to make one."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        newProjectLocation = url
+    }
+
+    private func chooseExisting() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Open"
+        panel.message = "A project folder (the one with project.json in it)."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        projects.open(url)
     }
 }
 

@@ -8,6 +8,9 @@
 //    RallyLab --project v3 --get grs_onl_sun_land_onl_01 "https://youtube.com/…" \
 //             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00]
 //    RallyLab --project v3 --status
+//    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
+//
+//  --project takes a known project's name or a path to its folder.
 //
 //  --get cuts the clip, logs it, samples it into the project's dataset and
 //  waits for the sampling to finish. A new project is created with the
@@ -24,10 +27,23 @@ enum HeadlessProjects {
 
         Task { @MainActor in
             let projects = ProjectsModel(sampler: SamplerModel())
-            if projects.projectNames.contains(DatasetStore.safeName(name)) {
-                projects.open(DatasetStore.safeName(name))
+            // A path opens (or creates) that folder; a bare name finds a known
+            // project, else creates one in --location or the default place.
+            let expanded = (name as NSString).expandingTildeInPath
+            if name.contains("/") {
+                let dir = URL(fileURLWithPath: expanded, isDirectory: true)
+                if FileManager.default.fileExists(atPath: dir.appendingPathComponent("project.json").path) {
+                    projects.open(dir)
+                } else {
+                    projects.create(name: dir.lastPathComponent, in: dir.deletingLastPathComponent())
+                }
+            } else if let known = projects.knownProjects.first(where: { $0.lastPathComponent == DatasetStore.safeName(name) }) {
+                projects.open(known)
             } else {
-                projects.create(name: name)
+                let location = value(after: "--location", in: args)
+                    .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+                    ?? ProjectsModel.defaultLocation
+                projects.create(name: name, in: location)
             }
             log("Project: \(projects.project?.name ?? name) → \(projects.projectDir?.path ?? "?")")
 
