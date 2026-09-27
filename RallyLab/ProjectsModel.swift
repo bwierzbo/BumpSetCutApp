@@ -2,8 +2,8 @@
 //  ProjectsModel.swift
 //  RallyLab
 //
-//  A project is one training set built from a clip checklist. Import the
-//  sheet, then give each row its footage — a video link or a file you have
+//  A project is one training set built from the standard clip plan
+//  (StandardClipPlan). Give each clip its footage — a video link or a file you have
 //  — with a start time; the clip is cut (5 minutes by default) by
 //  scripts/fetch_clip.py, logged with its licence, and sampled straight into
 //  the project's dataset under the row's Clip ID. The Sampler tab reviews
@@ -51,7 +51,6 @@ struct ClipSource: Codable, Equatable, Hashable {
 struct Project: Codable, Equatable {
     var name: String
     var createdAt: Date
-    var checklistFile: String?
     /// Labeled frames wanted per clip (the checklist asks for about 55).
     var targetFrames: Int
     var clips: [PlannedClip]
@@ -76,7 +75,7 @@ final class ProjectsModel {
 
     private(set) var projectNames: [String] = []
     private(set) var project: Project?
-    private(set) var status = "Create a project, then import your clip checklist."
+    private(set) var status = "Create a project to start a training set."
 
     var selectedClipId: String?
 
@@ -117,11 +116,12 @@ final class ProjectsModel {
         let clean = DatasetStore.safeName(name.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !clean.isEmpty else { return }
         guard !projectNames.contains(clean) else { open(clean); return }
-        project = Project(name: clean, createdAt: Date(), checklistFile: nil, targetFrames: 55, clips: [])
+        project = Project(name: clean, createdAt: Date(), targetFrames: StandardClipPlan.targetFrames,
+                          clips: StandardClipPlan.clips)
         save()
         reloadProjectList()
         activate()
-        status = "Created \(clean). Import your clip checklist next."
+        status = "Created \(clean) with the \(StandardClipPlan.clips.count)-clip plan. Pick a clip to give it footage."
     }
 
     func open(_ name: String) {
@@ -131,6 +131,7 @@ final class ProjectsModel {
         decoder.dateDecodingStrategy = .iso8601
         guard let loaded = try? decoder.decode(Project.self, from: data) else { status = "\(name)/project.json is unreadable."; return }
         project = loaded
+        addNewPlanClips()
         selectedClipId = nil
         cutting = [:]
         failures = [:]
@@ -165,33 +166,17 @@ final class ProjectsModel {
         save()
     }
 
-    // MARK: - Checklist
+    // MARK: - Plan
 
-    /// Merge a checklist into the project: new Clip IDs are added, existing
-    /// ones keep their footage and split but take the sheet's descriptions.
-    func importChecklist(_ url: URL) {
-        guard project != nil else { status = "Create or open a project first."; return }
-        do {
-            let incoming = try ChecklistImporter.clips(from: url)
-            guard !incoming.isEmpty else { status = "No clips found in \(url.lastPathComponent)."; return }
-            var byId = Dictionary(uniqueKeysWithValues: (project?.clips ?? []).map { ($0.id, $0) })
-            var added = 0
-            for var clip in incoming {
-                if let existing = byId[clip.id] {
-                    clip.split = existing.split
-                    clip.source = existing.source
-                } else {
-                    added += 1
-                }
-                byId[clip.id] = clip
-            }
-            project?.clips = byId.values.sorted { ($0.number, $0.id) < ($1.number, $1.id) }
-            project?.checklistFile = url.path
-            save()
-            status = "Imported \(incoming.count) clips from \(url.lastPathComponent) (\(added) new)."
-        } catch {
-            status = error.localizedDescription
-        }
+    /// Clips added to the standard plan after this project was created join
+    /// it on open; existing clips and their footage are left alone.
+    private func addNewPlanClips() {
+        guard let existing = project?.clips.map(\.id) else { return }
+        let known = Set(existing)
+        let missing = StandardClipPlan.clips.filter { !known.contains($0.id) }
+        guard !missing.isEmpty else { return }
+        project?.clips = ((project?.clips ?? []) + missing).sorted { ($0.number, $0.id) < ($1.number, $1.id) }
+        save()
     }
 
     func setSplit(_ split: String?, for clipId: String) {

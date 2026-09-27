@@ -2,16 +2,14 @@
 //  ProjectsTabView.swift
 //  RallyLab
 //
-//  The clip checklist as a working list. Pick a project (one training set),
-//  import its checklist, then for each row paste a video link or drop a
-//  file, set where the clip starts, and Get Clip: 5 minutes are cut, logged
+//  The standard clip plan as a working list. Pick a project (one training
+//  set), then for each clip paste a video link or drop a file, set where the clip starts, and Get Clip: 5 minutes are cut, logged
 //  with their licence, and sampled into the project's dataset under the
 //  row's Clip ID. Review happens in the Sampler tab.
 //
 
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ProjectsTabView: View {
     @Bindable var projects: ProjectsModel
@@ -27,18 +25,12 @@ struct ProjectsTabView: View {
                 header
                 Divider()
                 if projects.project == nil {
-                    ContentUnavailableView(
-                        "No Project",
-                        systemImage: "folder.badge.plus",
-                        description: Text("A project is one training set. Create one, then import your clip checklist (.xlsx or .csv).")
-                    )
-                } else if projects.project?.clips.isEmpty == true {
                     ContentUnavailableView {
-                        Label("No Clips Yet", systemImage: "tablecells")
+                        Label("No Project", systemImage: "folder.badge.plus")
                     } description: {
-                        Text("Import the clip checklist. Every row with a Clip ID becomes a clip you can fetch footage for.")
+                        Text("A project is one training set. It starts with the standard 50-clip plan.")
                     } actions: {
-                        Button("Import Checklist…") { chooseChecklist() }
+                        Button("New Project…") { showingNewProject = true }
                     }
                 } else {
                     clipTable
@@ -81,9 +73,6 @@ struct ProjectsTabView: View {
                 }
                 .fixedSize()
 
-                Button("Import Checklist…") { chooseChecklist() }
-                    .disabled(projects.project == nil)
-
                 Spacer()
 
                 if let target = projects.project?.targetFrames {
@@ -102,7 +91,7 @@ struct ProjectsTabView: View {
                 }
             }
 
-            if projects.project?.clips.isEmpty == false {
+            if projects.project != nil {
                 tallyStrip
             }
         }
@@ -173,15 +162,6 @@ struct ProjectsTabView: View {
         projects.create(name: newProjectName)
         newProjectName = ""
         showingNewProject = false
-    }
-
-    private func chooseChecklist() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "xlsx") ?? .data, .commaSeparatedText]
-        panel.prompt = "Import"
-        panel.message = "The clip checklist: a sheet with a “Clip ID” column."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        projects.importChecklist(url)
     }
 }
 

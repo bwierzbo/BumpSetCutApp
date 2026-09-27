@@ -5,13 +5,13 @@
 //  The Projects tab from the command line, so a clip can be pulled without
 //  opening the app (and Claude can do it from a pasted link):
 //
-//    RallyLab --project v3 --import-checklist ~/Downloads/BumpSetCut_Clip_Checklist.xlsx
 //    RallyLab --project v3 --get grs_onl_sun_land_onl_01 "https://youtube.com/…" \
 //             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00]
 //    RallyLab --project v3 --status
 //
 //  --get cuts the clip, logs it, samples it into the project's dataset and
-//  waits for the sampling to finish. The project is created if it's new.
+//  waits for the sampling to finish. A new project is created with the
+//  standard clip plan.
 //
 
 import Foundation
@@ -30,11 +30,6 @@ enum HeadlessProjects {
                 projects.create(name: name)
             }
             log("Project: \(projects.project?.name ?? name) → \(projects.projectDir?.path ?? "?")")
-
-            if let sheet = value(after: "--import-checklist", in: args) {
-                projects.importChecklist(URL(fileURLWithPath: (sheet as NSString).expandingTildeInPath))
-                log(projects.status)
-            }
 
             var ok = true
             if let i = args.firstIndex(of: "--get") {
@@ -55,7 +50,7 @@ enum HeadlessProjects {
     @MainActor
     private static func get(clipId: String, source: String, args: [String], projects: ProjectsModel) async -> Bool {
         guard projects.project?.clips.contains(where: { $0.id == clipId }) == true else {
-            log("❌ \(clipId) isn't in this project's checklist. Import it with --import-checklist first.")
+            log("❌ \(clipId) isn't in the clip plan (see StandardClipPlan.swift).")
             return false
         }
         guard let license = value(after: "--license", in: args) else {

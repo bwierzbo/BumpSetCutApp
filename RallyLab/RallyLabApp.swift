@@ -19,7 +19,7 @@ struct RallyLabApp: App {
         // `RallyLab --sample <videos or frame folders…>` runs the Sampler
         // tab's ingest queue into the dataset and exits.
         HeadlessSampler.runIfRequested()
-        // `RallyLab --project <name> [--import-checklist f] [--get <id> <link|file>]`
+        // `RallyLab --project <name> [--get <id> <link|file>] [--status]`
         // runs the Projects tab: pull a clip into a project and exit.
         HeadlessProjects.runIfRequested()
     }
