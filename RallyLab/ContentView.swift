@@ -12,16 +12,18 @@ struct ContentView: View {
     @State private var sampler: SamplerModel
     /// Owns the Sampler's dataset folder while a project is open.
     @State private var projects: ProjectsModel
+    @State private var library: ModelLibrary
     @State private var showingImporter = false
     @State private var tab: Tab = .pipeline
 
-    enum Tab: Hashable { case pipeline, projects, sampler, net, compare, fsm }
+    enum Tab: Hashable { case pipeline, projects, sampler, models, net, compare, fsm }
 
     init(model: RallyLabModel) {
         self.model = model
         let sampler = SamplerModel()
         _sampler = State(initialValue: sampler)
         _projects = State(initialValue: ProjectsModel(sampler: sampler))
+        _library = State(initialValue: ModelLibrary(sampler: sampler))
     }
 
     var body: some View {
@@ -38,6 +40,14 @@ struct ContentView: View {
             SamplerTabView(lab: model, sampler: sampler)
                 .tabItem { Label("Sampler", systemImage: "photo.stack") }
                 .tag(Tab.sampler)
+            ModelsTabView(library: library) { sessionName, frame in
+                if let session = sampler.sessions.first(where: { $0.name == sessionName }) {
+                    sampler.openSession(session, frame: frame)
+                    tab = .sampler
+                }
+            }
+            .tabItem { Label("Models", systemImage: "cpu") }
+            .tag(Tab.models)
             NetTabView(model: model)
                 .tabItem { Label("Net", systemImage: "rectangle.split.3x1") }
                 .tag(Tab.net)

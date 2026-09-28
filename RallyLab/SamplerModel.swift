@@ -166,6 +166,9 @@ final class SamplerModel {
     /// Deliberately low: the point is to surface the detector's uncertain
     /// calls for a human to confirm or delete.
     var prelabelConfidence: Double = 0.25
+    /// Which model draws the first boxes: nil is the app's own; a URL is a
+    /// model from the Models tab (usually the latest one trained).
+    var prelabelModel: URL?
 
     // Dataset
     var validationFraction: Double = 0.15
@@ -366,6 +369,7 @@ final class SamplerModel {
         let burstFPS: Double, padding: Double, includeMissed: Bool, maxMissed: Int, randomCount: Int
         let confidence: Float, duplicateThreshold: Int, jpegQuality: Double
         let name: String, split: String, root: URL
+        let model: URL?
     }
 
     private func ingestSettings(name: String, split: String) -> IngestSettings {
@@ -373,7 +377,8 @@ final class SamplerModel {
             burstFPS: burstFPS, padding: rallyPadding, includeMissed: includeMissed,
             maxMissed: Int(maxMissed), randomCount: Int(randomCount),
             confidence: Float(prelabelConfidence), duplicateThreshold: Int(duplicateThreshold),
-            jpegQuality: jpegQuality, name: name, split: split, root: datasetRoot
+            jpegQuality: jpegQuality, name: name, split: split, root: datasetRoot,
+            model: prelabelModel
         )
     }
 
@@ -446,10 +451,13 @@ final class SamplerModel {
 
     // MARK: - Ingest work (off the main thread)
 
-    /// The shipping detector at the pre-label threshold, with static-object
-    /// suppression off: every frame is judged on its own.
-    private nonisolated static func makePrelabeler(confidence: Float) -> YOLODetector {
-        let detector = YOLODetector()
+    /// The pre-label model (the app's own unless another is chosen) at the
+    /// pre-label threshold, with static-object suppression off: every frame
+    /// is judged on its own. A chosen model that won't load falls back to
+    /// the app's.
+    private nonisolated static func makePrelabeler(confidence: Float, model: URL?) -> YOLODetector {
+        let chosen = model.map { YOLODetector(modelURL: $0) }
+        let detector = (chosen?.isLoaded == true ? chosen : nil) ?? YOLODetector()
         detector.minConfidence = confidence
         detector.suppressesStaticObjects = false
         return detector
@@ -477,7 +485,7 @@ final class SamplerModel {
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
 
-        let detector = makePrelabeler(confidence: settings.confidence)
+        let detector = makePrelabeler(confidence: settings.confidence, model: settings.model)
         let store = DatasetStore(root: settings.root)
 
         var records: [FrameRecord] = []
@@ -516,7 +524,7 @@ final class SamplerModel {
     private nonisolated static func copyAndLabel(
         files: [URL], settings: IngestSettings, progress: @escaping @Sendable (Int, Int) -> Void
     ) throws -> [FrameRecord] {
-        let detector = makePrelabeler(confidence: settings.confidence)
+        let detector = makePrelabeler(confidence: settings.confidence, model: settings.model)
         let store = DatasetStore(root: settings.root)
         let fm = FileManager.default
 
@@ -649,7 +657,9 @@ final class SamplerModel {
 
     /// Load a session's frames for review: thumbnails come from the stored
     /// JPEGs, decoded off the main thread.
-    func openSession(_ session: VideoSession) {
+    /// `frame` selects that frame once the session has loaded (the Models
+    /// tab's error gallery uses it); otherwise the first visible frame.
+    func openSession(_ session: VideoSession, frame: UUID? = nil) {
         loadTask?.cancel()
         previewTask?.cancel()
         currentSession = session
@@ -678,7 +688,12 @@ final class SamplerModel {
             guard !Task.isCancelled, currentSession?.name == session.name else { return }
             samples = loaded
             isLoadingSession = false
-            select(visibleSamples.first?.id)
+            if let frame, samples.contains(where: { $0.id == frame }) {
+                filter = .all
+                select(frame)
+            } else {
+                select(visibleSamples.first?.id)
+            }
             status = "\(session.name): \(session.frames.count) frames, \(session.reviewedCount) reviewed."
         }
     }

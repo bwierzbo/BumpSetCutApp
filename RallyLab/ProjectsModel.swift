@@ -384,16 +384,6 @@ final class ProjectsModel {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    /// A GUI app starts with a bare PATH; python3, yt-dlp and ffmpeg live in
-    /// the usual install locations.
-    private nonisolated static var toolEnvironment: [String: String] {
-        var env = ProcessInfo.processInfo.environment
-        let extra = ["/opt/homebrew/bin", "/usr/local/bin",
-                     "/Library/Frameworks/Python.framework/Versions/Current/bin"]
-        env["PATH"] = (extra + [env["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
-        return env
-    }
-
     private nonisolated static func runFetch(
         args: [String], progress: @escaping @Sendable (Double) -> Void
     ) async -> Result<FetchResult, FetchFailure> {
@@ -401,7 +391,7 @@ final class ProjectsModel {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
             process.arguments = ["python3"] + args
-            process.environment = toolEnvironment
+            process.environment = ToolEnvironment.variables
             let out = Pipe()
             process.standardOutput = out
             process.standardError = out

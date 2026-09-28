@@ -10,6 +10,10 @@
 //    RallyLab --project v3 --status
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
+//    RallyLab --project v3 --package                       (training package zip)
+//    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
+//    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.7]
+//
 //  --project takes a known project's name or a path to its folder.
 //
 //  --get cuts the clip, logs it, samples it into the project's dataset and
@@ -59,6 +63,15 @@ enum HeadlessProjects {
             if args.contains("--status") || args.contains("--get") {
                 printStatus(projects)
             }
+
+            let library = ModelLibrary(sampler: projects.sampler)
+            if ok, args.contains("--package") { ok = await package(library) }
+            if ok, let model = value(after: "--add-model", in: args) {
+                await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
+                log(library.status)
+                ok = !library.status.lowercased().contains("fail") && !library.status.contains("Add a")
+            }
+            if ok, args.contains("--evaluate") { ok = await evaluate(library, args: args) }
             exit(ok ? 0 : 1)
         }
     }
@@ -105,6 +118,43 @@ enum HeadlessProjects {
                 last = line
             }
         }
+    }
+
+    @MainActor
+    private static func package(_ library: ModelLibrary) async -> Bool {
+        library.exportPackage()
+        while library.isBusy { try? await Task.sleep(nanoseconds: 200_000_000) }
+        log(library.status)
+        return library.lastPackage != nil
+    }
+
+    @MainActor
+    private static func evaluate(_ library: ModelLibrary, args: [String]) async -> Bool {
+        library.evaluateValOnly = !args.contains("--all")
+        if let t = value(after: "--threshold", in: args).flatMap(Double.init) { library.threshold = t }
+        if let name = value(after: "--candidate", in: args) {
+            guard let entry = library.models.first(where: { $0.name == name }) else {
+                log("❌ No model called \(name). Models: \(library.models.map(\.name).joined(separator: ", "))")
+                return false
+            }
+            library.candidate = entry
+        }
+        library.evaluate()
+        while library.isBusy { try? await Task.sleep(nanoseconds: 200_000_000) }
+        log(library.status)
+        guard !library.results.isEmpty else { return false }
+        for entry in [library.baseline] + (library.candidate.map { [$0] } ?? []) {
+            guard let result = library.results[entry.id] else { continue }
+            let score = result.score(at: library.threshold)
+            func line(_ label: String, _ c: ModelEvaluation.Result.Counts) -> String {
+                String(format: "  %-9@ P %5.1f%%  R %5.1f%%  F1 %5.1f%%   found %d  false %d  missed %d",
+                       label, c.precision * 100, c.recall * 100, c.f1 * 100, c.tp, c.fp, c.fn)
+            }
+            log("\(entry.name) @ \(String(format: "%.2f", library.threshold))")
+            log(line("All", score.all))
+            for (env, c) in score.byEnv { log(line(env, c)) }
+        }
+        return true
     }
 
     @MainActor

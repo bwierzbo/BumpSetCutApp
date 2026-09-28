@@ -83,6 +83,25 @@ final class YOLODetector {
         loadModel()
     }
 
+    /// A model from disk rather than the app bundle — RallyLab evaluates and
+    /// pre-labels with models trained outside the app. `.mlpackage` and
+    /// `.mlmodel` are compiled first; `.mlmodelc` loads as-is. Check
+    /// `isLoaded` afterwards.
+    init(modelURL: URL, computeUnits: MLComputeUnits = .all) {
+        self.modelName = modelURL.deletingPathExtension().lastPathComponent
+        self.computeUnits = computeUnits
+        do {
+            let compiled = modelURL.pathExtension == "mlmodelc" ? modelURL : try MLModel.compileModel(at: modelURL)
+            if !load(compiled, label: modelURL.lastPathComponent) {
+                print("❌ Couldn't load \(modelURL.path)")
+            }
+        } catch {
+            print("❌ Couldn't compile \(modelURL.path): \(error)")
+        }
+    }
+
+    var isLoaded: Bool { model != nil }
+
     private func loadModel() {
         // Prefer mlpackage; fall back to mlmodelc if present.
         // Try the requested model first, then fall back to known bundled models.
@@ -95,24 +114,8 @@ final class YOLODetector {
             candidates.append((fallback, "mlmodelc"))
         }
         for (name, ext) in candidates {
-            if let url = Bundle.main.url(forResource: name, withExtension: ext) {
-                do {
-                    let cfg = MLModelConfiguration()
-                    cfg.computeUnits = computeUnits
-                    let mlModel = try MLModel(contentsOf: url, configuration: cfg)
-                    let vnModel = try VNCoreMLModel(for: mlModel)
-                    // Let VNCoreMLModel auto-detect the image input feature
-                    self.model = vnModel
-                    if let imgConstraint = mlModel.modelDescription.inputDescriptionsByName.values
-                        .first(where: { $0.type == .image })?.imageConstraint {
-                        self.modelInputWidth = CGFloat(imgConstraint.pixelsWide)
-                        self.modelInputHeight = CGFloat(imgConstraint.pixelsHigh)
-                    }
-                    print("✅ Loaded CoreML model: \(name).\(ext) [computeUnits=\(computeUnits.rawValue), input=\(Int(modelInputWidth))x\(Int(modelInputHeight))]")
-                    return
-                } catch {
-                    print("⚠️ Failed to load \(name).\(ext): \(error)")
-                }
+            if let url = Bundle.main.url(forResource: name, withExtension: ext), load(url, label: "\(name).\(ext)") {
+                return
             }
         }
         print("❌ No CoreML model found in bundle (tried \(modelName), fallback bestv2)")
@@ -120,6 +123,27 @@ final class YOLODetector {
         print("   1. Add bestv2.mlpackage or bestv2.mlmodelc to the Xcode project bundle")
         print("   2. Ensure the model is included in the target and bundle resources") 
         print("   3. The model should be a YOLO volleyball detection model")
+    }
+
+    /// Load a compiled model or package the runtime can open directly.
+    private func load(_ url: URL, label: String) -> Bool {
+        do {
+            let cfg = MLModelConfiguration()
+            cfg.computeUnits = computeUnits
+            let mlModel = try MLModel(contentsOf: url, configuration: cfg)
+            // Let VNCoreMLModel auto-detect the image input feature
+            self.model = try VNCoreMLModel(for: mlModel)
+            if let imgConstraint = mlModel.modelDescription.inputDescriptionsByName.values
+                .first(where: { $0.type == .image })?.imageConstraint {
+                self.modelInputWidth = CGFloat(imgConstraint.pixelsWide)
+                self.modelInputHeight = CGFloat(imgConstraint.pixelsHigh)
+            }
+            print("✅ Loaded CoreML model: \(label) [computeUnits=\(computeUnits.rawValue), input=\(Int(modelInputWidth))x\(Int(modelInputHeight))]")
+            return true
+        } catch {
+            print("⚠️ Failed to load \(label): \(error)")
+            return false
+        }
     }
     
     /// Off for tools that look at frames out of order (the RallyLab sampler):
