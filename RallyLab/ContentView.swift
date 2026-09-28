@@ -14,11 +14,12 @@ struct ContentView: View {
     @Bindable var projects: ProjectsModel
     @Bindable var library: ModelLibrary
     @State private var showingImporter = false
-    @State private var tab: Tab = .projects
+    /// The tab you were on last time, so RallyLab reopens where you left off.
+    @AppStorage("RallyLab.tab") private var tab: Tab = .projects
     /// Set by "Continue without a project" on the welcome window.
     @State private var workingWithoutProject = false
 
-    enum Tab: Hashable { case projects, sampler, models, pipeline, net, compare, fsm }
+    enum Tab: String, Hashable { case projects, sampler, models, pipeline, net, compare, fsm }
 
     var body: some View {
         Group {

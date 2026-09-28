@@ -20,15 +20,20 @@ struct SamplerTabView: View {
     let isActive: Bool
     @State private var isDropTargeted = false
     @State private var keyMonitor: Any?
+    /// The sampling / dataset / training column; out of the way while reviewing.
+    @AppStorage("RallyLab.samplerSettings") private var showSettings = false
+    @State private var showShortcuts = false
 
     var body: some View {
         HSplitView {
             librarySidebar
-                .frame(minWidth: 240, idealWidth: 270, maxWidth: 340)
+                .frame(minWidth: 230, idealWidth: 260, maxWidth: 330)
             mainColumn
-                .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
-            controls
-                .frame(minWidth: 300, idealWidth: 330, maxWidth: 400)
+                .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+            if showSettings {
+                controls
+                    .frame(minWidth: 300, idealWidth: 320, maxWidth: 400)
+            }
         }
         .background(
             SamplerDropView(
@@ -164,18 +169,18 @@ struct SamplerTabView: View {
             }
         )) {
             ForEach(sampler.sessions) { session in
-                HStack(spacing: 6) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(session.name).font(.caption).lineLimit(1)
+                HStack(spacing: 9) {
+                    ProgressRing(value: session.frames.isEmpty ? 0
+                                 : Double(session.reviewedCount) / Double(session.frames.count))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(session.name).font(.callout).lineLimit(1).truncationMode(.middle)
                         Text("\(session.reviewedCount)/\(session.frames.count) reviewed · \(session.boxCount) boxes")
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
                     }
                     Spacer(minLength: 0)
-                    Text(session.split)
-                        .font(.system(size: 9, weight: .semibold))
-                        .padding(.horizontal, 4).padding(.vertical, 1)
-                        .background(session.split == "val" ? Color.orange.opacity(0.25) : Color.gray.opacity(0.2), in: Capsule())
+                    SplitBadge(split: session.split)
                 }
+                .padding(.vertical, 2)
                 .tag(session.name)
                 .contextMenu {
                     Button("Show in Finder") {
@@ -192,84 +197,79 @@ struct SamplerTabView: View {
     // MARK: - Main column
 
     private var mainColumn: some View {
-        VStack(spacing: 10) {
-            if sampler.currentSession != nil {
-                reviewToolbar
+        VStack(spacing: 0) {
+            if let session = sampler.currentSession {
+                ReviewHeader(sampler: sampler, session: session,
+                             showSettings: $showSettings, showShortcuts: $showShortcuts)
+                Divider()
             }
+            stage
+                .padding(.horizontal, 12).padding(.top, 12)
+            if !sampler.samples.isEmpty {
+                ReviewFilmstrip(sampler: sampler)
+            }
+            Text(sampler.status)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16).padding(.bottom, 8)
+                .padding(.top, sampler.samples.isEmpty ? 8 : 0)
+        }
+    }
+
+    /// The frame on a dark stage, with its tag, actions and the accept pulse.
+    private var stage: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12).fill(ReviewStyle.stage)
             Group {
                 if let sample = sampler.selected {
                     ReviewCanvas(sampler: sampler, sample: sample)
+                        .padding(.horizontal, 14).padding(.top, 52).padding(.bottom, 66)
                 } else if sampler.isLoadingSession {
-                    ContentUnavailableView("Loading frames…", systemImage: "photo.on.rectangle.angled")
+                    ProgressView("Loading frames…").controlSize(.large)
                 } else if let session = sampler.currentSession {
-                    ContentUnavailableView(
-                        "Nothing to show",
-                        systemImage: "line.3.horizontal.decrease.circle",
-                        description: Text("\(session.name) has no frames matching “\(sampler.filter.rawValue)”.")
-                    )
+                    placeholder("Nothing to show", "line.3.horizontal.decrease.circle",
+                                "\(session.name) has no frames under this filter.")
                 } else if sampler.sessions.isEmpty {
-                    ContentUnavailableView(
-                        "Empty Dataset",
-                        systemImage: "photo.stack",
-                        description: Text("Drop a video from Photos or Finder — or a folder of frames — anywhere on this tab. The pipeline finds the rallies, frames are pulled and pre-labeled, and they show up here to review.")
-                    )
+                    placeholder("Empty Dataset", "photo.stack",
+                                "Drop a video from Photos or Finder — or a folder of frames — anywhere on this tab. The pipeline finds the rallies, frames are pulled and pre-labeled, and they show up here to review.")
                 } else {
-                    ContentUnavailableView(
-                        "Pick a Video",
-                        systemImage: "photo.stack",
-                        description: Text("Choose a video on the left to review its frames.")
-                    )
+                    placeholder("Pick a Video", "photo.stack", "Choose a video on the left to review its frames.")
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if !sampler.samples.isEmpty {
-                filmstrip
-            }
-            Text(sampler.status)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            AcceptPulse(count: sampler.acceptCount)
         }
-        .padding(12)
+        .overlay(alignment: .topLeading) {
+            if let sample = sampler.selected {
+                let list = sampler.visibleSamples
+                FrameTag(sample: sample,
+                         position: (list.firstIndex { $0.id == sample.id } ?? 0) + 1,
+                         total: list.count)
+                    .padding(12)
+            }
+        }
+        .overlay(alignment: .top) {
+            if !sampler.samples.isEmpty, sampler.count(.unreviewed) == 0 {
+                VideoDoneBanner(sampler: sampler, total: sampler.samples.count)
+                    .padding(.top, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let sample = sampler.selected {
+                ReviewActionBar(sampler: sampler, sample: sample)
+                    .padding(.bottom, 12)
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: sampler.count(.unreviewed) == 0)
+        .environment(\.colorScheme, .dark)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var reviewToolbar: some View {
-        HStack(spacing: 12) {
-            Picker("", selection: $sampler.filter) {
-                ForEach(ReviewFilter.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 360)
-            Toggle("Lowest confidence first", isOn: $sampler.lowestConfidenceFirst)
-                .toggleStyle(.checkbox)
-                .font(.caption)
-            Spacer()
-            if let session = sampler.currentSession {
-                Text("\(session.reviewedCount)/\(session.frames.count) reviewed")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var filmstrip: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: true) {
-                LazyHStack(spacing: 6) {
-                    ForEach(sampler.visibleSamples) { s in
-                        SampleThumb(sample: s, isSelected: s.id == sampler.selectedId)
-                            .id(s.id)
-                            .onTapGesture { sampler.select(s.id) }
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-            .frame(height: 120)
-            .onChange(of: sampler.selectedId) { _, id in
-                if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
-            }
-        }
+    private func placeholder(_ title: String, _ icon: String, _ text: String) -> some View {
+        ContentUnavailableView(title, systemImage: icon, description: Text(text))
+            .foregroundStyle(.secondary)
     }
 
     // MARK: - Controls (right)
@@ -349,25 +349,6 @@ struct SamplerTabView: View {
                     .padding(4)
                 }
 
-                GroupBox("Review keys") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        keyRow("← →", "previous / next frame")
-                        keyRow("K", "keep / discard frame")
-                        keyRow("Return", "accept frame, next")
-                        keyRow("⌫", "delete selected box")
-                        keyRow("drag", "draw · move · resize at a corner")
-                        keyRow("⇧ ←↑↓→", "nudge the selected box")
-                        keyRow("⇧⌥ ←↑↓→", "resize the selected box")
-                        keyRow("C", "copy the previous frame's boxes")
-                        keyRow("⌘Z", "undo")
-                        keyRow("Z", "zoom to the selected box")
-                        keyRow("= − 0", "zoom in · out · fit")
-                        keyRow("pinch", "zoom; scroll pans when zoomed")
-                        keyRow("P", "play ±0.75 s around the frame")
-                    }
-                    .padding(4)
-                }
-
                 Spacer(minLength: 0)
             }
             .padding(12)
@@ -432,6 +413,7 @@ struct SamplerTabView: View {
         case (51, []), (117, []): sampler.removeSelectedBox(); return true    // Delete, ⌦
         default: break
         }
+        if event.characters == "?" { showShortcuts.toggle(); return true }
         switch (event.charactersIgnoringModifiers?.lowercased(), mods) {
         case ("z", .command): sampler.undo()
         case ("k", []): sampler.toggleKeep()
@@ -461,15 +443,23 @@ struct SamplerTabView: View {
             Text(value).font(.system(.body, design: .monospaced))
         }
     }
+}
 
-    private func keyRow(_ key: String, _ what: String) -> some View {
-        HStack(spacing: 8) {
-            Text(key)
-                .font(.system(.caption2, design: .monospaced))
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
-                .frame(width: 52, alignment: .leading)
-            Text(what).font(.caption2).foregroundStyle(.secondary)
+private struct ProgressRing: View {
+    let value: Double
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.primary.opacity(0.12), lineWidth: 3)
+            Circle().trim(from: 0, to: value)
+                .stroke(value >= 1 ? ReviewStyle.yours : Color.accentColor,
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            if value >= 1 {
+                Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(ReviewStyle.yours)
+            }
         }
+        .frame(width: 18, height: 18)
+        .animation(.easeOut(duration: 0.3), value: value)
     }
 }

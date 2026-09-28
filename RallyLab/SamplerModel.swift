@@ -221,6 +221,12 @@ final class SamplerModel {
     private static let undoLimit = 200
 
     private var previewTask: Task<Void, Never>?
+    /// Review-size images of the selected frame's neighbours, loaded ahead
+    /// so stepping through a video never waits on a decode.
+    @ObservationIgnored private var previewCache: [UUID: CGImage] = [:]
+    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
+    /// Bumped on every accept, for the view's confirmation pulse.
+    private(set) var acceptCount = 0
     private var loadTask: Task<Void, Never>?
 
     nonisolated static let thumbnailWidth = 320
@@ -244,6 +250,29 @@ final class SamplerModel {
         closeSession()
         reloadSessions()
         status = "Dataset: \(url.path)"
+        resumeReview()
+    }
+
+    // MARK: - Where you left off
+
+    /// Per dataset: the video and frame last reviewed, "session|frame-id".
+    private static let resumeKey = "RallyLab.reviewPlace"
+
+    private func rememberPlace() {
+        guard let session = currentSession else { return }
+        var places = UserDefaults.standard.dictionary(forKey: Self.resumeKey) as? [String: String] ?? [:]
+        places[datasetRoot.path] = session.name + "|" + (selectedId?.uuidString ?? "")
+        UserDefaults.standard.set(places, forKey: Self.resumeKey)
+    }
+
+    /// Reopen the video and frame last reviewed in this dataset.
+    private func resumeReview() {
+        guard currentSession == nil,
+              let place = (UserDefaults.standard.dictionary(forKey: Self.resumeKey) as? [String: String])?[datasetRoot.path]
+        else { return }
+        let parts = place.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard let session = sessions.first(where: { $0.name == parts.first }) else { return }
+        openSession(session, frame: parts.count > 1 ? UUID(uuidString: parts[1]) : nil)
     }
 
     func reloadSessions() {
@@ -697,6 +726,7 @@ final class SamplerModel {
         selectedId = nil
         selectedBoxId = nil
         preview = nil
+        previewCache = [:]
         undoStack = []
         resetZoom()
         stopContext()
@@ -747,6 +777,7 @@ final class SamplerModel {
         selectedBoxId = nil
         stopContext()
         loadPreviewForSelection()
+        rememberPlace()
     }
 
     func selectNext(_ delta: Int) {
@@ -787,8 +818,36 @@ final class SamplerModel {
 
     /// Accept the frame as-is and move on — the fast path through a review.
     func acceptAndAdvance() {
+        guard selectedId != nil else { return }
         markReviewed()
+        acceptCount += 1
         selectNext(1)
+    }
+
+    /// How many of the open video's frames each filter shows.
+    func count(_ filter: ReviewFilter) -> Int {
+        switch filter {
+        case .all: return samples.count
+        case .unreviewed: return samples.filter { !$0.reviewed }.count
+        case .withBoxes: return samples.filter { !$0.boxes.isEmpty }.count
+        case .noBoxes: return samples.filter { $0.boxes.isEmpty }.count
+        }
+    }
+
+    /// The next video after this one with frames still to review.
+    var nextSessionToReview: VideoSession? {
+        let pending = sessions.filter { $0.reviewedCount < $0.frames.count && $0.name != currentSession?.name }
+        guard let current = currentSession, let at = sessions.firstIndex(where: { $0.name == current.name }) else {
+            return pending.first
+        }
+        return pending.first { s in (sessions.firstIndex { $0.name == s.name } ?? 0) > at } ?? pending.first
+    }
+
+    /// Open the next video to review, at its first unreviewed frame.
+    func openNextSession() {
+        guard let next = nextSessionToReview else { return }
+        let firstOpen = next.frames.first { !$0.reviewed }?.id
+        openSession(next, frame: firstOpen)
     }
 
     /// Copy the previous frame's boxes onto this one. Burst frames are an
@@ -958,14 +1017,40 @@ final class SamplerModel {
 
     private func loadPreviewForSelection() {
         previewTask?.cancel()
-        preview = nil
-        guard let sample = selected else { return }
+        guard let sample = selected else { preview = nil; return }
         let id = sample.id
+        defer { prefetchNeighbours() }
+        if let cached = previewCache[id] { preview = cached; return }
+        preview = nil
         let url = store.currentImageURL(for: sample.record)
         previewTask = Task {
             let image = await Task.detached { SamplerImageTools.loadImage(url, maxPixelSize: Self.reviewMaxPixel) }.value
-            guard !Task.isCancelled, selectedId == id else { return }
-            preview = image
+            guard !Task.isCancelled else { return }
+            if let image { previewCache[id] = image }
+            if selectedId == id { preview = image }
+        }
+    }
+
+    /// Load the two frames either side of the selection, and drop cached
+    /// frames further away than that.
+    private func prefetchNeighbours() {
+        prefetchTask?.cancel()
+        let list = visibleSamples
+        guard let at = list.firstIndex(where: { $0.id == selectedId }) else { return }
+        let near = list[max(0, at - 2)...min(list.count - 1, at + 2)]
+        let keep = Set(near.map(\.id))
+        previewCache = previewCache.filter { keep.contains($0.key) }
+        let wanted = near.filter { previewCache[$0.id] == nil }
+            .map { ($0.id, store.currentImageURL(for: $0.record)) }
+        guard !wanted.isEmpty else { return }
+        prefetchTask = Task {
+            for (id, url) in wanted {
+                let image = await Task.detached(priority: .utility) {
+                    SamplerImageTools.loadImage(url, maxPixelSize: Self.reviewMaxPixel)
+                }.value
+                guard !Task.isCancelled else { return }
+                if let image { previewCache[id] = image }
+            }
         }
     }
 }

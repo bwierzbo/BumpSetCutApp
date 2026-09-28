@@ -39,15 +39,28 @@ struct ReviewCanvas: View {
             ZStack(alignment: .topLeading) {
                 Canvas { ctx, _ in
                     ctx.draw(Image(decorative: image, scale: 1, orientation: .up), in: view)
-                    if sampler.contextPlayer == nil { drawBoxes(in: &ctx, view: view) }
+                    if sampler.contextPlayer == nil {
+                        drawGuides(in: &ctx, view: view)
+                        drawBoxes(in: &ctx, view: view)
+                    }
                     if case .draw = drag, let live = liveRect {
-                        ctx.stroke(Path(live), with: .color(.green), style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                        ctx.fill(Path(roundedRect: live, cornerRadius: 2), with: .color(ReviewStyle.yours.opacity(0.12)))
+                        ctx.stroke(Path(roundedRect: live, cornerRadius: 2), with: .color(ReviewStyle.yours),
+                                   style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
                     }
                     if !sample.keep {
-                        ctx.fill(Path(view), with: .color(.black.opacity(0.5)))
-                        ctx.draw(Text("DISCARDED — K to keep").font(.headline).foregroundStyle(.white),
-                                 at: CGPoint(x: geo.size.width / 2, y: geo.size.height / 2))
+                        ctx.fill(Path(view), with: .color(.black.opacity(0.55)))
                     }
+                }
+                .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
+
+                if !sample.keep {
+                    Label("Discarded — press K to keep it", systemImage: "eye.slash")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .allowsHitTesting(false)
                 }
 
                 // The context loop sits exactly over the frame, at the same zoom.
@@ -56,26 +69,33 @@ struct ReviewCanvas: View {
                         .frame(width: view.width, height: view.height)
                         .offset(x: view.minX, y: view.minY)
                         .allowsHitTesting(false)
-                    Text("Playing ±0.75 s at half speed — P to stop")
+                    Label("Playing ±0.75 s at half speed", systemImage: "play.fill")
                         .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(.black.opacity(0.6), in: Capsule())
-                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(.ultraThinMaterial, in: Capsule())
                         .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .top)
                 }
 
                 if sampler.zoom > 1.01 {
-                    Text(String(format: "%.1f×", sampler.zoom))
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(.black.opacity(0.6), in: Capsule())
-                        .foregroundStyle(.white)
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .topTrailing)
+                    Button {
+                        sampler.resetZoom()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus.magnifyingglass")
+                            Text(String(format: "%.1f×", sampler.zoom)).monospacedDigit()
+                        }
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 9).padding(.vertical, 5)
+                        .background(.ultraThinMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Back to fit (0)")
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .topTrailing)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
-            .background(Color.black)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
             .gesture(dragGesture(view: view))
@@ -155,23 +175,61 @@ struct ReviewCanvas: View {
 
     // MARK: - Boxes
 
+    /// Yours: solid green. The detector's guesses: dashed amber with their
+    /// confidence on a tag. A ball is often a few pixels at fit, so small
+    /// boxes also get a ring to find them by; the selected box gets a halo
+    /// and handles.
     private func drawBoxes(in ctx: inout GraphicsContext, view: CGRect) {
         for box in sample.boxes {
             let isSelected = box.id == sampler.selectedBoxId
             let boxRect = OverlayGeometry.rect(box.rect, turns: 0, in: view)
             let screen = (isSelected && drag != nil) ? (liveRect ?? boxRect) : boxRect
-            let color: Color = box.confidence == nil ? .green : .yellow
-            ctx.stroke(Path(screen), with: .color(color), lineWidth: isSelected ? 2.5 : 1.5)
+            let yours = box.confidence == nil
+            let color = yours ? ReviewStyle.yours : ReviewStyle.guess
+            let outline = Path(roundedRect: screen, cornerRadius: min(3, screen.width / 4))
+
+            if max(screen.width, screen.height) < 18 {
+                let r = max(screen.width, screen.height) / 2 + 10
+                let ring = CGRect(x: screen.midX - r, y: screen.midY - r, width: 2 * r, height: 2 * r)
+                ctx.stroke(Path(ellipseIn: ring), with: .color(color.opacity(isSelected ? 0.95 : 0.7)), lineWidth: 1.5)
+            }
+            if isSelected {
+                ctx.stroke(outline, with: .color(.white.opacity(0.85)), lineWidth: 5)
+            }
+            ctx.stroke(outline, with: .color(color),
+                       style: StrokeStyle(lineWidth: isSelected ? 2.5 : 1.75, dash: yours ? [] : [4, 3]))
             if isSelected {
                 for corner in corners(of: screen) {
-                    ctx.fill(Path(ellipseIn: CGRect(x: corner.x - 4, y: corner.y - 4, width: 8, height: 8)), with: .color(color))
+                    let dot = CGRect(x: corner.x - 5, y: corner.y - 5, width: 10, height: 10)
+                    ctx.fill(Path(ellipseIn: dot), with: .color(.white))
+                    ctx.stroke(Path(ellipseIn: dot), with: .color(color), lineWidth: 2)
                 }
             }
             if let c = box.confidence {
-                ctx.draw(Text(String(format: "%.2f", c)).font(.system(size: 10, design: .monospaced)).foregroundStyle(color),
-                         at: CGPoint(x: screen.minX + 14, y: screen.minY - 8))
+                let label = ctx.resolve(Text(String(format: "%.2f", c))
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.black.opacity(0.85)))
+                let size = label.measure(in: CGSize(width: 80, height: 20))
+                let ringPad: CGFloat = max(screen.width, screen.height) < 18 ? 12 : 4
+                var tag = CGRect(x: screen.midX - size.width / 2 - 5, y: screen.minY - ringPad - size.height - 4,
+                                 width: size.width + 10, height: size.height + 4)
+                if tag.minY < view.minY { tag.origin.y = screen.maxY + ringPad }
+                ctx.fill(Path(roundedRect: tag, cornerRadius: tag.height / 2), with: .color(color))
+                ctx.draw(label, at: CGPoint(x: tag.midX, y: tag.midY))
             }
         }
+    }
+
+    /// Faint crosshair lines through the pointer over empty image, to line
+    /// a new box up with the ball.
+    private func drawGuides(in ctx: inout GraphicsContext, view: CGRect) {
+        guard drag == nil, let p = hoverPoint, view.contains(p),
+              !sample.boxes.contains(where: { OverlayGeometry.rect($0.rect, turns: 0, in: view).insetBy(dx: -4, dy: -4).contains(p) })
+        else { return }
+        var lines = Path()
+        lines.move(to: CGPoint(x: view.minX, y: p.y)); lines.addLine(to: CGPoint(x: view.maxX, y: p.y))
+        lines.move(to: CGPoint(x: p.x, y: view.minY)); lines.addLine(to: CGPoint(x: p.x, y: view.maxY))
+        ctx.stroke(lines, with: .color(.white.opacity(0.28)), style: StrokeStyle(lineWidth: 0.75, dash: [3, 4]))
     }
 
     private func corners(of r: CGRect) -> [CGPoint] {
