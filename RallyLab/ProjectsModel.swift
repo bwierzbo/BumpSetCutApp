@@ -342,11 +342,14 @@ final class ProjectsModel {
     /// Clips added to the standard plan after this project was created join
     /// it on open; existing clips and their footage are left alone.
     private func addNewPlanClips() {
-        guard let existing = project?.clips.map(\.id) else { return }
-        let known = Set(existing)
+        guard let existing = project?.clips else { return }
+        let known = Set(existing.map(\.id))
         let missing = StandardClipPlan.clips.filter { !known.contains($0.id) }
         guard !missing.isEmpty else { return }
-        project?.clips = ((project?.clips ?? []) + missing).sorted { ($0.number, $0.id) < ($1.number, $1.id) }
+        // Built outside the property, then assigned: reading project while
+        // writing it in one expression is an exclusivity violation.
+        let merged = (existing + missing).sorted { ($0.number, $0.id) < ($1.number, $1.id) }
+        project?.clips = merged
         save()
     }
 

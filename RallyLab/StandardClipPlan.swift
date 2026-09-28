@@ -2,11 +2,12 @@
 //  StandardClipPlan.swift
 //  RallyLab
 //
-//  The clip checklist every training set is built from: 50 five-minute
-//  clips spread across environment, camera position, lighting, orientation
-//  and ball colour, plus hard negatives and licensed online footage. A new
-//  project starts with a fresh copy; each clip's footage and split are then
-//  per project. Change the plan here and new projects pick it up.
+//  The clip checklist every training set is built from: the sheet's 50
+//  five-minute clips spread across environment, camera position, lighting,
+//  orientation and ball colour, plus hard negatives and licensed online
+//  footage, and rows added since (tripod in the corner). A new project
+//  starts with a fresh copy; each clip's footage and split are then per
+//  project. Rows added here join existing projects when they're opened.
 //
 
 enum StandardClipPlan {
@@ -82,5 +83,12 @@ enum StandardClipPlan {
         .init(48, "grs_onl_shade_land_onl_02", "Grass", "Online (CC-licensed)", "Shade", "Landscape", "Any", "Grass tournament under trees"),
         .init(49, "grs_onl_dusk_land_onl_03", "Grass", "Online (CC-licensed)", "Dusk", "Landscape", "Any", "Backyard grass play"),
         .init(50, "grs_onl_sun_land_onl_04", "Grass", "Online (CC-licensed)", "Sunny", "Landscape", "Any", "Stock CC0 grass clip"),
+        // Added after the sheet: a locked-off tripod at a court corner.
+        .init(51, "ind_tri_bright_land_self_01", "Indoor", "Tripod / corner", "Bright gym", "Landscape", "White/blue indoor", ""),
+        .init(52, "ind_tri_dim_port_self_02", "Indoor", "Tripod / corner", "Dim gym", "Portrait", "Green/white/red indoor", ""),
+        .init(53, "bch_tri_sun_land_self_01", "Beach", "Tripod / corner", "Sunny", "Landscape", "Yellow/blue beach", ""),
+        .init(54, "bch_tri_ovc_port_self_02", "Beach", "Tripod / corner", "Overcast / golden hour", "Portrait", "White/yellow beach", ""),
+        .init(55, "grs_tri_sun_land_self_01", "Grass", "Tripod / corner", "Sunny", "Landscape", "White/blue", ""),
+        .init(56, "grs_tri_shade_port_self_02", "Grass", "Tripod / corner", "Shade", "Portrait", "White/yellow", ""),
     ]
 }

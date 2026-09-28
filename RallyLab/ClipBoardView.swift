@@ -62,6 +62,7 @@ private struct EnvironmentSection: View {
             header
             ForEach(ClipKind.allCases, id: \.self) { kind in
                 let group = clips.filter { $0.kind == kind }
+                    .sorted { ($0.cameraRank, $0.number) < ($1.cameraRank, $1.number) }
                 if !group.isEmpty || kind == .extra {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(kind.heading)
@@ -420,6 +421,7 @@ extension PlannedClip {
         case let c where c.contains("elevated"): return "End line, raised"
         case let c where c.contains("ground"): return "End line, ground level"
         case let c where c.hasPrefix("Sideline"): return "Sideline, near the net"
+        case let c where c.hasPrefix("Tripod"): return "Tripod in the corner"
         case let c where c.hasPrefix("Handheld"): return "Handheld from a corner"
         case let c where c.hasPrefix("Hard negative"): return "No rally"
         case let c where c.hasPrefix("Online"): return "Online clip"
@@ -435,11 +437,25 @@ extension PlannedClip {
         return what.filter { !$0.isEmpty }.joined(separator: " · ") + "  —  " + id
     }
 
+    /// Where a camera position sits on the board: end line first, the
+    /// corner options together, anything else after.
+    var cameraRank: Int {
+        switch camera {
+        case let c where c.contains("elevated"): return 0
+        case let c where c.contains("ground"): return 1
+        case let c where c.hasPrefix("Sideline"): return 2
+        case let c where c.hasPrefix("Tripod"): return 3
+        case let c where c.hasPrefix("Handheld"): return 4
+        default: return 5
+        }
+    }
+
     var cameraDetail: String {
         switch camera {
         case let c where c.contains("elevated"): return "Stands or a tripod, 2 m or higher"
         case let c where c.contains("ground"): return "Phone at standing height behind the court"
         case let c where c.hasPrefix("Sideline"): return "Side-on view across the court"
+        case let c where c.hasPrefix("Tripod"): return "Locked off at a court corner, looking across"
         case let c where c.hasPrefix("Handheld"): return "Moving camera, not locked off"
         case let c where c.hasPrefix("Hard negative"): return "Things that aren't a game ball"
         case let c where c.hasPrefix("Online"): return "Creative Commons or with permission"
@@ -453,6 +469,7 @@ extension PlannedClip {
         case let c where c.contains("elevated"): return "arrow.up.circle"
         case let c where c.contains("ground"): return "arrow.down.circle"
         case let c where c.hasPrefix("Sideline"): return "arrow.left.and.right.circle"
+        case let c where c.hasPrefix("Tripod"): return "camera.viewfinder"
         case let c where c.hasPrefix("Handheld"): return "hand.raised"
         case let c where c.hasPrefix("Hard negative"): return "exclamationmark.triangle"
         case let c where c.hasPrefix("Online"): return "globe"
