@@ -341,6 +341,14 @@ struct SamplerTabView: View {
                         keyRow("Return", "accept frame, next")
                         keyRow("⌫", "delete selected box")
                         keyRow("drag", "draw · move · resize at a corner")
+                        keyRow("⇧ ←↑↓→", "nudge the selected box")
+                        keyRow("⇧⌥ ←↑↓→", "resize the selected box")
+                        keyRow("C", "copy the previous frame's boxes")
+                        keyRow("⌘Z", "undo")
+                        keyRow("Z", "zoom to the selected box")
+                        keyRow("= − 0", "zoom in · out · fit")
+                        keyRow("pinch", "zoom; scroll pans when zoomed")
+                        keyRow("P", "play ±0.75 s around the frame")
                     }
                     .padding(4)
                 }
@@ -377,6 +385,12 @@ struct SamplerTabView: View {
         sampler.setDatasetRoot(url)
     }
 
+    private struct Nudge { let key: KeyEquivalent; let dx: CGFloat; let dy: CGFloat }
+    private static let nudges: [Nudge] = [
+        Nudge(key: .leftArrow, dx: -0.001, dy: 0), Nudge(key: .rightArrow, dx: 0.001, dy: 0),
+        Nudge(key: .upArrow, dx: 0, dy: -0.001), Nudge(key: .downArrow, dx: 0, dy: 0.001),
+    ]
+
     /// Keyboard shortcuts hang on invisible buttons so they work wherever
     /// focus is (SwiftUI on macOS has no view-level key handling worth using).
     private var shortcuts: some View {
@@ -386,6 +400,21 @@ struct SamplerTabView: View {
             Button("") { sampler.toggleKeep() }.keyboardShortcut("k", modifiers: [])
             Button("") { sampler.acceptAndAdvance() }.keyboardShortcut(.return, modifiers: [])
             Button("") { sampler.removeSelectedBox() }.keyboardShortcut(.delete, modifiers: [])
+            Button("") { sampler.undo() }.keyboardShortcut("z", modifiers: .command)
+            Button("") { sampler.carryBoxesForward() }.keyboardShortcut("c", modifiers: [])
+            Button("") { sampler.toggleContext() }.keyboardShortcut("p", modifiers: [])
+            Button("") { sampler.zoom(by: 1.5) }.keyboardShortcut("=", modifiers: [])
+            Button("") { sampler.zoom(by: 1 / 1.5) }.keyboardShortcut("-", modifiers: [])
+            Button("") { sampler.resetZoom() }.keyboardShortcut("0", modifiers: [])
+            Button("") { sampler.zoomToBox() }.keyboardShortcut("z", modifiers: [])
+            // Shift+arrows move the selected box; Shift+Option+arrows resize it.
+            // A step is a thousandth of the image — about a pixel at review size.
+            ForEach(Self.nudges, id: \.key.character) { nudge in
+                Button("") { sampler.nudgeSelectedBox(dx: nudge.dx, dy: nudge.dy, resize: false) }
+                    .keyboardShortcut(nudge.key, modifiers: .shift)
+                Button("") { sampler.nudgeSelectedBox(dx: nudge.dx, dy: nudge.dy, resize: true) }
+                    .keyboardShortcut(nudge.key, modifiers: [.shift, .option])
+            }
         }
         .opacity(0)
         .frame(width: 0, height: 0)

@@ -16,11 +16,13 @@ import SwiftUI
 
 struct LabPlayerView: NSViewRepresentable {
     let player: AVPlayer
+    /// Off for a bare picture (the Sampler's context loop).
+    var showsControls = true
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.player = player
-        view.controlsStyle = .inline
+        view.controlsStyle = showsControls ? .inline : .none
         view.showsFullScreenToggleButton = false
         view.videoGravity = .resizeAspect
         return view

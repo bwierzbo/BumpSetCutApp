@@ -198,6 +198,22 @@ final class SamplerModel {
     private(set) var preview: CGImage?
     var selectedBoxId: UUID?
 
+    /// Review zoom: 1 = fit. `zoomCenter` is the image point (top-left
+    /// normalized) at the middle of the canvas. Kept from frame to frame,
+    /// since a burst's ball stays in about the same place.
+    var zoom: CGFloat = 1
+    var zoomCenter = CGPoint(x: 0.5, y: 0.5)
+    static let maxZoom: CGFloat = 12
+
+    /// A short loop of the video around the selected frame, for telling a
+    /// blurred ball from a head or a light. Nil when not showing.
+    private(set) var contextPlayer: AVQueuePlayer?
+    private var contextLooper: AVPlayerLooper?
+
+    /// Edits in this session, newest last: the frame as it was before.
+    private var undoStack: [FrameSample] = []
+    private static let undoLimit = 200
+
     private var previewTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
 
@@ -641,6 +657,9 @@ final class SamplerModel {
         selectedId = nil
         selectedBoxId = nil
         preview = nil
+        undoStack = []
+        resetZoom()
+        stopContext()
         isLoadingSession = true
         let store = self.store
         let frames = session.frames
@@ -672,6 +691,8 @@ final class SamplerModel {
         selectedId = nil
         selectedBoxId = nil
         preview = nil
+        undoStack = []
+        stopContext()
         isLoadingSession = false
     }
 
@@ -679,6 +700,7 @@ final class SamplerModel {
         guard id != selectedId else { return }
         selectedId = id
         selectedBoxId = nil
+        stopContext()
         loadPreviewForSelection()
     }
 
@@ -724,14 +746,69 @@ final class SamplerModel {
         selectNext(1)
     }
 
+    /// Copy the previous frame's boxes onto this one. Burst frames are an
+    /// eighth of a second apart, so the ball has barely moved: nudge instead
+    /// of redrawing. The copies count as yours; the frame isn't marked
+    /// reviewed until you accept it.
+    func carryBoxesForward() {
+        guard let index = samples.firstIndex(where: { $0.id == selectedId }), index > 0 else {
+            status = "No earlier frame to copy boxes from."
+            return
+        }
+        let previous = samples[index - 1].boxes
+        guard !previous.isEmpty else { status = "The previous frame has no boxes."; return }
+        let copies = previous.map { SampleBox(rect: $0.rect, confidence: nil) }
+        mutate(selectedId) { $0.boxes = copies }
+        selectedBoxId = copies.count == 1 ? copies[0].id : nil
+    }
+
+    /// Move the selected box, or with `resize` grow/shrink it from its
+    /// top-left corner. `dx`/`dy` are fractions of the image in screen
+    /// directions (+dy is down).
+    func nudgeSelectedBox(dx: CGFloat, dy: CGFloat, resize: Bool) {
+        guard let boxId = selectedBoxId,
+              let box = selected?.boxes.first(where: { $0.id == boxId }) else { return }
+        var r = box.rect   // Vision space: +y is up, so screen-down is -y.
+        if resize {
+            let height = max(0.002, r.height + dy)
+            r.origin.y += r.height - height   // keep the top edge where it is
+            r.size = CGSize(width: max(0.002, r.width + dx), height: height)
+        } else {
+            r.origin.x += dx
+            r.origin.y -= dy
+        }
+        updateBox(boxId, rect: r)
+    }
+
+    func undo() {
+        guard let before = undoStack.popLast(),
+              let index = samples.firstIndex(where: { $0.id == before.id }) else {
+            status = "Nothing to undo."
+            return
+        }
+        samples[index] = before
+        persist(index)
+        if selectedId != before.id { select(before.id) }
+        selectedBoxId = nil
+        status = "Undid the last change to this frame."
+    }
+
     /// Apply an edit and persist it: the session JSON and that frame's label
     /// file are rewritten immediately, so nothing is lost on quit.
     private func mutate(_ id: UUID?, _ edit: (inout FrameSample) -> Void) {
-        guard let id, let index = samples.firstIndex(where: { $0.id == id }),
-              var session = currentSession else { return }
+        guard let id, let index = samples.firstIndex(where: { $0.id == id }) else { return }
+        let before = samples[index]
         edit(&samples[index])
+        guard samples[index].record != before.record else { return }
+        undoStack.append(before)
+        if undoStack.count > Self.undoLimit { undoStack.removeFirst() }
+        persist(index)
+    }
+
+    private func persist(_ index: Int) {
+        guard var session = currentSession else { return }
         let record = samples[index].record
-        if let r = session.frames.firstIndex(where: { $0.id == id }) {
+        if let r = session.frames.firstIndex(where: { $0.id == record.id }) {
             session.frames[r] = record
         }
         currentSession = session
@@ -745,6 +822,87 @@ final class SamplerModel {
             sessions[s] = session
             stats = store.stats(sessions)
         }
+    }
+
+    // MARK: - Zoom
+
+    func setZoom(_ value: CGFloat, around point: CGPoint? = nil) {
+        zoom = min(max(value, 1), Self.maxZoom)
+        if let point { zoomCenter = point }
+        clampZoomCenter()
+    }
+
+    func zoom(by factor: CGFloat) {
+        setZoom(zoom * factor)
+    }
+
+    func resetZoom() {
+        zoom = 1
+        zoomCenter = CGPoint(x: 0.5, y: 0.5)
+    }
+
+    /// Pan by a fraction of the image (top-left normalized).
+    func pan(dx: CGFloat, dy: CGFloat) {
+        zoomCenter.x += dx
+        zoomCenter.y += dy
+        clampZoomCenter()
+    }
+
+    /// Fill the view with the selected box (or the frame's only box) so a
+    /// 12-pixel ball can be boxed tightly.
+    func zoomToBox() {
+        let boxes = selected?.boxes ?? []
+        guard let box = boxes.first(where: { $0.id == selectedBoxId }) ?? (boxes.count == 1 ? boxes.first : nil) else {
+            status = "Select a box to zoom to."
+            return
+        }
+        selectedBoxId = box.id
+        let side = max(box.rect.width, box.rect.height)
+        setZoom(0.12 / max(side, 0.001), around: CGPoint(x: box.rect.midX, y: 1 - box.rect.midY))
+    }
+
+    /// Keep the zoomed image covering the view: the center can't sit closer
+    /// to an edge than half the visible span.
+    private func clampZoomCenter() {
+        let half = 0.5 / zoom
+        zoomCenter.x = min(max(zoomCenter.x, half), 1 - half)
+        zoomCenter.y = min(max(zoomCenter.y, half), 1 - half)
+    }
+
+    // MARK: - Context loop
+
+    /// The video behind the open session, when it came from one.
+    private var contextVideo: URL? {
+        guard let session = currentSession, let sample = selected,
+              sample.source != .file else { return nil }
+        let url = URL(fileURLWithPath: session.sourcePath)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    var canShowContext: Bool { contextVideo != nil }
+
+    /// Loop the second and a half around the frame at half speed, muted.
+    func toggleContext() {
+        if contextPlayer != nil { stopContext(); return }
+        guard let url = contextVideo, let sample = selected else {
+            status = "No video to play for this frame (frames loaded from a folder have none)."
+            return
+        }
+        let start = max(0, sample.time - 0.75)
+        let range = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),
+                                duration: CMTime(seconds: 1.5, preferredTimescale: 600))
+        let player = AVQueuePlayer()
+        player.isMuted = true
+        contextLooper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url), timeRange: range)
+        contextPlayer = player
+        player.playImmediately(atRate: 0.5)
+    }
+
+    func stopContext() {
+        contextPlayer?.pause()
+        contextLooper?.disableLooping()
+        contextLooper = nil
+        contextPlayer = nil
     }
 
     private nonisolated static func clamp(_ r: CGRect) -> CGRect {
