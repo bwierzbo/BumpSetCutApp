@@ -277,7 +277,7 @@ private struct ExtrasDropTile: View {
                 .font(.system(size: 26))
                 .foregroundStyle(tint)
             Text("Drop extra videos").font(.headline)
-            Text("As many as you like, or click to choose.\nThe first 5 minutes of each are sampled.")
+            Text("As many as you like, or click to choose.\n5 minutes from the middle of each are sampled.")
                 .font(.caption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }

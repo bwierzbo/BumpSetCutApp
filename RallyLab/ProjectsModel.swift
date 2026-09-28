@@ -13,6 +13,7 @@
 //  ProjectLayout for what's inside.
 //
 
+import AVFoundation
 import Foundation
 import Observation
 
@@ -327,7 +328,7 @@ final class ProjectsModel {
     // MARK: - Getting footage
 
     /// A video dropped straight onto a clip's card. Your own recordings start
-    /// cutting the first five minutes right away; online clips, and clips
+    /// cutting five minutes from the middle right away; online clips, and clips
     /// that already have footage (a stray drop mustn't throw away labelled
     /// frames), open in the detail pane to confirm the licence or Replace.
     func dropFootage(_ urls: [URL], on clipId: String) {
@@ -341,7 +342,7 @@ final class ProjectsModel {
         droppedFootage = FootageDrop(clipId: clipId, path: video.path,
                                      license: ownFootage ? Self.ownFootageLicense : "")
         if ownFootage && clip.source == nil {
-            getFootage(for: clipId, source: video.path, start: 0, length: 300, license: Self.ownFootageLicense)
+            cutMiddle(of: video, into: clipId)
         } else if clip.source != nil {
             status = "\(clipId) already has footage — press Replace Clip to use \(video.lastPathComponent)."
         } else {
@@ -376,7 +377,7 @@ final class ProjectsModel {
         }
         save()
         for (clip, video) in added {
-            getFootage(for: clip.id, source: video.path, start: 0, length: 300, license: Self.ownFootageLicense)
+            cutMiddle(of: video, into: clip.id)
         }
         status = "Added \(added.count) extra \(environment.lowercased()) video\(added.count == 1 ? "" : "s")."
     }
@@ -394,6 +395,20 @@ final class ProjectsModel {
         status = "Removed \(clipId)."
     }
 
+    /// Own footage dropped in: cut five minutes from the middle of the
+    /// video, skipping warm-ups at the start and pack-up at the end. Shorter
+    /// videos are used whole.
+    private func cutMiddle(of video: URL, into clipId: String) {
+        Task {
+            let length = Self.dropClipLength
+            let duration = (try? await AVURLAsset(url: video).load(.duration).seconds) ?? 0
+            let start = duration.isFinite ? max(0, (duration - length) / 2) : 0
+            getFootage(for: clipId, source: video.path, start: start.rounded(.down), length: length,
+                       license: Self.ownFootageLicense)
+        }
+    }
+
+    static let dropClipLength: Double = 300
     static let extraCamera = "Extra"
     private static let envPrefix = ["Indoor": "ind", "Beach": "bch", "Grass": "grs"]
 

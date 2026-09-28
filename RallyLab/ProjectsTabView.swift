@@ -227,6 +227,8 @@ private struct ClipDetailPane: View {
             .padding(14)
         }
         .onAppear(perform: prefill)
+        // A drop cuts in the background; show what it used once it lands.
+        .onChange(of: clip.source) { prefill() }
         .onChange(of: projects.droppedFootage, initial: true) { _, drop in
             guard let drop, drop.clipId == clip.id else { return }
             source = drop.path
