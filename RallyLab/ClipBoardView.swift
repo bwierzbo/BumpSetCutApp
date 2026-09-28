@@ -76,7 +76,8 @@ private struct EnvironmentSection: View {
                                          isSelected: projects.selectedClipId == clip.id,
                                          select: { projects.selectedClipId = clip.id },
                                          drop: { projects.dropFootage($0, on: clip.id) },
-                                         note: { projects.note($0) })
+                                         note: { projects.note($0) },
+                                         importing: { projects.setImporting($0, on: clip.id) })
                                     .contextMenu { cardMenu(clip) }
                             }
                             if kind == .extra {
@@ -179,6 +180,7 @@ private struct ClipCard: View {
     let select: () -> Void
     let drop: ([URL]) -> Void
     let note: (String) -> Void
+    let importing: (Bool) -> Void
     @State private var hovering = false
     @State private var dropTargeted = false
 
@@ -225,6 +227,9 @@ private struct ClipCard: View {
 
             Spacer(minLength: 0)
             Divider()
+            if progress.isBusy {
+                ClipStatusLabel(progress: progress).font(.caption)
+            } else {
             HStack {
                 ClipStatusLabel(progress: progress).font(.caption)
                 if clip.videos.count > 1 {
@@ -237,6 +242,7 @@ private struct ClipCard: View {
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+            }
             }
         }
         .padding(12)
@@ -273,7 +279,7 @@ private struct ClipCard: View {
         // land on the card as well as ones from Finder.
         .background(
             SamplerDropView(onDrop: drop, onStatus: note,
-                            onTargeted: { dropTargeted = $0 }, onClick: select)
+                            onTargeted: { dropTargeted = $0 }, onImporting: importing, onClick: select)
         )
         .shadow(color: .black.opacity(hovering ? 0.08 : 0.03), radius: hovering ? 6 : 2, y: 1)
         .contentShape(RoundedRectangle(cornerRadius: 12))
@@ -291,7 +297,7 @@ private struct ClipCard: View {
         switch progress {
         case .notStarted: return .clear
         case .failed: return .red
-        case .cutting, .sampling: return tint.opacity(0.5)
+        case .busy: return tint.opacity(0.5)
         case .pulled(let frames, let reviewed): return frames > 0 && reviewed == frames ? .green : tint
         }
     }
@@ -326,6 +332,7 @@ private struct ExtrasDropTile: View {
     let note: (String) -> Void
     @State private var targeted = false
     @State private var hovering = false
+    @State private var importing = 0
 
     var body: some View {
         VStack(spacing: 8) {
@@ -336,6 +343,10 @@ private struct ExtrasDropTile: View {
             Text("As many as you like, or click to choose.\nEach becomes its own card.")
                 .font(.caption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            if importing > 0 {
+                WorkProgressBar(stage: "Importing from Photos", overall: nil).font(.caption)
+                    .padding(.horizontal, 8)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 160)
@@ -347,8 +358,8 @@ private struct ExtrasDropTile: View {
                               style: StrokeStyle(lineWidth: targeted ? 2 : 1.5, dash: [6, 4]))
         )
         .background(
-            SamplerDropView(onDrop: add, onStatus: note,
-                            onTargeted: { targeted = $0 }, onClick: choose)
+            SamplerDropView(onDrop: add, onStatus: note, onTargeted: { targeted = $0 },
+                            onImporting: { importing += $0 ? 1 : -1 }, onClick: choose)
         )
         .contentShape(RoundedRectangle(cornerRadius: 12))
         .onTapGesture(perform: choose)

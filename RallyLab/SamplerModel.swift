@@ -127,6 +127,9 @@ struct IngestJob: Identifiable, Equatable {
     var split: String? = nil
     var targetFrames: Int? = nil
     var state: State = .pending
+    /// How far through the job is, 0–1, while running: finding rallies is
+    /// the first half, extracting and pre-labeling frames the rest.
+    var fraction: Double? = nil
 
     var isFinished: Bool {
         if case .done = state { return true }
@@ -334,9 +337,10 @@ final class SamplerModel {
         }
     }
 
-    private func setJob(_ id: UUID, _ state: IngestJob.State) {
+    private func setJob(_ id: UUID, _ state: IngestJob.State, fraction: Double? = nil) {
         guard let i = queue.firstIndex(where: { $0.id == id }) else { return }
         queue[i].state = state
+        queue[i].fraction = fraction
         if case .running(let text) = state { status = "\(queue[i].url.lastPathComponent): \(text)" }
     }
 
@@ -382,12 +386,18 @@ final class SamplerModel {
         )
     }
 
-    /// Reports pre-labeling progress from the detached ingest back onto the job.
-    private func prelabelProgress(for jobId: UUID) -> @Sendable (Int, Int) -> Void {
+    /// Reports pre-labeling progress from the detached ingest back onto the
+    /// job, as the part of the job from `from` to 1.
+    private func prelabelProgress(for jobId: UUID, from: Double) -> @Sendable (Int, Int) -> Void {
         { done, total in
-            Task { @MainActor [weak self] in self?.setJob(jobId, .running("Pre-labeling… \(done)/\(total)")) }
+            Task { @MainActor [weak self] in
+                self?.setJob(jobId, .running("Pre-labeling \(done)/\(total)"),
+                             fraction: from + (1 - from) * Double(done) / Double(max(total, 1)))
+            }
         }
     }
+
+    private static let rallyShare = 0.5
 
     private func ingestVideo(_ job: IngestJob, name: String, split: String) async throws -> [FrameRecord] {
         let video = job.url
@@ -396,15 +406,23 @@ final class SamplerModel {
             ? ((try? Data(contentsOf: labelsURL)).flatMap { try? JSONDecoder().decode([LabeledRally].self, from: $0) } ?? [])
             : []
 
-        setJob(job.id, .running("Running pipeline…"))
+        setJob(job.id, .running("Finding rallies…"), fraction: 0)
         let processor = VideoProcessor()
         processor.config = ProcessorConfig()
         processor.collectFrameEvidence = true
+        let watch = Task { @MainActor [weak self, weak processor] in
+            while !Task.isCancelled, let processor {
+                self?.setJob(job.id, .running("Finding rallies…"), fraction: processor.progress * Self.rallyShare)
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+        }
+        defer { watch.cancel() }
         do {
             _ = try await processor.processVideo(video, videoId: UUID())
         } catch ProcessingError.noRalliesDetected {
             // Fine: random frames and any hand labels still apply.
         }
+        watch.cancel()
         let evidence = processor.frameEvidence
         let duration = processor.lastVideoDurationSec
         guard duration > 0 else { throw IngestError.unreadable }
@@ -429,9 +447,9 @@ final class SamplerModel {
             plan = planFrames(random: settings.randomCount + 2 * target - plan.count)
         }
         guard !plan.isEmpty else { throw IngestError.nothingToSample }
-        setJob(job.id, .running("Extracting \(plan.count) frames (\(rallies.count) rallies)…"))
+        setJob(job.id, .running("Extracting \(plan.count) frames (\(rallies.count) rallies)…"), fraction: Self.rallyShare)
 
-        let progress = prelabelProgress(for: job.id)
+        let progress = prelabelProgress(for: job.id, from: Self.rallyShare)
         return try await Task.detached(priority: .userInitiated) {
             try Self.extractAndLabel(video: video, plan: plan, settings: settings, progress: progress)
         }.value
@@ -440,9 +458,9 @@ final class SamplerModel {
     private func ingestFolder(_ job: IngestJob, name: String, split: String) async throws -> [FrameRecord] {
         let files = SamplerImageTools.imageFiles(in: job.url)
         guard !files.isEmpty else { throw IngestError.noImages }
-        setJob(job.id, .running("Pre-labeling \(files.count) files…"))
+        setJob(job.id, .running("Pre-labeling \(files.count) files…"), fraction: 0)
         let settings = ingestSettings(name: name, split: split)
-        let progress = prelabelProgress(for: job.id)
+        let progress = prelabelProgress(for: job.id, from: 0)
         return try await Task.detached(priority: .userInitiated) {
             try Self.copyAndLabel(files: files, settings: settings, progress: progress)
         }.value
@@ -501,6 +519,7 @@ final class SamplerModel {
         var records: [FrameRecord] = []
         var lastKept: [String: (hash: UInt64, centers: [CGPoint])] = [:]
         for (i, item) in plan.enumerated() {
+            defer { progress(i + 1, plan.count) }
             let t = CMTime(seconds: item.time, preferredTimescale: 600)
             guard let frame = try? generator.copyCGImage(at: t, actualTime: nil) else { continue }
             let dets = detector.detect(in: frame, at: t)
@@ -526,7 +545,6 @@ final class SamplerModel {
             let url = settings.root.appendingPathComponent(relative)
             guard SamplerImageTools.writeJPEG(frame, to: url, quality: settings.jpegQuality) else { continue }
             records.append(unreviewedRecord(file: relative, time: item.time, source: item.source, detections: dets))
-            if i % 10 == 0 { progress(i + 1, plan.count) }
         }
         return records
     }
@@ -540,6 +558,7 @@ final class SamplerModel {
 
         var records: [FrameRecord] = []
         for (i, file) in files.enumerated() {
+            defer { progress(i + 1, files.count) }
             guard let image = SamplerImageTools.loadImage(file, maxPixelSize: reviewMaxPixel) else { continue }
             let dets = detector.detect(in: image, at: CMTime(value: CMTimeValue(i), timescale: 1))
             let relative = store.imageRelativePath(session: settings.name, split: settings.split, copiedFile: file)
@@ -547,7 +566,6 @@ final class SamplerModel {
             try? fm.removeItem(at: dest)
             do { try fm.copyItem(at: file, to: dest) } catch { continue }
             records.append(unreviewedRecord(file: relative, time: Double(i), source: .file, detections: dets))
-            if i % 10 == 0 { progress(i + 1, files.count) }
         }
         return records
     }

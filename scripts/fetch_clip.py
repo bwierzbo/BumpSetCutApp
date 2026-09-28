@@ -181,7 +181,8 @@ def main() -> None:
         # Stream copy: seconds, not minutes, and no quality loss. The cut
         # snaps to the keyframe before --start, which for sampling doesn't
         # matter.
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", f"{start}", "-i", str(local),
+        # -stats: ffmpeg's running "time=" line, which RallyLab turns into progress.
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-stats", "-ss", f"{start}", "-i", str(local),
                "-t", f"{end - start}", "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
                "-movflags", "+faststart", str(tmp)]
     else:

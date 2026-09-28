@@ -118,8 +118,8 @@ enum HeadlessProjects {
             let progress = projects.progress(ofVideo: videoId)
             let line: String
             switch progress {
-            case .cutting(let f): line = f.map { "  downloading \(Int($0 * 100))%" } ?? "  cutting…"
-            case .sampling(let text): line = "  \(text)"
+            case .busy(let stage, let overall):
+                line = "  \(stage)" + (overall.map { " \(Int($0 * 10) * 10)%" } ?? "")
             case .failed(let why): log("❌ \(why)"); return false
             case .pulled(let frames, _):
                 log("✅ \(videoId): \(frames) frames sampled into the dataset")
@@ -129,7 +129,7 @@ enum HeadlessProjects {
                 log("❌ \(projects.status)")
                 return false
             }
-            if line != last, !line.hasPrefix("  downloading") || line.hasSuffix("0%") {
+            if line != last {
                 log(line)
                 last = line
             }

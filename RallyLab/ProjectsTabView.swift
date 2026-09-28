@@ -102,18 +102,8 @@ struct ClipStatusLabel: View {
         switch progress {
         case .notStarted:
             Label("No footage", systemImage: "circle.dashed").foregroundStyle(.secondary)
-        case .cutting(let fraction):
-            HStack(spacing: 6) {
-                if let fraction {
-                    ProgressView(value: fraction).frame(width: 50)
-                    Text("\(Int(fraction * 100))%").monospacedDigit()
-                } else {
-                    ProgressView().controlSize(.mini)
-                    Text("Cutting…")
-                }
-            }
-        case .sampling:
-            HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Sampling…") }
+        case .busy(let stage, let overall):
+            WorkProgressBar(stage: stage, overall: overall)
         case .failed:
             Label("Failed", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
         case .pulled(let frames, let reviewed):
@@ -123,6 +113,31 @@ struct ClipStatusLabel: View {
                 Label("\(reviewed)/\(frames) reviewed", systemImage: "circle.lefthalf.filled").foregroundStyle(.orange)
             }
         }
+    }
+}
+
+/// A video's whole journey — import, cut, finding rallies, pre-labeling —
+/// as one bar, with the stage it's in and how far along it is.
+struct WorkProgressBar: View {
+    let stage: String
+    let overall: Double?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if let overall {
+                ProgressView(value: overall)
+            } else {
+                ProgressView().progressViewStyle(.linear)
+            }
+            HStack {
+                Text(stage).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 6)
+                if let overall { Text("\(Int((overall * 100).rounded(.down)))%").monospacedDigit() }
+            }
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .animation(.linear(duration: 0.25), value: overall)
     }
 }
 
@@ -157,9 +172,10 @@ private struct ClipDetailPane: View {
                     }
                 }
 
+                let clipProgress = projects.progress(of: clip)
                 HStack {
-                    ClipStatusLabel(progress: projects.progress(of: clip))
-                    Spacer()
+                    ClipStatusLabel(progress: clipProgress)
+                    if !clipProgress.isBusy { Spacer() }
                     let count = clip.videos.count
                     Text("\(count) video\(count == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
                 }
@@ -235,11 +251,7 @@ private struct ClipDetailPane: View {
         let progress = projects.progress(ofVideo: videoId)
         let wanted = video.frames ?? defaultFrames
         let session = projects.session(named: videoId)
-        let busy: Bool = {
-            if projects.moving.contains(videoId) { return true }
-            if case .sampling = progress { return true }
-            return false
-        }()
+        let busy = projects.moving.contains(videoId) || progress.isBusy
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(video.title.isEmpty ? URL(fileURLWithPath: video.origin).lastPathComponent : video.title)
@@ -279,11 +291,7 @@ private struct ClipDetailPane: View {
                           ? "These overlap: the same moments are sampled twice."
                           : "Different stretches of the same video.")
             }
-            HStack(spacing: 8) {
-                ClipStatusLabel(progress: progress).font(.caption)
-                Spacer()
-                if let session { Button("Review") { review(session) }.controlSize(.small) }
-            }
+            ClipStatusLabel(progress: progress).font(.caption)
             HStack(spacing: 8) {
                 Stepper(value: Binding(get: { wanted },
                                        set: { projects.setFrames($0, forVideo: videoId, in: clip.id) }),
@@ -292,6 +300,7 @@ private struct ClipDetailPane: View {
                 }
                 .fixedSize()
                 Spacer()
+                if let session, !busy { Button("Review") { review(session) }.controlSize(.small) }
                 if let session, session.frames.count != wanted, !busy {
                     Button("Re-pull \(wanted)") { projects.repull(videoId, in: clip.id) }
                         .controlSize(.small)
@@ -308,8 +317,8 @@ private struct ClipDetailPane: View {
             Text(job.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
             HStack {
                 ClipStatusLabel(progress: projects.progress(ofVideo: job.id)).font(.caption)
-                Spacer()
                 if job.failure != nil {
+                    Spacer()
                     Button("Dismiss") { projects.dismissFailure(job.id) }.controlSize(.small)
                 }
             }

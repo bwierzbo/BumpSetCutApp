@@ -16,6 +16,8 @@ struct SamplerDropView: NSViewRepresentable {
     let onStatus: (String) -> Void
     /// A drag is hovering over the view (true) or has left or landed (false).
     var onTargeted: (Bool) -> Void = { _ in }
+    /// Photos is handing videos over (true) or has finished (false).
+    var onImporting: (Bool) -> Void = { _ in }
     /// Clicks that land on the drop view itself rather than on SwiftUI
     /// content above it.
     var onClick: (() -> Void)?
@@ -30,6 +32,7 @@ struct SamplerDropView: NSViewRepresentable {
         nsView.onDrop = onDrop
         nsView.onStatus = onStatus
         nsView.onTargeted = onTargeted
+        nsView.onImporting = onImporting
         nsView.onClick = onClick
     }
 }
@@ -38,6 +41,7 @@ final class SamplerDropNSView: NSView {
     var onDrop: ([URL]) -> Void = { _ in }
     var onStatus: (String) -> Void = { _ in }
     var onTargeted: (Bool) -> Void = { _ in }
+    var onImporting: (Bool) -> Void = { _ in }
     var onClick: (() -> Void)?
     private let promiseQueue = OperationQueue()
 
@@ -93,6 +97,7 @@ final class SamplerDropNSView: NSView {
         }
 
         onStatus("Importing \(receivers.count) item\(receivers.count == 1 ? "" : "s") from Photos…")
+        onImporting(true)
         let group = DispatchGroup()
         let lock = NSLock()
         var received: [URL] = []
@@ -106,6 +111,7 @@ final class SamplerDropNSView: NSView {
             }
         }
         group.notify(queue: .main) { [weak self] in
+            self?.onImporting(false)
             if received.isEmpty {
                 self?.onStatus("Photos import failed.")
             } else {

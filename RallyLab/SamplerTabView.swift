@@ -119,7 +119,11 @@ struct SamplerTabView: View {
                         .frame(width: 14)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(job.url.lastPathComponent).font(.caption).lineLimit(1)
-                        Text(jobText(job)).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                        if case .running(let stage) = job.state {
+                            WorkProgressBar(stage: stage, overall: job.fraction).font(.caption2)
+                        } else {
+                            Text(jobText(job)).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                        }
                     }
                     Spacer(minLength: 0)
                 }

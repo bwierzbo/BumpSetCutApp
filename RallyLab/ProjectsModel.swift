@@ -108,10 +108,28 @@ struct Project: Codable, Equatable {
 
 enum ClipProgress: Equatable {
     case notStarted
-    case cutting(Double?)       // nil = indeterminate
-    case sampling(String)
+    /// Importing from Photos, cutting, or sampling. `overall` runs 0–1
+    /// across all of it for one video (nil while it can't be measured).
+    case busy(stage: String, overall: Double?)
     case failed(String)
     case pulled(frames: Int, reviewed: Int)
+
+    /// Cutting is the first 15% of a video's progress, sampling the rest —
+    /// roughly how the time splits for a 5-minute clip.
+    private static let cutShare = 0.15
+
+    static func cutting(_ fraction: Double?, download: Bool) -> ClipProgress {
+        .busy(stage: download ? "Downloading" : "Cutting", overall: fraction.map { cutShare * min(max($0, 0), 1) })
+    }
+
+    static func sampling(_ stage: String, _ fraction: Double?) -> ClipProgress {
+        .busy(stage: stage, overall: fraction.map { cutShare + (1 - cutShare) * min(max($0, 0), 1) })
+    }
+
+    var isBusy: Bool {
+        if case .busy = self { return true }
+        return false
+    }
 }
 
 @MainActor
@@ -143,6 +161,13 @@ final class ProjectsModel {
 
     /// Videos being cut, or whose cut failed, before they join their clip.
     private(set) var jobs: [VideoJob] = []
+    /// Photos drops still being handed over, per card.
+    private(set) var importing: [String: Int] = [:]
+
+    func setImporting(_ active: Bool, on clipId: String) {
+        let count = (importing[clipId] ?? 0) + (active ? 1 : -1)
+        if count > 0 { importing[clipId] = count } else { importing.removeValue(forKey: clipId) }
+    }
 
     let sampler: SamplerModel
 
@@ -348,12 +373,12 @@ final class ProjectsModel {
 
     func progress(ofVideo videoId: String) -> ClipProgress {
         if let job = jobs.first(where: { $0.id == videoId }) {
-            return job.failure.map { .failed($0) } ?? .cutting(job.fraction)
+            return job.failure.map { .failed($0) } ?? .cutting(job.fraction, download: job.isDownload)
         }
         if let job = sampler.queue.last(where: { $0.sessionName == DatasetStore.safeName(videoId) }) {
             switch job.state {
-            case .pending: return .sampling("Waiting to sample…")
-            case .running(let text): return .sampling(text)
+            case .pending: return .sampling("Waiting to sample", 0)
+            case .running(let text): return .sampling(text, job.fraction)
             case .failed(let why): return .failed(why)
             case .done: break
             }
@@ -364,28 +389,29 @@ final class ProjectsModel {
         return .notStarted
     }
 
-    /// The clip's videos taken together: busy while any is, failed while
-    /// any failure is unresolved, otherwise their frames summed.
+    /// The clip's videos taken together: busy while any is (their progress
+    /// averaged), failed while any failure is unresolved, otherwise their
+    /// frames summed.
     func progress(of clip: PlannedClip) -> ClipProgress {
-        var cutting: [Double?] = []
-        var sampling: String?
+        var busy: [(stage: String, overall: Double?)] = []
         var failure: String?
         var pulled: (frames: Int, reviewed: Int)?
+        for _ in 0..<(importing[clip.id] ?? 0) { busy.append(("Importing from Photos", nil)) }
         for progress in videoIds(of: clip).map(progress(ofVideo:)) {
             switch progress {
-            case .cutting(let fraction): cutting.append(fraction)
-            case .sampling(let text): sampling = sampling ?? text
+            case .busy(let stage, let overall): busy.append((stage, overall))
             case .failed(let why): failure = failure ?? why
             case .pulled(let frames, let reviewed):
                 pulled = ((pulled?.frames ?? 0) + frames, (pulled?.reviewed ?? 0) + reviewed)
             case .notStarted: break
             }
         }
-        if !cutting.isEmpty {
-            let known = cutting.compactMap { $0 }
-            return .cutting(known.count == cutting.count ? known.reduce(0, +) / Double(known.count) : nil)
+        if let first = busy.first {
+            let known = busy.compactMap(\.overall)
+            let overall = known.count == busy.count ? known.reduce(0, +) / Double(known.count) : nil
+            return .busy(stage: busy.count == 1 ? first.stage : "\(busy.count) videos · \(first.stage)",
+                         overall: overall)
         }
-        if let sampling { return .sampling(sampling) }
         if let failure { return .failed(failure) }
         if let pulled { return .pulled(frames: pulled.frames, reviewed: pulled.reviewed) }
         return .notStarted
@@ -489,6 +515,7 @@ final class ProjectsModel {
         Task {
             let duration = (try? await AVURLAsset(url: video).load(.duration).seconds) ?? 0
             let start = duration.isFinite ? max(0, (duration - length) / 2) : 0
+            let length = duration.isFinite && duration > 0 ? min(length, duration) : length
             addVideo(to: clipId, source: video.path, start: start.rounded(.down), length: length,
                      license: license, frames: frames, allowDuplicate: allowDuplicate)
         }
@@ -623,12 +650,12 @@ final class ProjectsModel {
 
         let name = provenance.map { $0.title.isEmpty ? Self.displayName(of: $0.origin) : $0.title }
             ?? Self.displayName(of: trimmed)
-        jobs.append(VideoJob(id: videoId, clipId: clipId, name: name,
-                             fraction: isFile ? nil : 0, fingerprint: fingerprint, start: start, length: length))
+        jobs.append(VideoJob(id: videoId, clipId: clipId, name: name, isDownload: !isFile,
+                             fraction: 0, fingerprint: fingerprint, start: start, length: length))
         status = "\(videoId): \(isFile ? "cutting the file" : "downloading the section")…"
 
         Task {
-            let outcome = await Self.runFetch(args: args) { [weak self] fraction in
+            let outcome = await Self.runFetch(args: args, expectedLength: length) { [weak self] fraction in
                 Task { @MainActor in
                     guard let self, let i = self.jobs.firstIndex(where: { $0.id == videoId }) else { return }
                     self.jobs[i].fraction = fraction
@@ -798,8 +825,11 @@ final class ProjectsModel {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    /// Progress comes from yt-dlp's "[download] 42.1%" lines, or from
+    /// ffmpeg's running "time=00:01:23.45" (file cuts, and section downloads,
+    /// which yt-dlp hands to ffmpeg) against the length being cut.
     private nonisolated static func runFetch(
-        args: [String], progress: @escaping @Sendable (Double) -> Void
+        args: [String], expectedLength: Double, progress: @escaping @Sendable (Double) -> Void
     ) async -> Result<FetchResult, FetchFailure> {
         await withCheckedContinuation { continuation in
             let process = Process()
@@ -820,6 +850,12 @@ final class ProjectsModel {
                        let pct = line.split(separator: " ").first(where: { $0.hasSuffix("%") }),
                        let value = Double(pct.dropLast()) {
                         progress(value / 100)
+                    } else if let range = line.range(of: "time="), expectedLength > 0 {
+                        let clock = line[range.upperBound...].prefix { !$0.isWhitespace }
+                        let parts = clock.split(separator: ":").compactMap { Double($0) }
+                        if parts.count == 3 {
+                            progress(min(1, (parts[0] * 3600 + parts[1] * 60 + parts[2]) / expectedLength))
+                        }
                     }
                 }
             }
@@ -919,6 +955,7 @@ struct VideoJob: Identifiable, Equatable {
     let id: String
     let clipId: String
     let name: String
+    let isDownload: Bool
     var fraction: Double?
     var failure: String?
     let fingerprint: String?
