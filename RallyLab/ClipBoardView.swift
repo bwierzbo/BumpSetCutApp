@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ClipBoardView: View {
     @Bindable var projects: ProjectsModel
@@ -45,6 +46,7 @@ private struct EnvironmentSection: View {
     let icon: String
     let tint: Color
     let clips: [PlannedClip]
+    @State private var removing: PlannedClip?
 
     private let columns = [GridItem(.adaptive(minimum: 230, maximum: 320), spacing: 12)]
 
@@ -53,7 +55,7 @@ private struct EnvironmentSection: View {
             header
             ForEach(ClipKind.allCases, id: \.self) { kind in
                 let group = clips.filter { $0.kind == kind }
-                if !group.isEmpty {
+                if !group.isEmpty || kind == .extra {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(kind.heading)
                             .font(.caption.weight(.semibold))
@@ -67,12 +69,25 @@ private struct EnvironmentSection: View {
                                          isSelected: projects.selectedClipId == clip.id,
                                          select: { projects.selectedClipId = clip.id },
                                          drop: { projects.dropFootage($0, on: clip.id) },
-                                         note: { projects.note($0) })
+                                         note: { projects.note($0) },
+                                         remove: kind == .extra ? { removing = clip } : nil)
+                            }
+                            if kind == .extra {
+                                ExtrasDropTile(tint: tint, environment: name,
+                                               add: { projects.addExtras($0, environment: name) },
+                                               note: { projects.note($0) })
                             }
                         }
                     }
                 }
             }
+        }
+        .confirmationDialog("Remove \(removing?.notes ?? "this extra")?",
+                            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            presenting: removing) { clip in
+            Button("Remove Extra", role: .destructive) { projects.removeExtra(clip.id) }
+        } message: { _ in
+            Text("Its cut footage and any frames pulled from it are deleted. The original video isn't touched.")
         }
     }
 
@@ -127,6 +142,8 @@ private struct ClipCard: View {
     let select: () -> Void
     let drop: ([URL]) -> Void
     let note: (String) -> Void
+    /// Only extras can be removed.
+    var remove: (() -> Void)?
     @State private var hovering = false
     @State private var dropTargeted = false
 
@@ -152,15 +169,19 @@ private struct ClipCard: View {
                 }
             }
 
-            HStack(spacing: 6) {
-                Chip(icon: clip.lightIcon, text: clip.lighting)
-                Chip(icon: clip.orientation == "Portrait" ? "rectangle.portrait" : "rectangle",
-                     text: clip.orientation)
+            if !clip.lighting.isEmpty || !clip.orientation.isEmpty {
+                HStack(spacing: 6) {
+                    if !clip.lighting.isEmpty { Chip(icon: clip.lightIcon, text: clip.lighting) }
+                    if !clip.orientation.isEmpty {
+                        Chip(icon: clip.orientation == "Portrait" ? "rectangle.portrait" : "rectangle",
+                             text: clip.orientation)
+                    }
+                }
             }
             if clip.ball != "Any", !clip.ball.isEmpty {
                 Chip(icon: "volleyball", text: clip.ball)
             }
-            if !clip.notes.isEmpty {
+            if !clip.notes.isEmpty, clip.kind != .extra {
                 Text(clip.notes)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -217,6 +238,9 @@ private struct ClipCard: View {
         .shadow(color: .black.opacity(hovering ? 0.08 : 0.03), radius: hovering ? 6 : 2, y: 1)
         .contentShape(RoundedRectangle(cornerRadius: 12))
         .onTapGesture(perform: select)
+        .contextMenu {
+            if let remove { Button("Remove Extra…", role: .destructive, action: remove) }
+        }
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeOut(duration: 0.12), value: dropTargeted)
@@ -237,6 +261,57 @@ private struct ClipCard: View {
     }
 }
 
+/// The slot for extra footage: drop any number of videos (Photos or
+/// Finder), or click to choose them.
+private struct ExtrasDropTile: View {
+    let tint: Color
+    let environment: String
+    let add: ([URL]) -> Void
+    let note: (String) -> Void
+    @State private var targeted = false
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "plus.rectangle.on.rectangle")
+                .font(.system(size: 26))
+                .foregroundStyle(tint)
+            Text("Drop extra videos").font(.headline)
+            Text("As many as you like, or click to choose.\nThe first 5 minutes of each are sampled.")
+                .font(.caption).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 160)
+        .background(tint.opacity(targeted ? 0.14 : (hovering ? 0.07 : 0.04)),
+                    in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(tint.opacity(targeted ? 1 : 0.5),
+                              style: StrokeStyle(lineWidth: targeted ? 2 : 1.5, dash: [6, 4]))
+        )
+        .background(
+            SamplerDropView(onDrop: add, onStatus: note,
+                            onTargeted: { targeted = $0 }, onClick: choose)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture(perform: choose)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: targeted)
+        .help("Extra \(environment.lowercased()) footage beyond the plan")
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.movie, .video]
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Add"
+        panel.message = "Extra \(environment.lowercased()) videos to sample from."
+        guard panel.runModal() == .OK else { return }
+        add(panel.urls)
+    }
+}
+
 private struct Chip: View {
     let icon: String
     let text: String
@@ -253,19 +328,21 @@ private struct Chip: View {
 // MARK: - Plain-language descriptions
 
 enum ClipKind: CaseIterable {
-    case recorded, negative, online
+    case recorded, negative, online, extra
 
     var heading: String {
         switch self {
         case .recorded: return "Record yourself"
         case .negative: return "Hard negatives — no rally, lots of distractions"
         case .online: return "From online footage (licensed)"
+        case .extra: return "Extras — any other footage you want samples from"
         }
     }
 }
 
 extension PlannedClip {
     var kind: ClipKind {
+        if id.contains("_extra_") { return .extra }
         if id.contains("_neg_") { return .negative }
         if id.contains("_onl_") { return .online }
         return .recorded
@@ -279,6 +356,7 @@ extension PlannedClip {
         case let c where c.hasPrefix("Handheld"): return "Handheld from a corner"
         case let c where c.hasPrefix("Hard negative"): return "No rally"
         case let c where c.hasPrefix("Online"): return "Online clip"
+        case ProjectsModel.extraCamera: return "Extra footage"
         default: return camera
         }
     }
@@ -291,6 +369,7 @@ extension PlannedClip {
         case let c where c.hasPrefix("Handheld"): return "Moving camera, not locked off"
         case let c where c.hasPrefix("Hard negative"): return "Things that aren't a game ball"
         case let c where c.hasPrefix("Online"): return "Creative Commons or with permission"
+        case ProjectsModel.extraCamera: return notes
         default: return ""
         }
     }
@@ -303,6 +382,7 @@ extension PlannedClip {
         case let c where c.hasPrefix("Handheld"): return "hand.raised"
         case let c where c.hasPrefix("Hard negative"): return "exclamationmark.triangle"
         case let c where c.hasPrefix("Online"): return "globe"
+        case ProjectsModel.extraCamera: return "film.stack"
         default: return "video"
         }
     }

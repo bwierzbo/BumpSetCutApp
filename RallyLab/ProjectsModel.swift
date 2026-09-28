@@ -349,6 +349,54 @@ final class ProjectsModel {
         }
     }
 
+    // MARK: - Extras
+
+    /// Footage beyond the plan: any number of your own videos per
+    /// environment, each its own clip (and dataset session), cut and
+    /// sampled the same way as a planned clip.
+    func addExtras(_ urls: [URL], environment: String) {
+        guard let project else { return }
+        let videos = urls.filter { Self.videoExtensions.contains($0.pathExtension.lowercased()) }
+        guard !videos.isEmpty else { status = "Drop videos (.mov, .mp4 or .m4v)."; return }
+        let prefix = Self.envPrefix[environment] ?? "ind"
+        let stem = "\(prefix)_extra_self_"
+        var next = project.clips.compactMap { clip in
+            clip.id.hasPrefix(stem) ? Int(clip.id.dropFirst(stem.count)) : nil
+        }.max() ?? 0
+        var added: [(PlannedClip, URL)] = []
+        for video in videos {
+            next += 1
+            let clip = PlannedClip(id: stem + String(format: "%02d", next), number: 1000 + next,
+                                   environment: environment, camera: Self.extraCamera,
+                                   lighting: "", orientation: "", ball: "",
+                                   notes: video.deletingPathExtension().lastPathComponent,
+                                   split: nil, source: nil)
+            self.project?.clips.append(clip)
+            added.append((clip, video))
+        }
+        save()
+        for (clip, video) in added {
+            getFootage(for: clip.id, source: video.path, start: 0, length: 300, license: Self.ownFootageLicense)
+        }
+        status = "Added \(added.count) extra \(environment.lowercased()) video\(added.count == 1 ? "" : "s")."
+    }
+
+    /// Remove an extra clip with its footage and frames. Planned clips stay.
+    func removeExtra(_ clipId: String) {
+        guard let clip = project?.clips.first(where: { $0.id == clipId }), clip.kind == .extra,
+              cutting[clipId] == nil else { return }
+        if let session = session(for: clip) { sampler.deleteSession(session) }
+        if let file = clip.source?.clipFile { try? FileManager.default.removeItem(atPath: file) }
+        project?.clips.removeAll { $0.id == clipId }
+        failures[clipId] = nil
+        if selectedClipId == clipId { selectedClipId = nil }
+        save()
+        status = "Removed \(clipId)."
+    }
+
+    static let extraCamera = "Extra"
+    private static let envPrefix = ["Indoor": "ind", "Beach": "bch", "Grass": "grs"]
+
     static let videoExtensions: Set<String> = ["mov", "mp4", "m4v"]
     static let ownFootageLicense = "Own footage"
 
