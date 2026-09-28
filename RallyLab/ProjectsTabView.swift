@@ -2,10 +2,10 @@
 //  ProjectsTabView.swift
 //  RallyLab
 //
-//  The standard clip plan as a working list. Pick a project (one training
-//  set), then for each clip paste a video link or drop a file, set where the clip starts, and Get Clip: 5 minutes are cut, logged
-//  with their licence, and sampled into the project's dataset under the
-//  row's Clip ID. Review happens in the Sampler tab.
+//  The open project's clip plan as a working list: for each clip paste a
+//  video link or drop a file, set where it starts, and Get Clip — 5 minutes
+//  are cut, logged with their licence, and sampled into the project's
+//  dataset under the clip's ID. Review happens in the Sampler tab.
 //
 
 import AppKit
@@ -16,26 +16,13 @@ struct ProjectsTabView: View {
     /// Opens a clip's frames in the Sampler tab.
     let review: (VideoSession) -> Void
 
-    @State private var newProjectName = ""
-    @State private var newProjectLocation = ProjectsModel.defaultLocation
-    @State private var showingNewProject = false
-
     var body: some View {
         HSplitView {
             VStack(spacing: 0) {
                 header
                 Divider()
-                if projects.project == nil {
-                    ContentUnavailableView {
-                        Label("No Project", systemImage: "folder.badge.plus")
-                    } description: {
-                        Text("A project is one training set. Pick where its folder goes; it starts with the standard 50-clip plan.")
-                    } actions: {
-                        Button("New Project…") { showingNewProject = true }
-                    }
-                } else {
-                    clipTable
-                }
+                clipTable
+                    .frame(maxHeight: .infinity)
                 Divider()
                 Text(projects.status)
                     .font(.callout).foregroundStyle(.secondary).lineLimit(2)
@@ -53,9 +40,9 @@ struct ProjectsTabView: View {
                                            description: Text("Select a row to give it footage."))
                 }
             }
-            .frame(minWidth: 320, idealWidth: 360, maxWidth: 440)
+            .frame(minWidth: 320, idealWidth: 360, maxWidth: 440, maxHeight: .infinity)
         }
-        .sheet(isPresented: $showingNewProject) { newProjectSheet }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Header
@@ -64,20 +51,18 @@ struct ProjectsTabView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Menu {
-                    ForEach(projects.knownProjects, id: \.self) { dir in
-                        Button {
-                            projects.open(dir)
-                        } label: {
-                            Text("\(dir.lastPathComponent)  —  \(dir.deletingLastPathComponent().path)")
+                    Button("New Project…") { projects.isCreatingProject = true }
+                    Button("Open Existing Project…") { ProjectPanels.openExisting(projects) }
+                    Menu("Open Recent") {
+                        ForEach(projects.recentProjects, id: \.self) { dir in
+                            Button("\(dir.lastPathComponent)  —  \((dir.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)") {
+                                projects.open(dir)
+                            }
                         }
                     }
-                    if !projects.knownProjects.isEmpty { Divider() }
-                    Button("New Project…") { showingNewProject = true }
-                    Button("Open Existing Project…") { chooseExisting() }
-                    if let dir = projects.projectDir {
-                        Divider()
-                        Button("Remove “\(dir.lastPathComponent)” from List") { projects.forget(dir) }
-                    }
+                    .disabled(projects.recentProjects.isEmpty)
+                    Divider()
+                    Button("Close Project") { projects.close() }
                 } label: {
                     Label(projects.project?.name ?? "Choose Project", systemImage: "folder")
                 }
@@ -143,93 +128,6 @@ struct ProjectsTabView: View {
             TableColumn("Status") { clip in ClipStatusLabel(progress: projects.progress(of: clip)) }
                 .width(min: 120, ideal: 160)
         }
-    }
-
-    // MARK: - Sheets & panels
-
-    private var newProjectSheet: some View {
-        let folder = ProjectsModel.folder(for: newProjectName.isEmpty ? "name" : newProjectName,
-                                          in: newProjectLocation)
-        return VStack(alignment: .leading, spacing: 14) {
-            Text("New Project").font(.headline)
-            Text("One project is one training set. It starts with the standard \(StandardClipPlan.clips.count)-clip plan.")
-                .font(.caption).foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Name").font(.caption.weight(.semibold))
-                TextField("e.g. v3", text: $newProjectName)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(createProject)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Location").font(.caption.weight(.semibold))
-                HStack {
-                    Text(newProjectLocation.path)
-                        .font(.caption).lineLimit(1).truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 5))
-                    Button("Choose…") { chooseLocation() }
-                }
-            }
-
-            GroupBox {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(folder.path).font(.caption.weight(.semibold)).lineLimit(1).truncationMode(.head)
-                    Group {
-                        Text("footage/raw/self · online · negatives — clips by environment")
-                        Text("footage/meta/sources.csv — where each clip came from")
-                        Text("images/train · images/val, labels/train · labels/val")
-                        Text("sessions · excluded · runs · data.yaml")
-                    }
-                    .font(.caption2.monospaced()).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } label: {
-                Text("Will create").font(.caption)
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") { showingNewProject = false }
-                    .keyboardShortcut(.cancelAction)
-                Button("Create", action: createProject)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(newProjectName.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 460)
-    }
-
-    private func createProject() {
-        guard !newProjectName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        projects.create(name: newProjectName, in: newProjectLocation)
-        newProjectName = ""
-        showingNewProject = false
-    }
-
-    private func chooseLocation() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.directoryURL = newProjectLocation
-        panel.prompt = "Choose"
-        panel.message = "Where the project's folder will be created. Use New Folder to make one."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        newProjectLocation = url
-    }
-
-    private func chooseExisting() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.prompt = "Open"
-        panel.message = "A project folder (the one with project.json in it)."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        projects.open(url)
     }
 }
 

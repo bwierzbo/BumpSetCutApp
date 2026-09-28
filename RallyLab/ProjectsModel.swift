@@ -72,6 +72,11 @@ final class ProjectsModel {
         .appendingPathComponent("RallyLab/Projects", isDirectory: true)
     private static let knownProjectsKey = "RallyLab.projects"
     private static let lastProjectKey = "RallyLab.lastProjectPath"
+    private static let openedKey = "RallyLab.projectOpenedAt"
+
+    /// Drives the New Project sheet from the welcome window, the project
+    /// menu and File ▸ New Project.
+    var isCreatingProject = false
 
     /// Every project folder RallyLab knows about, wherever it lives.
     private(set) var knownProjects: [URL] = []
@@ -123,6 +128,33 @@ final class ProjectsModel {
             .filter { Self.isProject($0) && seen.insert($0.path).inserted }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
         storeKnownProjects()
+    }
+
+    /// Known projects, most recently opened first — the welcome window's list.
+    var recentProjects: [URL] {
+        let opened = UserDefaults.standard.dictionary(forKey: Self.openedKey) as? [String: Double] ?? [:]
+        return knownProjects.sorted { (opened[$0.path] ?? 0) > (opened[$1.path] ?? 0) }
+    }
+
+    func lastOpened(_ dir: URL) -> Date? {
+        let opened = UserDefaults.standard.dictionary(forKey: Self.openedKey) as? [String: Double] ?? [:]
+        return opened[dir.standardizedFileURL.path].map(Date.init(timeIntervalSince1970:))
+    }
+
+    private func markOpened(_ dir: URL) {
+        var opened = UserDefaults.standard.dictionary(forKey: Self.openedKey) as? [String: Double] ?? [:]
+        opened[dir.standardizedFileURL.path] = Date().timeIntervalSince1970
+        UserDefaults.standard.set(opened, forKey: Self.openedKey)
+    }
+
+    /// Back to the welcome window. The project stays on the list, and
+    /// isn't reopened on the next launch.
+    func close() {
+        project = nil
+        projectDir = nil
+        selectedClipId = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastProjectKey)
+        status = "Create a project to start a training set."
     }
 
     private func storeKnownProjects() {
@@ -206,6 +238,7 @@ final class ProjectsModel {
         guard let dir = projectDir else { return }
         sampler.setDatasetRoot(dir)
         UserDefaults.standard.set(dir.path, forKey: Self.lastProjectKey)
+        markOpened(dir)
     }
 
     private func save() {
@@ -471,6 +504,8 @@ private final class LineCollector: @unchecked Sendable {
 ///   sessions/                        each clip's frames and review state
 ///   excluded/                        unreviewed or discarded frames, parked
 ///   runs/                            training output
+///   models/                          trained models brought back (Models tab)
+///   exports/                         training packages (Models tab)
 ///   data.yaml                        what `yolo train` reads
 enum ProjectLayout {
     static let folders: [String] = {
@@ -479,7 +514,7 @@ enum ProjectLayout {
             + envs.map { "footage/raw/online/\($0)" }
             + ["footage/raw/negatives", "footage/meta",
                "images/train", "images/val", "labels/train", "labels/val",
-               "sessions", "excluded", "runs"]
+               "sessions", "excluded", "runs", "models", "exports"]
     }()
 
     static func create(at dir: URL) throws {

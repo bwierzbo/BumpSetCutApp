@@ -9,33 +9,55 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var model: RallyLabModel
-    @State private var sampler: SamplerModel
+    @Bindable var sampler: SamplerModel
     /// Owns the Sampler's dataset folder while a project is open.
-    @State private var projects: ProjectsModel
-    @State private var library: ModelLibrary
+    @Bindable var projects: ProjectsModel
+    @Bindable var library: ModelLibrary
     @State private var showingImporter = false
-    @State private var tab: Tab = .pipeline
+    @State private var tab: Tab = .projects
+    /// Set by "Continue without a project" on the welcome window.
+    @State private var workingWithoutProject = false
 
-    enum Tab: Hashable { case pipeline, projects, sampler, models, net, compare, fsm }
-
-    init(model: RallyLabModel) {
-        self.model = model
-        let sampler = SamplerModel()
-        _sampler = State(initialValue: sampler)
-        _projects = State(initialValue: ProjectsModel(sampler: sampler))
-        _library = State(initialValue: ModelLibrary(sampler: sampler))
-    }
+    enum Tab: Hashable { case projects, sampler, models, pipeline, net, compare, fsm }
 
     var body: some View {
-        TabView(selection: $tab) {
-            pipelineTab
-                .tabItem { Label("Pipeline", systemImage: "gearshape") }
-                .tag(Tab.pipeline)
-            ProjectsTabView(projects: projects) { session in
-                sampler.openSession(session)
-                tab = .sampler
+        Group {
+            if projects.project == nil && !workingWithoutProject {
+                ProjectWelcomeView(projects: projects) {
+                    workingWithoutProject = true
+                    tab = .pipeline
+                }
+                .frame(minWidth: 820, minHeight: 500)
+            } else {
+                tabs
             }
-            .tabItem { Label("Projects", systemImage: "tablecells") }
+        }
+        .navigationTitle(projects.project.map { "RallyLab — \($0.name)" } ?? "RallyLab")
+        .sheet(isPresented: $projects.isCreatingProject) { NewProjectSheet(projects: projects) }
+        .onChange(of: projects.projectDir) { _, dir in
+            // A project was opened or created: land on its clip list, and
+            // point the Models tab at its dataset.
+            if dir != nil {
+                workingWithoutProject = false
+                tab = .projects
+            }
+            library.reload()
+        }
+    }
+
+    private var tabs: some View {
+        TabView(selection: $tab) {
+            Group {
+                if projects.project != nil {
+                    ProjectsTabView(projects: projects) { session in
+                        sampler.openSession(session)
+                        tab = .sampler
+                    }
+                } else {
+                    ProjectWelcomeView(projects: projects) { tab = .pipeline }
+                }
+            }
+            .tabItem { Label("Project", systemImage: "tablecells") }
             .tag(Tab.projects)
             SamplerTabView(lab: model, sampler: sampler)
                 .tabItem { Label("Sampler", systemImage: "photo.stack") }
@@ -48,6 +70,9 @@ struct ContentView: View {
             }
             .tabItem { Label("Models", systemImage: "cpu") }
             .tag(Tab.models)
+            pipelineTab
+                .tabItem { Label("Pipeline", systemImage: "gearshape") }
+                .tag(Tab.pipeline)
             NetTabView(model: model)
                 .tabItem { Label("Net", systemImage: "rectangle.split.3x1") }
                 .tag(Tab.net)
