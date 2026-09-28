@@ -414,10 +414,20 @@ final class SamplerModel {
             : labeled.map { Interval(start: $0.startTime, end: $0.endTime) }
 
         let settings = ingestSettings(name: name, split: split)
-        let plan = Self.plan(rallies: rallies, evidence: evidence, duration: duration,
-                             burstFPS: settings.burstFPS, padding: settings.padding,
-                             includeMissed: settings.includeMissed, maxMissed: settings.maxMissed,
-                             randomCount: settings.randomCount)
+        func planFrames(random: Int) -> [PlannedFrame] {
+            Self.plan(rallies: rallies, evidence: evidence, duration: duration,
+                      burstFPS: settings.burstFPS, padding: settings.padding,
+                      includeMissed: settings.includeMissed, maxMissed: settings.maxMissed,
+                      randomCount: random)
+        }
+        var plan = planFrames(random: settings.randomCount)
+        // Short on moments — no rallies found (the ball was never seen), or
+        // only a few — so fill up with frames from across the whole video.
+        // Twice the target, as near-identical frames are dropped and the
+        // rest is thinned to it.
+        if let target = job.targetFrames, target > 0, plan.count < 2 * target {
+            plan = planFrames(random: settings.randomCount + 2 * target - plan.count)
+        }
         guard !plan.isEmpty else { throw IngestError.nothingToSample }
         setJob(job.id, .running("Extracting \(plan.count) frames (\(rallies.count) rallies)…"))
 
@@ -577,7 +587,7 @@ final class SamplerModel {
 
     /// Which moments to pull, in time order: bursts inside padded rallies, up
     /// to `maxMissed` in-rally frames the pipeline saw no ball in (spread
-    /// evenly), and `randomCount` frames anywhere in the middle 96% of the
+    /// evenly), and `randomCount` frames spread over the middle 96% of the
     /// video. Moments closer than half a burst interval merge, keeping the
     /// "missed" tag when both apply.
     nonisolated static func plan(
@@ -617,9 +627,11 @@ final class SamplerModel {
             }
         }
 
+        // One per equal slot, jittered inside it, so the whole video is covered.
         if randomCount > 0, duration > 0 {
-            for _ in 0..<randomCount {
-                planned.append(PlannedFrame(time: Double.random(in: (0.02 * duration)...(0.98 * duration)), source: .random))
+            for i in 0..<randomCount {
+                let slot = (Double(i) + Double.random(in: 0..<1)) / Double(randomCount)
+                planned.append(PlannedFrame(time: (0.02 + 0.96 * slot) * duration, source: .random))
             }
         }
 

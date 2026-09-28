@@ -89,7 +89,7 @@ final class ModelLibrary {
             defer { isBusy = false }
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
-                    try TrainingPackage.export(sessions: sessions, store: store, name: name)
+                    try await TrainingPackage.export(sessions: sessions, store: store, name: name)
                 }.value
                 lastPackage = result
                 reload()
