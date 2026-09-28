@@ -224,7 +224,7 @@ private struct ClipDetailPane: View {
                             presenting: removing) { videoId in
             Button("Remove Video", role: .destructive) { projects.removeVideo(videoId, from: clip.id) }
         } message: { _ in
-            Text("Its cut footage and its frames, reviewed or not, are deleted. The original isn't touched.")
+            Text("Its cut footage and its reviewed frames are deleted. The original video isn't touched.")
         }
     }
 
@@ -236,6 +236,7 @@ private struct ClipDetailPane: View {
         let wanted = video.frames ?? defaultFrames
         let session = projects.session(named: videoId)
         let busy: Bool = {
+            if projects.moving.contains(videoId) { return true }
             if case .sampling = progress { return true }
             return false
         }()
@@ -244,15 +245,27 @@ private struct ClipDetailPane: View {
                 Text(video.title.isEmpty ? URL(fileURLWithPath: video.origin).lastPathComponent : video.title)
                     .font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
                 Spacer()
-                Menu {
-                    Button("Show Cut in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: video.clipFile)])
-                    }
-                    Divider()
-                    Button("Remove Video…", role: .destructive) { removing = videoId }
-                } label: { Image(systemName: "ellipsis.circle") }
-                .menuStyle(.borderlessButton).fixedSize()
+                MoveVideoMenu(projects: projects, clip: clip, videoId: videoId) {
+                    Image(systemName: "arrow.right.square")
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help("Move to another card")
                 .disabled(busy)
+                Button {
+                    if projects.needsConfirmToRemove(videoId) { removing = videoId }
+                    else { projects.removeVideo(videoId, from: clip.id) }
+                } label: { Image(systemName: "trash") }
+                .buttonStyle(.borderless)
+                .help("Remove from this card")
+                .disabled(busy)
+            }
+            .contextMenu {
+                Button("Show Cut in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: video.clipFile)])
+                }
+            }
+            if projects.moving.contains(videoId) {
+                Label("Moving…", systemImage: "arrow.right.square").font(.caption).foregroundStyle(.secondary)
             }
             Text("\(videoId) · \(Self.clock(video.start)) → \(Self.clock(video.start + video.length)) · \(video.license)")
                 .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)

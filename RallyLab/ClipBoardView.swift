@@ -47,6 +47,13 @@ private struct EnvironmentSection: View {
     let tint: Color
     let clips: [PlannedClip]
     @State private var removing: PlannedClip?
+    @State private var removingVideo: VideoRef?
+
+    private struct VideoRef: Identifiable {
+        let clipId: String
+        let videoId: String
+        var id: String { videoId }
+    }
 
     private let columns = [GridItem(.adaptive(minimum: 230, maximum: 320), spacing: 12)]
 
@@ -69,8 +76,8 @@ private struct EnvironmentSection: View {
                                          isSelected: projects.selectedClipId == clip.id,
                                          select: { projects.selectedClipId = clip.id },
                                          drop: { projects.dropFootage($0, on: clip.id) },
-                                         note: { projects.note($0) },
-                                         remove: kind == .extra ? { removing = clip } : nil)
+                                         note: { projects.note($0) })
+                                    .contextMenu { cardMenu(clip) }
                             }
                             if kind == .extra {
                                 ExtrasDropTile(tint: tint, environment: name,
@@ -82,12 +89,42 @@ private struct EnvironmentSection: View {
                 }
             }
         }
+        .confirmationDialog("Remove \(removingVideo?.videoId ?? "this video")?",
+                            isPresented: Binding(get: { removingVideo != nil }, set: { if !$0 { removingVideo = nil } }),
+                            presenting: removingVideo) { ref in
+            Button("Remove Video", role: .destructive) { projects.removeVideo(ref.videoId, from: ref.clipId) }
+        } message: { _ in
+            Text("Its cut footage and its reviewed frames are deleted. The original video isn't touched.")
+        }
         .confirmationDialog("Remove \(removing?.notes ?? "this extra")?",
                             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
                             presenting: removing) { clip in
             Button("Remove Extra", role: .destructive) { projects.removeExtra(clip.id) }
         } message: { _ in
             Text("Its cut footage and any frames pulled from it are deleted. The original video isn't touched.")
+        }
+    }
+
+    /// Right-click on a card: each of its videos, to move or remove.
+    @ViewBuilder
+    private func cardMenu(_ clip: PlannedClip) -> some View {
+        ForEach(clip.videos, id: \.clipFile) { video in
+            let videoId = clip.videoId(of: video)
+            Menu(video.title.isEmpty ? URL(fileURLWithPath: video.origin).lastPathComponent : video.title) {
+                MoveVideoMenu(projects: projects, clip: clip, videoId: videoId) { Text("Move to") }
+                Button("Remove from This Card", role: .destructive) {
+                    if projects.needsConfirmToRemove(videoId) {
+                        removingVideo = VideoRef(clipId: clip.id, videoId: videoId)
+                    } else {
+                        projects.removeVideo(videoId, from: clip.id)
+                    }
+                }
+            }
+            .disabled(projects.moving.contains(videoId))
+        }
+        if clip.kind == .extra {
+            if !clip.videos.isEmpty { Divider() }
+            Button("Remove Extra…", role: .destructive) { removing = clip }
         }
     }
 
@@ -142,8 +179,6 @@ private struct ClipCard: View {
     let select: () -> Void
     let drop: ([URL]) -> Void
     let note: (String) -> Void
-    /// Only extras can be removed.
-    var remove: (() -> Void)?
     @State private var hovering = false
     @State private var dropTargeted = false
 
@@ -243,9 +278,6 @@ private struct ClipCard: View {
         .shadow(color: .black.opacity(hovering ? 0.08 : 0.03), radius: hovering ? 6 : 2, y: 1)
         .contentShape(RoundedRectangle(cornerRadius: 12))
         .onTapGesture(perform: select)
-        .contextMenu {
-            if let remove { Button("Remove Extra…", role: .destructive, action: remove) }
-        }
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeOut(duration: 0.12), value: dropTargeted)
@@ -262,6 +294,26 @@ private struct ClipCard: View {
         case .cutting, .sampling: return tint.opacity(0.5)
         case .pulled(let frames, let reviewed): return frames > 0 && reviewed == frames ? .green : tint
         }
+    }
+}
+
+/// Every other card, by environment, to move a video to.
+struct MoveVideoMenu<Label: View>: View {
+    let projects: ProjectsModel
+    let clip: PlannedClip
+    let videoId: String
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        Menu {
+            ForEach(["Indoor", "Beach", "Grass"], id: \.self) { env in
+                Menu(env) {
+                    ForEach((projects.project?.clips ?? []).filter { $0.environment == env && $0.id != clip.id }) { target in
+                        Button(target.menuTitle) { projects.moveVideo(videoId, from: clip.id, to: target.id) }
+                    }
+                }
+            }
+        } label: { label() }
     }
 }
 
@@ -363,6 +415,13 @@ extension PlannedClip {
         case ProjectsModel.extraCamera: return "Extra footage"
         default: return camera
         }
+    }
+
+    /// One line for menus: what the card asks for, then its ID.
+    var menuTitle: String {
+        let what = kind == .extra ? [cameraTitle, notes]
+            : [cameraTitle, lighting, orientation, ball == "Any" ? "" : ball]
+        return what.filter { !$0.isEmpty }.joined(separator: " · ") + "  —  " + id
     }
 
     var cameraDetail: String {

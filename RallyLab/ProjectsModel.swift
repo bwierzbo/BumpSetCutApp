@@ -526,6 +526,37 @@ final class ProjectsModel {
         status = "Removed \(videoId)."
     }
 
+    /// Videos on their way to another card.
+    private(set) var moving: Set<String> = []
+
+    /// Put a video on a different card. Its existing cut is copied across
+    /// (nothing is downloaded again) and sampled there at the same frame
+    /// count; it leaves this card only once that worked. Frames already
+    /// reviewed are re-pulled, so they need reviewing again.
+    func moveVideo(_ videoId: String, from clipId: String, to targetId: String) {
+        guard targetId != clipId, !moving.contains(videoId),
+              let clip = project?.clips.first(where: { $0.id == clipId }),
+              let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }),
+              project?.clips.contains(where: { $0.id == targetId }) == true else { return }
+        moving.insert(videoId)
+        let started = addVideo(to: targetId, source: video.clipFile, start: 0, length: video.length + 1,
+                               license: video.license, frames: video.frames, allowDuplicate: true,
+                               provenance: video) { [weak self] worked in
+            guard let self else { return }
+            self.moving.remove(videoId)
+            if worked {
+                self.removeVideo(videoId, from: clipId)
+                self.status = "Moved \(videoId) to \(targetId)."
+            }
+        }
+        if started == nil { moving.remove(videoId) }
+    }
+
+    /// Removing a video with reviewed frames asks first; others go straight away.
+    func needsConfirmToRemove(_ videoId: String) -> Bool {
+        (session(named: videoId)?.reviewedCount ?? 0) > 0
+    }
+
     /// Forget a failed cut.
     func dismissFailure(_ videoId: String) {
         jobs.removeAll { $0.id == videoId && $0.failure != nil }
@@ -555,9 +586,13 @@ final class ProjectsModel {
     /// Cut `length` seconds from `start` out of a link or a local file, log
     /// it, then sample it into the dataset as a new video of the clip.
     /// Returns the new video's ID, or nil if it couldn't start.
+    /// `provenance` is the video being moved here from another card: its
+    /// origin, licence and fingerprint carry over, and `finished` hears
+    /// whether the cut worked.
     @discardableResult
     func addVideo(to clipId: String, source: String, start: Double, length: Double,
-                  license: String, frames: Int? = nil, allowDuplicate: Bool = false) -> String? {
+                  license: String, frames: Int? = nil, allowDuplicate: Bool = false,
+                  provenance: ClipSource? = nil, finished: ((Bool) -> Void)? = nil) -> String? {
         guard project != nil, let dir = projectDir,
               let clip = project?.clips.first(where: { $0.id == clipId }) else { return nil }
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -569,7 +604,7 @@ final class ProjectsModel {
             return nil
         }
 
-        let fingerprint = fingerprint(of: trimmed)
+        let fingerprint = provenance.flatMap { self.fingerprint(of: $0) } ?? fingerprint(of: trimmed)
         let overlapping = uses(of: fingerprint).filter { $0.overlaps(start: start, length: length) }
         if !allowDuplicate, let use = overlapping.first {
             status = "Already used: \(Self.displayName(of: trimmed)) \(use.range) is in \(use.videoId)"
@@ -586,7 +621,9 @@ final class ProjectsModel {
                     "--force", "--result-json"]
         if let env = Self.envFlag(clip) { args += ["--env", env] }
 
-        jobs.append(VideoJob(id: videoId, clipId: clipId, name: Self.displayName(of: trimmed),
+        let name = provenance.map { $0.title.isEmpty ? Self.displayName(of: $0.origin) : $0.title }
+            ?? Self.displayName(of: trimmed)
+        jobs.append(VideoJob(id: videoId, clipId: clipId, name: name,
                              fraction: isFile ? nil : 0, fingerprint: fingerprint, start: start, length: length))
         status = "\(videoId): \(isFile ? "cutting the file" : "downloading the section")…"
 
@@ -601,29 +638,34 @@ final class ProjectsModel {
             case .failure(let failure):
                 if let i = jobs.firstIndex(where: { $0.id == videoId }) { jobs[i].failure = failure.message }
                 status = "\(videoId): \(failure.message)"
+                finished?(false)
             case .success(let result):
                 jobs.removeAll { $0.id == videoId }
                 recordVideo(videoId, in: clipId, result: result, kind: isFile ? .file : .link,
-                            origin: trimmed, license: note, frames: frames, fingerprint: fingerprint)
+                            origin: trimmed, license: note, frames: frames, fingerprint: fingerprint,
+                            provenance: provenance)
                 // A session left by an earlier video with this ID.
                 if let old = session(named: videoId) { sampler.deleteSession(old) }
                 let split = project?.clips.first(where: { $0.id == clipId })?.split
                 sampler.enqueueClip(URL(fileURLWithPath: result.file), sessionName: DatasetStore.safeName(videoId),
                                     split: split, targetFrames: frames ?? project?.targetFrames)
                 status = "\(videoId): cut \(Int(result.duration.rounded()))s, sampling…"
+                finished?(true)
             }
         }
         return videoId
     }
 
     private func recordVideo(_ videoId: String, in clipId: String, result: FetchResult, kind: ClipSource.Kind,
-                             origin: String, license: String, frames: Int?, fingerprint: String?) {
+                             origin: String, license: String, frames: Int?, fingerprint: String?,
+                             provenance: ClipSource?) {
         guard let i = project?.clips.firstIndex(where: { $0.id == clipId }) else { return }
         project?.clips[i].videos.append(ClipSource(
-            kind: kind, origin: kind == .link ? result.url : origin,
-            start: result.start, length: result.duration, license: license,
-            title: result.title, uploader: result.uploader,
-            clipFile: result.file, fetchedAt: Date(),
+            kind: provenance?.kind ?? kind,
+            origin: provenance?.origin ?? (kind == .link ? result.url : origin),
+            start: provenance?.start ?? result.start, length: result.duration, license: license,
+            title: provenance?.title ?? result.title, uploader: provenance?.uploader ?? result.uploader,
+            clipFile: result.file, fetchedAt: provenance?.fetchedAt ?? Date(),
             videoId: videoId == clipId ? nil : videoId, frames: frames, fingerprint: fingerprint
         ))
         save()

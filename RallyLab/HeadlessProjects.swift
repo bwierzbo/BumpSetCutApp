@@ -8,6 +8,7 @@
 //    RallyLab --project v3 --get grs_onl_sun_land_onl_01 "https://youtube.com/…" \
 //             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00] [--frames 80]
 //             [--allow-duplicate]   (add a stretch of a video already used)
+//    RallyLab --project v3 --move ind_ele_bright_land_self_01_v2 bch_ele_sun_land_self_01
 //    RallyLab --project v3 --status
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
@@ -62,7 +63,15 @@ enum HeadlessProjects {
                 ok = await get(clipId: args[i + 1], source: args[i + 2], args: args, projects: projects)
             }
 
-            if args.contains("--status") || args.contains("--get") {
+            if ok, let i = args.firstIndex(of: "--move") {
+                guard args.indices.contains(i + 2) else {
+                    log("usage: --move <video id> <to clip id>")
+                    exit(2)
+                }
+                ok = await move(videoId: args[i + 1], to: args[i + 2], projects: projects)
+            }
+
+            if args.contains("--status") || args.contains("--get") || args.contains("--move") {
                 printStatus(projects)
             }
 
@@ -125,6 +134,23 @@ enum HeadlessProjects {
                 last = line
             }
         }
+    }
+
+    @MainActor
+    private static func move(videoId: String, to targetId: String, projects: ProjectsModel) async -> Bool {
+        guard let from = projects.project?.clips.first(where: { clip in
+            clip.videos.contains { clip.videoId(of: $0) == videoId }
+        }) else {
+            log("❌ No video \(videoId) in this project.")
+            return false
+        }
+        projects.moveVideo(videoId, from: from.id, to: targetId)
+        guard projects.moving.contains(videoId) else { log("❌ \(projects.status)"); return false }
+        while projects.moving.contains(videoId) || projects.sampler.isIngesting || !projects.sampler.queue.allSatisfy(\.isFinished) {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+        log(projects.status.hasPrefix("Moved") ? "✅ \(projects.status)" : "❌ \(projects.status)")
+        return projects.status.hasPrefix("Moved")
     }
 
     @MainActor
