@@ -6,7 +6,7 @@
 //  opening the app (and Claude can do it from a pasted link):
 //
 //    RallyLab --project v3 --get grs_onl_sun_land_onl_01 "https://youtube.com/…" \
-//             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00]
+//             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00] [--frames 80]
 //    RallyLab --project v3 --status
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
@@ -16,8 +16,9 @@
 //
 //  --project takes a known project's name or a path to its folder.
 //
-//  --get cuts the clip, logs it, samples it into the project's dataset and
-//  waits for the sampling to finish. A new project is created with the
+//  --get adds a video to the clip (clips take any number): cuts it, logs it,
+//  samples it into the project's dataset and waits for the sampling to
+//  finish. A new project is created with the
 //  standard clip plan.
 //
 
@@ -54,7 +55,7 @@ enum HeadlessProjects {
             var ok = true
             if let i = args.firstIndex(of: "--get") {
                 guard args.indices.contains(i + 2) else {
-                    log("usage: --get <clip id> <link or file> --license <note> [--start m:ss] [--length m:ss]")
+                    log("usage: --get <clip id> <link or file> --license <note> [--start m:ss] [--length m:ss] [--frames n]")
                     exit(2)
                 }
                 ok = await get(clipId: args[i + 1], source: args[i + 2], args: args, projects: projects)
@@ -88,25 +89,29 @@ enum HeadlessProjects {
         }
         let start = value(after: "--start", in: args).flatMap(seconds) ?? 0
         let length = value(after: "--length", in: args).flatMap(seconds) ?? 300
+        let frames = value(after: "--frames", in: args).flatMap { Int($0) }
         let source = FileManager.default.fileExists(atPath: (source as NSString).expandingTildeInPath)
             ? (source as NSString).expandingTildeInPath : source
 
-        projects.getFootage(for: clipId, source: source, start: start, length: length, license: license)
-        log("▸ \(clipId): \(projects.status)")
+        guard let videoId = projects.addVideo(to: clipId, source: source, start: start, length: length,
+                                              license: license, frames: frames) else {
+            log("❌ \(projects.status)")
+            return false
+        }
+        log("▸ \(videoId): \(projects.status)")
 
         // Wait through cutting, then sampling.
         var last = ""
         while true {
             try? await Task.sleep(nanoseconds: 500_000_000)
-            guard let clip = projects.project?.clips.first(where: { $0.id == clipId }) else { return false }
-            let progress = projects.progress(of: clip)
+            let progress = projects.progress(ofVideo: videoId)
             let line: String
             switch progress {
             case .cutting(let f): line = f.map { "  downloading \(Int($0 * 100))%" } ?? "  cutting…"
             case .sampling(let text): line = "  \(text)"
             case .failed(let why): log("❌ \(why)"); return false
             case .pulled(let frames, _):
-                log("✅ \(clipId): \(frames) frames sampled into the dataset")
+                log("✅ \(videoId): \(frames) frames sampled into the dataset")
                 return true
             case .notStarted:
                 if projects.sampler.isIngesting || !projects.sampler.queue.isEmpty { continue }

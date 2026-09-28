@@ -2,10 +2,11 @@
 //  ProjectsTabView.swift
 //  RallyLab
 //
-//  The open project's clip plan as a working list: for each clip paste a
-//  video link or drop a file, set where it starts, and Get Clip — 5 minutes
-//  are cut, logged with their licence, and sampled into the project's
-//  dataset under the clip's ID. Review happens in the Sampler tab.
+//  The open project's clip plan as a board of cards. Each clip takes any
+//  number of videos — dropped on its card, or added from a link or file in
+//  the detail pane — each cut (5 minutes), logged with its licence, and
+//  sampled into the project's dataset with its own frame count. Review
+//  happens in the Sampler tab.
 //
 
 import AppKit
@@ -73,10 +74,10 @@ struct ProjectsTabView: View {
                 if let target = projects.project?.targetFrames {
                     Stepper(value: Binding(get: { target }, set: { projects.setTargetFrames($0) }),
                             in: 10...400, step: 5) {
-                        Text("\(target) frames per clip").font(.caption).monospacedDigit()
+                        Text("\(target) frames per video").font(.caption).monospacedDigit()
                     }
                     .fixedSize()
-                    .help("Each clip is thinned to this many frames after sampling. Misses are kept first.")
+                    .help("The default for new videos: each is thinned to this many frames after sampling, misses kept first. Set a video's own count in its clip.")
                 }
                 if let dir = projects.projectDir {
                     Button {
@@ -133,9 +134,14 @@ private struct ClipDetailPane: View {
     let review: (VideoSession) -> Void
 
     @State private var source = ""
-    @State private var start = "0:00"
+    @State private var start = ""
     @State private var length = "5:00"
     @State private var license = ""
+    @State private var frames = StandardClipPlan.targetFrames
+    @State private var removing: String?
+
+    private var defaultFrames: Int { projects.project?.targetFrames ?? StandardClipPlan.targetFrames }
+    private var ownFootage: Bool { clip.kind != .online }
 
     var body: some View {
         ScrollView {
@@ -151,57 +157,37 @@ private struct ClipDetailPane: View {
                     }
                 }
 
-                statusBox
+                HStack {
+                    ClipStatusLabel(progress: projects.progress(of: clip))
+                    Spacer()
+                    let count = clip.videos.count
+                    Text("\(count) video\(count == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+                }
 
-                GroupBox("Footage") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Paste a video link, or drop a video here from Photos or Finder. Use footage you have permission for.")
-                            .font(.caption2).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        HStack {
-                            TextField("https://youtube.com/watch?v=…  or a file path", text: $source)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.caption)
-                            Button("File…") { chooseFile() }
+                GroupBox("Videos") {
+                    VStack(alignment: .leading, spacing: 0) {
+                        let jobs = projects.jobs.filter { $0.clipId == clip.id }
+                        if clip.videos.isEmpty && jobs.isEmpty {
+                            Text(ownFootage
+                                 ? "None yet. Drop videos on the card — as many as you like — or add one below."
+                                 : "None yet. Add a video below with its licence.")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 4)
                         }
-                        HStack(spacing: 10) {
-                            labeled("start", TextField("0:00", text: $start).frame(width: 64))
-                            labeled("length", TextField("5:00", text: $length).frame(width: 64))
+                        ForEach(clip.videos, id: \.clipFile) { video in
+                            videoRow(video)
+                            Divider().padding(.vertical, 6)
                         }
-                        .textFieldStyle(.roundedBorder)
-                        labeled("licence", TextField("CC-BY, or permission: who, how, when", text: $license)
-                            .textFieldStyle(.roundedBorder))
-                        HStack {
-                            Button {
-                                projects.getFootage(for: clip.id, source: source,
-                                                    start: Self.seconds(start) ?? 0,
-                                                    length: Self.seconds(length) ?? 300,
-                                                    license: license)
-                            } label: {
-                                Label(clip.source == nil ? "Get Clip" : "Replace Clip", systemImage: "scissors")
-                            }
-                            .keyboardShortcut(.defaultAction)
-                            .disabled(!canGet)
-                            if Self.seconds(start) == nil || Self.seconds(length) == nil {
-                                Text("Times are seconds or m:ss").font(.caption2).foregroundStyle(.red)
-                            }
+                        ForEach(jobs) { job in
+                            jobRow(job)
+                            Divider().padding(.vertical, 6)
                         }
                     }
                     .padding(4)
                 }
-                // AppKit drop target: Photos hands over file promises, which
-                // SwiftUI's onDrop can't receive. Photos videos are copied
-                // into ~/Movies/RallyLab first, then cut from there.
-                .background(
-                    SamplerDropView(
-                        onDrop: { urls in
-                            if let video = urls.first(where: {
-                                ProjectsModel.videoExtensions.contains($0.pathExtension.lowercased())
-                            }) { source = video.path }
-                        },
-                        onStatus: { projects.note($0) }
-                    )
-                )
+
+                addVideoBox
 
                 GroupBox("Split") {
                     Picker("", selection: Binding(
@@ -214,72 +200,178 @@ private struct ClipDetailPane: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .disabled(projects.session(for: clip) != nil)
-                    Text(projects.session(for: clip) != nil
-                         ? "Fixed once the clip is sampled. Replace the clip to change it."
+                    .disabled(!projects.sessions(for: clip).isEmpty)
+                    Text(!projects.sessions(for: clip).isEmpty
+                         ? "Fixed once a video is sampled. Remove its videos to change it."
                          : "Val clips are held out to check the model. Auto balances it for you.")
                         .font(.caption2).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                if let src = clip.source { sourceBox(src) }
             }
             .padding(14)
         }
-        .onAppear(perform: prefill)
-        // A drop cuts in the background; show what it used once it lands.
-        .onChange(of: clip.source) { prefill() }
+        .onAppear {
+            frames = defaultFrames
+            if ownFootage { license = ProjectsModel.ownFootageLicense }
+        }
         .onChange(of: projects.droppedFootage, initial: true) { _, drop in
             guard let drop, drop.clipId == clip.id else { return }
             source = drop.path
-            if license.isEmpty { license = drop.license }
             projects.droppedFootage = nil
         }
+        .confirmationDialog("Remove \(removing ?? "this video")?",
+                            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            presenting: removing) { videoId in
+            Button("Remove Video", role: .destructive) { projects.removeVideo(videoId, from: clip.id) }
+        } message: { _ in
+            Text("Its cut footage and its frames, reviewed or not, are deleted. The original isn't touched.")
+        }
     }
 
-    private var canGet: Bool {
-        !source.trimmingCharacters(in: .whitespaces).isEmpty
-            && !license.trimmingCharacters(in: .whitespaces).isEmpty
-            && Self.seconds(start) != nil && Self.seconds(length) != nil
-            && {
-                if case .cutting = projects.progress(of: clip) { return false }
-                if case .sampling = projects.progress(of: clip) { return false }
-                return true
-            }()
-    }
+    // MARK: Video rows
 
-    @ViewBuilder
-    private var statusBox: some View {
-        let progress = projects.progress(of: clip)
-        HStack {
-            ClipStatusLabel(progress: progress)
-            Spacer()
-            if let session = projects.session(for: clip) {
-                Button("Review in Sampler") { review(session) }
+    private func videoRow(_ video: ClipSource) -> some View {
+        let videoId = clip.videoId(of: video)
+        let progress = projects.progress(ofVideo: videoId)
+        let wanted = video.frames ?? defaultFrames
+        let session = projects.session(named: videoId)
+        let busy: Bool = {
+            if case .sampling = progress { return true }
+            return false
+        }()
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(video.title.isEmpty ? URL(fileURLWithPath: video.origin).lastPathComponent : video.title)
+                    .font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Menu {
+                    Button("Show Cut in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: video.clipFile)])
+                    }
+                    Divider()
+                    Button("Remove Video…", role: .destructive) { removing = videoId }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .menuStyle(.borderlessButton).fixedSize()
+                .disabled(busy)
             }
-        }
-        if case .failed(let why) = progress {
-            Text(why).font(.caption).foregroundStyle(.red).textSelection(.enabled)
-        }
-    }
-
-    private func sourceBox(_ src: ClipSource) -> some View {
-        GroupBox("Current footage") {
-            VStack(alignment: .leading, spacing: 4) {
-                if !src.title.isEmpty { Text(src.title).font(.callout).lineLimit(2) }
-                if !src.uploader.isEmpty { Text(src.uploader).font(.caption).foregroundStyle(.secondary) }
-                Text("\(Self.clock(src.start)) → \(Self.clock(src.start + src.length)) · \(src.license)")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(src.origin).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    .textSelection(.enabled)
-                Button("Show Clip in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: src.clipFile)])
+            Text("\(videoId) · \(Self.clock(video.start)) → \(Self.clock(video.start + video.length)) · \(video.license)")
+                .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                .textSelection(.enabled)
+            HStack(spacing: 8) {
+                ClipStatusLabel(progress: progress).font(.caption)
+                Spacer()
+                if let session { Button("Review") { review(session) }.controlSize(.small) }
+            }
+            HStack(spacing: 8) {
+                Stepper(value: Binding(get: { wanted },
+                                       set: { projects.setFrames($0, forVideo: videoId, in: clip.id) }),
+                        in: 5...400, step: 5) {
+                    Text("\(wanted) frames").font(.caption).monospacedDigit()
                 }
-                .buttonStyle(.link)
+                .fixedSize()
+                Spacer()
+                if let session, session.frames.count != wanted, !busy {
+                    Button("Re-pull \(wanted)") { projects.repull(videoId, in: clip.id) }
+                        .controlSize(.small)
+                        .help(session.reviewedCount > 0
+                              ? "Samples this video again. Its \(session.reviewedCount) reviewed frames are replaced."
+                              : "Samples this video again at the new count.")
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func jobRow(_ job: VideoJob) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(job.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
+            HStack {
+                ClipStatusLabel(progress: projects.progress(ofVideo: job.id)).font(.caption)
+                Spacer()
+                if job.failure != nil {
+                    Button("Dismiss") { projects.dismissFailure(job.id) }.controlSize(.small)
+                }
+            }
+            if let why = job.failure {
+                Text(why).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+            }
+        }
+    }
+
+    // MARK: Adding a video
+
+    private var addVideoBox: some View {
+        GroupBox("Add a Video") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Paste a video link, or drop a video here from Photos or Finder. Use footage you have permission for.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack {
+                    TextField("https://youtube.com/watch?v=…  or a file path", text: $source)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                    Button("File…") { chooseFile() }
+                }
+                HStack(spacing: 10) {
+                    labeled("start", TextField("middle", text: $start).frame(width: 64))
+                    labeled("length", TextField("5:00", text: $length).frame(width: 64))
+                }
+                .textFieldStyle(.roundedBorder)
+                labeled("licence", TextField("CC-BY, or permission: who, how, when", text: $license)
+                    .textFieldStyle(.roundedBorder))
+                Stepper(value: $frames, in: 5...400, step: 5) {
+                    Text("\(frames) frames from this video").font(.caption).monospacedDigit()
+                }
+                .fixedSize()
+                HStack {
+                    Button(action: add) { Label("Add Video", systemImage: "plus") }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!canAdd)
+                    if !timesReadable {
+                        Text("Times are seconds or m:ss").font(.caption2).foregroundStyle(.red)
+                    }
+                }
+            }
             .padding(4)
         }
+        // AppKit drop target: Photos hands over file promises, which
+        // SwiftUI's onDrop can't receive. Photos videos are copied
+        // into ~/Movies/RallyLab first, then cut from there.
+        .background(
+            SamplerDropView(
+                onDrop: { urls in
+                    if let video = urls.first(where: {
+                        ProjectsModel.videoExtensions.contains($0.pathExtension.lowercased())
+                    }) { source = video.path }
+                },
+                onStatus: { projects.note($0) }
+            )
+        )
+    }
+
+    /// An empty start means the middle for a file, the beginning for a link.
+    private var timesReadable: Bool {
+        (start.trimmingCharacters(in: .whitespaces).isEmpty || Self.seconds(start) != nil)
+            && Self.seconds(length) != nil
+    }
+
+    private var canAdd: Bool {
+        !source.trimmingCharacters(in: .whitespaces).isEmpty
+            && !license.trimmingCharacters(in: .whitespaces).isEmpty
+            && timesReadable
+    }
+
+    private func add() {
+        let path = (source.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
+        let len = Self.seconds(length) ?? ProjectsModel.dropClipLength
+        let wanted = frames == defaultFrames ? nil : frames
+        if start.trimmingCharacters(in: .whitespaces).isEmpty, FileManager.default.fileExists(atPath: path) {
+            projects.cutMiddle(of: URL(fileURLWithPath: path), into: clip.id, length: len,
+                               license: license, frames: wanted)
+        } else {
+            guard projects.addVideo(to: clip.id, source: source, start: Self.seconds(start) ?? 0,
+                                    length: len, license: license, frames: wanted) != nil else { return }
+        }
+        source = ""
     }
 
     private func labeled<V: View>(_ name: String, _ field: V) -> some View {
@@ -287,14 +379,6 @@ private struct ClipDetailPane: View {
             Text(name).font(.caption).foregroundStyle(.secondary).frame(width: 44, alignment: .leading)
             field
         }
-    }
-
-    private func prefill() {
-        guard let src = clip.source else { return }
-        source = src.origin
-        start = Self.clock(src.start)
-        length = Self.clock(src.length)
-        license = src.license
     }
 
     private func chooseFile() {

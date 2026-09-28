@@ -93,7 +93,7 @@ private struct EnvironmentSection: View {
 
     private var header: some View {
         let done = clips.filter { if case .pulled(let f, let r) = projects.progress(of: $0) { return f > 0 && r == f }; return false }.count
-        let footage = clips.filter { $0.source != nil }.count
+        let footage = clips.filter { !$0.videos.isEmpty }.count
         return HStack(alignment: .center, spacing: 12) {
             Image(systemName: icon)
                 .font(.title2)
@@ -192,6 +192,11 @@ private struct ClipCard: View {
             Divider()
             HStack {
                 ClipStatusLabel(progress: progress).font(.caption)
+                if clip.videos.count > 1 {
+                    Label("\(clip.videos.count)", systemImage: "film")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .help("\(clip.videos.count) videos")
+                }
                 Spacer()
                 Text(clip.id)
                     .font(.system(size: 9, design: .monospaced))
@@ -247,8 +252,7 @@ private struct ClipCard: View {
     }
 
     private var dropHint: String {
-        if clip.source != nil { return "Drop to choose replacement" }
-        return clip.kind == .online ? "Drop, then add licence" : "Drop to get clip"
+        clip.kind == .online ? "Drop, then add licence" : "Drop to add videos"
     }
 
     private var stripe: Color {
@@ -277,7 +281,7 @@ private struct ExtrasDropTile: View {
                 .font(.system(size: 26))
                 .foregroundStyle(tint)
             Text("Drop extra videos").font(.headline)
-            Text("As many as you like, or click to choose.\n5 minutes from the middle of each are sampled.")
+            Text("As many as you like, or click to choose.\nEach becomes its own card.")
                 .font(.caption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }

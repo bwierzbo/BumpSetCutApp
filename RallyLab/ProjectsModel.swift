@@ -3,11 +3,11 @@
 //  RallyLab
 //
 //  A project is one training set built from the standard clip plan
-//  (StandardClipPlan). Give each clip its footage — a video link or a file you have
-//  — with a start time; the clip is cut (5 minutes by default) by
-//  scripts/fetch_clip.py, logged with its licence, and sampled straight into
-//  the project's dataset under the row's Clip ID. The Sampler tab reviews
-//  it like any other video.
+//  (StandardClipPlan). Give each clip as many videos as you like — links or
+//  files you have — each cut (5 minutes by default) by scripts/fetch_clip.py,
+//  logged with its licence, and sampled into the project's dataset as its
+//  own session with its own frame count. The Sampler tab reviews them like
+//  any other video.
 //
 //  On disk, one folder per project, wherever you create it — see
 //  ProjectLayout for what's inside.
@@ -17,7 +17,7 @@ import AVFoundation
 import Foundation
 import Observation
 
-struct PlannedClip: Codable, Identifiable, Equatable, Hashable {
+struct PlannedClip: Identifiable, Equatable, Hashable {
     /// The Clip ID from the sheet; also the dataset session's name.
     let id: String
     var number: Int
@@ -27,9 +27,50 @@ struct PlannedClip: Codable, Identifiable, Equatable, Hashable {
     var orientation: String
     var ball: String
     var notes: String
-    /// "train" or "val"; nil lets the dataset decide when the clip is added.
+    /// "train" or "val"; nil lets the dataset decide as each video is added.
     var split: String?
-    var source: ClipSource?
+    /// The clip's videos, oldest first; each is its own dataset session.
+    var videos: [ClipSource] = []
+
+    /// A video's ID: its dataset session and its cut file's name.
+    func videoId(of video: ClipSource) -> String { video.videoId ?? id }
+}
+
+extension PlannedClip: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, number, environment, camera, lighting, orientation, ball, notes, split, videos
+        /// Projects saved when a clip held one video.
+        case source
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        number = try c.decode(Int.self, forKey: .number)
+        environment = try c.decode(String.self, forKey: .environment)
+        camera = try c.decode(String.self, forKey: .camera)
+        lighting = try c.decode(String.self, forKey: .lighting)
+        orientation = try c.decode(String.self, forKey: .orientation)
+        ball = try c.decode(String.self, forKey: .ball)
+        notes = try c.decode(String.self, forKey: .notes)
+        split = try c.decodeIfPresent(String.self, forKey: .split)
+        videos = try c.decodeIfPresent([ClipSource].self, forKey: .videos)
+            ?? c.decodeIfPresent(ClipSource.self, forKey: .source).map { [$0] } ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(number, forKey: .number)
+        try c.encode(environment, forKey: .environment)
+        try c.encode(camera, forKey: .camera)
+        try c.encode(lighting, forKey: .lighting)
+        try c.encode(orientation, forKey: .orientation)
+        try c.encode(ball, forKey: .ball)
+        try c.encode(notes, forKey: .notes)
+        try c.encodeIfPresent(split, forKey: .split)
+        try c.encode(videos, forKey: .videos)
+    }
 }
 
 struct ClipSource: Codable, Equatable, Hashable {
@@ -45,12 +86,17 @@ struct ClipSource: Codable, Equatable, Hashable {
     /// The cut clip inside the project's footage folder.
     var clipFile: String
     var fetchedAt: Date
+    /// See PlannedClip.videoId(of:); nil is the clip's own ID (its first
+    /// video, and every video from before clips held several).
+    var videoId: String?
+    /// Frames wanted from this video; nil = the project's default.
+    var frames: Int?
 }
 
 struct Project: Codable, Equatable {
     var name: String
     var createdAt: Date
-    /// Labeled frames wanted per clip (the checklist asks for about 55).
+    /// Frames wanted per video unless the video sets its own.
     var targetFrames: Int
     var clips: [PlannedClip]
 }
@@ -86,12 +132,12 @@ final class ProjectsModel {
     private(set) var status = "Create a project to start a training set."
 
     var selectedClipId: String?
-    /// A video dropped on a clip's card, for its detail pane to pick up.
+    /// A video dropped on an online clip's card, for its detail pane to
+    /// pick up (it needs a licence before it's cut).
     var droppedFootage: FootageDrop?
 
-    // Per-clip transient state for the running cut.
-    private(set) var cutting: [String: Double?] = [:]
-    private(set) var failures: [String: String] = [:]
+    /// Videos being cut, or whose cut failed, before they join their clip.
+    private(set) var jobs: [VideoJob] = []
 
     let sampler: SamplerModel
 
@@ -229,8 +275,7 @@ final class ProjectsModel {
         try? ProjectLayout.create(at: dir)
         addNewPlanClips()
         selectedClipId = nil
-        cutting = [:]
-        failures = [:]
+        jobs = []
         remember(dir)
         activate()
         status = "\(loaded.name): \(loaded.clips.count) planned clips."
@@ -283,13 +328,24 @@ final class ProjectsModel {
 
     // MARK: - Progress
 
-    func session(for clip: PlannedClip) -> VideoSession? {
-        sampler.sessions.first { $0.name == DatasetStore.safeName(clip.id) }
+    func session(named videoId: String) -> VideoSession? {
+        sampler.sessions.first { $0.name == DatasetStore.safeName(videoId) }
     }
 
-    func progress(of clip: PlannedClip) -> ClipProgress {
-        if let value = cutting[clip.id] { return .cutting(value) }
-        if let job = sampler.queue.last(where: { $0.sessionName == DatasetStore.safeName(clip.id) }) {
+    func sessions(for clip: PlannedClip) -> [VideoSession] {
+        clip.videos.compactMap { session(named: clip.videoId(of: $0)) }
+    }
+
+    /// Recorded videos, then ones still being cut.
+    private func videoIds(of clip: PlannedClip) -> [String] {
+        clip.videos.map(clip.videoId(of:)) + jobs.filter { $0.clipId == clip.id }.map(\.id)
+    }
+
+    func progress(ofVideo videoId: String) -> ClipProgress {
+        if let job = jobs.first(where: { $0.id == videoId }) {
+            return job.failure.map { .failed($0) } ?? .cutting(job.fraction)
+        }
+        if let job = sampler.queue.last(where: { $0.sessionName == DatasetStore.safeName(videoId) }) {
             switch job.state {
             case .pending: return .sampling("Waiting to sample…")
             case .running(let text): return .sampling(text)
@@ -297,10 +353,36 @@ final class ProjectsModel {
             case .done: break
             }
         }
-        if let why = failures[clip.id] { return .failed(why) }
-        if let session = session(for: clip) {
+        if let session = session(named: videoId) {
             return .pulled(frames: session.frames.count, reviewed: session.reviewedCount)
         }
+        return .notStarted
+    }
+
+    /// The clip's videos taken together: busy while any is, failed while
+    /// any failure is unresolved, otherwise their frames summed.
+    func progress(of clip: PlannedClip) -> ClipProgress {
+        var cutting: [Double?] = []
+        var sampling: String?
+        var failure: String?
+        var pulled: (frames: Int, reviewed: Int)?
+        for progress in videoIds(of: clip).map(progress(ofVideo:)) {
+            switch progress {
+            case .cutting(let fraction): cutting.append(fraction)
+            case .sampling(let text): sampling = sampling ?? text
+            case .failed(let why): failure = failure ?? why
+            case .pulled(let frames, let reviewed):
+                pulled = ((pulled?.frames ?? 0) + frames, (pulled?.reviewed ?? 0) + reviewed)
+            case .notStarted: break
+            }
+        }
+        if !cutting.isEmpty {
+            let known = cutting.compactMap { $0 }
+            return .cutting(known.count == cutting.count ? known.reduce(0, +) / Double(known.count) : nil)
+        }
+        if let sampling { return .sampling(sampling) }
+        if let failure { return .failed(failure) }
+        if let pulled { return .pulled(frames: pulled.frames, reviewed: pulled.reviewed) }
         return .notStarted
     }
 
@@ -315,10 +397,13 @@ final class ProjectsModel {
             let env = clip.environment.isEmpty ? "Other" : clip.environment
             var t = byEnv[env, default: Tally()]
             t.total += 1; all.total += 1
-            if clip.source != nil { t.recorded += 1; all.recorded += 1 }
-            if let s = session(for: clip) {
+            if !clip.videos.isEmpty { t.recorded += 1; all.recorded += 1 }
+            let sessions = sessions(for: clip)
+            if !sessions.isEmpty {
                 t.pulled += 1; all.pulled += 1
-                if !s.frames.isEmpty, s.reviewedCount == s.frames.count { t.labeled += 1; all.labeled += 1 }
+                if sessions.allSatisfy({ !$0.frames.isEmpty && $0.reviewedCount == $0.frames.count }) {
+                    t.labeled += 1; all.labeled += 1
+                }
             }
             byEnv[env] = t
         }
@@ -327,26 +412,24 @@ final class ProjectsModel {
 
     // MARK: - Getting footage
 
-    /// A video dropped straight onto a clip's card. Your own recordings start
-    /// cutting five minutes from the middle right away; online clips, and clips
-    /// that already have footage (a stray drop mustn't throw away labelled
-    /// frames), open in the detail pane to confirm the licence or Replace.
+    /// Videos dropped straight onto a clip's card. Your own recordings are
+    /// each added right away (five minutes from the middle); an online clip
+    /// needs its licence first, so its video opens in the detail pane.
     func dropFootage(_ urls: [URL], on clipId: String) {
         guard let clip = project?.clips.first(where: { $0.id == clipId }) else { return }
         selectedClipId = clipId
-        guard let video = urls.first(where: { Self.videoExtensions.contains($0.pathExtension.lowercased()) }) else {
-            status = "Drop a video (.mov, .mp4 or .m4v)."
+        let videos = urls.filter { Self.videoExtensions.contains($0.pathExtension.lowercased()) }
+        guard let first = videos.first else {
+            status = "Drop videos (.mov, .mp4 or .m4v)."
             return
         }
-        let ownFootage = clip.kind != .online
-        droppedFootage = FootageDrop(clipId: clipId, path: video.path,
-                                     license: ownFootage ? Self.ownFootageLicense : "")
-        if ownFootage && clip.source == nil {
-            cutMiddle(of: video, into: clipId)
-        } else if clip.source != nil {
-            status = "\(clipId) already has footage — press Replace Clip to use \(video.lastPathComponent)."
+        if clip.kind == .online {
+            droppedFootage = FootageDrop(clipId: clipId, path: first.path)
+            status = "Add the licence or permission for \(first.lastPathComponent), then Add Video."
+                + (videos.count > 1 ? " Online videos go in one at a time." : "")
         } else {
-            status = "Add the licence or permission for \(video.lastPathComponent), then Get Clip."
+            for video in videos { cutMiddle(of: video, into: clipId) }
+            status = "Adding \(videos.count) video\(videos.count == 1 ? "" : "s") to \(clipId)…"
         }
     }
 
@@ -370,8 +453,7 @@ final class ProjectsModel {
             let clip = PlannedClip(id: stem + String(format: "%02d", next), number: 1000 + next,
                                    environment: environment, camera: Self.extraCamera,
                                    lighting: "", orientation: "", ball: "",
-                                   notes: video.deletingPathExtension().lastPathComponent,
-                                   split: nil, source: nil)
+                                   notes: video.deletingPathExtension().lastPathComponent)
             self.project?.clips.append(clip)
             added.append((clip, video))
         }
@@ -385,27 +467,76 @@ final class ProjectsModel {
     /// Remove an extra clip with its footage and frames. Planned clips stay.
     func removeExtra(_ clipId: String) {
         guard let clip = project?.clips.first(where: { $0.id == clipId }), clip.kind == .extra,
-              cutting[clipId] == nil else { return }
-        if let session = session(for: clip) { sampler.deleteSession(session) }
-        if let file = clip.source?.clipFile { try? FileManager.default.removeItem(atPath: file) }
+              !jobs.contains(where: { $0.clipId == clipId }) else { return }
+        for video in clip.videos { deleteFootage(of: video, in: clip) }
         project?.clips.removeAll { $0.id == clipId }
-        failures[clipId] = nil
         if selectedClipId == clipId { selectedClipId = nil }
         save()
         status = "Removed \(clipId)."
     }
 
-    /// Own footage dropped in: cut five minutes from the middle of the
-    /// video, skipping warm-ups at the start and pack-up at the end. Shorter
-    /// videos are used whole.
-    private func cutMiddle(of video: URL, into clipId: String) {
+    /// Cut `length` seconds from the middle of a local video — past the
+    /// warm-ups at the start and pack-up at the end. Shorter videos are
+    /// used whole.
+    func cutMiddle(of video: URL, into clipId: String, length: Double = dropClipLength,
+                   license: String = ownFootageLicense, frames: Int? = nil) {
         Task {
-            let length = Self.dropClipLength
             let duration = (try? await AVURLAsset(url: video).load(.duration).seconds) ?? 0
             let start = duration.isFinite ? max(0, (duration - length) / 2) : 0
-            getFootage(for: clipId, source: video.path, start: start.rounded(.down), length: length,
-                       license: Self.ownFootageLicense)
+            addVideo(to: clipId, source: video.path, start: start.rounded(.down), length: length,
+                     license: license, frames: frames)
         }
+    }
+
+    // MARK: - A clip's videos
+
+    /// Change how many frames a video should give. Takes effect on Re-pull.
+    func setFrames(_ frames: Int, forVideo videoId: String, in clipId: String) {
+        guard let c = project?.clips.firstIndex(where: { $0.id == clipId }),
+              let v = project?.clips[c].videos.firstIndex(where: { project?.clips[c].videoId(of: $0) == videoId })
+        else { return }
+        project?.clips[c].videos[v].frames = frames
+        save()
+    }
+
+    /// Sample a video's cut again at its current frame count. Its frames,
+    /// reviewed or not, are replaced; the footage isn't re-cut.
+    func repull(_ videoId: String, in clipId: String) {
+        guard let clip = project?.clips.first(where: { $0.id == clipId }),
+              let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }) else { return }
+        if let old = session(named: videoId) { sampler.deleteSession(old) }
+        sampler.enqueueClip(URL(fileURLWithPath: video.clipFile), sessionName: DatasetStore.safeName(videoId),
+                            split: clip.split, targetFrames: video.frames ?? project?.targetFrames)
+        status = "\(videoId): re-pulling \(video.frames ?? project?.targetFrames ?? 0) frames…"
+    }
+
+    /// Remove one video from a clip, with its cut footage and frames.
+    func removeVideo(_ videoId: String, from clipId: String) {
+        guard let c = project?.clips.firstIndex(where: { $0.id == clipId }), let clip = project?.clips[c],
+              let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }) else { return }
+        deleteFootage(of: video, in: clip)
+        project?.clips[c].videos.removeAll { clip.videoId(of: $0) == videoId }
+        save()
+        status = "Removed \(videoId)."
+    }
+
+    /// Forget a failed cut.
+    func dismissFailure(_ videoId: String) {
+        jobs.removeAll { $0.id == videoId && $0.failure != nil }
+    }
+
+    private func deleteFootage(of video: ClipSource, in clip: PlannedClip) {
+        if let session = session(named: clip.videoId(of: video)) { sampler.deleteSession(session) }
+        try? FileManager.default.removeItem(atPath: video.clipFile)
+    }
+
+    /// The clip's ID for its first video, then <id>_v2, _v3…
+    private func nextVideoId(for clip: PlannedClip) -> String {
+        let taken = Set(videoIds(of: clip))
+        guard taken.contains(clip.id) else { return clip.id }
+        var n = 2
+        while taken.contains("\(clip.id)_v\(n)") { n += 1 }
+        return "\(clip.id)_v\(n)"
     }
 
     static let dropClipLength: Double = 300
@@ -416,69 +547,71 @@ final class ProjectsModel {
     static let ownFootageLicense = "Own footage"
 
     /// Cut `length` seconds from `start` out of a link or a local file, log
-    /// it, then sample it into the dataset under the clip's ID. Replaces any
-    /// footage and frames the clip already had.
-    func getFootage(for clipId: String, source: String, start: Double, length: Double, license: String) {
-        guard let project, let dir = projectDir,
-              let clip = project.clips.first(where: { $0.id == clipId }) else { return }
+    /// it, then sample it into the dataset as a new video of the clip.
+    /// Returns the new video's ID, or nil if it couldn't start.
+    @discardableResult
+    func addVideo(to clipId: String, source: String, start: Double, length: Double,
+                  license: String, frames: Int? = nil) -> String? {
+        guard project != nil, let dir = projectDir,
+              let clip = project?.clips.first(where: { $0.id == clipId }) else { return nil }
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
         let note = license.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { status = "Paste a link or choose a file first."; return }
-        guard !note.isEmpty else { status = "Add the licence or permission this clip is used under."; return }
-        guard cutting[clipId] == nil else { return }
+        guard !trimmed.isEmpty else { status = "Paste a link or choose a file first."; return nil }
+        guard !note.isEmpty else { status = "Add the licence or permission this video is used under."; return nil }
         guard let script = Self.fetchScript else {
             status = "scripts/fetch_clip.py wasn't found next to the RallyLab sources."
-            return
+            return nil
         }
 
+        let videoId = nextVideoId(for: clip)
         let isFile = FileManager.default.fileExists(atPath: (trimmed as NSString).expandingTildeInPath)
         var args = [script.path, trimmed,
-                    "--id", clip.id, "--license", note,
+                    "--id", videoId, "--license", note,
                     "--start", String(start), "--length", String(length),
                     "--root", dir.appendingPathComponent("footage").path,
                     "--force", "--result-json"]
         if let env = Self.envFlag(clip) { args += ["--env", env] }
 
-        failures[clipId] = nil
-        // updateValue, not subscript: assigning nil through the subscript
-        // would delete the entry, and a file cut has no percentage to show.
-        cutting.updateValue(isFile ? nil : 0, forKey: clipId)
-        status = "\(clip.id): \(isFile ? "cutting the file" : "downloading the section")…"
+        let name = isFile ? URL(fileURLWithPath: trimmed).lastPathComponent : trimmed
+        jobs.append(VideoJob(id: videoId, clipId: clipId, name: name, fraction: isFile ? nil : 0))
+        status = "\(videoId): \(isFile ? "cutting the file" : "downloading the section")…"
 
         Task {
             let outcome = await Self.runFetch(args: args) { [weak self] fraction in
                 Task { @MainActor in
-                    if self?.cutting[clipId] != nil { self?.cutting.updateValue(fraction, forKey: clipId) }
+                    guard let self, let i = self.jobs.firstIndex(where: { $0.id == videoId }) else { return }
+                    self.jobs[i].fraction = fraction
                 }
             }
-            cutting.removeValue(forKey: clipId)
             switch outcome {
             case .failure(let failure):
-                failures[clipId] = failure.message
-                status = "\(clip.id): \(failure.message)"
+                if let i = jobs.firstIndex(where: { $0.id == videoId }) { jobs[i].failure = failure.message }
+                status = "\(videoId): \(failure.message)"
             case .success(let result):
-                recordSource(clipId: clipId, result: result, kind: isFile ? .file : .link,
-                             origin: trimmed, license: note, length: length)
-                let session = DatasetStore.safeName(clip.id)
-                if let old = sampler.sessions.first(where: { $0.name == session }) {
-                    sampler.deleteSession(old)
-                }
-                sampler.enqueueClip(URL(fileURLWithPath: result.file), sessionName: session,
-                                    split: clip.split, targetFrames: self.project?.targetFrames)
-                status = "\(clip.id): cut \(Int(result.duration.rounded()))s, sampling…"
+                jobs.removeAll { $0.id == videoId }
+                recordVideo(videoId, in: clipId, result: result, kind: isFile ? .file : .link,
+                            origin: trimmed, license: note, frames: frames)
+                // A session left by an earlier video with this ID.
+                if let old = session(named: videoId) { sampler.deleteSession(old) }
+                let split = project?.clips.first(where: { $0.id == clipId })?.split
+                sampler.enqueueClip(URL(fileURLWithPath: result.file), sessionName: DatasetStore.safeName(videoId),
+                                    split: split, targetFrames: frames ?? project?.targetFrames)
+                status = "\(videoId): cut \(Int(result.duration.rounded()))s, sampling…"
             }
         }
+        return videoId
     }
 
-    private func recordSource(clipId: String, result: FetchResult, kind: ClipSource.Kind,
-                              origin: String, license: String, length: Double) {
+    private func recordVideo(_ videoId: String, in clipId: String, result: FetchResult, kind: ClipSource.Kind,
+                             origin: String, license: String, frames: Int?) {
         guard let i = project?.clips.firstIndex(where: { $0.id == clipId }) else { return }
-        project?.clips[i].source = ClipSource(
+        project?.clips[i].videos.append(ClipSource(
             kind: kind, origin: kind == .link ? result.url : origin,
             start: result.start, length: result.duration, license: license,
             title: result.title, uploader: result.uploader,
-            clipFile: result.file, fetchedAt: Date()
-        )
+            clipFile: result.file, fetchedAt: Date(),
+            videoId: videoId == clipId ? nil : videoId, frames: frames
+        ))
         save()
     }
 
@@ -621,5 +754,14 @@ enum ProjectLayout {
 struct FootageDrop: Equatable {
     let clipId: String
     let path: String
-    let license: String
+}
+
+/// A video being cut for a clip, or whose cut failed.
+struct VideoJob: Identifiable, Equatable {
+    /// The video ID it will have.
+    let id: String
+    let clipId: String
+    let name: String
+    var fraction: Double?
+    var failure: String?
 }
