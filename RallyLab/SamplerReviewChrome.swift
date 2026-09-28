@@ -368,6 +368,7 @@ struct ShortcutsCard: View {
         ("← →", "Previous / next frame"),
         ("↩", "Accept and go to the next"),
         ("K", "Discard or keep the frame"),
+        ("click", "Box the ball you click on"),
         ("drag", "Draw a box · move · resize at a corner"),
         ("⌫", "Delete the selected box"),
         ("C", "Copy the previous frame's boxes"),

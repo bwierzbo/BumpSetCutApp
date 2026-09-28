@@ -43,6 +43,11 @@ struct ReviewCanvas: View {
                         drawGuides(in: &ctx, view: view)
                         drawBoxes(in: &ctx, view: view)
                     }
+                    if let point = sampler.snapping {
+                        let c = CGPoint(x: view.minX + point.x * view.width, y: view.minY + point.y * view.height)
+                        ctx.stroke(Path(ellipseIn: CGRect(x: c.x - 14, y: c.y - 14, width: 28, height: 28)),
+                                   with: .color(ReviewStyle.yours), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+                    }
                     if case .draw = drag, let live = liveRect {
                         ctx.fill(Path(roundedRect: live, cornerRadius: 2), with: .color(ReviewStyle.yours.opacity(0.12)))
                         ctx.stroke(Path(roundedRect: live, cornerRadius: 2), with: .color(ReviewStyle.yours),
@@ -99,6 +104,7 @@ struct ReviewCanvas: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
             .gesture(dragGesture(view: view))
+            .simultaneousGesture(SpatialTapGesture().onEnded { tap($0.location, view: view) })
             .simultaneousGesture(pinch(view: view))
             .onContinuousHover { phase in
                 if case .active(let p) = phase { hoverPoint = p } else { hoverPoint = nil }
@@ -266,6 +272,27 @@ struct ReviewCanvas: View {
             }
     }
 
+    /// A click on a box selects it; on the image anywhere else, it's a ball
+    /// to box.
+    private func tap(_ p: CGPoint, view: CGRect) {
+        guard sampler.contextPlayer == nil, view.contains(p) else { return }
+        if let box = boxHit(at: p, view: view) {
+            sampler.selectedBoxId = box.id
+        } else {
+            sampler.selectedBoxId = nil
+            sampler.snapBox(at: imagePoint(p, in: view))
+        }
+    }
+
+    /// The smallest box under the point, so a ball inside a bigger mistaken
+    /// box is still reachable.
+    private func boxHit(at p: CGPoint, view: CGRect) -> SampleBox? {
+        sample.boxes
+            .map { ($0, OverlayGeometry.rect($0.rect, turns: 0, in: view)) }
+            .filter { $0.1.insetBy(dx: -4, dy: -4).contains(p) }
+            .min { $0.1.width * $0.1.height < $1.1.width * $1.1.height }?.0
+    }
+
     /// Corner handle of the selected box → resize; inside any box → move
     /// (and select it); empty space → draw.
     private func beginDrag(at p: CGPoint, view: CGRect) -> Drag {
@@ -278,15 +305,9 @@ struct ReviewCanvas: View {
                 return .resize(boxId: box.id, original: screen, anchor: anchor)
             }
         }
-        // Smallest box under the cursor wins, so a ball inside a bigger
-        // mistaken box is still reachable.
-        let hit = sample.boxes
-            .map { ($0, OverlayGeometry.rect($0.rect, turns: 0, in: view)) }
-            .filter { $0.1.insetBy(dx: -4, dy: -4).contains(p) }
-            .min { $0.1.width * $0.1.height < $1.1.width * $1.1.height }
-        if let (box, screen) = hit {
+        if let box = boxHit(at: p, view: view) {
             sampler.selectedBoxId = box.id
-            return .move(boxId: box.id, original: screen, start: p)
+            return .move(boxId: box.id, original: OverlayGeometry.rect(box.rect, turns: 0, in: view), start: p)
         }
         sampler.selectedBoxId = nil
         return .draw(origin: p)

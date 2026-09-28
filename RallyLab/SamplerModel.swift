@@ -227,6 +227,10 @@ final class SamplerModel {
     @ObservationIgnored private var prefetchTask: Task<Void, Never>?
     /// Bumped on every accept, for the view's confirmation pulse.
     private(set) var acceptCount = 0
+    /// Where a click-to-box is being worked out (top-left normalised), for
+    /// the canvas to show a ring while it looks.
+    private(set) var snapping: CGPoint?
+    @ObservationIgnored private let snapDetector = SnapDetector()
     private var loadTask: Task<Void, Never>?
 
     nonisolated static let thumbnailWidth = 320
@@ -802,6 +806,38 @@ final class SamplerModel {
         selectedBoxId = nil
     }
 
+    /// Click on a ball: find it (BallSnapper) and box it as a volleyball.
+    /// `point` is top-left normalised in the frame.
+    func snapBox(at point: CGPoint) {
+        guard let sample = selected, snapping == nil else { return }
+        snapping = point
+        let url = store.currentImageURL(for: sample.record)
+        let model = prelabelModel
+        let usual = usualBallWidth()
+        let holder = snapDetector
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> BallSnapper.Result? in
+                guard let image = SamplerImageTools.loadImage(url, maxPixelSize: 8192) else { return nil }
+                return BallSnapper.snap(at: point, in: image, detector: holder.detector(for: model), usualSize: usual)
+            }.value
+            snapping = nil
+            guard let result, selectedId == sample.id else { return }
+            addBox(result.rect)
+            switch result.method {
+            case .detector(let c): status = String(format: "Boxed the ball (detector %.2f on a zoomed crop).", c)
+            case .outline: status = "Boxed the ball from its outline."
+            case .guess: status = "Couldn't find the ball's edge — placed a ball-sized box to adjust."
+            }
+        }
+    }
+
+    /// The median width of the boxes you've confirmed in this video, as a
+    /// fraction of the frame — the fallback size for a click-to-box.
+    private func usualBallWidth() -> CGFloat? {
+        let widths = samples.filter(\.reviewed).flatMap(\.boxes).filter { $0.confidence == nil }.map(\.rect.width).sorted()
+        return widths.isEmpty ? nil : widths[widths.count / 2]
+    }
+
     func addBox(_ rect: CGRect) {
         let box = SampleBox(rect: Self.clamp(rect), confidence: nil)
         mutate(selectedId) { $0.boxes.append(box); $0.reviewed = true }
@@ -1052,5 +1088,25 @@ final class SamplerModel {
                 if let image { previewCache[id] = image }
             }
         }
+    }
+}
+
+/// The detector click-to-box uses, loaded once (and again only when the
+/// pre-label model changes). Its threshold is low: the click already says
+/// there's a ball there.
+final class SnapDetector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var loaded: (model: URL?, detector: YOLODetector)?
+
+    func detector(for model: URL?) -> YOLODetector? {
+        lock.lock(); defer { lock.unlock() }
+        if let loaded, loaded.model == model { return loaded.detector }
+        let chosen = model.map { YOLODetector(modelURL: $0) }
+        let detector = (chosen?.isLoaded == true ? chosen : nil) ?? YOLODetector()
+        guard detector.isLoaded else { return nil }
+        detector.minConfidence = 0.05
+        detector.suppressesStaticObjects = false
+        loaded = (model, detector)
+        return detector
     }
 }
