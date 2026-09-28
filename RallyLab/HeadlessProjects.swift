@@ -7,6 +7,7 @@
 //
 //    RallyLab --project v3 --get grs_onl_sun_land_onl_01 "https://youtube.com/…" \
 //             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00] [--frames 80]
+//             [--allow-duplicate]   (add a stretch of a video already used)
 //    RallyLab --project v3 --status
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
@@ -55,7 +56,7 @@ enum HeadlessProjects {
             var ok = true
             if let i = args.firstIndex(of: "--get") {
                 guard args.indices.contains(i + 2) else {
-                    log("usage: --get <clip id> <link or file> --license <note> [--start m:ss] [--length m:ss] [--frames n]")
+                    log("usage: --get <clip id> <link or file> --license <note> [--start m:ss] [--length m:ss] [--frames n] [--allow-duplicate]")
                     exit(2)
                 }
                 ok = await get(clipId: args[i + 1], source: args[i + 2], args: args, projects: projects)
@@ -94,7 +95,8 @@ enum HeadlessProjects {
             ? (source as NSString).expandingTildeInPath : source
 
         guard let videoId = projects.addVideo(to: clipId, source: source, start: start, length: length,
-                                              license: license, frames: frames) else {
+                                              license: license, frames: frames,
+                                              allowDuplicate: args.contains("--allow-duplicate")) else {
             log("❌ \(projects.status)")
             return false
         }

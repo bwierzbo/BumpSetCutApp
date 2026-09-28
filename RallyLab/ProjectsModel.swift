@@ -14,6 +14,7 @@
 //
 
 import AVFoundation
+import CryptoKit
 import Foundation
 import Observation
 
@@ -91,6 +92,10 @@ struct ClipSource: Codable, Equatable, Hashable {
     var videoId: String?
     /// Frames wanted from this video; nil = the project's default.
     var frames: Int?
+    /// Identifies the original video (see ProjectsModel.fingerprint), so a
+    /// video reused on any card is recognised. nil for older videos; it's
+    /// worked out from `origin` instead.
+    var fingerprint: String?
 }
 
 struct Project: Codable, Equatable {
@@ -413,8 +418,9 @@ final class ProjectsModel {
     // MARK: - Getting footage
 
     /// Videos dropped straight onto a clip's card. Your own recordings are
-    /// each added right away (five minutes from the middle); an online clip
-    /// needs its licence first, so its video opens in the detail pane.
+    /// each added right away (five minutes from the middle) unless that
+    /// stretch is already used on any card; an online clip needs its licence
+    /// first, so its video opens in the detail pane.
     func dropFootage(_ urls: [URL], on clipId: String) {
         guard let clip = project?.clips.first(where: { $0.id == clipId }) else { return }
         selectedClipId = clipId
@@ -479,12 +485,12 @@ final class ProjectsModel {
     /// warm-ups at the start and pack-up at the end. Shorter videos are
     /// used whole.
     func cutMiddle(of video: URL, into clipId: String, length: Double = dropClipLength,
-                   license: String = ownFootageLicense, frames: Int? = nil) {
+                   license: String = ownFootageLicense, frames: Int? = nil, allowDuplicate: Bool = false) {
         Task {
             let duration = (try? await AVURLAsset(url: video).load(.duration).seconds) ?? 0
             let start = duration.isFinite ? max(0, (duration - length) / 2) : 0
             addVideo(to: clipId, source: video.path, start: start.rounded(.down), length: length,
-                     license: license, frames: frames)
+                     license: license, frames: frames, allowDuplicate: allowDuplicate)
         }
     }
 
@@ -551,7 +557,7 @@ final class ProjectsModel {
     /// Returns the new video's ID, or nil if it couldn't start.
     @discardableResult
     func addVideo(to clipId: String, source: String, start: Double, length: Double,
-                  license: String, frames: Int? = nil) -> String? {
+                  license: String, frames: Int? = nil, allowDuplicate: Bool = false) -> String? {
         guard project != nil, let dir = projectDir,
               let clip = project?.clips.first(where: { $0.id == clipId }) else { return nil }
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -560,6 +566,14 @@ final class ProjectsModel {
         guard !note.isEmpty else { status = "Add the licence or permission this video is used under."; return nil }
         guard let script = Self.fetchScript else {
             status = "scripts/fetch_clip.py wasn't found next to the RallyLab sources."
+            return nil
+        }
+
+        let fingerprint = fingerprint(of: trimmed)
+        let overlapping = uses(of: fingerprint).filter { $0.overlaps(start: start, length: length) }
+        if !allowDuplicate, let use = overlapping.first {
+            status = "Already used: \(Self.displayName(of: trimmed)) \(use.range) is in \(use.videoId)"
+                + (use.clipId == clipId ? " on this card." : ".")
             return nil
         }
 
@@ -572,8 +586,8 @@ final class ProjectsModel {
                     "--force", "--result-json"]
         if let env = Self.envFlag(clip) { args += ["--env", env] }
 
-        let name = isFile ? URL(fileURLWithPath: trimmed).lastPathComponent : trimmed
-        jobs.append(VideoJob(id: videoId, clipId: clipId, name: name, fraction: isFile ? nil : 0))
+        jobs.append(VideoJob(id: videoId, clipId: clipId, name: Self.displayName(of: trimmed),
+                             fraction: isFile ? nil : 0, fingerprint: fingerprint, start: start, length: length))
         status = "\(videoId): \(isFile ? "cutting the file" : "downloading the section")…"
 
         Task {
@@ -590,7 +604,7 @@ final class ProjectsModel {
             case .success(let result):
                 jobs.removeAll { $0.id == videoId }
                 recordVideo(videoId, in: clipId, result: result, kind: isFile ? .file : .link,
-                            origin: trimmed, license: note, frames: frames)
+                            origin: trimmed, license: note, frames: frames, fingerprint: fingerprint)
                 // A session left by an earlier video with this ID.
                 if let old = session(named: videoId) { sampler.deleteSession(old) }
                 let split = project?.clips.first(where: { $0.id == clipId })?.split
@@ -603,16 +617,117 @@ final class ProjectsModel {
     }
 
     private func recordVideo(_ videoId: String, in clipId: String, result: FetchResult, kind: ClipSource.Kind,
-                             origin: String, license: String, frames: Int?) {
+                             origin: String, license: String, frames: Int?, fingerprint: String?) {
         guard let i = project?.clips.firstIndex(where: { $0.id == clipId }) else { return }
         project?.clips[i].videos.append(ClipSource(
             kind: kind, origin: kind == .link ? result.url : origin,
             start: result.start, length: result.duration, license: license,
             title: result.title, uploader: result.uploader,
             clipFile: result.file, fetchedAt: Date(),
-            videoId: videoId == clipId ? nil : videoId, frames: frames
+            videoId: videoId == clipId ? nil : videoId, frames: frames, fingerprint: fingerprint
         ))
         save()
+    }
+
+    // MARK: - Recognising a video used before
+
+    /// Where a video has been used: on which card, as which video, and
+    /// which stretch of it.
+    struct VideoUse: Equatable {
+        let clipId: String
+        let videoId: String
+        let start: Double
+        let length: Double
+
+        /// Sharing more than a second: cuts land on keyframes, so back-to-back
+        /// stretches can touch by a fraction of a second.
+        func overlaps(start other: Double, length otherLength: Double) -> Bool {
+            min(start + length, other + otherLength) - max(start, other) > 1
+        }
+
+        var range: String {
+            "\(Self.clock(start))–\(Self.clock(start + length))"
+        }
+
+        private static func clock(_ seconds: Double) -> String {
+            let s = Int(seconds.rounded())
+            return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60)
+                             : String(format: "%d:%02d", s / 60, s % 60)
+        }
+    }
+
+    /// Every use of a video across the project, cut or still being cut.
+    func uses(of fingerprint: String?, excluding videoId: String? = nil) -> [VideoUse] {
+        guard let fingerprint, let project else { return [] }
+        var found: [VideoUse] = []
+        for clip in project.clips {
+            for video in clip.videos where self.fingerprint(of: video) == fingerprint {
+                found.append(VideoUse(clipId: clip.id, videoId: clip.videoId(of: video),
+                                      start: video.start, length: video.length))
+            }
+        }
+        for job in jobs where job.fingerprint == fingerprint && job.failure == nil {
+            found.append(VideoUse(clipId: job.clipId, videoId: job.id, start: job.start, length: job.length))
+        }
+        return found.filter { $0.videoId != videoId }
+    }
+
+    func fingerprint(of video: ClipSource) -> String? {
+        video.fingerprint ?? fingerprint(of: video.origin)
+    }
+
+    @ObservationIgnored private var fingerprintCache: [String: String] = [:]
+
+    /// A link's video ID (YouTube links in any of their forms come out the
+    /// same), or a file's content: its size plus a hash of its first and last
+    /// 4 MB, so a video dragged in twice from Photos matches whatever it was
+    /// called.
+    func fingerprint(of source: String) -> String? {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let path = (trimmed as NSString).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: path) else { return Self.linkFingerprint(trimmed) }
+        if let cached = fingerprintCache[path] { return cached }
+        guard let handle = FileHandle(forReadingAtPath: path),
+              let size = try? handle.seekToEnd() else { return nil }
+        defer { try? handle.close() }
+        let chunk: UInt64 = 4 << 20
+        var hasher = SHA256()
+        withUnsafeBytes(of: size.littleEndian) { hasher.update(bufferPointer: $0) }
+        try? handle.seek(toOffset: 0)
+        if let head = try? handle.read(upToCount: Int(chunk)) { hasher.update(data: head) }
+        if size > chunk {
+            try? handle.seek(toOffset: size - min(chunk, size - chunk))
+            if let tail = try? handle.readToEnd() { hasher.update(data: tail) }
+        }
+        let print = "file:" + hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        fingerprintCache[path] = print
+        return print
+    }
+
+    static func linkFingerprint(_ link: String) -> String? {
+        guard var parts = URLComponents(string: link), let host = parts.host?.lowercased() else { return nil }
+        let path = parts.path.split(separator: "/").map(String.init)
+        if host == "youtu.be", let id = path.first {
+            return "youtube:" + id
+        }
+        if host.hasSuffix("youtube.com") {
+            if let id = parts.queryItems?.first(where: { $0.name == "v" })?.value { return "youtube:" + id }
+            if path.count >= 2, ["shorts", "live", "embed", "v"].contains(path[0]) { return "youtube:" + path[1] }
+        }
+        // Anything else: the address without tracking, timestamps or fragment.
+        parts.fragment = nil
+        parts.queryItems = parts.queryItems?.filter {
+            !["t", "si", "feature", "start"].contains($0.name) && !$0.name.hasPrefix("utm_")
+        }
+        if parts.queryItems?.isEmpty == true { parts.queryItems = nil }
+        return "link:" + host.replacingOccurrences(of: "www.", with: "") + parts.path
+            + (parts.percentEncodedQuery.map { "?" + $0 } ?? "")
+    }
+
+    static func displayName(of source: String) -> String {
+        let path = (source as NSString).expandingTildeInPath
+        return FileManager.default.fileExists(atPath: path) ? URL(fileURLWithPath: path).lastPathComponent : source
     }
 
     /// The checklist's Env column as fetch_clip's --env, when it's one of
@@ -764,4 +879,7 @@ struct VideoJob: Identifiable, Equatable {
     let name: String
     var fraction: Double?
     var failure: String?
+    let fingerprint: String?
+    let start: Double
+    let length: Double
 }

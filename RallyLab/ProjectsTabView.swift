@@ -257,6 +257,15 @@ private struct ClipDetailPane: View {
             Text("\(videoId) · \(Self.clock(video.start)) → \(Self.clock(video.start + video.length)) · \(video.license)")
                 .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 .textSelection(.enabled)
+            let others = projects.uses(of: projects.fingerprint(of: video), excluding: videoId)
+            if !others.isEmpty {
+                Label("Same video as " + others.map { "\($0.videoId) (\($0.range))" }.joined(separator: ", "),
+                      systemImage: "doc.on.doc")
+                    .font(.caption2).foregroundStyle(.orange)
+                    .help(others.contains { $0.overlaps(start: video.start, length: video.length) }
+                          ? "These overlap: the same moments are sampled twice."
+                          : "Different stretches of the same video.")
+            }
             HStack(spacing: 8) {
                 ClipStatusLabel(progress: progress).font(.caption)
                 Spacer()
@@ -322,8 +331,26 @@ private struct ClipDetailPane: View {
                     Text("\(frames) frames from this video").font(.caption).monospacedDigit()
                 }
                 .fixedSize()
+                if !usedBefore.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("You've used this video before", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption.weight(.semibold))
+                        ForEach(usedBefore, id: \.videoId) { use in
+                            Text("\(use.videoId) · \(use.range)\(use.clipId == clip.id ? " · this card" : "")")
+                                .font(.caption2.monospaced())
+                        }
+                        Text("Pick a different start to sample new moments, or add it anyway.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(.orange)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                }
                 HStack {
-                    Button(action: add) { Label("Add Video", systemImage: "plus") }
+                    Button(action: add) {
+                        Label(usedBefore.isEmpty ? "Add Video" : "Add Anyway", systemImage: "plus")
+                    }
                         .keyboardShortcut(.defaultAction)
                         .disabled(!canAdd)
                     if !timesReadable {
@@ -354,6 +381,11 @@ private struct ClipDetailPane: View {
             && Self.seconds(length) != nil
     }
 
+    /// Earlier uses of the video in the form, anywhere in the project.
+    private var usedBefore: [ProjectsModel.VideoUse] {
+        projects.uses(of: projects.fingerprint(of: source))
+    }
+
     private var canAdd: Bool {
         !source.trimmingCharacters(in: .whitespaces).isEmpty
             && !license.trimmingCharacters(in: .whitespaces).isEmpty
@@ -366,10 +398,11 @@ private struct ClipDetailPane: View {
         let wanted = frames == defaultFrames ? nil : frames
         if start.trimmingCharacters(in: .whitespaces).isEmpty, FileManager.default.fileExists(atPath: path) {
             projects.cutMiddle(of: URL(fileURLWithPath: path), into: clip.id, length: len,
-                               license: license, frames: wanted)
+                               license: license, frames: wanted, allowDuplicate: !usedBefore.isEmpty)
         } else {
             guard projects.addVideo(to: clip.id, source: source, start: Self.seconds(start) ?? 0,
-                                    length: len, license: license, frames: wanted) != nil else { return }
+                                    length: len, license: license, frames: wanted,
+                                    allowDuplicate: !usedBefore.isEmpty) != nil else { return }
         }
         source = ""
     }
