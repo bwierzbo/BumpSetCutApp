@@ -21,7 +21,7 @@ struct ProjectsTabView: View {
             VStack(spacing: 0) {
                 header
                 Divider()
-                clipTable
+                ClipBoardView(projects: projects)
                     .frame(maxHeight: .infinity)
                 Divider()
                 Text(projects.status)
@@ -37,7 +37,7 @@ struct ProjectsTabView: View {
                         .id(clip.id)
                 } else {
                     ContentUnavailableView("Pick a Clip", systemImage: "film",
-                                           description: Text("Select a row to give it footage."))
+                                           description: Text("Select a clip to give it footage."))
                 }
             }
             .frame(minWidth: 320, idealWidth: 360, maxWidth: 440, maxHeight: .infinity)
@@ -86,49 +86,10 @@ struct ProjectsTabView: View {
                 }
             }
 
-            if projects.project != nil {
-                tallyStrip
-            }
         }
         .padding(12)
     }
 
-    private var tallyStrip: some View {
-        HStack(spacing: 18) {
-            ForEach(projects.tallies(), id: \.0) { env, t in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(env).font(.caption.weight(.semibold))
-                    Text("\(t.recorded)/\(t.total) footage · \(t.pulled) pulled · \(t.labeled) labeled")
-                        .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
-                }
-            }
-        }
-    }
-
-    // MARK: - Table
-
-    private var clipTable: some View {
-        Table(projects.project?.clips ?? [], selection: $projects.selectedClipId) {
-            TableColumn("#") { clip in Text("\(clip.number)").monospacedDigit().foregroundStyle(.secondary) }
-                .width(28)
-            TableColumn("Clip ID") { clip in Text(clip.id).font(.system(.body, design: .monospaced)) }
-                .width(min: 180, ideal: 220)
-            TableColumn("Env") { clip in Text(clip.environment) }
-                .width(56)
-            TableColumn("Camera") { clip in Text(clip.camera).lineLimit(1) }
-                .width(min: 90, ideal: 150)
-            TableColumn("Light") { clip in Text(clip.lighting).lineLimit(1) }
-                .width(min: 60, ideal: 90)
-            TableColumn("Orient.") { clip in Text(clip.orientation) }
-                .width(64)
-            TableColumn("Split") { clip in
-                Text(clip.split ?? "auto").foregroundStyle(clip.split == nil ? .secondary : .primary)
-            }
-            .width(40)
-            TableColumn("Status") { clip in ClipStatusLabel(progress: projects.progress(of: clip)) }
-                .width(min: 120, ideal: 160)
-        }
-    }
 }
 
 // MARK: - Status label
