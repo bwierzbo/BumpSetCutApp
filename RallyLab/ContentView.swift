@@ -59,7 +59,7 @@ struct ContentView: View {
             }
             .tabItem { Label("Project", systemImage: "tablecells") }
             .tag(Tab.projects)
-            SamplerTabView(lab: model, sampler: sampler)
+            SamplerTabView(lab: model, sampler: sampler, isActive: tab == .sampler)
                 .tabItem { Label("Sampler", systemImage: "photo.stack") }
                 .tag(Tab.sampler)
             ModelsTabView(library: library) { sessionName, frame in

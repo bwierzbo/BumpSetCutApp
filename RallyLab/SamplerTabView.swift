@@ -16,7 +16,10 @@ import SwiftUI
 struct SamplerTabView: View {
     @Bindable var lab: RallyLabModel
     @Bindable var sampler: SamplerModel
+    /// Whether this tab is showing; review keys only apply then.
+    let isActive: Bool
     @State private var isDropTargeted = false
+    @State private var keyMonitor: Any?
 
     var body: some View {
         HSplitView {
@@ -33,7 +36,15 @@ struct SamplerTabView: View {
                 onStatus: { sampler.note($0) }
             )
         )
-        .background(shortcuts)
+        .onAppear {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                handleKey(event) ? nil : event
+            }
+        }
+        .onDisappear {
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            keyMonitor = nil
+        }
     }
 
     // MARK: - Library (left)
@@ -385,40 +396,50 @@ struct SamplerTabView: View {
         sampler.setDatasetRoot(url)
     }
 
-    private struct Nudge { let key: KeyEquivalent; let dx: CGFloat; let dy: CGFloat }
-    private static let nudges: [Nudge] = [
-        Nudge(key: .leftArrow, dx: -0.001, dy: 0), Nudge(key: .rightArrow, dx: 0.001, dy: 0),
-        Nudge(key: .upArrow, dx: 0, dy: -0.001), Nudge(key: .downArrow, dx: 0, dy: 0.001),
-    ]
+    /// Review keys. Handled ahead of whichever control has focus — the video
+    /// list and the filmstrip would otherwise take the arrow keys — except
+    /// while typing in a text field or in a sheet or panel.
+    private func handleKey(_ event: NSEvent) -> Bool {
+        guard isActive, !sampler.samples.isEmpty,
+              let window = event.window, window.isKeyWindow, window.sheetParent == nil,
+              !(window is NSPanel), window.attachedSheet == nil,
+              !(window.firstResponder is NSText) else { return false }
+        let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
 
-    /// Keyboard shortcuts hang on invisible buttons so they work wherever
-    /// focus is (SwiftUI on macOS has no view-level key handling worth using).
-    private var shortcuts: some View {
-        Group {
-            Button("") { sampler.selectNext(-1) }.keyboardShortcut(.leftArrow, modifiers: [])
-            Button("") { sampler.selectNext(1) }.keyboardShortcut(.rightArrow, modifiers: [])
-            Button("") { sampler.toggleKeep() }.keyboardShortcut("k", modifiers: [])
-            Button("") { sampler.acceptAndAdvance() }.keyboardShortcut(.return, modifiers: [])
-            Button("") { sampler.removeSelectedBox() }.keyboardShortcut(.delete, modifiers: [])
-            Button("") { sampler.undo() }.keyboardShortcut("z", modifiers: .command)
-            Button("") { sampler.carryBoxesForward() }.keyboardShortcut("c", modifiers: [])
-            Button("") { sampler.toggleContext() }.keyboardShortcut("p", modifiers: [])
-            Button("") { sampler.zoom(by: 1.5) }.keyboardShortcut("=", modifiers: [])
-            Button("") { sampler.zoom(by: 1 / 1.5) }.keyboardShortcut("-", modifiers: [])
-            Button("") { sampler.resetZoom() }.keyboardShortcut("0", modifiers: [])
-            Button("") { sampler.zoomToBox() }.keyboardShortcut("z", modifiers: [])
-            // Shift+arrows move the selected box; Shift+Option+arrows resize it.
-            // A step is a thousandth of the image — about a pixel at review size.
-            ForEach(Self.nudges, id: \.key.character) { nudge in
-                Button("") { sampler.nudgeSelectedBox(dx: nudge.dx, dy: nudge.dy, resize: false) }
-                    .keyboardShortcut(nudge.key, modifiers: .shift)
-                Button("") { sampler.nudgeSelectedBox(dx: nudge.dx, dy: nudge.dy, resize: true) }
-                    .keyboardShortcut(nudge.key, modifiers: [.shift, .option])
+        // Arrows: ←/→ step through frames. Shift+arrows move the selected box,
+        // Shift+Option+arrows resize it, a thousandth of the image a step —
+        // about a pixel at review size.
+        let arrows: [UInt16: (dx: CGFloat, dy: CGFloat)] = [
+            123: (-0.001, 0), 124: (0.001, 0), 126: (0, -0.001), 125: (0, 0.001),
+        ]
+        if let step = arrows[event.keyCode] {
+            switch mods {
+            case []:
+                guard step.dy == 0 else { return false }   // ↑/↓ stay with the video list
+                sampler.selectNext(step.dx < 0 ? -1 : 1)
+            case .shift: sampler.nudgeSelectedBox(dx: step.dx, dy: step.dy, resize: false)
+            case [.shift, .option]: sampler.nudgeSelectedBox(dx: step.dx, dy: step.dy, resize: true)
+            default: return false
             }
+            return true
         }
-        .opacity(0)
-        .frame(width: 0, height: 0)
-        .disabled(sampler.samples.isEmpty)
+        switch (event.keyCode, mods) {
+        case (36, []), (76, []): sampler.acceptAndAdvance(); return true      // Return, Enter
+        case (51, []), (117, []): sampler.removeSelectedBox(); return true    // Delete, ⌦
+        default: break
+        }
+        switch (event.charactersIgnoringModifiers?.lowercased(), mods) {
+        case ("z", .command): sampler.undo()
+        case ("k", []): sampler.toggleKeep()
+        case ("c", []): sampler.carryBoxesForward()
+        case ("p", []): sampler.toggleContext()
+        case ("=", []), ("+", []), ("+", .shift): sampler.zoom(by: 1.5)
+        case ("-", []): sampler.zoom(by: 1 / 1.5)
+        case ("0", []): sampler.resetZoom()
+        case ("z", []): sampler.zoomToBox()
+        default: return false
+        }
+        return true
     }
 
     private func labeledSlider(_ name: String, value: Binding<Double>, in range: ClosedRange<Double>,
