@@ -64,8 +64,10 @@ private struct EnvironmentSection: View {
                             ForEach(group) { clip in
                                 ClipCard(clip: clip, tint: tint,
                                          progress: projects.progress(of: clip),
-                                         isSelected: projects.selectedClipId == clip.id)
-                                    .onTapGesture { projects.selectedClipId = clip.id }
+                                         isSelected: projects.selectedClipId == clip.id,
+                                         select: { projects.selectedClipId = clip.id },
+                                         drop: { projects.dropFootage($0, on: clip.id) },
+                                         note: { projects.note($0) })
                             }
                         }
                     }
@@ -122,7 +124,11 @@ private struct ClipCard: View {
     let tint: Color
     let progress: ClipProgress
     let isSelected: Bool
+    let select: () -> Void
+    let drop: ([URL]) -> Void
+    let note: (String) -> Void
     @State private var hovering = false
+    @State private var dropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -187,10 +193,38 @@ private struct ClipCard: View {
                 .frame(width: 4)
                 .padding(.vertical, 14)
         }
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(tint.opacity(0.12))
+                    .strokeBorder(tint, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    .overlay {
+                        Label(dropHint, systemImage: "square.and.arrow.down")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(tint)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(.background, in: Capsule())
+                    }
+                    .allowsHitTesting(false)
+            }
+        }
+        // AppKit drop target, so videos dragged from Photos (file promises)
+        // land on the card as well as ones from Finder.
+        .background(
+            SamplerDropView(onDrop: drop, onStatus: note,
+                            onTargeted: { dropTargeted = $0 }, onClick: select)
+        )
         .shadow(color: .black.opacity(hovering ? 0.08 : 0.03), radius: hovering ? 6 : 2, y: 1)
         .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture(perform: select)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.easeOut(duration: 0.12), value: dropTargeted)
+    }
+
+    private var dropHint: String {
+        if clip.source != nil { return "Drop to choose replacement" }
+        return clip.kind == .online ? "Drop, then add licence" : "Drop to get clip"
     }
 
     private var stripe: Color {

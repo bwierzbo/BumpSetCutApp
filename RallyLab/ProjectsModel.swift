@@ -85,6 +85,8 @@ final class ProjectsModel {
     private(set) var status = "Create a project to start a training set."
 
     var selectedClipId: String?
+    /// A video dropped on a clip's card, for its detail pane to pick up.
+    var droppedFootage: FootageDrop?
 
     // Per-clip transient state for the running cut.
     private(set) var cutting: [String: Double?] = [:]
@@ -324,6 +326,32 @@ final class ProjectsModel {
 
     // MARK: - Getting footage
 
+    /// A video dropped straight onto a clip's card. Your own recordings start
+    /// cutting the first five minutes right away; online clips, and clips
+    /// that already have footage (a stray drop mustn't throw away labelled
+    /// frames), open in the detail pane to confirm the licence or Replace.
+    func dropFootage(_ urls: [URL], on clipId: String) {
+        guard let clip = project?.clips.first(where: { $0.id == clipId }) else { return }
+        selectedClipId = clipId
+        guard let video = urls.first(where: { Self.videoExtensions.contains($0.pathExtension.lowercased()) }) else {
+            status = "Drop a video (.mov, .mp4 or .m4v)."
+            return
+        }
+        let ownFootage = clip.kind != .online
+        droppedFootage = FootageDrop(clipId: clipId, path: video.path,
+                                     license: ownFootage ? Self.ownFootageLicense : "")
+        if ownFootage && clip.source == nil {
+            getFootage(for: clipId, source: video.path, start: 0, length: 300, license: Self.ownFootageLicense)
+        } else if clip.source != nil {
+            status = "\(clipId) already has footage — press Replace Clip to use \(video.lastPathComponent)."
+        } else {
+            status = "Add the licence or permission for \(video.lastPathComponent), then Get Clip."
+        }
+    }
+
+    static let videoExtensions: Set<String> = ["mov", "mp4", "m4v"]
+    static let ownFootageLicense = "Own footage"
+
     /// Cut `length` seconds from `start` out of a link or a local file, log
     /// it, then sample it into the dataset under the clip's ID. Replaces any
     /// footage and frames the clip already had.
@@ -525,4 +553,10 @@ enum ProjectLayout {
         }
         try DatasetStore(root: dir).writeDataYAML()
     }
+}
+
+struct FootageDrop: Equatable {
+    let clipId: String
+    let path: String
+    let license: String
 }

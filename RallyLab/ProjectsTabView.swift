@@ -196,7 +196,7 @@ private struct ClipDetailPane: View {
                     SamplerDropView(
                         onDrop: { urls in
                             if let video = urls.first(where: {
-                                ["mov", "mp4", "m4v"].contains($0.pathExtension.lowercased())
+                                ProjectsModel.videoExtensions.contains($0.pathExtension.lowercased())
                             }) { source = video.path }
                         },
                         onStatus: { projects.note($0) }
@@ -227,6 +227,12 @@ private struct ClipDetailPane: View {
             .padding(14)
         }
         .onAppear(perform: prefill)
+        .onChange(of: projects.droppedFootage, initial: true) { _, drop in
+            guard let drop, drop.clipId == clip.id else { return }
+            source = drop.path
+            if license.isEmpty { license = drop.license }
+            projects.droppedFootage = nil
+        }
     }
 
     private var canGet: Bool {

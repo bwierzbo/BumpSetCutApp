@@ -14,23 +14,31 @@ import SwiftUI
 struct SamplerDropView: NSViewRepresentable {
     let onDrop: ([URL]) -> Void
     let onStatus: (String) -> Void
+    /// A drag is hovering over the view (true) or has left or landed (false).
+    var onTargeted: (Bool) -> Void = { _ in }
+    /// Clicks that land on the drop view itself rather than on SwiftUI
+    /// content above it.
+    var onClick: (() -> Void)?
 
     func makeNSView(context: Context) -> SamplerDropNSView {
         let view = SamplerDropNSView()
-        view.onDrop = onDrop
-        view.onStatus = onStatus
+        updateNSView(view, context: context)
         return view
     }
 
     func updateNSView(_ nsView: SamplerDropNSView, context: Context) {
         nsView.onDrop = onDrop
         nsView.onStatus = onStatus
+        nsView.onTargeted = onTargeted
+        nsView.onClick = onClick
     }
 }
 
 final class SamplerDropNSView: NSView {
     var onDrop: ([URL]) -> Void = { _ in }
     var onStatus: (String) -> Void = { _ in }
+    var onTargeted: (Bool) -> Void = { _ in }
+    var onClick: (() -> Void)?
     private let promiseQueue = OperationQueue()
 
     override init(frame: NSRect) {
@@ -45,7 +53,18 @@ final class SamplerDropNSView: NSView {
         fatalError("init(coder:) is not used")
     }
 
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onTargeted(true)
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) { onTargeted(false) }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) { onTargeted(false) }
+
+    override func mouseDown(with event: NSEvent) {
+        if let onClick { onClick() } else { super.mouseDown(with: event) }
+    }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let pasteboard = sender.draggingPasteboard
