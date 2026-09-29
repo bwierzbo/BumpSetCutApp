@@ -130,6 +130,8 @@ struct IngestJob: Identifiable, Equatable {
     /// How far through the job is, 0–1, while running: finding rallies is
     /// the first half, extracting and pre-labeling frames the rest.
     var fraction: Double? = nil
+    var startedAt: Date? = nil
+    var finishedAt: Date? = nil
 
     var isFinished: Bool {
         if case .done = state { return true }
@@ -374,6 +376,11 @@ final class SamplerModel {
         guard let i = queue.firstIndex(where: { $0.id == id }) else { return }
         queue[i].state = state
         queue[i].fraction = fraction
+        switch state {
+        case .running: if queue[i].startedAt == nil { queue[i].startedAt = Date() }
+        case .done, .failed: queue[i].finishedAt = Date()
+        case .pending: break
+        }
         if case .running(let text) = state { status = "\(queue[i].url.lastPathComponent): \(text)" }
     }
 

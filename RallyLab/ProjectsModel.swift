@@ -514,6 +514,108 @@ final class ProjectsModel {
         return (all, environments)
     }
 
+    // MARK: - Activity
+
+    /// One video's work, wherever it is: being handed over by Photos, cut or
+    /// downloaded, waiting for or going through sampling, failed, or done.
+    struct Activity: Identifiable {
+        enum Phase: Int, Comparable {
+            case running, waiting, failed, finished
+            static func < (a: Phase, b: Phase) -> Bool { a.rawValue < b.rawValue }
+        }
+        enum Kind { case importing, downloading, cutting, sampling, waiting, failed, finished }
+
+        let id: String
+        let name: String
+        /// The card it's for, when it's a project clip.
+        let clipId: String?
+        let kind: Kind
+        let stage: String
+        /// 0–1 across the video's whole journey (see ClipProgress).
+        let overall: Double?
+        let startedAt: Date?
+        let finishedAt: Date?
+        /// A failure's reason, or what a finished one produced.
+        let detail: String?
+        /// Place in the sampling line, for waiting ones.
+        let position: Int?
+        /// A cut's video ID (to dismiss it when it failed).
+        var videoJobId: String? = nil
+        /// The dataset session it's sampling into (to review once done).
+        var sessionName: String? = nil
+
+        var phase: Phase {
+            switch kind {
+            case .importing, .downloading, .cutting, .sampling: return .running
+            case .waiting: return .waiting
+            case .failed: return .failed
+            case .finished: return .finished
+            }
+        }
+    }
+
+    func activity() -> [Activity] {
+        var owner: [String: String] = [:]   // session name → card
+        var names: [String: String] = [:]   // session name → the video's own name
+        for clip in project?.clips ?? [] {
+            for video in clip.videos {
+                let session = DatasetStore.safeName(clip.videoId(of: video))
+                owner[session] = clip.id
+                names[session] = video.title.isEmpty ? Self.displayName(of: video.origin) : video.title
+            }
+        }
+        for job in jobs { owner[DatasetStore.safeName(job.id)] = job.clipId }
+
+        var items: [Activity] = []
+        for (clipId, count) in importing {
+            for n in 0..<count {
+                items.append(Activity(id: "import-\(clipId)-\(n)", name: "Video from Photos", clipId: clipId,
+                                      kind: .importing, stage: "Importing from Photos", overall: nil,
+                                      startedAt: nil, finishedAt: nil, detail: nil, position: nil))
+            }
+        }
+        for job in jobs {
+            let progress = ClipProgress.cutting(job.fraction, download: job.isDownload)
+            guard case .busy(let stage, let overall) = progress else { continue }
+            items.append(Activity(id: "cut-\(job.id)", name: job.name, clipId: job.clipId,
+                                  kind: job.failure != nil ? .failed : (job.isDownload ? .downloading : .cutting),
+                                  stage: job.failure == nil ? stage : "Cut failed",
+                                  overall: job.failure == nil ? overall : nil,
+                                  startedAt: job.startedAt, finishedAt: nil, detail: job.failure, position: nil,
+                                  videoJobId: job.id))
+        }
+        var waiting = 0
+        for job in sampler.queue {
+            let name = job.sessionName.flatMap { names[$0] } ?? job.sessionName ?? job.url.lastPathComponent
+            let clipId = job.sessionName.flatMap { owner[$0] }
+            switch job.state {
+            case .pending:
+                waiting += 1
+                items.append(Activity(id: job.id.uuidString, name: name, clipId: clipId, kind: .waiting,
+                                      stage: "Waiting to sample", overall: nil, startedAt: nil, finishedAt: nil,
+                                      detail: nil, position: waiting, sessionName: job.sessionName))
+            case .running(let text):
+                guard case .busy(_, let overall) = ClipProgress.sampling(text, job.fraction) else { continue }
+                items.append(Activity(id: job.id.uuidString, name: name, clipId: clipId, kind: .sampling,
+                                      stage: text, overall: overall, startedAt: job.startedAt, finishedAt: nil,
+                                      detail: nil, position: nil, sessionName: job.sessionName))
+            case .failed(let why):
+                items.append(Activity(id: job.id.uuidString, name: name, clipId: clipId, kind: .failed,
+                                      stage: "Sampling failed", overall: nil, startedAt: job.startedAt,
+                                      finishedAt: job.finishedAt, detail: why, position: nil, sessionName: job.sessionName))
+            case .done(let result):
+                items.append(Activity(id: job.id.uuidString, name: name, clipId: clipId, kind: .finished,
+                                      stage: "Done", overall: 1, startedAt: job.startedAt,
+                                      finishedAt: job.finishedAt, detail: result, position: nil,
+                                      sessionName: job.sessionName ?? job.url.deletingPathExtension().lastPathComponent))
+            }
+        }
+        return items.sorted {
+            ($0.phase, $0.position ?? 0, -($0.finishedAt?.timeIntervalSince1970 ?? 0))
+                < ($1.phase, $1.position ?? 0, -($1.finishedAt?.timeIntervalSince1970 ?? 0))
+        }
+    }
+
     // MARK: - Getting footage
 
     /// Videos dropped straight onto a clip's card. Your own recordings are
@@ -1031,6 +1133,7 @@ struct VideoJob: Identifiable, Equatable {
     let isDownload: Bool
     var fraction: Double?
     var failure: String?
+    let startedAt = Date()
     let fingerprint: String?
     let start: Double
     let length: Double

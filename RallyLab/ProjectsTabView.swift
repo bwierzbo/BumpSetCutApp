@@ -18,7 +18,7 @@ struct ProjectsTabView: View {
     let review: (VideoSession) -> Void
     @AppStorage("RallyLab.projectPage") private var page: Page = .board
 
-    enum Page: String { case board, overview }
+    enum Page: String { case board, overview, activity }
 
     var body: some View {
         HSplitView {
@@ -29,6 +29,11 @@ struct ProjectsTabView: View {
                     switch page {
                     case .board: ClipBoardView(projects: projects)
                     case .overview: ProjectOverviewView(projects: projects)
+                    case .activity:
+                        ProjectActivityView(projects: projects, showCard: { id in
+                            projects.selectedClipId = id
+                            page = .board
+                        }, review: review)
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -58,6 +63,11 @@ struct ProjectsTabView: View {
 
     // MARK: - Header
 
+    /// Videos being imported, cut or sampled, or waiting to be.
+    private var activeCount: Int {
+        projects.activity().filter { $0.phase == .running || $0.phase == .waiting }.count
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
@@ -82,6 +92,7 @@ struct ProjectsTabView: View {
                 Picker("", selection: $page) {
                     Label("Board", systemImage: "square.grid.2x2").tag(Page.board)
                     Label("Overview", systemImage: "chart.bar.xaxis").tag(Page.overview)
+                    Text(activeCount > 0 ? "Activity · \(activeCount)" : "Activity").tag(Page.activity)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
