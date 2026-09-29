@@ -16,14 +16,22 @@ struct ProjectsTabView: View {
     @Bindable var projects: ProjectsModel
     /// Opens a clip's frames in the Sampler tab.
     let review: (VideoSession) -> Void
+    @AppStorage("RallyLab.projectPage") private var page: Page = .board
+
+    enum Page: String { case board, overview }
 
     var body: some View {
         HSplitView {
             VStack(spacing: 0) {
                 header
                 Divider()
-                ClipBoardView(projects: projects)
-                    .frame(maxHeight: .infinity)
+                Group {
+                    switch page {
+                    case .board: ClipBoardView(projects: projects)
+                    case .overview: ProjectOverviewView(projects: projects)
+                    }
+                }
+                .frame(maxHeight: .infinity)
                 Divider()
                 Text(projects.status)
                     .font(.callout).foregroundStyle(.secondary).lineLimit(2)
@@ -32,6 +40,7 @@ struct ProjectsTabView: View {
             }
             .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
 
+            if page == .board {
             Group {
                 if let clip = projects.selectedClip {
                     ClipDetailPane(projects: projects, clip: clip, review: review)
@@ -42,6 +51,7 @@ struct ProjectsTabView: View {
                 }
             }
             .frame(minWidth: 320, idealWidth: 360, maxWidth: 440, maxHeight: .infinity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -67,6 +77,14 @@ struct ProjectsTabView: View {
                 } label: {
                     Label(projects.project?.name ?? "Choose Project", systemImage: "folder")
                 }
+                .fixedSize()
+
+                Picker("", selection: $page) {
+                    Label("Board", systemImage: "square.grid.2x2").tag(Page.board)
+                    Label("Overview", systemImage: "chart.bar.xaxis").tag(Page.overview)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
                 .fixedSize()
 
                 Spacer()

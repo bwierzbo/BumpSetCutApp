@@ -15,7 +15,7 @@ import UniformTypeIdentifiers
 struct ClipBoardView: View {
     @Bindable var projects: ProjectsModel
 
-    private static let environments: [(name: String, icon: String, tint: Color)] = [
+    static let environments: [(name: String, icon: String, tint: Color)] = [
         ("Indoor", "building.2", .indigo),
         ("Beach", "beach.umbrella", .orange),
         ("Grass", "leaf", .green),

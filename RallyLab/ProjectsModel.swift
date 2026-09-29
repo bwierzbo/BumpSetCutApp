@@ -444,6 +444,76 @@ final class ProjectsModel {
         return byEnv.sorted { $0.key < $1.key } + [("All", all)]
     }
 
+    // MARK: - Overview
+
+    /// Frames and where they came from, for some slice of the project.
+    struct FrameCount: Equatable {
+        /// Frames pulled (kept or not, reviewed or not).
+        var frames = 0
+        /// Kept and reviewed: what a training package takes.
+        var labeled = 0
+        /// Labeled frames with at least one ball box.
+        var withBall = 0
+        /// Videos cut into the dataset.
+        var videos = 0
+        /// Distinct original videos (by fingerprint) those came from.
+        var sources: Set<String> = []
+
+        mutating func add(_ other: FrameCount) {
+            frames += other.frames; labeled += other.labeled; withBall += other.withBall
+            videos += other.videos; sources.formUnion(other.sources)
+        }
+    }
+
+    struct EnvironmentOverview: Identifiable {
+        let name: String
+        var total = FrameCount()
+        var byBall: [(name: String, count: FrameCount)] = []
+        var byCamera: [(name: String, count: FrameCount)] = []
+        var id: String { name }
+    }
+
+    /// Frame counts per environment, and within each by ball type and by
+    /// camera setup, with how many different videos they came from.
+    func overview() -> (all: FrameCount, environments: [EnvironmentOverview]) {
+        guard let project else { return (FrameCount(), []) }
+        var all = FrameCount()
+        var byEnv: [String: (total: FrameCount, ball: [String: FrameCount], camera: [String: FrameCount])] = [:]
+        for clip in project.clips {
+            var count = FrameCount()
+            for video in clip.videos {
+                let videoId = clip.videoId(of: video)
+                count.videos += 1
+                count.sources.insert(fingerprint(of: video) ?? videoId)
+                guard let session = session(named: videoId) else { continue }
+                count.frames += session.frames.count
+                for frame in session.frames where frame.keep && frame.reviewed {
+                    count.labeled += 1
+                    if !frame.boxes.isEmpty { count.withBall += 1 }
+                }
+            }
+            guard count.videos > 0 else { continue }
+            let env = clip.environment.isEmpty ? "Other" : clip.environment
+            var entry = byEnv[env, default: (FrameCount(), [:], [:])]
+            entry.total.add(count)
+            let ball = clip.kind == .negative ? "No rally (hard negatives)"
+                : (clip.ball.isEmpty || clip.ball == "Any") ? "Unspecified" : clip.ball
+            entry.ball[ball, default: FrameCount()].add(count)
+            entry.camera[clip.cameraTitle, default: FrameCount()].add(count)
+            byEnv[env] = entry
+            all.add(count)
+        }
+        let order = ["Indoor", "Beach", "Grass"]
+        let environments = byEnv.map { env, entry in
+            EnvironmentOverview(
+                name: env, total: entry.total,
+                byBall: entry.ball.sorted { $0.value.frames > $1.value.frames }.map { ($0.key, $0.value) },
+                byCamera: entry.camera.sorted { $0.value.frames > $1.value.frames }.map { ($0.key, $0.value) })
+        }
+        .sorted { (order.firstIndex(of: $0.name) ?? order.count, $0.name) < (order.firstIndex(of: $1.name) ?? order.count, $1.name) }
+        return (all, environments)
+    }
+
     // MARK: - Getting footage
 
     /// Videos dropped straight onto a clip's card. Your own recordings are
