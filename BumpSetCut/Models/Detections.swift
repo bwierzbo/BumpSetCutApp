@@ -110,6 +110,10 @@ struct ProcessorConfig {
     /// hard-coded threshold in YOLODetector.
     var detectionConfidence: Double = 0.6021
 
+    /// Which bundled ball model detects (a debug choice; see BallModel). Part
+    /// of the config so a checkpoint from one model never resumes on another.
+    var ballModel: BallModel = .current
+
     /// Letterbox frames into the model (`.scaleFit`) instead of stretching them
     /// (`.scaleFill`). Preserves aspect ratio so the ball stays round, matching
     /// YOLO training preprocessing — can recover confidence on non-square / 0.5x

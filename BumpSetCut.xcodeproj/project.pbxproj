@@ -79,6 +79,8 @@
 				Models/GameScoring.swift,
 				Models/ProcessingMetadata.swift,
 				Resources/ML/ball_v2_small.mlpackage,
+				Resources/ML/ball_rallylab_1280.mlpackage,
+				Resources/ML/ball_rallylab_960.mlpackage,
 				Resources/ML/bestv2.mlpackage,
 				Resources/ML/bestv3.mlpackage,
 				Resources/ML/net.mlpackage,

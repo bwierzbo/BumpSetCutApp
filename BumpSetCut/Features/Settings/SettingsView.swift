@@ -333,7 +333,14 @@ private extension SettingsView {
 private extension SettingsView {
     var testerSection: some View {
         BSCSettingsSection(title: "TestFlight", subtitle: "Visible to beta testers only", icon: "hammer.fill", iconColor: .bscTealText) {
-            proModeToggle
+            VStack(spacing: BSCSpacing.md) {
+                proModeToggle
+
+                Divider()
+                    .overlay(Color.bscSurfaceBorder)
+
+                BallModelPicker()
+            }
         }
     }
 }
@@ -367,6 +374,11 @@ private extension SettingsView {
                     icon: "gauge.with.needle.fill",
                     isOn: $appSettings.showPerformanceMetrics
                 )
+
+                Divider()
+                    .overlay(Color.bscSurfaceBorder)
+
+                BallModelPicker()
             }
         }
     }
@@ -931,6 +943,49 @@ private struct BSCSettingsToggle: View {
         }
         .tint(.bscPrimary)
         .accessibilityLabel("\(title), \(subtitle)")
+    }
+}
+
+// MARK: - BallModelPicker
+/// Which ball model processes videos, for comparing new models on device.
+/// New models get every frame letterboxed (BallModel.needsLetterbox).
+private struct BallModelPicker: View {
+    @AppStorage(BallModel.defaultsKey) private var selection = BallModel.shipping.rawValue
+
+    var body: some View {
+        HStack(spacing: BSCSpacing.md) {
+            ZStack {
+                Circle()
+                    .fill(Color.bscBlue.opacity(0.15))
+                    .frame(width: 36, height: 36)
+
+                Image(systemName: "volleyball.fill")
+                    .bscFont(size: 16)
+                    .foregroundColor(.bscBlue)
+            }
+
+            VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
+                Text("Ball Model")
+                    .bscFont(size: 16, weight: .semibold)
+                    .foregroundColor(.bscTextPrimary)
+
+                Text("Used for videos processed from now on")
+                    .bscFont(size: 12)
+                    .foregroundColor(.bscTextSecondary)
+            }
+
+            Spacer(minLength: BSCSpacing.sm)
+
+            Picker("Ball Model", selection: $selection) {
+                ForEach(BallModel.allCases) { model in
+                    Text(model.title).tag(model.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(.bscPrimary)
+            .accessibilityIdentifier("settings.ballModel")
+        }
     }
 }
 

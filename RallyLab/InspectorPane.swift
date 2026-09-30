@@ -278,6 +278,14 @@ struct InspectorPane: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                Picker(selection: $model.ballModel) {
+                    ForEach(BallModel.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Text("ball model").font(.system(.caption, design: .monospaced))
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Which bundled ball model detects. The RallyLab models were trained on letterboxed frames, so they're always fed letterboxed (the toggles below apply to the current model). Re-run to apply.")
                 slider("detectionConf", value: $model.detectionConfidence, in: 0.1...0.95, format: "%.2f",
                        info: "Minimum YOLO confidence to keep a volleyball detection. Lower surfaces marginal/noisier detections (more recall); higher keeps only confident hits. Changes what the model detects, so it needs a re-run.")
                 Toggle(isOn: $model.adaptiveLetterbox) {

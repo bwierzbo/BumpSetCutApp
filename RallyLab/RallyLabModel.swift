@@ -168,6 +168,17 @@ final class RallyLabModel {
             detectionConfigDirty = true
         }
     }
+    /// Which bundled ball model the pipeline detects with. Models trained in
+    /// RallyLab are fed every frame letterboxed, whatever the toggles below say.
+    /// Remembered across launches. Re-run to apply.
+    var ballModel: BallModel = .current {
+        didSet {
+            UserDefaults.standard.set(ballModel.rawValue, forKey: BallModel.defaultsKey)
+            guard ballModel != oldValue, !evidence.isEmpty else { return }
+            detectionConfigDirty = true
+        }
+    }
+
     /// Auto-pick scaleFit (portrait/ultrawide) vs scaleFill (landscape) per frame.
     /// Overrides the manual toggle above when on. Re-run to apply.
     var adaptiveLetterbox: Bool = true {
@@ -446,6 +457,7 @@ final class RallyLabModel {
     func currentConfig() -> ProcessorConfig {
         var cfg = ProcessorConfig()
         cfg.detectionConfidence = detectionConfidence
+        cfg.ballModel = ballModel
         cfg.useScaleFitLetterbox = useScaleFitLetterbox
         cfg.adaptiveLetterbox = adaptiveLetterbox
         cfg.minGravitySignature = minGravitySignature

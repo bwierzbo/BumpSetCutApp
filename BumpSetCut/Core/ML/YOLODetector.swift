@@ -24,7 +24,7 @@ final class YOLODetector {
     private let staticCooldownSec: Double = 10.0    // suppress that cell for this long
     private let grid: Int = 96                      // quantization grid for static map
 
-    private let modelName: String
+    let modelName: String
 
     /// Minimum confidence for a "volleyball" detection. Defaults to the
     /// historical hard-coded value; VideoProcessor overrides it from
@@ -333,5 +333,36 @@ final class YOLODetector {
             out.append(d)
         }
         return out
+    }
+}
+
+/// The ball models bundled with the apps. Processing uses `current` — the
+/// shipping model unless a debug build or TestFlight tester picks another
+/// to compare.
+enum BallModel: String, CaseIterable, Identifiable {
+    case shipping = "ball_v2_small"
+    /// Trained in RallyLab (Test1, 2,704 frames) at 1280 / 960.
+    case rallyLab1280 = "ball_rallylab_1280"
+    case rallyLab960 = "ball_rallylab_960"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .shipping: return "Current (ball_v2_small)"
+        case .rallyLab1280: return "RallyLab 1280"
+        case .rallyLab960: return "RallyLab 960"
+        }
+    }
+
+    /// Trained on letterboxed frames (Ultralytics' default), so every frame
+    /// has to be letterboxed into it: a stretched landscape frame squashes
+    /// the ball into an oval it has never seen.
+    var needsLetterbox: Bool { self != .shipping }
+
+    static let defaultsKey = "debugBallModel"
+
+    static var current: BallModel {
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(BallModel.init(rawValue:)) ?? .shipping
     }
 }

@@ -157,6 +157,28 @@ final class VideoProcessor {
     }
 
     // MARK: - Entry point (now generates metadata instead of video files)
+    /// Load the configured ball model (if it isn't the one loaded) and set how
+    /// frames are fitted into it: models trained on letterboxed frames get
+    /// every frame letterboxed; the shipping model keeps the config's choice.
+    private func prepareDetector() {
+        if detector.modelName != config.ballModel.rawValue {
+            #if os(iOS)
+            detector = YOLODetector(modelName: config.ballModel.rawValue, computeUnits: .cpuAndNeuralEngine)
+            #else
+            detector = YOLODetector(modelName: config.ballModel.rawValue)
+            #endif
+        }
+        detector.minConfidence = VNConfidence(config.detectionConfidence)
+        if config.ballModel.needsLetterbox {
+            detector.useScaleFitLetterbox = true
+            detector.adaptiveLetterbox = false
+        } else {
+            detector.useScaleFitLetterbox = config.useScaleFitLetterbox
+            detector.adaptiveLetterbox = config.adaptiveLetterbox
+        }
+        detector.adaptiveWideRatio = config.adaptiveLetterboxWideRatio
+    }
+
     func processVideo(_ url: URL, videoId: UUID) async throws -> ProcessingMetadata {
         // Delegate to metadata processing method
         return try await processVideoMetadata(url, videoId: videoId)
@@ -184,6 +206,7 @@ final class VideoProcessor {
         // Recreate stage objects with current config
         self.gate = BallisticsGate(config: config)
         self.decider = RallyDecider(config: config)
+        prepareDetector()
         decider.reset()
         selectedTrackId = nil
         selectedDropCount = 0
@@ -353,10 +376,7 @@ final class VideoProcessor {
         self.gate = BallisticsGate(config: config)
         self.decider = RallyDecider(config: config)
         self.segments = SegmentBuilder(config: config)
-        detector.minConfidence = VNConfidence(config.detectionConfidence)
-        detector.useScaleFitLetterbox = config.useScaleFitLetterbox
-        detector.adaptiveLetterbox = config.adaptiveLetterbox
-        detector.adaptiveWideRatio = config.adaptiveLetterboxWideRatio
+        prepareDetector()
         if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
             if netDetector == nil { netDetector = NetDetector() }   // cache the model across videos
             netDetector?.minConfidence = config.netDetectionConfidence
