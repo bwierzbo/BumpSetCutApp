@@ -66,7 +66,7 @@ def check_machine() -> str:
         import torch  # noqa: F401
         import ultralytics  # noqa: F401
     except ImportError as e:
-        fail(f"{e.name} isn't installed. Follow step 2 of SETUP (pip install …) and run again.")
+        fail(f"{e.name} isn't installed: pip install torch torchvision (CUDA build) then ultralytics.")
     import torch
     import ultralytics
     say(f"   PyTorch {torch.__version__}, Ultralytics {ultralytics.__version__}")
@@ -87,7 +87,8 @@ def check_machine() -> str:
         return "mps"
     if platform.system() != "Darwin" and shutil.which("nvidia-smi"):
         fail("There's an NVIDIA GPU but this PyTorch can't use it (a CPU-only build).\n"
-             "   Reinstall it with CUDA — see SETUP step 2 — then run again.")
+             "   Reinstall it: pip install --force-reinstall torch torchvision --index-url\n"
+             "   https://download.pytorch.org/whl/cu128  — then run again.")
     say("   ⚠️  No GPU found: training on the CPU will take a very long time (days).")
     return "cpu"
 
@@ -318,6 +319,11 @@ def score(best: Path, data_yaml: Path, size: int, device: str) -> dict:
 
 
 def main() -> None:
+    # Windows sends piped output (e.g. into a log) through its legacy code
+    # page, which can't encode ❌ or ·; write UTF-8 so a logged run can't crash.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("package", type=Path, help="the RallyLab package zip or its unzipped folder")
     p.add_argument("--sizes", type=int, nargs="+", default=[1280, 960])
