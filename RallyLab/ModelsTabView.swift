@@ -161,6 +161,9 @@ struct ModelsTabView: View {
                     Text("All reviewed").tag(false)
                 }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 200)
+                Toggle("Letterbox every frame", isOn: $library.alwaysLetterbox)
+                    .toggleStyle(.checkbox).font(.caption)
+                    .help("Off: frames go into the model the way the app does it (landscape stretched, portrait letterboxed). On: every frame letterboxed, as Ultralytics trains and validates.")
                 Text("\(library.evaluationFrameCount) frames").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button {

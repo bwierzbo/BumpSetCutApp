@@ -37,7 +37,12 @@ final class ModelLibrary {
 
     // Evaluation
     var evaluateValOnly = true
-    var threshold: Double = 0.70
+    /// Fit every frame into the model with padding (letterbox), as Ultralytics
+    /// trains and validates, instead of the app's own choice (stretch landscape,
+    /// letterbox portrait/ultrawide).
+    var alwaysLetterbox = false
+    /// Scored at the app's own detection threshold unless changed.
+    var threshold: Double = ProcessorConfig().detectionConfidence
     var baseline = ModelEntry(url: nil)
     var candidate: ModelEntry?
     private(set) var results: [String: ModelEvaluation.Result] = [:]
@@ -117,7 +122,9 @@ final class ModelLibrary {
         try? fm.createDirectory(at: modelsDir, withIntermediateDirectories: true)
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyyMMdd-HHmm"
-        let name = "\(DatasetStore.safeName(sampler.datasetRoot.lastPathComponent))-\(stamp.string(from: Date()))"
+        // Project, then the file's own name (which says which run it was), then when.
+        let name = [sampler.datasetRoot.lastPathComponent, source.deletingPathExtension().lastPathComponent,
+                    stamp.string(from: Date())].map(DatasetStore.safeName).joined(separator: "-")
 
         do {
             switch source.pathExtension.lowercased() {
@@ -202,6 +209,7 @@ final class ModelLibrary {
             return
         }
         let entries = [baseline] + (candidate.map { $0 == baseline ? [] : [$0] } ?? [])
+        let letterboxAll = alwaysLetterbox
         isBusy = true
         results = [:]
         Task {
@@ -210,7 +218,7 @@ final class ModelLibrary {
                 evalProgress = "\(entry.name): 0/\(frames.count)"
                 let name = entry.name
                 let result = await Task.detached(priority: .userInitiated) {
-                    ModelEvaluation.run(model: entry.url, frames: frames) { done in
+                    ModelEvaluation.run(model: entry.url, frames: frames, alwaysLetterbox: letterboxAll) { done in
                         Task { @MainActor [weak self] in self?.evalProgress = "\(name): \(done)/\(frames.count)" }
                     }
                 }.value
@@ -316,9 +324,16 @@ enum ModelEvaluation {
     }
 
     /// Run one model over the frames. nil if the model can't be loaded.
-    static func run(model: URL?, frames: [Frame], progress: @escaping @Sendable (Int) -> Void) -> Result? {
+    static func run(model: URL?, frames: [Frame], alwaysLetterbox: Bool,
+                    progress: @escaping @Sendable (Int) -> Void) -> Result? {
         let detector = model.map { YOLODetector(modelURL: $0) } ?? YOLODetector()
         guard detector.isLoaded else { return nil }
+        // Fit frames into the model the way the app does, unless asked to
+        // letterbox everything.
+        let config = ProcessorConfig()
+        detector.useScaleFitLetterbox = alwaysLetterbox || config.useScaleFitLetterbox
+        detector.adaptiveLetterbox = !alwaysLetterbox && config.adaptiveLetterbox
+        detector.adaptiveWideRatio = config.adaptiveLetterboxWideRatio
         detector.minConfidence = 0.05
         detector.suppressesStaticObjects = false
         var all: [[Detection]] = []

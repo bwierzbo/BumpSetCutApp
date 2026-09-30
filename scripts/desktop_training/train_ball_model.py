@@ -283,7 +283,6 @@ def train_one(data_yaml: Path, size: int, args, device: str) -> Path:
             device=device,
             workers=workers,
             cache=args.cache if args.cache != "off" else False,
-            single_cls=True,
             close_mosaic=15,       # finish on un-mosaicked frames, like the app sees
             flipud=0.0,            # sky stays up
             fliplr=0.5,

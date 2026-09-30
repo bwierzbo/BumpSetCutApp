@@ -236,10 +236,10 @@ final class YOLODetector {
         }
     }
 
-    /// Decode a raw YOLO tensor output (bestv3 / YOLOv26, no NMS pipeline).
-    /// Expected shape [1, N, 6] with each row [x1, y1, x2, y2, confidence, class]
-    /// in the model's input pixel space, top-left origin. Converts to
-    /// Vision-normalized bottom-left bboxes so the rest of the pipeline is unchanged.
+    /// Decode a raw YOLO tensor output (bestv3 / YOLOv26, no NMS pipeline):
+    /// end-to-end [1, N, 6] rows, or a raw [1, 4 + classes, anchors] grid that
+    /// decodeYOLORaw runs NMS on. Converts to Vision-normalized bottom-left
+    /// bboxes so the rest of the pipeline is unchanged.
     private func decodeRawDetections(_ array: MLMultiArray, time: CMTime, srcW: CGFloat, srcH: CGFloat, letterbox: Bool) -> [DetectionResult] {
         let decoded = decodeYOLORaw(array,
                                     inputSize: CGSize(width: modelInputWidth, height: modelInputHeight),

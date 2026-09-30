@@ -14,7 +14,7 @@
 //
 //    RallyLab --project v3 --package                       (training package zip)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
-//    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.7]
+//    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
 //
 //  --project takes a known project's name or a path to its folder.
 //
@@ -164,6 +164,7 @@ enum HeadlessProjects {
     @MainActor
     private static func evaluate(_ library: ModelLibrary, args: [String]) async -> Bool {
         library.evaluateValOnly = !args.contains("--all")
+        library.alwaysLetterbox = args.contains("--letterbox")
         if let t = value(after: "--threshold", in: args).flatMap(Double.init) { library.threshold = t }
         if let name = value(after: "--candidate", in: args) {
             guard let entry = library.models.first(where: { $0.name == name }) else {
