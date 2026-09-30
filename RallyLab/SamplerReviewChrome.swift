@@ -73,6 +73,18 @@ struct ReviewHeader: View {
             }
             .layoutPriority(1)
             Spacer(minLength: 12)
+            if sampler.hiddenSpotCount > 0 {
+                Button {
+                    sampler.forgetRejectedSpots()
+                } label: {
+                    Label("\(sampler.hiddenSpotCount) spot\(sampler.hiddenSpotCount == 1 ? "" : "s") hidden", systemImage: "eye.slash")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 9).padding(.vertical, 5)
+                        .background(Color.primary.opacity(0.07), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Spots where you deleted the detector's guess \(SamplerModel.rejectAfter)+ times; its guesses there are hidden in this video. Click to show them again.")
+            }
             FilterPills(sampler: sampler)
             HStack(spacing: 2) {
                 HeaderIcon(icon: "arrow.up.arrow.down", isOn: sampler.lowestConfidenceFirst,

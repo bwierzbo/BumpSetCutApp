@@ -861,9 +861,99 @@ final class SamplerModel {
     }
 
     func removeSelectedBox() {
-        guard let boxId = selectedBoxId else { return }
-        mutate(selectedId) { $0.boxes.removeAll { $0.id == boxId }; $0.reviewed = true }
+        guard let boxId = selectedBoxId, let frameId = selectedId,
+              let box = selected?.boxes.first(where: { $0.id == boxId }) else { return }
+        mutate(frameId) { $0.boxes.removeAll { $0.id == boxId }; $0.reviewed = true }
         selectedBoxId = nil
+        if box.confidence != nil, !box.held { noteRejected(box.rect, on: frameId) }
+    }
+
+    // MARK: - Spots you keep deleting
+
+    /// Deleting the detector's guess at the same spot this many times means
+    /// it isn't a ball there.
+    static let rejectAfter = 2
+
+    /// Spots in the open video whose guesses are being hidden.
+    var hiddenSpotCount: Int {
+        (currentSession?.rejected ?? []).filter { $0.count >= Self.rejectAfter }.count
+    }
+
+    private func noteRejected(_ rect: CGRect, on frameId: UUID) {
+        guard var session = currentSession else { return }
+        var spots = session.rejected ?? []
+        let index: Int
+        if let i = spots.firstIndex(where: { HeldBalls.sameSpot($0.rect, rect) }) {
+            spots[i].count += 1
+            spots[i].rect = rect
+            spots[i].frame = frameId
+            index = i
+        } else {
+            spots.append(RejectedSpot(x: rect.minX, y: rect.minY, w: rect.width, h: rect.height, frame: frameId, count: 1))
+            index = spots.count - 1
+        }
+        session.rejected = spots
+        saveSession(session)
+        if spots[index].count >= Self.rejectAfter { hideRejectedGuesses(spot: index) }
+    }
+
+    /// Take the spot's guesses off the video's unreviewed frames — but only
+    /// where the spot still looks like it did when you deleted it, so a real
+    /// ball that ends up there keeps its box.
+    private func hideRejectedGuesses(spot index: Int) {
+        guard let spot = currentSession?.rejected?[index],
+              let reference = samples.first(where: { $0.id == spot.frame }) else { return }
+        let targets = samples.filter { sample in
+            !sample.reviewed && sample.boxes.contains { $0.confidence != nil && !$0.held && HeldBalls.sameSpot($0.rect, spot.rect) }
+        }
+        guard !targets.isEmpty else { return }
+        let referenceURL = store.currentImageURL(for: reference.record)
+        let jobs = targets.map { target in
+            (id: target.id, url: store.currentImageURL(for: target.record), seconds: abs(target.time - reference.time),
+             guesses: target.boxes.filter { $0.confidence != nil && !$0.held && HeldBalls.sameSpot($0.rect, spot.rect) })
+        }
+        let candidate = HeldBalls.Candidate(rect: spot.rect, from: reference)
+        let name = currentSession?.name
+        Task {
+            let hide: [(UUID, [SampleBox])] = await Task.detached(priority: .utility) {
+                guard let before = SamplerImageTools.loadImage(referenceURL, maxPixelSize: Self.reviewMaxPixel) else { return [] }
+                return jobs.compactMap { job in
+                    guard let image = SamplerImageTools.loadImage(job.url, maxPixelSize: Self.reviewMaxPixel),
+                          let there = HeldBalls.locate(candidate, fromImage: before, in: image, seconds: job.seconds)
+                    else { return nil }
+                    let same = job.guesses.filter { HeldBalls.sameSpot($0.rect, there) }
+                    return same.isEmpty ? nil : (job.id, same)
+                }
+            }.value
+            guard currentSession?.name == name, !hide.isEmpty,
+                  var session = currentSession, var spots = session.rejected, index < spots.count else { return }
+            var count = 0
+            for (frameId, boxes) in hide {
+                guard samples.first(where: { $0.id == frameId })?.reviewed == false else { continue }
+                let ids = Set(boxes.map(\.id))
+                mutate(frameId, recordUndo: false) { $0.boxes.removeAll { ids.contains($0.id) } }
+                spots[index].hidden += boxes.map { RejectedSpot.HiddenBox(frame: frameId, box: BoxRecord($0)) }
+                count += 1
+            }
+            session = currentSession ?? session
+            session.rejected = spots
+            saveSession(session)
+            status = "Hid the detector's guess at a spot you've deleted \(spots[index].count)× on \(count) more frame\(count == 1 ? "" : "s")."
+        }
+    }
+
+    /// Stop hiding guesses at deleted spots in this video, and put back the
+    /// ones taken off frames you haven't reviewed yet.
+    func forgetRejectedSpots() {
+        guard var session = currentSession, let spots = session.rejected else { return }
+        for hidden in spots.flatMap(\.hidden) {
+            guard samples.first(where: { $0.id == hidden.frame })?.reviewed == false else { continue }
+            mutate(hidden.frame, recordUndo: false) { $0.boxes.append(SampleBox(hidden.box)) }
+        }
+        session = currentSession ?? session
+        session.rejected = nil
+        saveSession(session)
+        status = "Showing the detector's guesses everywhere again."
     }
 
     /// Click on a ball: find it (BallSnapper) and box it as a volleyball.
@@ -998,8 +1088,20 @@ final class SamplerModel {
             status = "Nothing to undo."
             return
         }
+        let restored = before.boxes.filter { box in !samples[index].boxes.contains { $0.id == box.id } }
         samples[index] = before
         persist(index)
+        // Undoing the deletion of a guess un-counts it at its spot.
+        if var session = currentSession, var spots = session.rejected {
+            for box in restored where box.confidence != nil && !box.held {
+                if let i = spots.firstIndex(where: { HeldBalls.sameSpot($0.rect, box.rect) }) {
+                    spots[i].count -= 1
+                }
+            }
+            spots.removeAll { $0.count <= 0 && $0.hidden.isEmpty }
+            session.rejected = spots
+            saveSession(session)
+        }
         if selectedId != before.id { select(before.id) }
         selectedBoxId = nil
         status = "Undid the last change to this frame."
@@ -1007,13 +1109,17 @@ final class SamplerModel {
 
     /// Apply an edit and persist it: the session JSON and that frame's label
     /// file are rewritten immediately, so nothing is lost on quit.
-    private func mutate(_ id: UUID?, _ edit: (inout FrameSample) -> Void) {
+    /// `recordUndo: false` is for edits made on your behalf across frames
+    /// (hiding a deleted spot's guesses), which have their own way back.
+    private func mutate(_ id: UUID?, recordUndo: Bool = true, _ edit: (inout FrameSample) -> Void) {
         guard let id, let index = samples.firstIndex(where: { $0.id == id }) else { return }
         let before = samples[index]
         edit(&samples[index])
         guard samples[index].record != before.record else { return }
-        undoStack.append(before)
-        if undoStack.count > Self.undoLimit { undoStack.removeFirst() }
+        if recordUndo {
+            undoStack.append(before)
+            if undoStack.count > Self.undoLimit { undoStack.removeFirst() }
+        }
         persist(index)
     }
 
@@ -1023,10 +1129,18 @@ final class SamplerModel {
         if let r = session.frames.firstIndex(where: { $0.id == record.id }) {
             session.frames[r] = record
         }
+        saveSession(session)
+        do {
+            try store.writeLabel(for: record, reviewedOnly: reviewedOnly)
+        } catch {
+            status = "Couldn't save: \(error.localizedDescription)"
+        }
+    }
+
+    private func saveSession(_ session: VideoSession) {
         currentSession = session
         do {
             try store.save(session)
-            try store.writeLabel(for: record, reviewedOnly: reviewedOnly)
         } catch {
             status = "Couldn't save: \(error.localizedDescription)"
         }

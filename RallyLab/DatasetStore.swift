@@ -35,6 +35,29 @@ struct BoxRecord: Codable, Equatable {
     var rect: CGRect { CGRect(x: x, y: y, width: w, height: h) }
 }
 
+/// A spot where the detector keeps guessing a ball and you keep deleting
+/// it. From the second deletion on, its guesses on other unreviewed frames
+/// are taken off where the spot still looks as it did (see SamplerModel).
+struct RejectedSpot: Codable, Equatable {
+    /// Vision-normalised, as last deleted.
+    var x: Double, y: Double, w: Double, h: Double
+    /// The frame it was last deleted on: what it looks like.
+    var frame: UUID
+    var count: Int
+    /// Guesses taken off other frames, so forgetting the spot can put them back.
+    var hidden: [HiddenBox] = []
+
+    struct HiddenBox: Codable, Equatable {
+        let frame: UUID
+        let box: BoxRecord
+    }
+
+    var rect: CGRect {
+        get { CGRect(x: x, y: y, width: w, height: h) }
+        set { (x, y, w, h) = (newValue.minX, newValue.minY, newValue.width, newValue.height) }
+    }
+}
+
 struct FrameRecord: Codable, Identifiable, Equatable {
     let id: UUID
     /// Relative to the dataset root, e.g. `images/train/game_0012_500.jpg`.
@@ -61,6 +84,8 @@ struct VideoSession: Codable, Identifiable, Equatable {
     let split: String          // "train" | "val"
     let addedAt: Date
     var frames: [FrameRecord]
+    /// Places in this video where you've deleted the detector's guess.
+    var rejected: [RejectedSpot]? = nil
 
     var reviewedCount: Int { frames.filter(\.reviewed).count }
     var boxCount: Int { frames.filter(\.keep).reduce(0) { $0 + $1.boxes.count } }
