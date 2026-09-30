@@ -867,6 +867,17 @@ final class SamplerModel {
         selectNext(1)
     }
 
+    /// The frame has no ball: clear every box (the detector's guesses too),
+    /// keep it as a labeled empty frame — a negative the model learns from,
+    /// unlike Discard, which leaves it out — and move on.
+    func markNoBallAndAdvance() {
+        guard selectedId != nil else { return }
+        mutate(selectedId) { $0.boxes = []; $0.keep = true; $0.reviewed = true }
+        selectedBoxId = nil
+        acceptCount += 1
+        selectNext(1)
+    }
+
     /// How many of the open video's frames each filter shows.
     func count(_ filter: ReviewFilter) -> Int {
         switch filter {

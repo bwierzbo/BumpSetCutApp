@@ -45,9 +45,9 @@ struct SampleThumb: View {
         }
         .overlay(alignment: .topTrailing) {
             if sample.reviewed {
-                Image(systemName: sample.keep ? "checkmark.circle.fill" : "eye.slash.fill")
+                Image(systemName: !sample.keep ? "eye.slash.fill" : sample.boxes.isEmpty ? "circle.slash" : "checkmark.circle.fill")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(sample.keep ? ReviewStyle.yours : Color.white.opacity(0.8))
+                    .foregroundStyle(sample.keep && !sample.boxes.isEmpty ? ReviewStyle.yours : Color.white.opacity(0.85))
                     .background(Circle().fill(.black.opacity(0.5)).padding(-1))
                     .padding(4)
             }

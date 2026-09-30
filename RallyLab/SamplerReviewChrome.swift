@@ -43,6 +43,8 @@ struct ReviewHeader: View {
     let session: VideoSession
     @Binding var showSettings: Bool
     @Binding var showShortcuts: Bool
+    let isFocused: Bool
+    let toggleFocus: () -> Void
 
     var body: some View {
         let total = sampler.samples.count
@@ -69,9 +71,14 @@ struct ReviewHeader: View {
                            help: "Lowest confidence first") { sampler.lowestConfidenceFirst.toggle() }
                 HeaderIcon(icon: "keyboard", isOn: showShortcuts, help: "Shortcuts (?)") { showShortcuts.toggle() }
                     .popover(isPresented: $showShortcuts, arrowEdge: .bottom) { ShortcutsCard() }
-                HeaderIcon(icon: "sidebar.right", isOn: showSettings, help: "Sampling, dataset and training settings") {
-                    withAnimation(.easeOut(duration: 0.2)) { showSettings.toggle() }
+                if !isFocused {
+                    HeaderIcon(icon: "sidebar.right", isOn: showSettings, help: "Sampling, dataset and training settings") {
+                        withAnimation(.easeOut(duration: 0.2)) { showSettings.toggle() }
+                    }
                 }
+                HeaderIcon(icon: isFocused ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                           isOn: isFocused, help: isFocused ? "Leave full screen (Esc)" : "Full screen (F)",
+                           action: toggleFocus)
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
@@ -188,8 +195,12 @@ struct FrameTag: View {
             }
             Text("\(position) / \(total)").foregroundStyle(.secondary)
             if sample.reviewed {
-                Image(systemName: sample.keep ? "checkmark.circle.fill" : "xmark.circle.fill")
-                    .foregroundStyle(sample.keep ? ReviewStyle.yours : .red)
+                if sample.keep && sample.boxes.isEmpty {
+                    Label("No ball", systemImage: "circle.slash").foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: sample.keep ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(sample.keep ? ReviewStyle.yours : .red)
+                }
             }
         }
         .font(.caption.monospacedDigit())
@@ -208,6 +219,7 @@ struct ReviewActionBar: View {
             HUDButton(icon: sample.keep ? "eye.slash" : "eye", title: sample.keep ? "Discard" : "Keep", key: "K") {
                 sampler.toggleKeep()
             }
+            HUDButton(icon: "circle.slash", title: "No ball", key: "N") { sampler.markNoBallAndAdvance() }
             HUDButton(icon: "square.on.square", title: "Copy previous", key: "C") { sampler.carryBoxesForward() }
             HUDButton(icon: sampler.contextPlayer == nil ? "play.fill" : "stop.fill",
                       title: sampler.contextPlayer == nil ? "Play" : "Stop", key: "P") { sampler.toggleContext() }
@@ -367,6 +379,7 @@ struct ShortcutsCard: View {
     private let rows: [(String, String)] = [
         ("← →", "Previous / next frame"),
         ("↩", "Accept and go to the next"),
+        ("N", "No ball in this frame, next"),
         ("K", "Discard or keep the frame"),
         ("click", "Box the ball you click on"),
         ("drag", "Draw a box · move · resize at a corner"),
@@ -379,6 +392,7 @@ struct ShortcutsCard: View {
         ("= − 0", "Zoom in · out · fit"),
         ("pinch", "Zoom · scroll pans when zoomed"),
         ("⌘Z", "Undo"),
+        ("F", "Full screen · Esc leaves it"),
         ("?", "Show these"),
     ]
 

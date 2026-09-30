@@ -23,14 +23,18 @@ struct SamplerTabView: View {
     /// The sampling / dataset / training column; out of the way while reviewing.
     @AppStorage("RallyLab.samplerSettings") private var showSettings = false
     @State private var showShortcuts = false
+    /// Full screen with only the review: no video list, no settings.
+    @State private var isFocused = false
 
     var body: some View {
         HSplitView {
-            librarySidebar
-                .frame(minWidth: 230, idealWidth: 260, maxWidth: 330)
+            if !isFocused {
+                librarySidebar
+                    .frame(minWidth: 230, idealWidth: 260, maxWidth: 330)
+            }
             mainColumn
                 .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
-            if showSettings {
+            if showSettings && !isFocused {
                 controls
                     .frame(minWidth: 300, idealWidth: 320, maxWidth: 400)
             }
@@ -41,6 +45,10 @@ struct SamplerTabView: View {
                 onStatus: { sampler.note($0) }
             )
         )
+        // Leaving full screen any other way (the green button, ⌃⌘F) ends focus too.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            isFocused = false
+        }
         .onAppear {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                 handleKey(event) ? nil : event
@@ -200,7 +208,8 @@ struct SamplerTabView: View {
         VStack(spacing: 0) {
             if let session = sampler.currentSession {
                 ReviewHeader(sampler: sampler, session: session,
-                             showSettings: $showSettings, showShortcuts: $showShortcuts)
+                             showSettings: $showSettings, showShortcuts: $showShortcuts,
+                             isFocused: isFocused, toggleFocus: { setFocus(!isFocused) })
                 Divider()
             }
             stage
@@ -381,6 +390,14 @@ struct SamplerTabView: View {
         sampler.setDatasetRoot(url)
     }
 
+    /// Full-screen review: take the window full screen and hide everything
+    /// but the frame, its header and the filmstrip (and back).
+    private func setFocus(_ on: Bool) {
+        withAnimation(.easeInOut(duration: 0.2)) { isFocused = on }
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        if on != window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+    }
+
     /// Review keys. Handled ahead of whichever control has focus — the video
     /// list and the filmstrip would otherwise take the arrow keys — except
     /// while typing in a text field or in a sheet or panel.
@@ -411,12 +428,15 @@ struct SamplerTabView: View {
         switch (event.keyCode, mods) {
         case (36, []), (76, []): sampler.acceptAndAdvance(); return true      // Return, Enter
         case (51, []), (117, []): sampler.removeSelectedBox(); return true    // Delete, ⌦
+        case (53, []) where isFocused: setFocus(false); return true             // Esc
         default: break
         }
         if event.characters == "?" { showShortcuts.toggle(); return true }
         switch (event.charactersIgnoringModifiers?.lowercased(), mods) {
         case ("z", .command): sampler.undo()
         case ("k", []): sampler.toggleKeep()
+        case ("n", []): sampler.markNoBallAndAdvance()
+        case ("f", []): setFocus(!isFocused)
         case ("c", []): sampler.carryBoxesForward()
         case ("p", []): sampler.toggleContext()
         case ("=", []), ("+", []), ("+", .shift): sampler.zoom(by: 1.5)
