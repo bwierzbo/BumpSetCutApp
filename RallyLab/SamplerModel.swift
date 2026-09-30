@@ -27,15 +27,18 @@ struct SampleBox: Identifiable, Equatable {
     var rect: CGRect
     /// nil for a box drawn by hand.
     var confidence: Float?
+    /// Carried from earlier frames: a ball that has stayed where it was.
+    var held = false
 
-    init(rect: CGRect, confidence: Float?) {
+    init(rect: CGRect, confidence: Float?, held: Bool = false) {
         id = UUID()
         self.rect = rect
         self.confidence = confidence
+        self.held = held
     }
 
     init(_ record: BoxRecord) {
-        self.init(rect: record.rect, confidence: record.confidence)
+        self.init(rect: record.rect, confidence: record.confidence, held: record.held ?? false)
     }
 }
 
@@ -233,6 +236,8 @@ final class SamplerModel {
     /// the canvas to show a ring while it looks.
     private(set) var snapping: CGPoint?
     @ObservationIgnored private let snapDetector = SnapDetector()
+    /// Frames already checked for balls that stayed put, this session.
+    @ObservationIgnored private var heldChecked: Set<UUID> = []
     private var loadTask: Task<Void, Never>?
 
     nonisolated static let thumbnailWidth = 320
@@ -738,6 +743,7 @@ final class SamplerModel {
         selectedBoxId = nil
         preview = nil
         previewCache = [:]
+        heldChecked = []
         undoStack = []
         resetZoom()
         stopContext()
@@ -789,6 +795,53 @@ final class SamplerModel {
         stopContext()
         loadPreviewForSelection()
         rememberPlace()
+        carryHeldBalls()
+    }
+
+    /// On arriving at an unreviewed frame, carry over the balls that have
+    /// sat in the same place on the last two reviewed frames — where they
+    /// can still be found (HeldBalls). They replace a detector guess on the
+    /// same ball, never a box of yours, and ⌘Z takes them back off.
+    private func carryHeldBalls() {
+        guard let current = selected, !current.reviewed, !heldChecked.contains(current.id) else { return }
+        heldChecked.insert(current.id)
+        let candidates = HeldBalls.candidates(for: current, in: samples)
+        guard let from = candidates.first?.from else { return }
+        let fromURL = store.currentImageURL(for: from.record)
+        let url = store.currentImageURL(for: current.record)
+        let id = current.id
+        Task {
+            let found: [CGRect] = await Task.detached(priority: .userInitiated) {
+                guard let before = SamplerImageTools.loadImage(fromURL, maxPixelSize: Self.reviewMaxPixel),
+                      let now = SamplerImageTools.loadImage(url, maxPixelSize: Self.reviewMaxPixel) else { return [] }
+                return candidates.compactMap {
+                    HeldBalls.locate($0, fromImage: before, in: now, seconds: current.time - $0.from.time)
+                }
+            }.value
+            guard !found.isEmpty, selectedId == id, selected?.reviewed == false else { return }
+            let mine = (selected?.boxes ?? []).filter { $0.confidence == nil && !$0.held }
+            // Two held balls can land on the same one: keep one box per ball.
+            var carried: [CGRect] = []
+            for rect in found where !mine.contains(where: { Self.iou($0.rect, rect) > 0.3 })
+                && !carried.contains(where: { Self.iou($0, rect) > 0.3 }) {
+                carried.append(rect)
+            }
+            guard !carried.isEmpty else { return }
+            mutate(id) { sample in
+                sample.boxes.removeAll { box in
+                    box.confidence != nil && carried.contains { Self.iou(box.rect, $0) > 0.3 }
+                }
+                sample.boxes += carried.map { SampleBox(rect: Self.clamp($0), confidence: nil, held: true) }
+            }
+            status = "Carried \(carried.count) ball\(carried.count == 1 ? "" : "s") that stayed put — ↩ to keep, ⌘Z to take back."
+        }
+    }
+
+    private static func iou(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let i = a.intersection(b)
+        guard !i.isNull else { return 0 }
+        let inter = i.width * i.height
+        return inter / (a.width * a.height + b.width * b.height - inter)
     }
 
     func selectNext(_ delta: Int) {
@@ -855,6 +908,7 @@ final class SamplerModel {
         mutate(selectedId) { sample in
             guard let b = sample.boxes.firstIndex(where: { $0.id == boxId }) else { return }
             sample.boxes[b].rect = Self.clamp(rect)
+            sample.boxes[b].held = false   // adjusted by hand: it's yours now
             sample.reviewed = true
         }
     }

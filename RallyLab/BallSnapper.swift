@@ -187,7 +187,7 @@ enum BallSnapper {
 
     /// An 8-bit grey square of `side` pixels whose top-left is `origin` in
     /// the image (outside the image reads as black).
-    private static func grayscale(_ image: CGImage, from origin: CGPoint, side: Int) -> [UInt8]? {
+    static func grayscale(_ image: CGImage, from origin: CGPoint, side: Int) -> [UInt8]? {
         var pixels = [UInt8](repeating: 0, count: side * side)
         let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let ctx = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8,

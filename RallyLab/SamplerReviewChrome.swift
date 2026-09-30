@@ -15,6 +15,12 @@ enum ReviewStyle {
     static let yours = Color(red: 0.2, green: 0.85, blue: 0.45)
     /// The detector's guesses, still to confirm.
     static let guess = Color(red: 1.0, green: 0.72, blue: 0.16)
+    /// Balls carried over from earlier frames because they stayed put.
+    static let held = Color(red: 0.25, green: 0.8, blue: 0.95)
+
+    static func color(_ box: SampleBox) -> Color {
+        box.held ? held : box.confidence == nil ? yours : guess
+    }
     static let stage = Color(white: 0.085)
 
     static func sourceColor(_ source: FrameSample.Source) -> Color {
@@ -414,6 +420,7 @@ struct ShortcutsCard: View {
             HStack(spacing: 12) {
                 legend(ReviewStyle.yours, dashed: false, "Yours")
                 legend(ReviewStyle.guess, dashed: true, "Detector's guess")
+                legend(ReviewStyle.held, dashed: true, "Held: stayed put")
             }
             .font(.caption).foregroundStyle(.secondary)
             .padding(.top, 4)

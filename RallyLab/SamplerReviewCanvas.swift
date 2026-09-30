@@ -190,8 +190,8 @@ struct ReviewCanvas: View {
             let isSelected = box.id == sampler.selectedBoxId
             let boxRect = OverlayGeometry.rect(box.rect, turns: 0, in: view)
             let screen = (isSelected && drag != nil) ? (liveRect ?? boxRect) : boxRect
-            let yours = box.confidence == nil
-            let color = yours ? ReviewStyle.yours : ReviewStyle.guess
+            let yours = box.confidence == nil && !box.held
+            let color = ReviewStyle.color(box)
             let outline = Path(roundedRect: screen, cornerRadius: min(3, screen.width / 4))
 
             if max(screen.width, screen.height) < 18 {
@@ -203,7 +203,7 @@ struct ReviewCanvas: View {
                 ctx.stroke(outline, with: .color(.white.opacity(0.85)), lineWidth: 5)
             }
             ctx.stroke(outline, with: .color(color),
-                       style: StrokeStyle(lineWidth: isSelected ? 2.5 : 1.75, dash: yours ? [] : [4, 3]))
+                       style: StrokeStyle(lineWidth: isSelected ? 2.5 : 1.75, dash: yours ? [] : box.held ? [6, 3] : [4, 3]))
             if isSelected {
                 for corner in corners(of: screen) {
                     let dot = CGRect(x: corner.x - 5, y: corner.y - 5, width: 10, height: 10)
@@ -211,8 +211,8 @@ struct ReviewCanvas: View {
                     ctx.stroke(Path(ellipseIn: dot), with: .color(color), lineWidth: 2)
                 }
             }
-            if let c = box.confidence {
-                let label = ctx.resolve(Text(String(format: "%.2f", c))
+            if box.held || box.confidence != nil {
+                let label = ctx.resolve(Text(box.held ? "held" : String(format: "%.2f", box.confidence ?? 0))
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.black.opacity(0.85)))
                 let size = label.measure(in: CGSize(width: 80, height: 20))

@@ -22,10 +22,14 @@ struct BoxRecord: Codable, Equatable {
     /// Vision-normalized, origin bottom-left, [0,1].
     var x: Double, y: Double, w: Double, h: Double
     var confidence: Float?
+    /// Carried over from earlier frames as a ball that stayed put; absent
+    /// otherwise (and in datasets from before it existed).
+    var held: Bool?
 
     init(_ box: SampleBox) {
         x = box.rect.minX; y = box.rect.minY; w = box.rect.width; h = box.rect.height
         confidence = box.confidence
+        held = box.held ? true : nil
     }
 
     var rect: CGRect { CGRect(x: x, y: y, width: w, height: h) }
