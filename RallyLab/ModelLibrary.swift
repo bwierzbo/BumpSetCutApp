@@ -4,7 +4,8 @@
 //
 //  Closing the loop on a model trained elsewhere. Bring back its best.pt
 //  and add it here: it's converted to the CoreML form the app runs (the
-//  raw YOLO tensor at 960, no NMS) and kept in <dataset>/models/. Any model
+//  raw YOLO tensor, no NMS, at the size it was trained at) and kept in
+//  <dataset>/models/. Any model
 //  in the library can then pre-label new footage, and be scored against
 //  the frames you've reviewed — side by side with the model the app ships.
 //
@@ -104,7 +105,10 @@ final class ModelLibrary {
     // MARK: - Adding models
 
     /// Add a trained model: a `.pt` is exported to CoreML the way the app
-    /// expects (960, no NMS); a `.mlpackage`/`.mlmodel` is copied as-is.
+    /// expects (no NMS); a `.mlpackage`/`.mlmodel` is copied as-is. No
+    /// imgsz is passed, so Ultralytics exports at the size the model was
+    /// trained at — a model trained at 1280 runs at 1280, here and in the
+    /// app, which reads its input size from the model.
     func addModel(_ source: URL) async {
         guard !isBusy else { return }
         isBusy = true
@@ -126,7 +130,7 @@ final class ModelLibrary {
                 let pt = work.appendingPathComponent("\(name).pt")
                 try fm.copyItem(at: source, to: pt)
                 let run = await ToolEnvironment.run("yolo", ["export", "model=\(pt.path)", "format=coreml",
-                                                             "imgsz=960", "nms=False"], in: work)
+                                                             "nms=False"], in: work)
                 let produced = work.appendingPathComponent("\(name).mlpackage")
                 guard run.status == 0, fm.fileExists(atPath: produced.path) else {
                     let why = run.lines.last(where: { $0.lowercased().contains("error") }) ?? run.lines.last ?? "no output"

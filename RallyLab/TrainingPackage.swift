@@ -158,16 +158,24 @@ enum TrainingPackage {
         1. Unzip, open a terminal in this folder, and install Ultralytics if needed:
              pip install -U ultralytics
 
-        2. Train (drop device=0 on a Mac; start from the current model's .pt if
-           you have it instead of yolo26s.pt):
+        2. Train. A model runs at the size it's trained at — RallyLab's Add Model
+           converts it at that size and the app reads it from the model — so this
+           is the model's resolution for good. 1280 keeps far balls several pixels
+           bigger than 960; it costs about 1.8× the detector time on the phone.
+           Train both to compare (same data, different name=):
              yolo detect train data=data.yaml model=yolo26s.pt imgsz=1280 epochs=120 \\
-               patience=30 batch=-1 close_mosaic=15 device=0 name=ball
+               patience=30 batch=-1 close_mosaic=15 device=0 name=ball1280
+             yolo detect train data=data.yaml model=yolo26s.pt imgsz=960 epochs=120 \\
+               patience=30 batch=-1 close_mosaic=15 device=0 name=ball960
+           device=0 is an NVIDIA GPU; on a Mac use device=mps. Start from the current
+           model's .pt if you have it (it already knows volleyballs) instead of
+           yolo26s.pt.
 
         3. When it finishes, Ultralytics prints "Results saved to …". Bring back
-           best.pt from that folder's weights/ (usually runs/detect/ball/weights/).
-           In RallyLab's Models tab, Add Model… on it: it's converted for the app,
-           and you can evaluate it against the current model and use it for
-           pre-labels.
+           best.pt from that folder's weights/ (e.g. runs/detect/ball1280/weights/).
+           In RallyLab's Models tab, Add Model… on it: it's converted for the app
+           at its training size, and you can evaluate it against the current model
+           (and the other size) and use it for pre-labels.
 
         """
     }

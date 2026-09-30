@@ -184,6 +184,8 @@ final class SamplerModel {
     /// they've been looked at, so pre-labels never train the model.
     var reviewedOnly = true
     var jpegQuality: Double = 0.92
+    /// Balls are small: 1280 keeps more of their pixels. Models run at the
+    /// size they were trained at (Add Model exports at it).
     var trainImageSize: Double = 1280
     var trainEpochs: Double = 120
     var trainBaseModel = "yolo26s.pt"
