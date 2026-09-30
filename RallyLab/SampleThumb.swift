@@ -28,7 +28,7 @@ struct SampleThumb: View {
             ctx.draw(Image(decorative: sample.thumbnail, scale: 1, orientation: .up), in: fit)
             for box in sample.boxes {
                 let r = OverlayGeometry.rect(box.rect, turns: 0, in: fit)
-                let color = ReviewStyle.color(box)
+                let color = ReviewStyle.color(box, confirmed: sample.reviewed && sample.keep)
                 // Balls are a pixel or two here: mark them with a dot-ring.
                 let ring = max(r.width, r.height) / 2 + 3
                 ctx.stroke(Path(ellipseIn: CGRect(x: r.midX - ring, y: r.midY - ring, width: 2 * ring, height: 2 * ring)),

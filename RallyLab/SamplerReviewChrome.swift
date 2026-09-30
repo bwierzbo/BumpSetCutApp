@@ -18,8 +18,10 @@ enum ReviewStyle {
     /// Balls carried over from earlier frames because they stayed put.
     static let held = Color(red: 0.25, green: 0.8, blue: 0.95)
 
-    static func color(_ box: SampleBox) -> Color {
-        box.held ? held : box.confidence == nil ? yours : guess
+    /// On a reviewed, kept frame every box is a confirmed ball — it's what
+    /// gets exported — so it draws as yours, whoever put it there.
+    static func color(_ box: SampleBox, confirmed: Bool) -> Color {
+        confirmed ? yours : box.held ? held : box.confidence == nil ? yours : guess
     }
     static let stage = Color(white: 0.085)
 
@@ -418,7 +420,7 @@ struct ShortcutsCard: View {
                 }
             }
             HStack(spacing: 12) {
-                legend(ReviewStyle.yours, dashed: false, "Yours")
+                legend(ReviewStyle.yours, dashed: false, "Yours / accepted")
                 legend(ReviewStyle.guess, dashed: true, "Detector's guess")
                 legend(ReviewStyle.held, dashed: true, "Held: stayed put")
             }

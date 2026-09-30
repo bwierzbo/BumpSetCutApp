@@ -186,12 +186,13 @@ struct ReviewCanvas: View {
     /// boxes also get a ring to find them by; the selected box gets a halo
     /// and handles.
     private func drawBoxes(in ctx: inout GraphicsContext, view: CGRect) {
+        let confirmed = sample.reviewed && sample.keep
         for box in sample.boxes {
             let isSelected = box.id == sampler.selectedBoxId
             let boxRect = OverlayGeometry.rect(box.rect, turns: 0, in: view)
             let screen = (isSelected && drag != nil) ? (liveRect ?? boxRect) : boxRect
-            let yours = box.confidence == nil && !box.held
-            let color = ReviewStyle.color(box)
+            let yours = confirmed || (box.confidence == nil && !box.held)
+            let color = ReviewStyle.color(box, confirmed: confirmed)
             let outline = Path(roundedRect: screen, cornerRadius: min(3, screen.width / 4))
 
             if max(screen.width, screen.height) < 18 {
@@ -211,7 +212,7 @@ struct ReviewCanvas: View {
                     ctx.stroke(Path(ellipseIn: dot), with: .color(color), lineWidth: 2)
                 }
             }
-            if box.held || box.confidence != nil {
+            if !confirmed, box.held || box.confidence != nil {
                 let label = ctx.resolve(Text(box.held ? "held" : String(format: "%.2f", box.confidence ?? 0))
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.black.opacity(0.85)))
