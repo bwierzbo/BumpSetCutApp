@@ -126,7 +126,10 @@ enum TrainingPackage {
         try? fm.removeItem(at: zip)
         let ditto = Process()
         ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        ditto.arguments = ["-c", "-k", "--keepParent", dir.path, zip.path]
+        // No resource forks or extended attributes: they'd unpack on Windows as
+        // "._name.jpg" files that look like (unreadable) images.
+        ditto.arguments = ["-c", "-k", "--norsrc", "--noextattr", "--noqtn", "--noacl", "--keepParent",
+                           dir.path, zip.path]
         try ditto.run()
         ditto.waitUntilExit()
         guard ditto.terminationStatus == 0 else { throw PackageError.zipFailed }
