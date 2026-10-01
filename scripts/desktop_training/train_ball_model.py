@@ -19,6 +19,7 @@ Train the BumpSetCut volleyball detector from a RallyLab training package.
      one with the extra data, to see whether it helps — picking up where it
      left off if interrupted. The batch is fixed per size (8 at 1280 suits a
      12 GB card) and halves automatically if the GPU runs out of memory;
+     Augmentation is tuned for a small, fast ball (see volleyball_augmentations);
   6. score each on the held-out val videos — recall and precision at the
      app's confidence (0.60), and mAP — and put the best.pt files and a
      results table in bring_back/.
@@ -288,6 +289,52 @@ def report_ball_sizes(sizes: list, train_sizes: list[int]) -> None:
 # 5–6. Train and score
 # --------------------------------------------------------------------------
 
+# What makes a volleyball hard to see, and the augmentation that teaches it.
+# Ultralytics' own: letterboxed mosaic (kept to the last 15 epochs, so training
+# ends on whole frames like the app sees), up to 50% zoom in or out (near and
+# far balls), small shifts, a ±5° tilt (handheld or unlevel cameras), mirror
+# left-right but never upside down (gravity and sky don't flip), and wider
+# brightness swings (dim gyms, dusk). Left off on purpose: mixup (blends two
+# images into ghost balls → false positives) and cutout-style occlusion (can
+# erase the ball while its box stays → the model learns to hallucinate).
+ULTRALYTICS_AUGMENTATION = dict(
+    mosaic=1.0, close_mosaic=15, scale=0.5, translate=0.1, degrees=5.0,
+    fliplr=0.5, flipud=0.0, hsv_h=0.015, hsv_s=0.7, hsv_v=0.5, mixup=0.0,
+)
+
+
+def volleyball_augmentations() -> list | None:
+    """Albumentations steps for the camera side of things. All pixel-level, so
+    boxes never move. None if albumentations isn't installed (or too old)."""
+    try:
+        import albumentations as A
+        return [
+            # A spiked or served ball smears across the frame.
+            A.OneOf([A.MotionBlur(blur_limit=(3, 9), p=1.0),
+                     A.GaussianBlur(blur_limit=(3, 5), p=1.0)], p=0.25),
+            # Phone video and YouTube are compressed; tiny balls turn to blocky blobs.
+            A.ImageCompression(quality_range=(40, 90), p=0.3),
+            # Dim gyms and dusk are grainy.
+            A.OneOf([A.GaussNoise(std_range=(0.01, 0.04), p=1.0),
+                     A.ISONoise(color_shift=(0.01, 0.04), intensity=(0.1, 0.4), p=1.0)], p=0.2),
+            # Gym lights, shade and harsh sun.
+            A.RandomBrightnessContrast(brightness_limit=0.25, contrast_limit=0.25, p=0.4),
+            A.RandomGamma(gamma_limit=(80, 120), p=0.2),
+            # Distant or low-resolution footage (broadcasts, zoomed phones).
+            A.Downscale(scale_range=(0.5, 0.9), p=0.15),
+            # Outdoor shade across the court and ball.
+            A.RandomShadow(p=0.1),
+        ]
+    except (ImportError, TypeError, ValueError) as e:
+        say(f"   ⚠️  Camera augmentations off ({e}): pip install \"albumentations>=2.0\" to turn them on.")
+        return None
+
+
+def supports_custom_augmentations() -> bool:
+    from ultralytics.cfg import DEFAULT_CFG_DICT
+    return "augmentations" in DEFAULT_CFG_DICT
+
+
 def is_out_of_memory(error: BaseException) -> bool:
     return "out of memory" in str(error).lower() or type(error).__name__ == "OutOfMemoryError"
 
@@ -308,6 +355,13 @@ def train_one(data_yaml: Path, size: int, name: str, args, device: str) -> Path:
         YOLO(str(last)).train(resume=True, workers=workers)
     else:
         batch = 4 if args.smoke else (args.batch or DEFAULT_BATCH.get(size, 16))
+        extra_aug = {}
+        camera = volleyball_augmentations()
+        if camera is not None:
+            if supports_custom_augmentations():
+                extra_aug["augmentations"] = camera
+            else:
+                say("   ⚠️  This Ultralytics can't take custom augmentations: pip install -U ultralytics.")
         while True:
             say(f"\n== {name}: training at {size} from {args.base}, batch {batch}")
             try:
@@ -321,9 +375,8 @@ def train_one(data_yaml: Path, size: int, name: str, args, device: str) -> Path:
                     device=device,
                     workers=workers,
                     cache=args.cache if args.cache != "off" else False,
-                    close_mosaic=15,       # finish on un-mosaicked frames, like the app sees
-                    flipud=0.0,            # sky stays up
-                    fliplr=0.5,
+                    **ULTRALYTICS_AUGMENTATION,
+                    **extra_aug,
                     seed=0,
                     deterministic=True,
                     project=str(args.runs),
