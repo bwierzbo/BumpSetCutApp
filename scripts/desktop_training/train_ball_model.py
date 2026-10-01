@@ -17,8 +17,8 @@ Train the BumpSetCut volleyball detector from a RallyLab training package.
   4. show how big the balls are at each training size;
   5. train one model per size (960 by default) — and with --extra, a second
      one with the extra data, to see whether it helps — picking up where it
-     left off if interrupted. The batch is fixed per size (16 at 960 suits a
-     12 GB card) and halves automatically if the GPU runs out of memory;
+     left off if interrupted. The batch is 6 (fits the RTX 3060 at 960 and
+     1280) and halves automatically if the GPU runs out of memory;
      Augmentation is tuned for a small, fast ball (see volleyball_augmentations);
   6. score each on the held-out val videos — recall and precision at the
      app's confidence (0.60), and mAP — and put the best.pt files and a
@@ -28,7 +28,7 @@ Bring bring_back/ to the laptop and use RallyLab's Models tab: Add Model… on
 each best.pt (it runs at the size it was trained at), then Evaluate.
 
 Options: --sizes 960 1280, --base yolo26s.pt (or a previous best.pt to
-fine-tune), --epochs 150, --batch 16,
+fine-tune), --epochs 150, --batch 6,
 --cache ram, --smoke (a few-minute run to test the setup).
 """
 
@@ -49,7 +49,7 @@ from pathlib import Path
 APP_CONFIDENCE = 0.60   # the app's detectionConfidence, rounded
 HERE = Path(__file__).resolve().parent
 IMAGE_TYPES = (".jpg", ".jpeg", ".png")
-DEFAULT_BATCH = {1280: 8, 960: 16}   # for a 12 GB GPU; halved on out-of-memory
+DEFAULT_BATCH = {1280: 6, 960: 6}    # what the 3060 runs comfortably; halved on out-of-memory
 
 
 def say(msg: str = "") -> None:
@@ -433,7 +433,7 @@ def main() -> None:
     p.add_argument("--base", default="yolo26s.pt", help="starting weights: yolo26s.pt or a previous best.pt")
     p.add_argument("--epochs", type=int, default=150)
     p.add_argument("--patience", type=int, default=40, help="stop after this many epochs without improving")
-    p.add_argument("--batch", type=int, help="override the batch size (default: 8 at 1280, 16 at 960)")
+    p.add_argument("--batch", type=int, help="override the batch size (default: 6)")
     p.add_argument("--cache", choices=["off", "ram", "disk"], default="off",
                    help="ram is fastest if the machine has 32 GB+; disk trades space for speed")
     p.add_argument("--runs", type=Path, default=HERE / "runs")
