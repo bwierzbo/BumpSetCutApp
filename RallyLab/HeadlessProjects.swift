@@ -13,6 +13,7 @@
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
 //    RallyLab --project v3 --package                       (training package zip)
+//    RallyLab --project v3 --package-multiframe            (multi-frame package zip)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
 //
@@ -77,6 +78,7 @@ enum HeadlessProjects {
 
             let library = ModelLibrary(sampler: projects.sampler)
             if ok, args.contains("--package") { ok = await package(library) }
+            if ok, args.contains("--package-multiframe") { ok = await packageMultiFrame(library) }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
                 log(library.status)
@@ -159,6 +161,14 @@ enum HeadlessProjects {
         while library.isBusy { try? await Task.sleep(nanoseconds: 200_000_000) }
         log(library.status)
         return library.lastPackage != nil
+    }
+
+    @MainActor
+    private static func packageMultiFrame(_ library: ModelLibrary) async -> Bool {
+        library.exportMultiFramePackage()
+        while library.isBusy { try? await Task.sleep(nanoseconds: 200_000_000) }
+        log(library.status)
+        return library.lastMultiFramePackage != nil
     }
 
     @MainActor

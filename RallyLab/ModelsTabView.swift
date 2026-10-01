@@ -58,6 +58,11 @@ struct ModelsTabView: View {
                         library.exportPackage()
                     } label: { Label("Export Training Package", systemImage: "shippingbox") }
                     .disabled(library.isBusy || counts.train + counts.val == 0)
+                    Button {
+                        library.exportMultiFramePackage()
+                    } label: { Label("Export Multi-Frame Package", systemImage: "square.stack.3d.down.right") }
+                    .disabled(library.isBusy || counts.train + counts.val == 0)
+                    .help("For heatmap models that see several frames at once: each reviewed frame with the frames around it, pulled from its video.")
                     if library.isBusy && library.evalProgress == nil { ProgressView().controlSize(.small) }
                 }
                 if !library.packages.isEmpty {

@@ -34,6 +34,7 @@ final class ModelLibrary {
     // Training packages
     private(set) var packages: [URL] = []
     private(set) var lastPackage: (zip: URL, summary: TrainingPackage.Summary)?
+    private(set) var lastMultiFramePackage: (zip: URL, summary: MultiFramePackage.Summary)?
 
     // Evaluation
     var evaluateValOnly = true
@@ -101,6 +102,32 @@ final class ModelLibrary {
                 reload()
                 let s = result.summary
                 status = "Packaged \(s.trainImages) train + \(s.valImages) val images from \(s.clips) clips → \(result.zip.lastPathComponent)"
+            } catch {
+                status = error.localizedDescription
+            }
+        }
+    }
+
+    func exportMultiFramePackage() {
+        guard !isBusy else { return }
+        isBusy = true
+        status = "Pulling the frames around each reviewed frame from its video…"
+        let sessions = sampler.sessions
+        let store = sampler.store
+        let name = sampler.datasetRoot.lastPathComponent
+        Task {
+            defer { isBusy = false }
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try await MultiFramePackage.export(sessions: sessions, store: store, name: name) { done, total in
+                        Task { @MainActor in self.status = "Pulling neighbouring frames… \(done)/\(total)" }
+                    }
+                }.value
+                lastMultiFramePackage = result
+                reload()
+                let s = result.summary
+                status = "Packaged \(s.trainWindows) train + \(s.valWindows) val windows from \(s.clips) clips → \(result.zip.lastPathComponent)"
+                    + (s.missingVideos.isEmpty ? "" : " · \(s.framesWithoutVideo) frames left out: \(s.missingVideos.count) clips' videos aren't on this Mac")
             } catch {
                 status = error.localizedDescription
             }
