@@ -2,7 +2,7 @@
 """
 Train the BumpSetCut volleyball detector from a RallyLab training package.
 
-    python train_ball_model.py path/to/Test1-XXXXXXXX-XXXX.zip
+    python train_ball_model.py path/to/Test1-XXXXXXXX-XXXX.zip [--extra DIR ...]
 
 (or the unzipped folder). It will:
 
@@ -11,19 +11,23 @@ Train the BumpSetCut volleyball detector from a RallyLab training package.
   3. check every image and label, and write a cleaned copy to train on —
      unreadable images, malformed lines, boxes outside the frame, repeated
      boxes and videos in both train and val are fixed or reported, and the
-     package itself is never changed;
+     package itself is never changed. --extra folders (images/ + labels/,
+     e.g. from get_extra_datasets.py) are checked the same way and added to
+     TRAINING only: the package's val videos stay the benchmark;
   4. show how big the balls are at each training size;
-  5. train one model per size (1280 and 960 by default), picking up where it
-     left off if it was interrupted;
+  5. train one model per size (1280 by default) — and with --extra, a second
+     one with the extra data, to see whether it helps — picking up where it
+     left off if interrupted. The batch is fixed per size (8 at 1280 suits a
+     12 GB card) and halves automatically if the GPU runs out of memory;
   6. score each on the held-out val videos — recall and precision at the
-     app's confidence (0.60), and mAP — and put both best.pt files and a
+     app's confidence (0.60), and mAP — and put the best.pt files and a
      results table in bring_back/.
 
 Bring bring_back/ to the laptop and use RallyLab's Models tab: Add Model… on
 each best.pt (it runs at the size it was trained at), then Evaluate.
 
-Options: --sizes 1280 960, --base yolo26s.pt (or your previous best.pt),
---epochs 150, --cache ram, --smoke (a 1-minute run to test the setup).
+Options: --sizes 1280 960, --base yolo26s.pt, --epochs 150, --batch 8,
+--cache ram, --smoke (a few-minute run to test the setup).
 """
 
 from __future__ import annotations
@@ -42,6 +46,8 @@ from pathlib import Path
 
 APP_CONFIDENCE = 0.60   # the app's detectionConfidence, rounded
 HERE = Path(__file__).resolve().parent
+IMAGE_TYPES = (".jpg", ".jpeg", ".png")
+DEFAULT_BATCH = {1280: 8, 960: 16}   # for a 12 GB GPU; halved on out-of-memory
 
 
 def say(msg: str = "") -> None:
@@ -129,11 +135,71 @@ def environment_of(clip: str) -> str:
     return {"ind": "Indoor", "bch": "Beach", "grs": "Grass"}.get(clip[:3], "Other")
 
 
-def prepare(package: Path, out: Path) -> tuple[Path, dict]:
-    """Validate every image/label and write a cleaned dataset to `out`."""
-    from PIL import Image
+def images_in(folder: Path) -> list[Path]:
+    # "._name.jpg" files are macOS metadata that rides along in zips — not images.
+    return sorted(p for p in folder.glob("*") if p.suffix.lower() in IMAGE_TYPES and not p.name.startswith("._"))
 
-    say("\n== Checking images and labels")
+
+def clean_boxes(lines: list[str], w: int, h: int, problems: Counter) -> list[tuple]:
+    """YOLO label lines → clean (cx, cy, bw, bh) boxes, all class 0."""
+    boxes = []
+    for line in lines:
+        parts = line.split()
+        if not parts:
+            continue
+        try:
+            cls, cx, cy, bw, bh = int(float(parts[0])), *map(float, parts[1:5])
+        except (ValueError, IndexError):
+            problems["malformed label line (dropped)"] += 1
+            continue
+        if len(parts) != 5:
+            problems["label line with extra fields (trimmed)"] += 1
+        if cls != 0:
+            problems[f"class {cls} (set to 0, volleyball)"] += 1
+        # Clip to the frame.
+        x1, y1 = max(0.0, cx - bw / 2), max(0.0, cy - bh / 2)
+        x2, y2 = min(1.0, cx + bw / 2), min(1.0, cy + bh / 2)
+        if (x1, y1, x2, y2) != (cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2):
+            problems["box past the frame edge (clipped)"] += 1
+        if (x2 - x1) * w < 2 or (y2 - y1) * h < 2:
+            problems["box under 2 px (dropped)"] += 1
+            continue
+        box = ((x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1)
+        if any(max(abs(a - b) for a, b in zip(box, other)) < 1e-4 for other in boxes):
+            problems["repeated box (dropped)"] += 1
+            continue
+        boxes.append(box)
+    return boxes
+
+
+def add_image(img: Path, label: Path, dest_images: Path, dest_labels: Path, name: str,
+              problems: Counter) -> list[tuple] | None:
+    """Check one image + label and link it into the prepared set. None if unreadable."""
+    from PIL import Image
+    try:
+        with Image.open(img) as im:
+            im.verify()
+        with Image.open(img) as im:
+            w, h = im.size
+    except Exception:
+        problems["unreadable image (skipped)"] += 1
+        return None
+    if not label.exists():
+        problems["image without a label file (kept as no-ball)"] += 1
+    boxes = clean_boxes(label.read_text().splitlines() if label.exists() else [], w, h, problems)
+    dest = dest_images / (name + img.suffix.lower())
+    try:
+        os.link(img, dest)   # no extra disk
+    except OSError:
+        shutil.copy2(img, dest)
+    (dest_labels / (name + ".txt")).write_text(
+        "".join(f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n" for cx, cy, bw, bh in boxes))
+    return [(bw * w, bh * h, w, h) for _, _, bw, bh in boxes]
+
+
+def prepare(package: Path, out: Path, extras: list[Path]) -> tuple[Path, dict]:
+    """Validate every image/label and write a cleaned dataset to `out`."""
+    say(f"\n== Checking images and labels → {out.name}")
     manifest = {}
     if (package / "manifest.csv").exists():
         with open(package / "manifest.csv", newline="") as f:
@@ -143,86 +209,52 @@ def prepare(package: Path, out: Path) -> tuple[Path, dict]:
     if out.exists():
         shutil.rmtree(out)
     problems = Counter()
-    stats = {"train": Counter(), "val": Counter()}
-    sizes = []                       # (split, box width px, box height px, image w, image h)
+    stats = {"train": Counter(), "val": Counter(), "extra": Counter()}
+    sizes = []
     clips = {"train": set(), "val": set()}
     per_env = defaultdict(Counter)
-
     for split in ("train", "val"):
-        images = sorted((package / "images" / split).glob("*"))
-        images = [p for p in images if p.suffix.lower() in (".jpg", ".jpeg", ".png")]
         (out / "images" / split).mkdir(parents=True)
         (out / "labels" / split).mkdir(parents=True)
-        for img in images:
-            try:
-                with Image.open(img) as im:
-                    im.verify()
-                with Image.open(img) as im:
-                    w, h = im.size
-            except Exception:
-                problems["unreadable image (skipped)"] += 1
-                continue
+
+    for split in ("train", "val"):
+        for img in images_in(package / "images" / split):
             label = package / "labels" / split / (img.stem + ".txt")
-            lines = label.read_text().splitlines() if label.exists() else []
-            if not label.exists():
-                problems["image without a label file (kept as no-ball)"] += 1
-
-            boxes = []
-            for line in lines:
-                parts = line.split()
-                if not parts:
-                    continue
-                try:
-                    cls, cx, cy, bw, bh = int(float(parts[0])), *map(float, parts[1:5])
-                except (ValueError, IndexError):
-                    problems["malformed label line (dropped)"] += 1
-                    continue
-                if len(parts) != 5:
-                    problems["label line with extra fields (trimmed)"] += 1
-                if cls != 0:
-                    problems[f"class {cls} (set to 0, volleyball)"] += 1
-                # Clip to the frame.
-                x1, y1 = max(0.0, cx - bw / 2), max(0.0, cy - bh / 2)
-                x2, y2 = min(1.0, cx + bw / 2), min(1.0, cy + bh / 2)
-                if (x1, y1, x2, y2) != (cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2):
-                    problems["box past the frame edge (clipped)"] += 1
-                if (x2 - x1) * w < 2 or (y2 - y1) * h < 2:
-                    problems["box under 2 px (dropped)"] += 1
-                    continue
-                box = ((x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1)
-                if any(max(abs(a - b) for a, b in zip(box, other)) < 1e-4 for other in boxes):
-                    problems["repeated box (dropped)"] += 1
-                    continue
-                boxes.append(box)
-
-            # Hard-link the image (no extra disk), copying if the drive can't.
-            dest = out / "images" / split / img.name
-            try:
-                os.link(img, dest)
-            except OSError:
-                shutil.copy2(img, dest)
-            (out / "labels" / split / (img.stem + ".txt")).write_text(
-                "".join(f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n" for cx, cy, bw, bh in boxes))
-
-            info = manifest.get(img.name, {})
-            clip = info.get("clip", "?")
+            got = add_image(img, label, out / "images" / split, out / "labels" / split, img.stem, problems)
+            if got is None:
+                continue
+            clip = manifest.get(img.name, {}).get("clip", "?")
             clips[split].add(clip)
-            env = environment_of(clip)
             stats[split]["images"] += 1
-            stats[split]["boxes"] += len(boxes)
-            stats[split]["no ball"] += 0 if boxes else 1
-            per_env[env][f"{split} images"] += 1
-            for _, _, bw, bh in boxes:
-                sizes.append((split, bw * w, bh * h, w, h))
+            stats[split]["boxes"] += len(got)
+            stats[split]["no ball"] += 0 if got else 1
+            per_env[environment_of(clip)][f"{split} images"] += 1
+            sizes.extend(got)
+
+    for extra in extras:
+        if not (extra / "images").is_dir():
+            fail(f"--extra {extra}: no images/ folder in it.")
+        before = stats["extra"]["images"]
+        for img in images_in(extra / "images"):
+            label = extra / "labels" / (img.stem + ".txt")
+            got = add_image(img, label, out / "images" / "train", out / "labels" / "train",
+                            f"x_{extra.name}_{img.stem}", problems)
+            if got is None:
+                continue
+            stats["extra"]["images"] += 1
+            stats["extra"]["boxes"] += len(got)
+            stats["extra"]["no ball"] += 0 if got else 1
+            sizes.extend(got)
+        say(f"   + {extra.name}: {stats['extra']['images'] - before} images into train")
 
     leaked = clips["train"] & clips["val"] - {"?"}
     if leaked:
         problems[f"clips in both train and val: {', '.join(sorted(leaked))}"] += 1
 
-    for split in ("train", "val"):
+    for split in ("train", "val") + (("extra",) if extras else ()):
         s = stats[split]
-        say(f"   {split:5}  {s['images']:5} images · {s['boxes']:5} boxes · {s['no ball']:4} with no ball "
-            f"· {len(clips[split] - {'?'})} clips")
+        say(f"   {split:5}  {s['images']:5} images · {s['boxes']:5} boxes · {s['no ball']:4} with no ball"
+            + (f" · {len(clips[split] - {'?'})} clips" if split in clips else " (in train)"))
     for env in sorted(per_env):
         say(f"   {env:7} {per_env[env]['train images']:5} train · {per_env[env]['val images']:4} val")
     if problems:
@@ -246,7 +278,7 @@ def report_ball_sizes(sizes: list, train_sizes: list[int]) -> None:
         return
     say("\n== Ball size once shrunk to the training size (median / smallest 10%)")
     for s in train_sizes:
-        px = sorted(max(bw, bh) * s / max(w, h) for _, bw, bh, w, h in sizes)
+        px = sorted(max(bw, bh) * s / max(w, h) for bw, bh, w, h in sizes)
         tiny = sum(p < 8 for p in px) / len(px)
         say(f"   {s:5}: {px[len(px) // 2]:5.1f} px median · {px[len(px) // 10]:4.1f} px or less for the "
             f"smallest 10% · {tiny:.0%} under 8 px")
@@ -256,10 +288,13 @@ def report_ball_sizes(sizes: list, train_sizes: list[int]) -> None:
 # 5–6. Train and score
 # --------------------------------------------------------------------------
 
-def train_one(data_yaml: Path, size: int, args, device: str) -> Path:
+def is_out_of_memory(error: BaseException) -> bool:
+    return "out of memory" in str(error).lower() or type(error).__name__ == "OutOfMemoryError"
+
+
+def train_one(data_yaml: Path, size: int, name: str, args, device: str) -> Path:
     from ultralytics import YOLO
 
-    name = f"ball{size}" + ("_smoke" if args.smoke else "")
     run = args.runs / name
     last = run / "weights" / "last.pt"
     best = run / "weights" / "best.pt"
@@ -272,28 +307,40 @@ def train_one(data_yaml: Path, size: int, args, device: str) -> Path:
         say(f"\n== {name}: resuming an interrupted run")
         YOLO(str(last)).train(resume=True, workers=workers)
     else:
-        say(f"\n== {name}: training at {size} from {args.base}")
-        YOLO(args.base).train(
-            data=str(data_yaml),
-            imgsz=size,
-            epochs=1 if args.smoke else args.epochs,
-            fraction=0.03 if args.smoke else 1.0,
-            patience=args.patience,
-            batch=8 if args.smoke or device == "cpu" else -1,   # -1: as big as the GPU fits
-            device=device,
-            workers=workers,
-            cache=args.cache if args.cache != "off" else False,
-            close_mosaic=15,       # finish on un-mosaicked frames, like the app sees
-            flipud=0.0,            # sky stays up
-            fliplr=0.5,
-            seed=0,
-            deterministic=True,
-            project=str(args.runs),
-            name=name,
-            exist_ok=True,
-            plots=not args.smoke,
-            val=True,
-        )
+        batch = 4 if args.smoke else (args.batch or DEFAULT_BATCH.get(size, 16))
+        while True:
+            say(f"\n== {name}: training at {size} from {args.base}, batch {batch}")
+            try:
+                YOLO(args.base).train(
+                    data=str(data_yaml),
+                    imgsz=size,
+                    epochs=1 if args.smoke else args.epochs,
+                    fraction=0.03 if args.smoke else 1.0,
+                    patience=args.patience,
+                    batch=batch,
+                    device=device,
+                    workers=workers,
+                    cache=args.cache if args.cache != "off" else False,
+                    close_mosaic=15,       # finish on un-mosaicked frames, like the app sees
+                    flipud=0.0,            # sky stays up
+                    fliplr=0.5,
+                    seed=0,
+                    deterministic=True,
+                    project=str(args.runs),
+                    name=name,
+                    exist_ok=True,
+                    plots=not args.smoke,
+                    val=True,
+                )
+                break
+            except Exception as e:
+                if not is_out_of_memory(e) or batch <= 1:
+                    raise
+                import torch
+                torch.cuda.empty_cache()
+                shutil.rmtree(run, ignore_errors=True)
+                batch //= 2
+                say(f"   GPU out of memory — trying again with batch {batch}")
     if not best.exists():
         fail(f"{name} finished without a best.pt — see the output above.")
     (run / "done.json").write_text(json.dumps({"size": size, "finished": time.time()}))
@@ -309,7 +356,6 @@ def score(best: Path, data_yaml: Path, size: int, device: str) -> dict:
     at_app = model.val(data=str(data_yaml), imgsz=size, device=device, split="val",
                        conf=APP_CONFIDENCE, plots=False, verbose=False)
     return {
-        "size": size,
         "mAP50": round(float(full.box.map50), 4),
         "mAP50-95": round(float(full.box.map), 4),
         f"recall@{APP_CONFIDENCE}": round(float(at_app.box.mr), 4),
@@ -325,44 +371,57 @@ def main() -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("package", type=Path, help="the RallyLab package zip or its unzipped folder")
-    p.add_argument("--sizes", type=int, nargs="+", default=[1280, 960])
-    p.add_argument("--base", default="yolo26s.pt", help="starting weights: yolo26s.pt or your previous best.pt")
+    p.add_argument("--extra", type=Path, nargs="*", default=[],
+                   help="extra training data folders (images/ + labels/), e.g. from get_extra_datasets.py")
+    p.add_argument("--sizes", type=int, nargs="+", default=[1280])
+    p.add_argument("--base", default="yolo26s.pt", help="starting weights: yolo26s.pt or a previous best.pt")
     p.add_argument("--epochs", type=int, default=150)
     p.add_argument("--patience", type=int, default=40, help="stop after this many epochs without improving")
+    p.add_argument("--batch", type=int, help="override the batch size (default: 8 at 1280, 16 at 960)")
     p.add_argument("--cache", choices=["off", "ram", "disk"], default="off",
                    help="ram is fastest if the machine has 32 GB+; disk trades space for speed")
     p.add_argument("--runs", type=Path, default=HERE / "runs")
-    p.add_argument("--smoke", action="store_true", help="a 1-minute run to check the setup")
+    p.add_argument("--smoke", action="store_true", help="a few-minute run to check the setup")
     p.add_argument("--device", help="override the GPU choice: 0 (NVIDIA), mps (Apple) or cpu")
     args = p.parse_args()
     args.runs = args.runs.resolve()
+    extras = [e.resolve() for e in args.extra]
 
     device = args.device or check_machine()
     package = open_package(args.package.resolve())
-    data_yaml, check = prepare(package, HERE / "prepared" / package.name)
-    report_ball_sizes(check["sizes"], args.sizes)
+    # Without extras, one dataset; with them, the same package with and without,
+    # so the comparison says whether the extra data helps.
+    variants = [("", [])] + ([("_plus", extras)] if extras else [])
+    prepared = []
+    for suffix, extra in variants:
+        data_yaml, check = prepare(package, HERE / "prepared" / (package.name + suffix), extra)
+        prepared.append((suffix, data_yaml, check))
+    report_ball_sizes(prepared[-1][2]["sizes"], args.sizes)
 
     sizes = [320] if args.smoke else args.sizes
     results = []
+    out = HERE / "bring_back"
+    out.mkdir(exist_ok=True)
     for size in sizes:
-        best = train_one(data_yaml, size, args, device)
-        say(f"\n== Scoring {best.parent.parent.name} on the val videos")
-        r = score(best, data_yaml, size, device)
-        results.append(r)
-        out = HERE / "bring_back"
-        out.mkdir(exist_ok=True)
-        shutil.copy2(best, out / f"ball{size}{'_smoke' if args.smoke else ''}_best.pt")
+        for suffix, data_yaml, _ in prepared:
+            name = f"ball{size}{suffix}" + ("_smoke" if args.smoke else "")
+            best = train_one(data_yaml, size, name, args, device)
+            say(f"\n== Scoring {name} on the val videos")
+            results.append({"model": name, "size": size, **score(best, data_yaml, size, device)})
+            shutil.copy2(best, out / f"{name}_best.pt")
 
     say("\n== Results on the val videos")
     keys = list(results[0].keys())
     say("   " + "  ".join(f"{k:>16}" for k in keys))
     for r in results:
         say("   " + "  ".join(f"{str(r[k]):>16}" for k in keys))
-    (HERE / "bring_back" / "results.json").write_text(json.dumps(
-        {"package": package.name, "base": args.base, "results": results, "data": check["stats"],
-         "fixed": check["problems"]}, indent=2))
-    say(f"\n✅ Done. Bring {HERE / 'bring_back'} to the laptop: RallyLab → Models → Add Model… on each "
-        f"best.pt, then Evaluate.")
+    (out / "results.json").write_text(json.dumps(
+        {"package": package.name, "base": args.base, "extra": [e.name for e in extras], "results": results,
+         "data": prepared[-1][2]["stats"], "fixed": prepared[-1][2]["problems"]}, indent=2))
+    credits = [e.parent / "CREDITS.txt" for e in extras if (e.parent / "CREDITS.txt").exists()]
+    if credits:
+        shutil.copy2(credits[0], out / "CREDITS.txt")
+    say(f"\n✅ Done. Bring {out} to the laptop: RallyLab → Models → Add Model… on each best.pt, then Evaluate.")
 
 
 if __name__ == "__main__":   # required for data-loader workers on Windows
