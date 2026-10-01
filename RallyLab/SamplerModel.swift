@@ -176,7 +176,17 @@ final class SamplerModel {
     var prelabelConfidence: Double = 0.25
     /// Which model draws the first boxes: nil is the app's own; a URL is a
     /// model from the Models tab (usually the latest one trained).
-    var prelabelModel: URL?
+    /// Remembered across launches while the file is still there.
+    var prelabelModel: URL? = SamplerModel.savedPrelabelModel() {
+        didSet { UserDefaults.standard.set(prelabelModel?.path, forKey: Self.prelabelModelKey) }
+    }
+    private static let prelabelModelKey = "RallyLab.prelabelModel"
+
+    private static func savedPrelabelModel() -> URL? {
+        guard let path = UserDefaults.standard.string(forKey: prelabelModelKey),
+              FileManager.default.fileExists(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
+    }
 
     // Dataset
     var validationFraction: Double = 0.15
@@ -531,8 +541,23 @@ final class SamplerModel {
     /// is judged on its own. A chosen model that won't load falls back to
     /// the app's.
     private nonisolated static func makePrelabeler(confidence: Float, model: URL?) -> YOLODetector {
+        detector(model: model, confidence: confidence)
+    }
+
+    /// A detector for a Models-tab model, or the app's own when there's none
+    /// (or it won't load). Models trained in RallyLab learned on letterboxed
+    /// frames, so they get every frame letterboxed — stretched, a landscape
+    /// frame squashes the ball into an oval they've never seen.
+    nonisolated static func detector(model: URL?, confidence: Float) -> YOLODetector {
         let chosen = model.map { YOLODetector(modelURL: $0) }
-        let detector = (chosen?.isLoaded == true ? chosen : nil) ?? YOLODetector()
+        let detector: YOLODetector
+        if let chosen, chosen.isLoaded {
+            detector = chosen
+            detector.useScaleFitLetterbox = true
+            detector.adaptiveLetterbox = false
+        } else {
+            detector = YOLODetector()
+        }
         detector.minConfidence = confidence
         detector.suppressesStaticObjects = false
         return detector
@@ -1289,11 +1314,8 @@ final class SnapDetector: @unchecked Sendable {
     func detector(for model: URL?) -> YOLODetector? {
         lock.lock(); defer { lock.unlock() }
         if let loaded, loaded.model == model { return loaded.detector }
-        let chosen = model.map { YOLODetector(modelURL: $0) }
-        let detector = (chosen?.isLoaded == true ? chosen : nil) ?? YOLODetector()
+        let detector = SamplerModel.detector(model: model, confidence: 0.05)
         guard detector.isLoaded else { return nil }
-        detector.minConfidence = 0.05
-        detector.suppressesStaticObjects = false
         loaded = (model, detector)
         return detector
     }

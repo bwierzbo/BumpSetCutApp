@@ -15,9 +15,9 @@ Train the BumpSetCut volleyball detector from a RallyLab training package.
      e.g. from get_extra_datasets.py) are checked the same way and added to
      TRAINING only: the package's val videos stay the benchmark;
   4. show how big the balls are at each training size;
-  5. train one model per size (1280 by default) — and with --extra, a second
+  5. train one model per size (960 by default) — and with --extra, a second
      one with the extra data, to see whether it helps — picking up where it
-     left off if interrupted. The batch is fixed per size (8 at 1280 suits a
+     left off if interrupted. The batch is fixed per size (16 at 960 suits a
      12 GB card) and halves automatically if the GPU runs out of memory;
      Augmentation is tuned for a small, fast ball (see volleyball_augmentations);
   6. score each on the held-out val videos — recall and precision at the
@@ -27,7 +27,8 @@ Train the BumpSetCut volleyball detector from a RallyLab training package.
 Bring bring_back/ to the laptop and use RallyLab's Models tab: Add Model… on
 each best.pt (it runs at the size it was trained at), then Evaluate.
 
-Options: --sizes 1280 960, --base yolo26s.pt, --epochs 150, --batch 8,
+Options: --sizes 960 1280, --base yolo26s.pt (or a previous best.pt to
+fine-tune), --epochs 150, --batch 16,
 --cache ram, --smoke (a few-minute run to test the setup).
 """
 
@@ -428,7 +429,7 @@ def main() -> None:
     p.add_argument("package", type=Path, help="the RallyLab package zip or its unzipped folder")
     p.add_argument("--extra", type=Path, nargs="*", default=[],
                    help="extra training data folders (images/ + labels/), e.g. from get_extra_datasets.py")
-    p.add_argument("--sizes", type=int, nargs="+", default=[1280])
+    p.add_argument("--sizes", type=int, nargs="+", default=[960])
     p.add_argument("--base", default="yolo26s.pt", help="starting weights: yolo26s.pt or a previous best.pt")
     p.add_argument("--epochs", type=int, default=150)
     p.add_argument("--patience", type=int, default=40, help="stop after this many epochs without improving")
