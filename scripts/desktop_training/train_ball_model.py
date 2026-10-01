@@ -295,11 +295,13 @@ def report_ball_sizes(sizes: list, train_sizes: list[int]) -> None:
 # far balls), small shifts, a ±5° tilt (handheld or unlevel cameras), mirror
 # left-right but never upside down (gravity and sky don't flip), and wider
 # brightness swings (dim gyms, dusk). Left off on purpose: mixup (blends two
-# images into ghost balls → false positives) and cutout-style occlusion (can
-# erase the ball while its box stays → the model learns to hallucinate).
+# images into ghost balls → false positives), cutmix (pastes patches of one
+# image into another — half-balls and ball-like fragments; a run with 0.2
+# gained nothing) and cutout-style occlusion (can erase the ball while its box
+# stays → the model learns to hallucinate).
 ULTRALYTICS_AUGMENTATION = dict(
     mosaic=1.0, close_mosaic=15, scale=0.5, translate=0.1, degrees=5.0,
-    fliplr=0.5, flipud=0.0, hsv_h=0.015, hsv_s=0.7, hsv_v=0.5, mixup=0.0,
+    fliplr=0.5, flipud=0.0, hsv_h=0.015, hsv_s=0.7, hsv_v=0.5, mixup=0.0, cutmix=0.0,
 )
 
 
