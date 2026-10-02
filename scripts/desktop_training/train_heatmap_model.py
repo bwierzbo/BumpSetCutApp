@@ -26,7 +26,9 @@ changes over ±4 frames. Every ball in a tracked rally is the ball in play.
 
 It first scores the author's weights untouched on your val windows (how the
 off-the-shelf model does on your footage), then trains, keeping the
-checkpoint with the best val F1 on balls in play. Results:
+checkpoint with the best val F1 on balls in play — on the tracked rallies'
+windows when the package has any (every frame labeled with the ball in
+play, the trustworthy score), else on all windows. Results:
     runs/heatmap/<name>/  best.pt  best.onnx  metrics.json  log.csv
     bring_back/<name>/    best.pt  best.onnx  metrics.json   ← copy this folder back
 
@@ -304,11 +306,12 @@ def score(model, loader, val_windows, device, width: int) -> dict:
             heat = out[torch.arange(len(index)), index.to(device)].float().cpu().numpy()
             for b in range(len(index)):
                 env = environment(val_windows[order]["clip"])
+                kind = "tracked" if "labels" in val_windows[order] else "sampled"
                 order += 1
                 truth = [(c[0], c[1], c[2] > 0.5) for c in centres[b].numpy() if c[0] >= 0]
                 found = peaks(heat[b])
                 for tau in (4, 8):
-                    for key in (f"{env}@{tau}", f"all@{tau}"):
+                    for key in (f"{env}@{tau}", f"all@{tau}", f"{kind}@{tau}"):
                         t = tallies.setdefault(key, {"tp": 0, "fp": 0, "fn": 0, "resting_hit": 0, "resting_missed": 0})
                         unmatched = list(truth)
                         for p in found:
@@ -333,7 +336,7 @@ def score(model, loader, val_windows, device, width: int) -> dict:
 def show(title: str, metrics: dict) -> None:
     say(f"\n{title}")
     say(f"   {'':10} {'in play: recall':>15} {'precision':>9} {'F1':>6}  {'resting recall':>14}   (4 px · 8 px recall/precision)")
-    for env in ("all", "beach", "grass", "indoor"):
+    for env in ("all", "beach", "grass", "indoor", "tracked", "sampled"):
         a, b = metrics.get(f"{env}@4"), metrics.get(f"{env}@8")
         if a:
             say(f"   {env:10} {a['recall']:15.1%} {a['precision']:9.1%} {a['f1']:6.3f}  {a['resting_recall']:14.1%}"
@@ -372,6 +375,9 @@ def main() -> None:
     train_w, val_w = load_windows(root)
     say(f"{len(train_w)} train · {len(val_w)} val windows "
         f"({sum(1 for w in val_w if w['balls'])} val with a ball) from {root.name}")
+    tracked = sum(1 for w in train_w + val_w if "labels" in w)
+    say(f"{tracked} windows from tracked rallies"
+        + ("" if tracked else " — none: is this an old package? Track rallies and re-export to use them."))
     loader = lambda ws, train: torch.utils.data.DataLoader(
         Windows(root, ws, train, size), batch_size=batch, shuffle=train, num_workers=args.workers,
         pin_memory=device.type == "cuda", drop_last=train, persistent_workers=args.workers > 0)
@@ -429,14 +435,19 @@ def main() -> None:
         scheduler.step()
         m = score(model, val_loader, val_w, device, size[0])
         a4, a8 = m["all@4"], m["all@8"]
+        # Tracked rallies label the ball in play on every frame, so they're the
+        # trustworthy score; sampled frames' in-play tags guess from motion.
+        judged = m.get("tracked@4", a4)
         log.append([epoch, round(total / max(1, batches), 6), a4["recall"], a4["precision"], a4["f1"],
                     a8["recall"], a8["f1"], a4["resting_recall"], round(time.time() - started)])
         say(f"epoch {epoch:3}/{args.epochs}  loss {total / max(1, batches):.5f}  "
             f"in play: F1 {a4['f1']:.3f} (recall {a4['recall']:.1%}, precision {a4['precision']:.1%})  "
-            f"@8px {a8['f1']:.3f}  {time.time() - started:.0f}s")
+            f"@8px {a8['f1']:.3f}"
+            + (f"  · tracked F1 {judged['f1']:.3f} (recall {judged['recall']:.1%})" if "tracked@4" in m else "")
+            + f"  {time.time() - started:.0f}s")
         torch.save({"state_dict": model.state_dict(), "epoch": epoch}, run / "last.pt")
-        if a4["f1"] > best_f1:
-            best_f1 = a4["f1"]
+        if judged["f1"] > best_f1:
+            best_f1 = judged["f1"]
             metrics["best"], metrics["best_epoch"] = m, epoch
             torch.save({"state_dict": model.state_dict(), "epoch": epoch}, run / "best.pt")
         with open(run / "log.csv", "w", newline="") as f:
