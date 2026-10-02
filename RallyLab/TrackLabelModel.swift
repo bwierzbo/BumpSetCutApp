@@ -41,6 +41,14 @@ final class TrackLabelModel {
     var speed = 0.25
     /// Playback stops on frames worth a look.
     var pauseOnUncertain = true
+    /// 1 = fit. `zoomCenter` is the image point (top-left normalised) at
+    /// the middle of the view.
+    private(set) var zoom: CGFloat = 1
+    private(set) var zoomCenter = CGPoint(x: 0.5, y: 0.5)
+    /// Zoomed in, keep the ball in the middle as the frames go by.
+    var followBall = true {
+        didSet { if followBall { centreOnBall() } }
+    }
     private(set) var status = ""
 
     @ObservationIgnored private var video: AVURLAsset?
@@ -57,7 +65,8 @@ final class TrackLabelModel {
     /// Frames are read about this often, whatever the video's frame rate —
     /// the same spacing as the multi-frame package.
     static let frameRate = MultiFramePackage.frameRate
-    private static let displayMaxPixel: CGFloat = 1600
+    private static let displayMaxPixel: CGFloat = 1920
+    static let maxZoom: CGFloat = 8
     private static let cacheSize = 90
     nonisolated private static let candidateConfidence: Float = 0.15
 
@@ -151,6 +160,7 @@ final class TrackLabelModel {
         selectedId = id
         // Start where there's most to check.
         index = rally?.points.firstIndex(where: \.isUncertain) ?? 0
+        centreOnBall()
         showFrame()
     }
 
@@ -314,7 +324,47 @@ final class TrackLabelModel {
     func go(to i: Int) {
         guard let rally else { return }
         index = min(max(0, i), rally.points.count - 1)
+        centreOnBall()
         showFrame()
+    }
+
+    // MARK: - Zoom
+
+    func setZoom(_ value: CGFloat, around point: CGPoint? = nil) {
+        zoom = min(max(value, 1), Self.maxZoom)
+        if let point { zoomCenter = point }
+        clampZoomCenter()
+    }
+
+    func zoom(by factor: CGFloat) {
+        setZoom(zoom * factor)
+        centreOnBall()
+    }
+
+    func resetZoom() {
+        zoom = 1
+        zoomCenter = CGPoint(x: 0.5, y: 0.5)
+    }
+
+    /// Pan by a fraction of the image (top-left normalised). Panning by hand
+    /// stops following the ball.
+    func pan(dx: CGFloat, dy: CGFloat) {
+        followBall = false
+        zoomCenter.x += dx
+        zoomCenter.y += dy
+        clampZoomCenter()
+    }
+
+    private func centreOnBall() {
+        guard followBall, zoom > 1.01, let p = point, p.state == .visible, let box = p.box else { return }
+        zoomCenter = CGPoint(x: box.rect.midX, y: 1 - box.rect.midY)
+        clampZoomCenter()
+    }
+
+    private func clampZoomCenter() {
+        let half = 0.5 / zoom
+        zoomCenter.x = min(max(zoomCenter.x, half), 1 - half)
+        zoomCenter.y = min(max(zoomCenter.y, half), 1 - half)
     }
 
     func stepBy(_ delta: Int) {

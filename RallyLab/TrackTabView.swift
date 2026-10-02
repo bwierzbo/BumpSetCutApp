@@ -10,6 +10,8 @@
 //  look) · ←/→ a frame · ⇧←/⇧→ the previous/next frame to check · click
 //  the ball · ↩ the pick is right · H hidden · ⌫ back to the solver's pick
 //  · [ ] move the start · { } move the end · D rally done.
+//  Zoom: pinch or ⌘-scroll around the pointer, scroll to pan, = / − / 0,
+//  F to keep the ball in the middle while zoomed.
 //
 
 import AppKit
@@ -119,9 +121,8 @@ struct TrackTabView: View {
             ZStack {
                 ReviewStyle.stage
                 if let image = tracker.image, let rally = tracker.rally {
-                    TrackFrameView(image: image, rally: rally, index: tracker.index, snapping: tracker.snapping) {
-                        tracker.place(at: $0)
-                    }
+                    TrackFrameView(image: image, rally: rally, index: tracker.index, snapping: tracker.snapping,
+                                   tracker: tracker)
                 } else {
                     ContentUnavailableView(
                         tracker.sessionName == nil ? "Choose a video" : "Choose a rally",
@@ -187,6 +188,16 @@ struct TrackTabView: View {
             .frame(width: 130)
             Toggle("Stop on frames to check", isOn: $tracker.pauseOnUncertain)
                 .toggleStyle(.checkbox)
+            Divider().frame(height: 16)
+            Button { tracker.zoom(by: 1 / 1.5) } label: { Image(systemName: "minus.magnifyingglass") }
+                .help("Zoom out (−)")
+                .disabled(tracker.zoom <= 1.01)
+            Text(String(format: "%.1f×", tracker.zoom)).font(.caption.monospacedDigit()).frame(width: 34)
+            Button { tracker.zoom(by: 1.5) } label: { Image(systemName: "plus.magnifyingglass") }
+                .help("Zoom in (=) — or pinch / ⌘-scroll on the frame")
+            Toggle("Follow ball (F)", isOn: $tracker.followBall)
+                .toggleStyle(.checkbox)
+                .help("While zoomed in, keep the ball in the middle as the frames go by")
             Spacer()
             Button("Hidden (H)") { tracker.markHidden() }
             Button("Re-track") { tracker.autoTrack() }
@@ -219,6 +230,10 @@ struct TrackTabView: View {
         default: break
         }
         switch event.charactersIgnoringModifiers?.lowercased() {
+        case "=", "+": tracker.zoom(by: 1.5)
+        case "-": tracker.zoom(by: 1 / 1.5)
+        case "0": tracker.resetZoom()
+        case "f": tracker.followBall.toggle()
         case "h": tracker.markHidden(); tracker.stepBy(1)
         case "d": tracker.toggleDone()
         case "[": shift ? tracker.extend(end: -0.5) : tracker.extend(start: -0.5)
@@ -286,54 +301,133 @@ private struct TrackFrameView: View {
     let rally: TrackedRally
     let index: Int
     let snapping: CGPoint?
-    let onClick: (CGPoint) -> Void
+    let tracker: TrackLabelModel
+    @State private var hoverPoint: CGPoint?
+    @State private var canvasSize: CGSize = .zero
+    @State private var pinchBase: CGFloat?
+    @State private var monitor: Any?
 
     var body: some View {
         GeometryReader { geo in
-            let view = OverlayGeometry.fittedRect(content: CGSize(width: image.width, height: image.height), in: geo.size)
-            Canvas { ctx, _ in
-                ctx.draw(Image(decorative: image, scale: 1, orientation: .up), in: view)
-                func centre(_ box: TrackCandidate) -> CGPoint {
-                    CGPoint(x: view.minX + box.rect.midX * view.width, y: view.minY + (1 - box.rect.midY) * view.height)
-                }
-                // Trail: 20 frames back, 6 ahead.
-                for k in max(0, index - 20)..<min(rally.points.count, index + 7) where k != index {
-                    guard let box = rally.points[k].box, rally.points[k].state == .visible else { continue }
-                    let c = centre(box)
-                    let fade = k < index ? 0.25 + 0.6 * Double(k - index + 20) / 20 : 0.35
-                    let r: CGFloat = k < index ? 2.5 : 2
-                    ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
-                             with: .color(Self.color(rally.points[k]).opacity(fade)))
-                }
-                // The detector's other candidates on this frame, faint.
-                if index < rally.candidates.count {
-                    for cand in rally.candidates[index] where cand != rally.points[index].box {
-                        let c = centre(cand)
-                        ctx.stroke(Path(ellipseIn: CGRect(x: c.x - 6, y: c.y - 6, width: 12, height: 12)),
-                                   with: .color(.white.opacity(0.35)), lineWidth: 1)
+            let view = viewRect(canvas: geo.size)
+            ZStack(alignment: .topTrailing) {
+                Canvas { ctx, _ in
+                    ctx.draw(Image(decorative: image, scale: 1, orientation: .up), in: view)
+                    func centre(_ box: TrackCandidate) -> CGPoint {
+                        CGPoint(x: view.minX + box.rect.midX * view.width, y: view.minY + (1 - box.rect.midY) * view.height)
+                    }
+                    // Trail: 20 frames back, 6 ahead.
+                    for k in max(0, index - 20)..<min(rally.points.count, index + 7) where k != index {
+                        guard let box = rally.points[k].box, rally.points[k].state == .visible else { continue }
+                        let c = centre(box)
+                        let fade = k < index ? 0.25 + 0.6 * Double(k - index + 20) / 20 : 0.35
+                        let r: CGFloat = (k < index ? 2.5 : 2) * min(tracker.zoom, 2.5)
+                        ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+                                 with: .color(Self.color(rally.points[k]).opacity(fade)))
+                    }
+                    // The detector's other candidates on this frame, faint.
+                    if index < rally.candidates.count {
+                        for cand in rally.candidates[index] where cand != rally.points[index].box {
+                            let c = centre(cand)
+                            let r = max(6, max(cand.rect.width * view.width, cand.rect.height * view.height) / 2 + 3)
+                            ctx.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+                                       with: .color(.white.opacity(0.35)), lineWidth: 1)
+                        }
+                    }
+                    let p = rally.points[index]
+                    if let box = p.box, p.state == .visible {
+                        let c = centre(box)
+                        let r = max(9, max(box.rect.width * view.width, box.rect.height * view.height) / 2 + 5)
+                        ctx.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+                                   with: .color(Self.color(p)),
+                                   style: StrokeStyle(lineWidth: 2.5, dash: p.origin == .filled ? [4, 3] : []))
+                    }
+                    if let s = snapping {
+                        let c = CGPoint(x: view.minX + s.x * view.width, y: view.minY + s.y * view.height)
+                        ctx.stroke(Path(ellipseIn: CGRect(x: c.x - 14, y: c.y - 14, width: 28, height: 28)),
+                                   with: .color(ReviewStyle.yours), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
                     }
                 }
-                let p = rally.points[index]
-                if let box = p.box, p.state == .visible {
-                    let c = centre(box)
-                    let r = max(9, max(box.rect.width * view.width, box.rect.height * view.height) / 2 + 5)
-                    ctx.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
-                               with: .color(Self.color(p)),
-                               style: StrokeStyle(lineWidth: 2.5, dash: p.origin == .filled ? [4, 3] : []))
-                }
-                if let s = snapping {
-                    let c = CGPoint(x: view.minX + s.x * view.width, y: view.minY + s.y * view.height)
-                    ctx.stroke(Path(ellipseIn: CGRect(x: c.x - 14, y: c.y - 14, width: 28, height: 28)),
-                               with: .color(ReviewStyle.yours), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+                if tracker.zoom > 1.01 {
+                    Button { tracker.resetZoom() } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus.magnifyingglass")
+                            Text(String(format: "%.1f×", tracker.zoom)).monospacedDigit()
+                        }
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 9).padding(.vertical, 5)
+                        .background(.ultraThinMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Back to fit (0)")
+                    .padding(10)
                 }
             }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
             .contentShape(Rectangle())
             .gesture(SpatialTapGesture().onEnded { tap in
                 let p = CGPoint(x: (tap.location.x - view.minX) / view.width, y: (tap.location.y - view.minY) / view.height)
                 guard (0...1).contains(p.x), (0...1).contains(p.y) else { return }
-                onClick(p)
+                tracker.place(at: p)
             })
+            .simultaneousGesture(MagnifyGesture()
+                .onChanged { value in
+                    let base = pinchBase ?? tracker.zoom
+                    if pinchBase == nil { pinchBase = base }
+                    zoom(by: (base * value.magnification) / tracker.zoom, anchor: value.startLocation, view: view)
+                }
+                .onEnded { _ in pinchBase = nil })
+            .onContinuousHover { phase in
+                if case .active(let p) = phase { hoverPoint = p } else { hoverPoint = nil }
+            }
+            .onAppear { canvasSize = geo.size; installScrollMonitor() }
+            .onChange(of: geo.size) { _, size in canvasSize = size }
+            .onDisappear(perform: removeScrollMonitor)
         }
+    }
+
+    /// The fitted rect scaled by the zoom, positioned so `zoomCenter` sits
+    /// at the middle of the canvas.
+    private func viewRect(canvas: CGSize) -> CGRect {
+        let fit = OverlayGeometry.fittedRect(content: CGSize(width: image.width, height: image.height), in: canvas)
+        let w = fit.width * tracker.zoom, h = fit.height * tracker.zoom
+        return CGRect(x: canvas.width / 2 - tracker.zoomCenter.x * w,
+                      y: canvas.height / 2 - tracker.zoomCenter.y * h, width: w, height: h)
+    }
+
+    /// Zoom by `factor`, keeping the image point under `anchor` fixed.
+    private func zoom(by factor: CGFloat, anchor: CGPoint, view: CGRect) {
+        let old = tracker.zoom
+        let new = min(max(old * factor, 1), TrackLabelModel.maxZoom)
+        guard new != old else { return }
+        let target = CGPoint(x: (anchor.x - view.minX) / view.width, y: (anchor.y - view.minY) / view.height)
+        let offsetX = (anchor.x - canvasSize.width / 2) / (view.width / old * new)
+        let offsetY = (anchor.y - canvasSize.height / 2) / (view.height / old * new)
+        tracker.setZoom(new, around: CGPoint(x: target.x - offsetX, y: target.y - offsetY))
+    }
+
+    /// Scroll pans when zoomed in; ⌘-scroll (a mouse wheel) zooms around the
+    /// pointer. Only while the pointer is over the frame.
+    private func installScrollMonitor() {
+        removeScrollMonitor()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            guard let hover = hoverPoint else { return event }
+            let view = viewRect(canvas: canvasSize)
+            if event.modifierFlags.contains(.command) {
+                zoom(by: exp(event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 0.01 : 0.1)), anchor: hover, view: view)
+                return nil
+            }
+            guard tracker.zoom > 1.01 else { return event }
+            let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
+            tracker.pan(dx: -event.scrollingDeltaX * scale / view.width, dy: -event.scrollingDeltaY * scale / view.height)
+            return nil
+        }
+    }
+
+    private func removeScrollMonitor() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 
     static func color(_ p: TrackPoint) -> Color {
