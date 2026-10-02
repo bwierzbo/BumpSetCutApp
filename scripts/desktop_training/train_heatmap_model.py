@@ -7,9 +7,9 @@ The model sees 9 consecutive grayscale frames at 512×288 and outputs, for
 each, a heatmap whose peak is the ball centre plus a radius map. It starts
 from the VballNet author's published beach-trained weights (MIT licence,
 github.com/asigatchov/fast-volleyball-tracking-inference) and is fine-tuned
-on your windows. Each window has one labeled frame; only that frame's
-heatmap is scored, and it's placed at a random position among the 9 so
-every output learns.
+on your windows. A window from sampled frames has one labeled frame,
+placed at a random position among the 9 so every output learns; one from
+a tracked rally has every frame labeled. Only labeled frames are scored.
 
     python train_heatmap_model.py Test1-multiframe-<stamp>.zip
     python train_heatmap_model.py <package> --epochs 60 --batch 16 --name heat1
@@ -155,8 +155,10 @@ def load_windows(root: Path) -> tuple[list[dict], list[dict]]:
 
 
 class Windows(torch.utils.data.Dataset):
-    """9 grayscale frames at 512×288 + the labeled frame's heatmap.
+    """9 grayscale frames at 512×288 + a heatmap for each labeled one.
 
+    Windows from sampled frames have one labeled frame (the target);
+    windows from tracked rallies have a label on (nearly) every frame.
     Portrait windows are turned a quarter turn to landscape (frames and
     balls), so every input is 512×288 without squashing a portrait frame.
     """
@@ -173,7 +175,7 @@ class Windows(torch.utils.data.Dataset):
         w = self.windows[i]
         target = w["target"]
         last_start = len(w["frames"]) - SEQ
-        # Train: the labeled frame anywhere among the 9. Val: in the middle.
+        # Train: the target frame anywhere among the 9. Val: in the middle.
         start = random.randint(max(0, target - SEQ + 1), min(target, last_start)) if self.train \
             else min(max(0, target - SEQ // 2), last_start)
         index = target - start
@@ -187,20 +189,28 @@ class Windows(torch.utils.data.Dataset):
                 img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
             frames.append(cv2.resize(img, (WIDTH, HEIGHT), interpolation=cv2.INTER_AREA))
         clip = np.stack(frames).astype(np.float32) / 255.0
+
+        # Per frame: a list of balls, or None where there's no label.
+        if "labels" in w:
+            labels = w["labels"][start:start + SEQ]
+        else:
+            labels = [None] * SEQ
+            labels[index] = w["balls"]
         # Balls as (x, y, radius) in 512×288 pixels.
-        balls = []
-        for cx, cy, bw, bh in w["balls"]:
+        def to_pixels(ball):
+            cx, cy, bw, bh = ball
             if portrait:  # quarter turn clockwise: (x, y) → (1 − y, x)
                 cx, cy, bw, bh = 1 - cy, cx, bh, bw
-            r = max(bw * WIDTH, bh * HEIGHT) / 2
-            balls.append((cx * WIDTH, cy * HEIGHT, r))
+            return cx * WIDTH, cy * HEIGHT, max(bw * WIDTH, bh * HEIGHT) / 2
+        per_frame = [None if l is None else [to_pixels(b) for b in l] for l in labels]
 
         if self.train:
             if random.random() < 0.5:
                 clip = clip[:, :, ::-1]
-                balls = [(WIDTH - 1 - x, y, r) for x, y, r in balls]
+                per_frame = [None if f is None else [(WIDTH - 1 - x, y, r) for x, y, r in f] for f in per_frame]
             if random.random() < 0.2:  # a ball's flight played backwards is still a ball's flight
                 clip = clip[::-1]
+                per_frame = per_frame[::-1]
                 index = SEQ - 1 - index
             gain, bias = random.uniform(0.7, 1.3), random.uniform(-0.1, 0.1)
             gamma = random.uniform(0.7, 1.4)
@@ -209,18 +219,23 @@ class Windows(torch.utils.data.Dataset):
                 clip = np.clip(clip + np.random.normal(0, random.uniform(0.005, 0.03), clip.shape), 0, 1)
             clip = np.ascontiguousarray(clip, dtype=np.float32)
 
-        heat = np.zeros((HEIGHT, WIDTH), np.float32)
-        radius = np.zeros(2, np.float32)  # (radius as a fraction of width, has a ball)
-        for x, y, r in balls:
-            heat = np.maximum(heat, np.exp(-((self.xs - x) ** 2 + (self.ys - y) ** 2) / (2 * SIGMA ** 2)))
-        if balls:
-            radius[:] = (max(r for _, _, r in balls) / WIDTH, 1)
+        heat = np.zeros((SEQ, HEIGHT, WIDTH), np.float32)
+        mask = np.zeros(SEQ, np.float32)
+        radius = np.zeros((SEQ, 2), np.float32)  # (radius as a fraction of width, has a ball)
+        for f, balls in enumerate(per_frame):
+            if balls is None:
+                continue
+            mask[f] = 1
+            for x, y, r in balls:
+                heat[f] = np.maximum(heat[f], np.exp(-((self.xs - x) ** 2 + (self.ys - y) ** 2) / (2 * SIGMA ** 2)))
+            if balls:
+                radius[f] = (max(r for _, _, r in balls) / WIDTH, 1)
+        # Scoring looks at the target frame's balls.
         centres = np.full((8, 2), -1, np.float32)
-        for k, (x, y, _) in enumerate(balls[:8]):
+        for k, (x, y, _) in enumerate((per_frame[index] or [])[:8]):
             centres[k] = (x, y)
-        return (torch.from_numpy(clip), torch.from_numpy(heat), index,
+        return (torch.from_numpy(clip), torch.from_numpy(heat), torch.from_numpy(mask), index,
                 torch.from_numpy(radius), torch.from_numpy(centres))
-
 
 
 # MARK: - Scoring
@@ -237,7 +252,7 @@ def score(model, loader, val_windows, device) -> dict:
     tallies: dict[str, dict[str, int]] = {}
     order = 0
     with torch.no_grad():
-        for clip, _, index, _, centres in loader:
+        for clip, _, _, index, _, centres in loader:
             out = model(clip.to(device, non_blocking=True))
             heat = out[torch.arange(len(index)), index.to(device)].float().cpu().numpy()
             for b in range(len(index)):
@@ -332,20 +347,21 @@ def main() -> None:
     for epoch in range(1, args.epochs + 1):
         model.train()
         started, total, batches = time.time(), 0.0, 0
-        for clip, heat, index, radius, _ in train_loader:
+        for clip, heat, mask, _, radius, _ in train_loader:
             clip, heat = clip.to(device, non_blocking=True), heat.to(device, non_blocking=True)
-            index, radius = index.to(device), radius.to(device)
+            mask, radius = mask.to(device), radius.to(device)
             with torch.autocast(device_type=device.type, enabled=device.type == "cuda"):
                 out = model(clip)
-            rows = torch.arange(len(index), device=device)
-            pred = out[rows, index].float().clamp(1e-7, 1 - 1e-7)
-            # The author's weighted BCE, on the labeled frame only.
-            loss = -((1 - pred) ** 2 * heat * torch.log(pred) + pred ** 2 * (1 - heat) * torch.log(1 - pred)).mean()
-            has_ball = radius[:, 1] > 0
+            pred = out[:, :SEQ].float().clamp(1e-7, 1 - 1e-7)
+            # The author's weighted BCE, per frame, on labeled frames only.
+            per_frame = -((1 - pred) ** 2 * heat * torch.log(pred)
+                          + pred ** 2 * (1 - heat) * torch.log(1 - pred)).mean(dim=(2, 3))
+            loss = (per_frame * mask).sum() / mask.sum().clamp(min=1)
+            has_ball = radius[..., 1] > 0
             if has_ball.any():
-                peak = heat.flatten(1).argmax(1)
-                r_pred = out[rows, SEQ + index].float().flatten(1).gather(1, peak[:, None])[:, 0]
-                loss = loss + RADIUS_WEIGHT * (torch.log(r_pred[has_ball]) - torch.log(radius[has_ball, 0])).abs().mean()
+                peak = heat.flatten(2).argmax(2)
+                r_pred = out[:, SEQ:].float().flatten(2).gather(2, peak[..., None])[..., 0]
+                loss = loss + RADIUS_WEIGHT * (torch.log(r_pred[has_ball]) - torch.log(radius[..., 0][has_ball])).abs().mean()
             optimizer.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             scaler.step(optimizer)

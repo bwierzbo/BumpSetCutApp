@@ -1,0 +1,224 @@
+//
+//  RallyTrack.swift
+//  RallyLab
+//
+//  A rally labeled frame by frame: where the ball in play is on every
+//  frame (about 30 a second), or that it's hidden. Multi-frame heatmap
+//  models learn from motion, so they want every frame of a rally, not
+//  scattered ones — this is the TrackNet/WASB way of labeling.
+//
+//  The detector proposes candidates on each frame; TrackSolver picks the
+//  one most consistent path through them (a ball moves a little each
+//  frame, so a sideline ball or a player's head can't hijack it). Your
+//  clicks and "hidden" marks are fixed points the path is re-solved
+//  around, and short gaps between found frames are filled along a
+//  parabola, flagged for you to look at.
+//
+
+import CoreGraphics
+import Foundation
+
+struct TrackCandidate: Codable, Equatable {
+    /// Vision-normalised (bottom-up) box in the upright frame.
+    var x, y, w, h: Double
+    var confidence: Double
+
+    init(rect: CGRect, confidence: Double) {
+        (x, y, w, h) = (rect.minX, rect.minY, rect.width, rect.height)
+        self.confidence = confidence
+    }
+
+    var rect: CGRect { CGRect(x: x, y: y, width: w, height: h) }
+}
+
+struct TrackPoint: Codable, Equatable {
+    enum State: String, Codable {
+        /// The ball is here (`box`).
+        case visible
+        /// Out of sight: behind a player, the net, out of frame.
+        case hidden
+        /// Not decided — no candidate fit the path. Left out of training.
+        case unknown
+    }
+    enum Origin: String, Codable {
+        /// Chosen by the solver from the detector's candidates.
+        case auto
+        /// Yours: a click or a hidden mark. Fixed when re-solving.
+        case user
+        /// Interpolated across a short gap.
+        case filled
+    }
+
+    /// Presentation time in the video, seconds.
+    let time: Double
+    var state: State
+    var origin: Origin
+    /// Vision-normalised (bottom-up) box in the upright frame, when visible.
+    var box: TrackCandidate?
+
+    /// Worth a look before calling the rally done.
+    var isUncertain: Bool {
+        switch (origin, state) {
+        case (.user, _): return false
+        case (.filled, _), (_, .unknown): return true
+        case (.auto, .visible): return (box?.confidence ?? 0) < TrackSolver.sureConfidence
+        case (.auto, .hidden): return false
+        }
+    }
+}
+
+struct TrackedRally: Codable, Identifiable, Equatable {
+    let id: UUID
+    var start: Double
+    var end: Double
+    /// One per frame, in time order.
+    var points: [TrackPoint]
+    /// The detector's candidates per frame (same order), kept so edits
+    /// re-solve instantly without running the detector again.
+    var candidates: [[TrackCandidate]]
+    var done: Bool
+}
+
+/// Picks the ball in play through a rally's frames.
+enum TrackSolver {
+
+    /// Detections at or above this the solver treats as sure.
+    static let sureConfidence = 0.5
+    /// Gaps up to this many frames between found frames are filled.
+    static let maxFill = 8
+
+    /// Re-solves `rally`'s non-user frames from its candidates, keeping
+    /// every user point fixed, then fills short gaps.
+    static func solve(_ rally: TrackedRally) -> [TrackPoint] {
+        let n = rally.points.count
+        guard n > 0, rally.candidates.count == n else { return rally.points }
+
+        // States per frame: candidate k, or "none" (index count).
+        // Costs are lower-is-better: an unlikely detection costs more, a
+        // jump costs with its size, "none" costs a flat amount so the path
+        // takes a believable candidate when there is one.
+        let noneCost = 0.55
+        func options(_ i: Int) -> [TrackCandidate?] {
+            let p = rally.points[i]
+            if p.origin == .user {
+                return p.state == .visible ? [p.box] : [nil]
+            }
+            return rally.candidates[i].map { Optional($0) } + [nil]
+        }
+        func emission(_ c: TrackCandidate?, user: Bool) -> Double {
+            if user { return 0 }
+            guard let c else { return noneCost }
+            return 1 - c.confidence
+        }
+        // A ball moves up to ~5% of the frame between frames at 30 fps
+        // (a hard spike); jumps beyond that cost steeply.
+        func transition(_ a: TrackCandidate?, _ b: TrackCandidate?) -> Double {
+            guard let a, let b else { return 0.05 }
+            let d = hypot(a.rect.midX - b.rect.midX, (a.rect.midY - b.rect.midY) * 9 / 16)
+            return d < 0.05 ? d * 2 : 0.1 + (d - 0.05) * 30
+        }
+
+        var opts = (0..<n).map(options)
+        var cost = opts[0].map { emission($0, user: rally.points[0].origin == .user) }
+        var back: [[Int]] = [Array(repeating: 0, count: opts[0].count)]
+        for i in 1..<n {
+            let user = rally.points[i].origin == .user
+            var next: [Double] = []
+            var from: [Int] = []
+            for b in opts[i] {
+                var best = (Double.infinity, 0)
+                for (k, a) in opts[i - 1].enumerated() {
+                    let c = cost[k] + transition(a, b)
+                    if c < best.0 { best = (c, k) }
+                }
+                next.append(best.0 + emission(b, user: user))
+                from.append(best.1)
+            }
+            cost = next
+            back.append(from)
+        }
+        var k = cost.indices.min { cost[$0] < cost[$1] } ?? 0
+        var chosen = Array<TrackCandidate?>(repeating: nil, count: n)
+        for i in stride(from: n - 1, through: 0, by: -1) {
+            chosen[i] = opts[i][k]
+            k = back[i][k]
+        }
+        opts.removeAll()
+
+        var points = rally.points
+        for i in 0..<n where points[i].origin != .user {
+            points[i].origin = .auto
+            points[i].box = chosen[i]
+            points[i].state = chosen[i] == nil ? .unknown : .visible
+        }
+        fillGaps(&points)
+        return points
+    }
+
+    /// Unknown runs of up to `maxFill` frames with found frames on both
+    /// sides get positions on a parabola through the frames around them —
+    /// x and y each quadratic in time, which is how a ball flies.
+    static func fillGaps(_ points: inout [TrackPoint]) {
+        var i = 0
+        while i < points.count {
+            guard points[i].state == .unknown else { i += 1; continue }
+            var j = i
+            while j < points.count, points[j].state == .unknown { j += 1 }
+            defer { i = j }
+            guard i > 0, j < points.count, j - i <= maxFill,
+                  points[i - 1].state == .visible, points[j].state == .visible else { continue }
+            let before = (max(0, i - 4)..<i).filter { points[$0].state == .visible }
+            let after = (j..<min(points.count, j + 4)).filter { points[$0].state == .visible }
+            let known = (before + after).compactMap { k in points[k].box.map { (points[k].time, $0) } }
+            guard known.count >= 2 else { continue }
+            let size = known.map { ($0.1.w, $0.1.h) }
+            let w = size.map(\.0).reduce(0, +) / Double(size.count)
+            let h = size.map(\.1).reduce(0, +) / Double(size.count)
+            let fx = fit(known.map { ($0.0, $0.1.rect.midX) })
+            let fy = fit(known.map { ($0.0, $0.1.rect.midY) })
+            for k in i..<j {
+                let t = points[k].time
+                let rect = CGRect(x: fx(t) - w / 2, y: fy(t) - h / 2, width: w, height: h)
+                points[k].box = TrackCandidate(rect: rect, confidence: 0)
+                points[k].state = .visible
+                points[k].origin = .filled
+            }
+        }
+    }
+
+    /// Least-squares quadratic (linear with fewer than 3 points) through
+    /// (t, v), as a function of t.
+    static func fit(_ samples: [(Double, Double)]) -> (Double) -> Double {
+        let t0 = samples[0].0
+        let pts = samples.map { ($0.0 - t0, $0.1) }
+        if pts.count < 3 {
+            let (a, b) = (pts.first!, pts.last!)
+            let slope = b.0 == a.0 ? 0 : (b.1 - a.1) / (b.0 - a.0)
+            return { t in a.1 + slope * (t - t0 - a.0) }
+        }
+        // Normal equations for v = c0 + c1·t + c2·t².
+        var s = [Double](repeating: 0, count: 5), r = [Double](repeating: 0, count: 3)
+        for (t, v) in pts {
+            var p = 1.0
+            for k in 0..<5 { s[k] += p; if k < 3 { r[k] += v * p }; p *= t }
+        }
+        let m = [[s[0], s[1], s[2]], [s[1], s[2], s[3]], [s[2], s[3], s[4]]]
+        guard let c = solve3(m, r) else { return fit([pts.first!, pts.last!].map { ($0.0 + t0, $0.1) }) }
+        return { t in let u = t - t0; return c[0] + c[1] * u + c[2] * u * u }
+    }
+
+    private static func solve3(_ m: [[Double]], _ r: [Double]) -> [Double]? {
+        func det(_ a: [[Double]]) -> Double {
+            a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1])
+                - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0])
+                + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0])
+        }
+        let d = det(m)
+        guard abs(d) > 1e-12 else { return nil }
+        return (0..<3).map { col in
+            var a = m
+            for row in 0..<3 { a[row][col] = r[row] }
+            return det(a) / d
+        }
+    }
+}

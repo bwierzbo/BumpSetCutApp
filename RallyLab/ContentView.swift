@@ -13,13 +13,14 @@ struct ContentView: View {
     /// Owns the Sampler's dataset folder while a project is open.
     @Bindable var projects: ProjectsModel
     @Bindable var library: ModelLibrary
+    let tracker: TrackLabelModel
     @State private var showingImporter = false
     /// The tab you were on last time, so RallyLab reopens where you left off.
     @AppStorage("RallyLab.tab") private var tab: Tab = .projects
     /// Set by "Continue without a project" on the welcome window.
     @State private var workingWithoutProject = false
 
-    enum Tab: String, Hashable { case projects, sampler, models, pipeline, net, compare, fsm }
+    enum Tab: String, Hashable { case projects, sampler, track, models, pipeline, net, compare, fsm }
 
     var body: some View {
         Group {
@@ -63,6 +64,9 @@ struct ContentView: View {
             SamplerTabView(lab: model, sampler: sampler, isActive: tab == .sampler)
                 .tabItem { Label("Sampler", systemImage: "photo.stack") }
                 .tag(Tab.sampler)
+            TrackTabView(tracker: tracker, isActive: tab == .track)
+                .tabItem { Label("Track", systemImage: "scope") }
+                .tag(Tab.track)
             ModelsTabView(library: library) { sessionName, frame in
                 if let session = sampler.sessions.first(where: { $0.name == sessionName }) {
                     sampler.openSession(session, frame: frame)

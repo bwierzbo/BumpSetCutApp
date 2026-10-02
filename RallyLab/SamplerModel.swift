@@ -1164,6 +1164,19 @@ final class SamplerModel {
         }
     }
 
+    /// The Track tab's rallies for a video, saved through here so the
+    /// Sampler's copy of the session (which it saves on every review
+    /// change) always has them.
+    func setTracks(_ tracks: [TrackedRally], session name: String) {
+        if var session = currentSession, session.name == name {
+            session.tracks = tracks
+            saveSession(session)
+        } else if let s = sessions.firstIndex(where: { $0.name == name }) {
+            sessions[s].tracks = tracks
+            do { try store.save(sessions[s]) } catch { status = "Couldn't save: \(error.localizedDescription)" }
+        }
+    }
+
     private func saveSession(_ session: VideoSession) {
         currentSession = session
         do {

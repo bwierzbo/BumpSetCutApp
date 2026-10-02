@@ -15,6 +15,7 @@ struct RallyLabApp: App {
     /// Reopens the last project on launch, the way Xcode restores its window.
     @State private var projects: ProjectsModel
     @State private var library: ModelLibrary
+    @State private var tracker: TrackLabelModel
 
     init() {
         // `RallyLab --export-training-data [path]` batch-exports classifier
@@ -31,11 +32,12 @@ struct RallyLabApp: App {
         _sampler = State(initialValue: sampler)
         _projects = State(initialValue: ProjectsModel(sampler: sampler))
         _library = State(initialValue: ModelLibrary(sampler: sampler))
+        _tracker = State(initialValue: TrackLabelModel(sampler: sampler))
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model, sampler: sampler, projects: projects, library: library)
+            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker)
         }
         .commands {
             CommandGroup(replacing: .newItem) {

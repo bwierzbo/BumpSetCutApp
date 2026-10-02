@@ -86,6 +86,8 @@ struct VideoSession: Codable, Identifiable, Equatable {
     var frames: [FrameRecord]
     /// Places in this video where you've deleted the detector's guess.
     var rejected: [RejectedSpot]? = nil
+    /// Rallies labeled frame by frame in the Track tab.
+    var tracks: [TrackedRally]? = nil
 
     var reviewedCount: Int { frames.filter(\.reviewed).count }
     var boxCount: Int { frames.filter(\.keep).reduce(0) { $0 + $1.boxes.count } }
