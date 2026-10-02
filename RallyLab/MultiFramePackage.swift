@@ -133,7 +133,7 @@ enum MultiFramePackage {
                                        uniquingKeysWith: { a, _ in a })
                 for point in rally.points.enumerated().filter({ $0.offset % Self.trackStride == 0 }).map(\.element)
                 where point.state != .unknown {
-                    guard let times = clip.window(around: point.time) else { counts.edges += 1; continue }
+                    guard let times = clip.window(around: point.time, exact: true) else { counts.edges += 1; continue }
                     tracked.append((point.time, times, times.map { byKey[ClipFrames.key($0)] }))
                     for t in times { needed[ClipFrames.key(t)] = t }
                 }
@@ -273,8 +273,11 @@ private struct ClipFrames {
     /// Presentation times of the window around the frame showing at `seconds`
     /// — the frame the sampler extracted, which is the last one starting at or
     /// before that time — or nil if the video ends too soon on either side.
-    func window(around seconds: Double) -> [CMTime]? {
-        let t = CMTime(seconds: seconds, preferredTimescale: 600)
+    /// `exact`: `seconds` is a frame's own presentation time (a tracked
+    /// rally's), which rounded to the sampler's 1/600 s could land a hair
+    /// before the frame (59.94 fps) and centre the window on the one before.
+    func window(around seconds: Double, exact: Bool = false) -> [CMTime]? {
+        let t = exact ? TrackFrameStore.request(seconds) : CMTime(seconds: seconds, preferredTimescale: 600)
         guard let cursor = track.makeSampleCursor(presentationTimeStamp: t) else { return nil }
         if cursor.presentationTimeStamp > t, cursor.stepInPresentationOrder(byCount: -1) != -1 { return nil }
         var times: [CMTime] = []
