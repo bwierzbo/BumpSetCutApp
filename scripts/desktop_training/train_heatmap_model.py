@@ -3,8 +3,9 @@
 Train a multi-frame heatmap ball detector (VballNetV4c) on a RallyLab
 multi-frame package (Models tab → Export Multi-Frame Package).
 
-The model sees 9 consecutive grayscale frames at 512×288 and outputs, for
-each, a heatmap whose peak is the ball centre plus a radius map. It starts
+The model sees 9 consecutive grayscale frames (512×288, or 1024×576 with
+--size 1024) and outputs, for each, a heatmap whose peak is the ball centre
+plus a radius map. It starts
 from the VballNet author's published beach-trained weights (MIT licence,
 github.com/asigatchov/fast-volleyball-tracking-inference) and is fine-tuned
 on your windows. A window from sampled frames has one labeled frame,
@@ -12,17 +13,25 @@ placed at a random position among the 9 so every output learns; one from
 a tracked rally has every frame labeled. Only labeled frames are scored.
 
     python train_heatmap_model.py Test1-multiframe-<stamp>.zip
-    python train_heatmap_model.py <package> --epochs 60 --batch 16 --name heat1
+    python train_heatmap_model.py <package> --size 1024 --name heat1024
+
+Balls in play vs resting balls: a motion model is for the ball in play.
+Balls that sit still through the window (on the sideline, in a cart) are
+boxed in sampled frames but aren't what it should learn to fire on, so in
+training the area around a resting ball is ignored (neither "ball" nor "no
+ball"), and scores count balls in play: recall is of moving balls, a peak on
+a resting ball is neither a hit nor a false alarm, and resting-ball recall
+is shown on its own. A ball is resting when the patch around it barely
+changes over ±4 frames. Every ball in a tracked rally is the ball in play.
 
 It first scores the author's weights untouched on your val windows (how the
 off-the-shelf model does on your footage), then trains, keeping the
-checkpoint with the best val F1 for the labeled frame. Results:
+checkpoint with the best val F1 on balls in play. Results:
     runs/heatmap/<name>/  best.pt  best.onnx  metrics.json  log.csv
     bring_back/<name>/    best.pt  best.onnx  metrics.json   ← copy this folder back
 
-Hit = predicted peak within 4 px (at 512×288) of a labeled ball, as in the
-WASB/TrackNet papers; 8 px is reported too. A window with no ball counts any
-peak as a false positive.
+Hit = predicted peak within 4 px (measured at 512×288 whatever --size) of a
+labeled ball, as in the WASB/TrackNet papers; 8 px is reported too.
 
 Needs: torch with CUDA (same .venv as train_ball_model.py), opencv-python, numpy, onnx.
 """
@@ -44,8 +53,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SEQ = 9
-WIDTH, HEIGHT = 512, 288
-SIGMA = 3.0            # the author's heatmap sigma at 512×288
+SIZES = {512: (512, 288), 1024: (1024, 576)}
+BASE_WIDTH = 512        # scores are in pixels at this width, whatever the input size
+SIGMA = 3.0            # the author's heatmap sigma at 512×288 (scaled with the input)
+MOTION = 10            # mean grey-level change (0–255) around a ball over ±4 frames: in play
 RADIUS_WEIGHT = 0.0005  # the author's scale-matching of log-radius L1 to WBCE
 VBALLNET_COMMIT = "7d295c53fa733782a58dd85f772685044414f8d3"
 VBALLNET_ZIP = f"https://codeload.github.com/asigatchov/vball-net-pytorch/zip/{VBALLNET_COMMIT}"
@@ -155,24 +166,54 @@ def load_windows(root: Path) -> tuple[list[dict], list[dict]]:
 
 
 class Windows(torch.utils.data.Dataset):
-    """9 grayscale frames at 512×288 + a heatmap for each labeled one.
+    """9 grayscale frames + a heatmap and a loss weight for each frame.
 
     Windows from sampled frames have one labeled frame (the target);
     windows from tracked rallies have a label on (nearly) every frame.
+    Unlabeled frames and the area around resting balls weigh nothing.
     Portrait windows are turned a quarter turn to landscape (frames and
-    balls), so every input is 512×288 without squashing a portrait frame.
+    balls), so every input is landscape without squashing a portrait frame.
     """
 
-    def __init__(self, root: Path, windows: list[dict], train: bool):
+    def __init__(self, root: Path, windows: list[dict], train: bool, size: tuple[int, int]):
         self.root, self.windows, self.train = root, windows, train
-        ys, xs = np.mgrid[0:HEIGHT, 0:WIDTH]
+        self.width, self.height = size
+        self.sigma = SIGMA * self.width / BASE_WIDTH
+        ys, xs = np.mgrid[0:self.height, 0:self.width]
         self.ys, self.xs = ys.astype(np.float32), xs.astype(np.float32)
 
     def __len__(self):
         return len(self.windows)
 
+    def gray(self, path: str):
+        img = cv2.imread(str(self.root / path), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise FileNotFoundError(self.root / path)
+        return img
+
+    def moving(self, w: dict) -> list[bool]:
+        """Per target-frame ball: does it move over ±4 frames?"""
+        if "labels" in w:
+            return [True] * len(w["balls"])   # a tracked rally's ball is the ball in play
+        t = w["target"]
+        if not w["balls"] or t < 4 or t + 4 >= len(w["frames"]):
+            return [True] * len(w["balls"])
+        before, now, after = (self.gray(w["frames"][t + k]).astype(np.int16) for k in (-4, 0, 4))
+        h, wd = now.shape
+        tags = []
+        for cx, cy, bw, bh in w["balls"]:
+            s = max(bw * wd, bh * h) * 0.75 + 2
+            x0, x1 = int(max(0, cx * wd - s)), int(min(wd, cx * wd + s))
+            y0, y1 = int(max(0, cy * h - s)), int(min(h, cy * h + s))
+            patch = now[y0:y1, x0:x1]
+            change = max(np.abs(patch - before[y0:y1, x0:x1]).mean(), np.abs(patch - after[y0:y1, x0:x1]).mean()) \
+                if patch.size else MOTION + 1
+            tags.append(bool(change > MOTION))
+        return tags
+
     def __getitem__(self, i):
         w = self.windows[i]
+        W, H = self.width, self.height
         target = w["target"]
         last_start = len(w["frames"]) - SEQ
         # Train: the target frame anywhere among the 9. Val: in the middle.
@@ -182,32 +223,30 @@ class Windows(torch.utils.data.Dataset):
         portrait = w["size"][1] > w["size"][0]
         frames = []
         for path in w["frames"][start:start + SEQ]:
-            img = cv2.imread(str(self.root / path), cv2.IMREAD_GRAYSCALE)
-            if img is None:
-                raise FileNotFoundError(self.root / path)
+            img = self.gray(path)
             if portrait:
                 img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-            frames.append(cv2.resize(img, (WIDTH, HEIGHT), interpolation=cv2.INTER_AREA))
+            frames.append(cv2.resize(img, (W, H), interpolation=cv2.INTER_AREA))
         clip = np.stack(frames).astype(np.float32) / 255.0
 
-        # Per frame: a list of balls, or None where there's no label.
+        # Per frame: a list of (ball, moving), or None where there's no label.
         if "labels" in w:
-            labels = w["labels"][start:start + SEQ]
+            labels = [None if l is None else [(b, True) for b in l] for l in w["labels"][start:start + SEQ]]
         else:
             labels = [None] * SEQ
-            labels[index] = w["balls"]
-        # Balls as (x, y, radius) in 512×288 pixels.
-        def to_pixels(ball):
+            labels[index] = list(zip(w["balls"], self.moving(w)))
+        # Balls as (x, y, radius, moving) in input pixels.
+        def to_pixels(ball, moving):
             cx, cy, bw, bh = ball
             if portrait:  # quarter turn clockwise: (x, y) → (1 − y, x)
                 cx, cy, bw, bh = 1 - cy, cx, bh, bw
-            return cx * WIDTH, cy * HEIGHT, max(bw * WIDTH, bh * HEIGHT) / 2
-        per_frame = [None if l is None else [to_pixels(b) for b in l] for l in labels]
+            return cx * W, cy * H, max(bw * W, bh * H) / 2, moving
+        per_frame = [None if l is None else [to_pixels(b, m) for b, m in l] for l in labels]
 
         if self.train:
             if random.random() < 0.5:
                 clip = clip[:, :, ::-1]
-                per_frame = [None if f is None else [(WIDTH - 1 - x, y, r) for x, y, r in f] for f in per_frame]
+                per_frame = [None if f is None else [(W - 1 - x, y, r, m) for x, y, r, m in f] for f in per_frame]
             if random.random() < 0.2:  # a ball's flight played backwards is still a ball's flight
                 clip = clip[::-1]
                 per_frame = per_frame[::-1]
@@ -219,22 +258,27 @@ class Windows(torch.utils.data.Dataset):
                 clip = np.clip(clip + np.random.normal(0, random.uniform(0.005, 0.03), clip.shape), 0, 1)
             clip = np.ascontiguousarray(clip, dtype=np.float32)
 
-        heat = np.zeros((SEQ, HEIGHT, WIDTH), np.float32)
-        mask = np.zeros(SEQ, np.float32)
+        heat = np.zeros((SEQ, H, W), np.float32)
+        weight = np.zeros((SEQ, H, W), np.float32)
         radius = np.zeros((SEQ, 2), np.float32)  # (radius as a fraction of width, has a ball)
         for f, balls in enumerate(per_frame):
             if balls is None:
                 continue
-            mask[f] = 1
-            for x, y, r in balls:
-                heat[f] = np.maximum(heat[f], np.exp(-((self.xs - x) ** 2 + (self.ys - y) ** 2) / (2 * SIGMA ** 2)))
-            if balls:
-                radius[f] = (max(r for _, _, r in balls) / WIDTH, 1)
-        # Scoring looks at the target frame's balls.
-        centres = np.full((8, 2), -1, np.float32)
-        for k, (x, y, _) in enumerate((per_frame[index] or [])[:8]):
-            centres[k] = (x, y)
-        return (torch.from_numpy(clip), torch.from_numpy(heat), torch.from_numpy(mask), index,
+            weight[f] = 1
+            for x, y, r, moving in balls:
+                d2 = (self.xs - x) ** 2 + (self.ys - y) ** 2
+                if moving:
+                    heat[f] = np.maximum(heat[f], np.exp(-d2 / (2 * self.sigma ** 2)))
+                else:
+                    weight[f][d2 <= max(3 * self.sigma, 1.5 * r + 2) ** 2] = 0
+            in_play = [r for _, _, r, m in balls if m]
+            if in_play:
+                radius[f] = (max(in_play) / W, 1)
+        # Scoring looks at the target frame's balls: (x, y, moving).
+        centres = np.full((8, 3), -1, np.float32)
+        for k, (x, y, _, moving) in enumerate((per_frame[index] or [])[:8]):
+            centres[k] = (x, y, float(moving))
+        return (torch.from_numpy(clip), torch.from_numpy(heat), torch.from_numpy(weight), index,
                 torch.from_numpy(radius), torch.from_numpy(centres))
 
 
@@ -247,10 +291,13 @@ def peaks(heat, threshold=0.5) -> list[tuple[float, float]]:
     return [tuple(centroids[k]) for k in range(1, n) if stats[k, cv2.CC_STAT_AREA] >= 2]
 
 
-def score(model, loader, val_windows, device) -> dict:
+def score(model, loader, val_windows, device, width: int) -> dict:
+    """Balls in play: recall, precision, F1. A peak on a resting ball is
+    neither a hit nor a false alarm; resting-ball recall is kept apart."""
     model.eval()
     tallies: dict[str, dict[str, int]] = {}
     order = 0
+    scale = BASE_WIDTH / width
     with torch.no_grad():
         for clip, _, _, index, _, centres in loader:
             out = model(clip.to(device, non_blocking=True))
@@ -258,35 +305,39 @@ def score(model, loader, val_windows, device) -> dict:
             for b in range(len(index)):
                 env = environment(val_windows[order]["clip"])
                 order += 1
-                truth = [tuple(c) for c in centres[b].numpy() if c[0] >= 0]
+                truth = [(c[0], c[1], c[2] > 0.5) for c in centres[b].numpy() if c[0] >= 0]
                 found = peaks(heat[b])
                 for tau in (4, 8):
-                    t = tallies.setdefault(f"{env}@{tau}", {"tp": 0, "fp": 0, "fn": 0})
-                    a = tallies.setdefault(f"all@{tau}", {"tp": 0, "fp": 0, "fn": 0})
-                    unmatched = list(truth)
-                    for p in found:
-                        hit = next((u for u in unmatched if math.dist(p, u) <= tau), None)
-                        key = "tp" if hit else "fp"
-                        t[key] += 1; a[key] += 1
-                        if hit:
-                            unmatched.remove(hit)
-                    t["fn"] += len(unmatched); a["fn"] += len(unmatched)
+                    for key in (f"{env}@{tau}", f"all@{tau}"):
+                        t = tallies.setdefault(key, {"tp": 0, "fp": 0, "fn": 0, "resting_hit": 0, "resting_missed": 0})
+                        unmatched = list(truth)
+                        for p in found:
+                            hit = min(unmatched, key=lambda u: math.dist(p, u[:2]), default=None)
+                            if hit and math.dist(p, hit[:2]) * scale <= tau:
+                                unmatched.remove(hit)
+                                t["tp" if hit[2] else "resting_hit"] += 1
+                            else:
+                                t["fp"] += 1
+                        for u in unmatched:
+                            t["fn" if u[2] else "resting_missed"] += 1
     result = {}
     for key, t in sorted(tallies.items()):
         p = t["tp"] / max(1, t["tp"] + t["fp"])
         r = t["tp"] / max(1, t["tp"] + t["fn"])
+        resting = t["resting_hit"] / max(1, t["resting_hit"] + t["resting_missed"])
         result[key] = {"precision": round(p, 4), "recall": round(r, 4),
-                       "f1": round(2 * p * r / max(1e-9, p + r), 4), **t}
+                       "f1": round(2 * p * r / max(1e-9, p + r), 4), "resting_recall": round(resting, 4), **t}
     return result
 
 
 def show(title: str, metrics: dict) -> None:
     say(f"\n{title}")
-    say(f"   {'':12} {'recall':>7} {'precision':>9} {'F1':>6}   (within 4 px · within 8 px)")
+    say(f"   {'':10} {'in play: recall':>15} {'precision':>9} {'F1':>6}  {'resting recall':>14}   (4 px · 8 px recall/precision)")
     for env in ("all", "beach", "grass", "indoor"):
         a, b = metrics.get(f"{env}@4"), metrics.get(f"{env}@8")
         if a:
-            say(f"   {env:12} {a['recall']:7.1%} {a['precision']:9.1%} {a['f1']:6.3f}   · {b['recall']:.1%} / {b['precision']:.1%}")
+            say(f"   {env:10} {a['recall']:15.1%} {a['precision']:9.1%} {a['f1']:6.3f}  {a['resting_recall']:14.1%}"
+                f"   · {b['recall']:.1%} / {b['precision']:.1%}")
 
 
 # MARK: - Main
@@ -295,7 +346,9 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("package", type=Path, help="Multi-frame package .zip or unzipped folder")
     p.add_argument("--epochs", type=int, default=60)
-    p.add_argument("--batch", type=int, default=16)
+    p.add_argument("--size", type=int, choices=sorted(SIZES), default=512,
+                   help="Input width: 512 (512×288, the author's) or 1024 (1024×576 — far balls twice the pixels, ~4× the work)")
+    p.add_argument("--batch", type=int, default=None, help="Default 16 at 512, 4 at 1024")
     p.add_argument("--lr", type=float, default=5e-4, help="Fine-tuning rate (the author's from-scratch rate is 1e-3)")
     p.add_argument("--workers", type=int, default=6)
     p.add_argument("--name", default="heat_v4c")
@@ -314,15 +367,18 @@ def main() -> None:
     vballnet_source()
     from model.vballnet_v4c import VballNetV4c
 
+    size = SIZES[args.size]
+    batch = args.batch or (16 if args.size == 512 else 4)
     train_w, val_w = load_windows(root)
     say(f"{len(train_w)} train · {len(val_w)} val windows "
         f"({sum(1 for w in val_w if w['balls'])} val with a ball) from {root.name}")
     loader = lambda ws, train: torch.utils.data.DataLoader(
-        Windows(root, ws, train), batch_size=args.batch, shuffle=train, num_workers=args.workers,
+        Windows(root, ws, train, size), batch_size=batch, shuffle=train, num_workers=args.workers,
         pin_memory=device.type == "cuda", drop_last=train, persistent_workers=args.workers > 0)
     train_loader, val_loader = loader(train_w, True), loader(val_w, False)
 
-    model = VballNetV4c(height=HEIGHT, width=WIDTH, in_dim=SEQ, out_dim=SEQ)
+    say(f"Input {size[0]}×{size[1]}, batch {batch}.")
+    model = VballNetV4c(height=size[1], width=size[0], in_dim=SEQ, out_dim=SEQ)
     if not args.from_scratch:
         load_author_weights(model)
     model.to(device)
@@ -331,10 +387,10 @@ def main() -> None:
     if run.exists():
         fail(f"{run} exists — pass a new --name (or delete it).")
     run.mkdir(parents=True)
-    metrics = {"package": root.name, "baseline": None, "best": None, "best_epoch": None}
+    metrics = {"package": root.name, "size": list(size), "baseline": None, "best": None, "best_epoch": None}
 
     if not args.from_scratch:
-        metrics["baseline"] = score(model, val_loader, val_w, device)
+        metrics["baseline"] = score(model, val_loader, val_w, device, size[0])
         show("The author's weights, untouched, on your val windows:", metrics["baseline"])
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
@@ -343,20 +399,23 @@ def main() -> None:
     scaler = (torch.amp.GradScaler("cuda", enabled=device.type == "cuda") if hasattr(torch.amp, "GradScaler")
               else torch.cuda.amp.GradScaler(enabled=device.type == "cuda"))
     best_f1 = -1.0
-    log = [["epoch", "loss", "recall4", "precision4", "f1_4", "recall8", "f1_8", "seconds"]]
+    log = [["epoch", "loss", "recall4", "precision4", "f1_4", "recall8", "f1_8", "resting_recall4", "seconds"]]
     for epoch in range(1, args.epochs + 1):
         model.train()
         started, total, batches = time.time(), 0.0, 0
-        for clip, heat, mask, _, radius, _ in train_loader:
+        for clip, heat, weight, _, radius, _ in train_loader:
             clip, heat = clip.to(device, non_blocking=True), heat.to(device, non_blocking=True)
-            mask, radius = mask.to(device), radius.to(device)
+            weight, radius = weight.to(device, non_blocking=True), radius.to(device)
             with torch.autocast(device_type=device.type, enabled=device.type == "cuda"):
                 out = model(clip)
             pred = out[:, :SEQ].float().clamp(1e-7, 1 - 1e-7)
-            # The author's weighted BCE, per frame, on labeled frames only.
-            per_frame = -((1 - pred) ** 2 * heat * torch.log(pred)
-                          + pred ** 2 * (1 - heat) * torch.log(1 - pred)).mean(dim=(2, 3))
-            loss = (per_frame * mask).sum() / mask.sum().clamp(min=1)
+            # The author's weighted BCE, per frame, over the pixels that count
+            # (labeled frames, minus the area around resting balls).
+            wbce = -((1 - pred) ** 2 * heat * torch.log(pred) + pred ** 2 * (1 - heat) * torch.log(1 - pred))
+            counted = weight.sum(dim=(2, 3))
+            per_frame = (wbce * weight).sum(dim=(2, 3)) / counted.clamp(min=1)
+            labeled = (counted > 0).float()
+            loss = (per_frame * labeled).sum() / labeled.sum().clamp(min=1)
             has_ball = radius[..., 1] > 0
             if has_ball.any():
                 peak = heat.flatten(2).argmax(2)
@@ -366,14 +425,14 @@ def main() -> None:
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            total += float(loss); batches += 1
+            total += loss.item(); batches += 1
         scheduler.step()
-        m = score(model, val_loader, val_w, device)
+        m = score(model, val_loader, val_w, device, size[0])
         a4, a8 = m["all@4"], m["all@8"]
         log.append([epoch, round(total / max(1, batches), 6), a4["recall"], a4["precision"], a4["f1"],
-                    a8["recall"], a8["f1"], round(time.time() - started)])
+                    a8["recall"], a8["f1"], a4["resting_recall"], round(time.time() - started)])
         say(f"epoch {epoch:3}/{args.epochs}  loss {total / max(1, batches):.5f}  "
-            f"val F1 {a4['f1']:.3f} (recall {a4['recall']:.1%}, precision {a4['precision']:.1%})  "
+            f"in play: F1 {a4['f1']:.3f} (recall {a4['recall']:.1%}, precision {a4['precision']:.1%})  "
             f"@8px {a8['f1']:.3f}  {time.time() - started:.0f}s")
         torch.save({"state_dict": model.state_dict(), "epoch": epoch}, run / "last.pt")
         if a4["f1"] > best_f1:
@@ -389,7 +448,7 @@ def main() -> None:
     # The classic exporter, as the author's models are exported; newer torch defaults to dynamo.
     import inspect
     legacy = {"dynamo": False} if "dynamo" in inspect.signature(torch.onnx.export).parameters else {}
-    torch.onnx.export(model, (torch.zeros(1, SEQ, HEIGHT, WIDTH),), str(run / "best.onnx"), opset_version=17,
+    torch.onnx.export(model, (torch.zeros(1, SEQ, size[1], size[0]),), str(run / "best.onnx"), opset_version=17,
                       input_names=["clip"], output_names=["maps"], dynamic_axes={"clip": {0: "B"}, "maps": {0: "B"}},
                       do_constant_folding=True, **legacy)
     (run / "metrics.json").write_text(json.dumps(metrics, indent=2))
