@@ -121,7 +121,7 @@ struct TrackTabView: View {
             ZStack {
                 ReviewStyle.stage
                 if let image = tracker.image, let rally = tracker.rally {
-                    TrackFrameView(image: image, rally: rally, index: tracker.index, snapping: tracker.snapping,
+                    TrackFrameView(image: image, rally: rally, index: tracker.shownIndex ?? tracker.index, snapping: tracker.snapping,
                                    tracker: tracker)
                 } else {
                     ContentUnavailableView(
@@ -133,7 +133,7 @@ struct TrackTabView: View {
                 if let progress = tracker.trackingProgress {
                     VStack(spacing: 8) {
                         ProgressView(value: progress).frame(width: 240)
-                        Text("Finding the ball on every frame…").font(.callout)
+                        Text(tracker.progressLabel).font(.callout)
                     }
                     .padding(18)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))

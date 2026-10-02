@@ -13,7 +13,9 @@
 import AVFoundation
 import CoreGraphics
 import Foundation
+import ImageIO
 import Observation
+import UniformTypeIdentifiers
 
 @MainActor
 @Observable
@@ -34,6 +36,11 @@ final class TrackLabelModel {
     private(set) var selectedId: UUID?
     private(set) var index = 0
     private(set) var image: CGImage?
+    /// The frame `image` is. Drawing and clicks go by this, so they always
+    /// match the picture even while the next frame is still loading.
+    private(set) var shownIndex: Int?
+    /// What's running while `trackingProgress` is set.
+    private(set) var progressLabel = ""
     /// 0…1 while the detector runs over a rally.
     private(set) var trackingProgress: Double?
     private(set) var snapping: CGPoint?
@@ -54,7 +61,7 @@ final class TrackLabelModel {
     @ObservationIgnored private var video: AVURLAsset?
     @ObservationIgnored private var videoTrack: AVAssetTrack?
     @ObservationIgnored private var step = 1
-    @ObservationIgnored private var display: AVAssetImageGenerator?
+    @ObservationIgnored private var frames: TrackFrameStore?
     @ObservationIgnored private var cache: [Double: CGImage] = [:]
     @ObservationIgnored private var cacheOrder: [Double] = []
     @ObservationIgnored private var loadTask: Task<Void, Never>?
@@ -65,7 +72,6 @@ final class TrackLabelModel {
     /// Frames are read about this often, whatever the video's frame rate —
     /// the same spacing as the multi-frame package.
     static let frameRate = MultiFramePackage.frameRate
-    private static let displayMaxPixel: CGFloat = 1920
     static let maxZoom: CGFloat = 8
     private static let cacheSize = 90
     nonisolated private static let candidateConfidence: Float = 0.15
@@ -93,15 +99,11 @@ final class TrackLabelModel {
         selectedId = nil
         index = 0
         image = nil
+        shownIndex = nil
         cache.removeAll(); cacheOrder.removeAll()
         let asset = AVURLAsset(url: URL(fileURLWithPath: session.sourcePath))
         video = asset
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: Self.displayMaxPixel, height: Self.displayMaxPixel)
-        generator.requestedTimeToleranceBefore = .zero
-        generator.requestedTimeToleranceAfter = .zero
-        display = generator
+        frames = TrackFrameStore(session: name)
         suggestions = Self.suggestions(from: session, excluding: rallies)
         status = rallies.isEmpty && suggestions.isEmpty
             ? "No rallies found in this video yet — add one with New Rally."
@@ -160,14 +162,22 @@ final class TrackLabelModel {
         selectedId = id
         // Start where there's most to check.
         index = rally?.points.firstIndex(where: \.isUncertain) ?? 0
+        image = nil
+        shownIndex = nil
         centreOnBall()
-        showFrame()
+        if let rally, let frames, !rally.points.allSatisfy({ frames.has($0.time) }), trackingProgress == nil {
+            prepareFrames()
+        } else {
+            showFrame()
+        }
     }
 
     func deleteRally(_ id: UUID) {
         guard let removed = rallies.first(where: { $0.id == id }) else { return }
-        if selectedId == id { stop(); trackTask?.cancel(); selectedId = nil; image = nil }
+        if selectedId == id { stop(); trackTask?.cancel(); selectedId = nil; image = nil; shownIndex = nil }
         rallies.removeAll { $0.id == id }
+        let kept = Set(rallies.flatMap { $0.points.map(\.time) })
+        frames?.remove(removed.points.map(\.time).filter { !kept.contains($0) })
         save()
         if let session = sampler.sessions.first(where: { $0.name == sessionName }) {
             suggestions = Self.suggestions(from: session, excluding: rallies)
@@ -206,13 +216,14 @@ final class TrackLabelModel {
 
     /// Runs the detector over every frame of the selected rally, then solves.
     func autoTrack() {
-        guard let rally, let video else { return }
+        guard let rally, let video, let frames else { return }
         trackTask?.cancel()
         stop()
         let id = rally.id
         let times = rally.points.map(\.time)
         let model = sampler.prelabelModel
         trackingProgress = 0
+        progressLabel = "Finding the ball on every frame…"
         status = "Finding the ball on \(times.count) frames…"
         trackTask = Task {
             let candidates = await Task.detached(priority: .userInitiated) { () -> [[TrackCandidate]]? in
@@ -222,15 +233,16 @@ final class TrackLabelModel {
                 generator.requestedTimeToleranceBefore = .zero
                 generator.requestedTimeToleranceAfter = .zero
                 var found = [[TrackCandidate]](repeating: [], count: times.count)
-                let cmTimes = times.map { CMTime(seconds: $0, preferredTimescale: 600_000) }
                 var done = 0
-                for await result in generator.images(for: cmTimes) {
+                for await result in generator.images(for: times.map(TrackFrameStore.request)) {
                     if Task.isCancelled { return nil }
                     done += 1
                     guard let image = try? result.image,
                           let i = times.firstIndex(where: { abs($0 - result.requestedTime.seconds) < 0.0005 }) else { continue }
                     found[i] = detector.detect(in: image, at: result.requestedTime)
                         .map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
+                    // The same frame, kept for review: no seeking in the video later.
+                    if !frames.has(times[i]) { frames.write(image, time: times[i]) }
                     if done % 10 == 0 {
                         let fraction = Double(done) / Double(times.count)
                         await MainActor.run { [weak self] in self?.trackingProgress = fraction }
@@ -245,6 +257,40 @@ final class TrackLabelModel {
                 r.points = TrackSolver.solve(r)
             }
             report()
+            if selectedId == id { showFrame() }
+        }
+    }
+
+    /// Rallies tracked before frames were kept: read their frames out of the
+    /// video once, in order, so review never seeks.
+    private func prepareFrames() {
+        guard let rally, let video, let frames else { return }
+        let id = rally.id
+        let missing = rally.points.map(\.time).filter { !frames.has($0) }
+        trackingProgress = 0
+        progressLabel = "Preparing frames…"
+        trackTask = Task {
+            await Task.detached(priority: .userInitiated) {
+                let generator = AVAssetImageGenerator(asset: video)
+                generator.appliesPreferredTrackTransform = true
+                generator.requestedTimeToleranceBefore = .zero
+                generator.requestedTimeToleranceAfter = .zero
+                var done = 0
+                for await result in generator.images(for: missing.map(TrackFrameStore.request)) {
+                    if Task.isCancelled { return }
+                    done += 1
+                    if let image = try? result.image,
+                       let t = missing.first(where: { abs($0 - result.requestedTime.seconds) < 0.0005 }) {
+                        frames.write(image, time: t)
+                    }
+                    if done % 10 == 0 {
+                        let fraction = Double(done) / Double(missing.count)
+                        await MainActor.run { [weak self] in self?.trackingProgress = fraction }
+                    }
+                }
+            }.value
+            trackingProgress = nil
+            if selectedId == id, !Task.isCancelled { showFrame() }
         }
     }
 
@@ -261,7 +307,7 @@ final class TrackLabelModel {
     /// You clicked the ball (top-left normalised in the frame): box it and
     /// re-solve the frames around it.
     func place(at point: CGPoint) {
-        guard let image, let current = self.point, snapping == nil else { return }
+        guard let image, let shownIndex, let current = rally?.points[shownIndex], snapping == nil else { return }
         snapping = point
         let model = sampler.prelabelModel
         let holder = snapDetector
@@ -398,9 +444,17 @@ final class TrackLabelModel {
         playTask = Task {
             while !Task.isCancelled, let points = self.rally?.points, index < points.count - 1 {
                 let interval = 1 / (Self.frameRate * speed)
-                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-                guard !Task.isCancelled else { break }
-                go(to: index + 1)
+                let started = Date()
+                let next = index + 1
+                let frame = await image(for: points[next].time)   // wait for it rather than run ahead
+                let wait = interval - Date().timeIntervalSince(started)
+                if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+                guard !Task.isCancelled, let frame else { break }
+                index = next
+                centreOnBall()
+                image = frame
+                shownIndex = next
+                prefetch()
                 if pauseOnUncertain, self.rally?.points[index].isUncertain == true { break }
             }
             isPlaying = false
@@ -410,35 +464,41 @@ final class TrackLabelModel {
     // MARK: - Frames
 
     private func showFrame() {
-        guard let p = point else { image = nil; return }
-        if let cached = cache[p.time] { image = cached } else { load(p.time) }
+        guard let p = point else { image = nil; shownIndex = nil; return }
+        let i = index
+        if let cached = cache[p.time] {
+            image = cached
+            shownIndex = i
+        } else {
+            loadTask?.cancel()
+            loadTask = Task {
+                guard let frame = await image(for: p.time), !Task.isCancelled, index == i else { return }
+                image = frame
+                shownIndex = i
+            }
+        }
         prefetch()
     }
 
-    private func load(_ time: Double) {
-        guard let display else { return }
-        loadTask?.cancel()
-        loadTask = Task {
-            let image = await Self.frame(display, at: time)
-            guard !Task.isCancelled, let image else { return }
-            remember(time, image)
-            if point?.time == time { self.image = image }
-        }
+    /// A frame from the kept JPEGs (a few milliseconds), via the memory cache.
+    private func image(for time: Double) async -> CGImage? {
+        if let cached = cache[time] { return cached }
+        guard let frames else { return nil }
+        let frame = await Task.detached(priority: .userInitiated) { frames.read(time) }.value
+        if let frame { remember(time, frame) }
+        return frame
     }
 
-    /// The next frames, so playback doesn't wait on decoding.
+    /// The next frames, so stepping and playback don't wait.
     private func prefetch() {
-        guard let display, let points = rally?.points else { return }
-        let ahead = points[min(index + 1, points.count)..<min(index + 12, points.count)].map(\.time).filter { cache[$0] == nil }
+        guard let points = rally?.points else { return }
+        let ahead = points[min(index + 1, points.count)..<min(index + 8, points.count)].map(\.time).filter { cache[$0] == nil }
         guard !ahead.isEmpty else { return }
-        Task {
-            for t in ahead where cache[t] == nil {
-                if let image = await Self.frame(display, at: t) { remember(t, image) }
-            }
-        }
+        Task { for t in ahead { _ = await image(for: t) } }
     }
 
     private func remember(_ time: Double, _ image: CGImage) {
+        guard cache[time] == nil else { return }
         cache[time] = image
         cacheOrder.append(time)
         if cacheOrder.count > Self.cacheSize {
@@ -446,15 +506,11 @@ final class TrackLabelModel {
         }
     }
 
-    private nonisolated static func frame(_ generator: AVAssetImageGenerator, at seconds: Double) async -> CGImage? {
-        try? await generator.image(at: CMTime(seconds: seconds, preferredTimescale: 600_000)).image
-    }
-
     /// Presentation times from `start` to `end`, about 1/30 s apart, from
     /// the video's own frames.
     private func frameTimes(start: Double, end: Double) -> [Double]? {
         guard let videoTrack, end > start,
-              let cursor = videoTrack.makeSampleCursor(presentationTimeStamp: CMTime(seconds: start, preferredTimescale: 600_000))
+              let cursor = videoTrack.makeSampleCursor(presentationTimeStamp: TrackFrameStore.request(start))
         else { return nil }
         var times: [Double] = []
         while cursor.presentationTimeStamp.seconds <= end {
@@ -479,5 +535,48 @@ final class TrackLabelModel {
 
     static func clock(_ seconds: Double) -> String {
         String(format: "%d:%04.1f", Int(seconds) / 60, seconds.truncatingRemainder(dividingBy: 60))
+    }
+}
+
+/// A rally's frames as JPEGs in Caches, written while the detector reads
+/// them, so reviewing never seeks in the video (a seek decodes from the last
+/// keyframe — slow, and the picture fell behind the overlay).
+struct TrackFrameStore: Sendable {
+    let dir: URL
+    static let maxPixel = 1920
+
+    init(session: String) {
+        dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("RallyLab/TrackFrames/\(DatasetStore.safeName(session))", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    /// The time to ask a generator for: just after the frame starts. Seconds
+    /// can round to a hair before a frame's presentation time, which with zero
+    /// tolerance returns the frame before it.
+    static func request(_ seconds: Double) -> CMTime {
+        CMTime(seconds: seconds + 0.0001, preferredTimescale: 600_000)
+    }
+
+    private func url(_ time: Double) -> URL {
+        dir.appendingPathComponent("\(Int64((time * 1_000_000).rounded())).jpg")
+    }
+
+    func has(_ time: Double) -> Bool { FileManager.default.fileExists(atPath: url(time).path) }
+
+    func write(_ image: CGImage, time: Double) {
+        guard let dest = CGImageDestinationCreateWithURL(url(time) as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.88,
+                                                 kCGImageDestinationImageMaxPixelSize: Self.maxPixel] as CFDictionary)
+        CGImageDestinationFinalize(dest)
+    }
+
+    func read(_ time: Double) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url(time) as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+    }
+
+    func remove(_ times: [Double]) {
+        for t in times { try? FileManager.default.removeItem(at: url(t)) }
     }
 }
