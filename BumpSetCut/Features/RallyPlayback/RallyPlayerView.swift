@@ -287,48 +287,55 @@ struct RallyPlayerView: View {
     private func rallyContent(geometry: GeometryProxy) -> some View {
         ZStack {
             // Stacked video cards (Tinder-style)
-            ForEach(viewModel.visibleCardIndices, id: \.self) { rallyIndex in
-                let position = viewModel.stackPosition(for: rallyIndex)
-                let url = viewModel.rallyVideoURLs[rallyIndex]
-                // Current card reads live gesture zoom (seeded from the saved
-                // framing, edited by pinch/pan in trim mode); other cards read
-                // their persisted zoom/pan directly.
-                let cardZoom = position == 0 ? viewModel.zoomScale : viewModel.zoom(for: rallyIndex)
-                let cardOffset = position == 0 ? viewModel.zoomOffset : viewModel.panOffset(for: rallyIndex)
-
-                // Unified card - no component swapping for smooth transitions
-                UnifiedRallyCard(
-                    url: url,
-                    rallyIndex: rallyIndex,
-                    size: geometry.size,
-                    position: position,
-                    previousRallyIndex: viewModel.previousRallyIndex,
-                    playerCache: viewModel.playerCache,
-                    thumbnailCache: viewModel.thumbnailCache,
-                    videoDisplaySize: viewModel.videoDisplaySize,
-                    rotationDegrees: viewModel.rotationDegrees(for: rallyIndex),
-                    zoomScale: cardZoom,
-                    zoomOffset: cardOffset,
-                    onDoubleTap: position == 0 ? { toggleZoom(cardSize: geometry.size) } : nil
-                )
-                .scaleEffect(scaleForPosition(position))
-                .offset(y: offsetForPosition(position))
-                .opacity(opacityForPosition(position, rallyIndex: rallyIndex))
-                .zIndex(zIndexForPosition(position, rallyIndex: rallyIndex))
-                // Apply drag/swipe transforms (vertical scroll)
-                .modifier(TopCardDragModifier(
-                    isTopCard: position == 0 && viewModel.previousRallyIndex == nil,
-                    isSlidingOut: rallyIndex == viewModel.previousRallyIndex,
-                    isSlidingIn: position == 0 && viewModel.previousRallyIndex != nil,
-                    dragOffset: viewModel.dragOffset,
-                    swipeOffset: viewModel.swipeOffset,
-                    swipeOffsetY: viewModel.swipeOffsetY,
-                    swipeRotation: viewModel.swipeRotation,
-                    slideInOffset: viewModel.transitionDirection == .down
-                        ? geometry.size.height : -geometry.size.height,
-                    actionSwipeOffsetY: viewModel.actionSwipeOffsetY
-                ))
+            ZStack {
+                ForEach(viewModel.visibleCardIndices, id: \.self) { rallyIndex in
+                    let position = viewModel.stackPosition(for: rallyIndex)
+                    let url = viewModel.rallyVideoURLs[rallyIndex]
+                    // Current card reads live gesture zoom (seeded from the saved
+                    // framing, edited by pinch/pan in trim mode); other cards read
+                    // their persisted zoom/pan directly.
+                    let cardZoom = position == 0 ? viewModel.zoomScale : viewModel.zoom(for: rallyIndex)
+                    let cardOffset = position == 0 ? viewModel.zoomOffset : viewModel.panOffset(for: rallyIndex)
+    
+                    // Unified card - no component swapping for smooth transitions
+                    UnifiedRallyCard(
+                        url: url,
+                        rallyIndex: rallyIndex,
+                        size: geometry.size,
+                        position: position,
+                        previousRallyIndex: viewModel.previousRallyIndex,
+                        playerCache: viewModel.playerCache,
+                        thumbnailCache: viewModel.thumbnailCache,
+                        videoDisplaySize: viewModel.videoDisplaySize,
+                        rotationDegrees: viewModel.rotationDegrees(for: rallyIndex),
+                        zoomScale: cardZoom,
+                        zoomOffset: cardOffset,
+                        onDoubleTap: position == 0 ? { toggleZoom(cardSize: geometry.size) } : nil
+                    )
+                    .scaleEffect(scaleForPosition(position))
+                    .offset(y: offsetForPosition(position))
+                    .opacity(opacityForPosition(position, rallyIndex: rallyIndex))
+                    .zIndex(zIndexForPosition(position, rallyIndex: rallyIndex))
+                    // Apply drag/swipe transforms (vertical scroll)
+                    .modifier(TopCardDragModifier(
+                        isTopCard: position == 0 && viewModel.previousRallyIndex == nil,
+                        isSlidingOut: rallyIndex == viewModel.previousRallyIndex,
+                        isSlidingIn: position == 0 && viewModel.previousRallyIndex != nil,
+                        dragOffset: viewModel.dragOffset,
+                        swipeOffset: viewModel.swipeOffset,
+                        swipeOffsetY: viewModel.swipeOffsetY,
+                        swipeRotation: viewModel.swipeRotation,
+                        slideInOffset: viewModel.transitionDirection == .down
+                            ? geometry.size.height : -geometry.size.height,
+                        actionSwipeOffsetY: viewModel.actionSwipeOffsetY
+                    ))
+                }
             }
+            // Trim-mode direct manipulation: pinch zoom, twist angle, drag pan.
+            // Attached to the cards only — on the outer stack it fired alongside
+            // the trim bar's handle drags and moved the crop while trimming.
+            .contentShape(Rectangle())
+            .simultaneousGesture(viewModel.isTrimmingMode ? trimEditGesture(geometry: geometry) : nil)
 
             // Navigation overlay (above all cards)
             RallyPlayerOverlay(
@@ -490,8 +497,6 @@ struct RallyPlayerView: View {
         }
         // Navigation swipe — disabled while trimming or while the prompt is up.
         .gesture(interactionBlocked ? nil : swipeGesture(geometry: geometry))
-        // Trim-mode direct manipulation: pinch zoom, twist angle, drag pan.
-        .simultaneousGesture(viewModel.isTrimmingMode ? trimEditGesture(geometry: geometry) : nil)
         // Free pinch for normal viewing (disabled in trim mode / prompt).
         .simultaneousGesture(interactionBlocked ? nil : pinchGesture())
         .simultaneousGesture(
