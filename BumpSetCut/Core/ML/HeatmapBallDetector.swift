@@ -24,7 +24,7 @@ final class HeatmapBallDetector {
     struct Frame {
         /// Model-size grayscale, 0–1, row-major (already turned if portrait).
         fileprivate let pixels: [Float]
-        fileprivate let portrait: Bool
+        let portrait: Bool
     }
 
     struct Peak {
@@ -88,10 +88,16 @@ final class HeatmapBallDetector {
 
     /// Peaks on frame `target` of `frames` (exactly `seq` of them, in order).
     func peaks(in frames: [Frame], target: Int) -> [Peak] {
+        detect(in: frames, target: target)?.peaks ?? []
+    }
+
+    /// The peaks and the heatmap itself (model size, row-major, top-down,
+    /// in the model's landscape orientation) for frame `target`.
+    func detect(in frames: [Frame], target: Int) -> (peaks: [Peak], heat: [Float])? {
         guard frames.count == seq, frames.indices.contains(target),
               let clip = try? MLMultiArray(shape: [1, NSNumber(value: seq), NSNumber(value: height), NSNumber(value: width)],
                                            dataType: .float32)
-        else { return [] }
+        else { return nil }
         let plane = width * height
         let input = clip.dataPointer.bindMemory(to: Float.self, capacity: seq * plane)
         for (k, frame) in frames.enumerated() {
@@ -100,11 +106,12 @@ final class HeatmapBallDetector {
             }
         }
         guard let out = try? model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["clip": clip])),
-              let maps = out.featureValue(for: "maps")?.multiArrayValue else { return [] }
-        guard let heat = Self.channel(maps, target, plane: plane),
-              let radius = Self.channel(maps, seq + target, plane: plane) else { return [] }
-        return Self.blobs(heat: heat, radius: radius, width: width, height: height,
-                          threshold: threshold, portrait: frames[target].portrait)
+              let maps = out.featureValue(for: "maps")?.multiArrayValue,
+              let heat = Self.channel(maps, target, plane: plane),
+              let radius = Self.channel(maps, seq + target, plane: plane) else { return nil }
+        let peaks = Self.blobs(heat: heat, radius: radius, width: width, height: height,
+                               threshold: threshold, portrait: frames[target].portrait)
+        return (peaks, heat)
     }
 
     /// One [H, W] channel of a [1, C, H, W] output, as Floats.

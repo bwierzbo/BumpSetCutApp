@@ -350,8 +350,24 @@ private struct MultiFrameBox: View {
                         ForEach(lab.packages, id: \.self) { Text($0.lastPathComponent).tag(Optional($0)) }
                     }
                     .font(.caption)
-                    Button { lab.evaluate() } label: { Label("Score vs YOLO", systemImage: "gauge.with.dots.needle.33percent") }
-                        .disabled(lab.isBusy || lab.package == nil)
+                    HStack {
+                        Button { lab.evaluate() } label: { Label("Score vs YOLO", systemImage: "gauge.with.dots.needle.33percent") }
+                            .disabled(lab.isBusy || lab.package == nil)
+                        Menu {
+                            ForEach(lab.trackedRallies, id: \.rally.id) { item in
+                                Button("\(item.session) @ \(TrackLabelModel.clock(item.rally.start))\(item.rally.done ? "" : " (not done)")") {
+                                    lab.renderVideo(session: item.session, rally: item.rally)
+                                }
+                            }
+                        } label: { Label("Side-by-Side Video", systemImage: "film") }
+                        .disabled(lab.isBusy || lab.trackedRallies.isEmpty)
+                        .help("YOLO's boxes beside the multi-frame model's heatmap on a tracked rally, at half speed")
+                        .fixedSize()
+                    }
+                    if let video = lab.lastVideo {
+                        Button("Show \(video.lastPathComponent)") { NSWorkspace.shared.activateFileViewerSelecting([video]) }
+                            .buttonStyle(.link).font(.caption)
+                    }
                 }
                 if let r = lab.result { results(r) }
                 if !lab.status.isEmpty {

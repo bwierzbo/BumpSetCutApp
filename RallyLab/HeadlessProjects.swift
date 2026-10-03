@@ -16,6 +16,7 @@
 //    RallyLab --project v3 --package-multiframe            (multi-frame package zip)
 //    RallyLab --project v3 --add-heat <bring_back folder>  (convert + add a multi-frame model)
 //    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
+//    RallyLab --project v3 --render-heat <clip> <seconds>  (side-by-side video of a tracked rally)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
 //
@@ -94,6 +95,19 @@ enum HeadlessProjects {
                 ok = library.heatmaps.status.hasPrefix("Saved")
             }
             if ok, args.contains("--evaluate-heat") { ok = await evaluateHeat(library.heatmaps, args: args) }
+            if ok, let i = args.firstIndex(of: "--render-heat"), args.indices.contains(i + 2) {
+                let lab = library.heatmaps
+                lab.reload()
+                if let item = lab.trackedRallies.first(where: { $0.session == args[i + 1] && abs($0.rally.start - (Double(args[i + 2]) ?? -1)) < 1 }) {
+                    lab.renderVideo(session: item.session, rally: item.rally)
+                    while lab.isBusy { try? await Task.sleep(nanoseconds: 300_000_000) }
+                    log(lab.status)
+                    ok = lab.lastVideo != nil
+                } else {
+                    log("❌ No tracked rally at \(args[i + 2]) s in \(args[i + 1]).")
+                    ok = false
+                }
+            }
             exit(ok ? 0 : 1)
         }
     }

@@ -112,6 +112,41 @@ final class HeatmapLab {
         status = run.lines.last { $0.hasPrefix("Saved") } ?? "Added \(name)."
     }
 
+    /// Every tracked rally whose video is on this Mac, for the video menu.
+    var trackedRallies: [(session: String, rally: TrackedRally)] {
+        sampler.sessions.filter { FileManager.default.fileExists(atPath: $0.sourcePath) }
+            .flatMap { s in (s.tracks ?? []).map { (s.name, $0) } }
+    }
+
+    /// Render the side-by-side video for a tracked rally and show it in Finder.
+    func renderVideo(session name: String, rally: TrackedRally) {
+        guard !isBusy, let model = selected,
+              let session = sampler.sessions.first(where: { $0.name == name }) else { return }
+        isBusy = true
+        let out = sampler.datasetRoot.appendingPathComponent("exports/videos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let file = out.appendingPathComponent("\(model.name)-\(DatasetStore.safeName(name))-\(Int(rally.start)).mp4")
+        let title = "\(name) @ \(TrackLabelModel.clock(rally.start)) (\(session.split))"
+        status = "Rendering \(title)…"
+        let yolo = sampler.prelabelModel
+        Task {
+            defer { isBusy = false; progress = nil }
+            let result = await HeatmapVideo.render(video: URL(fileURLWithPath: session.sourcePath), times: rally.points.map(\.time),
+                                                   title: title, heatModel: model.url, yolo: yolo, to: file) { done, total in
+                Task { @MainActor [weak self] in self?.progress = "\(done)/\(total) frames" }
+            }
+            switch result {
+            case .success(let url):
+                status = "Saved \(url.lastPathComponent)."
+                lastVideo = url
+            case .failure(let e):
+                status = e.message
+            }
+        }
+    }
+
+    private(set) var lastVideo: URL?
+
     func evaluate() {
         guard !isBusy, let model = selected, let package else { return }
         isBusy = true
