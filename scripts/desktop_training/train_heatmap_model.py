@@ -256,6 +256,11 @@ class Windows(torch.utils.data.Dataset):
             gain, bias = random.uniform(0.7, 1.3), random.uniform(-0.1, 0.1)
             gamma = random.uniform(0.7, 1.4)
             clip = np.clip(clip * gain + bias, 0, 1) ** gamma
+            if random.random() < 0.25:
+                # iPhones record HDR by default; seen without tone mapping it's
+                # washed out: blacks lifted, midtones brightened. Same on all 9.
+                lift = random.uniform(0.03, 0.15)
+                clip = lift + (1 - lift) * clip ** random.uniform(0.6, 0.9)
             if random.random() < 0.3:
                 clip = np.clip(clip + np.random.normal(0, random.uniform(0.005, 0.03), clip.shape), 0, 1)
             clip = np.ascontiguousarray(clip, dtype=np.float32)

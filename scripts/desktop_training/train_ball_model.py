@@ -306,6 +306,38 @@ ULTRALYTICS_AUGMENTATION = dict(
 )
 
 
+def hdr_wash(img, lift: float, gamma: float, saturation: float):
+    """How HDR (HLG) phone video looks when it isn't tone-mapped: blacks
+    lifted, midtones brightened, colour muted. uint8 RGB in and out."""
+    import numpy as np
+    v = img.astype(np.float32) / 255.0
+    v = lift + (1.0 - lift) * np.power(v, gamma)
+    grey = v.mean(axis=2, keepdims=True)
+    v = grey + saturation * (v - grey)
+    return (np.clip(v, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+
+
+try:
+    import albumentations as _A
+
+    class HDRWash(_A.ImageOnlyTransform):
+        """Albumentations step for hdr_wash, with random strength. Defined at
+        module level so DataLoader workers can pickle it."""
+
+        def get_params(self):
+            import random
+            return {"lift": random.uniform(0.03, 0.15), "gamma": random.uniform(0.6, 0.9),
+                    "saturation": random.uniform(0.6, 0.95)}
+
+        def apply(self, img, lift=0.08, gamma=0.75, saturation=0.8, **params):
+            return hdr_wash(img, lift, gamma, saturation)
+
+        def get_transform_init_args_names(self):
+            return ()
+except ImportError:
+    HDRWash = None
+
+
 def volleyball_augmentations() -> list | None:
     """Albumentations steps for the camera side of things. All pixel-level, so
     boxes never move. None if albumentations isn't installed (or too old)."""
@@ -327,6 +359,8 @@ def volleyball_augmentations() -> list | None:
             A.Downscale(scale_range=(0.5, 0.9), p=0.15),
             # Outdoor shade across the court and ball.
             A.RandomShadow(p=0.1),
+            # iPhones record HDR by default; seen without tone mapping it's washed out.
+            HDRWash(p=0.25),
         ]
     except (ImportError, TypeError, ValueError) as e:
         say(f"   ⚠️  Camera augmentations off ({e}): pip install \"albumentations>=2.0\" to turn them on.")
@@ -334,8 +368,13 @@ def volleyball_augmentations() -> list | None:
 
 
 def supports_custom_augmentations() -> bool:
-    from ultralytics.cfg import DEFAULT_CFG_DICT
-    return "augmentations" in DEFAULT_CFG_DICT
+    """Whether this Ultralytics takes augmentations= (8.4.171 accepts it but no
+    longer lists it in DEFAULT_CFG_DICT, so ask the config parser itself)."""
+    from ultralytics.cfg import get_cfg
+    try:
+        return hasattr(get_cfg(overrides={"augmentations": []}), "augmentations")
+    except Exception:
+        return False
 
 
 def is_out_of_memory(error: BaseException) -> bool:
