@@ -41,12 +41,39 @@ final class RallyMarkModel {
     /// The Sampler's rallies and your tracked ones, to accept or ignore.
     private(set) var guesses: [Mark] = []
     var selectedId: UUID?
+    /// Picture zoom: 1 = the whole frame; `zoomCenter` (0–1, top-left) is
+    /// kept mid-view.
+    private(set) var zoom: CGFloat = 1
+    var zoomCenter = CGPoint(x: 0.5, y: 0.5)
+    static let maxZoom: CGFloat = 8
+
+    func setZoom(_ value: CGFloat) {
+        zoom = min(max(value, 1), Self.maxZoom)
+        pan(to: zoomCenter)
+    }
+
+    func resetZoom() {
+        zoom = 1
+        zoomCenter = CGPoint(x: 0.5, y: 0.5)
+    }
+
+    /// Keep the zoomed picture covering the view.
+    func pan(to point: CGPoint) {
+        let half = 0.5 / zoom
+        zoomCenter = CGPoint(x: min(max(point.x, half), 1 - half), y: min(max(point.y, half), 1 - half))
+    }
+
     /// Enter pressed once: the rally's start, waiting for its end.
     private(set) var pendingStart: Double?
     private(set) var status = ""
 
     @ObservationIgnored private var video: URL?
     @ObservationIgnored private var timeObserver: Any?
+    /// One seek in flight at a time; a newer target waits and is chased
+    /// when it lands (Apple's QA1820) — scrubbing stays smooth instead of
+    /// queueing a seek per scroll event.
+    @ObservationIgnored private var seekTarget: Double?
+    @ObservationIgnored private var seeking = false
 
     init(sampler: SamplerModel) {
         self.sampler = sampler
@@ -78,11 +105,16 @@ final class RallyMarkModel {
         player.isMuted = true
         self.player = player
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 20), queue: .main) { [weak self] t in
-            MainActor.assumeIsolated { self?.playhead = t.seconds }
+            MainActor.assumeIsolated {
+                // While seeking, the playhead is where you're going, not where it was.
+                guard let self, !self.seeking else { return }
+                self.playhead = t.seconds
+            }
         }
         Task {
             duration = (try? await AVURLAsset(url: url).load(.duration).seconds) ?? 0
         }
+        resetZoom()
         rallies = Self.load(Self.labelsURL(for: url))
         guesses = Self.guesses(for: session)
         pendingStart = nil
@@ -141,18 +173,29 @@ final class RallyMarkModel {
     func seek(to t: Double) {
         let clamped = min(max(0, t), max(duration, 0))
         playhead = clamped
-        player?.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        seekTarget = clamped
+        chaseSeek()
+    }
+
+    private func chaseSeek() {
+        guard !seeking, let target = seekTarget, let player else { return }
+        seeking = true
+        seekTarget = nil
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.seeking = false
+                self.chaseSeek()
+            }
+        }
     }
 
     func skip(by seconds: Double) { seek(to: playhead + seconds) }
 
-    /// Scroll to scrub: pauses playback; nearest frame, not exact, so it keeps up.
+    /// Scroll to scrub: pauses playback and chases the scrolled-to time.
     func scrub(by seconds: Double) {
         if isPlaying { togglePlay() }
-        let t = min(max(0, playhead + seconds), max(duration, 0))
-        playhead = t
-        player?.seek(to: CMTime(seconds: t, preferredTimescale: 600),
-                     toleranceBefore: CMTime(value: 1, timescale: 30), toleranceAfter: CMTime(value: 1, timescale: 30))
+        seek(to: playhead + seconds)
     }
 
     /// The next (or previous) rally or guess start from the playhead.

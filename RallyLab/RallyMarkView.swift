@@ -6,7 +6,8 @@
 //  timeline of the whole video: your rallies as green bars (drag an end to
 //  move it), the guesses to accept as grey ones, the playhead in white.
 //
-//  Scroll (trackpad or wheel) over the video or timeline to scrub.
+//  Scroll (trackpad or wheel) over the video or timeline to scrub; pinch
+//  or = / − to zoom the picture (0 back to the whole frame), drag to pan.
 //  Keys: Enter start / end a rally · Esc cancel a start · Space play/pause ·
 //  1 / 2 / 4 speed · ←/→ 1 s · ⇧←/⇧→ 5 s · N / P next / previous rally ·
 //  A accept the guess · ⌫ delete.
@@ -19,6 +20,8 @@ struct RallyMarkView: View {
     @Bindable var marker: RallyMarkModel
     @State private var hovering = false
     @State private var scrollMonitor: Any?
+    @State private var pinchBase: CGFloat?
+    @State private var panBase: CGPoint?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -26,7 +29,45 @@ struct RallyMarkView: View {
             ZStack {
                 ReviewStyle.stage
                 if let player = marker.player {
-                    LabPlayerView(player: player, showsControls: false)
+                    GeometryReader { geo in
+                        ZoomablePlayerView(player: player, zoom: marker.zoom, center: marker.zoomCenter)
+                            .contentShape(Rectangle())
+                            .gesture(MagnifyGesture()
+                                .onChanged { value in
+                                    let base = pinchBase ?? marker.zoom
+                                    if pinchBase == nil {
+                                        pinchBase = base
+                                        // Zoom toward where the pinch started.
+                                        if marker.zoom <= 1.01 {
+                                            marker.zoomCenter = CGPoint(x: value.startLocation.x / geo.size.width,
+                                                                        y: value.startLocation.y / geo.size.height)
+                                        }
+                                    }
+                                    marker.setZoom(base * value.magnification)
+                                }
+                                .onEnded { _ in pinchBase = nil })
+                            .simultaneousGesture(DragGesture(minimumDistance: 4)
+                                .onChanged { drag in
+                                    guard marker.zoom > 1.01 else { return }
+                                    let base = panBase ?? marker.zoomCenter
+                                    if panBase == nil { panBase = base }
+                                    marker.pan(to: CGPoint(x: base.x - drag.translation.width / (geo.size.width * marker.zoom),
+                                                           y: base.y - drag.translation.height / (geo.size.height * marker.zoom)))
+                                }
+                                .onEnded { _ in panBase = nil })
+                    }
+                    if marker.zoom > 1.01 {
+                        Button { marker.resetZoom() } label: {
+                            Text(String(format: "%.1f×", marker.zoom)).monospacedDigit()
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 9).padding(.vertical, 5)
+                                .background(.ultraThinMaterial, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Back to the whole frame (0)")
+                        .padding(10)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    }
                 } else {
                     ContentUnavailableView("Choose a video", systemImage: "timeline.selection",
                                            description: Text("Mark when every rally starts and ends. The Sampler's rally guesses are there to accept or fix."))
@@ -129,6 +170,9 @@ struct RallyMarkView: View {
         }
         switch event.charactersIgnoringModifiers?.lowercased() {
         case "a": marker.acceptGuess()
+        case "=", "+": marker.setZoom(marker.zoom * 1.5)
+        case "-": marker.setZoom(marker.zoom / 1.5)
+        case "0": marker.resetZoom()
         case "n": marker.jump(forward: true)
         case "p": marker.jump(forward: false)
         case "1": marker.rate = 1
