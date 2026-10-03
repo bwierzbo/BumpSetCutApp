@@ -19,6 +19,7 @@
 //    RallyLab --project v3 --render-heat <clip> <seconds>  (side-by-side video of a tracked rally)
 //    RallyLab --project v3 --pipeline-compare <multi-frame model> <clip>…   (pipeline YOLO vs YOLO+multi-frame)
 //    RallyLab --project v3 --compare-color <clip>…          (pipeline on raw frames vs standard-colour frames)
+//    RallyLab --project v3 --score-rallies [clip…]          (rally cutting vs your rally times; default: every fully marked video)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
 //
@@ -95,6 +96,19 @@ enum HeadlessProjects {
                 await library.heatmaps.addModel(URL(fileURLWithPath: (folder as NSString).expandingTildeInPath))
                 log(library.heatmaps.status)
                 ok = library.heatmaps.status.hasPrefix("Saved")
+            }
+            if ok, let i = args.firstIndex(of: "--score-rallies") {
+                let named = args[(i + 1)...].prefix { !$0.hasPrefix("--") }
+                let sessions = projects.sampler.sessions.filter {
+                    named.isEmpty ? ($0.ralliesMarked ?? false) : named.contains($0.name)
+                }
+                var videos: [RallyCutScore.Video] = []
+                for session in sessions {
+                    log("\(session.name) (\(session.split))…")
+                    if let v = await RallyCutScore.process(session) { videos.append(v) } else { log("   no rally times or couldn't process") }
+                }
+                if videos.isEmpty { log("❌ No fully marked videos (Track tab → Rally times → Whole video marked).") }
+                else { RallyCutScore.report(videos, log: log) }
             }
             if ok, let i = args.firstIndex(of: "--compare-color") {
                 for clip in args[(i + 1)...] where !clip.hasPrefix("--") {
