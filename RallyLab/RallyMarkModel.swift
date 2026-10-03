@@ -73,7 +73,10 @@ final class RallyMarkModel {
     /// when it lands (Apple's QA1820) — scrubbing stays smooth instead of
     /// queueing a seek per scroll event.
     @ObservationIgnored private var seekTarget: Double?
+    @ObservationIgnored private var seekExact = true
     @ObservationIgnored private var seeking = false
+    /// Settles a scrub on the exact frame once scrolling stops.
+    @ObservationIgnored private var settleTask: Task<Void, Never>?
 
     init(sampler: SamplerModel) {
         self.sampler = sampler
@@ -170,10 +173,11 @@ final class RallyMarkModel {
         isPlaying.toggle()
     }
 
-    func seek(to t: Double) {
+    func seek(to t: Double, exact: Bool = true) {
         let clamped = min(max(0, t), max(duration, 0))
         playhead = clamped
         seekTarget = clamped
+        seekExact = exact
         chaseSeek()
     }
 
@@ -181,7 +185,10 @@ final class RallyMarkModel {
         guard !seeking, let target = seekTarget, let player else { return }
         seeking = true
         seekTarget = nil
-        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        // While scrubbing, a frame within a tenth of a second is fine and far
+        // quicker to show (no decoding from the last keyframe); exact otherwise.
+        let tolerance = seekExact ? CMTime.zero : CMTime(value: 1, timescale: 10)
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.seeking = false
@@ -192,10 +199,17 @@ final class RallyMarkModel {
 
     func skip(by seconds: Double) { seek(to: playhead + seconds) }
 
-    /// Scroll to scrub: pauses playback and chases the scrolled-to time.
+    /// Scroll to scrub: pauses playback, chases the scrolled-to time loosely,
+    /// then lands on the exact frame a moment after scrolling stops.
     func scrub(by seconds: Double) {
         if isPlaying { togglePlay() }
-        seek(to: playhead + seconds)
+        seek(to: playhead + seconds, exact: false)
+        settleTask?.cancel()
+        settleTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.seek(to: self.playhead)
+        }
     }
 
     /// The next (or previous) rally or guess start from the playhead.

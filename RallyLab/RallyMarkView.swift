@@ -87,14 +87,16 @@ struct RallyMarkView: View {
         .padding(12)
         .onAppear {
             // Scroll over the video or timeline scrubs: a trackpad by its own
-            // distance (fine near 0, faster on a flick), a mouse wheel a second a notch.
+            // distance (fine, a little faster on a flick), a mouse wheel half a second a notch.
             scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
                 guard hovering, marker.player != nil else { return event }
                 let delta = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) ? event.scrollingDeltaX : -event.scrollingDeltaY
                 if event.hasPreciseScrollingDeltas {
-                    marker.scrub(by: Double(delta) * (abs(delta) > 20 ? 0.08 : 0.03))
+                    // Trackpad: ~1/60 s per point, a little faster on a hard flick.
+                    marker.scrub(by: Double(delta) * (abs(delta) > 25 ? 0.035 : 0.016))
                 } else {
-                    marker.scrub(by: Double(delta).sign == .minus ? -1 : 1)
+                    // Mouse wheel: half a second a notch.
+                    marker.scrub(by: Double(delta).sign == .minus ? -0.5 : 0.5)
                 }
                 return nil
             }
