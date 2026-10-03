@@ -17,7 +17,7 @@ import Observation
 
 struct HeatModelEntry: Identifiable, Hashable {
     let url: URL
-    var id: String { url.path }
+    var id: String { url.standardizedFileURL.path }
     var name: String { url.deletingPathExtension().lastPathComponent }
     /// From the model's metadata (written by heatmap_to_coreml.py).
     let size: String
@@ -72,9 +72,11 @@ final class HeatmapLab {
 
     func reload() {
         let fm = FileManager.default
-        models = ((try? fm.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil)) ?? [])
+        // Newest first: the one you just added is the one you want to score.
+        func added(_ url: URL) -> Date { (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast }
+        models = ((try? fm.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: [.creationDateKey])) ?? [])
             .filter { $0.pathExtension == "mlpackage" }
-            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+            .sorted { added($0) > added($1) }
             .map(HeatModelEntry.init)
         if selected.map({ !models.contains($0) }) ?? true { selected = models.first }
         packages = ((try? fm.contentsOfDirectory(at: exportsDir, includingPropertiesForKeys: nil)) ?? [])
@@ -108,7 +110,7 @@ final class HeatmapLab {
             return
         }
         reload()
-        selected = models.first { $0.url == out }
+        selected = models.first { $0.url.standardizedFileURL.path == out.standardizedFileURL.path } ?? selected
         status = run.lines.last { $0.hasPrefix("Saved") } ?? "Added \(name)."
     }
 
@@ -146,6 +148,101 @@ final class HeatmapLab {
     }
 
     private(set) var lastVideo: URL?
+
+    // MARK: - Training on the desktop
+
+    /// The run started from here last, so it can be brought back after
+    /// RallyLab was closed (training carries on on the desktop).
+    var desktopRun: String? {
+        get { UserDefaults.standard.string(forKey: "RallyLab.desktopRun") }
+        set { UserDefaults.standard.set(newValue, forKey: "RallyLab.desktopRun") }
+    }
+    private(set) var desktopBusy = false
+    private(set) var desktopLine = ""
+
+    private static let desktopScript = converter.deletingLastPathComponent().appendingPathComponent("desktop.sh")
+
+    /// Send the newest multi-frame package to the desktop, train there, follow
+    /// it, bring the model back, add it and score it — all from here.
+    func trainOnDesktop(size: Int) {
+        guard !desktopBusy, let package = packages.first else {
+            if packages.isEmpty { status = "Export a multi-frame package first." }
+            return
+        }
+        desktopBusy = true
+        desktopLine = "Sending \(package.lastPathComponent).zip…"
+        Task {
+            defer { desktopBusy = false }
+            let started = await streamDesktop(["train", package.path + ".zip", "--size", String(size)])
+            guard started.status == 0,
+                  let name = started.lines.lazy.compactMap({ Self.runName(in: $0) }).first else {
+                desktopLine = "Couldn't start: " + (started.lines.last ?? "no output")
+                return
+            }
+            desktopRun = name
+            await followDesktopRun(name)
+        }
+    }
+
+    /// Wait for the last run (if it's still going) and bring it back.
+    func bringBackDesktopRun() {
+        guard !desktopBusy, let name = desktopRun else { return }
+        desktopBusy = true
+        Task {
+            defer { desktopBusy = false }
+            await followDesktopRun(name)
+        }
+    }
+
+    private func followDesktopRun(_ name: String) async {
+        let waited = await streamDesktop(["wait", name])
+        guard waited.status == 0 else { desktopLine = "Training on the desktop stopped: " + (waited.lines.last ?? ""); return }
+        desktopLine = "Bringing back \(name)…"
+        let fetched = await streamDesktop(["fetch", name, "--no-score"])
+        guard fetched.status == 0 else { desktopLine = "Couldn't bring it back: " + (fetched.lines.last ?? ""); return }
+        let incoming = sampler.datasetRoot.appendingPathComponent("incoming/\(name)")
+        desktopLine = "Converting and scoring \(name)…"
+        isBusy = false
+        await addModel(incoming)
+        evaluate()
+        while isBusy { try? await Task.sleep(nanoseconds: 300_000_000) }
+        desktopLine = "\(name) is back and scored below."
+        desktopRun = nil
+    }
+
+    /// Run desktop.sh, showing each line of its output as it comes.
+    private func streamDesktop(_ args: [String]) async -> (status: Int32, lines: [String]) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [Self.desktopScript.path] + args
+        var env = ToolEnvironment.variables
+        env["RALLYLAB_PROJECT"] = sampler.datasetRoot.lastPathComponent
+        process.environment = env
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        let collected = LineCollector()
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let text = String(decoding: handle.availableData, as: UTF8.self)
+            let lines = text.split(whereSeparator: \.isNewline).map(String.init)
+                .filter { !$0.contains("post-quantum") && !$0.contains("store now") && !$0.contains("pq.html") && !$0.contains("upgraded") }
+            guard !lines.isEmpty else { return }
+            collected.append(lines)
+            Task { @MainActor [weak self] in self?.desktopLine = lines.last! }
+        }
+        do { try process.run() } catch { return (-1, [error.localizedDescription]) }
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            process.terminationHandler = { _ in done.resume() }
+        }
+        pipe.fileHandleForReading.readabilityHandler = nil
+        return (process.terminationStatus, collected.lines)
+    }
+
+    /// desktop.sh says: Package: … → run "NAME" (…)
+    nonisolated static func runName(in line: String) -> String? {
+        guard let r = line.range(of: "run \""), let end = line[r.upperBound...].firstIndex(of: "\"") else { return nil }
+        return String(line[r.upperBound..<end])
+    }
 
     func evaluate() {
         guard !isBusy, let model = selected, let package else { return }
@@ -355,4 +452,12 @@ enum HeatEvaluation {
 
 private extension HeatEvaluation.Score {
     mutating func add(_ s: Self) { tp += s.tp; fp += s.fp; fn += s.fn }
+}
+
+/// Output lines gathered from a pipe's handler thread.
+private final class LineCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String] = []
+    func append(_ new: [String]) { lock.lock(); stored += new; lock.unlock() }
+    var lines: [String] { lock.lock(); defer { lock.unlock() }; return stored }
 }

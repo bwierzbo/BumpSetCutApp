@@ -369,12 +369,41 @@ private struct MultiFrameBox: View {
                             .buttonStyle(.link).font(.caption)
                     }
                 }
+                desktopRow
                 if let r = lab.result { results(r) }
                 if !lab.status.isEmpty {
                     Text(lab.status).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
             }
             .padding(4)
+        }
+    }
+
+    /// Train on the desktop GPU over SSH (scripts/desktop_training/desktop.sh).
+    private var desktopRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Divider()
+            HStack {
+                Menu {
+                    Button("512×288 (recommended)") { lab.trainOnDesktop(size: 512) }
+                    Button("1024×576") { lab.trainOnDesktop(size: 1024) }
+                } label: { Label("Train on Desktop", systemImage: "desktopcomputer") }
+                .fixedSize()
+                .disabled(lab.desktopBusy || lab.packages.isEmpty)
+                .help("Sends the newest multi-frame package to the desktop, trains there, brings the model back and scores it")
+                if let run = lab.desktopRun, !lab.desktopBusy {
+                    Button("Bring Back \(run)") { lab.bringBackDesktopRun() }
+                        .help("Training carries on on the desktop if RallyLab was closed; this waits for it and brings it back")
+                }
+                if lab.desktopBusy { ProgressView().controlSize(.small) }
+            }
+            if let package = lab.packages.first {
+                Text("Trains on \(package.lastPathComponent). About an hour at 512; RallyLab can stay open or not.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            if !lab.desktopLine.isEmpty {
+                Text(lab.desktopLine).font(.caption.monospaced()).lineLimit(2).foregroundStyle(.secondary)
+            }
         }
     }
 
