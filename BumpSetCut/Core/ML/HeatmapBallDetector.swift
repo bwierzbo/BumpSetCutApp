@@ -16,7 +16,9 @@
 
 import CoreGraphics
 import CoreML
+import CoreVideo
 import Foundation
+import VideoToolbox
 
 final class HeatmapBallDetector {
 
@@ -84,6 +86,14 @@ final class HeatmapBallDetector {
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         }
         return Frame(pixels: bytes.map { Float($0) / 255 }, portrait: portrait)
+    }
+
+    /// The same, straight from a decoded video frame (as stored, like the
+    /// processing pipeline reads it).
+    func grayscale(_ pixelBuffer: CVPixelBuffer) -> Frame? {
+        var image: CGImage?
+        VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &image)
+        return image.flatMap(grayscale)
     }
 
     /// Peaks on frame `target` of `frames` (exactly `seq` of them, in order).

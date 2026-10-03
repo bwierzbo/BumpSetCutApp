@@ -286,6 +286,17 @@ struct InspectorPane: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help("Which bundled ball model detects. The RallyLab models were trained on letterboxed frames, so they're always fed letterboxed (the toggles below apply to the current model). Re-run to apply.")
+                Picker(selection: $model.heatmapModel) {
+                    Text("off").tag(URL?.none)
+                    ForEach(model.heatmapModels, id: \.self) { url in
+                        Text(url.deletingPathExtension().lastPathComponent).tag(Optional(url))
+                    }
+                } label: {
+                    Text("multi-frame").font(.system(.caption, design: .monospaced))
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Run a multi-frame model (Models tab) alongside YOLO: the balls it finds that YOLO didn't go to the tracker too (drawn cyan). It sees the last 9 frames, so it finds moving balls YOLO misses and never fires on still ones. Re-run to apply.")
                 slider("detectionConf", value: $model.detectionConfidence, in: 0.1...0.95, format: "%.2f",
                        info: "Minimum YOLO confidence to keep a volleyball detection. Lower surfaces marginal/noisier detections (more recall); higher keeps only confident hits. Changes what the model detects, so it needs a re-run.")
                 Toggle(isOn: $model.adaptiveLetterbox) {

@@ -17,6 +17,7 @@
 //    RallyLab --project v3 --add-heat <bring_back folder>  (convert + add a multi-frame model)
 //    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
 //    RallyLab --project v3 --render-heat <clip> <seconds>  (side-by-side video of a tracked rally)
+//    RallyLab --project v3 --pipeline-compare <multi-frame model> <clip>…   (pipeline YOLO vs YOLO+multi-frame)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
 //
@@ -93,6 +94,21 @@ enum HeadlessProjects {
                 await library.heatmaps.addModel(URL(fileURLWithPath: (folder as NSString).expandingTildeInPath))
                 log(library.heatmaps.status)
                 ok = library.heatmaps.status.hasPrefix("Saved")
+            }
+            if ok, let i = args.firstIndex(of: "--pipeline-compare"), args.indices.contains(i + 2) {
+                library.heatmaps.reload()
+                let key = args[i + 1]
+                guard let model = library.heatmaps.models.first(where: { $0.name == key || $0.url.path == key })?.url else {
+                    log("❌ No multi-frame model \(key). Models: \(library.heatmaps.models.map(\.name).joined(separator: ", "))")
+                    exit(1)
+                }
+                for clip in args[(i + 2)...] where !clip.hasPrefix("--") {
+                    guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
+                    log("\(clip) (\(session.split), \((session.tracks ?? []).filter(\.done).count) done tracked rallies)…")
+                    guard let (off, on) = await PipelineCompare.run(session: session, heatModel: model) else { log("   couldn't process"); continue }
+                    log("   YOLO only        : " + PipelineCompare.describe(off))
+                    log("   YOLO + multi-frame: " + PipelineCompare.describe(on))
+                }
             }
             if ok, args.contains("--evaluate-heat") { ok = await evaluateHeat(library.heatmaps, args: args) }
             if ok, let i = args.firstIndex(of: "--render-heat"), args.indices.contains(i + 2) {

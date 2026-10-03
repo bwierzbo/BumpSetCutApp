@@ -153,12 +153,13 @@ struct DetectionOverlayView: View {
             if let latest = frames.last {
                 for det in latest.detections {
                     let rect = Self.rect(det.bbox, turns: turns, in: fit)
-                    let color: Color = det.isOffCourt ? .red.opacity(0.5) : .yellow
+                    // Cyan: found by the multi-frame model where YOLO had nothing.
+                    let color: Color = det.isOffCourt ? .red.opacity(0.5) : det.fromHeatmap ? .cyan : .yellow
                     ctx.stroke(Path(rect), with: .color(color),
                                style: StrokeStyle(lineWidth: 2, dash: det.isOffCourt ? [4, 3] : []))
                     let label = Text(det.isOffCourt
                                      ? "off-court"
-                                     : String(format: "%.2f", Double(det.confidence)))
+                                     : String(format: det.fromHeatmap ? "mf %.2f" : "%.2f", Double(det.confidence)))
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(color)
                     ctx.draw(label, at: CGPoint(x: rect.minX, y: max(fit.minY, rect.minY - 2)),

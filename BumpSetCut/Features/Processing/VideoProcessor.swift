@@ -87,6 +87,9 @@ final class VideoProcessor {
         /// Dropped before tracking because it sits laterally beyond the net posts
         /// (an adjacent court's ball). Drawn dimmed in RallyLab.
         let isOffCourt: Bool
+        /// Found by the multi-frame model where YOLO had nothing; `confidence`
+        /// is then the heatmap's peak value.
+        var fromHeatmap: Bool = false
     }
 
     /// One candidate trajectory considered for the rally this frame (multi-court).
@@ -160,6 +163,52 @@ final class VideoProcessor {
     /// Load the configured ball model (if it isn't the one loaded) and set how
     /// frames are fitted into it: models trained on letterboxed frames get
     /// every frame letterboxed; the shipping model keeps the config's choice.
+    /// The multi-frame model (config.heatmapModel) and the last frames it sees.
+    private var heatDetector: HeatmapBallDetector?
+    private var heatModelURL: URL?
+    private var heatFrames: [HeatmapBallDetector.Frame] = []
+    private var heatLastTime: Double?
+
+    /// Load the configured multi-frame model, if it changed.
+    private func prepareHeatmap() {
+        heatFrames = []
+        heatLastTime = nil
+        guard config.heatmapModel != heatModelURL else { return }
+        heatModelURL = config.heatmapModel
+        #if os(iOS)
+        heatDetector = config.heatmapModel.flatMap { HeatmapBallDetector(modelURL: $0, computeUnits: .cpuAndNeuralEngine) }
+        #else
+        heatDetector = config.heatmapModel.flatMap { HeatmapBallDetector(modelURL: $0) }
+        #endif
+    }
+
+    /// Keep the last frames for the multi-frame model, about 1/30 s apart
+    /// whatever the video's rate (as it was trained). Called on every decoded
+    /// frame, skipped ones included. True when this frame went in.
+    private func feedHeatmap(_ pix: CVPixelBuffer, at seconds: Double) -> Bool {
+        guard let heat = heatDetector else { return false }
+        if let last = heatLastTime, seconds - last < 1.0 / 30 - 0.004 { return false }
+        guard let frame = heat.grayscale(pix) else { return false }
+        heatFrames.append(frame)
+        if heatFrames.count > heat.seq { heatFrames.removeFirst(heatFrames.count - heat.seq) }
+        heatLastTime = seconds
+        return true
+    }
+
+    /// The multi-frame model's balls on the newest frame that YOLO didn't
+    /// already find (a peak near a YOLO box is the same ball). The newest
+    /// frame is the last of the window: no waiting for frames ahead.
+    private func heatmapOnlyDetections(beside dets: [DetectionResult], at pts: CMTime) -> [DetectionResult] {
+        guard let heat = heatDetector, heatFrames.count == heat.seq else { return [] }
+        return heat.peaks(in: heatFrames, target: heat.seq - 1).compactMap { peak in
+            let c = CGPoint(x: peak.rect.midX, y: peak.rect.midY)
+            let known = dets.contains { d in
+                hypot(d.bbox.midX - c.x, (d.bbox.midY - c.y) * 9 / 16) < max(d.bbox.width, 0.012)
+            }
+            return known ? nil : DetectionResult(bbox: peak.rect, confidence: peak.confidence, timestamp: pts)
+        }
+    }
+
     private func prepareDetector() {
         if detector.modelName != config.ballModel.rawValue {
             #if os(iOS)
@@ -377,6 +426,7 @@ final class VideoProcessor {
         self.decider = RallyDecider(config: config)
         self.segments = SegmentBuilder(config: config)
         prepareDetector()
+        prepareHeatmap()
         if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
             if netDetector == nil { netDetector = NetDetector() }   // cache the model across videos
             netDetector?.minConfidence = config.netDetectionConfidence
@@ -560,6 +610,7 @@ final class VideoProcessor {
 
             let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
             rawFrameIndex += 1
+            let heatFresh = feedHeatmap(pix, at: CMTimeGetSeconds(pts))
 
             // Single processing path: a dynamic stride skips frames (denser
             // while tracking a ball, sparser when idle) so we never run
@@ -579,8 +630,10 @@ final class VideoProcessor {
                 continue
             }
 
-            // Detect.
-            let dets = detector.detect(in: pix, at: pts)
+            // Detect: YOLO, plus the multi-frame model's balls YOLO missed.
+            let yoloDets = detector.detect(in: pix, at: pts)
+            let heatDets = heatFresh ? heatmapOnlyDetections(beside: yoloDets, at: pts) : []
+            let dets = yoloDets + heatDets
 
             // Off-court rejection: drop detections laterally beyond the net posts
             // (an adjacent court's ball) BEFORE tracking, so they can't form a track
@@ -632,9 +685,10 @@ final class VideoProcessor {
                     time: CMTimeGetSeconds(pts),
                     hasBall: hasBall,
                     isProjectile: isProjectile,
-                    detections: dets.map { det in
+                    detections: dets.enumerated().map { i, det in
                         BallDetection(bbox: det.bbox, confidence: det.confidence,
-                                      isOffCourt: courtBoundsX.map { !$0.contains(det.bbox.midX) } ?? false)
+                                      isOffCourt: courtBoundsX.map { !$0.contains(det.bbox.midX) } ?? false,
+                                      fromHeatmap: i >= yoloDets.count)
                     },
                     trackPoint: trailPoint,
                     rSquared: gateResult?.rSquared,

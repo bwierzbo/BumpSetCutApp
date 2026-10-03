@@ -179,6 +179,26 @@ final class RallyLabModel {
         }
     }
 
+    /// A multi-frame model (added in the Models tab) to run alongside YOLO;
+    /// nil = off. Remembered across launches. Re-run to apply.
+    var heatmapModel: URL? = UserDefaults.standard.url(forKey: "RallyLab.pipelineHeatmapModel") {
+        didSet {
+            UserDefaults.standard.set(heatmapModel, forKey: "RallyLab.pipelineHeatmapModel")
+            guard heatmapModel != oldValue, !evidence.isEmpty else { return }
+            detectionConfigDirty = true
+        }
+    }
+
+    /// The open dataset's multi-frame models, newest first.
+    var heatmapModels: [URL] {
+        guard let root = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return [] }
+        let dir = URL(fileURLWithPath: root, isDirectory: true).appendingPathComponent("models/heatmap", isDirectory: true)
+        func added(_ url: URL) -> Date { (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast }
+        return ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey])) ?? [])
+            .filter { $0.pathExtension == "mlpackage" }
+            .sorted { added($0) > added($1) }
+    }
+
     /// Auto-pick scaleFit (portrait/ultrawide) vs scaleFill (landscape) per frame.
     /// Overrides the manual toggle above when on. Re-run to apply.
     var adaptiveLetterbox: Bool = true {
@@ -458,6 +478,7 @@ final class RallyLabModel {
         var cfg = ProcessorConfig()
         cfg.detectionConfidence = detectionConfidence
         cfg.ballModel = ballModel
+        cfg.heatmapModel = heatmapModel.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
         cfg.useScaleFitLetterbox = useScaleFitLetterbox
         cfg.adaptiveLetterbox = adaptiveLetterbox
         cfg.minGravitySignature = minGravitySignature

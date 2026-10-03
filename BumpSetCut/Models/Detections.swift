@@ -114,6 +114,13 @@ struct ProcessorConfig {
     /// of the config so a checkpoint from one model never resumes on another.
     var ballModel: BallModel = .current
 
+    /// A multi-frame (heatmap) ball model to run alongside YOLO; nil = off.
+    /// It sees the last 9 frames, so it finds the moving ball where YOLO's
+    /// single frame can't (blur, far court, low contrast) and never fires on
+    /// a still one. Its peaks YOLO didn't have are added to the tracker's
+    /// input. See HeatmapBallDetector.
+    var heatmapModel: URL? = nil
+
     /// Letterbox frames into the model (`.scaleFit`) instead of stretching them
     /// (`.scaleFill`). Preserves aspect ratio so the ball stays round, matching
     /// YOLO training preprocessing — can recover confidence on non-square / 0.5x
