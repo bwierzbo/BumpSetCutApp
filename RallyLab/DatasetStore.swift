@@ -88,6 +88,9 @@ struct VideoSession: Codable, Identifiable, Equatable {
     var rejected: [RejectedSpot]? = nil
     /// Rallies labeled frame by frame in the Track tab.
     var tracks: [TrackedRally]? = nil
+    /// Every rally's start and end is marked (Track tab → Rally Times), so
+    /// the video can score missed and false rallies.
+    var ralliesMarked: Bool? = nil
 
     var reviewedCount: Int { frames.filter(\.reviewed).count }
     var boxCount: Int { frames.filter(\.keep).reduce(0) { $0 + $1.boxes.count } }

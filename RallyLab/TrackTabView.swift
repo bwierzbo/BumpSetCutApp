@@ -19,7 +19,11 @@ import SwiftUI
 
 struct TrackTabView: View {
     @Bindable var tracker: TrackLabelModel
+    @Bindable var marker: RallyMarkModel
     let isActive: Bool
+    /// Ball tracks (frame by frame) or rally times (whole video).
+    @AppStorage("RallyLab.trackMode") private var mode = Mode.ball
+    enum Mode: String { case ball, rallies }
     @State private var keyMonitor: Any?
     @AppStorage("RallyLab.trackSession") private var savedSession = ""
 
@@ -27,17 +31,21 @@ struct TrackTabView: View {
         HSplitView {
             sidebar
                 .frame(minWidth: 230, idealWidth: 260, maxWidth: 320)
-            stage
-                .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
+            Group {
+                if mode == .ball { stage } else { RallyMarkView(marker: marker) }
+            }
+            .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
             if tracker.sessionName == nil, !savedSession.isEmpty { tracker.open(sessionName: savedSession) }
+            if mode == .rallies, !savedSession.isEmpty { marker.open(sessionName: savedSession) }
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { handleKey($0) ? nil : $0 }
         }
         .onDisappear {
             if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
             keyMonitor = nil
             tracker.stop()
+            if marker.isPlaying { marker.togglePlay() }
         }
     }
 
@@ -46,11 +54,21 @@ struct TrackTabView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Track").font(.headline)
+            Picker("", selection: Binding(get: { mode }, set: { newMode in
+                mode = newMode
+                if newMode == .rallies, !savedSession.isEmpty { marker.open(sessionName: savedSession) }
+                if newMode == .ball, marker.isPlaying { marker.togglePlay() }
+            })) {
+                Text("Ball tracks").tag(Mode.ball)
+                Text("Rally times").tag(Mode.rallies)
+            }
+            .pickerStyle(.segmented).labelsHidden()
             Picker("Video", selection: Binding(
                 get: { tracker.sessionName ?? "" },
                 set: { name in
                     savedSession = name
                     tracker.open(sessionName: name)
+                    if mode == .rallies { marker.open(sessionName: name) }
                 }
             )) {
                 Text("Choose a video…").tag("")
@@ -217,9 +235,10 @@ struct TrackTabView: View {
     // MARK: - Keys
 
     private func handleKey(_ event: NSEvent) -> Bool {
-        guard isActive, tracker.rally != nil,
-              let window = event.window, window.isKeyWindow, window.attachedSheet == nil,
+        guard isActive, let window = event.window, window.isKeyWindow, window.attachedSheet == nil,
               !(window is NSPanel), !(window.firstResponder is NSText) else { return false }
+        if mode == .rallies { return RallyMarkView.handleKey(event, marker: marker) }
+        guard tracker.rally != nil else { return false }
         let shift = event.modifierFlags.contains(.shift)
         switch event.keyCode {
         case 123: shift ? tracker.jumpToUncertain(forward: false) : tracker.stepBy(-1); return true

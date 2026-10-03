@@ -33,17 +33,23 @@ enum PipelineCompare {
 
     @MainActor
     static func run(session: VideoSession, heatModel: URL, base: ProcessorConfig = ProcessorConfig()) async -> (Run, Run)? {
-        let video = URL(fileURLWithPath: session.sourcePath)
-        guard FileManager.default.fileExists(atPath: video.path) else { return nil }
-        let rotation = await StoredRotation.of(video: video)
-        let tracks = (session.tracks ?? []).filter(\.done)
         var withHeat = base
         withHeat.heatmapModel = heatModel
         var off = base
         off.heatmapModel = nil
-        guard let a = await process(video, config: off, tracks: tracks, rotation: rotation),
-              let b = await process(video, config: withHeat, tracks: tracks, rotation: rotation) else { return nil }
-        return (a, b)
+        return await run(session: session, a: off, b: withHeat)
+    }
+
+    /// The pipeline with config `a`, then `b`, scored the same way.
+    @MainActor
+    static func run(session: VideoSession, a: ProcessorConfig, b: ProcessorConfig) async -> (Run, Run)? {
+        let video = URL(fileURLWithPath: session.sourcePath)
+        guard FileManager.default.fileExists(atPath: video.path) else { return nil }
+        let rotation = await StoredRotation.of(video: video)
+        let tracks = (session.tracks ?? []).filter(\.done)
+        guard let first = await process(video, config: a, tracks: tracks, rotation: rotation),
+              let second = await process(video, config: b, tracks: tracks, rotation: rotation) else { return nil }
+        return (first, second)
     }
 
     @MainActor

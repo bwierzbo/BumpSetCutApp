@@ -16,6 +16,7 @@
 
 import CoreGraphics
 import CoreML
+import Accelerate
 import CoreVideo
 import Foundation
 import VideoToolbox
@@ -25,7 +26,7 @@ final class HeatmapBallDetector {
     /// One frame, prepared once and reused by every window it's in.
     struct Frame {
         /// Model-size grayscale, 0–1, row-major (already turned if portrait).
-        fileprivate let pixels: [Float]
+        let pixels: [Float]
         let portrait: Bool
     }
 
@@ -89,11 +90,71 @@ final class HeatmapBallDetector {
     }
 
     /// The same, straight from a decoded video frame (as stored, like the
-    /// processing pipeline reads it).
+    /// processing pipeline reads it). BGRA frames go through vImage on the
+    /// frame's own memory — scale, turn portrait, grey (OpenCV's weights, as
+    /// in training) — a few times faster than drawing a CGImage; anything
+    /// else goes through VideoToolbox.
     func grayscale(_ pixelBuffer: CVPixelBuffer) -> Frame? {
-        var image: CGImage?
-        VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &image)
-        return image.flatMap(grayscale)
+        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA else {
+            var image: CGImage?
+            VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &image)
+            return image.flatMap(grayscale)
+        }
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let srcW = CVPixelBufferGetWidth(pixelBuffer), srcH = CVPixelBufferGetHeight(pixelBuffer)
+        var src = vImage_Buffer(data: base, height: vImagePixelCount(srcH), width: vImagePixelCount(srcW),
+                                rowBytes: CVPixelBufferGetBytesPerRow(pixelBuffer))
+        let portrait = srcH > srcW
+        // Portrait: scale to the model's size turned sideways, then turn a
+        // quarter turn clockwise into it.
+        let (scaledW, scaledH) = portrait ? (height, width) : (width, height)
+        var scaled = [UInt8](repeating: 0, count: scaledW * scaledH * 4)
+        let scaledOK: Bool = scaled.withUnsafeMutableBytes { scaledPtr in
+            var dst = vImage_Buffer(data: scaledPtr.baseAddress, height: vImagePixelCount(scaledH),
+                                    width: vImagePixelCount(scaledW), rowBytes: scaledW * 4)
+            return vImageScale_ARGB8888(&src, &dst, nil, vImage_Flags(kvImageNoFlags)) == kvImageNoError
+        }
+        guard scaledOK else { return nil }
+        var landscape = scaled
+        if portrait {
+            let turned: Bool = scaled.withUnsafeMutableBytes { scaledPtr in
+                landscape.withUnsafeMutableBytes { outPtr in
+                    var input = vImage_Buffer(data: scaledPtr.baseAddress, height: vImagePixelCount(scaledH),
+                                              width: vImagePixelCount(scaledW), rowBytes: scaledW * 4)
+                    var out = vImage_Buffer(data: outPtr.baseAddress, height: vImagePixelCount(height),
+                                            width: vImagePixelCount(width), rowBytes: width * 4)
+                    var black: [UInt8] = [0, 0, 0, 0]
+                    return vImageRotate90_ARGB8888(&input, &out, UInt8(kRotate90DegreesClockwise), &black,
+                                                   vImage_Flags(kvImageNoFlags)) == kvImageNoError
+                }
+            }
+            guard turned else { return nil }
+        }
+        // BGRA → grey with cv2.COLOR_BGR2GRAY's weights (0.114 B + 0.587 G
+        // + 0.299 R), then to 0–1 floats.
+        var grey = [UInt8](repeating: 0, count: width * height)
+        var pixels = [Float](repeating: 0, count: width * height)
+        let converted: Bool = landscape.withUnsafeMutableBytes { bgraPtr in
+            grey.withUnsafeMutableBytes { greyPtr in
+                pixels.withUnsafeMutableBytes { floatPtr in
+                    var bgra = vImage_Buffer(data: bgraPtr.baseAddress, height: vImagePixelCount(height),
+                                             width: vImagePixelCount(width), rowBytes: width * 4)
+                    var g = vImage_Buffer(data: greyPtr.baseAddress, height: vImagePixelCount(height),
+                                          width: vImagePixelCount(width), rowBytes: width)
+                    var f = vImage_Buffer(data: floatPtr.baseAddress, height: vImagePixelCount(height),
+                                          width: vImagePixelCount(width), rowBytes: width * 4)
+                    let divisor: Int32 = 4096
+                    let matrix: [Int16] = [Int16(0.114 * 4096), Int16(0.587 * 4096), Int16(0.299 * 4096), 0]  // B, G, R, A
+                    guard vImageMatrixMultiply_ARGB8888ToPlanar8(&bgra, &g, matrix, divisor, nil, 0,
+                                                                 vImage_Flags(kvImageNoFlags)) == kvImageNoError else { return false }
+                    return vImageConvert_Planar8toPlanarF(&g, &f, 1, 0, vImage_Flags(kvImageNoFlags)) == kvImageNoError
+                }
+            }
+        }
+        guard converted else { return nil }
+        return Frame(pixels: pixels, portrait: portrait)
     }
 
     /// Peaks on frame `target` of `frames` (exactly `seq` of them, in order).

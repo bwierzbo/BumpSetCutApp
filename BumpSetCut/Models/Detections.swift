@@ -114,6 +114,12 @@ struct ProcessorConfig {
     /// of the config so a checkpoint from one model never resumes on another.
     var ballModel: BallModel = .current
 
+    /// Have the decoder convert frames to standard (SDR, BT.709) colour before
+    /// detection. iPhones record HDR (HLG) by default, and raw HDR frames come
+    /// out washed out — unlike the training frames, which went through
+    /// AVAssetImageGenerator's tone mapping. No effect on SDR video.
+    var standardColorFrames: Bool = false
+
     /// A multi-frame (heatmap) ball model to run alongside YOLO; nil = off.
     /// It sees the last 9 frames, so it finds the moving ball where YOLO's
     /// single frame can't (blur, far court, low contrast) and never fires on

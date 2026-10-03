@@ -163,6 +163,21 @@ final class VideoProcessor {
     /// Load the configured ball model (if it isn't the one loaded) and set how
     /// frames are fitted into it: models trained on letterboxed frames get
     /// every frame letterboxed; the shipping model keeps the config's choice.
+    /// BGRA frames for detection; with `standardColor`, converted to SDR
+    /// BT.709 (tone-mapping HDR) as AVAssetImageGenerator — and so training —
+    /// sees them.
+    static func readerSettings(standardColor: Bool) -> [String: Any] {
+        var settings: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        if standardColor {
+            settings[AVVideoColorPropertiesKey] = [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+            ]
+        }
+        return settings
+    }
+
     /// The multi-frame model (config.heatmapModel) and the last frames it sees.
     private var heatDetector: HeatmapBallDetector?
     private var heatModelURL: URL?
@@ -281,9 +296,7 @@ final class VideoProcessor {
 
         // Reader
         let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-        ])
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: Self.readerSettings(standardColor: config.standardColorFrames))
         reader.add(output)
 
         // Annotator (writes full-length MP4 with overlays)
@@ -466,9 +479,7 @@ final class VideoProcessor {
 
         // Reader (resumes mid-video when a checkpoint seeded this run)
         let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-        ])
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: Self.readerSettings(standardColor: config.standardColorFrames))
         reader.add(output)
         if let restored {
             reader.timeRange = CMTimeRange(

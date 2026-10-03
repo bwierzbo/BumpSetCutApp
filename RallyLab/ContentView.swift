@@ -14,6 +14,7 @@ struct ContentView: View {
     @Bindable var projects: ProjectsModel
     @Bindable var library: ModelLibrary
     let tracker: TrackLabelModel
+    let marker: RallyMarkModel
     @State private var showingImporter = false
     /// The tab you were on last time, so RallyLab reopens where you left off.
     @AppStorage("RallyLab.tab") private var tab: Tab = .projects
@@ -64,7 +65,7 @@ struct ContentView: View {
             SamplerTabView(lab: model, sampler: sampler, isActive: tab == .sampler)
                 .tabItem { Label("Sampler", systemImage: "photo.stack") }
                 .tag(Tab.sampler)
-            TrackTabView(tracker: tracker, isActive: tab == .track)
+            TrackTabView(tracker: tracker, marker: marker, isActive: tab == .track)
                 .tabItem { Label("Track", systemImage: "scope") }
                 .tag(Tab.track)
             ModelsTabView(library: library) { sessionName, frame in

@@ -1177,6 +1177,17 @@ final class SamplerModel {
         }
     }
 
+    /// Track tab → Rally Times: whether every rally in the video is marked.
+    func setRalliesMarked(_ marked: Bool, session name: String) {
+        if var session = currentSession, session.name == name {
+            session.ralliesMarked = marked
+            saveSession(session)
+        } else if let s = sessions.firstIndex(where: { $0.name == name }) {
+            sessions[s].ralliesMarked = marked
+            do { try store.save(sessions[s]) } catch { status = "Couldn't save: \(error.localizedDescription)" }
+        }
+    }
+
     private func saveSession(_ session: VideoSession) {
         currentSession = session
         do {

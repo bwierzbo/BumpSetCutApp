@@ -18,6 +18,7 @@
 //    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
 //    RallyLab --project v3 --render-heat <clip> <seconds>  (side-by-side video of a tracked rally)
 //    RallyLab --project v3 --pipeline-compare <multi-frame model> <clip>…   (pipeline YOLO vs YOLO+multi-frame)
+//    RallyLab --project v3 --compare-color <clip>…          (pipeline on raw frames vs standard-colour frames)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
 //
@@ -94,6 +95,17 @@ enum HeadlessProjects {
                 await library.heatmaps.addModel(URL(fileURLWithPath: (folder as NSString).expandingTildeInPath))
                 log(library.heatmaps.status)
                 ok = library.heatmaps.status.hasPrefix("Saved")
+            }
+            if ok, let i = args.firstIndex(of: "--compare-color") {
+                for clip in args[(i + 1)...] where !clip.hasPrefix("--") {
+                    guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
+                    var sdr = ProcessorConfig()
+                    sdr.standardColorFrames = true
+                    log("\(clip)…")
+                    guard let (raw, std) = await PipelineCompare.run(session: session, a: ProcessorConfig(), b: sdr) else { log("   couldn't process"); continue }
+                    log("   raw frames     : " + PipelineCompare.describe(raw))
+                    log("   standard colour: " + PipelineCompare.describe(std))
+                }
             }
             if ok, let i = args.firstIndex(of: "--pipeline-compare"), args.indices.contains(i + 2) {
                 library.heatmaps.reload()

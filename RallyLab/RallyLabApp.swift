@@ -16,6 +16,7 @@ struct RallyLabApp: App {
     @State private var projects: ProjectsModel
     @State private var library: ModelLibrary
     @State private var tracker: TrackLabelModel
+    @State private var marker: RallyMarkModel
 
     init() {
         // `RallyLab --export-training-data [path]` batch-exports classifier
@@ -33,11 +34,12 @@ struct RallyLabApp: App {
         _projects = State(initialValue: ProjectsModel(sampler: sampler))
         _library = State(initialValue: ModelLibrary(sampler: sampler))
         _tracker = State(initialValue: TrackLabelModel(sampler: sampler))
+        _marker = State(initialValue: RallyMarkModel(sampler: sampler))
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker)
+            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker)
         }
         .commands {
             CommandGroup(replacing: .newItem) {
