@@ -222,12 +222,16 @@ final class TrackLabelModel {
         let id = rally.id
         let times = rally.points.map(\.time)
         let model = sampler.prelabelModel
+        let heatModel = newestHeatModel
         trackingProgress = 0
-        progressLabel = "Finding the ball on every frame…"
+        progressLabel = heatModel == nil ? "Finding the ball on every frame…"
+            : "Finding the ball on every frame (YOLO + multi-frame)…"
         status = "Finding the ball on \(times.count) frames…"
         trackTask = Task {
             let candidates = await Task.detached(priority: .userInitiated) { () -> [[TrackCandidate]]? in
                 let detector = SamplerModel.detector(model: model, confidence: Self.candidateConfidence)
+                let heat = heatModel.flatMap { HeatmapBallDetector(modelURL: $0) }
+                var grays = [HeatmapBallDetector.Frame?](repeating: nil, count: times.count)
                 let generator = AVAssetImageGenerator(asset: video)
                 generator.appliesPreferredTrackTransform = true
                 generator.requestedTimeToleranceBefore = .zero
@@ -241,6 +245,7 @@ final class TrackLabelModel {
                           let i = times.firstIndex(where: { abs($0 - result.requestedTime.seconds) < 0.0005 }) else { continue }
                     found[i] = detector.detect(in: image, at: result.requestedTime)
                         .map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
+                    grays[i] = heat?.grayscale(image)
                     // The same frame, kept for review: no seeking in the video later.
                     if !frames.has(times[i]) { frames.write(image, time: times[i]) }
                     if done % 10 == 0 {
@@ -248,6 +253,7 @@ final class TrackLabelModel {
                         await MainActor.run { [weak self] in self?.trackingProgress = fraction }
                     }
                 }
+                if let heat { Self.addHeatmapCandidates(heat, grays: grays, to: &found) }
                 return found
             }.value
             trackingProgress = nil
@@ -258,6 +264,48 @@ final class TrackLabelModel {
             }
             report()
             if selectedId == id { showFrame() }
+        }
+    }
+
+    /// The newest multi-frame model added in the Models tab, if any.
+    private var newestHeatModel: URL? {
+        let dir = sampler.datasetRoot.appendingPathComponent("models/heatmap", isDirectory: true)
+        return ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey])) ?? [])
+            .filter { $0.pathExtension == "mlpackage" }
+            .max { a, b in
+                let da = (try? a.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                let db = (try? b.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                return da < db
+            }
+    }
+
+    /// The multi-frame model's peaks on every frame (a window of 9 centred on
+    /// it, edges repeated), merged with YOLO's candidates: one at the same
+    /// spot raises that candidate's confidence; one YOLO didn't have is added.
+    /// It sees motion, so it adds blurred and far balls and skips still ones.
+    /// A multi-frame peak with no YOLO candidate at the spot counts this much.
+    nonisolated static let heatAloneWeight = 0.6
+
+    nonisolated static func addHeatmapCandidates(_ heat: HeatmapBallDetector, grays: [HeatmapBallDetector.Frame?],
+                                                         to found: inout [[TrackCandidate]]) {
+        let n = grays.count, half = heat.seq / 2
+        for i in 0..<n {
+            let window = (i - half...i + half).compactMap { grays[min(max(0, $0), n - 1)] }
+            guard window.count == heat.seq else { continue }
+            for peak in heat.peaks(in: window, target: half) {
+                let c = CGPoint(x: peak.rect.midX, y: peak.rect.midY)
+                let near = found[i].indices.first { k in
+                    let r = found[i][k].rect
+                    return hypot(r.midX - c.x, (r.midY - c.y) * 9 / 16) < max(r.width, 0.012)
+                }
+                if let k = near {
+                    found[i][k].confidence = 1 - (1 - found[i][k].confidence) * (1 - Double(peak.confidence))
+                } else {
+                    // On its own it's less sure: picked when it fits the path, not
+                    // over "hidden" (it can carry a ball on through an occlusion).
+                    found[i].append(TrackCandidate(rect: peak.rect, confidence: Double(peak.confidence) * heatAloneWeight))
+                }
+            }
         }
     }
 
@@ -300,6 +348,7 @@ final class TrackLabelModel {
         let visible = rally.points.filter { $0.state == .visible }.count
         let check = rally.points.filter(\.isUncertain).count
         status = "Ball found on \(visible) of \(n) frames · \(check) to check."
+            + (newestHeatModel.map { " · multi-frame: \($0.deletingPathExtension().lastPathComponent)" } ?? "")
     }
 
     // MARK: - Editing
