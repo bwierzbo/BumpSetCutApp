@@ -6,9 +6,10 @@
 //  timeline of the whole video: your rallies as green bars (drag an end to
 //  move it), the guesses to accept as grey ones, the playhead in white.
 //
-//  Keys: Space play/pause · 1 / 2 / 4 speed · ←/→ 1 s · ⇧←/⇧→ 5 s ·
-//  N / P next / previous rally · I start · O end · A accept the guess ·
-//  ⌫ delete.
+//  Scroll (trackpad or wheel) over the video or timeline to scrub.
+//  Keys: Enter start / end a rally · Esc cancel a start · Space play/pause ·
+//  1 / 2 / 4 speed · ←/→ 1 s · ⇧←/⇧→ 5 s · N / P next / previous rally ·
+//  A accept the guess · ⌫ delete.
 //
 
 import AVKit
@@ -16,6 +17,8 @@ import SwiftUI
 
 struct RallyMarkView: View {
     @Bindable var marker: RallyMarkModel
+    @State private var hovering = false
+    @State private var scrollMonitor: Any?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -30,15 +33,35 @@ struct RallyMarkView: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            .onHover { hovering = $0 }
             if marker.duration > 0 {
                 RallyTimeline(marker: marker)
                     .frame(height: 54)
+                    .onHover { hovering = $0 }
                 controls
             }
             Text(marker.status).font(.caption).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
+        .onAppear {
+            // Scroll over the video or timeline scrubs: a trackpad by its own
+            // distance (fine near 0, faster on a flick), a mouse wheel a second a notch.
+            scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                guard hovering, marker.player != nil else { return event }
+                let delta = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) ? event.scrollingDeltaX : -event.scrollingDeltaY
+                if event.hasPreciseScrollingDeltas {
+                    marker.scrub(by: Double(delta) * (abs(delta) > 20 ? 0.08 : 0.03))
+                } else {
+                    marker.scrub(by: Double(delta).sign == .minus ? -1 : 1)
+                }
+                return nil
+            }
+        }
+        .onDisappear {
+            if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+            scrollMonitor = nil
+        }
     }
 
     private var header: some View {
@@ -48,7 +71,7 @@ struct RallyMarkView: View {
                 Text(TrackLabelModel.clock(marker.playhead) + " / " + TrackLabelModel.clock(marker.duration))
                     .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 if let start = marker.pendingStart {
-                    Text("start at \(TrackLabelModel.clock(start)) — O to end")
+                    Text("started at \(TrackLabelModel.clock(start)) — Enter at its end")
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(ReviewStyle.guess.opacity(0.22), in: Capsule())
@@ -81,8 +104,9 @@ struct RallyMarkView: View {
             Button("◀ Prev (P)") { marker.jump(forward: false) }
             Button("Next (N) ▶") { marker.jump(forward: true) }
             Spacer()
-            Button("Start (I)") { marker.markStart() }
-            Button("End (O)") { marker.markEnd() }
+            Button(marker.pendingStart == nil ? "Start Rally (↩)" : "End Rally (↩)") { marker.toggleMark() }
+                .buttonStyle(.borderedProminent)
+                .tint(marker.pendingStart == nil ? .accentColor : ReviewStyle.guess)
             Button("Accept guess (A)") { marker.acceptGuess() }
                 .disabled(marker.openGuesses.isEmpty)
             Button("Delete (⌫)") { marker.delete() }
@@ -98,12 +122,12 @@ struct RallyMarkView: View {
         case 123: marker.skip(by: shift ? -5 : -1); return true
         case 124: marker.skip(by: shift ? 5 : 1); return true
         case 49: marker.togglePlay(); return true
+        case 36, 76: marker.toggleMark(); return true
+        case 53: marker.cancelPending(); return true
         case 51, 117: marker.delete(); return true
         default: break
         }
         switch event.charactersIgnoringModifiers?.lowercased() {
-        case "i": marker.markStart()
-        case "o": marker.markEnd()
         case "a": marker.acceptGuess()
         case "n": marker.jump(forward: true)
         case "p": marker.jump(forward: false)

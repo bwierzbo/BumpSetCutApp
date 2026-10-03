@@ -5,8 +5,9 @@
 //  The Track tab's Rally Times mode: mark when every rally in a video
 //  starts and ends, fast — the ground truth that scores missed, false and
 //  merged rallies. It starts from what's already known (the Sampler's
-//  rally guesses and your tracked rallies), so mostly you correct: skim
-//  dead time at 2–4×, accept a guess with A, set an end with O.
+//  rally guesses and your tracked rallies), so mostly you correct: scroll
+//  or skim through dead time, accept a guess with A, Enter at a rally's
+//  start and again at its end.
 //
 //  Saved next to the video as <name>.rallylabels.json (what the Pipeline
 //  tab's scoring reads), on every change. "Whole video marked" is kept on
@@ -40,7 +41,7 @@ final class RallyMarkModel {
     /// The Sampler's rallies and your tracked ones, to accept or ignore.
     private(set) var guesses: [Mark] = []
     var selectedId: UUID?
-    /// I pressed, O not yet.
+    /// Enter pressed once: the rally's start, waiting for its end.
     private(set) var pendingStart: Double?
     private(set) var status = ""
 
@@ -87,7 +88,7 @@ final class RallyMarkModel {
         pendingStart = nil
         selectedId = nil
         status = rallies.isEmpty
-            ? "\(guesses.count) guesses to start from — N jumps to the next, A accepts it."
+            ? "\(guesses.count) guesses to start from — N jumps to the next, A accepts it, Enter marks your own."
             : "\(rallies.count) rallies marked."
     }
 
@@ -145,6 +146,15 @@ final class RallyMarkModel {
 
     func skip(by seconds: Double) { seek(to: playhead + seconds) }
 
+    /// Scroll to scrub: pauses playback; nearest frame, not exact, so it keeps up.
+    func scrub(by seconds: Double) {
+        if isPlaying { togglePlay() }
+        let t = min(max(0, playhead + seconds), max(duration, 0))
+        playhead = t
+        player?.seek(to: CMTime(seconds: t, preferredTimescale: 600),
+                     toleranceBefore: CMTime(value: 1, timescale: 30), toleranceAfter: CMTime(value: 1, timescale: 30))
+    }
+
     /// The next (or previous) rally or guess start from the playhead.
     func jump(forward: Bool) {
         let starts = (rallies.map(\.start) + openGuesses.map(\.start)).sorted()
@@ -156,30 +166,31 @@ final class RallyMarkModel {
 
     // MARK: - Marking
 
-    /// I: a rally starts here. Inside a selected rally, moves its start.
-    func markStart() {
-        if let i = selectedIndex(at: playhead) {
-            rallies[i].start = min(playhead, rallies[i].end - 0.2)
-            save()
-        } else {
+    /// Enter: the first press starts a rally at the playhead, the second ends it.
+    func toggleMark() {
+        guard let start = pendingStart else {
             pendingStart = playhead
-            status = "Start set at \(TrackLabelModel.clock(playhead)) — O at the end."
+            status = "Rally starts at \(TrackLabelModel.clock(playhead)) — Enter again at its end (Esc cancels)."
+            return
         }
+        guard playhead > start + 0.2 else {
+            status = "The end has to be after the start (\(TrackLabelModel.clock(start))) — move on, or Esc to cancel."
+            return
+        }
+        let mark = Mark(start: start, end: playhead)
+        // A guess-or-older rally this overlaps is the same rally, marked again: replace it.
+        rallies.removeAll { min($0.end, mark.end) - max($0.start, mark.start) > 0.5 * min($0.end - $0.start, mark.end - mark.start) }
+        rallies.append(mark)
+        selectedId = mark.id
+        pendingStart = nil
+        save()
     }
 
-    /// O: the rally ends here — the one started with I, or the one you're in.
-    func markEnd() {
-        if let start = pendingStart, playhead > start + 0.2 {
-            let mark = Mark(start: start, end: playhead)
-            rallies.append(mark)
-            selectedId = mark.id
-            pendingStart = nil
-            save()
-        } else if let i = selectedIndex(at: playhead) ?? rallies.lastIndex(where: { $0.start < playhead }) {
-            rallies[i].end = max(playhead, rallies[i].start + 0.2)
-            selectedId = rallies[i].id
-            save()
-        }
+    /// Esc: forget a start you didn't mean.
+    func cancelPending() {
+        guard pendingStart != nil else { return }
+        pendingStart = nil
+        status = "Start cancelled."
     }
 
     /// A: the guess at the playhead (or the next one) is a rally, as is.
