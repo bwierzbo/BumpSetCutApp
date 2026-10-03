@@ -27,6 +27,8 @@ struct ModelEntry: Identifiable, Hashable {
 final class ModelLibrary {
 
     let sampler: SamplerModel
+    /// Multi-frame (heatmap) models, alongside the YOLO ones.
+    let heatmaps: HeatmapLab
     private(set) var models: [ModelEntry] = [ModelEntry(url: nil)]
     private(set) var isBusy = false
     private(set) var status = ""
@@ -51,6 +53,7 @@ final class ModelLibrary {
 
     init(sampler: SamplerModel) {
         self.sampler = sampler
+        heatmaps = HeatmapLab(sampler: sampler)
         reload()
     }
 
@@ -59,6 +62,7 @@ final class ModelLibrary {
 
     /// Re-read the library and packages (call after the dataset changes).
     func reload() {
+        heatmaps.reload()
         let fm = FileManager.default
         let files = (try? fm.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         let added = files

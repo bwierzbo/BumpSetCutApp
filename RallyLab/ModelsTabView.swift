@@ -26,6 +26,7 @@ struct ModelsTabView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     packageBox
                     modelsBox
+                    MultiFrameBox(lab: library.heatmaps)
                     if !library.status.isEmpty {
                         Text(library.status).font(.callout).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -315,5 +316,102 @@ private struct ErrorCrop: View {
         let cx = error.rect.midX * w, cy = (1 - error.rect.midY) * h
         let rect = CGRect(x: cx - side / 2, y: cy - side / 2, width: side, height: side)
         return image.cropping(to: rect.integral)
+    }
+}
+
+// MARK: - Multi-frame models
+
+/// Add the bring_back folder a desktop multi-frame run produced, then score
+/// it against the YOLO pre-label model on a multi-frame package's val
+/// windows: balls in play, within 8 px at 512×288, tracked rallies apart.
+private struct MultiFrameBox: View {
+    @Bindable var lab: HeatmapLab
+
+    var body: some View {
+        GroupBox("4 · Multi-frame models") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Add the bring_back folder from train_heatmap_model.py. It's converted to Core ML and scored on the ball in play.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack {
+                    Button { choose() } label: { Label("Add Multi-Frame Model…", systemImage: "plus") }
+                        .disabled(lab.isBusy)
+                    if lab.isBusy { ProgressView().controlSize(.small) }
+                    if let p = lab.progress { Text(p).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+                }
+                if !lab.models.isEmpty {
+                    Picker("Model", selection: $lab.selected) {
+                        ForEach(lab.models) { m in
+                            Text(m.name + (m.size.isEmpty ? "" : "  (\(m.size))")).tag(Optional(m))
+                        }
+                    }
+                    .font(.caption)
+                    Picker("Package", selection: $lab.package) {
+                        ForEach(lab.packages, id: \.self) { Text($0.lastPathComponent).tag(Optional($0)) }
+                    }
+                    .font(.caption)
+                    Button { lab.evaluate() } label: { Label("Score vs YOLO", systemImage: "gauge.with.dots.needle.33percent") }
+                        .disabled(lab.isBusy || lab.package == nil)
+                }
+                if let r = lab.result { results(r) }
+                if !lab.status.isEmpty {
+                    Text(lab.status).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+            }
+            .padding(4)
+        }
+    }
+
+    private func results(_ r: HeatEvaluation.Result) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            Text("Ball in play — recall / precision").font(.caption.weight(.semibold))
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+                GridRow {
+                    Text("")
+                    Text("Tracked").font(.caption2.weight(.semibold))
+                    Text("Sampled").font(.caption2.weight(.semibold))
+                }
+                ForEach(HeatEvaluation.Detector.allCases, id: \.self) { d in
+                    GridRow {
+                        Text(d == .yolo ? "YOLO" : d.rawValue).font(.caption)
+                        cell(r.scores[d]?["tracked"])
+                        cell(r.scores[d]?["sampled"])
+                    }
+                }
+            }
+            Text("YOLO = \(r.yoloName) at the app's threshold. Tracked rallies label the ball in play on every frame — the score to trust; sampled frames guess what's in play from motion.")
+                .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if r.trackedWindows > 0 {
+                Text("Tracked balls in play: both found \(r.both) · only YOLO \(r.onlyYOLO) · only multi-frame \(r.onlyHeatmap) · neither \(r.neither)")
+                    .font(.caption2)
+                let envs = r.byEnvironment.keys.sorted()
+                if !envs.isEmpty {
+                    Text("Multi-frame by environment (tracked): " + envs.map { e in
+                        let s = r.byEnvironment[e]!
+                        return "\(e) \(Self.pct(s.recall))/\(Self.pct(s.precision))"
+                    }.joined(separator: " · "))
+                    .font(.caption2)
+                }
+            }
+        }
+    }
+
+    private func cell(_ s: HeatEvaluation.Score?) -> some View {
+        Text(s.map { "\(Self.pct($0.recall)) / \(Self.pct($0.precision))" } ?? "—")
+            .font(.caption.monospacedDigit())
+    }
+
+    static func pct(_ v: Double) -> String { String(format: "%.0f%%", v * 100) }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [UTType(filenameExtension: "pt") ?? .data, .folder]
+        panel.prompt = "Add"
+        panel.message = "The bring_back folder of a multi-frame run (e.g. heat_run3_512), or its best.pt."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { await lab.addModel(url) }
     }
 }

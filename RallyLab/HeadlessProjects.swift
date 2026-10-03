@@ -14,6 +14,8 @@
 //
 //    RallyLab --project v3 --package                       (training package zip)
 //    RallyLab --project v3 --package-multiframe            (multi-frame package zip)
+//    RallyLab --project v3 --add-heat <bring_back folder>  (convert + add a multi-frame model)
+//    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
 //
@@ -85,6 +87,13 @@ enum HeadlessProjects {
                 ok = !library.status.lowercased().contains("fail") && !library.status.contains("Add a")
             }
             if ok, args.contains("--evaluate") { ok = await evaluate(library, args: args) }
+            if ok, let folder = value(after: "--add-heat", in: args) {
+                library.heatmaps.reload()
+                await library.heatmaps.addModel(URL(fileURLWithPath: (folder as NSString).expandingTildeInPath))
+                log(library.heatmaps.status)
+                ok = library.heatmaps.status.hasPrefix("Saved")
+            }
+            if ok, args.contains("--evaluate-heat") { ok = await evaluateHeat(library.heatmaps, args: args) }
             exit(ok ? 0 : 1)
         }
     }
@@ -169,6 +178,35 @@ enum HeadlessProjects {
         while library.isBusy { try? await Task.sleep(nanoseconds: 200_000_000) }
         log(library.status)
         return library.lastMultiFramePackage != nil
+    }
+
+    @MainActor
+    private static func evaluateHeat(_ lab: HeatmapLab, args: [String]) async -> Bool {
+        lab.reload()
+        if let name = value(after: "--evaluate-heat", in: args), !name.hasPrefix("--") {
+            guard let m = lab.models.first(where: { $0.name == name }) else {
+                log("❌ No multi-frame model \(name). Models: \(lab.models.map(\.name).joined(separator: ", "))")
+                return false
+            }
+            lab.selected = m
+        }
+        guard let model = lab.selected, let package = lab.package else { log("❌ Need a multi-frame model and package."); return false }
+        log("Scoring \(model.name) [\(model.size), trained on \(model.package)] on \(package.lastPathComponent)…")
+        lab.evaluate()
+        while lab.isBusy { try? await Task.sleep(nanoseconds: 300_000_000) }
+        log(lab.status)
+        guard let r = lab.result else { return false }
+        for d in HeatEvaluation.Detector.allCases {
+            let line = ["tracked", "sampled", "all"].map { k -> String in
+                guard let s = r.scores[d]?[k] else { return "\(k) —" }
+                return String(format: "%@ %.1f%%/%.1f%% F1 %.3f", k, s.recall * 100, s.precision * 100, s.f1)
+            }.joined(separator: "   ")
+            log("  \(d.rawValue.padding(toLength: 11, withPad: " ", startingAt: 0)) \(line)")
+        }
+        log("  tracked balls in play: both \(r.both) · only YOLO \(r.onlyYOLO) · only multi-frame \(r.onlyHeatmap) · neither \(r.neither)")
+        log("  multi-frame by environment (tracked): " + r.byEnvironment.sorted { $0.key < $1.key }
+            .map { String(format: "%@ %.1f%%/%.1f%%", $0.key, $0.value.recall * 100, $0.value.precision * 100) }.joined(separator: " · "))
+        return true
     }
 
     @MainActor
