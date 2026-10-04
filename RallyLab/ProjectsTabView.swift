@@ -18,7 +18,7 @@ struct ProjectsTabView: View {
     let review: (VideoSession) -> Void
     @AppStorage("RallyLab.projectPage") private var page: Page = .board
 
-    enum Page: String { case board, overview, activity }
+    enum Page: String { case board, overview, coverage, activity }
 
     var body: some View {
         HSplitView {
@@ -29,6 +29,7 @@ struct ProjectsTabView: View {
                     switch page {
                     case .board: ClipBoardView(projects: projects)
                     case .overview: ProjectOverviewView(projects: projects)
+                    case .coverage: ProjectCoverageView(projects: projects)
                     case .activity:
                         ProjectActivityView(projects: projects, showCard: { id in
                             projects.selectedClipId = id
@@ -92,6 +93,7 @@ struct ProjectsTabView: View {
                 Picker("", selection: $page) {
                     Label("Board", systemImage: "square.grid.2x2").tag(Page.board)
                     Label("Overview", systemImage: "chart.bar.xaxis").tag(Page.overview)
+                    Label("Coverage", systemImage: "target").tag(Page.coverage)
                     Text(activeCount > 0 ? "Activity · \(activeCount)" : "Activity").tag(Page.activity)
                 }
                 .pickerStyle(.segmented)
