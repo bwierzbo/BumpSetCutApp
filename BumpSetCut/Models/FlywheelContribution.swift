@@ -67,6 +67,9 @@ struct StoredFrameEvidence: Codable {
     let gravitySignature: Double?
     let movementType: String?
     let rejectionReason: String?
+    /// Boxes and track point are in the upright frame (rotation applied).
+    /// nil — evidence from before this was recorded — is stored-frame space.
+    let upright: Bool?
 }
 
 extension StoredFrameEvidence {
@@ -91,6 +94,7 @@ extension StoredFrameEvidence {
         self.gravitySignature = e.gravitySignature
         self.movementType = e.movementType?.rawValue
         self.rejectionReason = e.rejectionReason
+        self.upright = e.upright
     }
 }
 

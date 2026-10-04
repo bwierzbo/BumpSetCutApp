@@ -44,18 +44,26 @@ final class DebugAnnotator {
     private let ciContext = CIContext(options: nil)
 
     private let frameSize: CGSize
-    private let transform: CGAffineTransform
+    /// Turns each source frame upright before drawing (`.up` = draw as stored).
+    private let orientation: CGImagePropertyOrientation
     private let outURL: URL
 
     private var started = false
 
-    /// Create an annotator. Orientation is preserved via `transform` (usually source track's preferredTransform).
-    init(outputURL: URL? = nil, size: CGSize, transform: CGAffineTransform) throws {
+    /// Create an annotator for frames of `size` (as stored). With `orientation`
+    /// `.up`, frames are drawn as stored and `transform` (the source track's
+    /// preferredTransform) rotates the output for display — overlays must then be
+    /// in stored-frame space. Any other orientation turns each frame upright
+    /// first, for overlays in upright space (the pipeline's `applyVideoRotation`).
+    init(outputURL: URL? = nil, size: CGSize, transform: CGAffineTransform,
+         orientation: CGImagePropertyOrientation = .up) throws {
+        let sideways: Set<CGImagePropertyOrientation> = [.left, .right, .leftMirrored, .rightMirrored]
+        let drawn = sideways.contains(orientation) ? CGSize(width: size.height, height: size.width) : size
         // Normalize to even-sized dimensions (H.264 requirement / avoids reader issues)
-        let evenSize = CGSize(width: floor(size.width / 2) * 2,
-                              height: floor(size.height / 2) * 2)
+        let evenSize = CGSize(width: floor(drawn.width / 2) * 2,
+                              height: floor(drawn.height / 2) * 2)
         self.frameSize = evenSize
-        self.transform = transform
+        self.orientation = orientation
 
         let url = outputURL ?? DebugAnnotator.makeOutputURL()
         self.outURL = url
@@ -75,7 +83,7 @@ final class DebugAnnotator {
 
         self.videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         self.videoInput.expectsMediaDataInRealTime = false
-        self.videoInput.transform = transform
+        self.videoInput.transform = orientation == .up ? transform : .identity
 
         let srcAttrs: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
@@ -120,7 +128,11 @@ final class DebugAnnotator {
         }
 
         // Render base frame to CGImage
-        let baseCI = CIImage(cvPixelBuffer: imageBuffer)
+        var baseCI = CIImage(cvPixelBuffer: imageBuffer)
+        if orientation != .up {
+            baseCI = baseCI.oriented(orientation)
+            baseCI = baseCI.transformed(by: CGAffineTransform(translationX: -baseCI.extent.minX, y: -baseCI.extent.minY))
+        }
 
         // Create a new pixel buffer to draw into
         var outPB: CVPixelBuffer?

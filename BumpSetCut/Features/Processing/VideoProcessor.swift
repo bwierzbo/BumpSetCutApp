@@ -141,6 +141,10 @@ final class VideoProcessor {
         /// The fixed per-video net once sampled (nil until frozen / if none found).
         /// Lets RallyLab draw the net band and the off-court boundary lines.
         let detectedNet: DetectedNet?
+        /// Coordinates are in the upright frame (the video's rotation flag was
+        /// applied — `applyVideoRotation`); false means stored-frame space, which
+        /// differs only for rotated (e.g. portrait phone) video.
+        var upright = false
     }
 
     /// Off by default: evidence costs memory proportional to frame count, so
@@ -298,6 +302,10 @@ final class VideoProcessor {
         let stride = 3
         let naturalSize = try await track.load(.naturalSize)
         let preferredTransform = (try? await track.load(.preferredTransform)) ?? .identity
+        // Same frame space as processVideo: upright when the rotation is applied.
+        let frameOrientation: CGImagePropertyOrientation = config.applyVideoRotation
+            ? Self.orientation(for: preferredTransform)
+            : .up
         // Reuse last overlay on skipped frames
         var lastDets: [DetectionResult] = []
         var lastActiveTrack: KalmanBallTracker.TrackedBall? = nil
@@ -311,7 +319,7 @@ final class VideoProcessor {
         reader.add(output)
 
         // Annotator (writes full-length MP4 with overlays)
-        let annotator = try DebugAnnotator(size: naturalSize, transform: preferredTransform)
+        let annotator = try DebugAnnotator(size: naturalSize, transform: preferredTransform, orientation: frameOrientation)
 
         // Tracking
         let tracker = KalmanBallTracker()
@@ -339,7 +347,7 @@ final class VideoProcessor {
             let shouldProcess = (rawFrameIndex == 1) || (rawFrameIndex % stride == 0)
             if shouldProcess {
                 // Detect → track
-                let dets = detector.detect(in: pix, at: pts)
+                let dets = detector.detect(in: pix, at: pts, orientation: frameOrientation)
                 tracker.update(with: dets, at: pts)
 
                 // Best rally trajectory across courts (quality-first, sticky).
@@ -723,7 +731,8 @@ final class VideoProcessor {
                     movementType: gateResult?.movementType,
                     rejectionReason: gateResult?.rejectionReason,
                     candidates: selection.candidates,
-                    detectedNet: detectedNet
+                    detectedNet: detectedNet,
+                    upright: config.applyVideoRotation
                 ))
             }
 

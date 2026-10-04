@@ -118,7 +118,8 @@ struct ProcessorConfig {
     /// store portrait video sideways with a 90° flag). Off, a rotated clip's
     /// frames reach the detector, the net finder and the ballistics rules
     /// sideways — gravity along x, the net standing vertical.
-    var applyVideoRotation: Bool = false
+    /// Part of the checkpoint hash, so a run never resumes across spaces.
+    var applyVideoRotation: Bool = true
 
     /// Have the decoder convert frames to standard (SDR, BT.709) colour before
     /// detection. iPhones record HDR (HLG) by default, and raw HDR frames come

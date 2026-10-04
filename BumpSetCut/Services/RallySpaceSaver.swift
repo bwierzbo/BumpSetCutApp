@@ -209,7 +209,8 @@ enum RallySpaceSaver {
                 rSquared: entry.rSquared,
                 gravitySignature: entry.gravitySignature,
                 movementType: entry.movementType,
-                rejectionReason: entry.rejectionReason
+                rejectionReason: entry.rejectionReason,
+                upright: entry.upright
             )
         }
         try? metadataStore.saveFrameEvidence(remapped, for: videoId)

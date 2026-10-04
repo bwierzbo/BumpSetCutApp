@@ -183,7 +183,8 @@ extension VideoProcessor.FrameEvidence {
             movementType: stored.movementType.flatMap(MovementType.init(rawValue:)),
             rejectionReason: stored.rejectionReason,
             candidates: [],
-            detectedNet: nil
+            detectedNet: nil,
+            upright: stored.upright ?? false
         )
     }
 }

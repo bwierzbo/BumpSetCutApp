@@ -99,7 +99,7 @@ final class ProcessingCheckpointTests: XCTestCase {
             trackPoint: CGPoint(x: 0.41, y: 0.52),
             rSquared: 0.93, gravitySignature: 0.7,
             movementType: nil, rejectionReason: nil,
-            candidates: [], detectedNet: nil
+            candidates: [], detectedNet: nil, upright: true
         )
 
         let stored = StoredFrameEvidence(evidence)
@@ -114,6 +114,16 @@ final class ProcessingCheckpointTests: XCTestCase {
         XCTAssertEqual(restoredStored.detections[0].confidence, stored.detections[0].confidence, accuracy: 0.0001)
         XCTAssertEqual(restoredStored.trackX ?? 0, stored.trackX ?? -1, accuracy: 0.0001)
         XCTAssertEqual(restoredStored.rSquared ?? 0, 0.93, accuracy: 0.0001)
+        XCTAssertEqual(restoredStored.upright, true, "The frame space must survive the round trip")
+    }
+
+    /// Evidence saved before the frame space was recorded decodes as
+    /// stored-frame space, never as upright.
+    func testLegacyEvidenceDecodesAsStoredFrameSpace() throws {
+        let json = #"{"time":1,"hasBall":true,"isProjectile":false,"detections":[]}"#
+        let legacy = try JSONDecoder().decode(StoredFrameEvidence.self, from: Data(json.utf8))
+        XCTAssertNil(legacy.upright)
+        XCTAssertFalse(VideoProcessor.FrameEvidence(legacy).upright)
     }
 
     /// End-to-end resume: a seeded checkpoint makes processVideoMetadata start
