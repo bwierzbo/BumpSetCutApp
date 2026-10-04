@@ -179,6 +179,17 @@ final class RallyLabModel {
         }
     }
 
+    /// Turn rotated (phone-portrait) frames upright before detection. Re-run to apply.
+    var applyVideoRotation: Bool = ProcessorConfig().applyVideoRotation {
+        didSet {
+            guard applyVideoRotation != oldValue, !evidence.isEmpty else { return }
+            detectionConfigDirty = true
+        }
+    }
+    /// Whether the evidence on screen came from upright frames — its boxes
+    /// then need no turning to draw.
+    private(set) var evidenceIsUpright = false
+
     /// A multi-frame model (added in the Models tab) to run alongside YOLO;
     /// nil = off. Remembered across launches. Re-run to apply.
     var heatmapModel: URL? = UserDefaults.standard.url(forKey: "RallyLab.pipelineHeatmapModel") {
@@ -478,6 +489,7 @@ final class RallyLabModel {
         var cfg = ProcessorConfig()
         cfg.detectionConfidence = detectionConfidence
         cfg.ballModel = ballModel
+        cfg.applyVideoRotation = applyVideoRotation
         cfg.heatmapModel = heatmapModel.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
         cfg.useScaleFitLetterbox = useScaleFitLetterbox
         cfg.adaptiveLetterbox = adaptiveLetterbox
@@ -952,6 +964,7 @@ final class RallyLabModel {
         }
 
         evidence = processor.frameEvidence
+        evidenceIsUpright = processor.config.applyVideoRotation
         detectionConfigDirty = false
         if processor.lastVideoDurationSec > 0 { duration = processor.lastVideoDurationSec }
         recomputePredictionsAndScore()

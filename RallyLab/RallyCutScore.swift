@@ -63,12 +63,12 @@ enum RallyCutScore {
     static func overlap(_ a: Interval, _ b: Interval) -> Double { max(0, min(a.end, b.end) - max(a.start, b.start)) }
 
     @MainActor
-    static func process(_ session: VideoSession) async -> Video? {
+    static func process(_ session: VideoSession, config: ProcessorConfig = ProcessorConfig()) async -> Video? {
         let video = URL(fileURLWithPath: session.sourcePath)
         guard let data = try? Data(contentsOf: RallyMarkModel.labelsURL(for: video)),
               let labels = try? JSONDecoder().decode([LabeledRally].self, from: data) else { return nil }
         let processor = VideoProcessor()
-        processor.config = ProcessorConfig()
+        processor.config = config
         processor.collectFrameEvidence = true
         var segments: [RallySegment] = []
         do {
@@ -83,6 +83,33 @@ enum RallyCutScore {
                      evidence: processor.frameEvidence, duration: processor.lastVideoDurationSec,
                      clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) })
     }
+
+    /// What the pipeline saw inside each marked rally: frames with a ball
+    /// detected, detections dropped as off-court, frames the ballistics gate
+    /// accepted as a projectile, and its most common reasons for rejecting.
+    static func diagnose(_ v: Video, log: (String) -> Void) {
+        for (n, r) in v.truth.enumerated() {
+            let frames = v.evidence.filter { $0.time >= r.start && $0.time <= r.end }
+            guard !frames.isEmpty else { log("    rally \(n + 1) \(clock(r.start))–\(clock(r.end)): no processed frames"); continue }
+            let withBall = frames.filter { e in e.detections.contains { !$0.isOffCourt } }.count
+            let onlyOffCourt = frames.filter { e in !e.detections.isEmpty && e.detections.allSatisfy(\.isOffCourt) }.count
+            let projectile = frames.filter(\.isProjectile).count
+            var reasons: [String: Int] = [:]
+            for e in frames { if let why = e.rejectionReason { reasons[why, default: 0] += 1 } }
+            let top = reasons.sorted { $0.value > $1.value }.prefix(2).map { "\($0.key) ×\($0.value)" }.joined(separator: ", ")
+            let found = v.clips.contains { overlap($0, r) > 0.3 * (r.end - r.start) }
+            func pct(_ k: Int) -> String { String(format: "%.0f%%", 100 * Double(k) / Double(frames.count)) }
+            log("    rally \(n + 1) \(clock(r.start))–\(clock(r.end)) \(found ? "FOUND" : "MISSED"): ball on \(pct(withBall)) of \(frames.count) frames"
+                + " · only off-court \(pct(onlyOffCourt)) · projectile \(pct(projectile))" + (top.isEmpty ? "" : " · rejected: \(top)"))
+        }
+        if let net = v.evidence.last(where: { $0.detectedNet != nil })?.detectedNet {
+            log(String(format: "    net box x %.2f–%.2f y %.2f–%.2f (conf %.2f)", net.box.minX, net.box.maxX, net.box.minY, net.box.maxY, net.confidence))
+        } else {
+            log("    no net found")
+        }
+    }
+
+    private static func clock(_ t: Double) -> String { String(format: "%d:%04.1f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60)) }
 
     /// The decision replayed from evidence with `config`'s padding and joining.
     static func replay(_ v: Video, config: ProcessorConfig) -> [Interval] {

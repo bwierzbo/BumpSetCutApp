@@ -21,7 +21,8 @@ struct DetectionOverlayView: View {
         let time = model.currentTime
         let frames = model.overlayFrames(at: time, window: model.trailWindowSec)
         let displaySize = model.videoDisplaySize
-        let turns = model.videoRotationQuarterTurns
+        // Evidence from upright frames is already in display space.
+        let turns = model.evidenceIsUpright ? 0 : model.videoRotationQuarterTurns
         let showROI = model.showROI
 
         Canvas { ctx, size in

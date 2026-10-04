@@ -152,11 +152,15 @@ final class YOLODetector {
     var suppressesStaticObjects = true
 
     /// Returns only "volleyball" detections from the model, after de-dupe and static suppression.
-    func detect(in pixelBuffer: CVPixelBuffer, at time: CMTime) -> [DetectionResult] {
-        detect(
-            handler: VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:]),
-            srcW: CGFloat(CVPixelBufferGetWidth(pixelBuffer)),
-            srcH: CGFloat(CVPixelBufferGetHeight(pixelBuffer)),
+    /// `orientation` turns the frame upright first (a rotated video's flag);
+    /// boxes then come back in the upright frame.
+    func detect(in pixelBuffer: CVPixelBuffer, at time: CMTime, orientation: CGImagePropertyOrientation = .up) -> [DetectionResult] {
+        let w = CGFloat(CVPixelBufferGetWidth(pixelBuffer)), h = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+        let sideways: Set<CGImagePropertyOrientation> = [.left, .right, .leftMirrored, .rightMirrored]
+        return detect(
+            handler: VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:]),
+            srcW: sideways.contains(orientation) ? h : w,
+            srcH: sideways.contains(orientation) ? w : h,
             time: time
         )
     }

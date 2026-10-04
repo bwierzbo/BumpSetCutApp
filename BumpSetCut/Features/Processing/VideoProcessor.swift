@@ -160,6 +160,17 @@ final class VideoProcessor {
     }
 
     // MARK: - Entry point (now generates metadata instead of video files)
+    /// The orientation that turns a track's stored frames upright, from its
+    /// preferredTransform (the rotation flag phones write for portrait video).
+    static func orientation(for transform: CGAffineTransform) -> CGImagePropertyOrientation {
+        switch (transform.a.rounded(), transform.b.rounded(), transform.c.rounded(), transform.d.rounded()) {
+        case (0, 1, -1, 0): return .right
+        case (0, -1, 1, 0): return .left
+        case (-1, 0, 0, -1): return .down
+        default: return .up
+        }
+    }
+
     /// Load the configured ball model (if it isn't the one loaded) and set how
     /// frames are fitted into it: models trained on letterboxed frames get
     /// every frame letterboxed; the shipping model keeps the config's choice.
@@ -454,6 +465,9 @@ final class VideoProcessor {
         let duration = try await asset.load(.duration)
         let fps = max(10, Int(try await track.load(.nominalFrameRate)))
         lastVideoDurationSec = CMTimeGetSeconds(duration)
+        let frameOrientation: CGImagePropertyOrientation = config.applyVideoRotation
+            ? Self.orientation(for: (try? await track.load(.preferredTransform)) ?? .identity)
+            : .up
 
         // Resumable processing: a checkpoint from an interrupted run (same
         // video, same config) lets this run start at its rally-idle resume
@@ -642,8 +656,10 @@ final class VideoProcessor {
             }
 
             // Detect: YOLO, plus the multi-frame model's balls YOLO missed.
-            let yoloDets = detector.detect(in: pix, at: pts)
-            let heatDets = heatFresh ? heatmapOnlyDetections(beside: yoloDets, at: pts) : []
+            let yoloDets = detector.detect(in: pix, at: pts, orientation: frameOrientation)
+            // The multi-frame model sees frames as stored; its peaks only line up
+            // with YOLO's when no rotation is applied.
+            let heatDets = heatFresh && frameOrientation == .up ? heatmapOnlyDetections(beside: yoloDets, at: pts) : []
             let dets = yoloDets + heatDets
 
             // Off-court rejection: drop detections laterally beyond the net posts
@@ -1235,7 +1251,8 @@ final class VideoProcessor {
     private func sampleNetAcrossVideo(asset: AVAsset, durationSec: Double) async -> DetectedNet? {
         guard durationSec > 0, let netDetector else { return nil }
         let gen = AVAssetImageGenerator(asset: asset)
-        gen.appliesPreferredTrackTransform = false   // raw frame space (matches ball detector)
+        // The ball detector's frame space: raw, or upright when the rotation is applied.
+        gen.appliesPreferredTrackTransform = config.applyVideoRotation
         gen.maximumSize = CGSize(width: 1280, height: 1280)
         gen.requestedTimeToleranceBefore = CMTime(seconds: 0.3, preferredTimescale: 600)
         gen.requestedTimeToleranceAfter = CMTime(seconds: 0.3, preferredTimescale: 600)

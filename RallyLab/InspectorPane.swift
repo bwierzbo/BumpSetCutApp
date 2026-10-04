@@ -286,6 +286,12 @@ struct InspectorPane: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help("Which bundled ball model detects. The RallyLab models were trained on letterboxed frames, so they're always fed letterboxed (the toggles below apply to the current model). Re-run to apply.")
+                Toggle(isOn: $model.applyVideoRotation) {
+                    Text("upright rotated video").font(.system(.caption, design: .monospaced))
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Phones store portrait video sideways with a rotation flag. On: frames are turned upright before the detector, net finder and ballistics rules see them. Re-run to apply.")
                 Picker(selection: $model.heatmapModel) {
                     Text("off").tag(URL?.none)
                     ForEach(model.heatmapModels, id: \.self) { url in

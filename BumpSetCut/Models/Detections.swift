@@ -114,6 +114,12 @@ struct ProcessorConfig {
     /// of the config so a checkpoint from one model never resumes on another.
     var ballModel: BallModel = .current
 
+    /// Detect on frames turned upright by the video's rotation flag (phones
+    /// store portrait video sideways with a 90° flag). Off, a rotated clip's
+    /// frames reach the detector, the net finder and the ballistics rules
+    /// sideways — gravity along x, the net standing vertical.
+    var applyVideoRotation: Bool = false
+
     /// Have the decoder convert frames to standard (SDR, BT.709) colour before
     /// detection. iPhones record HDR (HLG) by default, and raw HDR frames come
     /// out washed out — unlike the training frames, which went through

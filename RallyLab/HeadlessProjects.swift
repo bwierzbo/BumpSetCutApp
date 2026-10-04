@@ -19,7 +19,8 @@
 //    RallyLab --project v3 --render-heat <clip> <seconds>  (side-by-side video of a tracked rally)
 //    RallyLab --project v3 --pipeline-compare <multi-frame model> <clip>…   (pipeline YOLO vs YOLO+multi-frame)
 //    RallyLab --project v3 --compare-color <clip>…          (pipeline on raw frames vs standard-colour frames)
-//    RallyLab --project v3 --score-rallies [clip…]          (rally cutting vs your rally times; default: every fully marked video)
+//    RallyLab --project v3 --score-rallies [clip…] [--rotate] (rally cutting vs your rally times; default: every fully marked video)
+//    RallyLab --project v3 --diagnose-rallies <clip>… [--rotate] [--ball-model <name>]   (what the pipeline saw in each marked rally)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
 //
@@ -97,15 +98,33 @@ enum HeadlessProjects {
                 log(library.heatmaps.status)
                 ok = library.heatmaps.status.hasPrefix("Saved")
             }
+            if ok, let i = args.firstIndex(of: "--diagnose-rallies") {
+                var config = ProcessorConfig()
+                config.applyVideoRotation = args.contains("--rotate")
+                if let name = value(after: "--ball-model", in: args), let model = BallModel(rawValue: name) { config.ballModel = model }
+                log("ball model \(config.ballModel.rawValue) · rotation \(config.applyVideoRotation ? "applied" : "not applied")")
+                for clip in args[(i + 1)...].prefix(while: { !$0.hasPrefix("--") }) {
+                    guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
+                    log("\(clip):")
+                    guard let v = await RallyCutScore.process(session, config: config) else { log("   no rally times or couldn't process"); continue }
+                    var t = RallyCutScore.Tally()
+                    t.add(clips: v.clips, truth: v.truth)
+                    log("   " + t.line)
+                    RallyCutScore.diagnose(v, log: log)
+                }
+            }
             if ok, let i = args.firstIndex(of: "--score-rallies") {
                 let named = args[(i + 1)...].prefix { !$0.hasPrefix("--") }
                 let sessions = projects.sampler.sessions.filter {
                     named.isEmpty ? ($0.ralliesMarked ?? false) : named.contains($0.name)
                 }
+                var config = ProcessorConfig()
+                config.applyVideoRotation = args.contains("--rotate")
+                log("rotation \(config.applyVideoRotation ? "applied" : "not applied")")
                 var videos: [RallyCutScore.Video] = []
                 for session in sessions {
                     log("\(session.name) (\(session.split))…")
-                    if let v = await RallyCutScore.process(session) { videos.append(v) } else { log("   no rally times or couldn't process") }
+                    if let v = await RallyCutScore.process(session, config: config) { videos.append(v) } else { log("   no rally times or couldn't process") }
                 }
                 if videos.isEmpty { log("❌ No fully marked videos (Track tab → Rally times → Whole video marked).") }
                 else { RallyCutScore.report(videos, log: log) }
