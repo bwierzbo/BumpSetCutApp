@@ -208,13 +208,7 @@ enum MultiFramePackage {
 
         let zip = exports.appendingPathComponent("\(packageName).zip")
         try? fm.removeItem(at: zip)
-        let ditto = Process()
-        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        // See TrainingPackage: no "._" files on Windows.
-        ditto.arguments = ["-c", "-k", "--norsrc", "--noextattr", "--noqtn", "--noacl", "--keepParent", dir.path, zip.path]
-        try ditto.run()
-        ditto.waitUntilExit()
-        guard ditto.terminationStatus == 0 else { throw PackageError.zipFailed }
+        guard try TrainingPackage.zipFolder(dir, to: zip) else { throw PackageError.zipFailed }
         return (zip, summary)
     }
 

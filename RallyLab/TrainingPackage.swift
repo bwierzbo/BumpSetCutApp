@@ -124,16 +124,23 @@ enum TrainingPackage {
 
         let zip = exports.appendingPathComponent("\(packageName).zip")
         try? fm.removeItem(at: zip)
-        let ditto = Process()
-        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        // No resource forks or extended attributes: they'd unpack on Windows as
-        // "._name.jpg" files that look like (unreadable) images.
-        ditto.arguments = ["-c", "-k", "--norsrc", "--noextattr", "--noqtn", "--noacl", "--keepParent",
-                           dir.path, zip.path]
-        try ditto.run()
-        ditto.waitUntilExit()
-        guard ditto.terminationStatus == 0 else { throw PackageError.zipFailed }
+        guard try zipFolder(dir, to: zip) else { throw PackageError.zipFailed }
         return (zip, summary)
+    }
+
+    /// Zip `dir` (folder included) into `zip`. Info-ZIP rather than ditto:
+    /// ditto's archives past 8 GB carry wrong entry offsets that Python's
+    /// zipfile can't read ("Bad magic number for file header"). Info-ZIP adds
+    /// no "._name" resource-fork files, which would unpack on Windows as
+    /// unreadable images. Level 1: the frames are JPEGs and barely compress.
+    static func zipFolder(_ dir: URL, to zip: URL) throws -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        process.currentDirectoryURL = dir.deletingLastPathComponent()
+        process.arguments = ["-r", "-q", "-X", "-1", zip.path, dir.lastPathComponent]
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 
     /// No `path:` on purpose: Ultralytics then treats the yaml's own folder
