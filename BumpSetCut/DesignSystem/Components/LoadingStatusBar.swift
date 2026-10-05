@@ -9,9 +9,9 @@ import SwiftUI
 
 struct LoadingStatusBar: View {
     let isLoading: Bool
-    let message: String
+    let message: LocalizedStringResource
     
-    init(isLoading: Bool, message: String = "Loading...") {
+    init(isLoading: Bool, message: LocalizedStringResource = "Loading...") {
         self.isLoading = isLoading
         self.message = message
     }

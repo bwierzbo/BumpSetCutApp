@@ -10,8 +10,8 @@ import SwiftUI
 // MARK: - Limit Row
 struct LimitRow: View {
     let icon: String
-    let title: String
-    let value: String
+    let title: LocalizedStringResource
+    let value: LocalizedStringResource
 
     var body: some View {
         HStack {
@@ -34,8 +34,8 @@ struct LimitRow: View {
 
 // MARK: - BSCSettingsSection
 struct BSCSettingsSection<Content: View>: View {
-    let title: String
-    var subtitle: String? = nil
+    let title: LocalizedStringResource
+    var subtitle: LocalizedStringResource? = nil
     let icon: String
     let iconColor: Color
     @ViewBuilder let content: () -> Content
@@ -55,7 +55,7 @@ struct BSCSettingsSection<Content: View>: View {
                     .tracking(0.5)
 
                 if let subtitle = subtitle {
-                    Text("(\(subtitle))")
+                    (Text(verbatim: "(") + Text(subtitle) + Text(verbatim: ")"))
                         .bscFont(size: 11)
                         .foregroundColor(.bscTextSecondary)
                 }
@@ -77,8 +77,8 @@ struct BSCSettingsSection<Content: View>: View {
 
 // MARK: - BSCSettingsToggle
 struct BSCSettingsToggle: View {
-    let title: String
-    let subtitle: String
+    let title: LocalizedStringResource
+    let subtitle: LocalizedStringResource
     let icon: String
     @Binding var isOn: Bool
 
@@ -110,7 +110,7 @@ struct BSCSettingsToggle: View {
             }
         }
         .tint(.bscPrimary)
-        .accessibilityLabel("\(title), \(subtitle)")
+        .accessibilityLabel(Text(title) + Text(verbatim: ", ") + Text(subtitle))
     }
 }
 
@@ -143,7 +143,7 @@ struct BallFinderPicker: View {
 // MARK: - DebugChoiceRow
 /// A processing choice for testers: applies to videos processed from now on.
 struct DebugChoiceRow: View {
-    let title: String
+    let title: LocalizedStringResource
     let icon: String
     let options: [(value: String, title: String)]
     @Binding var selection: String
@@ -173,10 +173,13 @@ struct DebugChoiceRow: View {
 
             Spacer(minLength: BSCSpacing.sm)
 
-            Picker(title, selection: $selection) {
+            Picker(selection: $selection) {
                 ForEach(options, id: \.value) { option in
-                    Text(option.title).tag(option.value)
+                    // Model names are tester-facing identifiers, not copy.
+                    Text(verbatim: option.title).tag(option.value)
                 }
+            } label: {
+                Text(title)
             }
             .pickerStyle(.menu)
             .labelsHidden()
@@ -188,7 +191,7 @@ struct DebugChoiceRow: View {
 
 // MARK: - BSCStatusRow
 struct BSCStatusRow: View {
-    let title: String
+    let title: LocalizedStringResource
     let isEnabled: Bool
 
     var body: some View {

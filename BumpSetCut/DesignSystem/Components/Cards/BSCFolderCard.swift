@@ -258,7 +258,7 @@ struct BSCFolderCard: View {
                 Image(systemName: "video.fill")
                     .bscFont(size: 10)
                     .accessibilityHidden(true)
-                Text("\(folder.videoCount)")
+                Text(verbatim: folder.videoCount.formatted())
                     .bscFont(size: 11, weight: .medium)
             }
             .foregroundColor(folder.videoCount > 0 ? .bscPrimaryText : .bscTextSecondary)
@@ -269,7 +269,7 @@ struct BSCFolderCard: View {
                     Image(systemName: "folder.fill")
                         .bscFont(size: 10)
                         .accessibilityHidden(true)
-                    Text("\(folder.subfolderCount)")
+                    Text(verbatim: folder.subfolderCount.formatted())
                         .bscFont(size: 11, weight: .medium)
                 }
                 .foregroundColor(.bscTextSecondary)
@@ -305,7 +305,7 @@ struct BSCFolderCard: View {
         Button {
             onTap()
         } label: {
-            Image(systemName: "arrow.right.circle.fill")
+            Image(systemName: "arrow.forward.circle.fill")
                 .bscFont(size: 20)
                 .foregroundColor(.bscPrimary)
                 .frame(width: 32, height: 32)

@@ -6,6 +6,24 @@ enum VideoFilter: String, CaseIterable {
     case all = "All"
     case processed = "Processed"
     case unprocessed = "Unprocessed"
+
+    /// Chip label. (The raw value is an identifier, not copy.)
+    var displayName: LocalizedStringResource {
+        switch self {
+        case .all: return LocalizedStringResource("All", comment: "Library filter chip: all videos")
+        case .processed: return LocalizedStringResource("Processed", comment: "Library filter chip: processed videos")
+        case .unprocessed: return LocalizedStringResource("Unprocessed", comment: "Library filter chip: unprocessed videos")
+        }
+    }
+
+    /// VoiceOver label for the chip.
+    var accessibilityName: LocalizedStringResource {
+        switch self {
+        case .all: return "All videos"
+        case .processed: return "Processed videos"
+        case .unprocessed: return "Unprocessed videos"
+        }
+    }
 }
 
 // MARK: - LibraryViewModel
@@ -53,18 +71,23 @@ final class LibraryViewModel {
         folderManager.isAtLibraryRoot
     }
 
+    /// Screen title: the library's name at the root, else the folder's own
+    /// (user-chosen) name.
     var title: String {
         if isAtRoot {
-            return libraryType == .saved ? "Library" : libraryType.displayName
+            switch libraryType {
+            case .saved: return String(localized: "Library")
+            case .processed: return String(localized: "Processed Games")
+            case .favorites: return String(localized: "Favorite Rallies")
+            }
         }
-        return currentPath.components(separatedBy: "/").last ?? "Contents"
+        return currentPath.components(separatedBy: "/").last ?? String(localized: "Contents")
     }
 
-    var subtitle: String {
-        if folderCount > 0 || videoCount > 0 {
-            return "\(folderCount) folders, \(videoCount) videos"
-        }
-        return ""
+    var subtitle: String? {
+        guard folderCount > 0 || videoCount > 0 else { return nil }
+        return String(localized: "\(folderCount) folders, \(videoCount) videos",
+                      comment: "Library header: folder and video counts")
     }
 
     var isEmpty: Bool {
@@ -220,9 +243,18 @@ final class LibraryViewModel {
 
 // MARK: - Content Options
 enum ContentSortOption: String, CaseIterable {
+    // Raw values are persisted (UserDefaults) — display text is displayName.
     case name = "Name"
     case dateCreated = "Date Created"
     case fileSize = "File Size"
+
+    var displayName: LocalizedStringResource {
+        switch self {
+        case .name: return LocalizedStringResource("Name", comment: "Sort option")
+        case .dateCreated: return LocalizedStringResource("Date Created", comment: "Sort option")
+        case .fileSize: return LocalizedStringResource("File Size", comment: "Sort option")
+        }
+    }
 
     var folderSort: FolderSortOption {
         switch self {
@@ -250,8 +282,16 @@ enum ContentSortOption: String, CaseIterable {
 }
 
 enum ViewMode: String, CaseIterable {
+    // Raw values are persisted (UserDefaults) — display text is displayName.
     case list = "List"
     case grid = "Grid"
+
+    var displayName: LocalizedStringResource {
+        switch self {
+        case .list: return LocalizedStringResource("List", comment: "Library view mode option")
+        case .grid: return LocalizedStringResource("Grid", comment: "Library view mode option")
+        }
+    }
 
     var icon: String {
         switch self {

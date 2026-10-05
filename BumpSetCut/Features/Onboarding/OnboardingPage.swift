@@ -21,8 +21,8 @@ struct OnboardingPage: Identifiable {
     }
 
     let id = UUID()
-    let title: String
-    let description: String
+    let title: LocalizedStringResource
+    let description: LocalizedStringResource
     let icon: String
     let color: Color
     var kind: Kind = .info

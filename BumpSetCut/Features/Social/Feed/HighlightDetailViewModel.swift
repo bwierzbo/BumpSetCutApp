@@ -27,7 +27,7 @@ final class HighlightDetailViewModel {
         let succeeded = await HighlightLikeToggle.toggle(highlight, apiClient: apiClient) { _, mutate in
             mutate(&highlight)
         }
-        if !succeeded { actionError = "Couldn't update like" }
+        if !succeeded { actionError = String(localized: "Couldn't update like") }
     }
 
     /// Returns true once the post is gone.
@@ -36,7 +36,7 @@ final class HighlightDetailViewModel {
             let _: EmptyResponse = try await apiClient.request(.deleteHighlight(id: highlight.id))
             return true
         } catch {
-            actionError = "Couldn't delete post"
+            actionError = String(localized: "Couldn't delete post")
             return false
         }
     }

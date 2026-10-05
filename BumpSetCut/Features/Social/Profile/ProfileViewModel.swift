@@ -112,7 +112,7 @@ final class ProfileViewModel {
                 mutate(&highlights[index])
             }
         }
-        if !succeeded { actionError = "Couldn't update like" }
+        if !succeeded { actionError = String(localized: "Couldn't update like") }
     }
 
     @discardableResult
@@ -139,7 +139,7 @@ final class ProfileViewModel {
             isFollowing.toggle()
             updated.followersCount += isFollowing ? 1 : -1
             self.profile = updated
-            actionError = "Couldn't update follow"
+            actionError = String(localized: "Couldn't update follow")
             return false
         }
     }

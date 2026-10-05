@@ -84,8 +84,8 @@ struct UploadProgressSheet: View {
                     .foregroundColor(.bscTextPrimary)
                     .multilineTextAlignment(.center)
 
-                if !uploadCoordinator.uploadProgressText.isEmpty {
-                    Text(uploadCoordinator.uploadProgressText)
+                if let progressText = uploadCoordinator.uploadProgressText {
+                    Text(progressText)
                         .bscFont(size: 15)
                         .foregroundColor(.bscTextSecondary)
                         .multilineTextAlignment(.center)

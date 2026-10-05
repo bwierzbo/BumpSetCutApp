@@ -949,7 +949,7 @@ final class RallyPlayerViewModel {
             .export(rallies, from: videoMetadata)
 
         if failureCount > 0 {
-            favoritesErrorMessage = "\(failureCount) favorite\(failureCount == 1 ? "" : "s") couldn't be saved"
+            favoritesErrorMessage = String(localized: "\(failureCount) favorites couldn't be saved")
         }
     }
 

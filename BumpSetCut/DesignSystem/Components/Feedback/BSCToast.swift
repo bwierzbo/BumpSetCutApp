@@ -24,11 +24,24 @@ struct BSCToastMessage: Equatable {
         }
     }
 
+    /// Resolved display text.
     let text: String
     var style: Style = .info
     /// Optional trailing button — e.g. "View" on "Sent to @x". Tapping runs the
     /// handler and dismisses the toast.
     var action: BSCToastAction? = nil
+
+    init(text: LocalizedStringResource, style: Style = .info, action: BSCToastAction? = nil) {
+        self.init(verbatim: String(localized: text), style: style, action: action)
+    }
+
+    /// Text that is already user-facing as-is: runtime/server text, or a
+    /// string a service localized when it produced it.
+    init(verbatim text: String, style: Style = .info, action: BSCToastAction? = nil) {
+        self.text = text
+        self.style = style
+        self.action = action
+    }
 
     // Closures aren't Equatable; two toasts are the same toast when their
     // visible content is.
@@ -38,7 +51,7 @@ struct BSCToastMessage: Equatable {
 }
 
 struct BSCToastAction {
-    let title: String
+    let title: LocalizedStringResource
     let handler: () -> Void
 }
 
@@ -66,7 +79,7 @@ private struct BSCToastModifier: ViewModifier {
                             .bscFont(size: 16, weight: .semibold)
                             .foregroundColor(toast.style.tint)
                             .accessibilityHidden(true)
-                        Text(toast.text)
+                        Text(verbatim: toast.text)
                             .bscFont(size: 14, weight: .semibold)
                             .foregroundColor(.bscTextPrimary)
                             .lineLimit(2)

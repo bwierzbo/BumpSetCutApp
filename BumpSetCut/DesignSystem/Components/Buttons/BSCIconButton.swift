@@ -43,7 +43,7 @@ struct BSCIconButton: View {
     var style: Style = .glass
     var size: Size = .standard
     var badge: Int? = nil
-    var accessibilityLabel: String? = nil
+    var accessibilityLabel: LocalizedStringResource? = nil
     let action: () -> Void
 
     @Environment(\.isEnabled) private var isEnabled
@@ -94,16 +94,16 @@ struct BSCIconButton: View {
             .opacity(isEnabled ? 1.0 : 0.5)
         }
         .buttonStyle(BSCIconButtonPressStyle())
-        .accessibilityLabel(accessibilityLabel ?? icon)
+        .accessibilityLabel(accessibilityLabel.map { Text($0) } ?? Text(verbatim: icon))
         .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Badge View
     @ViewBuilder
     private func badgeView(count: Int) -> some View {
-        let badgeText = count > 99 ? "99+" : "\(count)"
+        let badgeText = count > 99 ? 99.formatted() + "+" : count.formatted()
 
-        Text(badgeText)
+        Text(verbatim: badgeText)
             .bscFont(size: 10, weight: .bold)
             .foregroundColor(.white)
             .lineLimit(1)

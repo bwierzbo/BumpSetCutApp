@@ -227,7 +227,7 @@ struct RallyPlayerView: View {
                 Text("Want to add the missed rally yourself? Rallies you add also help train detection.")
             }
             .bscToast(Binding(
-                get: { viewModel.favoritesErrorMessage.map { BSCToastMessage(text: $0, style: .error) } },
+                get: { viewModel.favoritesErrorMessage.map { BSCToastMessage(verbatim: $0, style: .error) } },
                 set: { if $0 == nil { viewModel.favoritesErrorMessage = nil } }
             ))
         }

@@ -38,11 +38,11 @@ struct BSCProgressRing<Center: View>: View {
 /// The standard pill text stack: 13pt-semibold title (with an optional inline
 /// accessory glyph after it) over an 11pt single-line secondary subtitle.
 struct BSCStatusPillLabel<Accessory: View>: View {
-    let title: String
-    let subtitle: String?
+    let title: LocalizedStringResource
+    let subtitle: LocalizedStringResource?
     private let accessory: Accessory
 
-    init(title: String, subtitle: String? = nil, @ViewBuilder accessory: () -> Accessory) {
+    init(title: LocalizedStringResource, subtitle: LocalizedStringResource? = nil, @ViewBuilder accessory: () -> Accessory) {
         self.title = title
         self.subtitle = subtitle
         self.accessory = accessory()
@@ -68,7 +68,7 @@ struct BSCStatusPillLabel<Accessory: View>: View {
 }
 
 extension BSCStatusPillLabel where Accessory == EmptyView {
-    init(title: String, subtitle: String? = nil) {
+    init(title: LocalizedStringResource, subtitle: LocalizedStringResource? = nil) {
         self.init(title: title, subtitle: subtitle) { EmptyView() }
     }
 }
@@ -141,8 +141,8 @@ struct BSCStatusPill<Leading: View, Content: View, Trailing: View>: View {
 extension BSCStatusPill where Content == BSCStatusPillLabel<EmptyView> {
     /// Standard pill with the title/subtitle label stack as its content.
     init(
-        title: String,
-        subtitle: String? = nil,
+        title: LocalizedStringResource,
+        subtitle: LocalizedStringResource? = nil,
         borderColor: Color? = nil,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder trailing: () -> Trailing

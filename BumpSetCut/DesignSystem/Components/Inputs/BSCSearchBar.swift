@@ -5,7 +5,7 @@ import SwiftUI
 struct BSCSearchBar: View {
     // MARK: - Properties
     @Binding var text: String
-    var placeholder: String = "Search"
+    var placeholder: LocalizedStringResource = "Search"
     var onSubmit: (() -> Void)? = nil
     var onCancel: (() -> Void)? = nil
     var showCancelButton: Bool = false
@@ -24,7 +24,7 @@ struct BSCSearchBar: View {
                     .accessibilityHidden(true)
 
                 // Text field
-                TextField(placeholder, text: $text)
+                TextField(text: $text) { Text(placeholder) }
                     .bscFont(size: 16)
                     .foregroundColor(.bscTextPrimary)
                     .focused($isFocused)
@@ -82,7 +82,7 @@ struct BSCSearchBar: View {
         .animation(.bscSpring, value: showCancelButton && (isFocused || !text.isEmpty))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Search")
-        .accessibilityValue(text.isEmpty ? "Empty" : text)
+        .accessibilityValue(text.isEmpty ? Text("Empty") : Text(verbatim: text))
     }
 }
 

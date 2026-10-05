@@ -258,7 +258,7 @@ private extension SettingsView {
         HStack {
             Text("Manage Subscription")
             Spacer()
-            Image(systemName: "chevron.right")
+            Image(systemName: "chevron.forward")
                 .bscFont(size: 12)
                 .foregroundStyle(Color.bscTextSecondary)
         }
@@ -278,8 +278,8 @@ private extension SettingsView {
             try await StoreManager.shared.restorePurchases()
             await subscriptionService.refreshSubscriptionStatus()
             restoreResultMessage = subscriptionService.isPro
-                ? "Your BumpSetCut Pro subscription has been restored."
-                : "No active subscriptions found for this Apple ID."
+                ? String(localized: "Your BumpSetCut Pro subscription has been restored.")
+                : String(localized: "No active subscriptions found for this Apple ID.")
         } catch {
             restoreResultMessage = error.localizedDescription
         }
@@ -432,7 +432,7 @@ private extension SettingsView {
                                         .foregroundColor(theme == .dark ? .white : theme == .light ? Color(hex: "#1A1A1C") : .bscBlue)
                                 }
 
-                                Text(theme.rawValue)
+                                Text(theme.displayName)
                                     .bscFont(size: 12, weight: appSettings.appearanceMode == theme ? .semibold : .regular)
                                     .foregroundColor(appSettings.appearanceMode == theme ? .bscBlue : .bscTextSecondary)
                             }
@@ -442,7 +442,8 @@ private extension SettingsView {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("\(theme.rawValue) theme\(appSettings.appearanceMode == theme ? ", selected" : "")")
+                        // Selection is conveyed by the .isSelected trait below.
+                        .accessibilityLabel(Text("\(theme.displayName) theme"))
                         .accessibilityAddTraits(appSettings.appearanceMode == theme ? .isSelected : [])
                         .accessibilityIdentifier(
                             theme == .light ? AccessibilityID.Settings.themeLight :
@@ -452,6 +453,18 @@ private extension SettingsView {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - AppTheme Display Name
+private extension AppTheme {
+    /// The raw value is persisted; this is what the picker shows.
+    var displayName: LocalizedStringResource {
+        switch self {
+        case .system: return LocalizedStringResource("System", comment: "Appearance theme option: follow the system setting")
+        case .light: return LocalizedStringResource("Light", comment: "Appearance theme option")
+        case .dark: return LocalizedStringResource("Dark", comment: "Appearance theme option")
         }
     }
 }
@@ -490,7 +503,7 @@ private extension SettingsView {
                             .bscFont(size: 14)
                             .foregroundColor(.bscTextSecondary)
                         Spacer()
-                        Text("\(flywheelService.lifetimeContributedCount)")
+                        Text(verbatim: flywheelService.lifetimeContributedCount.formatted())
                             .bscFont(size: 14, weight: .semibold)
                             .foregroundColor(.bscTextPrimary)
                     }
@@ -537,7 +550,7 @@ private extension SettingsView {
                         }
 
                         VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                            Text(authService.currentUser?.username ?? "Account")
+                            (authService.currentUser.map { Text(verbatim: $0.username) } ?? Text("Account"))
                                 .bscFont(size: 16, weight: .semibold)
                                 .foregroundColor(.bscTextPrimary)
 
@@ -564,7 +577,7 @@ private extension SettingsView {
                                 .bscFont(size: 14, weight: .medium)
                                 .foregroundColor(.bscTextPrimary)
                             Spacer()
-                            Image(systemName: "chevron.right")
+                            Image(systemName: "chevron.forward")
                                 .bscFont(size: 12)
                                 .foregroundColor(.bscTextSecondary)
                         }
@@ -753,10 +766,10 @@ private extension SettingsView {
     }
 
     func legalLinkRow(
-        title: String,
+        title: LocalizedStringResource,
         icon: String,
         urlString: String,
-        hint: String,
+        hint: LocalizedStringResource,
         accessibilityID: String
     ) -> some View {
         Button {

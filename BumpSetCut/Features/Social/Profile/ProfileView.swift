@@ -75,9 +75,9 @@ struct ProfileView: View {
             if let message {
                 // While the post viewer covers this screen, show it there.
                 if selectedHighlightIndex != nil {
-                    coverToast = BSCToastMessage(text: message, style: .error)
+                    coverToast = BSCToastMessage(verbatim: message, style: .error)
                 } else {
-                    toast = BSCToastMessage(text: message, style: .error)
+                    toast = BSCToastMessage(verbatim: message, style: .error)
                 }
                 viewModel.actionError = nil
             }

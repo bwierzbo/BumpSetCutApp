@@ -18,7 +18,7 @@ struct BSCButton: View {
     }
 
     // MARK: - Properties
-    let title: String
+    let title: LocalizedStringResource
     var icon: String? = nil
     var style: Style = .primary
     var size: Size = .medium
@@ -61,8 +61,8 @@ struct BSCButton: View {
         }
         .buttonStyle(BSCButtonPressStyle())
         .disabled(isLoading)
-        .accessibilityLabel(title)
-        .accessibilityHint(isLoading ? "Loading" : "")
+        .accessibilityLabel(Text(title))
+        .accessibilityHint(isLoading ? Text("Loading") : Text(verbatim: ""))
         .accessibilityAddTraits(.isButton)
     }
 

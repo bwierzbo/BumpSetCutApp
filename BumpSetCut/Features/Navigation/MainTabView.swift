@@ -167,7 +167,7 @@ struct MainTabView: View {
         }
         .onChange(of: DirectMessageService.shared.incomingToast) { _, incoming in
             guard let incoming else { return }
-            messageToast = BSCToastMessage(text: incoming.text, style: .info)
+            messageToast = BSCToastMessage(verbatim: incoming.text, style: .info)
             DirectMessageService.shared.incomingToast = nil
         }
         .onChange(of: navigationState.pendingConversationId) { _, id in
@@ -182,13 +182,13 @@ struct MainTabView: View {
             // A follow arrived while the app is active — surface it on whatever
             // tab the user is on.
             guard let message else { return }
-            followToast = BSCToastMessage(text: message, style: .success)
+            followToast = BSCToastMessage(verbatim: message, style: .success)
             SocialNotificationService.shared.followToast = nil
         }
         .bscToast($saveFailureToast)
         .onChange(of: PersistenceMonitor.shared.failureMessage) { _, message in
             guard let message else { return }
-            saveFailureToast = BSCToastMessage(text: message, style: .error)
+            saveFailureToast = BSCToastMessage(verbatim: message, style: .error)
             PersistenceMonitor.shared.acknowledgeFailure()
         }
         .environment(uploadCoordinator)
@@ -254,14 +254,18 @@ struct MainTabView: View {
     /// accrued, plus what leaving the app means: with a continued-processing
     /// task active (iOS 26+) processing follows the user out; otherwise
     /// checkpoints mean leaving only pauses it.
-    private var processingETASubtitle: String {
-        let leaveNote = ProcessingBackgroundKeeper.processing.isActive
-            ? "free to leave the app"
-            : "progress saves if you leave"
+    private var processingETASubtitle: LocalizedStringResource {
+        let canLeave = ProcessingBackgroundKeeper.processing.isActive
         if let remaining = processingCoordinator.estimatedSecondsRemaining, remaining > 1 {
-            return "\(ProcessingTimeEstimator.formatEstimate(remaining)) left \u{2022} \(leaveNote)"
+            let eta = ProcessingTimeEstimator.formatEstimate(remaining)
+            return canLeave
+                ? LocalizedStringResource("\(eta) left • free to leave the app", comment: "Processing pill subtitle; %@ is a time estimate like ~2m")
+                : LocalizedStringResource("\(eta) left • progress saves if you leave", comment: "Processing pill subtitle; %@ is a time estimate like ~2m")
         }
-        return "\(processingCoordinator.videoName) \u{2022} \(leaveNote)"
+        let name = processingCoordinator.videoName
+        return canLeave
+            ? LocalizedStringResource("\(name) • free to leave the app", comment: "Processing pill subtitle; %@ is the video name")
+            : LocalizedStringResource("\(name) • progress saves if you leave", comment: "Processing pill subtitle; %@ is the video name")
     }
 
     /// Video import pill — mirrors the processing pill. Shown while a video is
@@ -281,11 +285,10 @@ struct MainTabView: View {
             } else {
                 BSCStatusPill(
                     title: "Uploading \(uploadCoordinator.currentVideoName)…",
-                    subtitle: uploadCoordinator.uploadProgressText.isEmpty
-                        ? (ProcessingBackgroundKeeper.importing.isActive
+                    subtitle: uploadCoordinator.uploadProgressText
+                        ?? (ProcessingBackgroundKeeper.importing.isActive
                            ? "free to leave the app"
                            : "keep the app open")
-                        : uploadCoordinator.uploadProgressText
                 ) {
                     if let fraction = uploadCoordinator.importProgress {
                         BSCProgressRing(progress: fraction) {
@@ -303,7 +306,7 @@ struct MainTabView: View {
                     Spacer()
 
                     if let fraction = uploadCoordinator.importProgress {
-                        Text("\(Int(fraction * 100))%")
+                        Text(verbatim: fraction.formattedPercent())
                             .bscFont(size: 14, weight: .bold, design: .monospaced)
                             .foregroundColor(.bscPrimaryText)
                     }
@@ -330,7 +333,7 @@ struct MainTabView: View {
             }
         } trailing: {
             Spacer()
-            Text("\(Int(flywheelService.uploadProgress * 100))%")
+            Text(verbatim: flywheelService.uploadProgress.formattedPercent())
                 .bscFont(size: 14, weight: .bold, design: .monospaced)
                 .foregroundColor(.bscPrimaryText)
         }
@@ -365,7 +368,7 @@ struct MainTabView: View {
                     // A summary that survives a trip away from the app — the
                     // user shouldn't have to hunt for the processed video.
                     BSCStatusPill(
-                        title: "\(processingCoordinator.completedRallyCount) \(processingCoordinator.completedRallyCount == 1 ? "rally" : "rallies") found",
+                        title: "\(processingCoordinator.completedRallyCount) rallies found",
                         subtitle: "\(processingCoordinator.videoName) \u{2022} tap to view"
                     ) {
                         Image(systemName: "checkmark.circle.fill")
@@ -376,7 +379,7 @@ struct MainTabView: View {
             } else {
                 BSCStatusPill {
                     BSCProgressRing(progress: processingCoordinator.progress) {
-                        Text("\(processingCoordinator.progressPercent)")
+                        Text(verbatim: processingCoordinator.progressPercent.formatted())
                             .bscFont(size: 8, weight: .bold, design: .monospaced)
                             .foregroundColor(.bscPrimaryText)
                     }
@@ -389,7 +392,7 @@ struct MainTabView: View {
                 } trailing: {
                     Spacer()
 
-                    Text("\(processingCoordinator.progressPercent)%")
+                    Text(verbatim: processingCoordinator.progress.formattedPercent())
                         .bscFont(size: 14, weight: .bold, design: .monospaced)
                         .foregroundColor(.bscPrimaryText)
                 }

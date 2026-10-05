@@ -6,12 +6,12 @@ import SwiftUI
 /// is empty. `onCommit` receives the entered name, or nil when the
 /// cancel-role button (Cancel/Skip) is chosen.
 struct BSCNameAlert: ViewModifier {
-    let title: String
-    let message: String?
-    let placeholder: String
+    let title: LocalizedStringResource
+    let message: LocalizedStringResource?
+    let placeholder: LocalizedStringResource
     let initialText: String
-    let confirmTitle: String
-    let cancelTitle: String
+    let confirmTitle: LocalizedStringResource
+    let cancelTitle: LocalizedStringResource
     @Binding var isPresented: Bool
     let onCommit: (String?) -> Void
 
@@ -22,8 +22,8 @@ struct BSCNameAlert: ViewModifier {
             .onChange(of: isPresented) { _, shown in
                 if shown { nameInput = initialText }
             }
-            .alert(title, isPresented: $isPresented) {
-                TextField(placeholder, text: $nameInput)
+            .alert(Text(title), isPresented: $isPresented) {
+                TextField(text: $nameInput) { Text(placeholder) }
                     .onChange(of: nameInput) { _, newValue in
                         let stripped = String(newValue.drop(while: { $0.isWhitespace }))
                         let limited = String(stripped.prefix(100))
@@ -50,12 +50,12 @@ struct BSCNameAlert: ViewModifier {
 
 extension View {
     func bscNameAlert(
-        title: String,
-        message: String? = nil,
-        placeholder: String,
+        title: LocalizedStringResource,
+        message: LocalizedStringResource? = nil,
+        placeholder: LocalizedStringResource,
         initialText: String = "",
-        confirmTitle: String,
-        cancelTitle: String = "Cancel",
+        confirmTitle: LocalizedStringResource,
+        cancelTitle: LocalizedStringResource = "Cancel",
         isPresented: Binding<Bool>,
         onCommit: @escaping (String?) -> Void
     ) -> some View {

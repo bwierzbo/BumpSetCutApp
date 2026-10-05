@@ -26,14 +26,14 @@ struct BSCExportProgressRing: View {
                 .rotationEffect(.degrees(-90))
                 .animation(.bscStandard, value: progress)
 
-            Text("\(Int(min(progress, 1) * 100))%")
+            Text(verbatim: progress.formattedPercent())
                 .bscFont(size: size * 0.22, weight: .bold, design: .monospaced)
                 .foregroundColor(.bscTextPrimary)
                 .contentTransition(.numericText())
         }
         .frame(width: size, height: size)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Progress \(Int(min(progress, 1) * 100)) percent")
+        .accessibilityLabel(Text("Progress \(progress.formattedPercent())", comment: "VoiceOver label for an export progress ring; %@ is a percentage like 42%"))
     }
 }
 

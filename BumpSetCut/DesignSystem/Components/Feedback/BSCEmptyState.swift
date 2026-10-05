@@ -1,17 +1,57 @@
 import SwiftUI
 
 // MARK: - BSCEmptyState
-/// A configurable empty state component with icon, message, and optional action
+/// A configurable empty state component with icon, message, and optional action.
+/// Title and message are localized resources; a message that is runtime text
+/// (e.g. a server error) goes through `messageVerbatim` so it isn't looked up.
 struct BSCEmptyState: View {
     // MARK: - Properties
-    let icon: String
-    let title: String
-    let message: String
-    var actionTitle: String? = nil
-    var secondaryActionTitle: String? = nil
-    var onAction: (() -> Void)? = nil
-    var onSecondaryAction: (() -> Void)? = nil
-    var actionAccessibilityID: String? = nil
+    private let icon: String
+    private let title: Text
+    private let message: Text
+    private let actionTitle: LocalizedStringResource?
+    private let secondaryActionTitle: LocalizedStringResource?
+    private let onAction: (() -> Void)?
+    private let onSecondaryAction: (() -> Void)?
+    private let actionAccessibilityID: String?
+
+    init(
+        icon: String,
+        title: LocalizedStringResource,
+        message: LocalizedStringResource,
+        actionTitle: LocalizedStringResource? = nil,
+        secondaryActionTitle: LocalizedStringResource? = nil,
+        onAction: (() -> Void)? = nil,
+        onSecondaryAction: (() -> Void)? = nil,
+        actionAccessibilityID: String? = nil
+    ) {
+        self.icon = icon
+        self.title = Text(title)
+        self.message = Text(message)
+        self.actionTitle = actionTitle
+        self.secondaryActionTitle = secondaryActionTitle
+        self.onAction = onAction
+        self.onSecondaryAction = onSecondaryAction
+        self.actionAccessibilityID = actionAccessibilityID
+    }
+
+    /// Same, with a message that is runtime text shown as-is.
+    init(
+        icon: String,
+        title: LocalizedStringResource,
+        messageVerbatim: String,
+        actionTitle: LocalizedStringResource? = nil,
+        onAction: (() -> Void)? = nil
+    ) {
+        self.icon = icon
+        self.title = Text(title)
+        self.message = Text(verbatim: messageVerbatim)
+        self.actionTitle = actionTitle
+        self.secondaryActionTitle = nil
+        self.onAction = onAction
+        self.onSecondaryAction = nil
+        self.actionAccessibilityID = nil
+    }
 
     // MARK: - Body
     var body: some View {
@@ -24,12 +64,12 @@ struct BSCEmptyState: View {
 
                 // Text content
                 VStack(spacing: BSCSpacing.sm) {
-                    Text(title)
+                    title
                         .bscFont(size: 20, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
                         .multilineTextAlignment(.center)
 
-                    Text(message)
+                    message
                         .bscFont(size: 15)
                         .foregroundColor(.bscTextSecondary)
                         .multilineTextAlignment(.center)
@@ -37,7 +77,7 @@ struct BSCEmptyState: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(title). \(message)")
+            .accessibilityLabel(title + Text(verbatim: ". ") + message)
 
             // Action buttons
             if actionTitle != nil || secondaryActionTitle != nil {
@@ -238,11 +278,21 @@ extension BSCEmptyState {
     }
 
     /// Failed to load remote content. Use for any social surface that had a network/auth error.
+    /// `message` is runtime error text, shown verbatim; nil shows the generic hint.
     static func loadFailed(message: String? = nil, onRetry: @escaping () -> Void) -> BSCEmptyState {
-        BSCEmptyState(
+        guard let message else {
+            return BSCEmptyState(
+                icon: "wifi.exclamationmark",
+                title: "Couldn't load",
+                message: "Check your connection and try again.",
+                actionTitle: "Retry",
+                onAction: onRetry
+            )
+        }
+        return BSCEmptyState(
             icon: "wifi.exclamationmark",
             title: "Couldn't load",
-            message: message ?? "Check your connection and try again.",
+            messageVerbatim: message,
             actionTitle: "Retry",
             onAction: onRetry
         )

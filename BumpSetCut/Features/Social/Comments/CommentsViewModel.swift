@@ -91,7 +91,7 @@ final class CommentsViewModel {
             let _: EmptyResponse = try await apiClient.request(.deleteComment(id: comment.id))
         } catch {
             comments.insert(comment, at: min(index, comments.count))
-            actionError = "Couldn't delete comment"
+            actionError = String(localized: "Couldn't delete comment")
         }
     }
 
@@ -109,7 +109,7 @@ final class CommentsViewModel {
             )
         } catch {
             // Revert on failure. Re-find the index — the list may have changed.
-            actionError = "Couldn't update like"
+            actionError = String(localized: "Couldn't update like")
             guard let i = comments.firstIndex(where: { $0.id == comment.id }) else { return }
             comments[i].isLikedByMe = wasLiked
             comments[i].likesCount = max(0, comments[i].likesCount + (wasLiked ? 1 : -1))
@@ -159,7 +159,7 @@ final class CommentsViewModel {
         // silently wipe B's legitimately-displayed vote.
         if !didSync, poll?.myVoteOptionId == optionId {
             poll = snapshot
-            actionError = "Couldn't record vote"
+            actionError = String(localized: "Couldn't record vote")
         }
     }
 

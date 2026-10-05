@@ -43,7 +43,7 @@ final class UploadCoordinator {
 
     var isUploadInProgress = false
     var showCompleted = false
-    var uploadProgressText = ""
+    var uploadProgressText: LocalizedStringResource?
     var currentFileSize: String = ""
     /// Display name of the video being imported, for the global upload pill.
     var currentVideoName: String = ""
@@ -125,7 +125,7 @@ final class UploadCoordinator {
         importProgressObservation = nil
         importProgressHandle = nil
         importProgress = nil
-        uploadProgressText = ""
+        uploadProgressText = nil
         isUploadInProgress = false
         Task { @MainActor in
             self.endImportContinuation(success: false)

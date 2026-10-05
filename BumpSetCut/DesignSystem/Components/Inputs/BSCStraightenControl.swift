@@ -51,7 +51,7 @@ struct BSCStraightenControl: View {
         .onAppear { haptic.prepare() }
     }
 
-    private func stepButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+    private func stepButton(systemImage: String, label: LocalizedStringResource, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .bscFont(size: 13, weight: .bold)
@@ -62,7 +62,7 @@ struct BSCStraightenControl: View {
                 .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
                 .contentShape(Rectangle())
         }
-        .accessibilityLabel(label)
+        .accessibilityLabel(Text(label))
     }
 
     /// Clamp to ±maxDegrees, snap to the step, and tick when it lands on a new step.
@@ -76,7 +76,7 @@ struct BSCStraightenControl: View {
     }
 
     private static func format(_ degrees: Double) -> String {
-        String(format: "%+.1f°", degrees)
+        degrees.formattedSignedDegrees()
     }
 }
 

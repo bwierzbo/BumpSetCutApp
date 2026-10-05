@@ -73,7 +73,7 @@ struct SocialFeedView: View {
         .bscToast($toast)
         .onChange(of: viewModel.actionError) { _, message in
             if let message {
-                toast = BSCToastMessage(text: message, style: .error)
+                toast = BSCToastMessage(verbatim: message, style: .error)
                 viewModel.actionError = nil
             }
         }

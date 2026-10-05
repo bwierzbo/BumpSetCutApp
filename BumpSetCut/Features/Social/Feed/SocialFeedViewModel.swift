@@ -161,7 +161,7 @@ final class SocialFeedViewModel {
                 mutate(&highlights[index])
             }
         }
-        if !succeeded { actionError = "Couldn't update like" }
+        if !succeeded { actionError = String(localized: "Couldn't update like") }
     }
 
     // MARK: - Poll Voting

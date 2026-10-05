@@ -29,7 +29,7 @@ struct BSCProgressView: View {
                 volleyballProgress
             }
         }
-        .accessibilityValue("\(Int(progress * 100))%")
+        .accessibilityValue(Text(verbatim: progress.formattedPercent()))
     }
 
     // MARK: - Linear Progress
@@ -56,7 +56,7 @@ struct BSCProgressView: View {
             .frame(height: lineWidth)
 
             if showPercentage {
-                Text("\(Int(progress * 100))%")
+                Text(verbatim: progress.formattedPercent())
                     .bscFont(size: 12, weight: .semibold)
                     .foregroundColor(.bscPrimaryText)
             }
@@ -102,11 +102,13 @@ struct BSCProgressView: View {
             // Percentage text
             if showPercentage {
                 VStack(spacing: 2) {
-                    Text("\(Int(progress * 100))")
+                    // Stacked number over a small percent glyph (a visual
+                    // treatment); the a11y value carries the formatted percent.
+                    Text(verbatim: Int(min(max(progress, 0), 1) * 100).formatted())
                         .bscFont(size: size * 0.3, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
 
-                    Text("%")
+                    Text(verbatim: "%")
                         .bscFont(size: size * 0.15, weight: .medium)
                         .foregroundColor(.bscTextSecondary)
                 }
@@ -146,7 +148,7 @@ struct BSCProgressView: View {
             if showPercentage {
                 VStack {
                     Spacer()
-                    Text("\(Int(progress * 100))%")
+                    Text(verbatim: progress.formattedPercent())
                         .bscFont(size: 11, weight: .bold)
                         .foregroundColor(.bscOnPrimary)
                         .padding(.horizontal, BSCSpacing.sm)

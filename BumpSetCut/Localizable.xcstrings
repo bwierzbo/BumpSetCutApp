@@ -1,0 +1,2421 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "" : {
+
+    },
+    " to confirm" : {
+
+    },
+    "#%@" : {
+
+    },
+    "%@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$@"
+          }
+        }
+      }
+    },
+    "%@ 0" : {
+
+    },
+    "%@ color: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ color: %2$@"
+          }
+        }
+      }
+    },
+    "%@ folder, %lld videos" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ folder, %2$lld videos"
+          }
+        }
+      }
+    },
+    "%@ has %lld rallies — a post can hold up to %lld. Tap rallies in the order they should appear." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ has %2$lld rallies — a post can hold up to %3$lld. Tap rallies in the order they should appear."
+          }
+        }
+      }
+    },
+    "%@ has this point" : {
+
+    },
+    "%@ is in your library." : {
+
+    },
+    "%@ left • free to leave the app" : {
+      "comment" : "Processing pill subtitle; %@ is a time estimate like ~2m"
+    },
+    "%@ left • progress saves if you leave" : {
+      "comment" : "Processing pill subtitle; %@ is a time estimate like ~2m"
+    },
+    "%@ theme" : {
+
+    },
+    "%@ to %@, %lld seconds" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ to %2$@, %3$lld seconds"
+          }
+        }
+      }
+    },
+    "%@ · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "%@ • free to leave the app" : {
+      "comment" : "Processing pill subtitle; %@ is the video name"
+    },
+    "%@ • progress saves if you leave" : {
+      "comment" : "Processing pill subtitle; %@ is the video name"
+    },
+    "%@ • tap for options" : {
+
+    },
+    "%@ • tap to view" : {
+
+    },
+    "%@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "%@, processed, %@" : {
+      "comment" : "Video card VoiceOver label: name, file size",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, processed, %2$@"
+          }
+        }
+      }
+    },
+    "%@, processed, %@, %@" : {
+      "comment" : "Video card VoiceOver label: name, duration, file size",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, processed, %2$@, %3$@"
+          }
+        }
+      }
+    },
+    "%@, unprocessed, %@" : {
+      "comment" : "Video card VoiceOver label: name, file size",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, unprocessed, %2$@"
+          }
+        }
+      }
+    },
+    "%@, unprocessed, %@, %@" : {
+      "comment" : "Video card VoiceOver label: name, duration, file size",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, unprocessed, %2$@, %3$@"
+          }
+        }
+      }
+    },
+    "%@s" : {
+
+    },
+    "%@s total" : {
+
+    },
+    "%lld" : {
+
+    },
+    "%lld %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld %2$@"
+          }
+        }
+      }
+    },
+    "%lld %@ over 1 minute skipped" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld %2$@ over 1 minute skipped"
+          }
+        }
+      }
+    },
+    "%lld %@ · one video" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld %2$@ · one video"
+          }
+        }
+      }
+    },
+    "%lld Rallies" : {
+
+    },
+    "%lld comments" : {
+
+    },
+    "%lld favorites couldn't be saved" : {
+
+    },
+    "%lld folders, %lld videos" : {
+      "comment" : "Library header: folder and video counts",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld folders, %2$lld videos"
+          }
+        }
+      }
+    },
+    "%lld frames · keep the app open" : {
+
+    },
+    "%lld ft" : {
+
+    },
+    "%lld in" : {
+
+    },
+    "%lld likes" : {
+
+    },
+    "%lld min of %lld min remaining" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld min of %2$lld min remaining"
+          }
+        }
+      }
+    },
+    "%lld of %lld digits entered" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld digits entered"
+          }
+        }
+      }
+    },
+    "%lld of %lld rallies · %lld%%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld rallies · %3$lld%%"
+          }
+        }
+      }
+    },
+    "%lld rallies" : {
+
+    },
+    "%lld rallies found" : {
+
+    },
+    "%lld rallies · scoreboard included" : {
+
+    },
+    "%lld scored" : {
+
+    },
+    "%lld vote%@ · tap to %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld vote%2$@ · tap to %3$@"
+          }
+        }
+      }
+    },
+    "%lld%%" : {
+
+    },
+    "%lld/%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld/%2$lld"
+          }
+        }
+      }
+    },
+    "%llds" : {
+
+    },
+    "+1" : {
+
+    },
+    "/" : {
+
+    },
+    "/ %@" : {
+
+    },
+    "0 %@" : {
+
+    },
+    "3-20 characters. Letters, numbers, and underscores only." : {
+
+    },
+    "42%" : {
+
+    },
+    "@" : {
+
+    },
+    "@%@" : {
+
+    },
+    "@%@ wants to message you" : {
+
+    },
+    "@%@ won't be notified. They can still message you again." : {
+
+    },
+    "AI Processing" : {
+
+    },
+    "AI Processing removes dead time" : {
+
+    },
+    "AI Processing removes dead time\nDebug Processing includes analysis overlay" : {
+
+    },
+    "AI will analyze your video to remove dead time and keep only active rallies" : {
+
+    },
+    "AI-powered rally detection for volleyball videos. Find the best moments automatically." : {
+
+    },
+    "About" : {
+
+    },
+    "Accept" : {
+
+    },
+    "Account" : {
+
+    },
+    "Add It on the Timeline" : {
+
+    },
+    "Add Location" : {
+
+    },
+    "Add Rallies Manually" : {
+
+    },
+    "Add Rally" : {
+
+    },
+    "Add a comment..." : {
+
+    },
+    "Add a note (optional)" : {
+
+    },
+    "Add a poll" : {
+
+    },
+    "Add from Photos and process immediately" : {
+
+    },
+    "Add location" : {
+
+    },
+    "Add option" : {
+
+    },
+    "Add or fix rallies" : {
+
+    },
+    "Add your player info" : {
+
+    },
+    "Additional details (optional)" : {
+
+    },
+    "All" : {
+      "comment" : "Library filter chip: all videos"
+    },
+    "All Caught Up!" : {
+
+    },
+    "All Videos Processed" : {
+
+    },
+    "All clips are over 1 minute" : {
+
+    },
+    "All videos" : {
+
+    },
+    "All your videos have been processed!" : {
+
+    },
+    "Already have an account? Sign In" : {
+
+    },
+    "Already lean" : {
+
+    },
+    "Analyzing video..." : {
+
+    },
+    "Another video is processing..." : {
+
+    },
+    "Appearance" : {
+
+    },
+    "Apply %@ to this rally and every rally after it?" : {
+
+    },
+    "Apply to All" : {
+
+    },
+    "Apply to Other Rallies?" : {
+
+    },
+    "Are you sure you want to delete this folder?" : {
+
+    },
+    "Are you sure you want to delete this video? This action cannot be undone." : {
+
+    },
+    "Ask a question..." : {
+
+    },
+    "Attach one of your posts" : {
+
+    },
+    "Available" : {
+
+    },
+    "Back to Library" : {
+
+    },
+    "Ball Finder" : {
+
+    },
+    "Ball Model" : {
+
+    },
+    "Be the first to comment!" : {
+
+    },
+    "Be the first to share a volleyball rally!" : {
+
+    },
+    "Bio" : {
+
+    },
+    "Block" : {
+
+    },
+    "Block @%@" : {
+
+    },
+    "Block @%@?" : {
+
+    },
+    "Blocked Users" : {
+
+    },
+    "Blue glow when selected" : {
+
+    },
+    "Border only, no fill" : {
+
+    },
+    "Browse Files" : {
+
+    },
+    "Browse rallies in a full-screen swipe feed. Save your favorites or remove clips you don't need." : {
+
+    },
+    "Build" : {
+
+    },
+    "Building %@…" : {
+
+    },
+    "BumpSetCut" : {
+
+    },
+    "BumpSetCut Pro Active" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Cancel Import" : {
+
+    },
+    "Cancel Processing" : {
+
+    },
+    "Cancel export" : {
+
+    },
+    "Cancel import?" : {
+
+    },
+    "Caption" : {
+
+    },
+    "Change" : {
+
+    },
+    "Change profile photo" : {
+
+    },
+    "Check out this rally on BumpSetCut" : {
+
+    },
+    "Check your connection and try again." : {
+
+    },
+    "Choose Destination" : {
+
+    },
+    "Choose Rallies" : {
+
+    },
+    "Choose a processing mode below" : {
+
+    },
+    "Choose from Photos" : {
+
+    },
+    "Choose your preferred appearance" : {
+
+    },
+    "Choose your username" : {
+
+    },
+    "Circular" : {
+
+    },
+    "Clear" : {
+
+    },
+    "Clear (%lld)" : {
+
+    },
+    "Clear All" : {
+
+    },
+    "Clear Search" : {
+
+    },
+    "Clear search" : {
+
+    },
+    "Close" : {
+
+    },
+    "Close comments" : {
+
+    },
+    "Combining rallies · %lld%%" : {
+
+    },
+    "Comment options" : {
+
+    },
+    "Comments" : {
+
+    },
+    "Community Guidelines" : {
+
+    },
+    "Confirm Password" : {
+
+    },
+    "Contact Support" : {
+
+    },
+    "Content goes here" : {
+
+    },
+    "Contents" : {
+
+    },
+    "Continue" : {
+
+    },
+    "Continue with Google" : {
+
+    },
+    "Continue without account" : {
+
+    },
+    "Contribute Training Clips" : {
+
+    },
+    "Contribute training clips so the volleyball model gets better over time." : {
+
+    },
+    "Contributed" : {
+
+    },
+    "Conversation options" : {
+
+    },
+    "Copied!" : {
+
+    },
+    "Copy" : {
+
+    },
+    "Couldn't Save" : {
+
+    },
+    "Couldn't accept that request" : {
+
+    },
+    "Couldn't block @%@. Check your connection." : {
+
+    },
+    "Couldn't create folder" : {
+
+    },
+    "Couldn't delete comment" : {
+
+    },
+    "Couldn't delete folder" : {
+
+    },
+    "Couldn't delete post" : {
+
+    },
+    "Couldn't delete video" : {
+
+    },
+    "Couldn't free space" : {
+
+    },
+    "Couldn't import that video. Try again." : {
+
+    },
+    "Couldn't load" : {
+
+    },
+    "Couldn't load more — tap to retry" : {
+
+    },
+    "Couldn't load this clip" : {
+
+    },
+    "Couldn't load this video's rally data" : {
+
+    },
+    "Couldn't move video" : {
+
+    },
+    "Couldn't record vote" : {
+
+    },
+    "Couldn't remove favorite" : {
+
+    },
+    "Couldn't remove that conversation" : {
+
+    },
+    "Couldn't rename folder" : {
+
+    },
+    "Couldn't rename video" : {
+
+    },
+    "Couldn't send comment. Try again." : {
+
+    },
+    "Couldn't unblock @%@. Check your connection." : {
+
+    },
+    "Couldn't update follow" : {
+
+    },
+    "Couldn't update like" : {
+
+    },
+    "Create" : {
+
+    },
+    "Create New Folder" : {
+
+    },
+    "Create new folder" : {
+
+    },
+    "Crop" : {
+
+    },
+    "Cropped" : {
+
+    },
+    "Crops apply per rally" : {
+
+    },
+    "Current Location:" : {
+
+    },
+    "Current Status" : {
+
+    },
+    "Dark" : {
+      "comment" : "Appearance theme option"
+    },
+    "Data Flywheel" : {
+
+    },
+    "Date Created" : {
+      "comment" : "Sort option"
+    },
+    "Debug" : {
+
+    },
+    "Debug Features" : {
+
+    },
+    "Debug Processing" : {
+
+    },
+    "Debug builds only" : {
+
+    },
+    "Decrease angle" : {
+
+    },
+    "Delete" : {
+
+    },
+    "Delete Account" : {
+
+    },
+    "Delete Comment" : {
+
+    },
+    "Delete Comment?" : {
+
+    },
+    "Delete Failed" : {
+
+    },
+    "Delete Folder" : {
+
+    },
+    "Delete Post" : {
+
+    },
+    "Delete Post?" : {
+
+    },
+    "Delete Request" : {
+
+    },
+    "Delete Video" : {
+
+    },
+    "Delete rallies & reprocess" : {
+
+    },
+    "Delete this request?" : {
+
+    },
+    "Describe this rally... use #hashtags" : {
+
+    },
+    "Deselect All" : {
+
+    },
+    "Deselects the rally" : {
+
+    },
+    "Detect rallies in an unprocessed video" : {
+
+    },
+    "Detection didn't find any rallies in this video. You can mark them yourself on the timeline." : {
+
+    },
+    "Disabled" : {
+
+    },
+    "Discard" : {
+
+    },
+    "Discard Changes" : {
+
+    },
+    "Discard this post?" : {
+
+    },
+    "Discard timeline changes?" : {
+
+    },
+    "Discover Players" : {
+
+    },
+    "Discover players and follow them to see their content in your feed." : {
+
+    },
+    "Dismiss" : {
+
+    },
+    "Don't have an account? Sign Up" : {
+
+    },
+    "Done" : {
+
+    },
+    "Drop videos here to upload" : {
+
+    },
+    "Duration: %@" : {
+
+    },
+    "Edit Profile" : {
+
+    },
+    "Edit Rallies" : {
+
+    },
+    "Elevated Card" : {
+
+    },
+    "Email" : {
+
+    },
+    "Empty" : {
+
+    },
+    "Empty Folder" : {
+
+    },
+    "Enable Notifications" : {
+
+    },
+    "Enable advanced debug tools" : {
+
+    },
+    "Enabled" : {
+
+    },
+    "Enter a new name for the folder." : {
+
+    },
+    "Enter a new name for this rally." : {
+
+    },
+    "Enter a new name for your video" : {
+
+    },
+    "Enter folder name" : {
+
+    },
+    "Enter video name" : {
+
+    },
+    "Error Loading Rallies" : {
+
+    },
+    "Est. processing: %@" : {
+
+    },
+    "Export %@" : {
+
+    },
+    "Export Failed" : {
+
+    },
+    "Export Highlight Video" : {
+
+    },
+    "Export Rallies" : {
+
+    },
+    "Export Scored Game" : {
+
+    },
+    "Export combined video" : {
+
+    },
+    "Export individual videos" : {
+
+    },
+    "Export scored game" : {
+
+    },
+    "Export to Photos" : {
+
+    },
+    "Favorite Rallies" : {
+
+    },
+    "Favorite rallies from the rally viewer to see them here." : {
+
+    },
+    "Favorite rally" : {
+
+    },
+    "Favorited rally" : {
+
+    },
+    "Favorites (Root)" : {
+
+    },
+    "Feed" : {
+
+    },
+    "Feet" : {
+
+    },
+    "File Size" : {
+      "comment" : "Sort option"
+    },
+    "Fix rallies on the timeline" : {
+
+    },
+    "Folder Name" : {
+
+    },
+    "Folder actions" : {
+
+    },
+    "Folder name" : {
+
+    },
+    "Folder options" : {
+
+    },
+    "Folders" : {
+
+    },
+    "Follow" : {
+
+    },
+    "Follow people or search for a username." : {
+
+    },
+    "Follow players to see their highlights here." : {
+
+    },
+    "Following" : {
+
+    },
+    "For best results with a different video:" : {
+
+    },
+    "Forgot password?" : {
+
+    },
+    "Free Plan" : {
+
+    },
+    "Free Up %@" : {
+
+    },
+    "Free Up Space" : {
+
+    },
+    "Freed %@" : {
+
+    },
+    "Frosted glass effect with subtle gradient" : {
+
+    },
+    "Game video ready!" : {
+
+    },
+    "Get Started" : {
+
+    },
+    "Get a heads-up the moment your rallies are ready, and when teammates follow, like, or comment on your posts." : {
+
+    },
+    "Ghost Button" : {
+
+    },
+    "Give your video a custom name" : {
+
+    },
+    "Glass Card" : {
+
+    },
+    "Go Back" : {
+
+    },
+    "Got it" : {
+
+    },
+    "Great job! All your videos have been processed. View your saved library to see all content." : {
+
+    },
+    "Grid" : {
+      "comment" : "Library view mode option"
+    },
+    "Grid Mode" : {
+
+    },
+    "Handedness" : {
+
+    },
+    "Handles can only use letters, numbers, periods and underscores." : {
+
+    },
+    "Height" : {
+
+    },
+    "Help" : {
+
+    },
+    "Help Improve Detection" : {
+
+    },
+    "Help us keep the community safe by reporting content that violates our guidelines." : {
+
+    },
+    "Hide like count" : {
+
+    },
+    "Hide password" : {
+
+    },
+    "Highlight video ready!" : {
+
+    },
+    "Hold to Trim & Adjust Angle" : {
+
+    },
+    "Home" : {
+
+    },
+    "Import Complete" : {
+
+    },
+    "Import Failed" : {
+
+    },
+    "Import New Video" : {
+
+    },
+    "Import a video from your photo library" : {
+
+    },
+    "Import volleyball videos from your photo library to get started." : {
+
+    },
+    "Importing %@…" : {
+
+    },
+    "Importing Video" : {
+
+    },
+    "Importing from Photos…" : {
+
+    },
+    "Importing video..." : {
+
+    },
+    "Improve Detection" : {
+
+    },
+    "Inches" : {
+
+    },
+    "Increase angle" : {
+
+    },
+    "Instagram" : {
+
+    },
+    "Interactive Card (Selected)" : {
+
+    },
+    "Internet connection" : {
+
+    },
+    "Join the Community" : {
+
+    },
+    "Just This One" : {
+
+    },
+    "Keep BumpSetCut open until the import finishes." : {
+
+    },
+    "Keep Editing" : {
+
+    },
+    "Keep Full Video" : {
+
+    },
+    "Keep Importing" : {
+
+    },
+    "Keep just the rallies" : {
+
+    },
+    "Keep the app open — this replaces the video file." : {
+
+    },
+    "Large" : {
+
+    },
+    "Leave" : {
+
+    },
+    "Leave Conversation" : {
+
+    },
+    "Leave this conversation?" : {
+
+    },
+    "Legal" : {
+
+    },
+    "Let viewers vote on your rally" : {
+
+    },
+    "Level" : {
+
+    },
+    "Level %@" : {
+
+    },
+    "Library" : {
+
+    },
+    "Light" : {
+      "comment" : "Appearance theme option"
+    },
+    "Like" : {
+
+    },
+    "Like comment" : {
+
+    },
+    "Likes, comments, and new followers on your posts show up here." : {
+
+    },
+    "Linear" : {
+
+    },
+    "List" : {
+      "comment" : "Library view mode option"
+    },
+    "List Mode" : {
+
+    },
+    "Loading" : {
+
+    },
+    "Loading Rallies" : {
+
+    },
+    "Loading comments" : {
+
+    },
+    "Loading content..." : {
+
+    },
+    "Loading feed" : {
+
+    },
+    "Loading folders..." : {
+
+    },
+    "Loading products..." : {
+
+    },
+    "Loading profile" : {
+
+    },
+    "Loading video" : {
+
+    },
+    "Loading video..." : {
+
+    },
+    "Loading..." : {
+
+    },
+    "Manage Subscription" : {
+
+    },
+    "Measuring dead time…" : {
+
+    },
+    "Medium" : {
+
+    },
+    "Message" : {
+
+    },
+    "Messages" : {
+
+    },
+    "Messages from people you don't follow land here first." : {
+
+    },
+    "Messages, %lld unread" : {
+
+    },
+    "Message…" : {
+
+    },
+    "Met" : {
+
+    },
+    "Missed a Rally? Add It Manually" : {
+
+    },
+    "More options" : {
+
+    },
+    "Mostly for indoor." : {
+
+    },
+    "Move" : {
+
+    },
+    "Move Video" : {
+
+    },
+    "Move to Folder" : {
+
+    },
+    "My Posts" : {
+
+    },
+    "Name" : {
+      "comment" : "Sort option"
+    },
+    "Name Your Video" : {
+
+    },
+    "Navigate to your favorite rally clips" : {
+
+    },
+    "Navigate to your video library" : {
+
+    },
+    "New Folder" : {
+
+    },
+    "New Password" : {
+
+    },
+    "Next" : {
+
+    },
+    "Next rally" : {
+
+    },
+    "No Blocked Users" : {
+
+    },
+    "No Favorites Yet" : {
+
+    },
+    "No Followers Yet" : {
+
+    },
+    "No Highlights Yet" : {
+
+    },
+    "No Messages Yet" : {
+
+    },
+    "No Notifications Yet" : {
+
+    },
+    "No Point" : {
+
+    },
+    "No Posts Yet" : {
+
+    },
+    "No Processed Videos" : {
+
+    },
+    "No Rallies Detected" : {
+
+    },
+    "No Rallies Found" : {
+
+    },
+    "No Requests" : {
+
+    },
+    "No Results" : {
+
+    },
+    "No Unprocessed Videos" : {
+
+    },
+    "No Videos Yet" : {
+
+    },
+    "No action to undo" : {
+
+    },
+    "No active subscriptions found for this Apple ID." : {
+
+    },
+    "No clips to post" : {
+
+    },
+    "No clips to stitch" : {
+
+    },
+    "No comments yet" : {
+
+    },
+    "No highlights from followed users" : {
+
+    },
+    "No highlights yet" : {
+
+    },
+    "No one to send to yet" : {
+
+    },
+    "No rallies found" : {
+
+    },
+    "No rallies saved — swipe right on rallies to keep them." : {
+
+    },
+    "No unprocessed videos. Import a new one above." : {
+
+    },
+    "No videos match \"%@\". Try a different search term." : {
+
+    },
+    "None" : {
+
+    },
+    "Not Enough Storage" : {
+
+    },
+    "Not Following Anyone" : {
+
+    },
+    "Not Now" : {
+
+    },
+    "Not met" : {
+
+    },
+    "Not set" : {
+
+    },
+    "Not signed in" : {
+
+    },
+    "Nothing to Score" : {
+
+    },
+    "Notifications" : {
+
+    },
+    "Notifications, %lld unread" : {
+
+    },
+    "OK" : {
+
+    },
+    "On exported videos" : {
+
+    },
+    "Open" : {
+
+    },
+    "Open folder" : {
+
+    },
+    "Opening in feed..." : {
+
+    },
+    "Opens in browser" : {
+
+    },
+    "Opens your email app" : {
+
+    },
+    "Option %lld" : {
+
+    },
+    "Optional" : {
+
+    },
+    "Others won't see how many likes this post has" : {
+
+    },
+    "Our AI analyzes your footage and detects volleyball rallies automatically." : {
+
+    },
+    "Outlined Card" : {
+
+    },
+    "Page %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Page %1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "Passwords do not match" : {
+
+    },
+    "Passwords match" : {
+
+    },
+    "Pasting a full instagram.com link works too." : {
+
+    },
+    "Paused" : {
+
+    },
+    "Pending upload" : {
+
+    },
+    "People you block will appear here." : {
+
+    },
+    "Performance Metrics" : {
+
+    },
+    "Permanently deletes your account and data" : {
+
+    },
+    "Pinch & drag to reframe" : {
+
+    },
+    "Pinch zoom · Twist angle · Drag to pan" : {
+
+    },
+    "Play or pause" : {
+
+    },
+    "Played at %@" : {
+
+    },
+    "Player Info" : {
+
+    },
+    "Player info is visible to followers" : {
+
+    },
+    "Playhead" : {
+
+    },
+    "Playing" : {
+
+    },
+    "Plays" : {
+
+    },
+    "Plays or pauses the rally" : {
+
+    },
+    "Plays or pauses. Adjust the playhead to scrub." : {
+
+    },
+    "Point for %@" : {
+
+    },
+    "Position" : {
+
+    },
+    "Post" : {
+
+    },
+    "Post Another" : {
+
+    },
+    "Post to Community" : {
+
+    },
+    "Posted" : {
+
+    },
+    "Preparing clips…" : {
+
+    },
+    "Preparing rallies…" : {
+
+    },
+    "Preparing your rally segments..." : {
+
+    },
+    "Press and hold a rally to preview it" : {
+
+    },
+    "Press and hold to delete" : {
+
+    },
+    "Preview" : {
+
+    },
+    "Previous rally" : {
+
+    },
+    "Primary Action" : {
+
+    },
+    "Privacy" : {
+
+    },
+    "Privacy Policy" : {
+
+    },
+    "Pro" : {
+
+    },
+    "Pro Mode" : {
+
+    },
+    "Process Video" : {
+
+    },
+    "Process a video to see it here." : {
+
+    },
+    "Process this video first so its rallies can be scored." : {
+
+    },
+    "Process unlimited videos, remove watermarks, and work offline" : {
+
+    },
+    "Process video" : {
+
+    },
+    "Process with AI" : {
+
+    },
+    "Processed" : {
+      "comment" : "Library filter chip: processed videos"
+    },
+    "Processed Games" : {
+
+    },
+    "Processed videos" : {
+
+    },
+    "Processing Complete!" : {
+
+    },
+    "Processing Error" : {
+
+    },
+    "Processing Requires" : {
+
+    },
+    "Processing complete!" : {
+
+    },
+    "Processing failed" : {
+
+    },
+    "Processing..." : {
+
+    },
+    "Profile" : {
+
+    },
+    "Profile visibility" : {
+
+    },
+    "Progress %@" : {
+      "comment" : "VoiceOver label for an export progress ring; %@ is a percentage like 42%"
+    },
+    "Provide more context..." : {
+
+    },
+    "Rally" : {
+
+    },
+    "Rally %lld" : {
+
+    },
+    "Rally %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Rally %1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "Rally %lld video" : {
+
+    },
+    "Rally %lld%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Rally %1$lld%2$@"
+          }
+        }
+      }
+    },
+    "Rally %lld, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Rally %1$lld, %2$@"
+          }
+        }
+      }
+    },
+    "Rally Detection" : {
+
+    },
+    "Rally Detection AI" : {
+
+    },
+    "Rally end" : {
+
+    },
+    "Rally must be under 1 minute to share" : {
+
+    },
+    "Rally start" : {
+
+    },
+    "Rally unavailable" : {
+
+    },
+    "Ready to Process" : {
+
+    },
+    "Recent" : {
+
+    },
+    "Refresh" : {
+
+    },
+    "Remove" : {
+
+    },
+    "Remove %@ from recent searches" : {
+
+    },
+    "Remove Favorite" : {
+
+    },
+    "Remove Favorite?" : {
+
+    },
+    "Remove attachment" : {
+
+    },
+    "Remove location" : {
+
+    },
+    "Remove option %lld" : {
+
+    },
+    "Remove rally" : {
+
+    },
+    "Removed" : {
+
+    },
+    "Removes %@ of footage between rallies and frees about %@. Your rallies, trims, favorites and scoring are kept — the removed footage can't be recovered." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Removes %1$@ of footage between rallies and frees about %2$@. Your rallies, trims, favorites and scoring are kept — the removed footage can't be recovered."
+          }
+        }
+      }
+    },
+    "Rename" : {
+
+    },
+    "Rename Folder" : {
+
+    },
+    "Rename Video" : {
+
+    },
+    "Report %@" : {
+
+    },
+    "Report Comment" : {
+
+    },
+    "Report Message" : {
+
+    },
+    "Report Post" : {
+
+    },
+    "Report Sent" : {
+
+    },
+    "Report Submitted" : {
+
+    },
+    "Report User" : {
+
+    },
+    "Report a Mistake" : {
+
+    },
+    "Report a detection mistake" : {
+
+    },
+    "Report not sent. Check your connection and try again." : {
+
+    },
+    "Reported to improve detection" : {
+
+    },
+    "Reprocess" : {
+
+    },
+    "Reprocess Video" : {
+
+    },
+    "Reprocess this video?" : {
+
+    },
+    "Resend code" : {
+
+    },
+    "Reset" : {
+
+    },
+    "Reset Password" : {
+
+    },
+    "Reset angle" : {
+
+    },
+    "Reset code" : {
+
+    },
+    "Reset zoom" : {
+
+    },
+    "Restore Purchases" : {
+
+    },
+    "Restoring…" : {
+
+    },
+    "Retry" : {
+
+    },
+    "Retry export" : {
+
+    },
+    "Retry with Higher Sensitivity" : {
+
+    },
+    "Review Complete" : {
+
+    },
+    "Rotation angle" : {
+
+    },
+    "Save" : {
+
+    },
+    "Save All" : {
+
+    },
+    "Save each rally as a separate video file" : {
+
+    },
+    "Save rally" : {
+
+    },
+    "Save to Photos" : {
+
+    },
+    "Saved to Photos" : {
+
+    },
+    "Saving %@ video..." : {
+
+    },
+    "Say hi, or send a rally." : {
+
+    },
+    "Score Game" : {
+
+    },
+    "Scoreboard Position" : {
+
+    },
+    "Scoreboard Size" : {
+
+    },
+    "Search" : {
+
+    },
+    "Search Bar" : {
+
+    },
+    "Search for the park or court you played at" : {
+
+    },
+    "Search parks, courts, places" : {
+
+    },
+    "Search people" : {
+
+    },
+    "Search users or posts" : {
+
+    },
+    "Search videos and folders" : {
+
+    },
+    "Search videos..." : {
+
+    },
+    "Secondary Action" : {
+
+    },
+    "Select All" : {
+
+    },
+    "Select destination folder" : {
+
+    },
+    "Selects the rally to edit its edges" : {
+
+    },
+    "Send" : {
+
+    },
+    "Send Post" : {
+
+    },
+    "Send a rally to a teammate from any post, your library, or their profile." : {
+
+    },
+    "Send comment" : {
+
+    },
+    "Send message" : {
+
+    },
+    "Send to" : {
+
+    },
+    "Send to friend" : {
+
+    },
+    "Sending…" : {
+
+    },
+    "Sent to @%@" : {
+
+    },
+    "Set this as your new profile picture? It'll be saved when you tap Save." : {
+
+    },
+    "Settings" : {
+
+    },
+    "Share" : {
+
+    },
+    "Share Failed" : {
+
+    },
+    "Share Rallies" : {
+
+    },
+    "Share Rally" : {
+
+    },
+    "Share clips of rallies the model struggled with so detection can improve" : {
+
+    },
+    "Share exported videos" : {
+
+    },
+    "Share great highlights to attract followers!" : {
+
+    },
+    "Share highlight" : {
+
+    },
+    "Share highlight reel" : {
+
+    },
+    "Share rally" : {
+
+    },
+    "Share your best rallies with the community. Process a video and post your first highlight!" : {
+
+    },
+    "Share your best rallies, discover plays from other players, and connect with the volleyball community." : {
+
+    },
+    "Shared successfully!" : {
+
+    },
+    "Show All" : {
+
+    },
+    "Show Name Alert" : {
+
+    },
+    "Show frame rate and memory usage" : {
+
+    },
+    "Show password" : {
+
+    },
+    "Show the onboarding tutorial" : {
+
+    },
+    "Shown as %lld'%lld\"" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Shown as %1$lld'%2$lld\""
+          }
+        }
+      }
+    },
+    "Shows gesture tips" : {
+
+    },
+    "Shows the rally overview" : {
+
+    },
+    "Sign In" : {
+
+    },
+    "Sign In Failed" : {
+
+    },
+    "Sign Out" : {
+
+    },
+    "Sign Out?" : {
+
+    },
+    "Sign Up" : {
+
+    },
+    "Sign in to access community features" : {
+
+    },
+    "Sign in to see rallies found and time cut" : {
+
+    },
+    "Signed in" : {
+
+    },
+    "Skip" : {
+
+    },
+    "Small" : {
+
+    },
+    "Social & Privacy" : {
+
+    },
+    "Solid background with shadow" : {
+
+    },
+    "Something went wrong writing the rally data. Your video is untouched — try again." : {
+
+    },
+    "Sort" : {
+
+    },
+    "Sort and view options" : {
+
+    },
+    "Start AI Processing" : {
+
+    },
+    "Start Scoring" : {
+
+    },
+    "Start by uploading your first volleyball video and let the AI do the rest." : {
+
+    },
+    "Stay in the Loop" : {
+
+    },
+    "Stitch all saved rallies into one video file" : {
+
+    },
+    "Stitching %@…" : {
+
+    },
+    "Storage Full" : {
+
+    },
+    "Storage nearly full — %@ remaining. Free up space to avoid issues." : {
+
+    },
+    "Storage nearly full — 900 MB remaining. Free up space to avoid issues." : {
+
+    },
+    "Submit Report" : {
+
+    },
+    "Subscribe Now" : {
+
+    },
+    "Swipe %@ to %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Swipe %1$@ to %2$@"
+          }
+        }
+      }
+    },
+    "Swipe Actions" : {
+
+    },
+    "Swipe Through Rallies" : {
+
+    },
+    "Switch between Pro and Free tier for testing" : {
+
+    },
+    "System" : {
+      "comment" : "Appearance theme option: follow the system setting"
+    },
+    "Tap Counter for Overview" : {
+
+    },
+    "Tap to change photo" : {
+
+    },
+    "Team" : {
+
+    },
+    "Team name" : {
+
+    },
+    "Team name (optional)" : {
+
+    },
+    "Teams" : {
+
+    },
+    "Tell us about yourself" : {
+
+    },
+    "Terms of Service" : {
+
+    },
+    "Thank you for helping keep our community safe. We'll review your report shortly." : {
+
+    },
+    "The AI analyzed this video but couldn't identify any active volleyball rallies. This usually means the video angle, lighting, or content wasn't ideal for rally detection." : {
+
+    },
+    "The video now contains just your rallies." : {
+
+    },
+    "Theme" : {
+
+    },
+    "This clip and its detection data help improve detection." : {
+
+    },
+    "This comment will be permanently removed." : {
+
+    },
+    "This deletes the current rallies and runs detection again on the full video." : {
+
+    },
+    "This folder contains %lld videos. They will be moved to the parent folder." : {
+
+    },
+    "This folder doesn't have any videos yet. Add some to organize your content." : {
+
+    },
+    "This is how others will find and recognize you." : {
+
+    },
+    "This permanently deletes your account and all associated data. This cannot be undone." : {
+
+    },
+    "This player hasn't posted any highlights yet." : {
+
+    },
+    "This post will be permanently removed." : {
+
+    },
+    "This rally will be removed from your favorites." : {
+
+    },
+    "This username is already taken." : {
+
+    },
+    "This video is mostly rallies — trimming wouldn't free meaningful space." : {
+
+    },
+    "Timeline" : {
+
+    },
+    "To" : {
+
+    },
+    "To folder: %@" : {
+
+    },
+    "Toggle zoom" : {
+
+    },
+    "Trending" : {
+
+    },
+    "Trim & Process" : {
+
+    },
+    "Trim Video" : {
+
+    },
+    "Trim end" : {
+
+    },
+    "Trim rally" : {
+
+    },
+    "Trim start" : {
+
+    },
+    "Trimming to rallies…" : {
+
+    },
+    "Trimming video... %lld%%" : {
+
+    },
+    "Try Again" : {
+
+    },
+    "Try Another Video" : {
+
+    },
+    "Turn On Contributions" : {
+
+    },
+    "Type " : {
+
+    },
+    "Unable to load subscription options" : {
+
+    },
+    "Unblock" : {
+
+    },
+    "Undo" : {
+
+    },
+    "Unlike" : {
+
+    },
+    "Unlike comment" : {
+
+    },
+    "Unlock BumpSetCut Pro" : {
+
+    },
+    "Unprocessed" : {
+      "comment" : "Library filter chip: unprocessed videos"
+    },
+    "Unprocessed videos" : {
+
+    },
+    "Unread" : {
+
+    },
+    "Unsave rally" : {
+
+    },
+    "Upgrade to Pro" : {
+
+    },
+    "Upload" : {
+
+    },
+    "Upload Video" : {
+
+    },
+    "Upload Videos" : {
+
+    },
+    "Upload Your Videos" : {
+
+    },
+    "Upload complete!" : {
+
+    },
+    "Upload to %@" : {
+
+    },
+    "Upload video" : {
+
+    },
+    "Upload your first volleyball video to get started with rally detection." : {
+
+    },
+    "Uploading %@…" : {
+
+    },
+    "Uploading %lld rallies... %lld%%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Uploading %1$lld rallies... %2$lld%%"
+          }
+        }
+      }
+    },
+    "Uploading beach-finals.mov…" : {
+
+    },
+    "Uploading rally data…" : {
+
+    },
+    "Uploading..." : {
+
+    },
+    "Uploading... %lld%%" : {
+
+    },
+    "Use Photo" : {
+
+    },
+    "Use this photo?" : {
+
+    },
+    "Used for videos processed from now on" : {
+
+    },
+    "Username" : {
+
+    },
+    "Version" : {
+
+    },
+    "Video" : {
+
+    },
+    "Video Name" : {
+
+    },
+    "Video name" : {
+
+    },
+    "Video reported" : {
+
+    },
+    "Videos" : {
+
+    },
+    "View" : {
+
+    },
+    "View Favorite Rallies" : {
+
+    },
+    "View Library" : {
+
+    },
+    "View Processed Rallies" : {
+
+    },
+    "View Profile" : {
+
+    },
+    "View Rallies" : {
+
+    },
+    "View Saved Library" : {
+
+    },
+    "View profile" : {
+
+    },
+    "View profile of %@" : {
+
+    },
+    "Volleyball" : {
+
+    },
+    "Vote in poll" : {
+
+    },
+    "Waiting for iCloud…" : {
+
+    },
+    "Want to add the missed rally yourself? Rallies you add also help train detection." : {
+
+    },
+    "Watermark" : {
+
+    },
+    "We couldn't detect any volleyball rallies in this video. Try a video with more visible ball movement." : {
+
+    },
+    "Weekly Limit Reached" : {
+
+    },
+    "Weekly Processing" : {
+
+    },
+    "Welcome to BumpSetCut" : {
+
+    },
+    "What did the model get wrong?" : {
+
+    },
+    "What's wrong with this %@?" : {
+
+    },
+    "You can leave the app — processing continues in the background and you'll get a notification when it's done." : {
+
+    },
+    "You can leave the app — progress is saved, and processing picks up where it left off next time." : {
+
+    },
+    "You have unlimited access" : {
+
+    },
+    "You haven't processed any videos yet. Process a video to automatically detect rallies, or view your saved video library." : {
+
+    },
+    "You won't see their posts or comments, and they won't be able to see yours." : {
+
+    },
+    "You'll stop receiving messages here. They can still message you again." : {
+
+    },
+    "You're Ready!" : {
+
+    },
+    "You're free to leave the app — the import keeps going." : {
+
+    },
+    "Your BumpSetCut Pro subscription has been restored." : {
+
+    },
+    "Your caption, location and poll will be lost." : {
+
+    },
+    "Your rally is live. Post another from this game?" : {
+
+    },
+    "Your stats live on your account" : {
+
+    },
+    "Your videos and favorites stay on this phone. You'll need to sign in again to post, message, or see your stats." : {
+
+    },
+    "Zoom" : {
+
+    },
+    "free to leave the app" : {
+
+    },
+    "keep the app open" : {
+
+    },
+    "or" : {
+
+    },
+    "or select an existing video" : {
+
+    },
+    "per month" : {
+
+    },
+    "username" : {
+
+    },
+    "–" : {
+
+    },
+    "—" : {
+
+    },
+    "•" : {
+
+    }
+  },
+  "version" : "1.0"
+}

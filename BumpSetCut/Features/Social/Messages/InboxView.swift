@@ -85,7 +85,7 @@ struct InboxView: View {
         .refreshable { await viewModel.loadInitial() }
         .onChange(of: viewModel.actionError) { _, message in
             guard let message else { return }
-            toast = BSCToastMessage(text: message, style: .error)
+            toast = BSCToastMessage(verbatim: message, style: .error)
             viewModel.actionError = nil
         }
         // A push tap or a "View" toast lands here.

@@ -145,7 +145,7 @@ struct LibraryView: View {
 private extension LibraryView {
     /// Runs a fire-and-forget library mutation, surfacing failures as a toast.
     @MainActor
-    func runMutation(failureMessage: String, _ mutation: @escaping () async throws -> Void) {
+    func runMutation(failureMessage: LocalizedStringResource, _ mutation: @escaping () async throws -> Void) {
         Task {
             do { try await mutation() }
             catch { mutationToast = BSCToastMessage(text: failureMessage, style: .error) }
@@ -161,7 +161,7 @@ private extension LibraryView {
             // Filtered empty state
             BSCEmptyState(
                 icon: viewModel.videoFilter == .processed ? "checkmark.seal" : "video.circle",
-                title: "No \(viewModel.videoFilter.rawValue) Videos",
+                title: viewModel.videoFilter == .processed ? "No Processed Videos" : "No Unprocessed Videos",
                 message: viewModel.videoFilter == .processed
                     ? "Process a video to see it here."
                     : "All your videos have been processed!",
@@ -216,8 +216,8 @@ private extension LibraryView {
                         .bscFont(size: isLandscape ? 24 : 28, weight: .bold)
                         .foregroundColor(.bscTextPrimary)
 
-                    if !viewModel.subtitle.isEmpty {
-                        Text(viewModel.subtitle)
+                    if let subtitle = viewModel.subtitle {
+                        Text(subtitle)
                             .bscFont(size: 13)
                             .foregroundColor(.bscTextSecondary)
                     }
@@ -240,7 +240,7 @@ private extension LibraryView {
                         viewModel.videoFilter = filter
                     }
                 } label: {
-                    Text(filter.rawValue)
+                    Text(filter.displayName)
                         .bscFont(size: 13, weight: viewModel.videoFilter == filter ? .semibold : .medium)
                         .foregroundColor(viewModel.videoFilter == filter ? .bscOnPrimary : .bscTextSecondary)
                         .padding(.horizontal, BSCSpacing.md)
@@ -257,10 +257,11 @@ private extension LibraryView {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(filter.rawValue) videos\(viewModel.videoFilter == filter ? ", selected" : "")")
+                .accessibilityLabel(Text(filter.accessibilityName))
+                .accessibilityAddTraits(viewModel.videoFilter == filter ? .isSelected : [])
                 .accessibilityIdentifier(
-                    filter.rawValue == "All" ? AccessibilityID.Library.filterAll :
-                    filter.rawValue == "Processed" ? AccessibilityID.Library.filterProcessed :
+                    filter == .all ? AccessibilityID.Library.filterAll :
+                    filter == .processed ? AccessibilityID.Library.filterProcessed :
                     AccessibilityID.Library.filterUnprocessed
                 )
             }
@@ -464,7 +465,7 @@ private extension LibraryView {
         viewModel.refresh()
     }
 
-    func sectionHeader(_ title: String, isLandscape: Bool) -> some View {
+    func sectionHeader(_ title: LocalizedStringResource, isLandscape: Bool) -> some View {
         Text(title)
             .bscFont(size: isLandscape ? 14 : 16, weight: .semibold)
             .foregroundColor(.bscTextSecondary)
@@ -493,7 +494,7 @@ private extension LibraryView {
                 Menu {
                     Picker("Sort", selection: $viewModel.sortOption) {
                         ForEach(ContentSortOption.allCases, id: \.self) { option in
-                            Label(option.rawValue, systemImage: option.icon)
+                            Label { Text(option.displayName) } icon: { Image(systemName: option.icon) }
                                 .tag(option)
                         }
                     }
@@ -502,7 +503,7 @@ private extension LibraryView {
 
                     Picker("View", selection: $viewModel.viewMode) {
                         ForEach(ViewMode.allCases, id: \.self) { mode in
-                            Label(mode.rawValue, systemImage: mode.icon)
+                            Label { Text(mode.displayName) } icon: { Image(systemName: mode.icon) }
                                 .tag(mode)
                         }
                     }

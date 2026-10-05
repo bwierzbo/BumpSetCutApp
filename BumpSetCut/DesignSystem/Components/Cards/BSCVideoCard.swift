@@ -200,7 +200,7 @@ struct BSCVideoCard: View {
             HStack {
                 Spacer()
                 if let duration = video.duration {
-                    Text(formatDuration(duration))
+                    Text(verbatim: duration.formattedClock())
                         .bscFont(size: 11, weight: .semibold)
                         .foregroundColor(.bscOnMedia)
                         .padding(.horizontal, BSCSpacing.sm)
@@ -320,12 +320,10 @@ struct BSCVideoCard: View {
         }
     }
 
-    private var statusText: String {
-        if video.isProcessed || hasRallies {
-            return "Processed"
-        } else {
-            return "Unprocessed"
-        }
+    private var isProcessedStatus: Bool { video.isProcessed || hasRallies }
+
+    private var statusText: LocalizedStringResource {
+        isProcessedStatus ? "Processed" : "Unprocessed"
     }
 
     private var statusColor: Color {
@@ -346,9 +344,9 @@ struct BSCVideoCard: View {
     private var durationText: some View {
         Group {
             if let duration = video.duration {
-                Text(formatDuration(duration))
+                Text(verbatim: duration.formattedClock())
             } else {
-                Text("--:--")
+                Text(verbatim: "--:--")
             }
         }
         .bscFont(size: 11)
@@ -356,7 +354,7 @@ struct BSCVideoCard: View {
     }
 
     private var fileSizeText: some View {
-        Text(formatFileSize(video.fileSize))
+        Text(verbatim: StorageChecker.formatBytes(video.fileSize))
             .bscFont(size: 11)
             .foregroundColor(.bscTextSecondary)
     }
@@ -497,29 +495,21 @@ struct BSCVideoCard: View {
         thumbnail = try? await ThumbnailService.shared.still(url: video.originalURL, at: time)
     }
 
-    // MARK: - Formatters
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        let minutes = Int(duration) / 60
-        let seconds = Int(duration) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
-    private func formatFileSize(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
-    }
-
     // MARK: - Accessibility
-    private var accessibilityLabelText: String {
-        var label = video.displayName
-        label += ", \(statusText)"
-        if let duration = video.duration {
-            label += ", \(formatDuration(duration))"
+    /// One sentence per status/duration combination so word order and
+    /// separators stay translatable.
+    private var accessibilityLabelText: Text {
+        let name = video.displayName
+        let size = StorageChecker.formatBytes(video.fileSize)
+        guard let duration = video.duration else {
+            return isProcessedStatus
+                ? Text("\(name), processed, \(size)", comment: "Video card VoiceOver label: name, file size")
+                : Text("\(name), unprocessed, \(size)", comment: "Video card VoiceOver label: name, file size")
         }
-        label += ", \(formatFileSize(video.fileSize))"
-        return label
+        let length = duration.formattedSpokenDuration()
+        return isProcessedStatus
+            ? Text("\(name), processed, \(length), \(size)", comment: "Video card VoiceOver label: name, duration, file size")
+            : Text("\(name), unprocessed, \(length), \(size)", comment: "Video card VoiceOver label: name, duration, file size")
     }
 }
 

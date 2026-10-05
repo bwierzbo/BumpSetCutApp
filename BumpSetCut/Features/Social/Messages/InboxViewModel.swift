@@ -124,7 +124,7 @@ final class InboxViewModel {
             chats.insert(moved, at: 0)
             await DirectMessageService.shared.refreshCounts()
         } catch {
-            actionError = "Couldn't accept that request"
+            actionError = String(localized: "Couldn't accept that request")
         }
     }
 
@@ -137,7 +137,7 @@ final class InboxViewModel {
             requests.removeAll { $0.id == conversation.id }
             await DirectMessageService.shared.refreshCounts()
         } catch {
-            actionError = "Couldn't remove that conversation"
+            actionError = String(localized: "Couldn't remove that conversation")
         }
     }
 

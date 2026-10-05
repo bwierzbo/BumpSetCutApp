@@ -161,7 +161,7 @@ private struct OnboardingFooter: View {
         currentPage == totalPages - 1
     }
 
-    private var primaryTitle: String {
+    private var primaryTitle: LocalizedStringResource {
         if isLastPage { return "Get Started" }
         switch kind {
         case .notifications: return "Enable Notifications"
@@ -173,7 +173,7 @@ private struct OnboardingFooter: View {
         if isLastPage { return nil }
         switch kind {
         case .notifications: return "bell.fill"
-        case .info: return "arrow.right"
+        case .info: return "arrow.forward"
         }
     }
 
