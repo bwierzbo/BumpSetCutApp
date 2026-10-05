@@ -457,7 +457,7 @@ struct PreTrimView: View {
 
                 Text("Trimming video... \(Int(viewModel.exportProgress * 100))%")
                     .bscFont(size: 14, weight: .medium)
-                    .foregroundColor(.bscOnMediaSecondary)
+                    .foregroundColor(.bscOnMedia)
             }
         } else if let error = viewModel.exportError {
             VStack(spacing: BSCSpacing.md) {
