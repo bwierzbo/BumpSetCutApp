@@ -22,7 +22,7 @@ struct RallyExportProgress: View {
     @State private var showShareSheet = false
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: BSCSpacing.xxl) {
                 Spacer()
 
