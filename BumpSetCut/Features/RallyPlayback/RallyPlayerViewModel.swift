@@ -253,10 +253,6 @@ final class RallyPlayerViewModel {
         get { trim.currentTrimRotation }
         set { trim.currentTrimRotation = newValue }
     }
-    var currentTrimZoom: Double {
-        get { trim.currentTrimZoom }
-        set { trim.currentTrimZoom = newValue }
-    }
     var pendingPropagation: PendingPropagation? {
         get { trim.pendingPropagation }
         set { trim.pendingPropagation = newValue }

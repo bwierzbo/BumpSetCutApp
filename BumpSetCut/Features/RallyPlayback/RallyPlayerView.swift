@@ -424,7 +424,7 @@ struct RallyPlayerView: View {
                     trimBefore: $viewModel.currentTrimBefore,
                     trimAfter: $viewModel.currentTrimAfter,
                     trimRotation: $viewModel.currentTrimRotation,
-                    trimZoom: $viewModel.currentTrimZoom,
+                    trimZoom: liveTrimZoom(cardSize: geometry.size),
                     rallyStartTime: segment.startTime,
                     rallyEndTime: segment.endTime,
                     videoURL: videoMetadata.originalURL,
@@ -717,8 +717,26 @@ struct RallyPlayerView: View {
 
     // MARK: - Trim-Mode Editing (pinch zoom · twist angle · drag pan)
 
+    /// Maximum crop zoom in trim mode.
+    private static let trimZoomLimit: CGFloat = 3.0
+
+    /// The live crop zoom (what confirmTrim saves), for the trim overlay's
+    /// readout and its VoiceOver-adjustable zoom control.
+    private func liveTrimZoom(cardSize: CGSize) -> Binding<Double> {
+        Binding(
+            get: { Double(viewModel.zoomScale) },
+            set: { newValue in
+                let scale = min(max(CGFloat(newValue), 1.0), Self.trimZoomLimit)
+                viewModel.zoomScale = scale
+                viewModel.zoomOffset = clampedOffset(viewModel.zoomOffset, scale: scale, cardSize: cardSize)
+                viewModel.baseZoomScale = scale
+                viewModel.baseZoomOffset = viewModel.zoomOffset
+            }
+        )
+    }
+
     private func trimEditGesture(geometry: GeometryProxy) -> some Gesture {
-        let zoomLimit: CGFloat = 3.0
+        let zoomLimit = Self.trimZoomLimit
         let angleLimit: Double = 10.0
 
         let magnify = MagnificationGesture()
