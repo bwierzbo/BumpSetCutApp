@@ -22,21 +22,21 @@ enum ReportType: String, Codable, CaseIterable {
     var displayName: String {
         switch self {
         case .spam:
-            return "Spam"
+            return String(localized: "Spam", comment: "Report reason")
         case .harassment:
-            return "Harassment or Bullying"
+            return String(localized: "Harassment or Bullying", comment: "Report reason")
         case .inappropriateContent:
-            return "Inappropriate Content"
+            return String(localized: "Inappropriate Content", comment: "Report reason")
         case .impersonation:
-            return "Impersonation"
+            return String(localized: "Impersonation", comment: "Report reason")
         case .violence:
-            return "Violence or Threats"
+            return String(localized: "Violence or Threats", comment: "Report reason")
         case .hateSpeech:
-            return "Hate Speech"
+            return String(localized: "Hate Speech", comment: "Report reason")
         case .selfHarm:
-            return "Self-Harm or Suicide"
+            return String(localized: "Self-Harm or Suicide", comment: "Report reason")
         case .other:
-            return "Other"
+            return String(localized: "Other", comment: "Report reason")
         }
     }
 
@@ -64,21 +64,21 @@ enum ReportType: String, Codable, CaseIterable {
     var description: String {
         switch self {
         case .spam:
-            return "Unwanted commercial content or repetitive posts"
+            return String(localized: "Unwanted commercial content or repetitive posts", comment: "Report reason explanation")
         case .harassment:
-            return "Bullying, threats, or harassment"
+            return String(localized: "Bullying, threats, or harassment", comment: "Report reason explanation")
         case .inappropriateContent:
-            return "Nudity, violence, or other inappropriate content"
+            return String(localized: "Nudity, violence, or other inappropriate content", comment: "Report reason explanation")
         case .impersonation:
-            return "Pretending to be someone else"
+            return String(localized: "Pretending to be someone else", comment: "Report reason explanation")
         case .violence:
-            return "Threats of violence or graphic content"
+            return String(localized: "Threats of violence or graphic content", comment: "Report reason explanation")
         case .hateSpeech:
-            return "Content that attacks people based on protected characteristics"
+            return String(localized: "Content that attacks people based on protected characteristics", comment: "Report reason explanation")
         case .selfHarm:
-            return "Content promoting self-harm or suicide"
+            return String(localized: "Content promoting self-harm or suicide", comment: "Report reason explanation")
         case .other:
-            return "Something else not listed here"
+            return String(localized: "Something else not listed here", comment: "Report reason explanation")
         }
     }
 }
@@ -94,13 +94,13 @@ enum ReportStatus: String, Codable {
     var displayName: String {
         switch self {
         case .pending:
-            return "Pending Review"
+            return String(localized: "Pending Review", comment: "Report status")
         case .reviewed:
-            return "Reviewed"
+            return String(localized: "Reviewed", comment: "Report status")
         case .actionTaken:
-            return "Action Taken"
+            return String(localized: "Action Taken", comment: "Report status")
         case .dismissed:
-            return "Dismissed"
+            return String(localized: "Dismissed", comment: "Report status")
         }
     }
 }

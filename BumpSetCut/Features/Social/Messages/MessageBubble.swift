@@ -122,7 +122,7 @@ struct MessageBubble: View {
                 thumbnail(
                     thumbnailURL: nil,
                     videoURL: nil,
-                    caption: duration.map(Self.formatDuration)
+                    caption: duration.map { $0.formattedClock() }
                 )
             }
             .buttonStyle(.plain)
@@ -209,24 +209,27 @@ struct MessageBubble: View {
 
     // MARK: - Accessibility
 
+    /// Whole clauses joined with the locale's list separator:
+    /// "@sam, 2 minutes ago, nice dig, rally from sam, sending".
     private var accessibilityDescription: String {
-        let who = item.isMine ? "You" : "@\(otherUsername ?? "them")"
         let when = item.message.createdAt.formatted(.relative(presentation: .named))
-        var description = "\(who), \(when): \(item.message.body ?? "")"
+        let other = otherUsername ?? String(localized: "them", comment: "Stands in for the other person's name in a message's VoiceOver label")
+        var parts = [
+            item.isMine ? String(localized: "You", comment: "VoiceOver: sender of your own message") : "@" + other,
+            when
+        ]
+        if let body = item.message.body, !body.isEmpty { parts.append(body) }
         if item.message.attachment != nil {
-            description += item.isMine ? ", rally attached" : ", rally from \(otherUsername ?? "them")"
+            parts.append(item.isMine
+                ? String(localized: "rally attached", comment: "VoiceOver: your message has a rally attached")
+                : String(localized: "rally from \(other)", comment: "VoiceOver: a received message has a rally; %@ is the sender"))
         }
         switch item.delivery {
-        case .sending: description += ", sending"
-        case .failed: description += ", failed to send, double tap to retry"
+        case .sending: parts.append(String(localized: "sending", comment: "VoiceOver: message delivery state"))
+        case .failed: parts.append(String(localized: "failed to send, double tap to retry", comment: "VoiceOver: message delivery state"))
         case .sent: break
         }
-        return description
-    }
-
-    private static func formatDuration(_ seconds: Double) -> String {
-        let total = Int(seconds)
-        return String(format: "%d:%02d", total / 60, total % 60)
+        return parts.formatted(.list(type: .and, width: .narrow))
     }
 }
 

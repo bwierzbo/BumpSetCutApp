@@ -88,7 +88,7 @@ struct RecipientPickerSheet: View {
                 .bscFont(size: 15, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
             Spacer()
-            Image(systemName: "chevron.right")
+            Image(systemName: "chevron.forward")
                 .bscFont(size: 12)
                 .foregroundColor(.bscTextSecondary)
         }

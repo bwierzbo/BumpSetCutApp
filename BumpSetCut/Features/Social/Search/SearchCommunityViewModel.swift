@@ -11,6 +11,13 @@ import Observation
 enum SearchScope: String, CaseIterable {
     case users = "Users"
     case posts = "Posts"
+
+    var displayName: LocalizedStringResource {
+        switch self {
+        case .users: return LocalizedStringResource("Users", comment: "Search scope")
+        case .posts: return LocalizedStringResource("Posts", comment: "Search scope")
+        }
+    }
 }
 
 @MainActor

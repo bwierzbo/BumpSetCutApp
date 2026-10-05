@@ -9,9 +9,9 @@ enum PrivacyLevel: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .public: return "Public"
-        case .followersOnly: return "Followers Only"
-        case .private: return "Private"
+        case .public: return String(localized: "Public", comment: "Profile privacy level")
+        case .followersOnly: return String(localized: "Followers Only", comment: "Profile privacy level")
+        case .private: return String(localized: "Private", comment: "Profile privacy level")
         }
     }
 }

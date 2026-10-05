@@ -115,7 +115,9 @@ struct DirectMessage: Codable, Identifiable, Hashable {
     /// What the inbox shows when this is the latest message.
     var previewText: String {
         if let body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return body }
-        return attachmentType == .highlight ? "Sent a post" : "Sent a rally"
+        return attachmentType == .highlight
+            ? String(localized: "Sent a post", comment: "Inbox preview for a message with a post attached")
+            : String(localized: "Sent a rally", comment: "Inbox preview for a message with a rally clip attached")
     }
 }
 
@@ -191,13 +193,13 @@ enum DirectMessageError: Error, Equatable {
 
     var userMessage: String {
         switch self {
-        case .blocked: return "You can't message this person"
-        case .selfMessage: return "You can't message yourself"
-        case .notMember: return "You're no longer in this conversation"
-        case .tooLong: return "Messages are limited to 2000 characters"
-        case .empty: return "Add a message or a rally first"
-        case .notFound: return "This conversation no longer exists"
-        case .badAttachment: return "That rally couldn't be attached"
+        case .blocked: return String(localized: "You can't message this person")
+        case .selfMessage: return String(localized: "You can't message yourself")
+        case .notMember: return String(localized: "You're no longer in this conversation")
+        case .tooLong: return String(localized: "Messages are limited to 2000 characters")
+        case .empty: return String(localized: "Add a message or a rally first")
+        case .notFound: return String(localized: "This conversation no longer exists")
+        case .badAttachment: return String(localized: "That rally couldn't be attached")
         }
     }
 }

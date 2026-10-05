@@ -51,7 +51,8 @@ final class SendToViewModel {
 
     var displayName: String {
         if let caption = highlight.caption, !caption.isEmpty { return caption }
-        return highlight.author.map { "Post by @\($0.username)" } ?? "Rally"
+        return highlight.author.map { String(localized: "Post by @\($0.username)") }
+            ?? String(localized: "Rally", comment: "Title for a shared rally clip with no author")
     }
 
     // MARK: - Actions

@@ -201,7 +201,7 @@ struct AuthGateView: View {
         )) {
             Button("OK") { viewModel?.showError = false }
         } message: {
-            Text(viewModel?.errorMessage ?? "An unknown error occurred.")
+            (viewModel?.errorMessage.map { Text(verbatim: $0) } ?? Text("An unknown error occurred."))
         }
         .sheet(isPresented: $showForgotPassword) {
             ForgotPasswordView(authService: authService)
@@ -355,7 +355,7 @@ struct AuthGateView: View {
 
     /// Password field with a show/hide eye toggle.
     private func passwordField(
-        placeholder: String,
+        placeholder: LocalizedStringResource,
         text: Binding<String>,
         isVisible: Binding<Bool>,
         field: Field,
@@ -364,9 +364,9 @@ struct AuthGateView: View {
         HStack(spacing: BSCSpacing.sm) {
             Group {
                 if isVisible.wrappedValue {
-                    TextField(placeholder, text: text)
+                    TextField(text: text) { Text(placeholder) }
                 } else {
-                    SecureField(placeholder, text: text)
+                    SecureField(text: text) { Text(placeholder) }
                 }
             }
             .bscFont(size: 17)

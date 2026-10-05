@@ -4,7 +4,7 @@
 //
 //  The bell sheet: likes, comments, and follows on your posts. Opening it
 //  marks everything read (clearing the Home badge). On every row the avatar
-//  and username open the actor's profile; the rest of a like/comment row
+//  opens the actor's profile; the rest of a like/comment row
 //  opens the post, and a follow row opens the profile too.
 //
 
@@ -105,7 +105,7 @@ struct NotificationCenterView: View {
         // ago"); the avatar/username shortcut becomes a named action.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySentence(notification))
-        .accessibilityValue(notification.isRead ? "" : "Unread")
+        .accessibilityValue(notification.isRead ? Text(verbatim: "") : Text("Unread"))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(named: "View profile") {
             openProfile(notification)
@@ -113,14 +113,28 @@ struct NotificationCenterView: View {
     }
 
     private func accessibilitySentence(_ notification: SocialNotification) -> String {
-        let username = notification.actor?.username ?? "Someone"
+        let sentence = notification.sentence(actor: actorName(notification))
         let when = notification.createdAt.formatted(.relative(presentation: .named))
-        return "\(username) \(notification.message), \(when)"
+        return [sentence, when].formatted(.list(type: .and, width: .narrow))
+    }
+
+    private func actorName(_ notification: SocialNotification) -> String {
+        notification.actor?.username ?? String(localized: "Someone", comment: "Notification actor whose profile is unavailable")
+    }
+
+    /// "**sam** liked your rally · 2 hours ago" — one sentence, the name bold.
+    private func rowText(_ notification: SocialNotification) -> AttributedString {
+        var name = AttributedString(actorName(notification))
+        name.inlinePresentationIntent = .stronglyEmphasized
+        name.swiftUI.foregroundColor = Color.bscTextPrimary
+        let sentence = notification.sentence(actor: name)
+        let when = notification.createdAt.formatted(.relative(presentation: .named))
+        // " · " is a typographic separator, not copy.
+        return sentence + AttributedString(" · " + when)
     }
 
     private func rowContent(_ notification: SocialNotification) -> some View {
-        let username = notification.actor?.username ?? "Someone"
-        return HStack(spacing: BSCSpacing.md) {
+        HStack(spacing: BSCSpacing.md) {
             // Avatar and username are their own targets so a like/comment row
             // can still reach the person, not just the post.
             Button {
@@ -134,22 +148,12 @@ struct NotificationCenterView: View {
             }
             .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                Button {
-                    openProfile(notification)
-                } label: {
-                    Text(username)
-                        .bscFont(size: 15, weight: .semibold)
-                        .foregroundColor(.bscTextPrimary)
-                        .lineLimit(1)
-                }
-                .buttonStyle(.plain)
-
-                Text("\(notification.message) · \(notification.createdAt.formatted(.relative(presentation: .named)))")
-                    .bscFont(size: 13)
-                    .foregroundColor(.bscTextSecondary)
-                    .multilineTextAlignment(.leading)
-            }
+            // The name is part of the sentence (word order differs by
+            // language); the avatar is the tap target for the profile.
+            Text(rowText(notification))
+                .bscFont(size: 13)
+                .foregroundColor(.bscTextSecondary)
+                .multilineTextAlignment(.leading)
 
             Spacer()
 

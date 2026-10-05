@@ -61,7 +61,11 @@ struct PlayerInfoCard<AddDestination: View>: View {
 
                 if let url = info.instagramURL, let handle = info.instagramHandle {
                     Link(destination: url) {
-                        Label("@\(handle)", systemImage: "camera")
+                        Label {
+                            Text(verbatim: "@" + handle)
+                        } icon: {
+                            Image(systemName: "camera")
+                        }
                             .bscFont(size: 14, weight: .medium)
                             .foregroundColor(.bscPrimaryText)
                             .frame(minHeight: BSCTouchTarget.standard, alignment: .leading)
@@ -75,7 +79,7 @@ struct PlayerInfoCard<AddDestination: View>: View {
         .accessibilityIdentifier(AccessibilityID.Profile.playerInfoCard)
     }
 
-    private func infoRow(label: String, value: String, icon: String) -> some View {
+    private func infoRow(label: LocalizedStringResource, value: String, icon: String) -> some View {
         HStack(spacing: BSCSpacing.sm) {
             Image(systemName: icon)
                 .bscFont(size: 13)
@@ -93,7 +97,7 @@ struct PlayerInfoCard<AddDestination: View>: View {
                 .foregroundColor(.bscTextPrimary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label), \(value)")
+        .accessibilityLabel(Text(label) + Text(verbatim: ", ") + Text(verbatim: value))
     }
 
     // MARK: - Locked
@@ -131,7 +135,7 @@ struct PlayerInfoCard<AddDestination: View>: View {
 
                     Spacer(minLength: 0)
 
-                    Image(systemName: "chevron.right")
+                    Image(systemName: "chevron.forward")
                         .bscFont(size: 12)
                         .foregroundColor(.bscTextSecondary)
                 }
@@ -179,6 +183,6 @@ struct LevelBadge: View {
             .padding(.horizontal, BSCSpacing.sm)
             .padding(.vertical, 3)
             .background(Capsule().fill(Color.bscPrimaryFill))
-            .accessibilityLabel("Level \(level.displayName)")
+            .accessibilityLabel(Text("Level \(level.displayName)", comment: "VoiceOver label for a volleyball level badge, e.g. Level AA"))
     }
 }

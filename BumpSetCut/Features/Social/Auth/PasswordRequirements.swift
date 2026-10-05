@@ -14,12 +14,12 @@ enum PasswordRule: CaseIterable {
     case number
     case symbol
 
-    var label: String {
+    var label: LocalizedStringResource {
         switch self {
-        case .minLength: return "8+ characters"
-        case .uppercase: return "One uppercase letter"
-        case .number: return "One number"
-        case .symbol: return "One symbol"
+        case .minLength: return LocalizedStringResource("8+ characters", comment: "Password rule")
+        case .uppercase: return LocalizedStringResource("One uppercase letter", comment: "Password rule")
+        case .number: return LocalizedStringResource("One number", comment: "Password rule")
+        case .symbol: return LocalizedStringResource("One symbol", comment: "Password rule")
         }
     }
 
@@ -55,7 +55,7 @@ struct PasswordRequirementsList: View {
                 }
                 // One element per rule: "8+ characters, met".
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(rule.label)
+                .accessibilityLabel(Text(rule.label))
                 .accessibilityValue(met ? "Met" : "Not met")
             }
         }

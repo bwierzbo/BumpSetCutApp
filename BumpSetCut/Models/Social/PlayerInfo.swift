@@ -15,7 +15,13 @@ import Foundation
 enum PlayType: String, Codable, CaseIterable, Hashable {
     case grass, beach, indoor
 
-    var displayName: String { rawValue.capitalized }
+    var displayName: String {
+        switch self {
+        case .grass: return String(localized: "Grass", comment: "Volleyball play type")
+        case .beach: return String(localized: "Beach", comment: "Volleyball play type")
+        case .indoor: return String(localized: "Indoor", comment: "Volleyball play type")
+        }
+    }
 
     var iconName: String {
         switch self {
@@ -30,20 +36,36 @@ enum PlayType: String, Codable, CaseIterable, Hashable {
 enum PlayLevel: String, Codable, CaseIterable, Hashable {
     case b, bb, a, aa, aaa, open
 
-    var displayName: String { self == .open ? "Open" : rawValue.uppercased() }
+    /// Rating codes (B…AAA) are the same in every language; "Open" is a word.
+    var displayName: String {
+        self == .open ? String(localized: "Open", comment: "Volleyball competitive level") : rawValue.uppercased()
+    }
 }
 
 enum Handedness: String, Codable, CaseIterable, Hashable {
     case left, right
 
-    var displayName: String { rawValue.capitalized }
+    var displayName: String {
+        switch self {
+        case .left: return String(localized: "Left", comment: "Dominant hand")
+        case .right: return String(localized: "Right", comment: "Dominant hand")
+        }
+    }
 }
 
 /// Indoor court position. Optional — it means little for beach or grass.
 enum IndoorPosition: String, Codable, CaseIterable, Hashable {
     case outside, opposite, middle, setter, libero
 
-    var displayName: String { rawValue.capitalized }
+    var displayName: String {
+        switch self {
+        case .outside: return String(localized: "Outside", comment: "Indoor volleyball position")
+        case .opposite: return String(localized: "Opposite", comment: "Indoor volleyball position")
+        case .middle: return String(localized: "Middle", comment: "Indoor volleyball position")
+        case .setter: return String(localized: "Setter", comment: "Indoor volleyball position")
+        case .libero: return String(localized: "Libero", comment: "Indoor volleyball position")
+        }
+    }
 }
 
 // MARK: - Player Info

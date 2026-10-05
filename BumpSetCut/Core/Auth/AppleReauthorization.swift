@@ -16,7 +16,7 @@ final class AppleReauthorization: NSObject {
 
     enum ReauthorizationError: LocalizedError {
         case noCode
-        var errorDescription: String? { "Apple didn't confirm your account. Try again to delete it." }
+        var errorDescription: String? { String(localized: "Apple didn't confirm your account. Try again to delete it.") }
     }
 
     private var continuation: CheckedContinuation<String, Error>?

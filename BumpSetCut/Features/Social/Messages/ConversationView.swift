@@ -45,7 +45,7 @@ struct ConversationView: View {
                 }
             }
         }
-        .navigationTitle("")
+        .navigationTitle(Text(verbatim: ""))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
         .bscToast($toast)
@@ -188,8 +188,8 @@ struct ConversationView: View {
 
     private func dayLabel(_ day: Date) -> String {
         let calendar = Calendar.current
-        if calendar.isDateInToday(day) { return "Today" }
-        if calendar.isDateInYesterday(day) { return "Yesterday" }
+        if calendar.isDateInToday(day) { return String(localized: "Today", comment: "Conversation day separator") }
+        if calendar.isDateInYesterday(day) { return String(localized: "Yesterday", comment: "Conversation day separator") }
         return day.formatted(.dateTime.weekday(.wide).month().day())
     }
 
@@ -208,7 +208,8 @@ struct ConversationView: View {
 
     private var requestBanner: some View {
         VStack(spacing: BSCSpacing.sm) {
-            Text("@\(viewModel.otherUser?.username ?? "This person") wants to message you")
+            (viewModel.otherUser.map { Text("@\($0.username) wants to message you") }
+                ?? Text("This person wants to message you"))
                 .bscFont(size: 14, weight: .medium)
                 .foregroundColor(.bscTextPrimary)
                 .multilineTextAlignment(.center)
@@ -257,7 +258,7 @@ struct ConversationView: View {
             .frame(width: 48, height: 30)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
 
-            Text(highlight.caption.flatMap { $0.isEmpty ? nil : $0 } ?? "Your post")
+            (highlight.caption.flatMap { $0.isEmpty ? nil : Text(verbatim: $0) } ?? Text("Your post"))
                 .bscFont(size: 13, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(1)
@@ -289,7 +290,7 @@ struct ConversationView: View {
             if viewModel.showsCharacterCount {
                 HStack {
                     Spacer()
-                    Text("\(viewModel.draftText.count)/\(ConversationViewModel.maxLength)")
+                    Text(verbatim: "\(viewModel.draftText.count.formatted())/\(ConversationViewModel.maxLength.formatted())")
                         .bscFont(size: 11, design: .monospaced)
                         .foregroundColor(
                             viewModel.draftText.count >= ConversationViewModel.maxLength

@@ -290,7 +290,7 @@ final class ShareRallyViewModel {
             startBatchUpload()
         } else {
             if isTooLong {
-                state = .failed("Rally must be under 1 minute to share")
+                state = .failed(String(localized: "Rally must be under 1 minute to share"))
                 return
             }
             startUpload()
@@ -319,7 +319,7 @@ final class ShareRallyViewModel {
                 let metadata = currentMetadata
 
                 guard let shareInfo = currentShareInfo else {
-                    state = .failed("Rally info not available")
+                    state = .failed(String(localized: "Rally info not available"))
                     return
                 }
 
@@ -563,9 +563,9 @@ final class ShareRallyViewModel {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
-                return "No internet connection. Check your connection and try again."
+                return String(localized: "No internet connection. Check your connection and try again.")
             case .timedOut:
-                return "The upload timed out. Check your connection and try again."
+                return String(localized: "The upload timed out. Check your connection and try again.")
             default:
                 break
             }
@@ -573,18 +573,18 @@ final class ShareRallyViewModel {
         if let apiError = error as? APIError {
             switch apiError {
             case .unauthorized:
-                return "Your session expired. Please sign in again."
+                return String(localized: "Your session expired. Please sign in again.")
             case .networkUnavailable:
-                return "No internet connection. Check your connection and try again."
+                return String(localized: "No internet connection. Check your connection and try again.")
             case .rateLimited:
-                return "Too many requests. Please wait a moment and try again."
+                return String(localized: "Too many requests. Please wait a moment and try again.")
             case .serverError:
-                return "Something went wrong on our end. Please try again."
+                return String(localized: "Something went wrong on our end. Please try again.")
             default:
                 break
             }
         }
-        return "Upload failed. Please try again."
+        return String(localized: "Upload failed. Please try again.")
     }
 
     // MARK: - Poll Creation

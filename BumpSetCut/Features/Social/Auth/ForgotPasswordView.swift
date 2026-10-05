@@ -108,7 +108,7 @@ struct ForgotPasswordView: View {
         .padding(.horizontal, BSCSpacing.lg)
     }
 
-    private var headerTitle: String {
+    private var headerTitle: LocalizedStringResource {
         switch step {
         case .email: return "Reset Password"
         case .code: return "Enter Code"
@@ -116,7 +116,7 @@ struct ForgotPasswordView: View {
         }
     }
 
-    private var headerSubtitle: String {
+    private var headerSubtitle: LocalizedStringResource {
         switch step {
         case .email: return "Enter your email and we'll send you a reset code."
         case .code: return "Check your email for a reset code."
@@ -162,7 +162,7 @@ struct ForgotPasswordView: View {
         VStack(spacing: BSCSpacing.md) {
             // Hidden text field that captures keyboard input
             ZStack {
-                TextField("", text: $otpCode)
+                TextField(text: $otpCode) { EmptyView() }
                     .keyboardType(.numberPad)
                     .textContentType(.oneTimeCode)
                     .focused($isCodeFieldFocused)
@@ -183,7 +183,7 @@ struct ForgotPasswordView: View {
 
                         // Flexible width + min height so the digits grow with
                         // Dynamic Type instead of clipping in a fixed box.
-                        Text(char)
+                        Text(verbatim: char)
                             .bscFont(size: 24, weight: .semibold, design: .monospaced)
                             .foregroundColor(.bscTextPrimary)
                             .minimumScaleFactor(0.5)
@@ -307,7 +307,7 @@ struct ForgotPasswordView: View {
         }
     }
 
-    private func actionButton(title: String, isLoading: Bool, disabled: Bool, action: @escaping () async -> Void) -> some View {
+    private func actionButton(title: LocalizedStringResource, isLoading: Bool, disabled: Bool, action: @escaping () async -> Void) -> some View {
         Button {
             Task { await action() }
         } label: {
@@ -365,7 +365,7 @@ struct ForgotPasswordView: View {
             )
             step = .newPassword
         } catch {
-            errorMessage = "Invalid or expired code. Please try again."
+            errorMessage = String(localized: "Invalid or expired code. Please try again.")
         }
         isVerifying = false
     }

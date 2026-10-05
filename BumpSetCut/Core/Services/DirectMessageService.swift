@@ -212,10 +212,11 @@ final class DirectMessageService {
             let profile: UserProfile? = try? await apiClient.request(.getProfile(userId: message.senderId))
             username = profile?.username
         }
-        let name = username ?? "New message"
+        let name = username ?? String(localized: "New message", comment: "Incoming message toast when the sender's name is unknown")
         let text = summary?.myStatus == .pending
-            ? "\(name) wants to message you"
-            : "\(name): \(message.previewText)"
+            ? String(localized: "\(name) wants to message you", comment: "Incoming message-request toast; %@ is the sender")
+            // "sender: preview" — a display pattern, not copy.
+            : name + ": " + message.previewText
         incomingToast = IncomingToast(conversationId: message.conversationId, text: text)
     }
 
@@ -232,7 +233,7 @@ final class DirectMessageService {
                 break
             }
             let content = UNMutableNotificationContent()
-            content.title = "New message"
+            content.title = String(localized: "New message", comment: "Local notification title for a direct message")
             content.body = message.previewText
             content.sound = .default
             content.userInfo = ["conversationId": message.conversationId]

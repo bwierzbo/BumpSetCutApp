@@ -48,8 +48,8 @@ enum SendFailure: Error, Equatable {
     var userMessage: String {
         switch self {
         case .messaging(let error): return error.userMessage
-        case .network: return "No connection. Tap to retry."
-        case .unknown: return "Couldn't send. Tap to retry."
+        case .network: return String(localized: "No connection. Tap to retry.")
+        case .unknown: return String(localized: "Couldn't send. Tap to retry.")
         }
     }
 

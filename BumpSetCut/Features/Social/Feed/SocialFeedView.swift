@@ -10,6 +10,13 @@ import SwiftUI
 enum FeedTab: String, CaseIterable {
     case forYou = "For You"
     case following = "Following"
+
+    var displayName: LocalizedStringResource {
+        switch self {
+        case .forYou: return LocalizedStringResource("For You", comment: "Feed tab: recommended posts")
+        case .following: return LocalizedStringResource("Following", comment: "Feed tab: posts from people you follow")
+        }
+    }
 }
 
 struct SocialFeedView: View {
@@ -257,7 +264,7 @@ struct SocialFeedView: View {
                     currentIndex = 0
                     viewModel.switchFeed(tab == .following ? .following : .forYou)
                 } label: {
-                    Text(tab.rawValue)
+                    Text(tab.displayName)
                         .bscFont(size: 15, weight: selectedTab == tab ? .bold : .medium)
                         .foregroundColor(selectedTab == tab ? .bscOnMedia : .bscOnMediaSecondary)
                         .padding(.vertical, BSCSpacing.sm)

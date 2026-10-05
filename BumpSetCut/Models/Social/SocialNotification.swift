@@ -32,14 +32,25 @@ struct SocialNotification: Codable, Identifiable, Hashable {
 
     var isRead: Bool { readAt != nil }
 
-    /// Row text after the actor's username ("benw *liked your rally*").
-    var message: String {
+    /// The whole row sentence with the actor's name as an argument, so word
+    /// order is translatable ("sam liked your rally"). The name keeps any
+    /// styling the caller gave it (bold in the notification row).
+    func sentence(actor: AttributedString) -> AttributedString {
         switch kind {
-        case .like: return "liked your rally"
-        case .follow: return "started following you"
-        case .comment: return "commented on your rally"
-        case .commentLike: return "liked your comment"
+        case .like:
+            return AttributedString(localized: "\(actor) liked your rally", comment: "Notification row; %@ is the username")
+        case .follow:
+            return AttributedString(localized: "\(actor) started following you", comment: "Notification row; %@ is the username")
+        case .comment:
+            return AttributedString(localized: "\(actor) commented on your rally", comment: "Notification row; %@ is the username")
+        case .commentLike:
+            return AttributedString(localized: "\(actor) liked your comment", comment: "Notification row; %@ is the username")
         }
+    }
+
+    /// Plain-text form of `sentence(actor:)` (same keys), for VoiceOver.
+    func sentence(actor: String) -> String {
+        String(sentence(actor: AttributedString(actor)).characters)
     }
 
     var iconName: String {

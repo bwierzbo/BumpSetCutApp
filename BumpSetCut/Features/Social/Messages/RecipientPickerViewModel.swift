@@ -47,14 +47,14 @@ final class RecipientPickerViewModel {
     var visibleSections: [Section] {
         if isQueryActive {
             let users = eligible(results)
-            return users.isEmpty ? [] : [Section(title: "Results", users: users)]
+            return users.isEmpty ? [] : [Section(title: String(localized: "Results", comment: "Recipient picker section: search results"), users: users)]
         }
         let recentUsers = eligible(recent)
         let seen = Set(recentUsers.map(\.id))
         let followingUsers = eligible(following).filter { !seen.contains($0.id) }
         var sections: [Section] = []
-        if !recentUsers.isEmpty { sections.append(Section(title: "Recent", users: recentUsers)) }
-        if !followingUsers.isEmpty { sections.append(Section(title: "Following", users: followingUsers)) }
+        if !recentUsers.isEmpty { sections.append(Section(title: String(localized: "Recent", comment: "Recipient picker section: recent conversations"), users: recentUsers)) }
+        if !followingUsers.isEmpty { sections.append(Section(title: String(localized: "Following", comment: "Recipient picker section: people you follow"), users: followingUsers)) }
         return sections
     }
 

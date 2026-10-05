@@ -52,7 +52,7 @@ struct BlockedUsersView: View {
         HStack(spacing: BSCSpacing.md) {
             AvatarView(url: profile.avatarURL, name: profile.username, size: 40)
 
-            Text("@\(profile.username)")
+            Text(verbatim: "@" + profile.username)
                 .bscFont(size: 16, weight: .medium)
                 .foregroundColor(.bscTextPrimary)
 

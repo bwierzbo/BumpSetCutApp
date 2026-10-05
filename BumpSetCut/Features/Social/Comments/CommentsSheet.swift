@@ -224,7 +224,7 @@ struct CommentsSheet: View {
 
             VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                 HStack(spacing: BSCSpacing.xs) {
-                    Text(comment.author?.username ?? "Unknown")
+                    (comment.author.map { Text(verbatim: $0.username) } ?? Text("Unknown"))
                         .bscFont(size: 13, weight: .semibold)
                         .foregroundColor(.bscTextPrimary)
 
@@ -247,7 +247,7 @@ struct CommentsSheet: View {
                             .bscFont(size: 11)
                             .foregroundColor(comment.isLikedByMe ? .bscError : .bscTextSecondary)
                         if comment.likesCount > 0 {
-                            Text("\(comment.likesCount)")
+                            Text(verbatim: comment.likesCount.formattedCompact())
                                 .bscFont(size: 11)
                                 .foregroundColor(.bscTextSecondary)
                         }
@@ -296,7 +296,11 @@ struct CommentsSheet: View {
             Button(role: .destructive) {
                 blockTarget = BlockTarget(userId: comment.authorId, username: comment.author?.username)
             } label: {
-                Label("Block @\(comment.author?.username ?? "user")", systemImage: "hand.raised")
+                Label {
+                    comment.author.map { Text("Block @\($0.username)") } ?? Text("Block user")
+                } icon: {
+                    Image(systemName: "hand.raised")
+                }
             }
         }
     }

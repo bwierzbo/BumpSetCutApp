@@ -38,7 +38,7 @@ struct SearchCommunityView: View {
         .searchable(text: $viewModel.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search users or posts")
         .searchScopes($viewModel.searchScope) {
             ForEach(SearchScope.allCases, id: \.self) { scope in
-                Text(scope.rawValue).tag(scope)
+                Text(scope.displayName).tag(scope)
             }
         }
         .onChange(of: viewModel.searchText) { _, _ in
@@ -94,7 +94,7 @@ struct SearchCommunityView: View {
                                 Button {
                                     viewModel.selectTrendingTag(tag)
                                 } label: {
-                                    Text("#\(tag)")
+                                    Text(verbatim: "#" + tag)
                                         .bscFont(size: 14, weight: .medium)
                                         .foregroundColor(.bscPrimaryText)
                                         .padding(.horizontal, BSCSpacing.md)
@@ -273,7 +273,7 @@ struct SearchCommunityView: View {
                 followButton(for: user)
             }
 
-            Image(systemName: "chevron.right")
+            Image(systemName: "chevron.forward")
                 .bscFont(size: 12)
                 .foregroundColor(.bscTextSecondary)
         }
@@ -330,13 +330,13 @@ struct SearchCommunityView: View {
                     HStack(spacing: BSCSpacing.xxs) {
                         Image(systemName: "heart.fill")
                             .bscFont(size: 9)
-                        Text("\(highlight.likesCount)")
+                        Text(verbatim: highlight.likesCount.formattedCompact())
                             .bscFont(size: 9, weight: .medium)
                     }
                     HStack(spacing: BSCSpacing.xxs) {
                         Image(systemName: "bubble.right.fill")
                             .bscFont(size: 9)
-                        Text("\(highlight.commentsCount)")
+                        Text(verbatim: highlight.commentsCount.formattedCompact())
                             .bscFont(size: 9, weight: .medium)
                     }
                 }
@@ -355,7 +355,7 @@ struct SearchCommunityView: View {
 
     // MARK: - Empty
 
-    private func emptyResult(_ message: String) -> some View {
+    private func emptyResult(_ message: LocalizedStringResource) -> some View {
         Text(message)
             .bscFont(size: 15)
             .foregroundColor(.bscTextSecondary)

@@ -60,7 +60,7 @@ struct MyPostsPickerSheet: View {
                             cell(highlight)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(highlight.caption ?? "Post")
+                        .accessibilityLabel(highlight.caption.map { Text(verbatim: $0) } ?? Text("Post"))
                         .accessibilityIdentifier(AccessibilityID.Messages.attachCell)
                     }
 

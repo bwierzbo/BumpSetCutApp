@@ -46,8 +46,8 @@ final class FollowListViewModel {
 
     var title: String {
         switch mode {
-        case .followers: return "Followers"
-        case .following: return "Following"
+        case .followers: return String(localized: "Followers")
+        case .following: return String(localized: "Following", comment: "People this user follows")
         }
     }
 

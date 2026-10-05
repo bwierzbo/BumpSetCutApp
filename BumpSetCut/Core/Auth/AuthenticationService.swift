@@ -98,7 +98,7 @@ final class AuthenticationService {
 
             guard let session = session.session else {
                 authState = .unauthenticated
-                throw APIError.serverError(statusCode: 400, message: "Sign up failed — please check your email for a confirmation link, or try again.")
+                throw APIError.serverError(statusCode: 400, message: String(localized: "Sign up failed — please check your email for a confirmation link, or try again."))
             }
 
             let (profile, _) = try await fetchOrCreateProfile(
@@ -322,6 +322,6 @@ final class AuthenticationService {
         if let existing = try await fetchProfile(userId: userId) {
             return (existing, false)
         }
-        throw APIError.serverError(statusCode: 500, message: "Profile creation failed — please try again.")
+        throw APIError.serverError(statusCode: 500, message: String(localized: "Profile creation failed — please try again."))
     }
 }

@@ -123,7 +123,7 @@ struct FollowListView: View {
 
             Spacer()
 
-            Image(systemName: "chevron.right")
+            Image(systemName: "chevron.forward")
                 .bscFont(size: 12)
                 .foregroundColor(.bscTextSecondary)
         }

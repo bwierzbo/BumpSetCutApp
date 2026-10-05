@@ -68,7 +68,7 @@ struct ProfileView: View {
             }
 
         }
-        .navigationTitle("")
+        .navigationTitle(Text(verbatim: ""))
         .navigationBarTitleDisplayMode(.inline)
         .bscToast($toast)
         .onChange(of: viewModel.actionError) { _, message in
@@ -166,7 +166,11 @@ struct ProfileView: View {
                         Button(role: .destructive) {
                             blockTarget = BlockTarget(userId: viewModel.userId, username: viewModel.profile?.username)
                         } label: {
-                            Label("Block @\(viewModel.profile?.username ?? "user")", systemImage: "hand.raised")
+                            Label {
+                                viewModel.profile.map { Text("Block @\($0.username)") } ?? Text("Block user")
+                            } icon: {
+                                Image(systemName: "hand.raised")
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -279,9 +283,9 @@ struct ProfileView: View {
         .padding(.horizontal, BSCSpacing.lg)
     }
 
-    private func statItem(count: Int, label: String) -> some View {
+    private func statItem(count: Int, label: LocalizedStringResource) -> some View {
         VStack(spacing: 2) {
-            Text("\(count)")
+            Text(verbatim: count.formatted())
                 .bscFont(size: 18, weight: .bold)
                 .foregroundColor(.bscTextPrimary)
             Text(label)
@@ -416,7 +420,7 @@ struct ProfileView: View {
                                 }
                             }
                         }
-                        .accessibilityHint(isOwnProfile ? "Press and hold to delete" : "")
+                        .accessibilityHint(isOwnProfile ? Text("Press and hold to delete") : Text(verbatim: ""))
                     }
                 }
                 .padding(.horizontal, BSCSpacing.xs)
@@ -446,13 +450,13 @@ struct ProfileView: View {
                     HStack(spacing: BSCSpacing.xxs) {
                         Image(systemName: "heart.fill")
                             .bscFont(size: 9)
-                        Text("\(highlight.likesCount)")
+                        Text(verbatim: highlight.likesCount.formattedCompact())
                             .bscFont(size: 9, weight: .medium)
                     }
                     HStack(spacing: BSCSpacing.xxs) {
                         Image(systemName: "bubble.right.fill")
                             .bscFont(size: 9)
-                        Text("\(highlight.commentsCount)")
+                        Text(verbatim: highlight.commentsCount.formattedCompact())
                             .bscFont(size: 9, weight: .medium)
                     }
                 }

@@ -130,7 +130,7 @@ class AuthGateViewModel {
 
     func forgotPassword() async {
         guard isEmailValid else {
-            errorMessage = "Please enter your email address first."
+            errorMessage = String(localized: "Please enter your email address first.")
             showError = true
             return
         }
@@ -167,7 +167,7 @@ class AuthGateViewModel {
                   let tokenData = credential.identityToken,
                   let idToken = String(data: tokenData, encoding: .utf8),
                   let nonce = currentNonce else {
-                errorMessage = "Apple didn't return a valid sign-in. Please try again."
+                errorMessage = String(localized: "Apple didn't return a valid sign-in. Please try again.")
                 showError = true
                 return
             }
@@ -232,10 +232,10 @@ class AuthGateViewModel {
             // Only treat infrastructure errors as "server down"
             let code = response.statusCode
             if code == 502 || code == 503 || code == 522 {
-                return "Server is temporarily unavailable. Please try again in a few minutes."
+                return String(localized: "Server is temporarily unavailable. Please try again in a few minutes.")
             }
             // For other API errors, show the Supabase message
-            return message.isEmpty ? "Sign in failed. Please try again." : message
+            return message.isEmpty ? String(localized: "Sign in failed. Please try again.") : message
         }
         return error.localizedDescription
     }

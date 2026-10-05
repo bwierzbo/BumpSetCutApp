@@ -39,7 +39,7 @@ private struct BlockUserAlert: ViewModifier {
                 if let newValue { shownTarget = newValue }
             }
             .alert(
-                "Block @\(current?.username ?? "user")?",
+                (current?.username).map { Text("Block @\($0)?") } ?? Text("Block user?"),
                 isPresented: Binding(
                     get: { target != nil },
                     set: { if !$0 { target = nil } }

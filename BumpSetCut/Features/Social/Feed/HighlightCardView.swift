@@ -236,7 +236,7 @@ struct HighlightCardView: View {
                         HStack(spacing: BSCSpacing.xs) {
                             AvatarView(url: highlight.author?.avatarURL, name: highlight.author?.username ?? "?", size: 32)
 
-                            Text(highlight.author?.username ?? "Unknown")
+                            (highlight.author.map { Text(verbatim: $0.username) } ?? Text("Unknown"))
                                 .bscFont(size: 14, weight: .semibold)
                                 .foregroundColor(.bscOnMedia)
                         }
@@ -244,7 +244,7 @@ struct HighlightCardView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("View profile of \(highlight.author?.username ?? "user")")
+                    .accessibilityLabel(highlight.author.map { Text("View profile of \($0.username)") } ?? Text("View profile"))
 
                     // Location tag
                     if let location = highlight.locationName, !location.isEmpty {
@@ -300,7 +300,11 @@ struct HighlightCardView: View {
                     }
 
                     // Rally metadata
-                    Label("\(String(format: "%.1f", highlight.rallyMetadata.duration))s", systemImage: "timer")
+                    Label {
+                        Text(verbatim: highlight.rallyMetadata.duration.formattedSeconds())
+                    } icon: {
+                        Image(systemName: "timer")
+                    }
                         .bscFont(size: 12)
                         .foregroundColor(.bscOnMediaSecondary)
                 }
@@ -324,7 +328,11 @@ struct HighlightCardView: View {
                             Button(role: .destructive) {
                                 blockTarget = BlockTarget(userId: highlight.authorId, username: highlight.author?.username)
                             } label: {
-                                Label("Block @\(highlight.author?.username ?? "user")", systemImage: "hand.raised")
+                                Label {
+                                    highlight.author.map { Text("Block @\($0.username)") } ?? Text("Block user")
+                                } icon: {
+                                    Image(systemName: "hand.raised")
+                                }
                             }
                         } label: {
                             Image(systemName: "ellipsis")
@@ -347,7 +355,7 @@ struct HighlightCardView: View {
                                 .foregroundColor(highlight.isLikedByMe ? .bscError : .bscOnMedia)
 
                             if !highlight.hideLikes {
-                                Text(formatCount(highlight.likesCount))
+                                Text(verbatim: highlight.likesCount.formattedCompact())
                                     .bscFont(size: 12, weight: .medium)
                                     .foregroundColor(.bscOnMedia)
                             }
@@ -359,7 +367,7 @@ struct HighlightCardView: View {
                     .accessibilityLabel(highlight.isLikedByMe ? "Unlike" : "Like")
                     // Only speak the count when it's on screen — hidden likes
                     // stay hidden for VoiceOver too.
-                    .accessibilityValue(highlight.hideLikes ? "" : "\(highlight.likesCount) likes")
+                    .accessibilityValue(highlight.hideLikes ? Text(verbatim: "") : Text("\(highlight.likesCount) likes"))
 
                     // Comments
                     Button {
@@ -371,7 +379,7 @@ struct HighlightCardView: View {
                                 .bscFont(size: 26)
                                 .foregroundColor(.bscOnMedia)
 
-                            Text(formatCount(highlight.commentsCount))
+                            Text(verbatim: highlight.commentsCount.formattedCompact())
                                 .bscFont(size: 12, weight: .medium)
                                 .foregroundColor(.bscOnMedia)
                         }
@@ -625,11 +633,6 @@ struct HighlightCardView: View {
         readyPages.removeAll()
     }
 
-    private func formatCount(_ count: Int) -> String {
-        if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
-        if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000) }
-        return "\(count)"
-    }
 }
 
 // MARK: - Conditional Drag Modifier

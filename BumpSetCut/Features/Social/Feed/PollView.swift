@@ -20,7 +20,9 @@ struct PollView: View {
                 optionRow(option: option)
             }
 
-            Text("\(poll.totalVotes) vote\(poll.totalVotes == 1 ? "" : "s") \u{00B7} tap to \(hasVoted ? "change" : "vote")")
+            (hasVoted
+                ? Text("\(poll.totalVotes) votes · tap to change", comment: "Poll footer after voting")
+                : Text("\(poll.totalVotes) votes · tap to vote", comment: "Poll footer before voting"))
                 .bscFont(size: 12)
                 .foregroundColor(.bscTextSecondary)
         }
@@ -73,7 +75,6 @@ struct PollView: View {
 
     private func resultBarLabel(option: PollOption) -> some View {
         let fraction = poll.totalVotes > 0 ? Double(option.voteCount) / Double(poll.totalVotes) : 0
-        let percentage = Int(fraction * 100)
         let isMyVote = option.id == poll.myVoteOptionId
 
         return HStack(spacing: BSCSpacing.xs) {
@@ -89,7 +90,7 @@ struct PollView: View {
 
             Spacer()
 
-            Text("\(percentage)%")
+            Text(verbatim: fraction.formattedPercent())
                 .bscFont(size: 13, weight: .bold)
                 .foregroundColor(isMyVote ? .bscPrimaryText : .bscTextSecondary)
         }

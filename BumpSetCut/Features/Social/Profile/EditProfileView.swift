@@ -149,9 +149,9 @@ struct EditProfileView: View {
         Section {
             HStack(spacing: 0) {
                 Picker("Feet", selection: $viewModel.heightFeet) {
-                    Text("—").tag(Int?.none)
+                    Text(verbatim: "—").tag(Int?.none)
                     ForEach(4...7, id: \.self) { feet in
-                        Text("\(feet) ft").tag(Optional(feet))
+                        Text("\(feet) ft", comment: "Height picker: feet").tag(Optional(feet))
                     }
                 }
                 .pickerStyle(.wheel)
@@ -160,7 +160,7 @@ struct EditProfileView: View {
 
                 Picker("Inches", selection: $viewModel.heightInches) {
                     ForEach(0...11, id: \.self) { inches in
-                        Text("\(inches) in").tag(inches)
+                        Text("\(inches) in", comment: "Height picker: inches").tag(inches)
                     }
                 }
                 .pickerStyle(.wheel)
@@ -208,7 +208,7 @@ struct EditProfileView: View {
 
         Section {
             HStack(spacing: BSCSpacing.xxs) {
-                Text("@")
+                Text(verbatim: "@")
                     .foregroundColor(.bscTextSecondary)
                 TextField("username", text: $viewModel.instagram)
                     .textInputAutocapitalization(.never)

@@ -46,7 +46,7 @@ struct UsernamePickerView: View {
                 // Username field
                 VStack(spacing: BSCSpacing.sm) {
                     HStack(spacing: 0) {
-                        Text("@")
+                        Text(verbatim: "@")
                             .bscFont(size: 18, weight: .medium)
                             .foregroundColor(.bscTextSecondary)
                             .padding(.leading, BSCSpacing.md)

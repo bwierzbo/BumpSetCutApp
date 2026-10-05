@@ -38,7 +38,7 @@ final class NotificationsViewModelTests: XCTestCase {
         XCTAssertEqual(notification.highlightId, "h1")
         XCTAssertEqual(notification.actor?.username, "sandy")
         XCTAssertFalse(notification.isRead)
-        XCTAssertEqual(notification.message, "liked your comment")
+        XCTAssertEqual(notification.sentence(actor: "sandy"), "sandy liked your comment")
     }
 
     // MARK: - View model

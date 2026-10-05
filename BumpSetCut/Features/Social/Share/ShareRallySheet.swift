@@ -505,7 +505,7 @@ struct ShareRallySheet: View {
             HStack(spacing: BSCSpacing.xs) {
                 Image(systemName: "square.stack.fill")
                     .bscFont(size: 11, weight: .bold)
-                Text("\(viewModel.savedRallyIndices.count) Rallies")
+                Text("\(viewModel.savedRallyIndices.count) Rallies", comment: "Badge on a multi-rally post preview")
                     .bscFont(size: 13, weight: .bold)
             }
             .foregroundColor(.bscOnMedia)
@@ -568,7 +568,7 @@ struct ShareRallySheet: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: BSCSpacing.xs) {
                         ForEach(viewModel.extractedTags, id: \.self) { tag in
-                            Text("#\(tag)")
+                            Text(verbatim: "#" + tag)
                                 .bscFont(size: 12, weight: .medium)
                                 .foregroundColor(.bscPrimaryText)
                                 .padding(.horizontal, BSCSpacing.sm)
@@ -609,7 +609,7 @@ struct ShareRallySheet: View {
                     Spacer()
 
                     if viewModel.pickedLocation == nil {
-                        Image(systemName: "chevron.right")
+                        Image(systemName: "chevron.forward")
                             .bscFont(size: 12, weight: .semibold)
                             .foregroundColor(.bscTextSecondary)
                     }
@@ -675,22 +675,26 @@ struct ShareRallySheet: View {
         VStack(spacing: BSCSpacing.xs) {
             if isFavoriteClips {
                 HStack(spacing: BSCSpacing.lg) {
-                    Label("\(viewModel.postCount) \(viewModel.postCount == 1 ? "rally" : "rallies")", systemImage: "square.stack")
-                    Label("\(String(format: "%.1f", viewModel.totalDuration))s total", systemImage: "timer")
+                    Label("\(viewModel.postCount) rallies", systemImage: "square.stack")
+                    Label("\(viewModel.totalDuration.formattedSeconds()) total", systemImage: "timer")
                 }
                 .bscFont(size: 12)
                 .foregroundColor(.bscTextSecondary)
             } else if viewModel.postAllSaved && viewModel.savedRallyIndices.count > 1 {
                 HStack(spacing: BSCSpacing.lg) {
                     Label("\(viewModel.postCount) rallies", systemImage: "square.stack")
-                    Label("\(String(format: "%.1f", viewModel.totalDuration))s total", systemImage: "timer")
+                    Label("\(viewModel.totalDuration.formattedSeconds()) total", systemImage: "timer")
                 }
                 .bscFont(size: 12)
                 .foregroundColor(.bscTextSecondary)
             } else {
                 // Duration only: the detection count is a pipeline internal
                 // (physics-validated frames) that reads as a bug when it's 0.
-                Label("\(String(format: "%.1f", viewModel.currentMetadata.duration))s", systemImage: "timer")
+                Label {
+                    Text(verbatim: viewModel.currentMetadata.duration.formattedSeconds())
+                } icon: {
+                    Image(systemName: "timer")
+                }
                     .bscFont(size: 12)
                     .foregroundColor(.bscTextSecondary)
 

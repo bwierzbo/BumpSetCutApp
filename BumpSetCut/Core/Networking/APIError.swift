@@ -15,21 +15,23 @@ enum APIError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unauthorized:
-            return "Authentication required. Please sign in."
+            return String(localized: "Authentication required. Please sign in.")
         case .networkUnavailable:
-            return "No network connection. Please check your internet."
+            return String(localized: "No network connection. Please check your internet.")
         case .serverError(let statusCode, let message):
-            return "Server error (\(statusCode)): \(message ?? "Unknown error")"
+            // `message` comes from the server (or a localized client string).
+            let detail = message ?? String(localized: "Unknown error")
+            return String(localized: "Server error (\(statusCode)): \(detail)", comment: "%1$lld is the HTTP status code, %2$@ the server's message")
         case .decodingError(let error):
-            return "Failed to process response: \(error.localizedDescription)"
+            return String(localized: "Failed to process response: \(error.localizedDescription)")
         case .notFound:
-            return "The requested content was not found."
+            return String(localized: "The requested content was not found.")
         case .rateLimited:
-            return "Too many requests. Please try again later."
+            return String(localized: "Too many requests. Please try again later.")
         case .invalidRequest(let reason):
-            return "Invalid request: \(reason)"
+            return String(localized: "Invalid request: \(reason)")
         case .unknown(let error):
-            return "Unexpected error: \(error.localizedDescription)"
+            return String(localized: "Unexpected error: \(error.localizedDescription)")
         }
     }
 

@@ -40,9 +40,9 @@ struct ShareUploadOverlay: View {
             VStack(spacing: BSCSpacing.sm) {
                 ProgressView(value: progress)
                     .tint(.bscPrimary)
-                Text(viewModel.postAllSaved && viewModel.postCount > 1
-                     ? "Uploading \(viewModel.postCount) rallies... \(Int(progress * 100))%"
-                     : "Uploading... \(Int(progress * 100))%")
+                (viewModel.postAllSaved && viewModel.postCount > 1
+                    ? Text("Uploading \(viewModel.postCount) rallies... \(progress.formattedPercent())", comment: "Post upload progress: rally count, percentage")
+                    : Text("Uploading... \(progress.formattedPercent())", comment: "Post upload progress percentage"))
                     .bscFont(size: 13)
                     .foregroundColor(.bscTextSecondary)
             }

@@ -223,11 +223,15 @@ final class InboxViewModel {
         if let preview = summary.lastMessagePreview, !preview.isEmpty {
             base = preview
         } else if let attachment = summary.lastMessageAttachmentType {
-            base = attachment == .highlight ? "Sent a post" : "Sent a rally"
+            base = attachment == .highlight
+                ? String(localized: "Sent a post", comment: "Inbox preview for a message with a post attached")
+                : String(localized: "Sent a rally", comment: "Inbox preview for a message with a rally clip attached")
         } else {
-            base = "No messages yet"
+            base = String(localized: "No messages yet")
         }
         let isMine = summary.lastMessageSenderId == currentUserId
-        return isMine ? "You: \(base)" : base
+        return isMine
+            ? String(localized: "You: \(base)", comment: "Inbox preview of your own last message; %@ is the message")
+            : base
     }
 }

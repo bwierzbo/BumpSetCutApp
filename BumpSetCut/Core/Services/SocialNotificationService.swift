@@ -104,7 +104,8 @@ final class SocialNotificationService {
 
         // Name the follower if we can; the pop still fires without it.
         let actor: UserProfile? = try? await apiClient.request(.getProfile(userId: row.actorId))
-        let message = actor.map { "\($0.username) started following you" } ?? "You have a new follower"
+        let message = actor.map { String(localized: "\($0.username) started following you", comment: "Notification row; %@ is the username") }
+            ?? String(localized: "You have a new follower")
 
         if UIApplication.shared.applicationState == .active {
             followToast = message
@@ -127,7 +128,7 @@ final class SocialNotificationService {
                 break
             }
             let content = UNMutableNotificationContent()
-            content.title = "New follower"
+            content.title = String(localized: "New follower", comment: "Local notification title")
             content.body = body
             content.sound = .default
             let request = UNNotificationRequest(

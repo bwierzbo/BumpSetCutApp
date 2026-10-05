@@ -126,7 +126,7 @@ final class EditProfileViewModel {
                 isUploadingAvatar = true
                 defer { isUploadingAvatar = false }
                 guard let jpegData = image.resizedForAvatar().jpegData(compressionQuality: 0.8) else {
-                    throw APIError.invalidRequest("That image couldn't be prepared. Try a different photo.")
+                    throw APIError.invalidRequest(String(localized: "That image couldn't be prepared. Try a different photo."))
                 }
                 let url = try await avatarUploader.uploadAvatar(imageData: jpegData, replacing: currentAvatarURL)
                 avatarURLString = url.absoluteString

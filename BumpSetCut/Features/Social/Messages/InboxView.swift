@@ -133,7 +133,17 @@ struct InboxView: View {
         .padding(.vertical, BSCSpacing.sm)
     }
 
-    private func segmentButton(title: String, segment: InboxViewModel.Segment, identifier: String) -> some View {
+    /// "sam, Sent a rally, 2 unread" — clauses joined with the locale's list
+    /// separator.
+    private func rowAccessibilityLabel(_ summary: ConversationSummary) -> String {
+        var parts = [summary.otherUsername, viewModel.previewText(for: summary)]
+        if summary.unreadCount > 0 {
+            parts.append(String(localized: "\(summary.unreadCount) unread", comment: "Inbox row VoiceOver: unread message count"))
+        }
+        return parts.formatted(.list(type: .and, width: .narrow))
+    }
+
+    private func segmentButton(title: LocalizedStringResource, segment: InboxViewModel.Segment, identifier: String) -> some View {
         let isSelected = viewModel.segment == segment
         return Button {
             withAnimation(.bscQuick) { viewModel.segment = segment }
@@ -203,7 +213,7 @@ struct InboxView: View {
                                 .foregroundColor(.bscTextSecondary)
                         }
                         if summary.unreadCount > 0 {
-                            Text("\(summary.unreadCount)")
+                            Text(verbatim: summary.unreadCount.formatted())
                                 .bscFont(size: 11, weight: .bold)
                                 .foregroundColor(.bscOnPrimary)
                                 .padding(.horizontal, BSCSpacing.xs)
@@ -224,10 +234,7 @@ struct InboxView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(AccessibilityID.Messages.row)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(summary.otherUsername), \(viewModel.previewText(for: summary))"
-            + (summary.unreadCount > 0 ? ", \(summary.unreadCount) unread" : "")
-        )
+        .accessibilityLabel(rowAccessibilityLabel(summary))
         // The row reads as one element, which swallows the inline request
         // buttons — expose them as actions instead.
         .accessibilityActions {

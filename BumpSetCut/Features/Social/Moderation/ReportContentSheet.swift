@@ -31,7 +31,7 @@ struct ReportContentSheet: View {
                             .bscFont(size: 48)
                             .foregroundStyle(Color.bscError)
 
-                        Text("Report \(contentType.displayName)")
+                        Text(contentType.reportTitle)
                             .bscFont(size: 22, weight: .bold)
 
                         Text("Help us keep the community safe by reporting content that violates our guidelines.")
@@ -43,7 +43,7 @@ struct ReportContentSheet: View {
 
                     // Report Type Selection
                     VStack(alignment: .leading, spacing: BSCSpacing.md) {
-                        Text("What's wrong with this \(contentType.displayName)?")
+                        Text(contentType.reportQuestion)
                             .bscFont(size: 17, weight: .semibold)
 
                         ForEach(ReportType.allCases, id: \.self) { type in
@@ -209,17 +209,24 @@ struct ReportTypeButton: View {
 
 // MARK: - Content Type Extension
 
+// Whole sentences per content type (not "Report \(noun)"): the noun's
+// gender/case changes the rest of the sentence in many languages.
 extension ReportedContentType {
-    var displayName: String {
+    var reportTitle: LocalizedStringResource {
         switch self {
-        case .highlight:
-            return "Highlight"
-        case .comment:
-            return "Comment"
-        case .userProfile:
-            return "Profile"
-        case .message:
-            return "Message"
+        case .highlight: return "Report Highlight"
+        case .comment: return "Report Comment"
+        case .userProfile: return "Report Profile"
+        case .message: return "Report Message"
+        }
+    }
+
+    var reportQuestion: LocalizedStringResource {
+        switch self {
+        case .highlight: return "What's wrong with this Highlight?"
+        case .comment: return "What's wrong with this Comment?"
+        case .userProfile: return "What's wrong with this Profile?"
+        case .message: return "What's wrong with this Message?"
         }
     }
 }
