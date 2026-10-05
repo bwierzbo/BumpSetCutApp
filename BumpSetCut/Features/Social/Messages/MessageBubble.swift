@@ -184,13 +184,13 @@ struct MessageBubble: View {
         case .sent:
             Text(item.message.createdAt.formatted(date: .omitted, time: .shortened))
                 .bscFont(size: 10)
-                .foregroundColor(.bscTextTertiary)
+                .foregroundColor(.bscTextSecondary)
         case .sending:
             HStack(spacing: BSCSpacing.xxs) {
                 ProgressView().controlSize(.mini)
                 Text("Sending…")
                     .bscFont(size: 10)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
             }
         case .failed(let failure):
             Menu {

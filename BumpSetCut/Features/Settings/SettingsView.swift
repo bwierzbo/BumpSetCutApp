@@ -19,7 +19,6 @@ struct SettingsView: View {
     @State private var flywheelService = FlywheelCaptureService.shared
     @State private var showDeleteConfirmation = false
     @State private var showSignOutConfirmation = false
-    @State private var showBlockedUsers = false
     @State private var isDeletingAccount = false
     @State private var deleteError: String?
     @State private var subscriptionService = SubscriptionService.shared
@@ -578,9 +577,10 @@ private extension SettingsView {
                     Divider()
                         .overlay(Color.bscSurfaceBorder)
 
-                    // Blocked users management (unblock lives here)
-                    Button {
-                        showBlockedUsers = true
+                    // Blocked users management (unblock lives here). Pushed —
+                    // Settings already has a navigation stack.
+                    NavigationLink {
+                        BlockedUsersView()
                     } label: {
                         HStack {
                             Image(systemName: "hand.raised")
@@ -598,9 +598,6 @@ private extension SettingsView {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier(AccessibilityID.Settings.blockedUsers)
-                    .sheet(isPresented: $showBlockedUsers) {
-                        BlockedUsersView()
-                    }
 
                     Divider()
                         .overlay(Color.bscSurfaceBorder)

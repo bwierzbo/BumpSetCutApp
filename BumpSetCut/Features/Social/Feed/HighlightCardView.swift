@@ -29,7 +29,7 @@ struct HighlightCardView: View {
     @State private var loopObservers: [Int: Any] = [:]
     @State private var showDeleteConfirmation = false
     @State private var showReportSheet = false
-    @State private var showBlockAlert = false
+    @State private var blockTarget: BlockTarget?
     @State private var showLikeHeart = false
     @State private var currentVideoPage = 0
     @State private var isPaused = false
@@ -109,7 +109,6 @@ struct HighlightCardView: View {
                         }
                     }
                     .onTapGesture(count: 1) {
-                        UIImpactFeedbackGenerator.light()
                         togglePlayback()
                     }
                     .accessibilityAction(named: "Like") {
@@ -219,15 +218,7 @@ struct HighlightCardView: View {
                 reportedUserId: UUID(uuidString: highlight.authorId) ?? UUID()
             )
         }
-        .blockUserAlert(
-            isPresented: $showBlockAlert,
-            username: highlight.author?.username ?? "user",
-            userId: UUID(uuidString: highlight.authorId) ?? UUID()
-        ) {
-            try await ModerationService.shared.blockUser(
-                UUID(uuidString: highlight.authorId) ?? UUID()
-            )
-        }
+        .blockUserAlert(target: $blockTarget)
     }
 
     // MARK: - Overlay Controls
@@ -332,7 +323,7 @@ struct HighlightCardView: View {
                             }
 
                             Button(role: .destructive) {
-                                showBlockAlert = true
+                                blockTarget = BlockTarget(userId: highlight.authorId, username: highlight.author?.username)
                             } label: {
                                 Label("Block @\(highlight.author?.username ?? "user")", systemImage: "hand.raised")
                             }
@@ -367,7 +358,9 @@ struct HighlightCardView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(highlight.isLikedByMe ? "Unlike" : "Like")
-                    .accessibilityHint("\(highlight.likesCount) likes")
+                    // Only speak the count when it's on screen — hidden likes
+                    // stay hidden for VoiceOver too.
+                    .accessibilityValue(highlight.hideLikes ? "" : "\(highlight.likesCount) likes")
 
                     // Comments
                     Button {
@@ -388,7 +381,7 @@ struct HighlightCardView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Comments")
-                    .accessibilityHint("\(highlight.commentsCount) comments")
+                    .accessibilityValue("\(highlight.commentsCount) comments")
                     .accessibilityIdentifier(AccessibilityID.Feed.commentButton)
 
                     // Send to a friend as a direct message

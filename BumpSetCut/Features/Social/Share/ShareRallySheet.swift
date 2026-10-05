@@ -18,6 +18,7 @@ struct ShareRallySheet: View {
     @State private var carouselSelection: Int = 0
     @State private var showAuthGate = false
     @State private var showLocationPicker = false
+    @State private var showDiscardConfirm = false
     @FocusState private var isCaptionFocused: Bool
 
     // Crop mode: pinch/drag reframes the CURRENT page; saved per page and
@@ -125,8 +126,11 @@ struct ShareRallySheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        viewModel.cancel()
-                        dismiss()
+                        if viewModel.hasDraftContent {
+                            showDiscardConfirm = true
+                        } else {
+                            discardAndDismiss()
+                        }
                     }
                     .disabled(isUploadBusy)
                 }
@@ -134,7 +138,22 @@ struct ShareRallySheet: View {
                     postButton
                 }
             }
-            .interactiveDismissDisabled(isUploadBusy)
+            // A draft can't be swiped away silently; the swipe asks instead.
+            .interactiveDismissDisabled(isUploadBusy || viewModel.hasDraftContent)
+            .confirmationDialog(
+                "Discard this post?",
+                isPresented: $showDiscardConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Discard", role: .destructive) { discardAndDismiss() }
+                Button("Keep Editing", role: .cancel) {}
+            } message: {
+                Text("Your caption, location and poll will be lost.")
+            }
+        }
+        .onDismissAttempt {
+            guard !isUploadBusy, viewModel.hasDraftContent else { return }
+            showDiscardConfirm = true
         }
         .onAppear {
             carouselSelection = viewModel.selectedPage
@@ -409,7 +428,7 @@ struct ShareRallySheet: View {
 
                 Text("Pinch & drag to reframe")
                     .bscFont(size: 12)
-                    .foregroundColor(.bscTextTertiary)
+                    .foregroundColor(.bscTextSecondary)
 
                 Spacer()
 
@@ -445,7 +464,7 @@ struct ShareRallySheet: View {
                 if pageCount > 1 {
                     Text("Crops apply per rally")
                         .bscFont(size: 12)
-                        .foregroundColor(.bscTextTertiary)
+                        .foregroundColor(.bscTextSecondary)
                 }
             }
         }
@@ -826,6 +845,11 @@ struct ShareRallySheet: View {
 
     /// True while an upload is in flight (and during the brief success state) —
     /// used to block Cancel / swipe-to-dismiss so the user waits it out.
+    private func discardAndDismiss() {
+        viewModel.cancel()
+        dismiss()
+    }
+
     private var isUploadBusy: Bool {
         switch viewModel.state {
         case .uploading, .processing, .complete: return true

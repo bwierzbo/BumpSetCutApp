@@ -108,6 +108,30 @@ struct CommentsSheet: View {
             .onChange(of: isCommentFocused) { _, focused in
                 onFocusChanged(focused)
             }
+            // One presenter for the whole list, not one per row.
+            .sheet(item: $reportingComment) { comment in
+                ReportContentSheet(
+                    contentType: .comment,
+                    contentId: UUID(uuidString: comment.id) ?? UUID(),
+                    reportedUserId: UUID(uuidString: comment.authorId) ?? UUID()
+                )
+            }
+            .blockUserAlert(target: $blockTarget)
+            .alert(
+                "Delete Comment?",
+                isPresented: Binding(
+                    get: { deletingComment != nil },
+                    set: { if !$0 { deletingComment = nil } }
+                ),
+                presenting: deletingComment
+            ) { comment in
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    Task { await viewModel.deleteComment(comment) }
+                }
+            } message: { _ in
+                Text("This comment will be permanently removed.")
+            }
             .bscToast($toast)
             .onChange(of: viewModel.actionError) { _, message in
                 if let message {
@@ -190,7 +214,8 @@ struct CommentsSheet: View {
     // MARK: - Comment Row
 
     @State private var reportingComment: Comment?
-    @State private var blockingComment: Comment?
+    @State private var blockTarget: BlockTarget?
+    @State private var deletingComment: Comment?
 
     private func commentRow(_ comment: Comment) -> some View {
         HStack(alignment: .top, spacing: BSCSpacing.sm) {
@@ -238,55 +263,41 @@ struct CommentsSheet: View {
             Spacer()
 
             Menu {
-                Button {
-                    reportingComment = comment
-                } label: {
-                    Label("Report Comment", systemImage: "exclamationmark.shield")
-                }
-                Button(role: .destructive) {
-                    blockingComment = comment
-                } label: {
-                    Label("Block @\(comment.author?.username ?? "user")", systemImage: "hand.raised")
-                }
+                commentActions(comment)
             } label: {
                 Image(systemName: "ellipsis")
                     .bscFont(size: 13, weight: .semibold)
                     .foregroundColor(.bscTextSecondary)
-                    .frame(width: 44, height: 44)
+                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("Comment options")
         }
         .contextMenu {
+            commentActions(comment)
+        }
+    }
+
+    /// Your own comment: delete. Anyone else's: report or block.
+    @ViewBuilder
+    private func commentActions(_ comment: Comment) -> some View {
+        if comment.authorId == authService.currentUser?.id {
+            Button(role: .destructive) {
+                deletingComment = comment
+            } label: {
+                Label("Delete Comment", systemImage: "trash")
+            }
+        } else {
             Button {
                 reportingComment = comment
             } label: {
                 Label("Report Comment", systemImage: "exclamationmark.shield")
             }
             Button(role: .destructive) {
-                blockingComment = comment
+                blockTarget = BlockTarget(userId: comment.authorId, username: comment.author?.username)
             } label: {
                 Label("Block @\(comment.author?.username ?? "user")", systemImage: "hand.raised")
             }
-        }
-        .sheet(item: $reportingComment) { comment in
-            ReportContentSheet(
-                contentType: .comment,
-                contentId: UUID(uuidString: comment.id) ?? UUID(),
-                reportedUserId: UUID(uuidString: comment.authorId) ?? UUID()
-            )
-        }
-        .blockUserAlert(
-            isPresented: Binding(
-                get: { blockingComment?.id == comment.id },
-                set: { if !$0 && blockingComment?.id == comment.id { blockingComment = nil } }
-            ),
-            username: comment.author?.username ?? "user",
-            userId: UUID(uuidString: comment.authorId) ?? UUID()
-        ) {
-            try await ModerationService.shared.blockUser(
-                UUID(uuidString: comment.authorId) ?? UUID()
-            )
         }
     }
 

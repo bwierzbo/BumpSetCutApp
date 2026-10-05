@@ -82,6 +82,19 @@ final class CommentsViewModel {
         isSending = false
     }
 
+    /// Delete one of your own comments. Removed immediately; restored in place
+    /// if the server refuses.
+    func deleteComment(_ comment: Comment) async {
+        guard let index = comments.firstIndex(where: { $0.id == comment.id }) else { return }
+        comments.remove(at: index)
+        do {
+            let _: EmptyResponse = try await apiClient.request(.deleteComment(id: comment.id))
+        } catch {
+            comments.insert(comment, at: min(index, comments.count))
+            actionError = "Couldn't delete comment"
+        }
+    }
+
     func toggleCommentLike(_ comment: Comment) async {
         guard let index = comments.firstIndex(where: { $0.id == comment.id }) else { return }
         let wasLiked = comments[index].isLikedByMe

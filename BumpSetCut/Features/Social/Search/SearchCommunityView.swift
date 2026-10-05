@@ -10,9 +10,6 @@ import SwiftUI
 struct SearchCommunityView: View {
     @State private var viewModel = SearchCommunityViewModel()
     @State private var selectedHighlight: Highlight?
-    @State private var selectedHighlightForComments: Highlight?
-    @State private var sendRequest: SendToRequest?
-    @State private var sendToast: BSCToastMessage?
     @Environment(AuthenticationService.self) private var authService
     @Environment(AppNavigationState.self) private var navigationState
 
@@ -61,14 +58,7 @@ struct SearchCommunityView: View {
             consumePendingSearch(navigationState.pendingSearchQuery)
         }
         .fullScreenCover(item: $selectedHighlight) { highlight in
-            highlightDetail(highlight)
-                .commentsPanel(item: $selectedHighlightForComments)
-                .sheet(item: $sendRequest) { request in
-                    SendToSheet(highlight: request.highlight) { conversationId, username in
-                        sendToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
-                    }
-                }
-                .bscToast($sendToast)
+            HighlightDetailCover(highlight: highlight) { selectedHighlight = nil }
         }
     }
 
@@ -192,6 +182,10 @@ struct SearchCommunityView: View {
                 ProgressView()
                     .tint(.bscPrimary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewModel.searchFailed {
+                BSCEmptyState.loadFailed {
+                    Task { await viewModel.performSearch() }
+                }
             } else {
                 switch viewModel.searchScope {
                 case .users:
@@ -218,16 +212,34 @@ struct SearchCommunityView: View {
                         .buttonStyle(.plain)
                     }
 
-                    if viewModel.hasMorePages {
-                        ProgressView()
-                            .tint(.bscPrimary)
-                            .padding()
-                            .onAppear {
-                                Task { await viewModel.loadMore() }
-                            }
-                    }
+                    nextPageFooter
                 }
             }
+        }
+    }
+
+    /// Spinner that pulls the next page in, or a retry row once that failed.
+    @ViewBuilder
+    private var nextPageFooter: some View {
+        if viewModel.loadMoreFailed {
+            Button {
+                Task { await viewModel.loadMore() }
+            } label: {
+                Text("Couldn't load more — tap to retry")
+                    .bscFont(size: 13, weight: .medium)
+                    .foregroundColor(.bscPrimaryText)
+                    .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.vertical, BSCSpacing.sm)
+        } else if viewModel.hasMorePages {
+            ProgressView()
+                .tint(.bscPrimary)
+                .padding()
+                .onAppear {
+                    Task { await viewModel.loadMore() }
+                }
         }
     }
 
@@ -274,21 +286,9 @@ struct SearchCommunityView: View {
     }
 
     private func followButton(for user: UserProfile) -> some View {
-        let isFollowing = viewModel.isFollowing(user.id)
-        return Button {
+        FollowButton(isFollowing: viewModel.isFollowing(user.id)) {
             Task { await viewModel.toggleFollow(for: user.id) }
-        } label: {
-            Text(isFollowing ? "Following" : "Follow")
-                .bscFont(size: 12, weight: .semibold)
-                .foregroundColor(isFollowing ? .bscTextPrimary : .bscOnPrimary)
-                .padding(.horizontal, BSCSpacing.md)
-                .padding(.vertical, 6)
-                .background(isFollowing ? Color.bscSurfaceGlass : Color.bscPrimaryFill)
-                .clipShape(Capsule())
-                .frame(minHeight: BSCTouchTarget.standard)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Posts
@@ -311,14 +311,7 @@ struct SearchCommunityView: View {
                 }
                 .padding(.horizontal, BSCSpacing.xs)
 
-                if viewModel.hasMorePages {
-                    ProgressView()
-                        .tint(.bscPrimary)
-                        .padding()
-                        .onAppear {
-                            Task { await viewModel.loadMore() }
-                        }
-                }
+                nextPageFooter
             }
         }
     }
@@ -333,14 +326,14 @@ struct SearchCommunityView: View {
                 .frame(width: geo.size.width, height: geo.size.width)
                 .clipped()
 
-                HStack(spacing: 4) {
-                    HStack(spacing: 2) {
+                HStack(spacing: BSCSpacing.xs) {
+                    HStack(spacing: BSCSpacing.xxs) {
                         Image(systemName: "heart.fill")
                             .bscFont(size: 9)
                         Text("\(highlight.likesCount)")
                             .bscFont(size: 9, weight: .medium)
                     }
-                    HStack(spacing: 2) {
+                    HStack(spacing: BSCSpacing.xxs) {
                         Image(systemName: "bubble.right.fill")
                             .bscFont(size: 9)
                         Text("\(highlight.commentsCount)")
@@ -348,8 +341,8 @@ struct SearchCommunityView: View {
                     }
                 }
                 .foregroundColor(.bscOnMedia)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 3)
+                .padding(.horizontal, BSCSpacing.xs)
+                .padding(.vertical, BSCSpacing.xxs)
                 .background(Color.bscMediaScrim)
                 .clipShape(Capsule())
                 .padding(BSCSpacing.xs)
@@ -367,39 +360,8 @@ struct SearchCommunityView: View {
             .bscFont(size: 15)
             .foregroundColor(.bscTextSecondary)
             .frame(maxWidth: .infinity)
-            .padding(.top, 60)
+            .padding(.top, BSCSpacing.huge)
             .accessibilityIdentifier(AccessibilityID.Search.emptyResult)
-    }
-
-    // MARK: - Highlight Detail
-
-    private func highlightDetail(_ highlight: Highlight) -> some View {
-        ZStack {
-            HighlightCardView(
-                highlight: highlight,
-                onLike: {},
-                onComment: {
-                    selectedHighlightForComments = highlight
-                },
-                onProfile: { _ in },
-                onSend: authService.isAuthenticated
-                    ? { sendRequest = SendToRequest(highlight: highlight) }
-                    : nil
-            )
-
-            VStack {
-                HStack {
-                    Spacer()
-                    // xs outer padding keeps the icon visually 12pt from the edge
-                    // (the component's 44pt hit frame supplies the other 8pt).
-                    BSCMediaCloseButton {
-                        selectedHighlight = nil
-                    }
-                    .padding(BSCSpacing.xs)
-                }
-                Spacer()
-            }
-        }
     }
 }
 

@@ -16,6 +16,11 @@ struct AuthGateView: View {
     @State private var showForgotPassword = false
     @State private var isPasswordVisible = false
     @State private var isConfirmPasswordVisible = false
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case username, email, password, confirmPassword
+    }
 
     var onSkip: (() -> Void)? = nil
 
@@ -62,7 +67,7 @@ struct AuthGateView: View {
                         ProgressView()
                             .tint(.bscPrimary)
                             .scaleEffect(1.2)
-                            .frame(height: 50)
+                            .frame(minHeight: 50)
                     } else {
                         // Social sign-in
                         SignInWithAppleButton(.continue) { request in
@@ -90,8 +95,7 @@ struct AuthGateView: View {
                                     .bscFont(size: 16, weight: .semibold)
                             }
                             .foregroundColor(colorScheme == .dark ? Color(hex: "#E3E3E3") : Color(hex: "#1F1F1F"))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
+                            .frame(maxWidth: .infinity, minHeight: 50)
                             .background(colorScheme == .dark ? Color(hex: "#131314") : .white)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                             .overlay(
@@ -116,19 +120,12 @@ struct AuthGateView: View {
 
                         // Primary email action
                         Button {
-                            Task {
-                                if viewModel?.isSignUpMode == true {
-                                    await viewModel?.signUpWithEmail()
-                                } else {
-                                    await viewModel?.signInWithEmail()
-                                }
-                            }
+                            submitEmailForm()
                         } label: {
                             Text(viewModel?.isSignUpMode == true ? "Sign Up" : "Sign In")
                                 .bscFont(size: 16, weight: .semibold)
                                 .foregroundColor(.bscOnPrimary)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
+                                .frame(maxWidth: .infinity, minHeight: 50)
                                 .background(Color.bscPrimaryFill)
                                 .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                         }
@@ -225,7 +222,11 @@ struct AuthGateView: View {
                         .bscFont(size: 17)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .textContentType(.oneTimeCode)
+                        // The public handle, not the sign-in identifier (that's
+                        // the email), so no AutoFill content type.
+                        .focused($focusedField, equals: .username)
+                        .submitLabel(.next)
+                        .onSubmit { advance(from: .username) }
                         .accessibilityIdentifier(AccessibilityID.AuthGate.usernameField)
                         .onChange(of: viewModel?.username ?? "") { _, _ in
                             viewModel?.usernameChanged()
@@ -258,10 +259,15 @@ struct AuthGateView: View {
                     set: { viewModel?.email = $0 }
                 ))
                 .bscFont(size: 17)
-                .textContentType(.emailAddress)
+                // The account identifier: .username is what Password AutoFill
+                // pairs with the password field to fill and save credentials.
+                .textContentType(.username)
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($focusedField, equals: .email)
+                .submitLabel(.next)
+                .onSubmit { advance(from: .email) }
                 .accessibilityIdentifier(AccessibilityID.AuthGate.emailField)
             }
 
@@ -273,20 +279,15 @@ struct AuthGateView: View {
                         set: { viewModel?.password = $0 }
                     ),
                     isVisible: $isPasswordVisible,
+                    field: .password,
                     accessibilityID: AccessibilityID.AuthGate.passwordField
                 )
             }
 
             // Password requirements (sign-up only)
             if viewModel?.isSignUpMode == true, let vm = viewModel, !vm.password.isEmpty {
-                VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                    passwordReq("8+ characters", met: vm.hasMinLength)
-                    passwordReq("One uppercase letter", met: vm.hasUppercase)
-                    passwordReq("One number", met: vm.hasNumber)
-                    passwordReq("One symbol", met: vm.hasSymbol)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, BSCSpacing.xxs)
+                PasswordRequirementsList(password: vm.password)
+                    .padding(.top, BSCSpacing.xxs)
             }
 
             // Confirm password (sign-up only)
@@ -299,6 +300,7 @@ struct AuthGateView: View {
                             set: { viewModel?.confirmPassword = $0 }
                         ),
                         isVisible: $isConfirmPasswordVisible,
+                        field: .confirmPassword,
                         accessibilityID: AccessibilityID.AuthGate.confirmPasswordField
                     )
                 }
@@ -342,7 +344,7 @@ struct AuthGateView: View {
     private func fieldContainer<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
             .padding(.horizontal, BSCSpacing.md)
-            .padding(.vertical, 14)
+            .padding(.vertical, BSCSpacing.md)
             .background(Color.bscBackgroundElevated)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
             .overlay(
@@ -356,6 +358,7 @@ struct AuthGateView: View {
         placeholder: String,
         text: Binding<String>,
         isVisible: Binding<Bool>,
+        field: Field,
         accessibilityID: String
     ) -> some View {
         HStack(spacing: BSCSpacing.sm) {
@@ -367,9 +370,13 @@ struct AuthGateView: View {
                 }
             }
             .bscFont(size: 17)
-            .textContentType(.oneTimeCode)
+            // Sign-up offers a strong password; sign-in fills the saved one.
+            .textContentType(viewModel?.isSignUpMode == true ? .newPassword : .password)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .focused($focusedField, equals: field)
+            .submitLabel(isLastField(field) ? .go : .next)
+            .onSubmit { advance(from: field) }
             .accessibilityIdentifier(accessibilityID)
 
             Button {
@@ -386,14 +393,36 @@ struct AuthGateView: View {
         }
     }
 
-    private func passwordReq(_ label: String, met: Bool) -> some View {
-        HStack(spacing: BSCSpacing.xs) {
-            Image(systemName: met ? "checkmark.circle.fill" : "circle")
-                .bscFont(size: 12)
-                .foregroundColor(met ? .bscSuccessText : .bscTextSecondary)
-            Text(label)
-                .bscFont(size: 12)
-                .foregroundColor(.bscTextSecondary)
+    // MARK: - Keyboard Flow
+
+    private var fieldOrder: [Field] {
+        viewModel?.isSignUpMode == true
+            ? [.username, .email, .password, .confirmPassword]
+            : [.email, .password]
+    }
+
+    private func isLastField(_ field: Field) -> Bool {
+        fieldOrder.last == field
+    }
+
+    /// Return moves to the next field; on the last one it submits.
+    private func advance(from field: Field) {
+        if let index = fieldOrder.firstIndex(of: field), index + 1 < fieldOrder.count {
+            focusedField = fieldOrder[index + 1]
+        } else {
+            submitEmailForm()
+        }
+    }
+
+    private func submitEmailForm() {
+        guard let viewModel, viewModel.isEmailFormValid else { return }
+        focusedField = nil
+        Task {
+            if viewModel.isSignUpMode {
+                await viewModel.signUpWithEmail()
+            } else {
+                await viewModel.signInWithEmail()
+            }
         }
     }
 }

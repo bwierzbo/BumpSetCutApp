@@ -153,29 +153,15 @@ final class SocialFeedViewModel {
     // MARK: - Interactions
 
     func toggleLike(for highlight: Highlight) async {
-        guard let index = highlights.firstIndex(where: { $0.id == highlight.id }) else { return }
-
-        // Optimistic update
-        let wasLiked = highlights[index].isLikedByMe
-        highlights[index].isLikedByMe = !wasLiked
-        highlights[index].likesCount += wasLiked ? -1 : 1
-
-        do {
-            if wasLiked {
-                let _: EmptyResponse = try await apiClient.request(.unlikeHighlight(id: highlight.id))
-            } else {
-                let _: EmptyResponse = try await apiClient.request(.likeHighlight(id: highlight.id))
+        guard highlights.contains(where: { $0.id == highlight.id }) else { return }
+        // Re-resolved by id on each update — a pre-await index can be stale
+        // (feed switched, post deleted/prepended) and corrupt another post.
+        let succeeded = await HighlightLikeToggle.toggle(highlight, apiClient: apiClient) { id, mutate in
+            if let index = highlights.firstIndex(where: { $0.id == id }) {
+                mutate(&highlights[index])
             }
-        } catch {
-            // Revert on failure — re-resolve by id; the pre-await index can be
-            // stale (feed switched, post deleted/prepended) and would crash or
-            // corrupt another post's like state
-            if let idx = highlights.firstIndex(where: { $0.id == highlight.id }) {
-                highlights[idx].isLikedByMe = wasLiked
-                highlights[idx].likesCount += wasLiked ? 1 : -1
-            }
-            actionError = "Couldn't update like"
         }
+        if !succeeded { actionError = "Couldn't update like" }
     }
 
     // MARK: - Poll Voting

@@ -13,7 +13,7 @@ struct ConversationView: View {
     @State private var toast: BSCToastMessage?
     @State private var showLeaveConfirm = false
     @State private var reportingMessage: DirectMessage?
-    @State private var blockingUser = false
+    @State private var blockTarget: BlockTarget?
     /// Attach one of your posts.
     @State private var showingMyPosts = false
     @FocusState private var isComposerFocused: Bool
@@ -68,13 +68,7 @@ struct ConversationView: View {
                 onCancel: { showingMyPosts = false }
             )
         }
-        .blockUserAlert(
-            isPresented: $blockingUser,
-            username: viewModel.otherUser?.username ?? "user",
-            userId: UUID(uuidString: viewModel.otherUser?.id ?? "") ?? UUID()
-        ) {
-            try await ModerationService.shared.blockUser(UUID(uuidString: viewModel.otherUser?.id ?? "") ?? UUID())
-        }
+        .blockUserAlert(target: $blockTarget)
         .confirmationDialog("Leave this conversation?", isPresented: $showLeaveConfirm, titleVisibility: .visible) {
             Button("Leave", role: .destructive) {
                 Task { if await viewModel.leave() { dismiss() } }
@@ -111,7 +105,7 @@ struct ConversationView: View {
                         Label("View Profile", systemImage: "person")
                     }
                     Button(role: .destructive) {
-                        blockingUser = true
+                        blockTarget = BlockTarget(userId: other.id, username: other.username)
                     } label: {
                         Label("Block @\(other.username)", systemImage: "hand.raised")
                     }
@@ -185,7 +179,7 @@ struct ConversationView: View {
     private func daySeparator(_ day: Date) -> some View {
         Text(dayLabel(day))
             .bscFont(size: 11, weight: .medium)
-            .foregroundColor(.bscTextTertiary)
+            .foregroundColor(.bscTextSecondary)
             .padding(.horizontal, BSCSpacing.md)
             .padding(.vertical, BSCSpacing.xxs)
             .background(Capsule().fill(Color.bscSurfaceGlass))

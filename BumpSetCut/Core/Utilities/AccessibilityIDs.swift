@@ -131,7 +131,7 @@ enum AccessibilityID {
         static let emptyState = "feed.emptyState"
         static let refreshButton = "feed.refresh"
         static let commentButton = "feed.comment"
-        static let profileBack = "feed.profileBack"
+        static let profileDone = "feed.profileDone"
         static let sendButton = "feed.send"
     }
 

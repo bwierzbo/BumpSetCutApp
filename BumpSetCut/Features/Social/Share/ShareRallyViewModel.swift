@@ -119,6 +119,13 @@ final class ShareRallyViewModel {
     var pollQuestion: String = ""
     var pollOptions: [PollOptionDraft] = [PollOptionDraft(), PollOptionDraft()]
 
+    /// Anything typed or picked that Cancel would throw away.
+    var hasDraftContent: Bool {
+        let hasText: (String) -> Bool = { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let hasPoll = includePoll && (hasText(pollQuestion) || pollOptions.contains { hasText($0.text) })
+        return hasText(caption) || pickedLocation != nil || hasPoll
+    }
+
     /// An option being typed. The id keeps each text field bound to its own
     /// option: fields bound by position crashed when an option was removed
     /// (the last field's index outlived the array).

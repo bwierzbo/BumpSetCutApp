@@ -30,7 +30,12 @@ struct BSCButton: View {
 
     // MARK: - Body
     var body: some View {
-        Button(action: action) {
+        Button {
+            // On the action, not on touch-down — a touch that's cancelled
+            // (scroll, drag off) shouldn't buzz.
+            UIImpactFeedbackGenerator.light()
+            action()
+        } label: {
             HStack(spacing: BSCSpacing.sm) {
                 if isLoading {
                     ProgressView()
@@ -164,11 +169,6 @@ private struct BSCButtonPressStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
             .brightness(configuration.isPressed ? -0.05 : 0)
             .animation(.bscQuick, value: configuration.isPressed)
-            .onChange(of: configuration.isPressed) { _, isPressed in
-                if isPressed {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                }
-            }
     }
 }
 

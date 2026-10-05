@@ -13,8 +13,7 @@ struct PaywallView: View {
     @State private var storeManager = StoreManager.shared
     @State private var subscriptionService = SubscriptionService.shared
     @State private var isPurchasing = false
-    @State private var errorMessage: String?
-    @State private var showError = false
+    @State private var failure: PaywallFailure?
 
     var body: some View {
         NavigationStack {
@@ -158,10 +157,17 @@ struct PaywallView: View {
                     .accessibilityLabel("Close")
                 }
             }
-            .alert("Error", isPresented: $showError) {
+            .alert(
+                failure?.title ?? "",
+                isPresented: Binding(
+                    get: { failure != nil },
+                    set: { if !$0 { failure = nil } }
+                ),
+                presenting: failure
+            ) { _ in
                 Button("OK", role: .cancel) {}
-            } message: {
-                Text(errorMessage ?? "Something went wrong")
+            } message: { failure in
+                Text(failure.message)
             }
         }
     }
@@ -197,8 +203,7 @@ struct PaywallView: View {
                 dismiss()
             }
         } catch {
-            errorMessage = error.localizedDescription
-            showError = true
+            failure = .purchase
         }
     }
 
@@ -213,12 +218,33 @@ struct PaywallView: View {
             if subscriptionService.isPro {
                 dismiss()
             } else {
-                errorMessage = "No active subscriptions found"
-                showError = true
+                failure = .nothingToRestore
             }
         } catch {
-            errorMessage = error.localizedDescription
-            showError = true
+            failure = .restore
+        }
+    }
+}
+
+/// What went wrong buying or restoring, phrased for the person paying.
+private enum PaywallFailure {
+    case purchase
+    case restore
+    case nothingToRestore
+
+    var title: String {
+        switch self {
+        case .purchase: return "Purchase Didn't Go Through"
+        case .restore: return "Couldn't Restore Purchases"
+        case .nothingToRestore: return "No Subscription Found"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .purchase: return "Your purchase couldn't be completed. Check your connection and try again."
+        case .restore: return "We couldn't reach the App Store. Check your connection and try again."
+        case .nothingToRestore: return "There's no active BumpSetCut Pro subscription on this Apple ID."
         }
     }
 }

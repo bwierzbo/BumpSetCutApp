@@ -26,6 +26,10 @@ final class SearchCommunityViewModel {
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
     private(set) var hasMorePages = true
+    /// The search itself failed — the view shows an error, not "No users found".
+    private(set) var searchFailed = false
+    /// The next page failed; the view offers a retry instead of a spinner.
+    private(set) var loadMoreFailed = false
     private(set) var followedUserIds: Set<String> = []
 
     private var currentPage = 0
@@ -85,6 +89,8 @@ final class SearchCommunityViewModel {
             users = []
             highlights = []
             hasMorePages = true
+            searchFailed = false
+            loadMoreFailed = false
             return
         }
 
@@ -108,6 +114,8 @@ final class SearchCommunityViewModel {
         guard !query.isEmpty, !isLoading else { return }
 
         isLoading = true
+        searchFailed = false
+        loadMoreFailed = false
         currentPage = 0
 
         do {
@@ -129,6 +137,7 @@ final class SearchCommunityViewModel {
             currentPage = 1
         } catch {
             print("⚠️ [SearchCommunityViewModel] performSearch(\(searchScope)) failed: \(error)")
+            searchFailed = true
         }
 
         isLoading = false
@@ -142,6 +151,7 @@ final class SearchCommunityViewModel {
         guard !query.isEmpty else { return }
 
         isLoadingMore = true
+        loadMoreFailed = false
         defer { isLoadingMore = false }
 
         do {
@@ -163,6 +173,7 @@ final class SearchCommunityViewModel {
             currentPage += 1
         } catch {
             print("⚠️ [SearchCommunityViewModel] loadMore(\(searchScope)) page \(currentPage) failed: \(error)")
+            loadMoreFailed = true
         }
     }
 
