@@ -343,6 +343,36 @@ final class YOLODetector {
 /// The ball models bundled with the apps. Processing uses `current` — the
 /// shipping model unless a debug build or TestFlight tester picks another
 /// to compare.
+/// How the ball is found — a debug choice like BallModel: YOLO alone, YOLO
+/// plus the balls the bundled multi-frame model finds that YOLO missed, or
+/// the multi-frame model alone (ProcessorConfig.heatmapModel / heatmapOnly).
+enum BallFinder: String, CaseIterable, Identifiable {
+    case yolo
+    case hybrid
+    case multiFrameOnly
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .yolo: return "YOLO"
+        case .hybrid: return "YOLO + multi-frame"
+        case .multiFrameOnly: return "Multi-frame only"
+        }
+    }
+
+    /// The multi-frame model this choice runs, nil for YOLO alone.
+    var heatmapModel: URL? {
+        self == .yolo ? nil : Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")
+    }
+
+    static let defaultsKey = "debugBallFinder"
+
+    static var current: BallFinder {
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(BallFinder.init(rawValue:)) ?? .yolo
+    }
+}
+
 enum BallModel: String, CaseIterable, Identifiable {
     case shipping = "ball_v2_small"
     /// Trained in RallyLab (Test1, 2,704 frames) at 1280 / 960.

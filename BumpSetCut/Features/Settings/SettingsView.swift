@@ -340,6 +340,11 @@ private extension SettingsView {
                     .overlay(Color.bscSurfaceBorder)
 
                 BallModelPicker()
+
+                Divider()
+                    .overlay(Color.bscSurfaceBorder)
+
+                BallFinderPicker()
             }
         }
     }
@@ -379,6 +384,11 @@ private extension SettingsView {
                     .overlay(Color.bscSurfaceBorder)
 
                 BallModelPicker()
+
+                Divider()
+                    .overlay(Color.bscSurfaceBorder)
+
+                BallFinderPicker()
             }
         }
     }
@@ -953,19 +963,48 @@ private struct BallModelPicker: View {
     @AppStorage(BallModel.defaultsKey) private var selection = BallModel.shipping.rawValue
 
     var body: some View {
+        DebugChoiceRow(title: "Ball Model", icon: "volleyball.fill",
+                       options: BallModel.allCases.map { ($0.rawValue, $0.title) },
+                       selection: $selection, accessibilityID: "settings.ballModel")
+    }
+}
+
+// MARK: - BallFinderPicker
+/// YOLO alone, YOLO plus the bundled multi-frame model, or the multi-frame
+/// model alone (BallFinder), for comparing them on device.
+private struct BallFinderPicker: View {
+    @AppStorage(BallFinder.defaultsKey) private var selection = BallFinder.yolo.rawValue
+
+    var body: some View {
+        DebugChoiceRow(title: "Ball Finder", icon: "scope",
+                       options: BallFinder.allCases.map { ($0.rawValue, $0.title) },
+                       selection: $selection, accessibilityID: "settings.ballFinder")
+    }
+}
+
+// MARK: - DebugChoiceRow
+/// A processing choice for testers: applies to videos processed from now on.
+private struct DebugChoiceRow: View {
+    let title: String
+    let icon: String
+    let options: [(value: String, title: String)]
+    @Binding var selection: String
+    let accessibilityID: String
+
+    var body: some View {
         HStack(spacing: BSCSpacing.md) {
             ZStack {
                 Circle()
                     .fill(Color.bscBlue.opacity(0.15))
                     .frame(width: 36, height: 36)
 
-                Image(systemName: "volleyball.fill")
+                Image(systemName: icon)
                     .bscFont(size: 16)
                     .foregroundColor(.bscBlue)
             }
 
             VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                Text("Ball Model")
+                Text(title)
                     .bscFont(size: 16, weight: .semibold)
                     .foregroundColor(.bscTextPrimary)
 
@@ -976,15 +1015,15 @@ private struct BallModelPicker: View {
 
             Spacer(minLength: BSCSpacing.sm)
 
-            Picker("Ball Model", selection: $selection) {
-                ForEach(BallModel.allCases) { model in
-                    Text(model.title).tag(model.rawValue)
+            Picker(title, selection: $selection) {
+                ForEach(options, id: \.value) { option in
+                    Text(option.title).tag(option.value)
                 }
             }
             .pickerStyle(.menu)
             .labelsHidden()
             .tint(.bscPrimary)
-            .accessibilityIdentifier("settings.ballModel")
+            .accessibilityIdentifier(accessibilityID)
         }
     }
 }

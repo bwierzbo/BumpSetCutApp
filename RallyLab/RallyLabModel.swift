@@ -200,6 +200,16 @@ final class RallyLabModel {
         }
     }
 
+    /// With a multi-frame model picked: it alone finds the ball, no YOLO.
+    /// Remembered across launches. Re-run to apply.
+    var heatmapOnly: Bool = UserDefaults.standard.bool(forKey: "RallyLab.pipelineHeatmapOnly") {
+        didSet {
+            UserDefaults.standard.set(heatmapOnly, forKey: "RallyLab.pipelineHeatmapOnly")
+            guard heatmapOnly != oldValue, heatmapModel != nil, !evidence.isEmpty else { return }
+            detectionConfigDirty = true
+        }
+    }
+
     /// The open dataset's multi-frame models, newest first.
     var heatmapModels: [URL] {
         guard let root = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return [] }
@@ -491,6 +501,7 @@ final class RallyLabModel {
         cfg.ballModel = ballModel
         cfg.applyVideoRotation = applyVideoRotation
         cfg.heatmapModel = heatmapModel.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+        cfg.heatmapOnly = heatmapOnly
         cfg.useScaleFitLetterbox = useScaleFitLetterbox
         cfg.adaptiveLetterbox = adaptiveLetterbox
         cfg.minGravitySignature = minGravitySignature

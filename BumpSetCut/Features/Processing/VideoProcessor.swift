@@ -175,6 +175,21 @@ final class VideoProcessor {
         }
     }
 
+    /// A Vision-normalised (bottom-left origin) box in the stored frame, in
+    /// the upright frame `orientation` turns it into — the space Vision
+    /// reports YOLO's boxes in when given that orientation.
+    static func upright(_ rect: CGRect, from orientation: CGImagePropertyOrientation) -> CGRect {
+        let (x, y) = (rect.midX, rect.midY)
+        let center: CGPoint, size: CGSize
+        switch orientation {
+        case .right: (center, size) = (CGPoint(x: y, y: 1 - x), CGSize(width: rect.height, height: rect.width))
+        case .left: (center, size) = (CGPoint(x: 1 - y, y: x), CGSize(width: rect.height, height: rect.width))
+        case .down: (center, size) = (CGPoint(x: 1 - x, y: 1 - y), rect.size)
+        default: return rect
+        }
+        return CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
+    }
+
     /// Load the configured ball model (if it isn't the one loaded) and set how
     /// frames are fitted into it: models trained on letterboxed frames get
     /// every frame letterboxed; the shipping model keeps the config's choice.
@@ -227,15 +242,19 @@ final class VideoProcessor {
 
     /// The multi-frame model's balls on the newest frame that YOLO didn't
     /// already find (a peak near a YOLO box is the same ball). The newest
-    /// frame is the last of the window: no waiting for frames ahead.
-    private func heatmapOnlyDetections(beside dets: [DetectionResult], at pts: CMTime) -> [DetectionResult] {
+    /// frame is the last of the window: no waiting for frames ahead. The
+    /// model reads frames as stored (as it was trained); its boxes are turned
+    /// into the `orientation` space YOLO's are in.
+    private func heatmapOnlyDetections(beside dets: [DetectionResult], at pts: CMTime,
+                                       orientation: CGImagePropertyOrientation) -> [DetectionResult] {
         guard let heat = heatDetector, heatFrames.count == heat.seq else { return [] }
         return heat.peaks(in: heatFrames, target: heat.seq - 1).compactMap { peak in
-            let c = CGPoint(x: peak.rect.midX, y: peak.rect.midY)
+            let rect = Self.upright(peak.rect, from: orientation)
+            let c = CGPoint(x: rect.midX, y: rect.midY)
             let known = dets.contains { d in
                 hypot(d.bbox.midX - c.x, (d.bbox.midY - c.y) * 9 / 16) < max(d.bbox.width, 0.012)
             }
-            return known ? nil : DetectionResult(bbox: peak.rect, confidence: peak.confidence, timestamp: pts)
+            return known ? nil : DetectionResult(bbox: rect, confidence: peak.confidence, timestamp: pts)
         }
     }
 
@@ -635,6 +654,9 @@ final class VideoProcessor {
             ).write(to: checkpointURL)
         }
 
+        // The multi-frame model finds the ball by itself; YOLO doesn't run.
+        let heatAlone = config.heatmapOnly && heatDetector != nil
+
         while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
 
@@ -649,7 +671,11 @@ final class VideoProcessor {
             // while tracking a ball, sparser when idle) so we never run
             // detection on every frame.
             let recommendedStride = tracker.recommendedStride(currentTime: pts)
-            let shouldProcess = (rawFrameIndex == 1) || (rawFrameIndex % recommendedStride == 0)
+            // The multi-frame model alone runs on exactly the frames it's fed
+            // (~30/s): a processed frame it hadn't seen would read as "no ball".
+            let shouldProcess = heatAlone
+                ? heatFresh
+                : (rawFrameIndex == 1) || (rawFrameIndex % recommendedStride == 0)
 
             // Skip detection/tracking on non-processed frames
             guard shouldProcess else {
@@ -663,11 +689,12 @@ final class VideoProcessor {
                 continue
             }
 
-            // Detect: YOLO, plus the multi-frame model's balls YOLO missed.
-            let yoloDets = detector.detect(in: pix, at: pts, orientation: frameOrientation)
-            // The multi-frame model sees frames as stored; its peaks only line up
-            // with YOLO's when no rotation is applied.
-            let heatDets = heatFresh && frameOrientation == .up ? heatmapOnlyDetections(beside: yoloDets, at: pts) : []
+            // Detect: YOLO, plus the multi-frame model's balls YOLO missed — or
+            // the multi-frame model alone (config.heatmapOnly).
+            let yoloDets = heatAlone ? [] : detector.detect(in: pix, at: pts, orientation: frameOrientation)
+            let heatDets = heatFresh
+                ? heatmapOnlyDetections(beside: yoloDets, at: pts, orientation: frameOrientation)
+                : []
             let dets = yoloDets + heatDets
 
             // Off-court rejection: drop detections laterally beyond the net posts

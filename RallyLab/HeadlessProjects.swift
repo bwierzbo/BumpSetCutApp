@@ -19,7 +19,8 @@
 //    RallyLab --project v3 --render-heat <clip> <seconds>  (side-by-side video of a tracked rally)
 //    RallyLab --project v3 --pipeline-compare <multi-frame model> <clip>…   (pipeline YOLO vs YOLO+multi-frame)
 //    RallyLab --project v3 --compare-color <clip>…          (pipeline on raw frames vs standard-colour frames)
-//    RallyLab --project v3 --score-rallies [clip…] [--rotate] (rally cutting vs your rally times; default: every fully marked video)
+//    RallyLab --project v3 --score-rallies [clip…] [--rotate] [--heat <multi-frame model> [--heat-only]]
+//             (rally cutting vs your rally times; default: every fully marked video, YOLO only)
 //    RallyLab --project v3 --diagnose-rallies <clip>… [--rotate] [--ball-model <name>]   (what the pipeline saw in each marked rally)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
@@ -121,6 +122,13 @@ enum HeadlessProjects {
                 var config = ProcessorConfig()
                 config.applyVideoRotation = args.contains("--rotate")
                 log("rotation \(config.applyVideoRotation ? "applied" : "not applied")")
+                if let key = value(after: "--heat", in: args) {
+                    config.heatmapModel = heatModel(key, in: library)
+                    config.heatmapOnly = args.contains("--heat-only")
+                    log("ball finder: \(config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame") (\(key))")
+                } else {
+                    log("ball finder: YOLO only")
+                }
                 var videos: [RallyCutScore.Video] = []
                 for session in sessions {
                     log("\(session.name) (\(session.split))…")
@@ -141,12 +149,7 @@ enum HeadlessProjects {
                 }
             }
             if ok, let i = args.firstIndex(of: "--pipeline-compare"), args.indices.contains(i + 2) {
-                library.heatmaps.reload()
-                let key = args[i + 1]
-                guard let model = library.heatmaps.models.first(where: { $0.name == key || $0.url.path == key })?.url else {
-                    log("❌ No multi-frame model \(key). Models: \(library.heatmaps.models.map(\.name).joined(separator: ", "))")
-                    exit(1)
-                }
+                let model = heatModel(args[i + 1], in: library)
                 for clip in args[(i + 2)...] where !clip.hasPrefix("--") {
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     log("\(clip) (\(session.split), \((session.tracks ?? []).filter(\.done).count) done tracked rallies)…")
@@ -330,6 +333,17 @@ enum HeadlessProjects {
             total = total * 60 + v
         }
         return total
+    }
+
+    /// A multi-frame model by name or path; exits when there's none.
+    @MainActor
+    private static func heatModel(_ key: String, in library: ModelLibrary) -> URL {
+        library.heatmaps.reload()
+        guard let model = library.heatmaps.models.first(where: { $0.name == key || $0.url.path == key })?.url else {
+            log("❌ No multi-frame model \(key). Models: \(library.heatmaps.models.map(\.name).joined(separator: ", "))")
+            exit(1)
+        }
+        return model
     }
 
     private static func value(after flag: String, in args: [String]) -> String? {

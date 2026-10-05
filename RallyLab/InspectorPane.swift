@@ -303,6 +303,13 @@ struct InspectorPane: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help("Run a multi-frame model (Models tab) alongside YOLO: the balls it finds that YOLO didn't go to the tracker too (drawn cyan). It sees the last 9 frames, so it finds moving balls YOLO misses and never fires on still ones. Re-run to apply.")
+                Toggle(isOn: $model.heatmapOnly) {
+                    Text("multi-frame only (no YOLO)").font(.system(.caption, design: .monospaced))
+                }
+                .toggleStyle(.checkbox)
+                .disabled(model.heatmapModel == nil)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("The multi-frame model alone finds the ball; YOLO doesn't run. It runs on every frame it's fed (about 30 a second). Re-run to apply.")
                 slider("detectionConf", value: $model.detectionConfidence, in: 0.1...0.95, format: "%.2f",
                        info: "Minimum YOLO confidence to keep a volleyball detection. Lower surfaces marginal/noisier detections (more recall); higher keeps only confident hits. Changes what the model detects, so it needs a re-run.")
                 Toggle(isOn: $model.adaptiveLetterbox) {

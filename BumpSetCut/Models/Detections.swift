@@ -131,8 +131,13 @@ struct ProcessorConfig {
     /// It sees the last 9 frames, so it finds the moving ball where YOLO's
     /// single frame can't (blur, far court, low contrast) and never fires on
     /// a still one. Its peaks YOLO didn't have are added to the tracker's
-    /// input. See HeatmapBallDetector.
-    var heatmapModel: URL? = nil
+    /// input. See HeatmapBallDetector. The app's default follows the debug
+    /// BallFinder choice; RallyLab sets its own.
+    var heatmapModel: URL? = BallFinder.current.heatmapModel
+
+    /// With `heatmapModel` set: the multi-frame model alone finds the ball —
+    /// YOLO doesn't run.
+    var heatmapOnly: Bool = BallFinder.current == .multiFrameOnly
 
     /// Letterbox frames into the model (`.scaleFit`) instead of stretching them
     /// (`.scaleFill`). Preserves aspect ratio so the ball stays round, matching

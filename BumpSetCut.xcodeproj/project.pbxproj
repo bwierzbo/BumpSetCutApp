@@ -79,6 +79,7 @@
 				Models/FlywheelContribution.swift,
 				Models/GameScoring.swift,
 				Models/ProcessingMetadata.swift,
+				Resources/ML/ball_heat.mlpackage,
 				Resources/ML/ball_rallylab_960.mlpackage,
 				Resources/ML/ball_rallylab_1280.mlpackage,
 				Resources/ML/ball_v2_small.mlpackage,
