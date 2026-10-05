@@ -121,14 +121,14 @@ enum RallyExportType: Identifiable {
         }
     }
 
-    var title: String {
+    var title: LocalizedStringResource {
         switch self {
         case .individual: return "Individual Clips"
         case .stitched: return "Stitched Video"
         }
     }
 
-    var description: String {
+    var description: LocalizedStringResource {
         switch self {
         case .individual: return "Export each rally as a separate video file"
         case .stitched: return "Combine all selected rallies into one video"

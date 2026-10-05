@@ -15,7 +15,7 @@ struct ReportMistakeSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     /// Reason codes mirror the labels offline relabelers care about.
-    private let reasons: [(code: String, label: String, icon: String)] = [
+    private let reasons: [(code: String, label: LocalizedStringResource, icon: String)] = [
         ("missed_ball", "Missed the ball", "circle.dashed"),
         ("missed_rally", "Missed a whole rally", "plus.viewfinder"),
         ("wrong_bounds", "Wrong start / end", "timeline.selection"),
@@ -57,7 +57,7 @@ struct ReportMistakeSheet: View {
                                         .bscFont(size: 16, weight: .medium)
                                         .foregroundColor(.bscTextPrimary)
                                     Spacer()
-                                    Image(systemName: "chevron.right")
+                                    Image(systemName: "chevron.forward")
                                         .bscFont(size: 13, weight: .semibold)
                                         .foregroundColor(.bscTextSecondary)
                                 }

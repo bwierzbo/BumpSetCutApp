@@ -28,7 +28,14 @@ struct GameExportSheet: View {
             }
         }
 
-        var label: String { rawValue.capitalized }
+        /// Raw values are persisted (AppStorage); this is the picker text.
+        var label: LocalizedStringResource {
+            switch self {
+            case .small: return LocalizedStringResource("Small", comment: "Scoreboard size option")
+            case .medium: return LocalizedStringResource("Medium", comment: "Scoreboard size option")
+            case .large: return LocalizedStringResource("Large", comment: "Scoreboard size option")
+            }
+        }
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -196,12 +203,13 @@ struct GameExportSheet: View {
             Circle()
                 .fill(Color(previewOverlay?.teamAColor ?? .systemOrange))
                 .frame(width: base * 0.7, height: base * 0.7)
-            Text("\(previewOverlay?.teamAName ?? "Team A") 0")
+            // Mirrors the burned-in overlay: team names are user data.
+            Text(verbatim: "\(previewOverlay?.teamAName ?? String(localized: "Team A")) \(0.formatted())")
                 .font(.system(size: base, weight: .bold))
-            Text("–")
+            Text(verbatim: "–")
                 .font(.system(size: base))
                 .opacity(0.6)
-            Text("0 \(previewOverlay?.teamBName ?? "Team B")")
+            Text(verbatim: "\(0.formatted()) \(previewOverlay?.teamBName ?? String(localized: "Team B"))")
                 .font(.system(size: base, weight: .bold))
             Circle()
                 .fill(Color(previewOverlay?.teamBColor ?? .systemTeal))
@@ -227,12 +235,13 @@ struct GameExportSheet: View {
         }
     }
 
-    private func positionButton(_ position: VideoExporter.ScoreboardPosition, label: String, icon: String) -> some View {
+    /// Corners of the video frame — literal positions, not reading direction.
+    private func positionButton(_ position: VideoExporter.ScoreboardPosition, label: LocalizedStringResource, icon: String) -> some View {
         let isSelected = scoreboardPosition == position
         return Button {
             scoreboardPositionRaw = position.rawValue
         } label: {
-            Label(label, systemImage: icon)
+            Label { Text(label) } icon: { Image(systemName: icon) }
                 .bscFont(size: 15, weight: isSelected ? .semibold : .regular)
                 .foregroundColor(isSelected ? .bscOnPrimary : .bscTextPrimary)
                 .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
@@ -413,7 +422,7 @@ struct GameExportSheet: View {
         let sourceBytes = clips.first.map { StorageChecker.getFileSize(at: $0.url) } ?? 0
         let storageCheck = StorageChecker.checkAvailableSpace(requiredBytes: max(sourceBytes, 100_000_000))
         if !storageCheck.isSufficient {
-            storageError = storageCheck.shortMessage ?? "Not enough storage space"
+            storageError = storageCheck.shortMessage ?? String(localized: "Not enough storage space")
             return
         }
 
@@ -451,7 +460,7 @@ struct GameExportSheet: View {
         } catch {
             cleanupOrphanedStitchFiles()
             if StorageChecker.isStorageError(error) {
-                storageError = "Your device ran out of storage during export. Free up space and try again."
+                storageError = String(localized: "Your device ran out of storage during export. Free up space and try again.")
             } else {
                 exportStatus = .failed(error.localizedDescription)
             }

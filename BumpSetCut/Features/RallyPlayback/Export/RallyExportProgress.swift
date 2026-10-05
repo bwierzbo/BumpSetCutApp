@@ -61,7 +61,7 @@ struct RallyExportProgress: View {
             }
             .padding(BSCSpacing.xl)
             .background(Color.bscBackground)
-            .navigationTitle(exportType.title)
+            .navigationTitle(Text(exportType.title))
             .navigationBarTitleDisplayMode(.inline)
         }
         .onAppear {
@@ -105,8 +105,8 @@ struct RallyExportProgress: View {
                 // Both modes surface a percentage so progress reads consistently;
                 // individual export also shows the rally count.
                 Text(exportType == .individual
-                     ? "\(exportedCount) of \(savedRallies.count) rallies · \(Int(exportProgress * 100))%"
-                     : "Combining rallies · \(Int(exportProgress * 100))%")
+                     ? "\(exportedCount) of \(savedRallies.count) rallies · \(exportProgress.formattedPercent())"
+                     : "Combining rallies · \(exportProgress.formattedPercent())")
                     .bscFont(size: 17)
                     .foregroundColor(.bscTextSecondary)
             }
@@ -257,7 +257,7 @@ struct RallyExportProgress: View {
         let storageCheck = StorageChecker.checkAvailableSpace(requiredBytes: estimatedOutputSize)
         if !storageCheck.isSufficient {
             await MainActor.run {
-                storageError = storageCheck.shortMessage ?? "Not enough storage space"
+                storageError = storageCheck.shortMessage ?? String(localized: "Not enough storage space")
                 isExporting = false
             }
             return
@@ -375,7 +375,7 @@ struct RallyExportProgress: View {
             cleanupOrphanedRallyFiles()
             await MainActor.run {
                 if StorageChecker.isStorageError(error) {
-                    storageError = "Your device ran out of storage during export. Free up space and try again."
+                    storageError = String(localized: "Your device ran out of storage during export. Free up space and try again.")
                 } else {
                     exportStatus = .failed(error.localizedDescription)
                 }
@@ -434,13 +434,13 @@ enum RallyExportStatus: Equatable {
     var message: String {
         switch self {
         case .preparing:
-            return "Preparing export..."
+            return String(localized: "Preparing export...")
         case .exporting:
-            return "Exporting rallies..."
+            return String(localized: "Exporting rallies...")
         case .completed:
-            return "Export complete!"
+            return String(localized: "Export complete!")
         case .failed(let error):
-            return "Export failed: \(error)"
+            return String(localized: "Export failed: \(error)", comment: "%@ is the underlying error message")
         }
     }
 }

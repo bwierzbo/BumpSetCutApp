@@ -205,7 +205,7 @@ struct RallyPlayerView: View {
             )) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(viewModel.shareErrorMessage ?? "Couldn't prepare the clip for sharing.")
+                viewModel.shareErrorMessage.map { Text(verbatim: $0) } ?? Text("Couldn't prepare the clip for sharing.")
             }
             .sheet(isPresented: $showReportMistake) {
                 ReportMistakeSheet { reason in
@@ -656,7 +656,7 @@ struct RallyPlayerView: View {
                     start: CMTime(seconds: rally.startTime, preferredTimescale: 600),
                     duration: CMTime(seconds: duration, preferredTimescale: 600)
                 ),
-                displayName: "Rally \(index + 1)",
+                displayName: String(localized: "Rally \(index + 1)", comment: "Name of a rally clip; the number is its position in the video"),
                 duration: duration,
                 isPosted: viewModel.postedRallies.contains(index)
             )
@@ -693,10 +693,9 @@ enum RallyPickerPurpose {
 
     /// Confirm-button label — the flows finish with different verbs.
     func confirmTitle(_ count: Int) -> String {
-        let noun = count == 1 ? "Rally" : "Rallies"
         switch self {
-        case .post: return "Post \(count) \(noun)"
-        case .export: return "Export \(count) \(noun)"
+        case .post: return String(localized: "Post \(count) Rallies", comment: "Picker confirm button; plural on the count")
+        case .export: return String(localized: "Export \(count) Rallies", comment: "Picker confirm button; plural on the count")
         }
     }
 }

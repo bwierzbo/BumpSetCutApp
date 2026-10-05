@@ -37,8 +37,8 @@ struct GameScoring: Codable, Equatable {
     var setBreaks: Set<Int>
 
     init(
-        teamA: GameTeam = GameTeam(name: "Home", colorHex: "#F97316"),
-        teamB: GameTeam = GameTeam(name: "Away", colorHex: "#3B82F6"),
+        teamA: GameTeam = GameTeam(name: String(localized: "gameScoring.defaultTeamA", defaultValue: "Home", comment: "Default name of the first team when scoring a game (the home team)"), colorHex: "#F97316"),
+        teamB: GameTeam = GameTeam(name: String(localized: "gameScoring.defaultTeamB", defaultValue: "Away", comment: "Default name of the second team when scoring a game (the away team)"), colorHex: "#3B82F6"),
         pointWinners: [Int: GamePointWinner] = [:],
         setBreaks: Set<Int> = []
     ) {

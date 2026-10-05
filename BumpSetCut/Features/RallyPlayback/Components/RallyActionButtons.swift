@@ -33,7 +33,7 @@ struct RallyActionButtons: View {
                 action: onRemove
             )
             .accessibilityLabel("Remove rally")
-            .accessibilityValue(isRemoved ? "Removed" : "")
+            .accessibilityValue(isRemoved ? Text("Removed") : Text(verbatim: ""))
             .accessibilityAddTraits(isRemoved ? .isSelected : [])
             .accessibilityIdentifier(AccessibilityID.RallyPlayer.remove)
             .id("remove-\(isRemoved)")
@@ -191,7 +191,7 @@ struct RallyActionFeedbackView: View {
     /// Optional tappable action appended to the toast capsule (e.g. "Choose
     /// Folder" on a favorite). When nil the toast is purely visual and lets
     /// every touch pass through to the player.
-    var actionLabel: String? = nil
+    var actionLabel: LocalizedStringResource? = nil
     var onAction: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

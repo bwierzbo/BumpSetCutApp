@@ -173,7 +173,7 @@ struct RallyTimelineView: View {
                 Text("Edit Rallies")
                     .bscFont(size: 16, weight: .semibold)
                     .foregroundColor(.bscOnMedia)
-                Text("\(viewModel.segments.count) \(viewModel.segments.count == 1 ? "rally" : "rallies")")
+                Text("\(viewModel.segments.count) rallies", comment: "Timeline editor subtitle; plural on the count")
                     .bscFont(size: 12)
                     .foregroundColor(.bscOnMedia)
             }
@@ -220,10 +220,10 @@ struct RallyTimelineView: View {
 
     private var timeReadout: some View {
         HStack(spacing: BSCSpacing.sm) {
-            Text(timeString(viewModel.playhead))
+            Text(verbatim: viewModel.playhead.formattedClock())
                 .bscFont(size: 14, weight: .semibold, design: .monospaced)
                 .foregroundColor(.bscOnMedia)
-            Text("/ \(timeString(viewModel.videoDuration))")
+            Text(verbatim: "/ " + viewModel.videoDuration.formattedClock())
                 .bscFont(size: 14, design: .monospaced)
                 .foregroundColor(.bscOnMedia)
         }
@@ -256,7 +256,7 @@ struct RallyTimelineView: View {
                         // (the playhead itself adjusts finely).
                         .accessibilityElement()
                         .accessibilityLabel("Timeline")
-                        .accessibilityValue(timeString(viewModel.playhead))
+                        .accessibilityValue(viewModel.playhead.formattedSpokenDuration())
                         .accessibilityAdjustableAction { direction in
                             movePlayhead(to: viewModel.playhead + (direction == .increment ? coarseSeekStep : -coarseSeekStep))
                         }
@@ -277,6 +277,9 @@ struct RallyTimelineView: View {
                 .padding(.horizontal, horizontalInset)
             }
         }
+        // Everything is placed by .offset(x:) from the leading edge, and time
+        // runs left→right in every language — never mirror the strip.
+        .environment(\.layoutDirection, .leftToRight)
     }
 
     @ViewBuilder
@@ -290,7 +293,7 @@ struct RallyTimelineView: View {
                     Rectangle()
                         .fill(Color.bscOnMedia.opacity(0.25))
                         .frame(width: 1, height: 8)
-                    Text(timeString(time))
+                    Text(verbatim: time.formattedClock())
                         .bscFont(size: 9, design: .monospaced)
                         .foregroundColor(.bscOnMediaSecondary)
                 }
@@ -319,7 +322,8 @@ struct RallyTimelineView: View {
                     Image(systemName: "hand.raised.fill")
                         .bscFont(size: 8)
                 }
-                Text("\(Int(segment.duration.rounded()))s")
+                Text(verbatim: Duration.seconds(Int(segment.duration.rounded()))
+                    .formatted(.units(allowed: [.seconds], width: .narrow)))
                     .bscFont(size: 10, weight: .semibold, design: .monospaced)
             }
             .foregroundColor(.bscOnMedia)
@@ -330,8 +334,9 @@ struct RallyTimelineView: View {
         .offset(x: x)
         .onTapGesture { toggleSelection(segment) }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Rally \(number)\(segment.isManual ? ", added manually" : "")")
-        .accessibilityValue("\(timeString(segment.start)) to \(timeString(segment.end)), \(Int(segment.duration.rounded())) seconds")
+        .accessibilityLabel(segment.isManual ? Text("Rally \(number), added manually") : Text("Rally \(number)"))
+        .accessibilityValue(Text("\(segment.start.formattedSpokenDuration()) to \(segment.end.formattedSpokenDuration()), \(segment.duration.rounded().formattedSpokenDuration())",
+                                 comment: "Timeline rally VoiceOver value: start time to end time, length"))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityHint(isSelected ? "Deselects the rally" : "Selects the rally to edit its edges")
         .accessibilityAction { toggleSelection(segment) }
@@ -409,7 +414,7 @@ struct RallyTimelineView: View {
             )
             .accessibilityElement()
             .accessibilityLabel(edge == .leading ? "Rally start" : "Rally end")
-            .accessibilityValue(timeString(edge == .leading ? segment.start : segment.end))
+            .accessibilityValue((edge == .leading ? segment.start : segment.end).formattedSpokenDuration())
             .accessibilityAdjustableAction { direction in
                 let step = direction == .increment ? edgeAdjustStep : -edgeAdjustStep
                 let current = edge == .leading ? segment.start : segment.end
@@ -444,7 +449,7 @@ struct RallyTimelineView: View {
         )
         .accessibilityElement()
         .accessibilityLabel("Playhead")
-        .accessibilityValue(timeString(viewModel.playhead))
+        .accessibilityValue(viewModel.playhead.formattedSpokenDuration())
         .accessibilityAdjustableAction { direction in
             movePlayhead(to: viewModel.playhead + (direction == .increment ? fineSeekStep : -fineSeekStep))
         }
@@ -562,10 +567,5 @@ struct RallyTimelineView: View {
                 viewModel.playhead = CMTimeGetSeconds(time)
             }
         }
-    }
-
-    private func timeString(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }

@@ -34,7 +34,7 @@ struct AdjustmentPropagationPrompt: View {
                         .foregroundColor(.bscTextPrimary)
                         .multilineTextAlignment(.center)
 
-                    Text("Apply \(changeDescription) to this rally and every rally after it?")
+                    Text(question)
                         .bscFont(size: 14)
                         .foregroundColor(.bscTextSecondary)
                         .multilineTextAlignment(.center)
@@ -80,15 +80,24 @@ struct AdjustmentPropagationPrompt: View {
         return "rotate.right.fill"
     }
 
-    /// Human description of what changed, e.g. "this +2.5° rotation and 1.4× zoom".
-    private var changeDescription: String {
-        var parts: [String] = []
-        if let rotation { parts.append(String(format: "this %+.1f° rotation", rotation)) }
-        if let zoom { parts.append(String(format: "%.1f× zoom", zoom)) }
-        switch parts.count {
-        case 0: return "this adjustment"
-        case 1: return parts[0]
-        default: return parts.joined(separator: " and ")
+    /// One whole sentence per combination of what changed, e.g. "Apply this
+    /// +2.5° rotation and 1.4× zoom to this rally and every rally after it?"
+    private var question: LocalizedStringResource {
+        switch (rotation, zoom) {
+        case let (rotation?, zoom?):
+            return LocalizedStringResource(
+                "Apply this \(rotation.formattedSignedDegrees()) rotation and \(zoom.formattedMultiplier()) zoom to this rally and every rally after it?",
+                comment: "Propagation prompt; first %@ is an angle like +2.5°, second a zoom like 1.4×")
+        case let (rotation?, nil):
+            return LocalizedStringResource(
+                "Apply this \(rotation.formattedSignedDegrees()) rotation to this rally and every rally after it?",
+                comment: "Propagation prompt; %@ is an angle like +2.5°")
+        case let (nil, zoom?):
+            return LocalizedStringResource(
+                "Apply \(zoom.formattedMultiplier()) zoom to this rally and every rally after it?",
+                comment: "Propagation prompt; %@ is a zoom factor like 1.4×")
+        case (nil, nil):
+            return "Apply this adjustment to this rally and every rally after it?"
         }
     }
 }

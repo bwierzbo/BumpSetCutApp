@@ -91,16 +91,16 @@ struct RallyPlayerOverlay: View {
                         .foregroundColor(.bscOnMedia)
                 }
 
-                Text("\(currentIndex + 1)")
+                Text(verbatim: (currentIndex + 1).formatted())
                     .bscFont(size: 16, weight: .bold)
                     .foregroundColor(.bscOnMedia)
                     .contentTransition(.numericText())
 
-                Text("/")
+                Text(verbatim: "/")
                     .bscFont(size: 14)
                     .foregroundColor(.bscOnMedia)
 
-                Text("\(totalCount)")
+                Text(verbatim: totalCount.formatted())
                     .bscFont(size: 14, weight: .medium)
                     .foregroundColor(.bscOnMedia)
 
@@ -122,7 +122,7 @@ struct RallyPlayerOverlay: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Rally \(currentIndex + 1) of \(totalCount)")
+        .accessibilityLabel(Text("Rally \(currentIndex + 1) of \(totalCount)"))
         .accessibilityValue(statusDescription)
         .accessibilityHint("Shows the rally overview")
         .accessibilityAction { onShowOverview() }
@@ -136,10 +136,12 @@ struct RallyPlayerOverlay: View {
     /// Spoken status — the border color alone carries it visually.
     private var statusDescription: String {
         var parts: [String] = []
-        if isSaved { parts.append("Saved") }
-        if isRemoved { parts.append("Removed") }
-        if isFavorited { parts.append("Favorited") }
-        return parts.isEmpty ? "Not reviewed" : parts.joined(separator: ", ")
+        if isSaved { parts.append(String(localized: "Saved", comment: "Rally review status")) }
+        if isRemoved { parts.append(String(localized: "Removed", comment: "Rally review status")) }
+        if isFavorited { parts.append(String(localized: "Favorited", comment: "Rally review status")) }
+        return parts.isEmpty
+            ? String(localized: "Not reviewed", comment: "Rally review status")
+            : parts.formatted(.list(type: .and, width: .narrow))
     }
 
     private var statusBorderColor: Color {

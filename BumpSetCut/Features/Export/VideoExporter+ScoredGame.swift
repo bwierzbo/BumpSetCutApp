@@ -106,17 +106,18 @@ extension VideoExporter {
 
         let line = NSMutableAttributedString()
         line.append(NSAttributedString(string: "● ", attributes: [.font: font, .foregroundColor: overlay.teamAColor]))
-        line.append(NSAttributedString(string: "\(overlay.teamAName)  \(overlay.state.scoreA)",
+        line.append(NSAttributedString(string: "\(overlay.teamAName)  \(overlay.state.scoreA.formatted())",
                                        attributes: [.font: font, .foregroundColor: UIColor.white]))
         line.append(NSAttributedString(string: " – ",
                                        attributes: [.font: font, .foregroundColor: UIColor.white.withAlphaComponent(0.6)]))
-        line.append(NSAttributedString(string: "\(overlay.state.scoreB)  \(overlay.teamBName)",
+        line.append(NSAttributedString(string: "\(overlay.state.scoreB.formatted())  \(overlay.teamBName)",
                                        attributes: [.font: font, .foregroundColor: UIColor.white]))
         line.append(NSAttributedString(string: " ●", attributes: [.font: font, .foregroundColor: overlay.teamBColor]))
 
         if overlay.showsSets {
             line.append(NSAttributedString(
-                string: "   Sets \(overlay.state.setsA)–\(overlay.state.setsB)",
+                string: "   " + String(localized: "Sets \(overlay.state.setsA)–\(overlay.state.setsB)",
+                                         comment: "Burned-in scoreboard: sets won by each team, e.g. Sets 1–0"),
                 attributes: [.font: subFont, .foregroundColor: UIColor.white.withAlphaComponent(0.75)]
             ))
         }

@@ -69,12 +69,12 @@ struct GestureTipsOverlay: View {
             // offsets, so they can't overlap the title or clip at large text).
             VStack(spacing: compact ? BSCSpacing.sm : BSCSpacing.lg) {
                 // UP arrow - Favorite
-                GestureArrow(direction: .up, label: "Favorite", icon: "star.fill", color: .bscPrimary)
+                GestureArrow(direction: .up, label: "Favorite", accessibilityText: "Swipe up to favorite", icon: "star.fill", color: .bscPrimary)
                     .opacity(showingContent ? 1 : 0)
 
                 HStack(spacing: BSCSpacing.md) {
                     // LEFT arrow - Remove
-                    GestureArrow(direction: .left, label: "Remove", icon: "xmark", color: .bscError)
+                    GestureArrow(direction: .left, label: "Remove", accessibilityText: "Swipe left to remove", icon: "xmark", color: .bscError)
                         .opacity(showingContent ? 1 : 0)
 
                     // Center card representation
@@ -100,7 +100,7 @@ struct GestureTipsOverlay: View {
                         .accessibilityHidden(true)
 
                     // RIGHT arrow - Save
-                    GestureArrow(direction: .right, label: "Save", icon: "heart.fill", color: .bscSuccess)
+                    GestureArrow(direction: .right, label: "Save", accessibilityText: "Swipe right to save", icon: "heart.fill", color: .bscSuccess)
                         .opacity(showingContent ? 1 : 0)
                 }
             }
@@ -157,8 +157,12 @@ struct GestureTipsOverlay: View {
 // MARK: - GestureArrow
 
 private struct GestureArrow: View {
+    /// Physical swipe direction (gestures don't mirror in right-to-left
+    /// languages, so neither do these arrows).
     let direction: ArrowDirection
-    let label: String
+    let label: LocalizedStringResource
+    /// Whole spoken sentence ("Swipe up to favorite").
+    let accessibilityText: LocalizedStringResource
     let icon: String
     let color: Color
 
@@ -187,7 +191,7 @@ private struct GestureArrow: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Swipe \(directionName) to \(label.lowercased())")
+        .accessibilityLabel(Text(accessibilityText))
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.bscFloat) {
@@ -212,15 +216,6 @@ private struct GestureArrow: View {
             Capsule()
                 .stroke(color.opacity(0.4), lineWidth: 1)
         )
-    }
-
-    private var directionName: String {
-        switch direction {
-        case .up: return "up"
-        case .down: return "down"
-        case .left: return "left"
-        case .right: return "right"
-        }
     }
 
     private var arrowIcon: String {

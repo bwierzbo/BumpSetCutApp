@@ -105,7 +105,7 @@ struct RallyTrimOverlay: View {
                             .contentShape(Rectangle())
                     }
                     Spacer()
-                    Text(formatDuration(selectionDuration))
+                    Text(verbatim: selectionDuration.formattedSeconds())
                         .bscFont(size: 15, weight: .medium, design: .monospaced)
                         .foregroundColor(.bscOnMedia)
                     Spacer()
@@ -175,12 +175,12 @@ struct RallyTrimOverlay: View {
 
             // Pinch has no VoiceOver equivalent, so the readout doubles as an
             // adjustable zoom control (the binding's owner clamps the range).
-            Text(String(format: "%.1f×", trimZoom))
+            Text(verbatim: trimZoom.formattedMultiplier())
                 .bscFont(size: 12, weight: .semibold, design: .monospaced)
                 .foregroundColor(.bscPrimary)
                 .accessibilityElement()
                 .accessibilityLabel("Zoom")
-                .accessibilityValue(String(format: "%.1f times", trimZoom))
+                .accessibilityValue(Text("\(trimZoom.formatted(.number.precision(.fractionLength(1)))) times", comment: "VoiceOver zoom value, e.g. 1.5 times"))
                 .accessibilityAdjustableAction { direction in
                     trimZoom += direction == .increment ? zoomAccessibilityStep : -zoomAccessibilityStep
                 }
@@ -239,7 +239,7 @@ struct RallyTrimOverlay: View {
                 .gesture(leftHandleDrag(totalWidth: totalWidth))
                 .accessibilityElement()
                 .accessibilityLabel("Trim start")
-                .accessibilityValue(String(format: "%.1f seconds", effectiveStart))
+                .accessibilityValue(effectiveStart.formattedSpokenSeconds())
                 .accessibilityAdjustableAction { direction in
                     let delta = direction == .increment ? 0.5 : -0.5
                     let newTime = Swift.max(0, Swift.min(effectiveStart + delta, effectiveEnd - minSelectionDuration))
@@ -257,7 +257,7 @@ struct RallyTrimOverlay: View {
                 .gesture(rightHandleDrag(totalWidth: totalWidth))
                 .accessibilityElement()
                 .accessibilityLabel("Trim end")
-                .accessibilityValue(String(format: "%.1f seconds", effectiveEnd))
+                .accessibilityValue(effectiveEnd.formattedSpokenSeconds())
                 .accessibilityAdjustableAction { direction in
                     let delta = direction == .increment ? 0.5 : -0.5
                     let newTime = Swift.min(videoDuration, Swift.max(effectiveEnd + delta, effectiveStart + minSelectionDuration))
@@ -271,6 +271,9 @@ struct RallyTrimOverlay: View {
         }
         .coordinateSpace(name: "trimBar")
         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm))
+        // Positions are .offset(x:) from the leading edge and time runs
+        // left→right in every language, so the strip never mirrors.
+        .environment(\.layoutDirection, .leftToRight)
     }
 
     // MARK: - Filmstrip
@@ -496,12 +499,6 @@ struct RallyTrimOverlay: View {
         )
         guard !Task.isCancelled else { return }
         thumbnails = frames
-    }
-
-    // MARK: - Formatting
-
-    private func formatDuration(_ seconds: Double) -> String {
-        String(format: "%.1fs", max(0, seconds))
     }
 }
 

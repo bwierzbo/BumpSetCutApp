@@ -63,14 +63,9 @@ struct RallyExportSheet: View {
             .padding(.vertical, BSCSpacing.xxl)
     }
 
-    private var rallyCountLabel: String {
-        let count = savedRallies.count
-        return count == 1 ? "1 Rally" : "\(count) Rallies"
-    }
-
     private var exportOptionsView: some View {
         VStack(spacing: BSCSpacing.lg) {
-            Text("Export \(rallyCountLabel)")
+            Text("Export \(savedRallies.count) Rallies", comment: "Export sheet header; plural on the count")
                 .bscFont(size: 17, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .padding(.bottom, BSCSpacing.sm)
@@ -111,8 +106,8 @@ struct RallyExportSheet: View {
 // MARK: - Export Option Card
 
 struct RallyExportOptionCard: View {
-    let title: String
-    let subtitle: String
+    let title: LocalizedStringResource
+    let subtitle: LocalizedStringResource
     let icon: String
     let color: Color
     var isDisabled: Bool = false
@@ -140,7 +135,7 @@ struct RallyExportOptionCard: View {
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.forward")
                     .bscFont(size: 14, weight: .medium)
                     .foregroundColor(.bscTextSecondary)
             }

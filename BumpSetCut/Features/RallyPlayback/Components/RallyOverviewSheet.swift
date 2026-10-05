@@ -161,20 +161,20 @@ struct RallyOverviewSheet: View {
 
     private func statPillRow(spacing: CGFloat) -> some View {
         HStack(spacing: spacing) {
-            statPill(count: savedRallies.count, label: "saved", color: .bscSuccessText)
-            statPill(count: removedRallies.count, label: "removed", color: .bscErrorText)
+            statPill(Text("\(savedRallies.count) saved", comment: "Overview stat: number of saved rallies"), color: .bscSuccessText)
+            statPill(Text("\(removedRallies.count) removed", comment: "Overview stat: number of removed rallies"), color: .bscErrorText)
             if !favoritedRallies.isEmpty {
-                statPill(count: favoritedRallies.count, label: "favorited", color: .bscPrimaryText)
+                statPill(Text("\(favoritedRallies.count) favorited", comment: "Overview stat: number of favorited rallies"), color: .bscPrimaryText)
             }
         }
     }
 
-    private func statPill(count: Int, label: String, color: Color) -> some View {
+    private func statPill(_ text: Text, color: Color) -> some View {
         HStack(spacing: BSCSpacing.xs) {
             Circle()
                 .fill(color)
                 .frame(width: 8, height: 8)
-            Text("\(count) \(label)")
+            text
                 .bscFont(size: 13, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
         }
@@ -289,19 +289,19 @@ struct RallyOverviewSheet: View {
         }
     }
 
-    private var exportTitle: String {
+    private var exportTitle: LocalizedStringResource {
         if savedRallies.count > 1 { return "Export Rallies" }
         return isCompactHeight ? "Export" : "Export Rally"
     }
 
-    private var postTitle: String {
+    private var postTitle: LocalizedStringResource {
         if savedRallies.count > 1 { return "Post Rallies" }
         return isCompactHeight ? "Post" : "Post to Community"
     }
 
     private var actionFontSize: CGFloat { isCompactHeight ? 15 : 16 }
 
-    private func actionLabel(icon: String, title: String) -> some View {
+    private func actionLabel(icon: String, title: LocalizedStringResource) -> some View {
         HStack(spacing: BSCSpacing.sm) {
             Image(systemName: icon)
                 .bscFont(size: actionFontSize, weight: .semibold)
@@ -353,7 +353,7 @@ private struct RallyOverviewCell: View {
             .bscShadow(BSCShadow.sm)
 
             // Rally number badge
-            Text("\(index + 1)")
+            Text(verbatim: (index + 1).formatted())
                 .bscFont(size: 11, weight: .bold)
                 .foregroundColor(.bscOnMedia)
                 .padding(.horizontal, BSCSpacing.sm)
@@ -379,7 +379,7 @@ private struct RallyOverviewCell: View {
                 }
             }
         }
-        .accessibilityLabel("Rally \(index + 1), \(rallyStatus)")
+        .accessibilityLabel(Text(accessibilityText))
         .onAppear {
             thumbnail = thumbnailCache.getThumbnail(for: url)
         }
@@ -389,11 +389,12 @@ private struct RallyOverviewCell: View {
         }
     }
 
-    private var rallyStatus: String {
-        if isFavorited { return "favorited" }
-        if isSaved { return "saved" }
-        if isRemoved { return "removed" }
-        return "unsorted"
+    private var accessibilityText: LocalizedStringResource {
+        let number = index + 1
+        if isFavorited { return "Rally \(number), favorited" }
+        if isSaved { return "Rally \(number), saved" }
+        if isRemoved { return "Rally \(number), removed" }
+        return "Rally \(number), unsorted"
     }
 
     private var borderColor: Color {

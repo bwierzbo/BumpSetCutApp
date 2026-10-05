@@ -15,7 +15,7 @@ enum VideoWatermark {
     /// in PIXELS of the render size — sizes must scale with the video or the
     /// mark is microscopic on 1080p+ footage (tester-reported).
     static func layer(videoSize: CGSize, videoDuration: CMTime) -> CALayer {
-        let watermarkText = "Made with BumpSetCut"
+        let watermarkText = String(localized: "Made with BumpSetCut", comment: "Watermark burned into exported videos")
         let fontSize = min(max(videoSize.height * 0.028, 13), 44)
         let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
 

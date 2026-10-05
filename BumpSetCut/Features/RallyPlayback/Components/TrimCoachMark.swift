@@ -10,7 +10,7 @@ import SwiftUI
 
 struct TrimCoachMark: View {
     /// Players without crop controls (favorites feed) say "trim" only.
-    var text: String = "Hold anywhere to trim or crop"
+    var text: LocalizedStringResource = "Hold anywhere to trim or crop"
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false

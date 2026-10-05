@@ -130,11 +130,11 @@ final class RallyActionManager {
         let feedback: RallyActionFeedback
         switch action {
         case .save:
-            feedback = RallyActionFeedback(type: .save, message: "Rally Saved")
+            feedback = RallyActionFeedback(type: .save, message: String(localized: "Rally Saved"))
         case .remove:
-            feedback = RallyActionFeedback(type: .remove, message: "Rally Removed")
+            feedback = RallyActionFeedback(type: .remove, message: String(localized: "Rally Removed"))
         case .favorite:
-            feedback = RallyActionFeedback(type: .favorite, message: "Rally Favorited", rallyIndex: rallyIndex)
+            feedback = RallyActionFeedback(type: .favorite, message: String(localized: "Rally Favorited"), rallyIndex: rallyIndex)
         }
 
         showFeedback(feedback)
@@ -146,7 +146,7 @@ final class RallyActionManager {
         let result = RallyActionResult(trimRallyIndex: rallyIndex, previousTrim: previousTrim)
         actionHistory.append(result)
 
-        showFeedback(RallyActionFeedback(type: .trim, message: "Trim Applied"))
+        showFeedback(RallyActionFeedback(type: .trim, message: String(localized: "Trim Applied")))
     }
 
     /// Pops the last action from history and reverses it.
@@ -155,7 +155,7 @@ final class RallyActionManager {
         guard !isPerformingAction, let action = actionHistory.popLast() else { return nil }
 
         if action.isTrimAction {
-            showFeedback(RallyActionFeedback(type: .undo, message: "Trim Undone"))
+            showFeedback(RallyActionFeedback(type: .undo, message: String(localized: "Trim Undone")))
             return action
         }
 
@@ -173,7 +173,7 @@ final class RallyActionManager {
 
         persistSelections()
 
-        showFeedback(RallyActionFeedback(type: .undo, message: "Action Undone"))
+        showFeedback(RallyActionFeedback(type: .undo, message: String(localized: "Action Undone")))
         return action
     }
 

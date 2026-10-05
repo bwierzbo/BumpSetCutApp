@@ -150,7 +150,7 @@ struct GameScoringView: View {
                 score: viewModel.currentState.scoreA
             )
 
-            Text("–")
+            Text(verbatim: "–")
                 .bscFont(size: 22, weight: .bold)
                 .foregroundColor(.bscTextSecondary)
 
@@ -172,7 +172,7 @@ struct GameScoringView: View {
                 .bscFont(size: 15, weight: .semibold)
                 .foregroundColor(.bscTextPrimary)
                 .lineLimit(1)
-            Text("\(score)")
+            Text(verbatim: score.formatted())
                 .bscFont(size: 24, weight: .bold, design: .monospaced)
                 .foregroundColor(.bscTextPrimary)
                 .contentTransition(.numericText())
@@ -225,7 +225,7 @@ struct GameScoringView: View {
 
     private var rallyStepper: some View {
         HStack(spacing: BSCSpacing.lg) {
-            BSCIconButton(icon: "chevron.left", style: .ghost, size: .compact, accessibilityLabel: "Previous rally") {
+            BSCIconButton(icon: "chevron.backward", style: .ghost, size: .compact, accessibilityLabel: "Previous rally") {
                 viewModel.goPrevious()
             }
             .disabled(viewModel.currentIndex == 0)
@@ -242,7 +242,7 @@ struct GameScoringView: View {
             .frame(maxWidth: .infinity)
             .accessibilityIdentifier(AccessibilityID.GameScoring.rallyCounter)
 
-            BSCIconButton(icon: "chevron.right", style: .ghost, size: .compact, accessibilityLabel: "Next rally") {
+            BSCIconButton(icon: "chevron.forward", style: .ghost, size: .compact, accessibilityLabel: "Next rally") {
                 viewModel.goNext()
             }
             .disabled(viewModel.currentIndex >= viewModel.rallyCount - 1)
@@ -284,7 +284,7 @@ struct GameScoringView: View {
             viewModel.assign(winner)
         } label: {
             VStack(spacing: BSCSpacing.xxs) {
-                Text("+1")
+                Text(verbatim: 1.formatted(.number.sign(strategy: .always())))
                     .bscFont(size: 20, weight: .bold)
                 Text(team.name)
                     .bscFont(size: 13, weight: .semibold)
@@ -311,8 +311,8 @@ struct GameScoringView: View {
             }
         }
         .accessibilityIdentifier(id)
-        .accessibilityLabel("Point for \(team.name)")
-        .accessibilityValue(isSelected ? "\(team.name) has this point" : "")
+        .accessibilityLabel(Text("Point for \(team.name)"))
+        .accessibilityValue(isSelected ? Text("\(team.name) has this point") : Text(verbatim: ""))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -340,7 +340,7 @@ struct GameScoringView: View {
 /// a name for VoiceOver.
 enum GameTeamPalette {
     struct Swatch: Identifiable {
-        let name: String
+        let name: LocalizedStringResource
         let hex: String
         var id: String { hex }
     }
@@ -416,8 +416,8 @@ struct GameTeamSetupSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Start Scoring") {
                         onSave(
-                            GameTeam(name: cleanName(teamAName, fallback: "Home"), colorHex: teamAColor),
-                            GameTeam(name: cleanName(teamBName, fallback: "Away"), colorHex: teamBColor)
+                            GameTeam(name: cleanName(teamAName, fallback: String(localized: "gameScoring.defaultTeamA", defaultValue: "Home", comment: "Default name of the first team when scoring a game (the home team)")), colorHex: teamAColor),
+                            GameTeam(name: cleanName(teamBName, fallback: String(localized: "gameScoring.defaultTeamB", defaultValue: "Away", comment: "Default name of the second team when scoring a game (the away team)")), colorHex: teamBColor)
                         )
                         dismiss()
                     }
@@ -434,7 +434,7 @@ struct GameTeamSetupSheet: View {
         return trimmed.isEmpty ? fallback : String(trimmed.prefix(14))
     }
 
-    private func teamEditor(title: String, name: Binding<String>, colorHex: Binding<String>, nameID: String) -> some View {
+    private func teamEditor(title: LocalizedStringResource, name: Binding<String>, colorHex: Binding<String>, nameID: String) -> some View {
         VStack(alignment: .leading, spacing: BSCSpacing.sm) {
             Text(title)
                 .bscFont(size: 14, weight: .semibold)
@@ -468,7 +468,7 @@ struct GameTeamSetupSheet: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(title) color: \(swatch.name)")
+                    .accessibilityLabel(Text("\(title) color: \(swatch.name)", comment: "Team color swatch; first %@ is Team 1/Team 2, second the color name"))
                     .accessibilityAddTraits(colorHex.wrappedValue == swatch.hex ? .isSelected : [])
                 }
             }
