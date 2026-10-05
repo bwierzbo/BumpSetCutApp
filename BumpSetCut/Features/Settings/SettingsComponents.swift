@@ -53,6 +53,9 @@ struct BSCSettingsSection<Content: View>: View {
                     .foregroundColor(.bscTextSecondary)
                     .textCase(.uppercase)
                     .tracking(0.5)
+                    // A localized Text exposes .textCase to accessibility;
+                    // a verbatim label keeps the written case.
+                    .accessibilityLabel(Text(verbatim: String(localized: title)))
 
                 if let subtitle = subtitle {
                     (Text(verbatim: "(") + Text(subtitle) + Text(verbatim: ")"))

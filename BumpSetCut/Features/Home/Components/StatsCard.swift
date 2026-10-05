@@ -55,6 +55,7 @@ struct StatsCard: View {
                 .bscFont(size: 10, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
                 .textCase(.uppercase)
+                .accessibilityLabel(Text(verbatim: String(localized: stat.label))) // keep written case for VoiceOver
         }
         .frame(maxWidth: .infinity)
         .opacity(hasAppeared ? 1 : 0)

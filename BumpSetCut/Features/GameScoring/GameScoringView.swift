@@ -440,6 +440,7 @@ struct GameTeamSetupSheet: View {
                 .bscFont(size: 14, weight: .semibold)
                 .foregroundColor(.bscTextSecondary)
                 .textCase(.uppercase)
+                .accessibilityLabel(Text(verbatim: String(localized: title))) // keep written case for VoiceOver
 
             TextField("Team name", text: name)
                 .textFieldStyle(.roundedBorder)

@@ -471,6 +471,7 @@ private extension LibraryView {
             .foregroundColor(.bscTextSecondary)
             .textCase(.uppercase)
             .tracking(0.5)
+            .accessibilityLabel(Text(verbatim: String(localized: title))) // keep written case for VoiceOver
     }
 }
 
