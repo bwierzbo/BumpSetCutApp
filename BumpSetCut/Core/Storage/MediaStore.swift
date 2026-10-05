@@ -151,10 +151,6 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         customName ?? URL(fileURLWithPath: fileName).deletingPathExtension().lastPathComponent
     }
     
-    var debugDataAvailable: Bool {
-        return debugSessionId != nil && debugDataPath != nil
-    }
-    
     var isOriginalVideo: Bool {
         return originalVideoId == nil && !isProcessed
     }
@@ -245,13 +241,6 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         self.debugDataSize = size
     }
     
-    mutating func clearDebugData() {
-        self.debugSessionId = nil
-        self.debugDataPath = nil
-        self.debugCollectionDate = nil
-        self.debugDataSize = nil
-    }
-
     // MARK: - Metadata Management Methods
 
     /// Update metadata tracking when metadata is created/updated
@@ -1196,29 +1185,6 @@ extension MediaStore {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    /// Paginated folder query for large libraries
-    func getFoldersPaginated(in parentPath: String = "", limit: Int? = nil, offset: Int = 0) -> [FolderMetadata] {
-        let filtered = manifest.folders.values
-            .filter { $0.parentPath == (parentPath.isEmpty ? nil : parentPath) }
-            .map { folder -> FolderMetadata in
-                var mutableFolder = folder
-                mutableFolder.videoCount = computeVideoCount(for: folder.path)
-                mutableFolder.subfolderCount = computeSubfolderCount(for: folder.path)
-                return mutableFolder
-            }
-            .sorted { (a: FolderMetadata, b: FolderMetadata) in
-                a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            }
-
-        let offsetResults = Array(filtered.dropFirst(offset))
-        return limit.map { Array(offsetResults.prefix($0)) } ?? offsetResults
-    }
-
-    /// Returns total folder count without loading all data
-    func getFolderCount(in parentPath: String = "") -> Int {
-        manifest.folders.values.filter { $0.parentPath == (parentPath.isEmpty ? nil : parentPath) }.count
-    }
-
     func getVideos(in folderPath: String = "") -> [VideoMetadata] {
         let matchingFolderVideos = manifest.videos.values.filter { $0.folderPath == folderPath }
 
@@ -1336,90 +1302,15 @@ extension MediaStore {
     func getFolderMetadata(at path: String) -> FolderMetadata? {
         return manifest.folders[path]
     }
-    
-    func getVideoMetadata(fileName: String) -> VideoMetadata? {
-        return manifest.videos[fileName]
-    }
-
-    /// Get video by its UUID
-    func getVideo(byId id: UUID) -> VideoMetadata? {
-        return manifest.videos.values.first(where: { $0.id == id })
-    }
 }
 
-// MARK: - Migration
+// MARK: - File Locations & Debug Data
 
 extension MediaStore {
-    func migrateExistingVideos() {
-        let fileManager = FileManager.default
-        
-        // Find all videos in root documents directory
-        if let files = try? fileManager.contentsOfDirectory(at: baseDirectory, includingPropertiesForKeys: [.fileSizeKey, .creationDateKey]) {
-            let videoFiles = files.filter { url in
-                let ext = url.pathExtension.lowercased()
-                return ext == "mov" || ext == "mp4"
-            }
-            
-            for videoURL in videoFiles {
-                let fileName = videoURL.lastPathComponent
-                
-                // Skip if already in manifest
-                if manifest.videos[fileName] != nil {
-                    continue
-                }
-                
-                // Add to root folder (empty path)
-                _ = addVideo(at: videoURL, toFolder: "", customName: nil)
-            }
-        }
-    }
-}
-
-// MARK: - Legacy Compatibility Layer
-
-extension MediaStore {
-    @available(*, deprecated, message: "Use getVideos(in:) with folder path parameter")
-    func getAllVideoURLs() -> [URL] {
-        let videos = getVideos(in: "")
-        return videos.compactMap { video in
-            let fullPath = baseDirectory.appendingPathComponent(video.folderPath).appendingPathComponent(video.fileName)
-            return URL(fileURLWithPath: fullPath.path)
-        }
-    }
-    
-    @available(*, deprecated, message: "Use addVideo(at:toFolder:customName:) instead")
-    func saveVideo(at url: URL) -> Bool {
-        return addVideo(at: url, toFolder: "", customName: nil)
-    }
-    
-    @available(*, deprecated, message: "Use deleteVideo(fileName:) instead")
-    func removeVideo(at url: URL) -> Bool {
-        let fileName = url.lastPathComponent
-        return deleteVideo(fileName: fileName)
-    }
-    
     func getVideoURL(for metadata: VideoMetadata) -> URL {
         return baseDirectory
             .appendingPathComponent(metadata.folderPath)
             .appendingPathComponent(metadata.fileName)
-    }
-    
-    func loadVideosFromDocuments() -> [URL] {
-        let fileManager = FileManager.default
-        let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        
-        guard let files = try? fileManager.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: nil) else {
-            return []
-        }
-        
-        return files.filter { url in
-            let ext = url.pathExtension.lowercased()
-            return ext == "mov" || ext == "mp4"
-        }
-    }
-    
-    func needsMigration() -> Bool {
-        return !loadVideosFromDocuments().isEmpty
     }
     
     // MARK: - Debug Data Operations
@@ -1517,30 +1408,6 @@ extension MediaStore {
     /// Check if a path belongs to a specific library
     func isPath(_ path: String, in library: LibraryType) -> Bool {
         return path == library.rootPath || path.hasPrefix(library.rootPath + "/")
-    }
-
-    /// Get folders in a specific library (relative path)
-    func getFolders(inRelativePath relativePath: String, library: LibraryType) -> [FolderMetadata] {
-        let fullPath = self.fullPath(for: relativePath, in: library)
-        return getFolders(in: fullPath)
-    }
-
-    /// Get videos in a specific library (relative path)
-    func getVideos(inRelativePath relativePath: String, library: LibraryType) -> [VideoMetadata] {
-        let fullPath = self.fullPath(for: relativePath, in: library)
-        return getVideos(in: fullPath)
-    }
-
-    /// Create folder in a specific library
-    func createFolder(name: String, parentRelativePath: String, in library: LibraryType) -> Bool {
-        let fullParentPath = self.fullPath(for: parentRelativePath, in: library)
-        return createFolder(name: name, parentPath: fullParentPath)
-    }
-
-    /// Add video to a specific library
-    func addVideo(at url: URL, toRelativeFolder relativePath: String, in library: LibraryType, customName: String? = nil) -> Bool {
-        let fullPath = self.fullPath(for: relativePath, in: library)
-        return addVideo(at: url, toFolder: fullPath, customName: customName)
     }
 
     /// Search videos within a specific library

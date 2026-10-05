@@ -36,3 +36,8 @@ final class StubAPIClient: APIClient, @unchecked Sendable {
         throw APIError.serverError(statusCode: 501, message: "Stub: not implemented")
     }
 }
+
+// MARK: - Empty Response
+
+/// Decodable stand-in for endpoints that return no meaningful body.
+struct EmptyResponse: Codable {}

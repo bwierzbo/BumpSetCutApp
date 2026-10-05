@@ -13,7 +13,6 @@ import AVFoundation
     @State private var appSettings = AppSettings.shared
     @State private var authService = AuthenticationService()
     @State private var networkMonitor = NetworkMonitor.shared
-    @State private var offlineQueue = OfflineQueue()
     // Skip the splash under UI testing so screenshots stay deterministic
     @State private var showSplash = !CommandLine.arguments.contains("--uitesting")
 
@@ -91,7 +90,6 @@ import AVFoundation
                 .onChange(of: networkMonitor.isConnected) { _, isConnected in
                     if isConnected {
                         Task {
-                            await offlineQueue.drain(using: SupabaseAPIClient.shared)
                             await FlywheelCaptureService.shared.drain(using: SupabaseAPIClient.shared)
                         }
                     }

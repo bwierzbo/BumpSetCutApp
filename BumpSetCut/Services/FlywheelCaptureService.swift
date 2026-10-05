@@ -4,8 +4,8 @@
 //
 //  Data flywheel: when the user opts in, stage clips of rallies the detector
 //  struggled with (passively) or that the user corrected, then drain them to the
-//  private `training-data` bucket for relabeling. Mirrors OfflineQueue's
-//  stage-on-disk / drain-on-network design.
+//  private `training-data` bucket for relabeling. Staged on disk, drained
+//  when the network comes back.
 //
 
 import Foundation
