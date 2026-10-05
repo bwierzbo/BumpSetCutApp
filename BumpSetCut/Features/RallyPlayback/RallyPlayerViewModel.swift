@@ -264,6 +264,17 @@ final class RallyPlayerViewModel {
 
     /// Last known rally-card size, kept fresh by the view's GeometryReader.
     private var cardSize: CGSize = .zero
+
+    /// How far a card travels to clear the screen when an action flings it off:
+    /// a bit past the card so its tilted corner doesn't linger at the edge.
+    private var flyOffDistance: CGSize {
+        CGSize(width: cardSize.width * 1.2, height: cardSize.height * 1.2)
+    }
+    private static let flyOffAnimation = Animation.interpolatingSpring(stiffness: 200, damping: 28)
+    /// Tilt (degrees) of a card flung left/right.
+    private static let flyOffTilt = 10.0
+    /// Read at animation time so a mid-session Settings change takes effect.
+    private static var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
     private var cardIsPortrait = true
     /// The rect the video itself is drawn into at zoom 1: aspect-fit inside
     /// the card in portrait (letterboxed), aspect-fill in landscape (overflow
@@ -560,13 +571,19 @@ final class RallyPlayerViewModel {
     }
 
     func navigateTo(index: Int, direction: NavigationDirection) {
-        guard let targetOffset = navigation.beginTransition(to: index, totalCount: rallyVideoURLs.count, direction: direction) else { return }
+        guard let targetOffset = navigation.beginTransition(
+            to: index,
+            totalCount: rallyVideoURLs.count,
+            direction: direction,
+            travel: cardSize.height
+        ) else { return }
 
         // Transfer drag position to swipe offset for seamless animation
         gesture.swipeOffsetY = gesture.dragOffset.height
         gesture.dragOffset = .zero
 
-        withAnimation(.bscSwipe) {
+        // Reduce Motion: the cards swap in place instead of sliding.
+        withAnimation(Self.reduceMotion ? nil : .bscSwipe) {
             gesture.swipeOffsetY = targetOffset
         }
 
@@ -669,26 +686,27 @@ final class RallyPlayerViewModel {
         gesture.currentPeekDirection = nil
         gesture.dragOffset = .zero
 
+        // Reduce Motion: no fly-off or tilt — the card leaves without animating
+        // and the next one (already stacked behind) is simply revealed.
+        let flyOff: Animation? = Self.reduceMotion ? nil : Self.flyOffAnimation
         if direction == .up {
             // Vertical slide-out for favorite
             gesture.actionSwipeOffsetY = fromDragOffset
             gesture.swipeOffset = 0
             gesture.swipeRotation = 0
 
-            let slideDistance = UIScreen.main.bounds.height * 1.2
-            withAnimation(.interpolatingSpring(stiffness: 200, damping: 28)) {
-                gesture.actionSwipeOffsetY = -slideDistance
+            withAnimation(flyOff) {
+                gesture.actionSwipeOffsetY = -flyOffDistance.height
             }
         } else {
             // Horizontal slide-out for save/remove
             gesture.swipeOffset = fromDragOffset
-            gesture.swipeRotation = Double(fromDragOffset) / 30.0
+            gesture.swipeRotation = Self.reduceMotion ? 0 : Double(fromDragOffset) / 30.0
 
-            let slideDistance = UIScreen.main.bounds.width * 1.2
-            let targetOffset = direction == .right ? slideDistance : -slideDistance
-            let targetRotation = direction == .right ? 10.0 : -10.0
+            let targetOffset = direction == .right ? flyOffDistance.width : -flyOffDistance.width
+            let targetRotation = Self.reduceMotion ? 0 : (direction == .right ? Self.flyOffTilt : -Self.flyOffTilt)
 
-            withAnimation(.interpolatingSpring(stiffness: 200, damping: 28)) {
+            withAnimation(flyOff) {
                 gesture.swipeOffset = targetOffset
                 gesture.swipeRotation = targetRotation
             }
@@ -783,12 +801,10 @@ final class RallyPlayerViewModel {
 
         if action.direction == .up {
             // Undo favorite: slide back from top
-            let slideDistance = UIScreen.main.bounds.height * 1.2
-            gesture.actionSwipeOffsetY = -slideDistance
+            gesture.actionSwipeOffsetY = -flyOffDistance.height
         } else {
-            let slideDistance = UIScreen.main.bounds.width * 1.2
-            gesture.swipeOffset = action.direction == .right ? slideDistance : -slideDistance
-            gesture.swipeRotation = action.direction == .right ? 10.0 : -10.0
+            gesture.swipeOffset = action.direction == .right ? flyOffDistance.width : -flyOffDistance.width
+            gesture.swipeRotation = Self.reduceMotion ? 0 : (action.direction == .right ? Self.flyOffTilt : -Self.flyOffTilt)
         }
 
         navigation.setIndex(action.rallyIndex, totalCount: rallyVideoURLs.count)
@@ -804,7 +820,8 @@ final class RallyPlayerViewModel {
             playerCache.play()
         }
 
-        withAnimation(.interpolatingSpring(stiffness: 200, damping: 28)) {
+        // Reduce Motion: the restored card is back in place without sliding.
+        withAnimation(Self.reduceMotion ? nil : Self.flyOffAnimation) {
             gesture.swipeOffset = 0
             gesture.swipeRotation = 0
             gesture.actionSwipeOffsetY = 0

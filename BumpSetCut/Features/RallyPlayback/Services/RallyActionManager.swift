@@ -1,4 +1,4 @@
-import Foundation
+import UIKit
 import Observation
 
 // MARK: - Rally Action Manager
@@ -130,8 +130,7 @@ final class RallyActionManager {
             feedback = RallyActionFeedback(type: .favorite, message: "Rally Favorited", rallyIndex: rallyIndex)
         }
 
-        actionFeedback = feedback
-        showActionFeedback = true
+        showFeedback(feedback)
         return feedback
     }
 
@@ -140,8 +139,7 @@ final class RallyActionManager {
         let result = RallyActionResult(trimRallyIndex: rallyIndex, previousTrim: previousTrim)
         actionHistory.append(result)
 
-        actionFeedback = RallyActionFeedback(type: .trim, message: "Trim Applied")
-        showActionFeedback = true
+        showFeedback(RallyActionFeedback(type: .trim, message: "Trim Applied"))
     }
 
     /// Pops the last action from history and reverses it.
@@ -150,8 +148,7 @@ final class RallyActionManager {
         guard !isPerformingAction, let action = actionHistory.popLast() else { return nil }
 
         if action.isTrimAction {
-            actionFeedback = RallyActionFeedback(type: .undo, message: "Trim Undone")
-            showActionFeedback = true
+            showFeedback(RallyActionFeedback(type: .undo, message: "Trim Undone"))
             return action
         }
 
@@ -169,8 +166,7 @@ final class RallyActionManager {
 
         persistSelections()
 
-        actionFeedback = RallyActionFeedback(type: .undo, message: "Action Undone")
-        showActionFeedback = true
+        showFeedback(RallyActionFeedback(type: .undo, message: "Action Undone"))
         return action
     }
 
@@ -196,6 +192,14 @@ final class RallyActionManager {
     }
 
     // MARK: - Feedback Control
+
+    /// Shows the feedback toast and speaks it — the toast is visual-only, so
+    /// VoiceOver users would otherwise get no confirmation of the action.
+    private func showFeedback(_ feedback: RallyActionFeedback) {
+        actionFeedback = feedback
+        showActionFeedback = true
+        UIAccessibility.post(notification: .announcement, argument: feedback.message)
+    }
 
     func dismissFeedback() {
         showActionFeedback = false
