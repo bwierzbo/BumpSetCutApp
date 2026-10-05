@@ -51,7 +51,8 @@ changed_files() {
 # run_build <scheme> <destination-args...>
 run_build() {
   local scheme=$1; shift
-  local log="/tmp/bsc-build-${scheme}.log"
+  # Per checkout: worktrees building in parallel must not share a log.
+  local log="/tmp/bsc-build-$(pwd | shasum | cut -c1-8)-${scheme}.log"
   local attempt
   for attempt in 1 2; do
     xcodebuild -project "$PROJECT" -scheme "$scheme" "$@" build >"$log" 2>&1
