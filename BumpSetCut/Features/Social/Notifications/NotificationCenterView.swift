@@ -25,16 +25,19 @@ struct NotificationCenterView: View {
                         .tint(.bscPrimary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if viewModel.notifications.isEmpty {
-                    // In a ScrollView so pull-to-refresh works from here too —
-                    // the error copy tells people to pull.
+                    // In a ScrollView so pull-to-refresh works from here too.
                     ScrollView {
-                        BSCEmptyState(
-                            icon: viewModel.loadFailed ? "wifi.slash" : "bell",
-                            title: viewModel.loadFailed ? "Couldn't Load" : "No Notifications Yet",
-                            message: viewModel.loadFailed
-                                ? "Check your connection and pull to refresh."
-                                : "Likes, comments, and new followers on your posts show up here."
-                        )
+                        Group {
+                            if viewModel.loadFailed {
+                                BSCEmptyState.loadFailed { Task { await viewModel.loadInitial() } }
+                            } else {
+                                BSCEmptyState(
+                                    icon: "bell",
+                                    title: "No Notifications Yet",
+                                    message: "Likes, comments, and new followers on your posts show up here."
+                                )
+                            }
+                        }
                         .containerRelativeFrame([.horizontal, .vertical])
                     }
                 } else {

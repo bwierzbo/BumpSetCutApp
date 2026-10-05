@@ -6,7 +6,6 @@
 //
 
 import XCTest
-import Combine
 @testable import BumpSetCut
 
 @MainActor
@@ -14,8 +13,6 @@ final class LibraryIntegrationTests: XCTestCase {
     var mediaStore: MediaStore!
     var folderManager: FolderManager!
     var uploadCoordinator: UploadCoordinator!
-    var searchViewModel: SearchViewModel!
-    var cancellables: Set<AnyCancellable>!
     
     private var storageDir: URL!
 
@@ -34,20 +31,14 @@ final class LibraryIntegrationTests: XCTestCase {
         mediaStore = MediaStore(baseDirectory: storageDir)
         folderManager = FolderManager(mediaStore: mediaStore)
         uploadCoordinator = UploadCoordinator(mediaStore: mediaStore)
-        searchViewModel = SearchViewModel(mediaStore: mediaStore)
-        cancellables = Set<AnyCancellable>()
         
         print("=== Integration Test Setup ===")
         print("MediaStore initialized: \(mediaStore != nil)")
         print("FolderManager initialized: \(folderManager != nil)")
         print("UploadCoordinator initialized: \(uploadCoordinator != nil)")
-        print("SearchViewModel initialized: \(searchViewModel != nil)")
     }
     
     override func tearDown() async throws {
-        cancellables.forEach { $0.cancel() }
-        cancellables = nil
-        searchViewModel = nil
         uploadCoordinator = nil
         folderManager = nil
         mediaStore = nil
@@ -117,8 +108,7 @@ final class LibraryIntegrationTests: XCTestCase {
         print("2. Testing LibraryView load performance...")
         let loadStartTime = CFAbsoluteTimeGetCurrent()
         
-        folderManager.navigateToFolder("Performance")
-        folderManager.refreshContents()
+        folderManager.loadContents(at: "Performance")
         
         let loadTime = CFAbsoluteTimeGetCurrent() - loadStartTime
         print("✅ LibraryView loaded \(folderManager.folders.count) folders in \(String(format: "%.3f", loadTime))s")
@@ -130,8 +120,7 @@ final class LibraryIntegrationTests: XCTestCase {
         print("3. Testing folder with 20 videos...")
         let videoLoadStartTime = CFAbsoluteTimeGetCurrent()
         
-        folderManager.navigateToFolder("Performance/Folder1")
-        folderManager.refreshContents()
+        folderManager.loadContents(at: "Performance/Folder1")
         
         let videoLoadTime = CFAbsoluteTimeGetCurrent() - videoLoadStartTime
         print("✅ Folder with 20 videos loaded in \(String(format: "%.3f", videoLoadTime))s")
@@ -142,21 +131,10 @@ final class LibraryIntegrationTests: XCTestCase {
         print("4. Testing search performance...")
         let searchStartTime = CFAbsoluteTimeGetCurrent()
         
-        let searchExpectation = XCTestExpectation(description: "Large collection search completed")
-        
-        searchViewModel.$searchResults
-            .dropFirst()
-            .sink { results in
-                let searchTime = CFAbsoluteTimeGetCurrent() - searchStartTime
-                print("✅ Search completed in \(String(format: "%.3f", searchTime))s with \(results.count) results")
-                XCTAssertLessThan(searchTime, 1.0, "Search should complete in under 1 second")
-                searchExpectation.fulfill()
-            }
-            .store(in: &cancellables)
-        
-        searchViewModel.searchText = "performance"
-        
-        await fulfillment(of: [searchExpectation], timeout: 5.0)
+        let results = mediaStore.searchVideos(query: "performance")
+        let searchTime = CFAbsoluteTimeGetCurrent() - searchStartTime
+        print("✅ Search completed in \(String(format: "%.3f", searchTime))s with \(results.count) results")
+        XCTAssertLessThan(searchTime, 1.0, "Search should complete in under 1 second")
         
         let totalTime = CFAbsoluteTimeGetCurrent() - startTime
         print("=== Large Collection Performance Test Complete - Total time: \(String(format: "%.3f", totalTime))s ===\n")

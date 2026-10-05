@@ -8,6 +8,7 @@ final class HomeViewModel {
     // MARK: - Properties
     private let mediaStore: MediaStore
     private let metadataStore: MetadataStore
+    private let subscriptionService: SubscriptionService
 
     /// Account-linked lifetime totals (server + not-yet-synced increments).
     var totalRallies: Int { LifetimeStatsStore.shared.totalRallies }
@@ -39,15 +40,32 @@ final class HomeViewModel {
     }
 
     // MARK: - Initialization
-    init(mediaStore: MediaStore, metadataStore: MetadataStore) {
+    init(mediaStore: MediaStore, metadataStore: MetadataStore, subscriptionService: SubscriptionService? = nil) {
         self.mediaStore = mediaStore
         self.metadataStore = metadataStore
+        self.subscriptionService = subscriptionService ?? .shared
         seedLifetimeStatsIfNeeded()
     }
 
-    // MARK: - Public Methods
-    func refresh() {
-        seedLifetimeStatsIfNeeded()
+    // MARK: - Unprocessed Videos (Process sheet)
+
+    /// Saved-library videos that can still be processed, for the Process sheet.
+    private(set) var unprocessedVideos: [VideoMetadata] = []
+
+    /// One pass over the manifest: collect originals that already have a
+    /// processed version, and the saved-library candidates, then drop the former.
+    func loadUnprocessedVideos() {
+        var processedOriginalIds = Set<UUID>()
+        var candidates: [VideoMetadata] = []
+        for video in mediaStore.getAllVideos() {
+            if let originalId = video.originalVideoId {
+                processedOriginalIds.insert(originalId)
+            }
+            if video.canBeProcessed && mediaStore.isPath(video.folderPath, in: .saved) {
+                candidates.append(video)
+            }
+        }
+        unprocessedVideos = candidates.filter { !processedOriginalIds.contains($0.id) }
     }
 
     // MARK: - Private Methods
@@ -84,10 +102,9 @@ struct StatItem: Identifiable {
 }
 
 extension HomeViewModel {
-    func stats(isPro: Bool) -> [StatItem] {
-        let subscriptionService = SubscriptionService.shared
-
-        if isPro {
+    /// Home stats card: rallies + time cut, then Pro badge or weekly minutes left.
+    var stats: [StatItem] {
+        if subscriptionService.isPro {
             // Pro users: Show processing stats + Pro badge
             return [
                 StatItem(

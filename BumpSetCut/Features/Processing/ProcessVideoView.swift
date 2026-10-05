@@ -15,6 +15,7 @@ struct ProcessVideoView: View {
     @State private var showReprocessConfirm = false
     @State private var showTimelineEditor = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppSettings.self) private var appSettings
 
     init(videoURL: URL, mediaStore: MediaStore, onComplete: @escaping () -> Void) {
         self._viewModel = State(wrappedValue: ProcessVideoViewModel(
@@ -540,7 +541,7 @@ private extension ProcessVideoView {
             .disabled(viewModel.isAnotherVideoProcessing)
             .opacity(viewModel.isAnotherVideoProcessing ? 0.5 : 1.0)
 
-            if AppSettings.shared.enableDebugFeatures {
+            if appSettings.enableDebugFeatures {
                 // Debug Processing - Secondary (only when debug features enabled in Settings)
                 BSCButton(title: "Debug Processing", icon: "ladybug", style: .secondary, size: .medium) {
                     viewModel.pendingDebugModeForTrim = true
@@ -621,7 +622,7 @@ private extension ProcessVideoView {
 
             // Dev tool (gated behind Debug Features): re-run detection on the full video
             // after updating the model. Deletes the current rallies first.
-            if AppSettings.shared.enableDebugFeatures {
+            if appSettings.enableDebugFeatures {
                 BSCButton(title: "Reprocess Video", icon: "arrow.clockwise", style: .secondary, size: .medium) {
                     showReprocessConfirm = true
                 }
@@ -741,4 +742,5 @@ private struct ProcessingIconView: View {
             onComplete: {}
         )
     }
+    .environment(AppSettings.shared)
 }

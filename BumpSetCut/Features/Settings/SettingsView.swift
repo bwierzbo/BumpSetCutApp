@@ -16,12 +16,12 @@ struct SettingsView: View {
     @State private var hasAppeared = false
     @State private var showPaywall = false
     @State private var showFlywheelConsent = false
-    @State private var flywheelService = FlywheelCaptureService.shared
+    private let flywheelService = FlywheelCaptureService.shared
     @State private var showDeleteConfirmation = false
     @State private var showSignOutConfirmation = false
     @State private var isDeletingAccount = false
     @State private var deleteError: String?
-    @State private var subscriptionService = SubscriptionService.shared
+    private let subscriptionService = SubscriptionService.shared
     @State private var isRestoringPurchases = false
     @State private var restoreResultMessage: String?
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -50,7 +50,7 @@ struct SettingsView: View {
                             .animation(.bscSpring.delay(0.1), value: hasAppeared)
                         #else
                         // Allowlisted testers get the tier toggle debug builds have
-                        if SubscriptionService.shared.isTester {
+                        if subscriptionService.isTester {
                             testerSection
                                 .opacity(hasAppeared ? 1 : 0)
                                 .offset(y: hasAppeared ? 0 : 20)

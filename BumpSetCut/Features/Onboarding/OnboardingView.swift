@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Photos
 import UserNotifications
 
 // MARK: - Onboarding View
@@ -67,7 +66,6 @@ struct OnboardingView: View {
                     kind: pages[currentPage].kind,
                     onNext: {
                         switch pages[currentPage].kind {
-                        case .photoLibrary: requestPhotoAccess()
                         case .notifications: enableNotifications()
                         case .info: advance()
                         }
@@ -99,10 +97,12 @@ struct OnboardingView: View {
     /// on whatever the answer. Under UI testing the alert would block
     /// automation, so the page just advances.
     private func enableNotifications() {
+        #if DEBUG
         guard !CommandLine.arguments.contains("--uitesting") else {
             advance()
             return
         }
+        #endif
         Task {
             _ = try? await UNUserNotificationCenter.current()
                 .requestAuthorization(options: [.alert, .sound, .badge])
@@ -110,19 +110,6 @@ struct OnboardingView: View {
         }
     }
 
-    /// Photos access lets imports download from iCloud in the background
-    /// (PhotoKit path). Declining just means the first iCloud import asks
-    /// instead, or falls back to the foreground-only picker transfer.
-    private func requestPhotoAccess() {
-        guard !CommandLine.arguments.contains("--uitesting") else {
-            advance()
-            return
-        }
-        Task {
-            _ = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-            advance()
-        }
-    }
 
     // MARK: - Background
 
@@ -177,7 +164,6 @@ private struct OnboardingFooter: View {
     private var primaryTitle: String {
         if isLastPage { return "Get Started" }
         switch kind {
-        case .photoLibrary: return "Allow Photos Access"
         case .notifications: return "Enable Notifications"
         case .info: return "Next"
         }
@@ -186,7 +172,6 @@ private struct OnboardingFooter: View {
     private var primaryIcon: String? {
         if isLastPage { return nil }
         switch kind {
-        case .photoLibrary: return "photo.on.rectangle"
         case .notifications: return "bell.fill"
         case .info: return "arrow.right"
         }

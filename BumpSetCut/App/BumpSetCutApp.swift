@@ -21,7 +21,11 @@ import AVFoundation
     @State private var uploadCoordinator: UploadCoordinator
     @Environment(\.scenePhase) private var scenePhase
     // Skip the splash under UI testing so screenshots stay deterministic
+    #if DEBUG
     @State private var showSplash = !CommandLine.arguments.contains("--uitesting")
+    #else
+    @State private var showSplash = true
+    #endif
 
     init() {
         // Background continuation for video processing (iOS 26+) must

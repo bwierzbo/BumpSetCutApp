@@ -163,51 +163,54 @@ struct DropViewDelegate: DropDelegate {
                     DispatchQueue.main.async {
                         if let url = url, error == nil {
                             Task {
-                                await handleDroppedVideo(url: url)
+                                await uploadCoordinator.importVideoFile(at: url, destinationFolder: destinationFolder)
                             }
                         }
                     }
                 }
             }
         }
-        
+
         return true
-    }
-    
-    private func handleDroppedVideo(url: URL) async {
-        // Copy to temp location instead of loading into memory
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("drop_\(UUID().uuidString).mp4")
-
-        do {
-            try FileManager.default.copyItem(at: url, to: tempURL)
-        } catch {
-            print("❌ Failed to copy dropped video: \(error)")
-            return
-        }
-
-        // The provider only *claims* movie content — verify the bytes are a
-        // playable video before storing them in the library.
-        let isPlayable = (try? await AVURLAsset(url: tempURL).load(.isPlayable)) ?? false
-        guard isPlayable else {
-            try? FileManager.default.removeItem(at: tempURL)
-            print("❌ Dropped file is not a playable video, rejecting")
-            return
-        }
-
-        await uploadCoordinator.importDroppedVideo(at: tempURL, destinationFolder: destinationFolder)
     }
 }
 
 // MARK: - Single File Upload
 
 extension UploadCoordinator {
-    /// Drag-and-drop: the delegate hands over a verified temp copy it owns.
-    func importDroppedVideo(at tempURL: URL, destinationFolder: String) async {
+    /// Drag-and-drop and the Files importer: copy the (possibly
+    /// security-scoped) file into a temp location we own — never into memory —
+    /// verify it is a playable video, then hand it to the library's import path.
+    func importVideoFile(at url: URL, destinationFolder: String, customName: String? = nil) async {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("drop_\(UUID().uuidString).mp4")
+
+        let isScoped = url.startAccessingSecurityScopedResource()
+        do {
+            defer { if isScoped { url.stopAccessingSecurityScopedResource() } }
+            try FileManager.default.copyItem(at: url, to: tempURL)
+        } catch {
+            logger.error("Failed to copy video file: \(error.localizedDescription)")
+            importErrorMessage = "The video file couldn't be read. Try again, or copy it to On My iPhone first."
+            showImportError = true
+            return
+        }
+
+        // The source only *claims* movie content — verify the bytes are a
+        // playable video before storing them in the library.
+        let isPlayable = (try? await AVURLAsset(url: tempURL).load(.isPlayable)) ?? false
+        guard isPlayable else {
+            try? FileManager.default.removeItem(at: tempURL)
+            logger.error("Picked file is not a playable video, rejecting")
+            importErrorMessage = "That file isn't a playable video."
+            showImportError = true
+            return
+        }
+
         importWasCancelled = false
-        currentVideoName = "video"
+        currentVideoName = customName ?? "video"
         isUploadInProgress = true
-        guard saveVideoFromURL(tempURL, destinationFolder: destinationFolder, customName: nil) else {
+        guard saveVideoFromURL(tempURL, destinationFolder: destinationFolder, customName: customName) else {
             isUploadInProgress = false
             return
         }

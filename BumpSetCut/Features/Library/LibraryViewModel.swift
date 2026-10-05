@@ -1,5 +1,4 @@
 import SwiftUI
-import Combine
 import Observation
 
 // MARK: - Video Filter
@@ -16,7 +15,6 @@ final class LibraryViewModel {
     // MARK: - Dependencies
     let folderManager: FolderManager
     let uploadCoordinator: UploadCoordinator
-    let searchViewModel: SearchViewModel
     let libraryType: LibraryType
 
     // MARK: - State
@@ -161,7 +159,6 @@ final class LibraryViewModel {
             folderManager.currentPath = folderPath
         }
         self.uploadCoordinator = uploadCoordinator
-        self.searchViewModel = SearchViewModel(mediaStore: mediaStore)
 
         // Restore the persisted sort + view mode (defaults stand if none saved).
         if let raw = UserDefaults.standard.string(forKey: Self.sortOptionKey),

@@ -15,7 +15,7 @@ struct LibraryView: View {
     @State private var hasAppeared = false
     @State private var showingPhotoPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @State private var pendingUploadItem: PhotosPickerItem?
+    @State private var pendingUploadItem: PickedVideo?
     @State private var showingNamePrompt = false
     // Path of the folder currently under an active video drag (drop-zone highlight).
     @State private var dropTargetFolderPath: String?
@@ -101,9 +101,6 @@ struct LibraryView: View {
             placement: .navigationBarDrawer(displayMode: .always),
             prompt: "Search videos and folders"
         )
-        .onChange(of: viewModel.searchText) { _, newSearchText in
-            viewModel.searchViewModel.searchText = newSearchText
-        }
         .onChange(of: viewModel.folderManager.store.contentVersion) { _, _ in
             viewModel.refresh()
         }
@@ -123,14 +120,21 @@ struct LibraryView: View {
         )
         .onChange(of: selectedPhotoItems) { _, items in
             if !items.isEmpty, let item = items.first {
-                pendingUploadItem = item
+                pendingUploadItem = .photos(item)
                 selectedPhotoItems.removeAll()
                 showingNamePrompt = true
             }
         }
         .uploadNamePrompt(isPresented: $showingNamePrompt) { name in
-            if let item = pendingUploadItem {
-                viewModel.uploadCoordinator.handlePhotosPickerItem(item, destinationFolder: viewModel.currentPath, customName: name)
+            let coordinator = viewModel.uploadCoordinator
+            let folder = viewModel.currentPath
+            switch pendingUploadItem {
+            case .photos(let item):
+                coordinator.handlePhotosPickerItem(item, destinationFolder: folder, customName: name)
+            case .file(let url):
+                Task { await coordinator.importVideoFile(at: url, destinationFolder: folder, customName: name) }
+            case nil:
+                break
             }
             pendingUploadItem = nil
         }

@@ -11,7 +11,7 @@ import SwiftUI
 struct BlockedUsersView: View {
     @State private var viewModel = BlockedUsersViewModel()
     /// The person an unblock failed for; drives the failure alert.
-    @State private var unblockFailed: UserProfile?
+    @State private var failureToast: BSCToastMessage?
 
     var body: some View {
         ZStack {
@@ -42,14 +42,7 @@ struct BlockedUsersView: View {
         }
         .navigationTitle("Blocked Users")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Couldn't Unblock @\(unblockFailed?.username ?? "user")", isPresented: Binding(
-            get: { unblockFailed != nil },
-            set: { if !$0 { unblockFailed = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Check your connection and try again.")
-        }
+        .bscToast($failureToast)
         .task {
             await viewModel.load()
         }
@@ -67,7 +60,9 @@ struct BlockedUsersView: View {
 
             BSCButton(title: "Unblock", style: .secondary, size: .small) {
                 Task {
-                    if await !viewModel.unblock(profile) { unblockFailed = profile }
+                    if await !viewModel.unblock(profile) {
+                        failureToast = BSCToastMessage(text: "Couldn't unblock @\(profile.username). Check your connection.", style: .error)
+                    }
                 }
             }
         }

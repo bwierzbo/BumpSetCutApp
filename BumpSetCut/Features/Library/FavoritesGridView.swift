@@ -12,6 +12,7 @@ import CoreMedia
 
 struct FavoritesGridView: View {
     let mediaStore: MediaStore
+    @Environment(AppSettings.self) private var appSettings
 
     @State private var folderManager: FolderManager
     @State private var selectedIndex: Int?
@@ -125,7 +126,7 @@ struct FavoritesGridView: View {
             if showOnboarding {
                 FavoritesTipsOverlay {
                     showOnboarding = false
-                    AppSettings.shared.hasSeenFavoritesOnboarding = true
+                    appSettings.hasSeenFavoritesOnboarding = true
                 }
                 .zIndex(100)
                 .transition(.opacity)
@@ -140,7 +141,7 @@ struct FavoritesGridView: View {
         }
         .onAppear {
             folderManager.loadInitialContentsIfNeeded()
-            if !AppSettings.shared.hasSeenFavoritesOnboarding {
+            if !appSettings.hasSeenFavoritesOnboarding {
                 withAnimation(.bscStandard.delay(0.4)) {
                     showOnboarding = true
                 }
@@ -212,15 +213,7 @@ struct FavoritesGridView: View {
                 if let video = videoToDelete {
                     Task {
                         do {
-                            // Sync unfavorite back to source video's review selections
-                            if let srcVideoId = video.sourceVideoId,
-                               let srcRallyIndex = video.sourceRallyIndex {
-                                let metadataStore = MetadataStore.shared
-                                var selections = metadataStore.loadReviewSelections(for: srcVideoId)
-                                selections.favorited.remove(srcRallyIndex)
-                                try metadataStore.saveReviewSelections(selections, for: srcVideoId)
-                            }
-                            try await folderManager.deleteVideo(video)
+                            try await folderManager.removeFavorite(video)
                         } catch {
                             mutationToast = BSCToastMessage(text: "Couldn't remove favorite", style: .error)
                         }

@@ -332,6 +332,11 @@ final class VideoExporter {
     // MARK: - Private Helpers
 
     func saveVideoToPhotoLibrary(url: URL) async throws {
+        // Saving only needs add-only access — ask for exactly that, at the
+        // moment of the first save. A denial makes performChanges throw below.
+        if PHPhotoLibrary.authorizationStatus(for: .addOnly) == .notDetermined {
+            _ = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        }
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
         }
