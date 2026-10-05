@@ -180,13 +180,22 @@ final class ShareRallyViewModel {
 
     // MARK: - Hashtag Extraction
 
+    /// The caption's hashtags, lowercased, each once, in order of first use
+    /// ("#ace #Ace" is one tag — the preview lists them by value).
     var extractedTags: [String] {
-        let pattern = #"#(\w+)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let range = NSRange(caption.startIndex..., in: caption)
-        return regex.matches(in: caption, range: range).compactMap { match in
-            guard let tagRange = Range(match.range(at: 1), in: caption) else { return nil }
-            return String(caption[tagRange]).lowercased()
+        var seen = Set<String>()
+        return caption.matches(of: /#(\w+)/).compactMap { match in
+            let tag = match.1.lowercased()
+            return seen.insert(tag).inserted ? tag : nil
+        }
+    }
+
+    /// An upload is in flight (or showing its brief success state): Cancel and
+    /// swipe-to-dismiss wait it out.
+    var isUploadBusy: Bool {
+        switch state {
+        case .uploading, .processing, .complete: return true
+        case .idle, .failed: return false
         }
     }
 

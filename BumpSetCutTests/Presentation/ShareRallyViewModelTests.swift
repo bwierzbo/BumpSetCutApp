@@ -38,6 +38,12 @@ final class ShareRallyViewModelTests: XCTestCase {
         XCTAssertEqual(vm.pollOptions.count, 2)
     }
 
+    func testHashtagsAreLowercasedAndUnique() {
+        let vm = makeViewModel(saved: [0])
+        vm.caption = "Big #Ace then #block and another #ace"
+        XCTAssertEqual(vm.extractedTags, ["ace", "block"])
+    }
+
     func testSavedRalliesPastTheRallyListAreDropped() {
         // Saved before a reprocess that found fewer rallies.
         let vm = makeViewModel(saved: [0, 2, 5, 9], rallies: 3, initialPage: 3)

@@ -108,7 +108,7 @@ struct ShareRallySheet: View {
                         postOptions
 
                         // Poll editor
-                        pollEditor
+                        SharePollEditor(viewModel: viewModel)
 
                         // Rally info for selected rally
                         rallyInfo
@@ -118,7 +118,7 @@ struct ShareRallySheet: View {
 
                 // Blocking upload overlay (modal — user waits until done)
                 if viewModel.state != .idle {
-                    uploadOverlay
+                    ShareUploadOverlay(viewModel: viewModel)
                 }
             }
             .navigationTitle(isFavoriteClips ? "Share Rallies" : "Share Rally")
@@ -132,14 +132,14 @@ struct ShareRallySheet: View {
                             discardAndDismiss()
                         }
                     }
-                    .disabled(isUploadBusy)
+                    .disabled(viewModel.isUploadBusy)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     postButton
                 }
             }
             // A draft can't be swiped away silently; the swipe asks instead.
-            .interactiveDismissDisabled(isUploadBusy || viewModel.hasDraftContent)
+            .interactiveDismissDisabled(viewModel.isUploadBusy || viewModel.hasDraftContent)
             .confirmationDialog(
                 "Discard this post?",
                 isPresented: $showDiscardConfirm,
@@ -152,7 +152,7 @@ struct ShareRallySheet: View {
             }
         }
         .onDismissAttempt {
-            guard !isUploadBusy, viewModel.hasDraftContent else { return }
+            guard !viewModel.isUploadBusy, viewModel.hasDraftContent else { return }
             showDiscardConfirm = true
         }
         .onAppear {
@@ -456,7 +456,7 @@ struct ShareRallySheet: View {
                     .frame(minHeight: BSCTouchTarget.standard)
                     .contentShape(Rectangle())
                 }
-                .disabled(isUploadBusy)
+                .disabled(viewModel.isUploadBusy)
                 .accessibilityIdentifier(AccessibilityID.Share.cropButton)
 
                 Spacer()
@@ -719,94 +719,6 @@ struct ShareRallySheet: View {
         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
     }
 
-    // MARK: - Poll Editor
-
-    private var pollEditor: some View {
-        VStack(spacing: 0) {
-            Toggle(isOn: $viewModel.includePoll) {
-                HStack(spacing: BSCSpacing.sm) {
-                    Image(systemName: "chart.bar.xaxis")
-                        .bscFont(size: 15)
-                        .foregroundColor(.bscTextSecondary)
-                    VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                        Text("Add a poll")
-                            .bscFont(size: 14, weight: .medium)
-                            .foregroundColor(.bscTextPrimary)
-                        Text("Let viewers vote on your rally")
-                            .bscFont(size: 12)
-                            .foregroundColor(.bscTextSecondary)
-                    }
-                }
-            }
-            .tint(.bscPrimary)
-            .padding(BSCSpacing.sm)
-
-            if viewModel.includePoll {
-                Divider().overlay(Color.bscSurfaceBorder)
-
-                VStack(spacing: BSCSpacing.sm) {
-                    TextField("Ask a question...", text: $viewModel.pollQuestion)
-                        .textFieldStyle(.plain)
-                        .bscFont(size: 15, weight: .medium)
-                        .foregroundColor(.bscTextPrimary)
-                        .padding(BSCSpacing.sm)
-                        .background(Color.bscSurfaceGlass.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
-
-                    ForEach($viewModel.pollOptions) { $option in
-                        let number = (viewModel.pollOptions.firstIndex { $0.id == option.id } ?? 0) + 1
-                        HStack(spacing: BSCSpacing.xs) {
-                            Circle()
-                                .stroke(Color.bscTextSecondary, lineWidth: 1.5)
-                                .frame(width: 16, height: 16)
-
-                            TextField("Option \(number)", text: $option.text)
-                                .textFieldStyle(.plain)
-                                .bscFont(size: 14)
-                                .foregroundColor(.bscTextPrimary)
-
-                            if viewModel.pollOptions.count > 2 {
-                                Button {
-                                    viewModel.removePollOption(option.id)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .bscFont(size: 16)
-                                        .foregroundColor(.bscTextSecondary)
-                                        .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                                        .contentShape(Rectangle())
-                                }
-                                .accessibilityLabel("Remove option \(number)")
-                            }
-                        }
-                        .padding(.horizontal, BSCSpacing.sm)
-                        .padding(.vertical, BSCSpacing.xs)
-                        .background(Color.bscSurfaceGlass.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
-                    }
-
-                    if viewModel.pollOptions.count < 5 {
-                        Button {
-                            viewModel.addPollOption()
-                        } label: {
-                            HStack(spacing: BSCSpacing.xs) {
-                                Image(systemName: "plus.circle.fill")
-                                    .bscFont(size: 14)
-                                Text("Add option")
-                                    .bscFont(size: 13, weight: .medium)
-                            }
-                            .foregroundColor(.bscPrimaryText)
-                            .frame(minHeight: BSCTouchTarget.standard)
-                            .contentShape(Rectangle())
-                        }
-                    }
-                }
-                .padding(BSCSpacing.sm)
-            }
-        }
-        .background(Color.bscSurfaceGlass)
-        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
-    }
-
     // MARK: - Rally Info
 
     private var rallyInfo: some View {
@@ -841,97 +753,11 @@ struct ShareRallySheet: View {
         }
     }
 
-    // MARK: - Upload State
+    // MARK: - Dismissal
 
-    /// True while an upload is in flight (and during the brief success state) —
-    /// used to block Cancel / swipe-to-dismiss so the user waits it out.
     private func discardAndDismiss() {
         viewModel.cancel()
         dismiss()
-    }
-
-    private var isUploadBusy: Bool {
-        switch viewModel.state {
-        case .uploading, .processing, .complete: return true
-        case .idle, .failed: return false
-        }
-    }
-
-    /// Full-screen blocking modal shown during posting. Reuses `uploadStateView`
-    /// for the per-state content inside a centered card.
-    private var uploadOverlay: some View {
-        ZStack {
-            Color.bscMediaScrim
-                .ignoresSafeArea()
-                .onTapGesture {
-                    // Only a failed upload can be dismissed (back to editing) by tapping out.
-                    if case .failed = viewModel.state { viewModel.cancel() }
-                }
-
-            VStack(spacing: BSCSpacing.md) {
-                uploadStateView
-            }
-            .frame(maxWidth: BSCContentWidth.compact)
-            .padding(BSCSpacing.xl)
-            .bscSurfaceChrome(cornerRadius: BSCRadius.xl, shadow: BSCShadow.xl)
-            .padding(BSCSpacing.xl)
-        }
-        .transition(.opacity)
-    }
-
-    @ViewBuilder
-    private var uploadStateView: some View {
-        switch viewModel.state {
-        case .idle:
-            EmptyView()
-
-        case .uploading(let progress):
-            VStack(spacing: BSCSpacing.sm) {
-                ProgressView(value: progress)
-                    .tint(.bscPrimary)
-                Text(viewModel.postAllSaved && viewModel.postCount > 1
-                     ? "Uploading \(viewModel.postCount) rallies... \(Int(progress * 100))%"
-                     : "Uploading... \(Int(progress * 100))%")
-                    .bscFont(size: 13)
-                    .foregroundColor(.bscTextSecondary)
-            }
-
-        case .processing:
-            HStack(spacing: BSCSpacing.sm) {
-                ProgressView()
-                    .tint(.bscPrimary)
-                Text("Processing...")
-                    .bscFont(size: 13)
-                    .foregroundColor(.bscTextSecondary)
-            }
-
-        case .complete:
-            VStack(spacing: BSCSpacing.sm) {
-                Image(systemName: "checkmark.circle.fill")
-                    .bscFont(size: 36)
-                    .foregroundColor(.bscSuccessText)
-                Text("Shared successfully!")
-                    .bscFont(size: 15, weight: .medium)
-                    .foregroundColor(.bscTextPrimary)
-                Text("Opening in feed...")
-                    .bscFont(size: 13)
-                    .foregroundColor(.bscTextSecondary)
-            }
-
-        case .failed(let message):
-            VStack(spacing: BSCSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .bscFont(size: 36)
-                    .foregroundColor(.bscError)
-                Text(message)
-                    .bscFont(size: 13)
-                    .foregroundColor(.bscTextSecondary)
-                    .multilineTextAlignment(.center)
-                Button("Retry") { viewModel.retry() }
-                    .bscFont(size: 15, weight: .medium)
-                    .foregroundColor(.bscPrimaryText)
-            }
-        }
     }
 
     // MARK: - Post Button
