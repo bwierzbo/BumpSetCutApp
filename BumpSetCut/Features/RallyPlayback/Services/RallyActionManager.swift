@@ -23,6 +23,9 @@ final class RallyActionManager {
 
     private var videoId: UUID?
     private var metadataStore: MetadataStore?
+    /// The last selections write failed; PersistenceMonitor keeps retrying it
+    /// and every later change rewrites the full set anyway.
+    private(set) var hasUnsavedSelections = false
 
     // MARK: - Feedback State
 
@@ -68,7 +71,11 @@ final class RallyActionManager {
         let selections = RallyReviewSelections(saved: savedRallies, removed: removedRallies,
                                                favorited: favoritedRallies, favoriteCollections: favoriteCollections,
                                                posted: postedRallies)
-        try? metadataStore.saveReviewSelections(selections, for: videoId)
+        hasUnsavedSelections = !PersistenceMonitor.shared.attempt(
+            "review selections", retryKey: "selections-\(videoId)"
+        ) {
+            try metadataStore.saveReviewSelections(selections, for: videoId)
+        }
     }
 
     /// Record rallies that just went up as a community post.

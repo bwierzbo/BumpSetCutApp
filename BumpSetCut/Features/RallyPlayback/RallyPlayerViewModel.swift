@@ -44,7 +44,7 @@ final class RallyPlayerViewModel {
 
     let playerCache = RallyPlayerCache()
     let thumbnailCache = RallyThumbnailCache()
-    let metadataStore = MetadataStore()
+    let metadataStore = MetadataStore.shared
 
     // MARK: - Task Management
 
@@ -1005,14 +1005,19 @@ final class RallyPlayerViewModel {
                     .appendingPathComponent(destFileName)
                 try fileManager.moveItem(at: exportedURL, to: destURL)
 
-                // Register in MediaStore with source backlink for sync
-                let _ = mediaStore.addVideo(
+                // Register in MediaStore with source backlink for sync. An
+                // unregistered clip would sit on disk untracked — remove it.
+                guard mediaStore.addVideo(
                     at: destURL,
                     toFolder: destFolderPath,
                     customName: "\(videoMetadata.displayName) - Rally \(index + 1)",
                     sourceVideoId: videoMetadata.id,
                     sourceRallyIndex: index
-                )
+                ) else {
+                    try? fileManager.removeItem(at: destURL)
+                    failureCount += 1
+                    continue
+                }
             } catch {
                 failureCount += 1
                 print("Failed to export favorite rally \(index): \(error)")

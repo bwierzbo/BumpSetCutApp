@@ -18,7 +18,7 @@ final class GameScoringViewModel {
     // MARK: - Input
 
     let videoMetadata: VideoMetadata
-    let metadataStore = MetadataStore()
+    let metadataStore = MetadataStore.shared
 
     // MARK: - State
 
@@ -233,7 +233,12 @@ final class GameScoringViewModel {
     }
 
     private func persist() {
-        try? metadataStore.saveGameScoring(scoring, for: videoId)
+        let scoring = scoring
+        let videoId = videoId
+        let metadataStore = metadataStore
+        PersistenceMonitor.shared.attempt("game scoring", retryKey: "scoring-\(videoId)") {
+            try metadataStore.saveGameScoring(scoring, for: videoId)
+        }
     }
 
     // MARK: - Export Inputs

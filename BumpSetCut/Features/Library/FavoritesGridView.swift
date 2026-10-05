@@ -205,7 +205,7 @@ struct FavoritesGridView: View {
                             // Sync unfavorite back to source video's review selections
                             if let srcVideoId = video.sourceVideoId,
                                let srcRallyIndex = video.sourceRallyIndex {
-                                let metadataStore = MetadataStore()
+                                let metadataStore = MetadataStore.shared
                                 var selections = metadataStore.loadReviewSelections(for: srcVideoId)
                                 selections.favorited.remove(srcRallyIndex)
                                 try metadataStore.saveReviewSelections(selections, for: srcVideoId)
@@ -975,7 +975,7 @@ struct FavoritesFeedView: View {
 
             // Load saved trim
             let videoId = videos[index].id
-            let store = MetadataStore()
+            let store = MetadataStore.shared
             let trims = store.loadTrimAdjustments(for: videoId)
             if let adj = trims[0] {
                 trimBefore = adj.before
@@ -993,8 +993,9 @@ struct FavoritesFeedView: View {
         guard let idx = currentIndex, idx < videos.count else { return }
         let videoId = videos[idx].id
         let adjustment = RallyTrimAdjustment(before: trimBefore, after: trimAfter)
-        let store = MetadataStore()
-        try? store.saveTrimAdjustments([0: adjustment], for: videoId)
+        PersistenceMonitor.shared.attempt("favorite trim", retryKey: "trims-\(videoId)") {
+            try MetadataStore.shared.saveTrimAdjustments([0: adjustment], for: videoId)
+        }
         savedTrims[idx] = adjustment
 
         withAnimation(.bscQuick) { isTrimmingMode = false }
@@ -1054,7 +1055,7 @@ struct FavoritesFeedView: View {
 
         // Load saved trim for this clip
         if savedTrims[index] == nil {
-            let store = MetadataStore()
+            let store = MetadataStore.shared
             let trims = store.loadTrimAdjustments(for: videos[index].id)
             if let adj = trims[0] {
                 savedTrims[index] = adj
