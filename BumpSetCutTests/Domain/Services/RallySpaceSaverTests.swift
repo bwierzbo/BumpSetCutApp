@@ -26,6 +26,36 @@ final class RallySpaceSaverTests: XCTestCase {
         )
     }
 
+    private func makeMetadata(videoId: UUID, segments: [RallySegment], sourceDurationSec: Double? = nil) -> ProcessingMetadata {
+        ProcessingMetadata(
+            videoId: videoId,
+            processingConfig: ProcessorConfig(),
+            rallySegments: segments,
+            processingStats: ProcessingStats(
+                totalFrames: 300, processedFrames: 300, detectionFrames: 100,
+                trackingFrames: 80, rallyFrames: 40, physicsValidFrames: 30,
+                totalDetections: 200, validTrajectories: 5,
+                averageDetectionsPerFrame: 0.7, averageConfidence: 0.8,
+                processingDuration: 10, framesPerSecond: 5
+            ),
+            qualityMetrics: QualityMetrics(
+                overallQuality: 0.8, averageRSquared: 0.8, trajectoryConsistency: 0.8,
+                physicsValidationRate: 0.8, movementClassificationAccuracy: 0.8,
+                confidenceDistribution: ConfidenceDistribution(high: 10, medium: 5, low: 2),
+                qualityBreakdown: QualityBreakdown(
+                    velocityConsistency: 0.8, accelerationPattern: 0.8,
+                    smoothnessScore: 0.8, verticalMotionScore: 0.8, overallCoherence: 0.8
+                )
+            ),
+            performanceMetrics: PerformanceData(
+                processingStartTime: Date().addingTimeInterval(-10), processingEndTime: Date(),
+                averageFPS: 5, peakMemoryUsageMB: 100, averageMemoryUsageMB: 80,
+                cpuUsagePercent: 10, processingOverheadPercent: 1, detectionLatencyMs: 5
+            ),
+            sourceDurationSec: sourceDurationSec
+        )
+    }
+
     // MARK: - Range math
 
     func testKeepRangesAddHeadroomClampAndMerge() {
@@ -74,39 +104,14 @@ final class RallySpaceSaverTests: XCTestCase {
         // A real 60s video registered in the library
         let videoURL = tempDirectory.appendingPathComponent("game.mp4")
         try TestVideoFactory.writeVideo(to: videoURL, duration: 60, size: CGSize(width: 160, height: 120), fps: 5)
-        let mediaStore = MediaStore()
+        let mediaStore = MediaStore(baseDirectory: tempDirectory)
         XCTAssertTrue(mediaStore.addVideo(at: videoURL))
         let video = try XCTUnwrap(mediaStore.getAllVideos().first { $0.fileName == "game.mp4" })
 
         // Two rallies with lots of dead time between them
         let metadataStore = MetadataStore()
         let segments = [makeSegment(5, 8), makeSegment(40, 44)]
-        try metadataStore.saveMetadata(ProcessingMetadata(
-            videoId: video.id,
-            processingConfig: ProcessorConfig(),
-            rallySegments: segments,
-            processingStats: ProcessingStats(
-                totalFrames: 300, processedFrames: 300, detectionFrames: 100,
-                trackingFrames: 80, rallyFrames: 40, physicsValidFrames: 30,
-                totalDetections: 200, validTrajectories: 5,
-                averageDetectionsPerFrame: 0.7, averageConfidence: 0.8,
-                processingDuration: 10, framesPerSecond: 5
-            ),
-            qualityMetrics: QualityMetrics(
-                overallQuality: 0.8, averageRSquared: 0.8, trajectoryConsistency: 0.8,
-                physicsValidationRate: 0.8, movementClassificationAccuracy: 0.8,
-                confidenceDistribution: ConfidenceDistribution(high: 10, medium: 5, low: 2),
-                qualityBreakdown: QualityBreakdown(
-                    velocityConsistency: 0.8, accelerationPattern: 0.8,
-                    smoothnessScore: 0.8, verticalMotionScore: 0.8, overallCoherence: 0.8
-                )
-            ),
-            performanceMetrics: PerformanceData(
-                processingStartTime: Date().addingTimeInterval(-10), processingEndTime: Date(),
-                averageFPS: 5, peakMemoryUsageMB: 100, averageMemoryUsageMB: 80,
-                cpuUsagePercent: 10, processingOverheadPercent: 1, detectionLatencyMs: 5
-            )
-        ))
+        try metadataStore.saveMetadata(makeMetadata(videoId: video.id, segments: segments))
 
         let oldSize = StorageChecker.getFileSize(at: video.originalURL)
 
@@ -134,5 +139,52 @@ final class RallySpaceSaverTests: XCTestCase {
         XCTAssertEqual(remapped.rallySegments[0].id, segments[0].id)
         XCTAssertLessThan(remapped.rallySegments[1].endTime, newDuration + 0.2,
                           "Every rally must fit inside the trimmed file")
+        XCTAssertEqual(remapped.sourceDurationSec ?? 0, newDuration, accuracy: 0.1,
+                       "Metadata records which file it's timed against")
+        XCTAssertTrue(metadataStore.videoIdsWithStagedSidecars().isEmpty, "Staged files were installed")
+    }
+
+    // MARK: - Interrupted trim recovery
+
+    /// The app died after the trimmed video was swapped in but before its
+    /// staged metadata was installed (or before the swap): the launch
+    /// reconcile installs staged metadata only if the file on disk has the
+    /// duration it was timed against.
+    func testInterruptedTrimIsCompletedOnlyIfTheVideoWasSwapped() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SpaceSaverRecovery_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        StorageManager.storageDirectoryOverride = tempDirectory
+        defer {
+            StorageManager.storageDirectoryOverride = nil
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+
+        let videoURL = tempDirectory.appendingPathComponent("game.mp4")
+        try TestVideoFactory.writeVideo(to: videoURL, duration: 10, size: CGSize(width: 160, height: 120), fps: 5)
+        let mediaStore = MediaStore(baseDirectory: tempDirectory)
+        XCTAssertTrue(mediaStore.addVideo(at: videoURL))
+        let video = try XCTUnwrap(mediaStore.getAllVideos().first)
+        let metadataStore = mediaStore.metadataStore
+        let fileDuration = try await CMTimeGetSeconds(AVURLAsset(url: videoURL).load(.duration))
+        try metadataStore.saveMetadata(makeMetadata(videoId: video.id, segments: [makeSegment(6, 8)]))
+
+        // Staged for a file of a different length → the swap never happened.
+        try metadataStore.stageMetadata(
+            makeMetadata(videoId: video.id, segments: [makeSegment(1, 2)], sourceDurationSec: fileDuration + 30),
+            evidence: nil
+        )
+        await mediaStore.reconcileStorageOffMain()
+        XCTAssertEqual(try metadataStore.loadMetadata(for: video.id).rallySegments[0].startTime, 6, accuracy: 0.01)
+        XCTAssertTrue(metadataStore.videoIdsWithStagedSidecars().isEmpty, "Mismatched staged files are discarded")
+
+        // Staged for this file's duration → the swap happened; finish it.
+        try metadataStore.stageMetadata(
+            makeMetadata(videoId: video.id, segments: [makeSegment(3, 4)], sourceDurationSec: fileDuration),
+            evidence: nil
+        )
+        await mediaStore.reconcileStorageOffMain()
+        XCTAssertEqual(try metadataStore.loadMetadata(for: video.id).rallySegments[0].startTime, 3, accuracy: 0.01)
+        XCTAssertTrue(metadataStore.videoIdsWithStagedSidecars().isEmpty)
     }
 }

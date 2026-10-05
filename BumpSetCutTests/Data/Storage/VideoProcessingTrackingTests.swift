@@ -25,7 +25,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
         // shared on-disk library (state leaked across tests, causing "original not
         // found" and orphan-tracking failures).
         StorageManager.storageDirectoryOverride = tempDirectory
-        mediaStore = MediaStore()
+        mediaStore = MediaStore(baseDirectory: tempDirectory)
     }
 
     override func tearDown() {
