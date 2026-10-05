@@ -28,8 +28,8 @@ private struct BlockUserAlert: ViewModifier {
     /// Survives the binding clearing as the alert dismisses, so the title
     /// doesn't flicker while it animates out.
     @State private var shownTarget: BlockTarget?
-    /// Set when a block fails; drives the failure alert, which names the person.
-    @State private var failedTarget: BlockTarget?
+    /// A failed block is a transient failure of the user's action → error toast.
+    @State private var failureToast: BSCToastMessage?
 
     private var current: BlockTarget? { target ?? shownTarget }
 
@@ -54,17 +54,7 @@ private struct BlockUserAlert: ViewModifier {
             } message: {
                 Text("You won't see their posts or comments, and they won't be able to see yours.")
             }
-            .alert(
-                "Couldn't Block @\(failedTarget?.username ?? "user")",
-                isPresented: Binding(
-                    get: { failedTarget != nil },
-                    set: { if !$0 { failedTarget = nil } }
-                )
-            ) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("Check your connection and try again.")
-            }
+            .bscToast($failureToast)
     }
 
     private func block(_ blocked: BlockTarget) async {
@@ -73,7 +63,7 @@ private struct BlockUserAlert: ViewModifier {
             UIImpactFeedbackGenerator.medium()
             onBlocked()
         } catch {
-            failedTarget = blocked
+            failureToast = BSCToastMessage(text: "Couldn't block @\(blocked.username). Check your connection.", style: .error)
         }
     }
 }

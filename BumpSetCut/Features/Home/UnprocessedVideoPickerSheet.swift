@@ -11,6 +11,7 @@ struct UnprocessedVideoPickerSheet: View {
     @State private var selectedImportItems: [PhotosPickerItem] = []
     @State private var isImporting = false
     @State private var importedVideo: ImportedVideo?
+    @State private var importFailureToast: BSCToastMessage?
 
     var body: some View {
         NavigationStack {
@@ -99,6 +100,7 @@ struct UnprocessedVideoPickerSheet: View {
                     onComplete: {}
                 )
             }
+            .bscToast($importFailureToast)
             .onAppear {
                 viewModel.loadUnprocessedVideos()
             }
@@ -154,7 +156,7 @@ struct UnprocessedVideoPickerSheet: View {
             )
             importedVideo = ImportedVideo(url: mediaStore.fileURL(for: imported))
         } catch {
-            print("❌ Import failed: \(error.localizedDescription)")
+            importFailureToast = BSCToastMessage(text: "Couldn't import that video. Try again.", style: .error)
         }
     }
 

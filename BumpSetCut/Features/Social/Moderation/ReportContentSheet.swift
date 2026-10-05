@@ -19,7 +19,7 @@ struct ReportContentSheet: View {
     @State private var description = ""
     @State private var isSubmitting = false
     @State private var showSuccess = false
-    @State private var showError = false
+    @State private var failureToast: BSCToastMessage?
 
     var body: some View {
         NavigationStack {
@@ -113,11 +113,7 @@ struct ReportContentSheet: View {
             } message: {
                 Text("Thank you for helping keep our community safe. We'll review your report shortly.")
             }
-            .alert("Couldn't Send Report", isPresented: $showError) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("Check your connection and try again. Your report hasn't been sent.")
-            }
+            .bscToast($failureToast)
         }
     }
 
@@ -164,7 +160,7 @@ struct ReportContentSheet: View {
             UIImpactFeedbackGenerator.medium()
 
         } catch {
-            showError = true
+            failureToast = BSCToastMessage(text: "Report not sent. Check your connection and try again.", style: .error)
         }
     }
 }

@@ -152,6 +152,18 @@ Every listed component is in active use — dead components were deleted in the 
 - **Inputs/Nav**: `BSCSearchBar`, `BSCNameAlert` (name-a-thing alert; `uploadNamePrompt` wraps it), `BSCSheetGrabber`
 - **Misc**: `AvatarView`, `VideoThumbnailView`
 
+## Error presentation
+
+Every failure the user should know about is shown exactly one of three ways — pick by what the user has to do about it:
+
+| Situation | Present with | Examples |
+|---|---|---|
+| **Blocking / needs a decision** — the user can't continue, must choose, or must read a recovery instruction | `.alert` | Storage full, Import Failed (iCloud download instructions), account deletion failed, sign-in failed, purchase failed |
+| **Transient failure of a user action** — the action didn't happen, retrying later is the fix | `.bscToast` with `style: .error`, short copy ("Couldn't X. Check your connection.") | Block/unblock, report, delete post, rename/move/delete in the library, import from the Process sheet |
+| **A screen's content failed to load** | `BSCEmptyState.loadFailed { retry }` in place of the content | Feed, profile, comments, inbox, search, followers, notifications |
+
+Rules: never swallow a user-initiated failure with only a `print`/log; don't use an alert for something a toast covers (it blocks for no decision); a load failure replaces the empty state rather than adding a toast on top. Save failures in `MediaStore`/`MetadataStore` surface through `PersistenceMonitor` → the app-wide error toast in `MainTabView`.
+
 ## Changing tokens
 
 1. Edit `DesignTokens.swift` (both modes for adaptive colors; verify contrast for anything that renders text — quick check: relative-luminance ratio ≥ 4.5 text / ≥ 3.0 icons).
