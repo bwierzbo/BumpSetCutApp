@@ -734,20 +734,21 @@ struct ShareRallySheet: View {
                         .background(Color.bscSurfaceGlass.opacity(0.5))
                         .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
 
-                    ForEach(viewModel.pollOptions.indices, id: \.self) { index in
+                    ForEach($viewModel.pollOptions) { $option in
+                        let number = (viewModel.pollOptions.firstIndex { $0.id == option.id } ?? 0) + 1
                         HStack(spacing: BSCSpacing.xs) {
                             Circle()
                                 .stroke(Color.bscTextSecondary, lineWidth: 1.5)
                                 .frame(width: 16, height: 16)
 
-                            TextField("Option \(index + 1)", text: $viewModel.pollOptions[index])
+                            TextField("Option \(number)", text: $option.text)
                                 .textFieldStyle(.plain)
                                 .bscFont(size: 14)
                                 .foregroundColor(.bscTextPrimary)
 
                             if viewModel.pollOptions.count > 2 {
                                 Button {
-                                    viewModel.removePollOption(at: index)
+                                    viewModel.removePollOption(option.id)
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .bscFont(size: 16)
@@ -755,7 +756,7 @@ struct ShareRallySheet: View {
                                         .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
                                         .contentShape(Rectangle())
                                 }
-                                .accessibilityLabel("Remove option \(index + 1)")
+                                .accessibilityLabel("Remove option \(number)")
                             }
                         }
                         .padding(.horizontal, BSCSpacing.sm)

@@ -117,7 +117,15 @@ final class ShareRallyViewModel {
     // Poll
     var includePoll: Bool = false
     var pollQuestion: String = ""
-    var pollOptions: [String] = ["", ""]
+    var pollOptions: [PollOptionDraft] = [PollOptionDraft(), PollOptionDraft()]
+
+    /// An option being typed. The id keeps each text field bound to its own
+    /// option: fields bound by position crashed when an option was removed
+    /// (the last field's index outlived the array).
+    struct PollOptionDraft: Identifiable {
+        let id = UUID()
+        var text = ""
+    }
 
     let source: ShareSource
     let originalVideoURL: URL
@@ -180,18 +188,18 @@ final class ShareRallyViewModel {
     var isPollValid: Bool {
         guard includePoll else { return true }
         let trimmedQuestion = pollQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
-        let nonEmptyOptions = pollOptions.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let nonEmptyOptions = pollOptions.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return !trimmedQuestion.isEmpty && nonEmptyOptions.count >= 2
     }
 
     func addPollOption() {
         guard pollOptions.count < 5 else { return }
-        pollOptions.append("")
+        pollOptions.append(PollOptionDraft())
     }
 
-    func removePollOption(at index: Int) {
+    func removePollOption(_ id: PollOptionDraft.ID) {
         guard pollOptions.count > 2 else { return }
-        pollOptions.remove(at: index)
+        pollOptions.removeAll { $0.id == id }
     }
 
     // MARK: - Init
@@ -569,8 +577,8 @@ final class ShareRallyViewModel {
         let upload = PollUpload(highlightId: highlightId, question: pollQuestion.trimmingCharacters(in: .whitespacesAndNewlines))
         let poll: Poll = try await apiClient.request(.createPoll(upload))
 
-        let optionUploads = pollOptions.enumerated().compactMap { index, text -> PollOptionUpload? in
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let optionUploads = pollOptions.enumerated().compactMap { index, option -> PollOptionUpload? in
+            let trimmed = option.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
             return PollOptionUpload(pollId: poll.id, text: trimmed, sortOrder: index)
         }
