@@ -440,9 +440,24 @@ private extension LibraryView {
             onPlayVideo: { playingVideo = video },
             onViewRallies: { viewingRalliesVideo = video },
             onScoreGame: { scoringVideo = video },
-            onFreeUpSpace: { spaceSaverVideo = video }
+            onFreeUpSpace: { spaceSaverVideo = video },
+            onReprocess: AppSettings.shared.enableDebugFeatures ? { reprocess(video) } : nil
         )
         .draggable(video)  // Make videos draggable
+    }
+
+    /// Dev tool: drop the current rallies and re-run detection on the full
+    /// source video. Progress shows in the app-wide ProcessingCoordinator.
+    func reprocess(_ video: VideoMetadata) {
+        let store = viewModel.folderManager.store
+        store.prepareForReprocess(videoId: video.id)
+        ProcessingCoordinator.shared.startProcessing(
+            videoURL: video.originalURL,
+            mediaStore: store,
+            videoId: video.id,
+            isDebugMode: false
+        )
+        viewModel.refresh()
     }
 
     func sectionHeader(_ title: String, isLandscape: Bool) -> some View {
