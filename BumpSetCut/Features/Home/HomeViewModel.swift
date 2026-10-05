@@ -45,9 +45,25 @@ final class HomeViewModel {
         seedLifetimeStatsIfNeeded()
     }
 
-    // MARK: - Public Methods
-    func refresh() {
-        seedLifetimeStatsIfNeeded()
+    // MARK: - Unprocessed Videos (Process sheet)
+
+    /// Saved-library videos that can still be processed, for the Process sheet.
+    private(set) var unprocessedVideos: [VideoMetadata] = []
+
+    /// One pass over the manifest: collect originals that already have a
+    /// processed version, and the saved-library candidates, then drop the former.
+    func loadUnprocessedVideos() {
+        var processedOriginalIds = Set<UUID>()
+        var candidates: [VideoMetadata] = []
+        for video in mediaStore.getAllVideos() {
+            if let originalId = video.originalVideoId {
+                processedOriginalIds.insert(originalId)
+            }
+            if video.canBeProcessed && mediaStore.isPath(video.folderPath, in: .saved) {
+                candidates.append(video)
+            }
+        }
+        unprocessedVideos = candidates.filter { !processedOriginalIds.contains($0.id) }
     }
 
     // MARK: - Private Methods
