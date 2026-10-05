@@ -32,9 +32,12 @@ struct ForgotPasswordView: View {
 
     @State private var errorMessage: String?
     @FocusState private var isCodeFieldFocused: Bool
+    @FocusState private var focusedPasswordField: PasswordField?
+
+    private enum PasswordField: Hashable { case new, confirm }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
                 Color.bscBackground.ignoresSafeArea()
 
@@ -126,11 +129,18 @@ struct ForgotPasswordView: View {
     private var emailStep: some View {
         VStack(spacing: BSCSpacing.md) {
             TextField("Email", text: $email)
-                .textContentType(.emailAddress)
+                // The account identifier, so AutoFill files the new password
+                // under the right account.
+                .textContentType(.username)
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .textFieldStyle(.roundedBorder)
+                .submitLabel(.send)
+                .onSubmit {
+                    guard isEmailValid, !isSending else { return }
+                    Task { await sendCode() }
+                }
 
             errorText
 
@@ -171,10 +181,14 @@ struct ForgotPasswordView: View {
                             ? String(otpCode[otpCode.index(otpCode.startIndex, offsetBy: index)])
                             : ""
 
+                        // Flexible width + min height so the digits grow with
+                        // Dynamic Type instead of clipping in a fixed box.
                         Text(char)
                             .bscFont(size: 24, weight: .semibold, design: .monospaced)
                             .foregroundColor(.bscTextPrimary)
-                            .frame(width: 36, height: 48)
+                            .minimumScaleFactor(0.5)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, minHeight: 48)
                             .background(
                                 RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
                                     .fill(Color.bscSurfaceGlass)
@@ -192,6 +206,11 @@ struct ForgotPasswordView: View {
                 .onTapGesture {
                     isCodeFieldFocused = true
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Reset code")
+                .accessibilityValue("\(otpCode.count) of \(codeLength) digits entered")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { isCodeFieldFocused = true }
             }
             .onAppear {
                 DispatchQueue.main.asyncAfter(deadline: .now() + BSCDuration.normal) {
@@ -233,21 +252,25 @@ struct ForgotPasswordView: View {
                 }
             } else {
                 SecureField("New Password", text: $newPassword)
-                    .textContentType(.oneTimeCode)
+                    .textContentType(.newPassword)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedPasswordField, equals: .new)
+                    .submitLabel(.next)
+                    .onSubmit { focusedPasswordField = .confirm }
 
                 if !newPassword.isEmpty {
-                    VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                        passwordReq("8+ characters", met: newPassword.count >= 8)
-                        passwordReq("One uppercase letter", met: newPassword.range(of: "[A-Z]", options: .regularExpression) != nil)
-                        passwordReq("One number", met: newPassword.range(of: "[0-9]", options: .regularExpression) != nil)
-                        passwordReq("One symbol", met: newPassword.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil)
-                    }
+                    PasswordRequirementsList(password: newPassword)
                 }
 
                 SecureField("Confirm Password", text: $confirmPassword)
-                    .textContentType(.oneTimeCode)
+                    .textContentType(.newPassword)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedPasswordField, equals: .confirm)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        guard isPasswordFormValid, !isSaving else { return }
+                        Task { await updatePassword() }
+                    }
 
                 if !confirmPassword.isEmpty {
                     HStack(spacing: BSCSpacing.xs) {
@@ -296,24 +319,12 @@ struct ForgotPasswordView: View {
                 }
             }
             .foregroundColor(.bscOnPrimary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 50)
+            .frame(maxWidth: .infinity, minHeight: 50)
             .background(Color.bscPrimaryFill)
             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
         }
         .disabled(disabled)
         .opacity(disabled ? 0.5 : 1.0)
-    }
-
-    private func passwordReq(_ label: String, met: Bool) -> some View {
-        HStack(spacing: BSCSpacing.xs) {
-            Image(systemName: met ? "checkmark.circle.fill" : "circle")
-                .bscFont(size: 12)
-                .foregroundColor(met ? .bscSuccessText : .bscTextSecondary)
-            Text(label)
-                .bscFont(size: 12)
-                .foregroundColor(.bscTextSecondary)
-        }
     }
 
     // MARK: - Validation
@@ -327,11 +338,7 @@ struct ForgotPasswordView: View {
     }
 
     private var isPasswordFormValid: Bool {
-        newPassword.count >= 8
-        && newPassword.range(of: "[A-Z]", options: .regularExpression) != nil
-        && newPassword.range(of: "[0-9]", options: .regularExpression) != nil
-        && newPassword.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil
-        && passwordsMatch
+        PasswordRule.allMet(by: newPassword) && passwordsMatch
     }
 
     // MARK: - Actions

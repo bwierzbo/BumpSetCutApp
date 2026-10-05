@@ -119,16 +119,14 @@ struct UsernamePickerView: View {
                     if viewModel?.isSubmitting == true {
                         ProgressView()
                             .tint(.bscOnPrimary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
+                            .frame(maxWidth: .infinity, minHeight: 50)
                             .background(Color.bscPrimaryFill)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                     } else {
                         Text("Continue")
                             .bscFont(size: 16, weight: .semibold)
                             .foregroundColor(.bscOnPrimary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
+                            .frame(maxWidth: .infinity, minHeight: 50)
                             .background(Color.bscPrimaryFill)
                             .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                     }
