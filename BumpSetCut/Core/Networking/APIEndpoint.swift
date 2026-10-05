@@ -88,7 +88,9 @@ enum APIEndpoint {
     case getMyStats
     /// Whether the signed-in account is on the app_testers allowlist.
     case amITester
-    case addMyStats(rallies: Int, timeCutSeconds: Double)
+    /// `batchId` makes the increment idempotent: resending a batch whose
+    /// response was lost must not credit it twice.
+    case addMyStats(rallies: Int, timeCutSeconds: Double, batchId: UUID)
 
     // Upload
     case createUploadURL

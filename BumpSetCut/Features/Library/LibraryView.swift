@@ -90,7 +90,7 @@ struct LibraryView: View {
             SpaceSaverSheet(
                 video: video,
                 mediaStore: viewModel.folderManager.store,
-                metadataStore: MetadataStore()
+                metadataStore: MetadataStore.shared
             )
         }
         .sheet(isPresented: $viewModel.showingCreateFolder) {
@@ -103,9 +103,6 @@ struct LibraryView: View {
         )
         .onChange(of: viewModel.searchText) { _, newSearchText in
             viewModel.searchViewModel.searchText = newSearchText
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .uploadCompleted)) { _ in
-            viewModel.refresh()
         }
         .onChange(of: viewModel.folderManager.store.contentVersion) { _, _ in
             viewModel.refresh()

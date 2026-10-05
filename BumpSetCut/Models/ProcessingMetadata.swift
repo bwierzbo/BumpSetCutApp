@@ -34,6 +34,11 @@ struct ProcessingMetadata: Codable, Identifiable {
     // Structured event log (optional for backwards compatibility)
     let eventLog: [ProcessingEvent]?
 
+    /// Duration of the video file these segments are timed against, when
+    /// known. Set when "Free Up Space" swaps in a shorter file, so metadata
+    /// and file can be checked against each other after an interruption.
+    let sourceDurationSec: Double?
+
     init(videoId: UUID,
          processingConfig: ProcessorConfig,
          rallySegments: [RallySegment],
@@ -43,7 +48,8 @@ struct ProcessingMetadata: Codable, Identifiable {
          classificationResults: [ProcessingClassificationResult]? = nil,
          physicsValidation: [PhysicsValidationData]? = nil,
          performanceMetrics: PerformanceData,
-         eventLog: [ProcessingEvent]? = nil) {
+         eventLog: [ProcessingEvent]? = nil,
+         sourceDurationSec: Double? = nil) {
         self.id = UUID()
         self.videoId = videoId
         self.processingVersion = "1.0"
@@ -57,6 +63,7 @@ struct ProcessingMetadata: Codable, Identifiable {
         self.physicsValidation = physicsValidation
         self.performanceMetrics = performanceMetrics
         self.eventLog = eventLog
+        self.sourceDurationSec = sourceDurationSec
     }
 
     // Custom decoder for backwards compatibility
@@ -78,22 +85,28 @@ struct ProcessingMetadata: Codable, Identifiable {
         physicsValidation = try container.decodeIfPresent([PhysicsValidationData].self, forKey: .physicsValidation)
         performanceMetrics = try container.decode(PerformanceData.self, forKey: .performanceMetrics)
         eventLog = try container.decodeIfPresent([ProcessingEvent].self, forKey: .eventLog)
+        sourceDurationSec = try container.decodeIfPresent(Double.self, forKey: .sourceDurationSec)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, videoId, processingVersion, processingDate, processingConfig
         case rallySegments, processingStats, qualityMetrics
         case trajectoryData, classificationResults, physicsValidation
-        case performanceMetrics, eventLog
+        case performanceMetrics, eventLog, sourceDurationSec
     }
 
     /// Copy preserving identity and all processing data, with edited rally
     /// segments — used when the user edits the timeline manually.
     func withRallySegments(_ segments: [RallySegment]) -> ProcessingMetadata {
-        ProcessingMetadata(copying: self, rallySegments: segments)
+        ProcessingMetadata(copying: self, rallySegments: segments, sourceDurationSec: sourceDurationSec)
     }
 
-    private init(copying other: ProcessingMetadata, rallySegments: [RallySegment]) {
+    /// Copy re-timed onto a different (trimmed) source file.
+    func withRallySegments(_ segments: [RallySegment], sourceDurationSec: Double) -> ProcessingMetadata {
+        ProcessingMetadata(copying: self, rallySegments: segments, sourceDurationSec: sourceDurationSec)
+    }
+
+    private init(copying other: ProcessingMetadata, rallySegments: [RallySegment], sourceDurationSec: Double?) {
         self.id = other.id
         self.videoId = other.videoId
         self.processingVersion = other.processingVersion
@@ -107,6 +120,7 @@ struct ProcessingMetadata: Codable, Identifiable {
         self.physicsValidation = other.physicsValidation
         self.performanceMetrics = other.performanceMetrics
         self.eventLog = other.eventLog
+        self.sourceDurationSec = sourceDurationSec
     }
 }
 

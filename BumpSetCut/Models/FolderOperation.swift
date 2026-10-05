@@ -7,46 +7,6 @@
 
 import Foundation
 
-// MARK: - Operation Types
-
-enum FolderOperationType {
-    case create(String, parentPath: String)
-    case rename(String, newName: String)
-    case delete(String, deleteVideos: Bool)
-    case move(String, newParentPath: String)
-    case bulkMove([String], newParentPath: String)
-}
-
-// MARK: - Operation Results
-
-struct FolderOperationResult {
-    let success: Bool
-    let operation: FolderOperationType
-    let affectedPaths: [String]
-    let message: String
-    let error: FolderOperationError?
-    
-    static func success(_ operation: FolderOperationType, message: String, affectedPaths: [String] = []) -> FolderOperationResult {
-        return FolderOperationResult(
-            success: true,
-            operation: operation,
-            affectedPaths: affectedPaths,
-            message: message,
-            error: nil
-        )
-    }
-    
-    static func failure(_ operation: FolderOperationType, error: FolderOperationError) -> FolderOperationResult {
-        return FolderOperationResult(
-            success: false,
-            operation: operation,
-            affectedPaths: [],
-            message: error.localizedDescription,
-            error: error
-        )
-    }
-}
-
 // MARK: - Error Types
 
 enum FolderOperationError: Error, LocalizedError {
@@ -81,66 +41,6 @@ enum FolderOperationError: Error, LocalizedError {
         case .maxDepthReached:
             return "Cannot create folder: Folders can only be created at the root level."
         }
-    }
-}
-
-// MARK: - Breadcrumb Navigation
-
-struct BreadcrumbItem: Identifiable, Hashable {
-    let id = UUID()
-    let name: String
-    let path: String
-    let isRoot: Bool
-    
-    init(name: String, path: String) {
-        self.name = name
-        self.path = path
-        self.isRoot = path.isEmpty
-    }
-}
-
-struct NavigationPath {
-    let breadcrumbs: [BreadcrumbItem]
-    let currentPath: String
-    
-    init(path: String) {
-        self.currentPath = path
-        
-        if path.isEmpty {
-            self.breadcrumbs = [BreadcrumbItem(name: "Library", path: "")]
-        } else {
-            var crumbs = [BreadcrumbItem(name: "Library", path: "")]
-            let pathComponents = path.split(separator: "/")
-            var currentPath = ""
-            
-            for component in pathComponents {
-                if !currentPath.isEmpty {
-                    currentPath += "/"
-                }
-                currentPath += component
-                crumbs.append(BreadcrumbItem(name: String(component), path: currentPath))
-            }
-            
-            self.breadcrumbs = crumbs
-        }
-    }
-}
-
-// MARK: - Bulk Operation Support
-
-struct BulkOperationProgress {
-    let totalItems: Int
-    let completedItems: Int
-    let currentItem: String
-    let errors: [FolderOperationError]
-    
-    var progress: Double {
-        guard totalItems > 0 else { return 1.0 }
-        return Double(completedItems) / Double(totalItems)
-    }
-    
-    var isComplete: Bool {
-        return completedItems >= totalItems
     }
 }
 

@@ -112,7 +112,7 @@ final class RallyTrimManager {
             panX: currentTrimPanX,
             panY: currentTrimPanY
         )
-        try? metadataStore.saveTrimAdjustments(trimAdjustments, for: videoId)
+        persistTrims(videoId: videoId, metadataStore: metadataStore)
         isTrimmingMode = false
 
         // Surface a propagation prompt when rotation and/or zoom/pan changed.
@@ -136,7 +136,7 @@ final class RallyTrimManager {
         } else {
             trimAdjustments.removeValue(forKey: rallyIndex)
         }
-        try? metadataStore.saveTrimAdjustments(trimAdjustments, for: videoId)
+        persistTrims(videoId: videoId, metadataStore: metadataStore)
     }
 
     func cancelTrim(rallyIndex: Int) {
@@ -167,12 +167,20 @@ final class RallyTrimManager {
                 panY: panY
             )
         }
-        try? metadataStore.saveTrimAdjustments(trimAdjustments, for: videoId)
+        persistTrims(videoId: videoId, metadataStore: metadataStore)
     }
 
     // MARK: - Persistence
 
     func loadSavedAdjustments(videoId: UUID, metadataStore: MetadataStore) {
         trimAdjustments = metadataStore.loadTrimAdjustments(for: videoId)
+    }
+
+    /// Save the current adjustments; a failure is surfaced and retried.
+    private func persistTrims(videoId: UUID, metadataStore: MetadataStore) {
+        let adjustments = trimAdjustments
+        PersistenceMonitor.shared.attempt("trim adjustments", retryKey: "trims-\(videoId)") {
+            try metadataStore.saveTrimAdjustments(adjustments, for: videoId)
+        }
     }
 }

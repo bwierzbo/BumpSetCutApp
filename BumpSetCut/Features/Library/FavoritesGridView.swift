@@ -215,7 +215,7 @@ struct FavoritesGridView: View {
                             // Sync unfavorite back to source video's review selections
                             if let srcVideoId = video.sourceVideoId,
                                let srcRallyIndex = video.sourceRallyIndex {
-                                let metadataStore = MetadataStore()
+                                let metadataStore = MetadataStore.shared
                                 var selections = metadataStore.loadReviewSelections(for: srcVideoId)
                                 selections.favorited.remove(srcRallyIndex)
                                 try metadataStore.saveReviewSelections(selections, for: srcVideoId)

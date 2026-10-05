@@ -442,7 +442,7 @@ final class VideoProcessor: @unchecked Sendable {
         eventLog.log(.processingStarted, detail: "videoId=\(videoId)")
 
         // Initialize metadata store on main actor
-        self.metadataStore = await MainActor.run { MetadataStore() }
+        self.metadataStore = await MainActor.run { MetadataStore.shared }
 
         let asset = AVURLAsset(url: url)
 

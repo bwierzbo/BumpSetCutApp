@@ -197,7 +197,7 @@ final class FavoriteCollectionsTests: XCTestCase {
         // Delete the middle segment: index 2 becomes index 1.
         viewModel.selectedSegmentID = viewModel.segments[1].id
         viewModel.deleteSelected()
-        try viewModel.save()
+        try viewModel.save(mediaStore: nil)
 
         let remapped = metadataStore.loadReviewSelections(for: videoId)
         XCTAssertEqual(remapped.favoriteCollections, [0: "Keep", 1: "Shifted"])

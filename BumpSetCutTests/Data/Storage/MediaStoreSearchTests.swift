@@ -21,7 +21,7 @@ final class MediaStoreSearchTests: XCTestCase {
             .appendingPathComponent("MediaStoreSearchTests_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: storageDir, withIntermediateDirectories: true)
         StorageManager.storageDirectoryOverride = storageDir
-        mediaStore = MediaStore()
+        mediaStore = MediaStore(baseDirectory: storageDir)
         await setupTestData()
     }
 

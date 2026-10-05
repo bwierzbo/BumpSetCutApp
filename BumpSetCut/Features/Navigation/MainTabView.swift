@@ -24,10 +24,10 @@ struct MainTabView: View {
     @State private var selectedTab: AppTab = .home
     @State private var followToast: BSCToastMessage?
     @State private var messageToast: BSCToastMessage?
-    @State private var mediaStore: MediaStore
-    @State private var metadataStore = MetadataStore()
+    @State private var saveFailureToast: BSCToastMessage?
+    let mediaStore: MediaStore
+    let uploadCoordinator: UploadCoordinator
     @State private var navigationState = AppNavigationState()
-    @State private var uploadCoordinator: UploadCoordinator
     @State private var showProcessingView = false
     @State private var showUploadView = false
     @State private var showLowStorageBanner = false
@@ -45,10 +45,10 @@ struct MainTabView: View {
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.scenePhase) private var scenePhase
 
-    init() {
-        let store = MediaStore()
-        _mediaStore = State(initialValue: store)
-        _uploadCoordinator = State(initialValue: UploadCoordinator(mediaStore: store))
+    /// Both are created once by the app and injected.
+    init(mediaStore: MediaStore, uploadCoordinator: UploadCoordinator) {
+        self.mediaStore = mediaStore
+        self.uploadCoordinator = uploadCoordinator
     }
 
     var body: some View {
@@ -56,7 +56,7 @@ struct MainTabView: View {
             TabView(selection: $selectedTab) {
                 // Home
                 NavigationStack {
-                    HomeView(mediaStore: mediaStore, metadataStore: metadataStore)
+                    HomeView(mediaStore: mediaStore, metadataStore: MetadataStore.shared)
                 }
                 .tag(AppTab.home)
                 .tabItem {
@@ -186,7 +186,14 @@ struct MainTabView: View {
             followToast = BSCToastMessage(text: message, style: .success)
             SocialNotificationService.shared.followToast = nil
         }
+        .bscToast($saveFailureToast)
+        .onChange(of: PersistenceMonitor.shared.failureMessage) { _, message in
+            guard let message else { return }
+            saveFailureToast = BSCToastMessage(text: message, style: .error)
+            PersistenceMonitor.shared.acknowledgeFailure()
+        }
         .environment(uploadCoordinator)
+        .environment(mediaStore)
         .environment(navigationState)
         .environment(\.changeTab, { tab in
             selectedTab = tab

@@ -57,6 +57,11 @@ enum RallySpaceSaver {
         guard let duration = try? await asset.load(.duration) else { return nil }
         let totalSeconds = CMTimeGetSeconds(duration)
         guard totalSeconds > 0 else { return nil }
+        // Metadata re-timed for a different file than the one on disk must
+        // not drive another trim (it would cut the wrong footage).
+        if let expected = metadata.sourceDurationSec, abs(expected - totalSeconds) > 0.5 {
+            return nil
+        }
 
         let ranges = mergedKeepRanges(segments: metadata.rallySegments, totalSeconds: totalSeconds)
         let keptSeconds = ranges.reduce(0.0) { $0 + CMTimeGetSeconds($1.duration) }
@@ -73,6 +78,12 @@ enum RallySpaceSaver {
     /// Perform the trim: export the kept ranges (passthrough where possible),
     /// remap rally segments and evidence onto the new timeline, and replace
     /// the original file. Returns the bytes actually freed.
+    ///
+    /// Crash-safe ordering: the remapped sidecars are staged first, then the
+    /// video is swapped atomically, then the staged files are installed. If
+    /// the app dies after the swap, the launch reconcile commits the staged
+    /// files once it sees the video's duration matches theirs; if it dies
+    /// before, they're discarded and nothing changed.
     @MainActor
     static func trim(
         video: VideoMetadata,
@@ -108,13 +119,30 @@ enum RallySpaceSaver {
             throw SpaceSaverError.nothingToSave
         }
 
+        let evidence = metadataStore.loadFrameEvidence(for: videoId)
+        do {
+            // The exported file's real duration — what the reconcile compares
+            // against if this is interrupted after the swap.
+            let trimmedSeconds = CMTimeGetSeconds(try await AVURLAsset(url: exported).load(.duration))
+            try metadataStore.stageMetadata(
+                metadata.withRallySegments(remapped, sourceDurationSec: trimmedSeconds),
+                evidence: evidence.isEmpty ? nil : remapEvidence(evidence, keepRanges: estimate.keepRanges)
+            )
+        } catch {
+            metadataStore.discardStagedSidecars(for: videoId)
+            try? FileManager.default.removeItem(at: exported)
+            throw error
+        }
+
         guard mediaStore.replaceVideoFile(id: video.id, withFileAt: exported) else {
+            metadataStore.discardStagedSidecars(for: videoId)
             try? FileManager.default.removeItem(at: exported)
             throw SpaceSaverError.replaceFailed
         }
 
-        try metadataStore.saveMetadata(metadata.withRallySegments(remapped))
-        remapEvidence(for: videoId, keepRanges: estimate.keepRanges, metadataStore: metadataStore)
+        // The video is replaced; if installing fails here, the launch
+        // reconcile retries it (staged files stay put).
+        try metadataStore.commitStagedSidecars(for: videoId)
         // Any in-flight processing checkpoint referenced the old timeline.
         ProcessingCheckpoint.delete(at: metadataStore.processingCheckpointFileURL(for: videoId))
 
@@ -191,11 +219,8 @@ enum RallySpaceSaver {
 
     /// Shift flywheel evidence timestamps onto the new timeline; entries in
     /// removed dead time are dropped with it.
-    @MainActor
-    private static func remapEvidence(for videoId: UUID, keepRanges: [CMTimeRange], metadataStore: MetadataStore) {
-        let evidence = metadataStore.loadFrameEvidence(for: videoId)
-        guard !evidence.isEmpty else { return }
-        let remapped: [StoredFrameEvidence] = evidence.compactMap { entry in
+    private static func remapEvidence(_ evidence: [StoredFrameEvidence], keepRanges: [CMTimeRange]) -> [StoredFrameEvidence] {
+        evidence.compactMap { entry in
             guard let (offset, range) = offsetAndRange(containing: entry.time, keepRanges: keepRanges) else {
                 return nil
             }
@@ -213,6 +238,5 @@ enum RallySpaceSaver {
                 upright: entry.upright
             )
         }
-        try? metadataStore.saveFrameEvidence(remapped, for: videoId)
     }
 }

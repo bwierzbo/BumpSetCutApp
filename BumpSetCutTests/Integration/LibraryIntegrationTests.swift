@@ -31,7 +31,7 @@ final class LibraryIntegrationTests: XCTestCase {
         StorageManager.storageDirectoryOverride = storageDir
 
         // Initialize core components
-        mediaStore = MediaStore()
+        mediaStore = MediaStore(baseDirectory: storageDir)
         folderManager = FolderManager(mediaStore: mediaStore)
         uploadCoordinator = UploadCoordinator(mediaStore: mediaStore)
         searchViewModel = SearchViewModel(mediaStore: mediaStore)

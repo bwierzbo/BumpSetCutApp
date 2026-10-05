@@ -147,6 +147,8 @@ extension ProcessingCheckpoint {
             )
             let data = try JSONEncoder().encode(self)
             try data.write(to: url, options: .atomic)
+            // Regenerable and often multi-MB — keep it out of iCloud backups.
+            StorageManager.excludeFromBackup(url)
         } catch {
             print("⚠️ ProcessingCheckpoint: write failed — \(error.localizedDescription)")
         }

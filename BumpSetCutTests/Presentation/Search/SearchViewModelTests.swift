@@ -29,7 +29,7 @@ final class SearchViewModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: storageDir, withIntermediateDirectories: true)
         StorageManager.storageDirectoryOverride = storageDir
 
-        mediaStore = MediaStore()
+        mediaStore = MediaStore(baseDirectory: storageDir)
         searchViewModel = SearchViewModel(mediaStore: mediaStore)
         cancellables = Set<AnyCancellable>()
 

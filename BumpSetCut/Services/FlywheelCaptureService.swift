@@ -4,8 +4,8 @@
 //
 //  Data flywheel: when the user opts in, stage clips of rallies the detector
 //  struggled with (passively) or that the user corrected, then drain them to the
-//  private `training-data` bucket for relabeling. Mirrors OfflineQueue's
-//  stage-on-disk / drain-on-network design.
+//  private `training-data` bucket for relabeling. Staged on disk, drained
+//  when the network comes back.
 //
 
 import Foundation
@@ -63,12 +63,17 @@ final class FlywheelCaptureService {
     private let lifetimeKey = "flywheelLifetimeContributed"
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let metadataStore = MetadataStore()
+    private let metadataStore = MetadataStore.shared
 
     private var staged: [FlywheelContribution] = []
     /// Videos whose whole-video frames are already on the server — later flags on
     /// these only send an event (no frame re-upload).
     private var framesUploadedVideos: Set<UUID> = []
+    /// Videos whose frames are being extracted right now. Flags arriving
+    /// meanwhile wait in `eventsAwaitingStage` instead of starting a second
+    /// extraction for the same video.
+    private var stagingVideoIds: Set<UUID> = []
+    private var eventsAwaitingStage: [UUID: [FlywheelFlagEvent]] = [:]
 
     // MARK: - Device info (stamped onto each contribution)
 
@@ -106,11 +111,18 @@ final class FlywheelCaptureService {
         self.decoder.dateDecodingStrategy = .iso8601
 
         try? fileManager.createDirectory(at: base, withIntermediateDirectories: true)
+        // Staged frames are full-resolution JPEGs waiting to upload — never
+        // worth an iCloud backup.
+        StorageManager.excludeFromBackup(base)
 
         self.lifetimeContributedCount = UserDefaults.standard.integer(forKey: lifetimeKey)
-        loadIndex()
-        loadUploadedVideos()
-        loadReported()
+        let indexLoaded = loadIndex()
+        framesUploadedVideos = loadJSON(Set<UUID>.self, from: uploadedVideosURL) ?? []
+        reportedRallies = loadJSON(Set<String>.self, from: reportedURL) ?? []
+        // Only trust the index to say which frames are orphaned if it loaded.
+        if indexLoaded {
+            sweepUnreferencedFrames()
+        }
     }
 
     // MARK: - Reported indicator
@@ -221,6 +233,7 @@ final class FlywheelCaptureService {
         print("📤 Flywheel: uploading \(jobs.count) contribution(s), \(totalFrames) frame(s)…")
 
         var remaining: [FlywheelContribution] = []
+        var resent: [FlywheelContribution] = []
         var uploaded = 0
         var framesDone = 0
 
@@ -246,6 +259,13 @@ final class FlywheelCaptureService {
                     framesUploadedVideos.insert(contribution.videoId)
                     persistUploadedVideos()
                 }
+                // Flags appended to this contribution while it was uploading
+                // weren't in what was sent — queue them as an event-only repeat.
+                if let current = staged.first(where: { $0.id == contribution.id }),
+                   current.flagEvents.count > contribution.flagEvents.count {
+                    resent.append(eventOnlyRepeat(of: current,
+                                                  events: Array(current.flagEvents.dropFirst(contribution.flagEvents.count))))
+                }
                 uploaded += 1
                 framesDone += thisCount
                 uploadProgress = totalFrames > 0 ? Double(framesDone) / Double(totalFrames) : 0
@@ -260,8 +280,12 @@ final class FlywheelCaptureService {
 
         // Merge instead of overwrite: contributions staged while this drain's
         // uploads were in flight are in `staged` but not in the `jobs` snapshot
+        // Failed items keep any flags added in flight (take the live copy).
         let drainedIds = Set(jobs.map { $0.contribution.id })
-        staged = remaining + staged.filter { !drainedIds.contains($0.id) }
+        let remainingIds = Set(remaining.map(\.id))
+        staged = staged.filter { remainingIds.contains($0.id) }
+            + resent
+            + staged.filter { !drainedIds.contains($0.id) }
         pendingCount = staged.count
         persistIndex()
 
@@ -277,13 +301,33 @@ final class FlywheelCaptureService {
     /// Delete all staged contributions (clips + records). Used on opt-out or a
     /// manual "clear pending" in Settings.
     func clearPending() {
-        for contribution in staged {
+        discard(staged)
+    }
+
+    /// The videos were deleted from the library — drop everything staged or
+    /// recorded for them.
+    func discardContributions(for videoIds: Set<UUID>) {
+        discard(staged.filter { videoIds.contains($0.videoId) })
+        // An extraction in flight for one of them drops its frames on return.
+        stagingVideoIds.subtract(videoIds)
+        eventsAwaitingStage = eventsAwaitingStage.filter { !videoIds.contains($0.key) }
+        framesUploadedVideos.subtract(videoIds)
+        persistUploadedVideos()
+        let reportPrefixes = videoIds.map { "\($0.uuidString)#" }
+        reportedRallies = reportedRallies.filter { key in !reportPrefixes.contains { key.hasPrefix($0) } }
+        persistReported()
+    }
+
+    private func discard(_ contributions: [FlywheelContribution]) {
+        guard !contributions.isEmpty else { return }
+        let ids = Set(contributions.map(\.id))
+        for contribution in contributions {
             for name in contribution.frameFileNames {
                 try? fileManager.removeItem(at: stagingDirectory.appendingPathComponent(name))
             }
         }
-        staged.removeAll()
-        pendingCount = 0
+        staged.removeAll { ids.contains($0.id) }
+        pendingCount = staged.count
         persistIndex()
     }
 
@@ -322,6 +366,13 @@ final class FlywheelCaptureService {
             return
         }
 
+        // Frames for this video are being extracted by an earlier flag right
+        // now — ride along with it instead of extracting a duplicate set.
+        guard stagingVideoIds.insert(videoId).inserted else {
+            eventsAwaitingStage[videoId, default: []].append(event)
+            return
+        }
+
         let id = UUID()
         let sliced = evidence.filter {
             $0.time >= segment.startTime - evidenceMarginSec &&
@@ -329,13 +380,21 @@ final class FlywheelCaptureService {
         }
 
         // Frames already on the server → stage an event-only repeat (no frames).
-        let frameNames: [String]
-        if framesUploadedVideos.contains(videoId) {
-            frameNames = []
-        } else {
-            frameNames = await extractFrames(from: originalURL, segment: segment, contributionId: id)
-            guard !frameNames.isEmpty else { return }
+        let eventOnly = framesUploadedVideos.contains(videoId)
+        let frameNames = eventOnly
+            ? []
+            : await extractFrames(from: originalURL, segment: segment, contributionId: id)
+
+        // Removed from `stagingVideoIds` by discardContributions → the video
+        // was deleted while we extracted.
+        guard stagingVideoIds.remove(videoId) != nil else {
+            for name in frameNames {
+                try? fileManager.removeItem(at: stagingDirectory.appendingPathComponent(name))
+            }
+            return
         }
+        let queuedEvents = eventsAwaitingStage.removeValue(forKey: videoId) ?? []
+        guard eventOnly || !frameNames.isEmpty else { return }
 
         let contribution = FlywheelContribution(
             id: id,
@@ -346,7 +405,7 @@ final class FlywheelCaptureService {
             trigger: trigger,
             userReason: reason,
             frameFileNames: frameNames,
-            flagEvents: [event],
+            flagEvents: [event] + queuedEvents,
             evidence: sliced,
             rallyConfidence: segment.confidence,
             rallyQuality: segment.quality,
@@ -429,58 +488,81 @@ final class FlywheelCaptureService {
         return (0..<n).map { a + Double($0) * step }
     }
 
-    private func persistIndex() {
-        do {
-            let data = try encoder.encode(staged)
-            try data.write(to: indexURL, options: .atomic)
-        } catch {
-            print("Flywheel: failed to persist index: \(error)")
+    /// A frameless copy of `contribution` carrying only `events` — sent when
+    /// flags arrive after its frames already went up.
+    private func eventOnlyRepeat(of contribution: FlywheelContribution, events: [FlywheelFlagEvent]) -> FlywheelContribution {
+        FlywheelContribution(
+            id: UUID(),
+            videoId: contribution.videoId,
+            rallyIndex: contribution.rallyIndex,
+            startTime: contribution.startTime,
+            endTime: contribution.endTime,
+            trigger: contribution.trigger,
+            userReason: contribution.userReason,
+            frameFileNames: [],
+            flagEvents: events,
+            evidence: contribution.evidence,
+            rallyConfidence: contribution.rallyConfidence,
+            rallyQuality: contribution.rallyQuality,
+            appVersion: contribution.appVersion,
+            osVersion: contribution.osVersion,
+            deviceModel: contribution.deviceModel,
+            consentVersion: contribution.consentVersion,
+            createdAt: Date()
+        )
+    }
+
+    /// Delete staged JPEGs no contribution references — left behind when the
+    /// app died between extracting frames and recording the contribution.
+    private func sweepUnreferencedFrames() {
+        let referenced = Set(staged.flatMap(\.frameFileNames))
+        guard let names = try? fileManager.contentsOfDirectory(atPath: stagingDirectory.path) else { return }
+        for name in names where name.hasSuffix(".jpg") && !referenced.contains(name) {
+            try? fileManager.removeItem(at: stagingDirectory.appendingPathComponent(name))
         }
     }
 
-    private func loadIndex() {
-        guard fileManager.fileExists(atPath: indexURL.path),
-              let data = try? Data(contentsOf: indexURL),
-              let loaded = try? decoder.decode([FlywheelContribution].self, from: data) else {
-            return
-        }
-        staged = loaded
+    private func persistIndex() {
+        persist(staged, to: indexURL, what: "index")
+    }
+
+    /// Returns false when an index file existed but couldn't be read (it's
+    /// quarantined, and nothing on disk should be judged by the empty index).
+    private func loadIndex() -> Bool {
+        let existed = fileManager.fileExists(atPath: indexURL.path)
+        let loaded = loadJSON([FlywheelContribution].self, from: indexURL)
+        staged = loaded ?? []
         pendingCount = staged.count
+        return loaded != nil || !existed
     }
 
     private func persistUploadedVideos() {
-        do {
-            let data = try encoder.encode(framesUploadedVideos)
-            try data.write(to: uploadedVideosURL, options: .atomic)
-        } catch {
-            print("Flywheel: failed to persist uploaded videos: \(error)")
-        }
-    }
-
-    private func loadUploadedVideos() {
-        guard fileManager.fileExists(atPath: uploadedVideosURL.path),
-              let data = try? Data(contentsOf: uploadedVideosURL),
-              let loaded = try? decoder.decode(Set<UUID>.self, from: data) else {
-            return
-        }
-        framesUploadedVideos = loaded
+        persist(framesUploadedVideos, to: uploadedVideosURL, what: "uploaded videos")
     }
 
     private func persistReported() {
+        persist(reportedRallies, to: reportedURL, what: "reported rallies")
+    }
+
+    private func persist<T: Encodable>(_ value: T, to url: URL, what: String) {
         do {
-            let data = try encoder.encode(reportedRallies)
-            try data.write(to: reportedURL, options: .atomic)
+            let data = try encoder.encode(value)
+            try data.write(to: url, options: .atomic)
         } catch {
-            print("Flywheel: failed to persist reported: \(error)")
+            print("Flywheel: failed to persist \(what): \(error)")
         }
     }
 
-    private func loadReported() {
-        guard fileManager.fileExists(atPath: reportedURL.path),
-              let data = try? Data(contentsOf: reportedURL),
-              let loaded = try? decoder.decode(Set<String>.self, from: data) else {
-            return
+    /// Missing → nil. Unreadable → quarantined (so the next persist can't
+    /// overwrite it) and nil.
+    private func loadJSON<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        do {
+            return try decoder.decode(T.self, from: Data(contentsOf: url))
+        } catch {
+            print("Flywheel: unreadable \(url.lastPathComponent): \(error)")
+            StorageManager.quarantineCorruptFile(at: url)
+            return nil
         }
-        reportedRallies = loaded
     }
 }

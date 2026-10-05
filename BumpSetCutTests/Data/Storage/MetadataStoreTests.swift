@@ -272,11 +272,10 @@ final class MetadataStoreTests: XCTestCase {
 
         try metadataStore.saveMetadata(updatedTestMetadata)
 
-        // Verify backup was cleaned up after successful write
+        // The replaced version is kept as the backup (the fallback for a
+        // corrupt or missing main file).
         let backupURL = metadataStore.metadataDirectory.appendingPathComponent("\(testVideoId!.uuidString).json.backup")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: backupURL.path), "Backup should be cleaned up after successful write")
-
-        print("testBackupCreation: ✅ Backup creation and cleanup verified")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupURL.path), "Previous version should be kept as the backup")
     }
 
     // MARK: - Query Operations Tests
@@ -320,21 +319,6 @@ final class MetadataStoreTests: XCTestCase {
         XCTAssertGreaterThan(fileSize!, 0, "File size should be greater than 0")
 
         print("testGetMetadataFileSize: ✅ File size queries verified")
-    }
-
-    @MainActor
-    func testGetTotalStorageUsed() throws {
-        // Initially should be 0
-        XCTAssertEqual(metadataStore.getTotalStorageUsed(), 0, "Should start with 0 storage used")
-
-        // Add metadata files
-        try metadataStore.saveMetadata(createTestMetadata(videoId: UUID()))
-        try metadataStore.saveMetadata(createTestMetadata(videoId: UUID()))
-
-        let totalStorage = metadataStore.getTotalStorageUsed()
-        XCTAssertGreaterThan(totalStorage, 0, "Total storage should be greater than 0")
-
-        print("testGetTotalStorageUsed: ✅ Storage calculations verified")
     }
 
     // MARK: - Error Handling Tests
@@ -396,52 +380,129 @@ final class MetadataStoreTests: XCTestCase {
     // MARK: - Maintenance Operations Tests
 
     @MainActor
-    func testCleanupOrphanedMetadata() throws {
-        // Create metadata for multiple videos
-        let videoId1 = UUID()
-        let videoId2 = UUID()
-        let videoId3 = UUID()
+    func testSweepOrphanedSidecarsRemovesEveryKindForUnknownVideos() throws {
+        let keep = UUID()
+        let orphan = UUID()
+        for videoId in [keep, orphan] {
+            try metadataStore.saveMetadata(createTestMetadata(videoId: videoId))
+            try metadataStore.saveMetadata(createTestMetadata(videoId: videoId)) // leaves a .backup
+            try metadataStore.saveTrimAdjustments([0: RallyTrimAdjustment(before: 1, after: 0)], for: videoId)
+            try metadataStore.saveReviewSelections(RallyReviewSelections(), for: videoId)
+            try metadataStore.saveGameScoring(GameScoring(), for: videoId)
+            try metadataStore.saveFrameEvidence([], for: videoId)
+            try Data("{}".utf8).write(to: metadataStore.processingCheckpointFileURL(for: videoId))
+        }
 
-        try metadataStore.saveMetadata(createTestMetadata(videoId: videoId1))
-        try metadataStore.saveMetadata(createTestMetadata(videoId: videoId2))
-        try metadataStore.saveMetadata(createTestMetadata(videoId: videoId3))
+        let removed = metadataStore.sweepOrphanedSidecars(keeping: [keep])
 
-        // Verify all exist
-        XCTAssertEqual(metadataStore.getAllMetadataVideoIds().count, 3, "Should have 3 metadata files")
-
-        // Clean up orphaned metadata (only videoId1 is still valid)
-        let validVideoIds: Set<UUID> = [videoId1]
-        let cleanupCount = metadataStore.cleanupOrphanedMetadata(validVideoIds: validVideoIds)
-
-        XCTAssertEqual(cleanupCount, 2, "Should have cleaned up 2 orphaned files")
-        XCTAssertEqual(metadataStore.getAllMetadataVideoIds().count, 1, "Should have 1 metadata file remaining")
-        XCTAssertTrue(metadataStore.metadataExists(for: videoId1), "Valid metadata should still exist")
-        XCTAssertFalse(metadataStore.metadataExists(for: videoId2), "Orphaned metadata should be deleted")
-        XCTAssertFalse(metadataStore.metadataExists(for: videoId3), "Orphaned metadata should be deleted")
-
-        print("testCleanupOrphanedMetadata: ✅ Orphaned metadata cleanup verified")
+        XCTAssertEqual(removed, 7, "metadata, backup, trims, selections, scoring, evidence, checkpoint")
+        let remaining = try FileManager.default.contentsOfDirectory(atPath: metadataStore.metadataDirectory.path)
+        XCTAssertFalse(remaining.contains { $0.hasPrefix(orphan.uuidString) })
+        XCTAssertEqual(remaining.filter { $0.hasPrefix(keep.uuidString) }.count, 7)
     }
 
     @MainActor
-    func testVerifyMetadataIntegrity() throws {
-        let testMetadata = createTestMetadata()
+    func testDeleteAllSidecarsIncludesScoringAndCheckpoint() throws {
+        try metadataStore.saveMetadata(createTestMetadata())
+        try metadataStore.saveGameScoring(GameScoring(), for: testVideoId)
+        try Data("{}".utf8).write(to: metadataStore.processingCheckpointFileURL(for: testVideoId))
 
-        // Save valid metadata
-        try metadataStore.saveMetadata(testMetadata)
+        metadataStore.deleteAllSidecars(for: testVideoId)
 
-        // Create corrupted metadata file
-        let corruptedVideoId = UUID()
-        let corruptedURL = metadataStore.metadataDirectory.appendingPathComponent("\(corruptedVideoId.uuidString).json")
-        try "invalid json".data(using: .utf8)!.write(to: corruptedURL)
+        let remaining = try FileManager.default.contentsOfDirectory(atPath: metadataStore.metadataDirectory.path)
+        XCTAssertTrue(remaining.filter { $0.hasPrefix(testVideoId.uuidString) }.isEmpty)
+    }
 
-        // Verify integrity
-        let corruptedFiles = metadataStore.verifyMetadataIntegrity()
+    @MainActor
+    func testReprocessKeepsRallyMetadataButDropsIndexKeyedSidecars() throws {
+        try metadataStore.saveMetadata(createTestMetadata())
+        try metadataStore.saveTrimAdjustments([0: RallyTrimAdjustment(before: 1, after: 0)], for: testVideoId)
+        try metadataStore.saveGameScoring(GameScoring(), for: testVideoId)
 
-        XCTAssertEqual(corruptedFiles.count, 1, "Should detect 1 corrupted file")
-        XCTAssertTrue(corruptedFiles.keys.contains(corruptedVideoId), "Should identify corrupted video ID")
-        XCTAssertFalse(corruptedFiles.keys.contains(testVideoId), "Should not flag valid metadata as corrupted")
+        metadataStore.deleteSidecarsForReprocess(videoId: testVideoId)
 
-        print("testVerifyMetadataIntegrity: ✅ Metadata integrity verification working correctly")
+        XCTAssertNoThrow(try metadataStore.loadMetadata(for: testVideoId),
+                         "The processor reads the old metadata to carry manual rallies through")
+        XCTAssertTrue(metadataStore.loadTrimAdjustments(for: testVideoId).isEmpty)
+        XCTAssertNil(metadataStore.loadGameScoring(for: testVideoId))
+    }
+
+    // MARK: - Backup Fallback & Quarantine
+
+    @MainActor
+    func testLoadFallsBackToBackupWhenMainFileIsCorrupt() throws {
+        let original = createTestMetadata()
+        try metadataStore.saveMetadata(original)
+        try metadataStore.saveMetadata(original) // first version becomes the backup
+
+        let mainURL = metadataStore.metadataDirectory.appendingPathComponent("\(testVideoId!.uuidString).json")
+        try Data("not json".utf8).write(to: mainURL)
+
+        let loaded = try metadataStore.loadMetadata(for: testVideoId)
+        XCTAssertEqual(loaded.rallySegments.count, original.rallySegments.count)
+        let names = try FileManager.default.contentsOfDirectory(atPath: metadataStore.metadataDirectory.path)
+        XCTAssertTrue(names.contains { $0.hasPrefix("\(testVideoId!.uuidString).json.corrupt-") },
+                      "The corrupt main file is quarantined, not overwritten")
+        XCTAssertNoThrow(try metadataStore.loadMetadata(for: testVideoId), "Backup is reinstated as the main file")
+    }
+
+    @MainActor
+    func testLoadFallsBackToBackupWhenMainFileIsMissing() throws {
+        try metadataStore.saveMetadata(createTestMetadata())
+        try metadataStore.saveMetadata(createTestMetadata())
+        let mainURL = metadataStore.metadataDirectory.appendingPathComponent("\(testVideoId!.uuidString).json")
+        try FileManager.default.removeItem(at: mainURL)
+
+        XCTAssertNoThrow(try metadataStore.loadMetadata(for: testVideoId))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mainURL.path))
+    }
+
+    @MainActor
+    func testCorruptSidecarIsQuarantinedNotOverwritten() throws {
+        let trimsURL = metadataStore.metadataDirectory.appendingPathComponent("\(testVideoId!.uuidString)_trims.json")
+        try FileManager.default.createDirectory(at: metadataStore.metadataDirectory, withIntermediateDirectories: true)
+        let corrupt = Data("{ truncated".utf8)
+        try corrupt.write(to: trimsURL)
+
+        XCTAssertTrue(metadataStore.loadTrimAdjustments(for: testVideoId).isEmpty)
+        try metadataStore.saveTrimAdjustments([0: RallyTrimAdjustment(before: 2, after: 0)], for: testVideoId)
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: metadataStore.metadataDirectory.path)
+        guard let quarantined = names.first(where: { $0.hasPrefix("\(testVideoId!.uuidString)_trims.json.corrupt-") }) else {
+            return XCTFail("Corrupt sidecar should be moved aside")
+        }
+        let preserved = try Data(contentsOf: metadataStore.metadataDirectory.appendingPathComponent(quarantined))
+        XCTAssertEqual(preserved, corrupt, "The unreadable bytes survive for recovery")
+        XCTAssertEqual(metadataStore.loadTrimAdjustments(for: testVideoId)[0]?.before, 2)
+    }
+
+    @MainActor
+    func testMissingSidecarIsNotQuarantined() throws {
+        XCTAssertTrue(metadataStore.loadTrimAdjustments(for: testVideoId).isEmpty)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: metadataStore.metadataDirectory.path)) ?? []
+        XCTAssertTrue(names.isEmpty)
+    }
+
+    // MARK: - Timeline transaction
+
+    @MainActor
+    func testSaveTimelineEditWritesAllFilesAndLeavesNoTemps() throws {
+        let metadata = createTestMetadata()
+        try metadataStore.saveMetadata(metadata)
+
+        try metadataStore.saveTimelineEdit(
+            metadata: metadata.withRallySegments(Array(metadata.rallySegments.prefix(1))),
+            trims: [0: RallyTrimAdjustment(before: 1, after: 1)],
+            selections: RallyReviewSelections(saved: [0], removed: [], favorited: [], favoriteCollections: [:], posted: []),
+            scoring: GameScoring()
+        )
+
+        XCTAssertEqual(try metadataStore.loadMetadata(for: testVideoId).rallySegments.count, 1)
+        XCTAssertEqual(metadataStore.loadTrimAdjustments(for: testVideoId)[0]?.before, 1)
+        XCTAssertEqual(metadataStore.loadReviewSelections(for: testVideoId).saved, [0])
+        XCTAssertNotNil(metadataStore.loadGameScoring(for: testVideoId))
+        let names = try FileManager.default.contentsOfDirectory(atPath: metadataStore.metadataDirectory.path)
+        XCTAssertFalse(names.contains { $0.hasSuffix(".staged") || $0.hasSuffix(".txn") })
     }
 
     // MARK: - Concurrency Tests
@@ -492,15 +553,5 @@ final class MetadataStoreTests: XCTestCase {
         XCTAssertEqual(loadResults.count, videoIds.count, "All concurrent loads should succeed")
 
         print("testConcurrentOperations: ✅ Concurrent operations verified")
-    }
-}
-
-// MARK: - Test Extensions
-
-extension MetadataStore {
-    // Expose internal property for testing
-    var metadataDirectory: URL {
-        let baseDirectory = StorageManager.getPersistentStorageDirectory()
-        return baseDirectory.appendingPathComponent("ProcessedMetadata", isDirectory: true)
     }
 }

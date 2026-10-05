@@ -149,14 +149,6 @@ final class LibraryViewModel {
         return videos
     }
 
-    // MARK: - Breadcrumbs
-    var breadcrumbs: [BSCBreadcrumb.Crumb] {
-        // Use relative path for breadcrumbs, with library name as root
-        let relativePath = folderManager.currentRelativePath
-        let rootName = libraryType == .saved ? "Library" : libraryType.displayName
-        return BSCBreadcrumb.crumbs(from: relativePath, rootName: rootName)
-    }
-
     // MARK: - Initialization
     /// `folderPath` nil shows the library root; a path shows that folder. Each
     /// folder is its own pushed screen, so the system back button and edge

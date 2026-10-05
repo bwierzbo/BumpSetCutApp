@@ -25,7 +25,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
         // shared on-disk library (state leaked across tests, causing "original not
         // found" and orphan-tracking failures).
         StorageManager.storageDirectoryOverride = tempDirectory
-        mediaStore = MediaStore()
+        mediaStore = MediaStore(baseDirectory: tempDirectory)
     }
 
     override func tearDown() {
@@ -128,7 +128,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
             customName: "Processed01 Original Test",
             originalVideoId: originalVideo.id
         )
-        XCTAssertTrue(processedAdded, "Should successfully add processed video")
+        XCTAssertNotNil(processedAdded, "Should successfully add processed video")
         
         // Verify processed video metadata
         let allVideos = mediaStore.getVideos(in: "")
@@ -173,7 +173,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
             customName: "Processed01 Multi Test",
             originalVideoId: originalVideo.id
         )
-        XCTAssertTrue(processed1Added, "Should add first processed video")
+        XCTAssertNotNil(processed1Added, "Should add first processed video")
         
         // Add second processed version
         let processed2Path = tempDirectory.appendingPathComponent("debug01.mp4")
@@ -185,7 +185,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
             customName: "Debug01 Multi Test",
             originalVideoId: originalVideo.id
         )
-        XCTAssertTrue(processed2Added, "Should add second processed video")
+        XCTAssertNotNil(processed2Added, "Should add second processed video")
         
         // Verify original tracks both processed versions
         let allVideos = mediaStore.getVideos(in: "")
@@ -213,7 +213,7 @@ final class VideoProcessingTrackingTests: XCTestCase {
             originalVideoId: fakeOriginalId
         )
         
-        XCTAssertTrue(processedAdded, "Should still add the processed video even if original not found")
+        XCTAssertNotNil(processedAdded, "Should still add the processed video even if original not found")
         
         // Verify the processed video was added with correct metadata
         let videos = mediaStore.getVideos(in: "")

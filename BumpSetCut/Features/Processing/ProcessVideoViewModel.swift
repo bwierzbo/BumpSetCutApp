@@ -64,46 +64,36 @@ final class ProcessVideoViewModel {
         currentVideoMetadata?.hasMetadata ?? false
     }
 
-    var detectedRallyCount: Int {
-        guard let videoId = currentVideoMetadata?.id,
-              let metadata = try? MetadataStore().loadMetadata(for: videoId) else { return 0 }
-        return metadata.rallyCount
-    }
+    /// Rally totals of the current video's metadata, read once per metadata
+    /// load instead of decoding the JSON on every body evaluation.
+    private(set) var rallySummary: (rallyCount: Int, totalRallyDuration: Double)?
 
-    var detectedRallyDurationFormatted: String {
-        guard let videoId = currentVideoMetadata?.id,
-              let metadata = try? MetadataStore().loadMetadata(for: videoId) else { return "0:00" }
-        let total = metadata.totalRallyDuration
-        let minutes = Int(total) / 60
-        let seconds = Int(total) % 60
-        return String(format: "%d:%02d", minutes, seconds)
+    var detectedRallyCount: Int {
+        rallySummary?.rallyCount ?? 0
     }
 
     /// Cached original video duration (loaded async since metadata may not store it).
     var cachedOriginalDuration: Double?
 
-    /// Time cut = original video duration minus total rally duration.
-    var timeCutFormatted: String? {
+    /// Seconds of dead time removed (original duration minus rallies), if known.
+    private var timeCutSeconds: (cut: Double, original: Double)? {
         guard let originalDuration = cachedOriginalDuration ?? currentVideoMetadata?.duration,
               originalDuration > 0,
-              let videoId = currentVideoMetadata?.id,
-              let metadata = try? MetadataStore().loadMetadata(for: videoId) else { return nil }
-        let cut = originalDuration - metadata.totalRallyDuration
-        guard cut > 0 else { return nil }
-        let minutes = Int(cut) / 60
-        let seconds = Int(cut) % 60
-        return String(format: "%d:%02d", minutes, seconds)
+              let summary = rallySummary else { return nil }
+        let cut = originalDuration - summary.totalRallyDuration
+        return cut > 0 ? (cut, originalDuration) : nil
+    }
+
+    /// Time cut = original video duration minus total rally duration.
+    var timeCutFormatted: String? {
+        guard let cut = timeCutSeconds?.cut else { return nil }
+        return String(format: "%d:%02d", Int(cut) / 60, Int(cut) % 60)
     }
 
     /// Percentage of original video that was cut.
     var timeCutPercent: Int? {
-        guard let originalDuration = cachedOriginalDuration ?? currentVideoMetadata?.duration,
-              originalDuration > 0,
-              let videoId = currentVideoMetadata?.id,
-              let metadata = try? MetadataStore().loadMetadata(for: videoId) else { return nil }
-        let cut = originalDuration - metadata.totalRallyDuration
-        guard cut > 0 else { return nil }
-        return Int((cut / originalDuration) * 100)
+        guard let (cut, original) = timeCutSeconds else { return nil }
+        return Int((cut / original) * 100)
     }
 
     var canBeProcessed: Bool {
@@ -202,6 +192,8 @@ final class ProcessVideoViewModel {
         // Search all videos in the manifest by filename (covers all folders including nested subfolders)
         if let match = mediaStore.getAllVideos().first(where: { $0.fileName == fileName }) {
             currentVideoMetadata = match
+            rallySummary = (try? mediaStore.metadataStore.loadMetadata(for: match.id))
+                .map { ($0.rallyCount, $0.totalRallyDuration) }
             // Load duration from AVAsset if metadata doesn't have it
             if match.duration == nil || match.duration == 0 {
                 loadVideoDuration()
@@ -210,6 +202,7 @@ final class ProcessVideoViewModel {
         }
 
         currentVideoMetadata = nil
+        rallySummary = nil
     }
 
     /// Load video duration from AVAsset (async) for stats computation.
@@ -258,15 +251,16 @@ final class ProcessVideoViewModel {
         coordinator.cancelProcessing()
     }
 
-    /// Reprocess flow (dev tool): delete the current rally metadata and every
-    /// index-keyed sidecar (trims, selections — they'd point at the old rallies), then
-    /// run detection again on the full source video. Lifetime stats are idempotent per
-    /// videoId, so the original run's contribution stays and this run won't double-count.
-    /// Favorites already exported to the library are separate files and stay.
+    /// Reprocess flow (dev tool): drop the index-keyed sidecars (trims,
+    /// selections, scoring — they'd point at the old rallies) and run
+    /// detection again on the full source video. The current rally metadata
+    /// stays until the new run replaces it, so manual rallies carry over and a
+    /// cancelled run loses nothing. Lifetime stats are idempotent per videoId,
+    /// so this run won't double-count. Favorites already exported to the
+    /// library are separate files and stay.
     func reprocess() {
         guard let videoId = currentVideoMetadata?.id else { return }
-        MetadataStore().deleteAllSidecars(for: videoId)
-        mediaStore.resetProcessingState(videoId: videoId)
+        mediaStore.prepareForReprocess(videoId: videoId)
         noRalliesDetected = false
         loadCurrentVideoMetadata()
         startProcessing(isDebugMode: false)
@@ -277,8 +271,7 @@ final class ProcessVideoViewModel {
     func reprocessHighSensitivity() {
         guard let videoId = currentVideoMetadata?.id else { return }
         didTrySensitiveReprocess = true
-        MetadataStore().deleteAllSidecars(for: videoId)
-        mediaStore.resetProcessingState(videoId: videoId)
+        mediaStore.prepareForReprocess(videoId: videoId)
         noRalliesDetected = false
         loadCurrentVideoMetadata()
         startProcessing(isDebugMode: false, config: .highSensitivity)
@@ -374,32 +367,26 @@ final class ProcessVideoViewModel {
         let originalDisplayName = getVideoDisplayName()
         let processedName = getNextProcessedVideoName(originalDisplayName: originalDisplayName, prefix: "Debug", inFolder: destinationFolder)
         let ext = videoURL.pathExtension.isEmpty ? "mp4" : videoURL.pathExtension
-        let processedFileName = "\(processedName).\(ext)"
+        // Unique on disk and in the manifest (which is keyed by file name) —
+        // a display-name-based file name overwrote earlier exports and
+        // collided across folders. The display name lives in customName.
+        let processedFileName = "\(UUID().uuidString).\(ext)"
 
-        let mediaStoreBase = mediaStore.baseDirectory
-        let targetDirectory = mediaStoreBase.appendingPathComponent(destinationFolder)
+        let targetDirectory = mediaStore.baseDirectory.appendingPathComponent(destinationFolder)
         let finalURL = targetDirectory.appendingPathComponent(processedFileName)
 
-        print("📁 saveProcessedVideo: moving \(tempProcessedURL.lastPathComponent) → \(finalURL.path)")
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true, attributes: nil)
-
-        if FileManager.default.fileExists(atPath: finalURL.path) {
-            try FileManager.default.removeItem(at: finalURL)
-        }
         try FileManager.default.moveItem(at: tempProcessedURL, to: finalURL)
-        print("✅ saveProcessedVideo: file moved to \(processedFileName)")
 
         let originalVideoId = currentVideoMetadata?.id ?? UUID()
-        let success = mediaStore.addProcessedVideo(at: finalURL, toFolder: destinationFolder, customName: processedName, originalVideoId: originalVideoId)
-        print(success ? "✅ saveProcessedVideo: added to manifest" : "❌ saveProcessedVideo: addProcessedVideo returned false")
+        guard let addedVideo = mediaStore.addProcessedVideo(at: finalURL, toFolder: destinationFolder, customName: processedName, originalVideoId: originalVideoId) else {
+            // Not recorded — don't leave an untracked file behind.
+            try? FileManager.default.removeItem(at: finalURL)
+            throw MediaStore.ImportError.registrationFailed
+        }
 
-        if isDebugMode, success, let debugger = debugData {
-            if let addedVideo = mediaStore.getVideos(in: destinationFolder).first(where: { $0.displayName == processedName }) {
-                if let jsonData = debugger.exportToJSON() {
-                    let sessionId = UUID()
-                    _ = try mediaStore.saveDebugData(for: addedVideo.id, debugData: jsonData, sessionId: sessionId)
-                }
-            }
+        if isDebugMode, let debugger = debugData, let jsonData = debugger.exportToJSON() {
+            try mediaStore.saveDebugData(for: addedVideo.id, debugData: jsonData, sessionId: UUID())
         }
 
         await MainActor.run {

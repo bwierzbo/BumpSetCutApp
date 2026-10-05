@@ -130,10 +130,6 @@ class FolderManager {
         }
     }
 
-    func canNavigateUp() -> Bool {
-        return !isAtLibraryRoot
-    }
-
     // MARK: - History Navigation
 
     func navigateBack() {
@@ -154,12 +150,6 @@ class FolderManager {
         isNavigatingHistory = false
     }
 
-    func getHistoryPaths() -> (back: [String], forward: [String]) {
-        let backPaths = historyIndex > 0 ? Array(historyStack.prefix(historyIndex).reversed()) : []
-        let forwardPaths = historyIndex < historyStack.count - 1 ? Array(historyStack.suffix(from: historyIndex + 1)) : []
-        return (backPaths, forwardPaths)
-    }
-    
     private func getParentPath(_ path: String) -> String {
         let components = path.split(separator: "/")
         if components.count <= 1 {
@@ -276,49 +266,8 @@ class FolderManager {
         }
     }
 
-    // MARK: - Batch Operations
-
-    func bulkMoveVideos(_ videos: [VideoMetadata], to targetFolderPath: String) async throws {
-        var successCount = 0
-        var errors: [String] = []
-
-        for video in videos {
-            let success = mediaStore.moveVideo(fileName: video.fileName, toFolder: targetFolderPath)
-
-            if success {
-                successCount += 1
-            } else {
-                errors.append(video.fileName)
-            }
-        }
-
-        refreshContents()
-
-        if !errors.isEmpty {
-            let errorMessage = "Failed to move \(errors.count) videos: \(errors.joined(separator: ", "))"
-            throw FolderOperationError.systemError(errorMessage)
-        }
-
-        logger.info("Bulk moved \(successCount) videos to \(targetFolderPath)")
-    }
-    
     // MARK: - Search
-    
-    func searchContents(query: String) -> (folders: [FolderMetadata], videos: [VideoMetadata]) {
-        let lowercaseQuery = query.lowercased()
-        
-        let matchingFolders = folders.filter { folder in
-            folder.name.lowercased().contains(lowercaseQuery)
-        }
-        
-        let matchingVideos = videos.filter { video in
-            video.displayName.lowercased().contains(lowercaseQuery) ||
-            video.fileName.lowercased().contains(lowercaseQuery)
-        }
-        
-        return (matchingFolders, matchingVideos)
-    }
-    
+
     func globalSearch(query: String) -> [VideoMetadata] {
         return mediaStore.searchVideos(query: query, in: libraryType)
     }
@@ -327,18 +276,8 @@ class FolderManager {
         return mediaStore.searchFolders(query: query, in: libraryType)
     }
     
-    // MARK: - Utility
-    
-    func getFolderHierarchy() -> [BreadcrumbItem] {
-        return NavigationPath(path: currentPath).breadcrumbs
-    }
-    
-    func canCreateFolder(named name: String) -> Bool {
-        let sanitizedName = FolderValidationRules.sanitizeName(name)
-        return FolderValidationRules.isValidName(sanitizedName) && 
-               !folders.contains(where: { $0.name.lowercased() == sanitizedName.lowercased() })
-    }
-    
+    // MARK: - Sorting
+
     func getSortedFolders(by sortOption: FolderSortOption = .name) -> [FolderMetadata] {
         switch sortOption {
         case .name:

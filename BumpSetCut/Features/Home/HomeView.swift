@@ -826,40 +826,18 @@ struct UnprocessedVideoPickerSheet: View {
     }
 
     private func importAndNavigate(item: PhotosPickerItem) async {
-        await MainActor.run { isImporting = true }
+        isImporting = true
+        defer { isImporting = false }
 
         do {
-            guard let videoData = try await item.loadTransferable(type: VideoTransferable.self) else {
-                await MainActor.run { isImporting = false }
-                return
-            }
-
-            // Move the Photos temp file into library storage before registering it —
-            // iOS purges the temp URL, so the manifest must point at our own copy
-            let fileName = "Video_\(DateFormatter.yyyyMMdd_HHmmss.string(from: Date()))_\(UUID().uuidString.prefix(4)).mp4"
-            let destinationURL = StorageManager.getPersistentStorageDirectory()
-                .appendingPathComponent(LibraryType.saved.rootPath)
-                .appendingPathComponent(fileName)
-            try FileManager.default.createDirectory(
-                at: destinationURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+            guard let videoData = try await item.loadTransferable(type: VideoTransferable.self) else { return }
+            // iOS purges the Photos temp URL, so the library takes its own copy.
+            let imported = try mediaStore.importVideo(
+                from: videoData.url, toFolder: LibraryType.saved.rootPath, customName: nil
             )
-            try FileManager.default.moveItem(at: videoData.url, to: destinationURL)
-
-            let success = mediaStore.addVideo(at: destinationURL, toFolder: LibraryType.saved.rootPath)
-
-            await MainActor.run {
-                isImporting = false
-                if success {
-                    importedVideo = ImportedVideo(url: destinationURL)
-                } else {
-                    // Registration failed — remove the moved copy, or it lingers
-                    // on disk untracked by the manifest with no cleanup path
-                    try? FileManager.default.removeItem(at: destinationURL)
-                }
-            }
+            importedVideo = ImportedVideo(url: mediaStore.fileURL(for: imported))
         } catch {
-            await MainActor.run { isImporting = false }
+            print("❌ Import failed: \(error.localizedDescription)")
         }
     }
 
@@ -956,7 +934,7 @@ struct ImportedVideo: Identifiable, Hashable {
 #Preview("HomeView") {
     let store = MediaStore()
     NavigationStack {
-        HomeView(mediaStore: store, metadataStore: MetadataStore())
+        HomeView(mediaStore: store, metadataStore: MetadataStore.shared)
     }
     .environment(AppSettings.shared)
     .environment(UploadCoordinator(mediaStore: store))
