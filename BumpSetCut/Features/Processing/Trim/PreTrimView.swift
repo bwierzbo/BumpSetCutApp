@@ -16,6 +16,9 @@ struct PreTrimView: View {
 
     @State private var viewModel: PreTrimViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// Angle readout width — grows with Dynamic Type so "+10.0°" never clips.
+    @ScaledMetric(relativeTo: .body) private var readoutWidth: CGFloat = 56
 
     init(videoURL: URL, onSkip: @escaping () -> Void, onTrimmed: @escaping (URL) -> Void) {
         self.videoURL = videoURL
@@ -34,66 +37,40 @@ struct PreTrimView: View {
         ZStack {
             Color.bscMediaBackground.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // Top bar
-                topBar
-                    .padding(.horizontal, BSCSpacing.lg)
-                    .padding(.top, BSCSpacing.md)
+            if verticalSizeClass == .compact {
+                // Landscape: video on the left, controls in a scrollable column
+                // on the right — stacked vertically they don't fit the height.
+                HStack(spacing: BSCSpacing.lg) {
+                    videoArea
+                        .padding(.vertical, BSCSpacing.md)
 
-                Spacer()
-
-                // Video player
-                if let player = viewModel.player {
-                    videoPlayerSection(player: player)
-                } else {
-                    ProgressView()
-                        .tint(.bscOnMedia)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-
-                Spacer()
-
-                // Time labels
-                timeLabels
-                    .padding(.horizontal, BSCSpacing.xl)
-                    .padding(.bottom, BSCSpacing.sm)
-
-                // Filmstrip trim bar
-                if viewModel.videoDuration > 0 {
-                    GeometryReader { geo in
-                        trimBar(totalWidth: geo.size.width)
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            topBar
+                                .padding(.top, BSCSpacing.sm)
+                                .padding(.bottom, BSCSpacing.md)
+                            controls(compact: true)
+                        }
+                        .padding(.horizontal, BSCSpacing.lg)
                     }
-                    .frame(height: barHeight)
-                    .padding(.horizontal, BSCSpacing.lg)
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(maxWidth: BSCContentWidth.compact + BSCSpacing.huge)
                 }
+            } else {
+                VStack(spacing: 0) {
+                    topBar
+                        .padding(.horizontal, BSCSpacing.lg)
+                        .padding(.top, BSCSpacing.md)
 
-                // Duration label
-                Text("Duration: \(formatTime(viewModel.selectionDuration))")
-                    .bscFont(size: 13, weight: .medium, design: .monospaced)
-                    .foregroundColor(.bscOnMediaSecondary)
-                    .padding(.top, BSCSpacing.sm)
+                    Spacer()
 
-                // Estimated processing time (self-calibrating from past runs)
-                if viewModel.selectionDuration > 0 {
-                    Label(
-                        "Est. processing: \(ProcessingTimeEstimator.formatEstimate(ProcessingTimeEstimator.estimate(forVideoDuration: viewModel.selectionDuration)))",
-                        systemImage: "clock"
-                    )
-                    .bscFont(size: 12)
-                    .foregroundColor(.bscOnMediaSecondary)
-                    .padding(.top, BSCSpacing.xxs)
+                    videoArea
+
+                    Spacer()
+
+                    controls(compact: false)
+                        .padding(.horizontal, BSCSpacing.lg)
                 }
-
-                // Angle adjustment row
-                angleControl
-                    .padding(.horizontal, BSCSpacing.lg)
-                    .padding(.top, BSCSpacing.md)
-
-                // Action buttons
-                actionButtons
-                    .padding(.horizontal, BSCSpacing.xl)
-                    .padding(.top, BSCSpacing.lg)
-                    .padding(.bottom, BSCSpacing.huge)
             }
         }
         .task {
@@ -104,34 +81,76 @@ struct PreTrimView: View {
         }
     }
 
+    @ViewBuilder
+    private var videoArea: some View {
+        if let player = viewModel.player {
+            videoPlayerSection(player: player)
+        } else {
+            ProgressView()
+                .tint(.bscOnMedia)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// Time labels, trim bar, duration, angle and actions. `compact` (landscape)
+    /// tightens the vertical rhythm.
+    private func controls(compact: Bool) -> some View {
+        VStack(spacing: 0) {
+            timeLabels
+                .padding(.horizontal, BSCSpacing.sm)
+                .padding(.bottom, BSCSpacing.sm)
+
+            // Filmstrip trim bar
+            if viewModel.videoDuration > 0 {
+                GeometryReader { geo in
+                    trimBar(totalWidth: geo.size.width)
+                }
+                .frame(height: barHeight)
+            }
+
+            Text("Duration: \(formatTime(viewModel.selectionDuration))")
+                .bscFont(size: 13, weight: .medium, design: .monospaced)
+                .foregroundColor(.bscOnMedia)
+                .padding(.top, BSCSpacing.sm)
+
+            // Estimated processing time (self-calibrating from past runs)
+            if viewModel.selectionDuration > 0 {
+                Label(
+                    "Est. processing: \(ProcessingTimeEstimator.formatEstimate(ProcessingTimeEstimator.estimate(forVideoDuration: viewModel.selectionDuration)))",
+                    systemImage: "clock"
+                )
+                .bscFont(size: 12)
+                .foregroundColor(.bscOnMedia)
+                .padding(.top, BSCSpacing.xxs)
+            }
+
+            angleControl
+                .padding(.top, BSCSpacing.md)
+
+            actionButtons
+                .padding(.horizontal, compact ? 0 : BSCSpacing.sm)
+                .padding(.top, compact ? BSCSpacing.md : BSCSpacing.lg)
+                .padding(.bottom, compact ? BSCSpacing.md : BSCSpacing.huge)
+        }
+    }
+
     // MARK: - Top Bar
 
     private var topBar: some View {
         HStack {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .bscFont(size: 17, weight: .medium)
-                    .foregroundColor(.bscOnMedia)
-                    .frame(width: 36, height: 36)
-                    .background(Color.bscOnMedia.opacity(0.15))
-                    .clipShape(Circle())
-                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Close")
+            // Balances the close button so the title stays centred.
+            Color.clear.frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
 
             Spacer()
 
             Text("Trim Video")
                 .bscFont(size: 17, weight: .semibold)
                 .foregroundColor(.bscOnMedia)
+                .accessibilityAddTraits(.isHeader)
 
             Spacer()
 
-            // Invisible spacer to balance the X button
-            Color.clear.frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
+            BSCMediaCloseButton { dismiss() }
         }
     }
 
@@ -397,7 +416,7 @@ struct PreTrimView: View {
             Text(formatDegrees(viewModel.rotationDegrees))
                 .bscFont(size: 13, weight: .medium, design: .monospaced)
                 .foregroundColor(.bscOnMedia)
-                .frame(width: 56, alignment: .trailing)
+                .frame(width: readoutWidth, alignment: .trailing)
 
             Button {
                 viewModel.rotationDegrees = 0
