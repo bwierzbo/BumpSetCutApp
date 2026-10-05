@@ -270,19 +270,20 @@ final class ProcessingCoordinator {
                     // Data flywheel (opted-in users only): persist the detector's
                     // per-frame evidence scoped to rally windows, then stage the
                     // borderline-confidence rallies for relabeling.
+                    // Skipped when the run was cancelled meanwhile (e.g. the
+                    // video was deleted) — nothing may be written for it.
                     let collectedEvidence = processor.frameEvidence
-                    await MainActor.run {
-                        guard AppSettings.shared.enableDataFlywheel else { return }
+                    if gen == self.runGeneration, AppSettings.shared.enableDataFlywheel {
                         let stored = FlywheelCaptureService.scopedEvidence(
                             collectedEvidence, segments: metadata.rallySegments
                         )
                         if !stored.isEmpty {
-                            try? MetadataStore().saveFrameEvidence(stored, for: videoId)
+                            self.saveEvidence(stored, for: videoId, in: mediaStore)
                         }
+                        await FlywheelCaptureService.shared.stagePassiveContributions(
+                            videoId: videoId, metadata: metadata, originalURL: videoURL
+                        )
                     }
-                    await FlywheelCaptureService.shared.stagePassiveContributions(
-                        videoId: videoId, metadata: metadata, originalURL: videoURL
-                    )
 
                     // Normal processing annotates the original video with rally
                     // metadata in place — it does not produce a separate output file.
@@ -301,19 +302,19 @@ final class ProcessingCoordinator {
                 // found NO rallies is a hard negative worth relabeling. Persist the
                 // full per-frame evidence, then stage whole-video frame groupings.
                 let collectedEvidence = processor.frameEvidence
-                await MainActor.run {
-                    if gen == self.runGeneration {
-                        self.noRalliesDetected = true
-                        self.handleCompletion(gen: gen)
+                // A superseded/cancelled run (e.g. its video was deleted) must
+                // not write evidence or stage frames for it.
+                guard gen == self.runGeneration else { return }
+                self.noRalliesDetected = true
+                self.handleCompletion(gen: gen)
+                if AppSettings.shared.enableDataFlywheel {
+                    if !collectedEvidence.isEmpty {
+                        self.saveEvidence(collectedEvidence.map(StoredFrameEvidence.init), for: videoId, in: mediaStore)
                     }
-                    if AppSettings.shared.enableDataFlywheel, !collectedEvidence.isEmpty {
-                        let stored = collectedEvidence.map(StoredFrameEvidence.init)
-                        try? MetadataStore().saveFrameEvidence(stored, for: videoId)
-                    }
+                    await FlywheelCaptureService.shared.stageNoRallyContribution(
+                        videoId: videoId, originalURL: videoURL
+                    )
                 }
-                await FlywheelCaptureService.shared.stageNoRallyContribution(
-                    videoId: videoId, originalURL: videoURL
-                )
             } catch {
                 await MainActor.run {
                     guard gen == self.runGeneration else { return }
@@ -329,6 +330,14 @@ final class ProcessingCoordinator {
     }
 
     // MARK: - Cancel
+
+    /// Videos were removed from the library: if one of them is the current
+    /// run's, stop it and forget it, so the run doesn't write sidecars or
+    /// stage flywheel frames for a video that no longer exists.
+    func cancelProcessing(ifProcessingAnyOf videoIds: Set<UUID>) {
+        guard let videoId, videoIds.contains(videoId) else { return }
+        reset()
+    }
 
     func cancelProcessing() {
         // Invalidate the run so its late callbacks become no-ops
@@ -374,6 +383,14 @@ final class ProcessingCoordinator {
     }
 
     // MARK: - Private
+
+    private func saveEvidence(_ evidence: [StoredFrameEvidence], for videoId: UUID, in mediaStore: MediaStore) {
+        do {
+            try mediaStore.metadataStore.saveFrameEvidence(evidence, for: videoId)
+        } catch {
+            PersistenceMonitor.shared.reportFailure(error, context: "flywheel evidence")
+        }
+    }
 
     private func handleCompletion(gen: Int) {
         guard gen == runGeneration else { return }

@@ -548,13 +548,12 @@ struct BSCVideoCard: View {
         }
     }
 
-    /// Delete the current rally metadata and re-run detection on the full source
-    /// video with the current pipeline (dev tool). Progress is shown by the
-    /// app-wide ProcessingCoordinator.
+    /// Re-run detection on the full source video with the current pipeline
+    /// (dev tool). The new run replaces the rally metadata when it lands.
+    /// Progress is shown by the app-wide ProcessingCoordinator.
     private func reprocessVideo() {
         let videoId = video.id
-        MetadataStore().deleteAllSidecars(for: videoId)
-        mediaStore.resetProcessingState(videoId: videoId)
+        mediaStore.prepareForReprocess(videoId: videoId)
         ProcessingCoordinator.shared.startProcessing(
             videoURL: video.originalURL,
             mediaStore: mediaStore,

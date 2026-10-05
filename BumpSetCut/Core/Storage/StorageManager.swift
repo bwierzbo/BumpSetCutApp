@@ -7,6 +7,9 @@
 //
 
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "BumpSetCut", category: "StorageManager")
 
 // MARK: - Storage Utilities
 
@@ -24,17 +27,50 @@ struct StorageManager {
             .appendingPathComponent("BumpSetCut", isDirectory: true)
     }
 
-    static func verifyStorageIntegrity() {
-        let baseDir = getPersistentStorageDirectory()
+    static func verifyStorageIntegrity(at baseDir: URL) {
         let fileManager = FileManager.default
 
         guard fileManager.fileExists(atPath: baseDir.path) else {
-            print("StorageManager: ⚠️ Storage directory missing at \(baseDir.path)")
+            logger.error("Storage directory missing at \(baseDir.path)")
             return
         }
 
         if (try? fileManager.contentsOfDirectory(atPath: baseDir.path)) == nil {
-            print("StorageManager: ⚠️ Failed to read storage directory \(baseDir.path)")
+            logger.error("Failed to read storage directory \(baseDir.path)")
+        }
+    }
+
+    /// Keep regenerable or bulky derived data (debug dumps, checkpoints,
+    /// flywheel staging, detector evidence) out of iCloud backups. Must be
+    /// re-applied after every `.atomic` write: that replaces the file and the
+    /// new inode doesn't carry the old resource value.
+    static func excludeFromBackup(_ url: URL) {
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var mutableURL = url
+        do {
+            try mutableURL.setResourceValues(values)
+        } catch {
+            logger.error("Couldn't exclude \(url.lastPathComponent) from backup: \(error.localizedDescription)")
+        }
+    }
+
+    /// Move an unreadable file aside as `<name>.corrupt-<unix time>` so the next
+    /// save can't overwrite the only copy of whatever it held. Returns the
+    /// quarantine location, or nil if the move failed.
+    @discardableResult
+    static func quarantineCorruptFile(at url: URL) -> URL? {
+        let stamp = Int(Date().timeIntervalSince1970)
+        let destination = url.deletingLastPathComponent()
+            .appendingPathComponent("\(url.lastPathComponent).corrupt-\(stamp)")
+        do {
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: url, to: destination)
+            logger.error("Quarantined unreadable \(url.lastPathComponent) as \(destination.lastPathComponent)")
+            return destination
+        } catch {
+            logger.error("Couldn't quarantine \(url.lastPathComponent): \(error.localizedDescription)")
+            return nil
         }
     }
 }

@@ -106,7 +106,7 @@ struct ProcessVideoView: View {
                 RallyTimelineView(
                     videoURL: videoMetadata.originalURL,
                     videoId: videoMetadata.originalVideoId ?? videoMetadata.id,
-                    metadataStore: MetadataStore(),
+                    metadataStore: MetadataStore.shared,
                     onSaved: {
                         // Jump straight into reviewing what was just added
                         // (delay lets the editor cover finish dismissing).

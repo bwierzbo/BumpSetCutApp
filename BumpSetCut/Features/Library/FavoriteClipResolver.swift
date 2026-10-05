@@ -25,7 +25,7 @@ enum FavoriteClipResolver {
     /// `MetadataStore` is.
     @MainActor
     static func resolve(_ videos: [VideoMetadata]) async -> [ResolvedFavoriteClip] {
-        let metadataStore = MetadataStore()
+        let metadataStore = MetadataStore.shared
         var clips: [ResolvedFavoriteClip] = []
         for video in videos.sorted(by: { $0.createdDate < $1.createdDate }) {
             let assetDuration = try? await AVURLAsset(url: video.originalURL).load(.duration)

@@ -13,6 +13,13 @@ import AVFoundation
     @State private var appSettings = AppSettings.shared
     @State private var authService = AuthenticationService()
     @State private var networkMonitor = NetworkMonitor.shared
+    // The library store and its import coordinator exist exactly once, for
+    // the app's lifetime. (Creating them in a view's init re-ran on every
+    // body evaluation, spawning throwaway stores that saved and reconciled
+    // stale snapshots.)
+    @State private var mediaStore: MediaStore
+    @State private var uploadCoordinator: UploadCoordinator
+    @Environment(\.scenePhase) private var scenePhase
     // Skip the splash under UI testing so screenshots stay deterministic
     @State private var showSplash = !CommandLine.arguments.contains("--uitesting")
 
@@ -61,11 +68,20 @@ import AVFoundation
             try? KeychainHelper.delete(for: "cached_user")
             UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
         }
+
+        // After the UI-test library wipe above.
+        let store = MediaStore()
+        store.onVideosRemoved = { videoIds in
+            ProcessingCoordinator.shared.cancelProcessing(ifProcessingAnyOf: videoIds)
+            FlywheelCaptureService.shared.discardContributions(for: videoIds)
+        }
+        _mediaStore = State(initialValue: store)
+        _uploadCoordinator = State(initialValue: UploadCoordinator(mediaStore: store))
     }
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
+            MainTabView(mediaStore: mediaStore, uploadCoordinator: uploadCoordinator)
                 .withAppSettings()
                 .environment(authService)
                 .toolbar {
@@ -86,6 +102,12 @@ import AVFoundation
                 }
                 .task {
                     await authService.restoreSession()
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    // Last chance to land saves that failed earlier.
+                    if phase != .active {
+                        PersistenceMonitor.shared.retryPending()
+                    }
                 }
                 .onChange(of: networkMonitor.isConnected) { _, isConnected in
                     if isConnected {

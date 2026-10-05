@@ -6,6 +6,9 @@
 //
 
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "BumpSetCut", category: "MetadataStore")
 
 // MARK: - Metadata Storage Errors
 
@@ -15,7 +18,6 @@ enum MetadataStoreError: Error, LocalizedError {
     case fileReadFailed(path: String, underlying: Error)
     case fileDeleteFailed(path: String, underlying: Error)
     case backupCreationFailed(path: String, underlying: Error)
-    case atomicWriteFailed(path: String, underlying: Error)
     case metadataNotFound(videoId: UUID)
     case invalidJSON(path: String, underlying: Error)
     case corruptedMetadata(path: String, reason: String)
@@ -32,8 +34,6 @@ enum MetadataStoreError: Error, LocalizedError {
             return "Failed to delete metadata file at \(path): \(underlying.localizedDescription)"
         case .backupCreationFailed(let path, let underlying):
             return "Failed to create backup for metadata at \(path): \(underlying.localizedDescription)"
-        case .atomicWriteFailed(let path, let underlying):
-            return "Failed to perform atomic write for metadata at \(path): \(underlying.localizedDescription)"
         case .metadataNotFound(let videoId):
             return "Metadata not found for video ID: \(videoId)"
         case .invalidJSON(let path, let underlying):
@@ -46,23 +46,37 @@ enum MetadataStoreError: Error, LocalizedError {
 
 // MARK: - MetadataStore Service
 
-@MainActor class MetadataStore: ObservableObject {
+/// Per-video sidecar files in `ProcessedMetadata/`, all named `{videoId}…`:
+/// rally metadata (+ its previous version as `.backup`), trims, review
+/// selections, game scoring, flywheel evidence and the processing checkpoint.
+///
+/// Stateless apart from its location, so one instance is shared: `.shared`
+/// for app code, or the one a `MediaStore` owns (same directory). The
+/// directory resolves per call, so `StorageManager.storageDirectoryOverride`
+/// set by a test is honored by `.shared` too.
+@MainActor
+final class MetadataStore {
+
+    static let shared = MetadataStore()
 
     // MARK: - Properties
 
-    private let fileManager: FileManager
-    private let metadataDirectory: URL
+    private let baseDirectory: URL?
+    private let fileManager = FileManager.default
     private let jsonEncoder: JSONEncoder
     private let jsonDecoder: JSONDecoder
 
+    var metadataDirectory: URL {
+        (baseDirectory ?? StorageManager.getPersistentStorageDirectory())
+            .appendingPathComponent("ProcessedMetadata", isDirectory: true)
+    }
+
     // MARK: - Initialization
 
-    init() {
-        self.fileManager = FileManager.default
-
-        // Use the same base directory pattern as MediaStore for consistency
-        let baseDirectory = StorageManager.getPersistentStorageDirectory()
-        self.metadataDirectory = baseDirectory.appendingPathComponent("ProcessedMetadata", isDirectory: true)
+    /// - Parameter baseDirectory: library root; nil follows
+    ///   `StorageManager.getPersistentStorageDirectory()`.
+    init(baseDirectory: URL? = nil) {
+        self.baseDirectory = baseDirectory
 
         // Configure JSON encoder/decoder with consistent formatting
         self.jsonEncoder = JSONEncoder()
@@ -71,14 +85,6 @@ enum MetadataStoreError: Error, LocalizedError {
 
         self.jsonDecoder = JSONDecoder()
         self.jsonDecoder.dateDecodingStrategy = .iso8601
-
-        // Ensure metadata directory exists
-        do {
-            try createMetadataDirectoryIfNeeded()
-            print("MetadataStore: Initialized with directory: \(metadataDirectory.path)")
-        } catch {
-            print("MetadataStore: Failed to create metadata directory: \(error)")
-        }
     }
 
     // MARK: - Directory Management
@@ -94,7 +100,6 @@ enum MetadataStoreError: Error, LocalizedError {
                     withIntermediateDirectories: true,
                     attributes: nil
                 )
-                print("MetadataStore: Created metadata directory at: \(metadataDirectory.path)")
             } catch {
                 throw MetadataStoreError.directoryCreationFailed(
                     path: metadataDirectory.path,
@@ -107,18 +112,43 @@ enum MetadataStoreError: Error, LocalizedError {
     // MARK: - File Path Generation
 
     private func metadataURL(for videoId: UUID) -> URL {
-        let filename = "\(videoId.uuidString).json"
-        return metadataDirectory.appendingPathComponent(filename)
+        metadataDirectory.appendingPathComponent("\(videoId.uuidString).json")
     }
 
+    /// The previous version of the metadata file, kept so a corrupt or missing
+    /// main file can fall back to it.
     private func backupURL(for videoId: UUID) -> URL {
-        let filename = "\(videoId.uuidString).json.backup"
-        return metadataDirectory.appendingPathComponent(filename)
+        metadataDirectory.appendingPathComponent("\(videoId.uuidString).json.backup")
     }
 
-    private func temporaryURL(for videoId: UUID) -> URL {
-        let filename = "\(videoId.uuidString).json.tmp"
-        return metadataDirectory.appendingPathComponent(filename)
+    private func stagedURL(for live: URL) -> URL {
+        live.deletingLastPathComponent().appendingPathComponent(live.lastPathComponent + ".staged")
+    }
+
+    // MARK: - Generic sidecar I/O
+
+    /// Load a sidecar. Missing → nil. Present but unreadable/undecodable →
+    /// quarantined (moved to `*.corrupt-<ts>`) and nil, so the caller's next
+    /// save starts a fresh file instead of overwriting the only copy.
+    private func loadSidecar<T: Decodable>(_ type: T.Type, at url: URL) -> T? {
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            return try jsonDecoder.decode(T.self, from: data)
+        } catch {
+            logger.error("Unreadable sidecar \(url.lastPathComponent): \(String(describing: error))")
+            StorageManager.quarantineCorruptFile(at: url)
+            return nil
+        }
+    }
+
+    private func writeSidecar<T: Encodable>(_ value: T, to url: URL, excludeFromBackup: Bool = false) throws {
+        try createMetadataDirectoryIfNeeded()
+        let data = try jsonEncoder.encode(value)
+        try data.write(to: url, options: .atomic)
+        if excludeFromBackup {
+            StorageManager.excludeFromBackup(url)
+        }
     }
 }
 
@@ -126,32 +156,17 @@ enum MetadataStoreError: Error, LocalizedError {
 
 extension MetadataStore {
 
-    /// Save metadata with atomic write operations and backup creation
+    /// Save metadata atomically. The version being replaced is kept as
+    /// `{id}.json.backup` — the fallback `loadMetadata` uses if the main file
+    /// ever goes missing or fails to decode.
     func saveMetadata(_ metadata: ProcessingMetadata) throws {
         let metadataURL = metadataURL(for: metadata.videoId)
-        let backupURL = backupURL(for: metadata.videoId)
-        let temporaryURL = temporaryURL(for: metadata.videoId)
 
         do {
-            // Ensure directory exists
             try createMetadataDirectoryIfNeeded()
-
-            // Create backup if existing file exists
-            if fileManager.fileExists(atPath: metadataURL.path) {
-                try createBackup(from: metadataURL, to: backupURL)
-            }
-
-            // Encode metadata to JSON
             let jsonData = try jsonEncoder.encode(metadata)
-
-            // Perform atomic write using temporary file
-            try performAtomicWrite(data: jsonData, to: metadataURL, using: temporaryURL)
-
-            // Cleanup old backup after successful write
-            try? fileManager.removeItem(at: backupURL)
-
-            print("MetadataStore: saved \(metadata.videoId) (\(jsonData.count) bytes)")
-
+            try backUpCurrentMetadata(for: metadata.videoId)
+            try jsonData.write(to: metadataURL, options: .atomic)
         } catch let error as MetadataStoreError {
             throw error
         } catch {
@@ -159,47 +174,95 @@ extension MetadataStore {
         }
     }
 
-    /// Load metadata with error handling and validation
+    /// Copy the current main file over the backup — but only when it decodes,
+    /// so a corrupt main can never clobber a good backup.
+    private func backUpCurrentMetadata(for videoId: UUID) throws {
+        let source = metadataURL(for: videoId)
+        guard fileManager.fileExists(atPath: source.path),
+              (try? decodeValidated(at: source, videoId: videoId)) != nil else { return }
+        let backup = backupURL(for: videoId)
+        do {
+            try? fileManager.removeItem(at: backup)
+            try fileManager.copyItem(at: source, to: backup)
+        } catch {
+            throw MetadataStoreError.backupCreationFailed(path: backup.path, underlying: error)
+        }
+    }
+
+    /// Load metadata. A missing or corrupt main file falls back to the backup
+    /// (restoring it as the main file); a corrupt main file is quarantined
+    /// either way so nothing overwrites it.
     func loadMetadata(for videoId: UUID) throws -> ProcessingMetadata {
         let metadataURL = metadataURL(for: videoId)
+        let backupURL = backupURL(for: videoId)
 
         guard fileManager.fileExists(atPath: metadataURL.path) else {
+            if let restored = restoreFromBackup(videoId: videoId) {
+                return restored
+            }
             throw MetadataStoreError.metadataNotFound(videoId: videoId)
         }
 
         do {
-            let jsonData = try Data(contentsOf: metadataURL)
-
-            // Validate that the data is not empty
-            guard !jsonData.isEmpty else {
-                throw MetadataStoreError.corruptedMetadata(
-                    path: metadataURL.path,
-                    reason: "File is empty"
-                )
-            }
-
-            let metadata = try jsonDecoder.decode(ProcessingMetadata.self, from: jsonData)
-
-            // Validate that the loaded metadata matches the requested video ID
-            guard metadata.videoId == videoId else {
-                throw MetadataStoreError.corruptedMetadata(
-                    path: metadataURL.path,
-                    reason: "Video ID mismatch: expected \(videoId), found \(metadata.videoId)"
-                )
-            }
-
-            return metadata
-
+            return try decodeValidated(at: metadataURL, videoId: videoId)
         } catch let error as MetadataStoreError {
+            switch error {
+            case .invalidJSON, .corruptedMetadata:
+                logger.error("Corrupt metadata for \(videoId): \(error.localizedDescription)")
+                StorageManager.quarantineCorruptFile(at: metadataURL)
+                if fileManager.fileExists(atPath: backupURL.path),
+                   let restored = restoreFromBackup(videoId: videoId) {
+                    return restored
+                }
+            default:
+                break
+            }
             throw error
-        } catch let decodingError as DecodingError {
-            throw MetadataStoreError.invalidJSON(path: metadataURL.path, underlying: decodingError)
-        } catch {
-            throw MetadataStoreError.fileReadFailed(path: metadataURL.path, underlying: error)
         }
     }
 
-    /// Delete metadata file with cleanup
+    private func restoreFromBackup(videoId: UUID) -> ProcessingMetadata? {
+        let backupURL = backupURL(for: videoId)
+        guard fileManager.fileExists(atPath: backupURL.path),
+              let restored = try? decodeValidated(at: backupURL, videoId: videoId) else { return nil }
+        do {
+            try fileManager.copyItem(at: backupURL, to: metadataURL(for: videoId))
+            logger.warning("Restored metadata for \(videoId) from its backup")
+        } catch {
+            logger.error("Couldn't reinstate metadata backup for \(videoId): \(error.localizedDescription)")
+        }
+        return restored
+    }
+
+    private func decodeValidated(at url: URL, videoId: UUID) throws -> ProcessingMetadata {
+        let jsonData: Data
+        do {
+            jsonData = try Data(contentsOf: url)
+        } catch {
+            throw MetadataStoreError.fileReadFailed(path: url.path, underlying: error)
+        }
+
+        guard !jsonData.isEmpty else {
+            throw MetadataStoreError.corruptedMetadata(path: url.path, reason: "File is empty")
+        }
+
+        let metadata: ProcessingMetadata
+        do {
+            metadata = try jsonDecoder.decode(ProcessingMetadata.self, from: jsonData)
+        } catch {
+            throw MetadataStoreError.invalidJSON(path: url.path, underlying: error)
+        }
+
+        guard metadata.videoId == videoId else {
+            throw MetadataStoreError.corruptedMetadata(
+                path: url.path,
+                reason: "Video ID mismatch: expected \(videoId), found \(metadata.videoId)"
+            )
+        }
+        return metadata
+    }
+
+    /// Delete metadata file and its backup
     func deleteMetadata(for videoId: UUID) throws {
         let metadataURL = metadataURL(for: videoId)
         let backupURL = backupURL(for: videoId)
@@ -209,16 +272,10 @@ extension MetadataStore {
         }
 
         do {
-            // Remove main metadata file
             try fileManager.removeItem(at: metadataURL)
-
-            // Remove backup file if it exists
             if fileManager.fileExists(atPath: backupURL.path) {
                 try fileManager.removeItem(at: backupURL)
             }
-
-            print("MetadataStore: Successfully deleted metadata")
-
         } catch {
             throw MetadataStoreError.fileDeleteFailed(path: metadataURL.path, underlying: error)
         }
@@ -226,56 +283,107 @@ extension MetadataStore {
 
     /// Check if metadata exists for a video
     func metadataExists(for videoId: UUID) -> Bool {
-        let metadataURL = metadataURL(for: videoId)
-        return fileManager.fileExists(atPath: metadataURL.path)
+        fileManager.fileExists(atPath: metadataURL(for: videoId).path)
     }
 }
 
-// MARK: - Atomic Operations
+// MARK: - Staged replacement (Free Up Space)
 
 extension MetadataStore {
 
-    /// Create backup of existing metadata file
-    private func createBackup(from source: URL, to backup: URL) throws {
-        do {
-            // Remove existing backup if it exists
-            if fileManager.fileExists(atPath: backup.path) {
-                try fileManager.removeItem(at: backup)
-            }
-
-            // Copy current file to backup
-            try fileManager.copyItem(at: source, to: backup)
-
-            print("MetadataStore: Created backup at: \(backup.path)")
-
-        } catch {
-            throw MetadataStoreError.backupCreationFailed(path: backup.path, underlying: error)
+    /// Write remapped metadata/evidence next to the live files without touching
+    /// them. `commitStagedSidecars` swaps them in once the trimmed video is
+    /// installed; until then the live files still describe the live video.
+    func stageMetadata(_ metadata: ProcessingMetadata, evidence: [StoredFrameEvidence]?) throws {
+        try writeSidecar(metadata, to: stagedURL(for: metadataURL(for: metadata.videoId)))
+        if let evidence {
+            try writeSidecar(evidence, to: stagedURL(for: evidenceURL(for: metadata.videoId)), excludeFromBackup: true)
         }
     }
 
-    /// Perform atomic write using temporary file
-    private func performAtomicWrite(data: Data, to target: URL, using temporary: URL) throws {
+    /// Install staged files over the live ones (the metadata's current version
+    /// becomes the backup first).
+    func commitStagedSidecars(for videoId: UUID) throws {
+        let stagedMetadata = stagedURL(for: metadataURL(for: videoId))
+        if fileManager.fileExists(atPath: stagedMetadata.path) {
+            try backUpCurrentMetadata(for: videoId)
+            try install(stagedMetadata, at: metadataURL(for: videoId))
+        }
+        let evidence = evidenceURL(for: videoId)
+        let stagedEvidence = stagedURL(for: evidence)
+        if fileManager.fileExists(atPath: stagedEvidence.path) {
+            try install(stagedEvidence, at: evidence)
+            StorageManager.excludeFromBackup(evidence)
+        }
+    }
+
+    func discardStagedSidecars(for videoId: UUID) {
+        try? fileManager.removeItem(at: stagedURL(for: metadataURL(for: videoId)))
+        try? fileManager.removeItem(at: stagedURL(for: evidenceURL(for: videoId)))
+    }
+
+    /// The staged metadata of an interrupted replacement, if any.
+    func stagedMetadata(for videoId: UUID) -> ProcessingMetadata? {
+        let url = stagedURL(for: metadataURL(for: videoId))
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        return try? decodeValidated(at: url, videoId: videoId)
+    }
+
+    /// Videos with staged files left behind by an interrupted replacement.
+    func videoIdsWithStagedSidecars() -> Set<UUID> {
+        Set(sidecarFileNames()
+            .filter { $0.hasSuffix(".json.staged") }
+            .compactMap(Self.videoId(fromSidecarName:)))
+    }
+
+    private func install(_ staged: URL, at live: URL) throws {
+        if fileManager.fileExists(atPath: live.path) {
+            _ = try fileManager.replaceItemAt(live, withItemAt: staged)
+        } else {
+            try fileManager.moveItem(at: staged, to: live)
+        }
+    }
+}
+
+// MARK: - Multi-file save (timeline edits)
+
+extension MetadataStore {
+
+    /// Write a timeline edit's files as one best-effort transaction: encode
+    /// everything, write every temp file, and only then rename them into
+    /// place. Any failure before the renames leaves all live files untouched;
+    /// the renames themselves are individually atomic and back-to-back.
+    /// `scoring` nil = leave the scoring file alone.
+    func saveTimelineEdit(metadata: ProcessingMetadata,
+                          trims: [Int: RallyTrimAdjustment],
+                          selections: RallyReviewSelections,
+                          scoring: GameScoring?) throws {
+        let videoId = metadata.videoId
+        try createMetadataDirectoryIfNeeded()
+
+        var writes: [(live: URL, data: Data)] = [
+            (metadataURL(for: videoId), try jsonEncoder.encode(metadata)),
+            (trimURL(for: videoId), try jsonEncoder.encode(
+                Dictionary(uniqueKeysWithValues: trims.map { (String($0.key), $0.value) }))),
+            (reviewSelectionsURL(for: videoId), try jsonEncoder.encode(selections)),
+        ]
+        if let scoring {
+            writes.append((gameScoringURL(for: videoId), try jsonEncoder.encode(scoring)))
+        }
+
+        let temps = writes.map { stagedURL(for: $0.live) }
         do {
-            // Remove temporary file if it exists
-            if fileManager.fileExists(atPath: temporary.path) {
-                try fileManager.removeItem(at: temporary)
+            for (write, temp) in zip(writes, temps) {
+                try write.data.write(to: temp, options: .atomic)
             }
-
-            // Write to temporary file
-            try data.write(to: temporary, options: .atomic)
-
-            // Move temporary file to target location (atomic operation)
-            if fileManager.fileExists(atPath: target.path) {
-                try fileManager.removeItem(at: target)
-            }
-            try fileManager.moveItem(at: temporary, to: target)
-
-            print("MetadataStore: Completed atomic write to: \(target.path)")
-
+            try backUpCurrentMetadata(for: videoId)
         } catch {
-            // Cleanup temporary file on failure
-            try? fileManager.removeItem(at: temporary)
-            throw MetadataStoreError.atomicWriteFailed(path: target.path, underlying: error)
+            temps.forEach { try? fileManager.removeItem(at: $0) }
+            throw error
+        }
+
+        for (write, temp) in zip(writes, temps) {
+            try install(temp, at: write.live)
         }
     }
 }
@@ -286,49 +394,35 @@ extension MetadataStore {
 
     /// Get all video IDs that have metadata
     func getAllMetadataVideoIds() -> [UUID] {
-        do {
-            let files = try fileManager.contentsOfDirectory(at: metadataDirectory, includingPropertiesForKeys: nil)
-
-            return files.compactMap { fileURL in
-                let filename = fileURL.lastPathComponent
-
-                // Skip backup and temporary files
-                guard filename.hasSuffix(".json") && !filename.contains(".backup") && !filename.contains(".tmp") else {
-                    return nil
-                }
-
-                // Extract UUID from filename
-                let uuidString = String(filename.dropLast(5)) // Remove ".json"
-                return UUID(uuidString: uuidString)
-            }
-
-        } catch {
-            print("MetadataStore: Failed to list metadata files: \(error)")
-            return []
+        sidecarFileNames().compactMap { filename in
+            // Only main metadata files: "{uuid}.json"
+            guard filename.hasSuffix(".json"), filename.count == 41 else { return nil }
+            return UUID(uuidString: String(filename.dropLast(5)))
         }
     }
 
     /// Get metadata file size for a video
     func getMetadataFileSize(for videoId: UUID) -> Int64? {
         let metadataURL = metadataURL(for: videoId)
-
-        guard fileManager.fileExists(atPath: metadataURL.path) else {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: metadataURL.path) else {
             return nil
         }
-
-        do {
-            let attributes = try fileManager.attributesOfItem(atPath: metadataURL.path)
-            return attributes[.size] as? Int64
-        } catch {
-            print("MetadataStore: Failed to get file size for \(videoId): \(error)")
-            return nil
-        }
+        return attributes[.size] as? Int64
     }
 
-    /// Get total storage used by metadata files
-    func getTotalStorageUsed() -> Int64 {
-        let videoIds = getAllMetadataVideoIds()
-        return videoIds.compactMap { getMetadataFileSize(for: $0) }.reduce(0, +)
+    /// File names (not directories) directly inside the metadata directory.
+    private func sidecarFileNames() -> [String] {
+        guard let urls = try? fileManager.contentsOfDirectory(
+            at: metadataDirectory, includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return [] }
+        return urls
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true }
+            .map(\.lastPathComponent)
+    }
+
+    /// Every sidecar name starts with the owning video's UUID.
+    private static func videoId(fromSidecarName name: String) -> UUID? {
+        UUID(uuidString: String(name.prefix(36)))
     }
 }
 
@@ -336,51 +430,27 @@ extension MetadataStore {
 
 extension MetadataStore {
 
-    /// Clean up orphaned metadata files (where video no longer exists)
-    func cleanupOrphanedMetadata(validVideoIds: Set<UUID>) -> Int {
-        let allMetadataIds = Set(getAllMetadataVideoIds())
-        let orphanedIds = allMetadataIds.subtracting(validVideoIds)
-
-        var cleanupCount = 0
-
-        for videoId in orphanedIds {
+    /// Delete every sidecar (all kinds, including backups, staged and
+    /// quarantined copies) whose video isn't in `validVideoIds`. Returns the
+    /// number of files removed. Only call with a trustworthy id set — an
+    /// empty or partial manifest would wipe live metadata.
+    @discardableResult
+    func sweepOrphanedSidecars(keeping validVideoIds: Set<UUID>) -> Int {
+        var removed = 0
+        for name in sidecarFileNames() {
+            guard let videoId = Self.videoId(fromSidecarName: name),
+                  !validVideoIds.contains(videoId) else { continue }
             do {
-                try deleteMetadata(for: videoId)
-                cleanupCount += 1
-                print("MetadataStore: Cleaned up orphaned metadata for video \(videoId)")
+                try fileManager.removeItem(at: metadataDirectory.appendingPathComponent(name))
+                removed += 1
             } catch {
-                print("MetadataStore: Failed to cleanup orphaned metadata for \(videoId): \(error)")
+                logger.error("Couldn't remove orphaned sidecar \(name): \(error.localizedDescription)")
             }
         }
-
-        if cleanupCount > 0 {
-            print("MetadataStore: Cleaned up \(cleanupCount) orphaned metadata files")
+        if removed > 0 {
+            logger.info("Removed \(removed) orphaned sidecar file(s)")
         }
-
-        return cleanupCount
-    }
-
-    /// Verify integrity of metadata files
-    func verifyMetadataIntegrity() -> [UUID: String] {
-        var corruptedFiles: [UUID: String] = [:]
-        let metadataIds = getAllMetadataVideoIds()
-
-        for videoId in metadataIds {
-            do {
-                _ = try loadMetadata(for: videoId)
-            } catch {
-                corruptedFiles[videoId] = error.localizedDescription
-                print("MetadataStore: Corrupted metadata detected for \(videoId): \(error)")
-            }
-        }
-
-        if corruptedFiles.isEmpty {
-            print("MetadataStore: All metadata files passed integrity check")
-        } else {
-            print("MetadataStore: Found \(corruptedFiles.count) corrupted metadata files")
-        }
-
-        return corruptedFiles
+        return removed
     }
 }
 
@@ -395,21 +465,13 @@ extension MetadataStore {
     /// Save per-rally trim adjustments for a video.
     /// Keys are rally index strings ("0", "1", ...) mapping to RallyTrimAdjustment.
     func saveTrimAdjustments(_ adjustments: [Int: RallyTrimAdjustment], for videoId: UUID) throws {
-        let url = trimURL(for: videoId)
-        try createMetadataDirectoryIfNeeded()
-
-        // Convert Int keys to String keys for JSON encoding
         let stringKeyed = Dictionary(uniqueKeysWithValues: adjustments.map { (String($0.key), $0.value) })
-        let data = try jsonEncoder.encode(stringKeyed)
-        try data.write(to: url, options: .atomic)
+        try writeSidecar(stringKeyed, to: trimURL(for: videoId))
     }
 
     /// Load previously saved trim adjustments for a video. Returns empty dict if none saved.
     func loadTrimAdjustments(for videoId: UUID) -> [Int: RallyTrimAdjustment] {
-        let url = trimURL(for: videoId)
-        guard fileManager.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url),
-              let stringKeyed = try? jsonDecoder.decode([String: RallyTrimAdjustment].self, from: data) else {
+        guard let stringKeyed = loadSidecar([String: RallyTrimAdjustment].self, at: trimURL(for: videoId)) else {
             return [:]
         }
         return Dictionary(uniqueKeysWithValues: stringKeyed.compactMap { key, value in
@@ -429,21 +491,12 @@ extension MetadataStore {
 
     /// Save rally review selections (saved/removed sets) for a video.
     func saveReviewSelections(_ selections: RallyReviewSelections, for videoId: UUID) throws {
-        let url = reviewSelectionsURL(for: videoId)
-        try createMetadataDirectoryIfNeeded()
-        let data = try jsonEncoder.encode(selections)
-        try data.write(to: url, options: .atomic)
+        try writeSidecar(selections, to: reviewSelectionsURL(for: videoId))
     }
 
     /// Load previously saved review selections for a video. Returns empty selections if none saved.
     func loadReviewSelections(for videoId: UUID) -> RallyReviewSelections {
-        let url = reviewSelectionsURL(for: videoId)
-        guard fileManager.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url),
-              let selections = try? jsonDecoder.decode(RallyReviewSelections.self, from: data) else {
-            return RallyReviewSelections()
-        }
-        return selections
+        loadSidecar(RallyReviewSelections.self, at: reviewSelectionsURL(for: videoId)) ?? RallyReviewSelections()
     }
 }
 
@@ -469,21 +522,12 @@ extension MetadataStore {
 
     /// Save manual game scoring (teams, per-rally point winners, set breaks).
     func saveGameScoring(_ scoring: GameScoring, for videoId: UUID) throws {
-        let url = gameScoringURL(for: videoId)
-        try createMetadataDirectoryIfNeeded()
-        let data = try jsonEncoder.encode(scoring)
-        try data.write(to: url, options: .atomic)
+        try writeSidecar(scoring, to: gameScoringURL(for: videoId))
     }
 
     /// Load game scoring for a video. Nil = never set up (drives team setup).
     func loadGameScoring(for videoId: UUID) -> GameScoring? {
-        let url = gameScoringURL(for: videoId)
-        guard fileManager.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url),
-              let scoring = try? jsonDecoder.decode(GameScoring.self, from: data) else {
-            return nil
-        }
-        return scoring
+        loadSidecar(GameScoring.self, at: gameScoringURL(for: videoId))
     }
 }
 
@@ -500,47 +544,44 @@ extension MetadataStore {
     /// time, in a different session). Only written for opted-in users; scope it
     /// to interesting frames before calling to keep the file small.
     func saveFrameEvidence(_ evidence: [StoredFrameEvidence], for videoId: UUID) throws {
-        let url = evidenceURL(for: videoId)
-        try createMetadataDirectoryIfNeeded()
-        let data = try jsonEncoder.encode(evidence)
-        try data.write(to: url, options: .atomic)
+        try writeSidecar(evidence, to: evidenceURL(for: videoId), excludeFromBackup: true)
     }
 
     /// Load persisted frame evidence for a video. Returns empty if none saved
     /// (e.g. the video was processed before opt-in).
     func loadFrameEvidence(for videoId: UUID) -> [StoredFrameEvidence] {
-        let url = evidenceURL(for: videoId)
-        guard fileManager.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url),
-              let evidence = try? jsonDecoder.decode([StoredFrameEvidence].self, from: data) else {
-            return []
-        }
-        return evidence
-    }
-
-    /// Remove the evidence sidecar (e.g. when the user opts out or the video is deleted).
-    func deleteFrameEvidence(for videoId: UUID) {
-        let url = evidenceURL(for: videoId)
-        try? fileManager.removeItem(at: url)
+        loadSidecar([StoredFrameEvidence].self, at: evidenceURL(for: videoId)) ?? []
     }
 }
 
-// MARK: - Full Sidecar Cleanup
+// MARK: - Bulk Sidecar Cleanup
 
 extension MetadataStore {
-    /// Remove every sidecar owned by a video: processing metadata (+ backup),
-    /// trim adjustments, review selections, and frame evidence. Missing files
-    /// are fine — call when the video itself is deleted so nothing leaks.
+    /// Remove every sidecar owned by a video — all kinds, including backups,
+    /// staged and quarantined copies. Missing files are fine; call when the
+    /// video itself is deleted so nothing leaks.
     func deleteAllSidecars(for videoId: UUID) {
+        let prefix = videoId.uuidString
+        for name in sidecarFileNames() where name.hasPrefix(prefix) {
+            try? fileManager.removeItem(at: metadataDirectory.appendingPathComponent(name))
+        }
+    }
+
+    /// Before reprocessing: drop the rally-index-keyed and run-specific
+    /// sidecars (trims, selections, scoring, evidence, checkpoint, staged
+    /// files) but KEEP `{id}.json` — the new run reads it to carry manual
+    /// rallies through, then overwrites it when it finishes.
+    func deleteSidecarsForReprocess(videoId: UUID) {
         let urls = [
-            metadataURL(for: videoId),
-            backupURL(for: videoId),
             trimURL(for: videoId),
             reviewSelectionsURL(for: videoId),
+            gameScoringURL(for: videoId),
             evidenceURL(for: videoId),
+            processingCheckpointFileURL(for: videoId),
         ]
         for url in urls {
             try? fileManager.removeItem(at: url)
         }
+        discardStagedSidecars(for: videoId)
     }
 }
