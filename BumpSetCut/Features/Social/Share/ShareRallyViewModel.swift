@@ -203,15 +203,17 @@ final class ShareRallyViewModel {
         self.source = .rallies
         self.originalVideoURL = originalVideoURL
         self.rallyVideoURLs = rallyVideoURLs
-        self.savedRallyIndices = savedRallyIndices
-        self.selectedPage = initialPage
+        // Only rallies that exist: every page indexes rallyVideoURLs by these.
+        let valid = savedRallyIndices.filter { rallyVideoURLs.indices.contains($0) }
+        self.savedRallyIndices = valid
+        self.selectedPage = min(initialPage, max(valid.count - 1, 0))
         self.thumbnailCache = thumbnailCache
         self.videoId = videoId
         self.rallyInfo = rallyInfo
         self.postAllSaved = postAllSaved
         self.apiClient = apiClient ?? SupabaseAPIClient.shared
         // Start each page from the framing set in the player.
-        for (page, rallyIndex) in savedRallyIndices.enumerated() {
+        for (page, rallyIndex) in valid.enumerated() {
             if let crop = rallyInfo[rallyIndex]?.crop { crops[page] = crop }
         }
     }

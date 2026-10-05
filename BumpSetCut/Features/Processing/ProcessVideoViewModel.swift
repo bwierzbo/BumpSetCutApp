@@ -258,13 +258,14 @@ final class ProcessVideoViewModel {
         coordinator.cancelProcessing()
     }
 
-    /// Reprocess flow (dev tool): delete the current rally metadata and run detection
-    /// again on the full source video. Lifetime stats are idempotent per videoId, so the
-    /// original run's contribution stays and this run won't double-count. Favorites that
-    /// referenced the old rally indices are not cleaned up — fine for model iteration.
+    /// Reprocess flow (dev tool): delete the current rally metadata and every
+    /// index-keyed sidecar (trims, selections — they'd point at the old rallies), then
+    /// run detection again on the full source video. Lifetime stats are idempotent per
+    /// videoId, so the original run's contribution stays and this run won't double-count.
+    /// Favorites already exported to the library are separate files and stay.
     func reprocess() {
         guard let videoId = currentVideoMetadata?.id else { return }
-        try? MetadataStore().deleteMetadata(for: videoId)
+        MetadataStore().deleteAllSidecars(for: videoId)
         mediaStore.resetProcessingState(videoId: videoId)
         noRalliesDetected = false
         loadCurrentVideoMetadata()
@@ -276,7 +277,7 @@ final class ProcessVideoViewModel {
     func reprocessHighSensitivity() {
         guard let videoId = currentVideoMetadata?.id else { return }
         didTrySensitiveReprocess = true
-        try? MetadataStore().deleteMetadata(for: videoId)
+        MetadataStore().deleteAllSidecars(for: videoId)
         mediaStore.resetProcessingState(videoId: videoId)
         noRalliesDetected = false
         loadCurrentVideoMetadata()

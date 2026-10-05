@@ -553,7 +553,7 @@ struct BSCVideoCard: View {
     /// app-wide ProcessingCoordinator.
     private func reprocessVideo() {
         let videoId = video.id
-        try? MetadataStore().deleteMetadata(for: videoId)
+        MetadataStore().deleteAllSidecars(for: videoId)
         mediaStore.resetProcessingState(videoId: videoId)
         ProcessingCoordinator.shared.startProcessing(
             videoURL: video.originalURL,

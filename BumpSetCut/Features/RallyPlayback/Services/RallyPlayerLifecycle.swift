@@ -58,6 +58,8 @@ final class RallyPlayerLifecycle {
         playerCache.preloadPlayers(for: windowURLs)
 
         for index in indices {
+            // The player view went away (cleanup() ran): stop warming players.
+            guard !Task.isCancelled else { return }
             guard index < segments.count else { continue }
             let url = urls[index]
             let segment = segments[index]
@@ -65,6 +67,7 @@ final class RallyPlayerLifecycle {
             await playerCache.seekAsync(url: url, to: segment.startCMTime)
             let _ = await playerCache.waitForPlayerReady(for: url, timeout: 5.0)
         }
+        guard !Task.isCancelled else { return }
 
         thumbnailCache.preloadThumbnails(for: allURLs)
     }
@@ -79,11 +82,13 @@ final class RallyPlayerLifecycle {
         playerCache.enforceCacheLimit(keeping: windowURLs)
 
         for index in indices where index != currentIndex {
+            guard !Task.isCancelled else { return }
             guard index < segments.count else { continue }
             let url = urls[index]
             let segment = segments[index]
             await playerCache.seekAsync(url: url, to: segment.startCMTime)
         }
+        guard !Task.isCancelled else { return }
 
         let urlsToPreload = visibleCardIndices
             .filter { $0 != currentIndex }

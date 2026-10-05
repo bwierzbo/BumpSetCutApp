@@ -970,7 +970,8 @@ struct FavoritesFeedView: View {
         Task {
             let duration = try? await asset.load(.duration)
             let secs = duration.map { CMTimeGetSeconds($0) } ?? 0
-            clipDuration = max(secs, 0.1)
+            // An indefinite duration reads as NaN, which max() would keep.
+            clipDuration = secs.isFinite ? max(secs, 0.1) : 0.1
 
             // Load saved trim
             let videoId = videos[index].id
@@ -1045,6 +1046,11 @@ struct FavoritesFeedView: View {
 
     private func setupPlayer(at index: Int) {
         guard index < videos.count else { return }
+        // Keep the neighbours' players for a quick swipe back; a player per
+        // page visited piled up until the feed closed.
+        for idx in players.keys where abs(idx - index) > 1 {
+            teardown(at: idx)
+        }
 
         // Load saved trim for this clip
         if savedTrims[index] == nil {
@@ -1088,20 +1094,22 @@ struct FavoritesFeedView: View {
         applyTrimAndPlay(at: index)
     }
 
-    private func teardownAll() {
-        for (idx, player) in players {
-            if let obs = loopObservers[idx] {
-                NotificationCenter.default.removeObserver(obs)
-            }
-            if let obs = boundaryObservers[idx] {
-                player.removeTimeObserver(obs)
-            }
-            player.pause()
-            player.replaceCurrentItem(with: nil)
+    private func teardown(at idx: Int) {
+        guard let player = players.removeValue(forKey: idx) else { return }
+        if let obs = loopObservers.removeValue(forKey: idx) {
+            NotificationCenter.default.removeObserver(obs)
         }
-        readyPlayers.removeAll()
-        players.removeAll()
-        loopObservers.removeAll()
-        boundaryObservers.removeAll()
+        if let obs = boundaryObservers.removeValue(forKey: idx) {
+            player.removeTimeObserver(obs)
+        }
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        readyPlayers.remove(idx)
+    }
+
+    private func teardownAll() {
+        for idx in Array(players.keys) {
+            teardown(at: idx)
+        }
     }
 }

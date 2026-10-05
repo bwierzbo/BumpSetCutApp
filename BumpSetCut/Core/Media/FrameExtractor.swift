@@ -58,7 +58,9 @@ final class FrameExtractor {
 
         static let defaultConfig = ExtractionConfig(
             frameTime: CMTime(seconds: 0.1, preferredTimescale: 600),
-            maximumSize: CGSize(width: 1920, height: 1920),  // Full HD for smooth transitions
+            // Rally peek/fallback frames: sharp for the moment they show,
+            // under half 1920's memory (RallyThumbnailCache holds 30).
+            maximumSize: CGSize(width: 1280, height: 1280),
             appliesPreferredTrackTransform: true,
             extractionTimeout: 1.5 // headroom for seeking into long videos under preload load
         )

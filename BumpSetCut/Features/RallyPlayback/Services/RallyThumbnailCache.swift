@@ -9,7 +9,16 @@ final class RallyThumbnailCache {
     private var thumbnails: [URL: UIImage] = [:]
     private var preloadTasks: [URL: Task<UIImage?, Never>] = [:]
     private var thumbnailCreationOrder: [URL] = []
-    private let maxCachedThumbnails = 50  // Support overview grid showing all rallies
+    /// ~3.7 MB each at 1280 px. The overview grid fetches what scrolls into
+    /// view again, so it doesn't need every rally held.
+    private let maxCachedThumbnails = 30
+
+    /// At most this many decodes at once. Each opens its own decoder on the
+    /// (often 4K) video: a game's worth started together got the app killed
+    /// for memory. Waiters for a card on screen go to the front.
+    private let maxConcurrentExtractions = 2
+    private var runningExtractions = 0
+    private var waiting: [(url: URL, resume: CheckedContinuation<Void, Never>)] = []
 
     /// Rally segments for extracting at correct start times
     private var rallySegments: [RallySegment] = []
@@ -33,8 +42,11 @@ final class RallyThumbnailCache {
             return cached
         }
 
-        // Check if preload task exists
+        // A queued preload for it: move it to the front, then wait for it
         if let task = preloadTasks[url] {
+            if let i = waiting.firstIndex(where: { $0.url == url }) {
+                waiting.insert(waiting.remove(at: i), at: 0)
+            }
             return await task.value
         }
 
@@ -87,6 +99,12 @@ final class RallyThumbnailCache {
         components?.fragment = nil
         let baseURL = components?.url ?? url
 
+        await acquireSlot(for: url, urgent: priority == .high)
+        defer { releaseSlot() }
+        // Closed while it waited (cleanup() emptied the cache): don't decode
+        // or repopulate it.
+        guard !Task.isCancelled else { return nil }
+
         print("RallyThumbnailCache: Extracting thumbnail for rally \(rallyIndex ?? -1) at time \(startTime?.seconds ?? 0.1)s from \(baseURL.lastPathComponent)")
 
         // Use FrameExtractor with the rally's actual start time
@@ -97,6 +115,7 @@ final class RallyThumbnailCache {
                 at: startTime,
                 priority: priority
             )
+            guard !Task.isCancelled else { return nil }
             print("RallyThumbnailCache: ✅ Successfully extracted thumbnail for rally \(rallyIndex ?? -1)")
             cacheThumbnail(image, for: url)
             preloadTasks.removeValue(forKey: url)
@@ -105,6 +124,30 @@ final class RallyThumbnailCache {
             print("RallyThumbnailCache: ❌ Failed to extract thumbnail for rally \(rallyIndex ?? -1): \(error)")
             preloadTasks.removeValue(forKey: url)
             return nil
+        }
+    }
+
+    /// Wait for a decode slot. A freed slot is handed straight to the next
+    /// waiter, so the running count only drops when nobody is waiting.
+    private func acquireSlot(for url: URL, urgent: Bool) async {
+        if runningExtractions < maxConcurrentExtractions {
+            runningExtractions += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            if urgent {
+                waiting.insert((url, continuation), at: 0)
+            } else {
+                waiting.append((url, continuation))
+            }
+        }
+    }
+
+    private func releaseSlot() {
+        if waiting.isEmpty {
+            runningExtractions -= 1
+        } else {
+            waiting.removeFirst().resume.resume()
         }
     }
 
@@ -150,6 +193,12 @@ final class RallyThumbnailCache {
             task.cancel()
         }
         preloadTasks.removeAll()
+        // Wake every waiter (each now holds a slot it releases): their tasks
+        // are cancelled, so they return without decoding.
+        let woken = waiting
+        waiting.removeAll()
+        runningExtractions += woken.count
+        woken.forEach { $0.resume.resume() }
         thumbnails.removeAll()
         thumbnailCreationOrder.removeAll()
     }

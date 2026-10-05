@@ -169,7 +169,8 @@ final class VideoExporter {
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = renderSize
         // Match the fastest source, clamped to a sane range (never hardcode 30).
-        let frameRate = Int32(min(max(maxFrameRate.rounded(), 24), 60))
+        // A NaN rate (unreadable track) survives max/min and traps in Int32().
+        let frameRate = maxFrameRate.isFinite ? Int32(min(max(maxFrameRate.rounded(), 24), 60)) : 30
         videoComposition.frameDuration = CMTime(value: 1, timescale: frameRate)
         videoComposition.instructions = instructions
 

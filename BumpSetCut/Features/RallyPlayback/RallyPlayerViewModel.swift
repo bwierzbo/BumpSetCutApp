@@ -407,7 +407,8 @@ final class RallyPlayerViewModel {
             processingMetadata = metadata
 
             trim.loadSavedAdjustments(videoId: metadataVideoId, metadataStore: metadataStore)
-            actions.loadSavedSelections(videoId: metadataVideoId, metadataStore: metadataStore)
+            actions.loadSavedSelections(videoId: metadataVideoId, metadataStore: metadataStore,
+                                        rallyCount: metadata.rallySegments.count)
 
             let asset = AVURLAsset(url: videoMetadata.originalURL)
             actualVideoDuration = try await CMTimeGetSeconds(asset.load(.duration))
@@ -447,6 +448,9 @@ final class RallyPlayerViewModel {
                     segments: metadata.rallySegments, playerCache: playerCache,
                     thumbnailCache: thumbnailCache, allURLs: rallyVideoURLs
                 )
+                // Gone while it loaded (cleanup() ran): don't restart playback.
+                // loadingState stays .loading, so coming back loads afresh.
+                guard !Task.isCancelled else { return }
 
                 loadingState = .loaded
                 setupRallyLooping()
@@ -583,6 +587,8 @@ final class RallyPlayerViewModel {
                 // Fallback: brief delay to let the seek settle
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
+            // cleanup() cancelled us: the players are gone — don't revive them.
+            if Task.isCancelled { return }
             playerCache.play()
 
             await preloadAdjacent()
@@ -699,12 +705,16 @@ final class RallyPlayerViewModel {
         let dismissDelay: UInt64 = action == .favorite ? 3_500_000_000 : 2_000_000_000
         let dismissTask = Task {
             try? await Task.sleep(nanoseconds: dismissDelay)
+            if Task.isCancelled { return }
             actions.dismissFeedback()
         }
         activeTasks.append(dismissTask)
 
         let actionTask = Task {
             try? await Task.sleep(nanoseconds: 350_000_000)
+            // cleanup() cancelled us: `try?` swallowed it, so check — moving on
+            // would build a new player after the view is gone.
+            if Task.isCancelled { return }
 
             gesture.swipeOffset = 0
             gesture.swipeOffsetY = 0
@@ -725,6 +735,7 @@ final class RallyPlayerViewModel {
                 if !ready {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
+                if Task.isCancelled { return }
                 playerCache.play()
                 await preloadAdjacent()
             } else {
@@ -1031,6 +1042,7 @@ final class RallyPlayerViewModel {
             segments: metadata.rallySegments, playerCache: playerCache,
             thumbnailCache: thumbnailCache, allURLs: rallyVideoURLs
         )
+        guard !Task.isCancelled else { return }
 
         setupRallyLooping()
         playerCache.play()

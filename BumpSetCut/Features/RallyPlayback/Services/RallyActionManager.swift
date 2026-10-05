@@ -49,15 +49,18 @@ final class RallyActionManager {
 
     // MARK: - Persistence Lifecycle
 
-    func loadSavedSelections(videoId: UUID, metadataStore: MetadataStore) {
+    /// Only indices below `rallyCount` are kept: selections saved before a
+    /// reprocess that found fewer rallies would index past the rally list.
+    func loadSavedSelections(videoId: UUID, metadataStore: MetadataStore, rallyCount: Int) {
         self.videoId = videoId
         self.metadataStore = metadataStore
         let selections = metadataStore.loadReviewSelections(for: videoId)
-        savedRallies = selections.saved
-        removedRallies = selections.removed
-        favoritedRallies = selections.favorited
-        favoriteCollections = selections.favoriteCollections
-        postedRallies = selections.posted
+        let inRange = { (index: Int) in index >= 0 && index < rallyCount }
+        savedRallies = selections.saved.filter(inRange)
+        removedRallies = selections.removed.filter(inRange)
+        favoritedRallies = selections.favorited.filter(inRange)
+        favoriteCollections = selections.favoriteCollections.filter { inRange($0.key) }
+        postedRallies = selections.posted.filter(inRange)
     }
 
     private func persistSelections() {

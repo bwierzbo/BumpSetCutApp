@@ -70,8 +70,24 @@ final class FavoriteCollectionsTests: XCTestCase {
 
     private func makeLoadedManager() -> RallyActionManager {
         let manager = RallyActionManager()
-        manager.loadSavedSelections(videoId: videoId, metadataStore: metadataStore)
+        manager.loadSavedSelections(videoId: videoId, metadataStore: metadataStore, rallyCount: 10)
         return manager
+    }
+
+    func testLoadDropsSelectionsPastTheRallyCount() throws {
+        // Saved before a reprocess that now finds only 3 rallies.
+        try metadataStore.saveReviewSelections(
+            RallyReviewSelections(saved: [0, 2, 5], removed: [4], favorited: [1, 7],
+                                  favoriteCollections: [1: "Keep", 7: "Gone"], posted: [2, 9]),
+            for: videoId)
+        let manager = RallyActionManager()
+        manager.loadSavedSelections(videoId: videoId, metadataStore: metadataStore, rallyCount: 3)
+
+        XCTAssertEqual(manager.savedRalliesArray, [0, 2])
+        XCTAssertTrue(manager.removedRallies.isEmpty)
+        XCTAssertEqual(manager.favoritedRallies, [1])
+        XCTAssertEqual(manager.favoriteCollections, [1: "Keep"])
+        XCTAssertEqual(manager.postedRallies, [2])
     }
 
     func testSetFavoriteCollectionPersistsImmediately() {
@@ -196,7 +212,7 @@ final class FavoriteCollectionsTests: XCTestCase {
 
     func testMarkPostedPersistsAndSurvivesDeselectAll() throws {
         let actions = RallyActionManager()
-        actions.loadSavedSelections(videoId: videoId, metadataStore: metadataStore)
+        actions.loadSavedSelections(videoId: videoId, metadataStore: metadataStore, rallyCount: 10)
 
         actions.markPosted([0, 2])
         XCTAssertEqual(actions.postedRallies, [0, 2])
