@@ -179,7 +179,7 @@ struct ConversationView: View {
     private func daySeparator(_ day: Date) -> some View {
         Text(dayLabel(day))
             .bscFont(size: 11, weight: .medium)
-            .foregroundColor(.bscTextTertiary)
+            .foregroundColor(.bscTextSecondary)
             .padding(.horizontal, BSCSpacing.md)
             .padding(.vertical, BSCSpacing.xxs)
             .background(Capsule().fill(Color.bscSurfaceGlass))
