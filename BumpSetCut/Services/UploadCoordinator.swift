@@ -39,7 +39,6 @@ struct VideoTransferable: Transferable {
 @Observable
 final class UploadCoordinator {
     private let mediaStore: MediaStore
-    let uploadManager: UploadManager
     private let logger = Logger(subsystem: "BumpSetCut", category: "UploadCoordinator")
 
     var isUploadInProgress = false
@@ -75,7 +74,6 @@ final class UploadCoordinator {
 
     init(mediaStore: MediaStore) {
         self.mediaStore = mediaStore
-        self.uploadManager = UploadManager(mediaStore: mediaStore)
     }
 
     /// Keep the import alive across backgrounding: continued-processing task
@@ -132,10 +130,6 @@ final class UploadCoordinator {
         Task { @MainActor in
             self.endImportContinuation(success: false)
         }
-    }
-
-    var uploadProgress: UploadManager {
-        return uploadManager
     }
 }
 
@@ -201,61 +195,25 @@ struct DropViewDelegate: DropDelegate {
             return
         }
 
-        await MainActor.run {
-            uploadCoordinator.isUploadInProgress = true
-        }
-
-        // Start exactly the item we created — `uploadItems.last` after the await
-        // could be another drop's item, double-starting one and orphaning the other
-        let uploadItem = await uploadCoordinator.uploadManager.addUpload(
-            url: tempURL,
-            fileName: url.lastPathComponent,
-            destinationFolderPath: destinationFolder
-        )
-        await uploadCoordinator.uploadManager.startUpload(item: uploadItem).value
-
-        // Drive the same completion flow as the picker path — without it
-        // isUploadInProgress stayed true and the upload overlay never dismissed
-        await uploadCoordinator.handleUploadCompletion()
-    }
-}
-
-// MARK: - Upload Queue Management
-
-extension UploadCoordinator {
-    func pauseAllUploads() {
-        // Implementation for pausing uploads
-        // This would require additional state management in UploadItem
-        logger.info("Pause functionality not yet implemented")
-    }
-    
-    func resumeAllUploads() {
-        // Implementation for resuming uploads
-        logger.info("Resume functionality not yet implemented")
-    }
-    
-    func retryFailedUploads() {
-        let failedItems = uploadManager.uploadItems.filter {
-            if case .failed = $0.status { return true }
-            return false
-        }
-        
-        for item in failedItems {
-            item.status = .pending
-            uploadManager.startUpload(item: item)
-        }
-        
-        logger.info("Retrying \(failedItems.count) failed uploads")
-    }
-    
-    func clearCompletedUploads() {
-        uploadManager.clearCompleted()
+        await uploadCoordinator.importDroppedVideo(at: tempURL, destinationFolder: destinationFolder)
     }
 }
 
 // MARK: - Single File Upload
 
 extension UploadCoordinator {
+    /// Drag-and-drop: the delegate hands over a verified temp copy it owns.
+    func importDroppedVideo(at tempURL: URL, destinationFolder: String) async {
+        importWasCancelled = false
+        currentVideoName = tempURL.deletingPathExtension().lastPathComponent
+        isUploadInProgress = true
+        guard saveVideoFromURL(tempURL, destinationFolder: destinationFolder, customName: nil) else {
+            isUploadInProgress = false
+            return
+        }
+        await handleUploadCompletion()
+    }
+
     func handlePhotosPickerItem(_ item: PhotosPickerItem, destinationFolder: String = "", customName: String? = nil) {
         logger.info("Handling photos picker item")
 
@@ -272,7 +230,7 @@ extension UploadCoordinator {
         await MainActor.run {
             importProgress = 0
             importWasCancelled = false
-            currentVideoName = Self.sanitizedCustomName(customName) ?? "video"
+            currentVideoName = MediaStore.sanitizedVideoName(customName) ?? "video"
             uploadProgressText = "Importing from Photos…"
             beginImportContinuation()
         }
@@ -347,7 +305,7 @@ extension UploadCoordinator {
             uploadProgressText = "Saving \(fileSizeString) video..."
         }
 
-        let saved = await saveVideoFromURL(videoURL, destinationFolder: destinationFolder, customName: customName)
+        let saved = saveVideoFromURL(videoURL, destinationFolder: destinationFolder, customName: customName)
 
         guard saved else {
             await MainActor.run {
@@ -512,81 +470,32 @@ extension UploadCoordinator {
         return "The video couldn't be imported from Photos. It may still be downloading from iCloud — open it in the Photos app to finish the download, then try again."
     }
 
-    /// The name prompt caps input, but the coordinator is shared API — enforce the
-    /// same limits here so no caller can inject unbounded or control-character names.
-    private static func sanitizedCustomName(_ name: String?) -> String? {
-        guard let name else { return nil }
-        let cleaned = name
-            .components(separatedBy: .controlCharacters).joined()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return nil }
-        return String(cleaned.prefix(100))
-    }
-
-    /// Save video from URL to final destination. Returns whether the video landed in the library.
-    private func saveVideoFromURL(_ sourceURL: URL, destinationFolder: String, customName: String?) async -> Bool {
-        do {
-            let fileName = "Video_\(DateFormatter.yyyyMMdd_HHmmss.string(from: Date()))_\(UUID().uuidString.prefix(4)).mp4"
-            let baseURL = StorageManager.getPersistentStorageDirectory()
-            let destinationURL = baseURL
-                .appendingPathComponent(destinationFolder)
-                .appendingPathComponent(fileName)
-
-            // Folder paths are validated at creation, but never trust a caller-supplied
-            // path to stay inside the library — reject anything that resolves outside
-            // the storage root (e.g. a "../" segment).
-            let rootPath = baseURL.standardizedFileURL.path
-            guard destinationURL.standardizedFileURL.path.hasPrefix(rootPath + "/") else {
-                logger.error("Rejected upload destination outside storage root")
-                try? FileManager.default.removeItem(at: sourceURL)
-                return false
-            }
-
-            // Ensure directory exists
-            try FileManager.default.createDirectory(
-                at: destinationURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-
-            // Move file (O(1) rename on same filesystem, avoids full copy)
-            try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
-
-            let resolvedName: String
-            if let name = Self.sanitizedCustomName(customName) {
-                resolvedName = name
-            } else {
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "dd/MM/yyyy"
-                resolvedName = "Uploaded video \(dateFormatter.string(from: Date()))"
-            }
-
-            // Add to MediaStore
-            let success = mediaStore.addVideo(
-                at: destinationURL,
-                toFolder: destinationFolder,
-                customName: resolvedName
-            )
-
-            if success {
-                logger.info("Video upload completed: \(fileName)")
-            } else {
-                logger.error("Failed to add video to MediaStore: \(fileName)")
-            }
-            return success
-
-        } catch {
-            if StorageChecker.isStorageError(error) {
-                logger.error("Storage full during upload: \(error.localizedDescription)")
-                await MainActor.run {
-                    storageWarningMessage = "Your device ran out of storage space while importing the video. Free up space in Settings > General > iPhone Storage, then try again."
-                    showStorageWarning = true
-                }
-            } else {
-                logger.error("Failed to save video: \(error.localizedDescription)")
-            }
-            return false
+    /// Hand a temp file we own to the library's single import path. Returns
+    /// whether the video landed; failures are surfaced (storage warning or
+    /// import alert) and leave nothing behind on disk.
+    private func saveVideoFromURL(_ sourceURL: URL, destinationFolder: String, customName: String?) -> Bool {
+        let resolvedName: String
+        if let name = MediaStore.sanitizedVideoName(customName) {
+            resolvedName = name
+        } else {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "dd/MM/yyyy"
+            resolvedName = "Uploaded video \(dateFormatter.string(from: Date()))"
         }
+
+        do {
+            try mediaStore.importVideo(from: sourceURL, toFolder: destinationFolder, customName: resolvedName)
+            return true
+        } catch MediaStore.ImportError.storageFull {
+            logger.error("Storage full during import")
+            storageWarningMessage = MediaStore.ImportError.storageFull.localizedDescription
+            showStorageWarning = true
+        } catch {
+            logger.error("Import failed: \(error.localizedDescription)")
+            importErrorMessage = error.localizedDescription
+            showImportError = true
+        }
+        return false
     }
 
     func handleUploadCompletion() async {
@@ -609,42 +518,4 @@ extension UploadCoordinator {
         }
     }
 
-
-    func getUploadSummary() -> UploadSummary {
-        return UploadSummary(
-            totalItems: uploadManager.totalItems,
-            completedItems: uploadManager.completedItems,
-            failedItems: uploadManager.uploadItems.filter { 
-                if case .failed = $0.status { return true }
-                return false 
-            }.count,
-            overallProgress: uploadManager.overallProgress,
-            isActive: uploadManager.isActive
-        )
-    }
-}
-
-// MARK: - Upload Summary Model
-
-struct UploadSummary {
-    let totalItems: Int
-    let completedItems: Int
-    let failedItems: Int
-    let overallProgress: Double
-    let isActive: Bool
-    
-    var successRate: Double {
-        guard totalItems > 0 else { return 0 }
-        return Double(completedItems) / Double(totalItems)
-    }
-    
-    var statusText: String {
-        if isActive {
-            return "Uploading \(completedItems)/\(totalItems)"
-        } else if failedItems > 0 {
-            return "Completed with \(failedItems) failures"
-        } else {
-            return "All uploads completed"
-        }
-    }
 }
