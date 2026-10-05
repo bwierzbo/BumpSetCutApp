@@ -33,7 +33,13 @@ final class NetDetector {
             guard let url = Bundle.main.url(forResource: modelName, withExtension: ext) else { continue }
             do {
                 let cfg = MLModelConfiguration()
+                // iOS refuses GPU work from a backgrounded app, and processing
+                // continues in the background — same choice as the ball model.
+                #if os(iOS)
+                cfg.computeUnits = .cpuAndNeuralEngine
+                #else
                 cfg.computeUnits = .all
+                #endif
                 let mlModel = try MLModel(contentsOf: url, configuration: cfg)
                 self.model = try VNCoreMLModel(for: mlModel)
                 if let c = mlModel.modelDescription.inputDescriptionsByName.values
