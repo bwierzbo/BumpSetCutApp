@@ -581,32 +581,12 @@ struct RallyTrimOverlay: View {
     }
 
     private func generateThumbnails() async {
-        let url = videoURL
-        let start = windowStart
-        let duration = windowDuration
-        let count = 12
         lastThumbnailWindow = (windowStart, windowEnd)
-
-        let asset = AVURLAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 200, height: 200)
-
-        let times: [CMTime] = (0..<count).map { i in
-            let t = start + (duration * Double(i) / Double(count - 1))
-            return CMTimeMakeWithSeconds(t, preferredTimescale: 600)
-        }
-
-        var result: [UIImage] = []
-        for await imageResult in generator.images(for: times) {
-            guard !Task.isCancelled else { return }
-            if let cgImage = try? imageResult.image {
-                result.append(UIImage(cgImage: cgImage))
-            }
-        }
-
+        let frames = await ThumbnailService.shared.filmstrip(
+            url: videoURL, start: windowStart, duration: windowDuration, count: 12
+        )
         guard !Task.isCancelled else { return }
-        thumbnails = result
+        thumbnails = frames
     }
 
     // MARK: - Formatting

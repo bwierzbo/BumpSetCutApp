@@ -54,7 +54,7 @@ struct BSCVideoCard: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: handleTap)
         .contextMenu { contextMenuContent }
-        .onAppear(perform: generateThumbnail)
+        .task(id: video.originalURL) { await loadThumbnail() }
         .sheet(isPresented: $showingProcessVideo) {
             NavigationStack {
                 ProcessVideoView(
@@ -567,27 +567,13 @@ struct BSCVideoCard: View {
         onRefresh()
     }
 
-    private func generateThumbnail() {
-        Task {
-            let image = await createThumbnail(from: video.originalURL)
-            await MainActor.run {
-                thumbnail = image
-            }
-        }
-    }
-
-    private func createThumbnail(from url: URL) async -> UIImage? {
-        let asset = AVURLAsset(url: url)
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.appliesPreferredTrackTransform = true
-        imageGenerator.maximumSize = CGSize(width: 400, height: 400)
-
-        do {
-            let cgImage = try await imageGenerator.image(at: CMTime(seconds: 1.0, preferredTimescale: 600)).image
-            return UIImage(cgImage: cgImage)
-        } catch {
-            return nil
-        }
+    /// Cached across the lazy grid's cell recycling — only the first
+    /// appearance of a video decodes a frame.
+    private func loadThumbnail() async {
+        let time = CMTime(seconds: 1.0, preferredTimescale: 600)
+        thumbnail = ThumbnailService.shared.cachedStill(url: video.originalURL, at: time)
+        guard thumbnail == nil else { return }
+        thumbnail = try? await ThumbnailService.shared.still(url: video.originalURL, at: time)
     }
 
     // MARK: - Formatters
