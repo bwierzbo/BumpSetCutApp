@@ -19,7 +19,6 @@ struct ReportContentSheet: View {
     @State private var description = ""
     @State private var isSubmitting = false
     @State private var showSuccess = false
-    @State private var errorMessage: String?
     @State private var showError = false
 
     var body: some View {
@@ -114,10 +113,10 @@ struct ReportContentSheet: View {
             } message: {
                 Text("Thank you for helping keep our community safe. We'll review your report shortly.")
             }
-            .alert("Error", isPresented: $showError) {
+            .alert("Couldn't Send Report", isPresented: $showError) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(errorMessage ?? "Failed to submit report")
+                Text("Check your connection and try again. Your report hasn't been sent.")
             }
         }
     }
@@ -165,7 +164,6 @@ struct ReportContentSheet: View {
             UIImpactFeedbackGenerator.medium()
 
         } catch {
-            errorMessage = error.localizedDescription
             showError = true
         }
     }

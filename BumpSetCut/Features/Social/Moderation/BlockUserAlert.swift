@@ -2,67 +2,85 @@
 //  BlockUserAlert.swift
 //  BumpSetCut
 //
-//  Confirmation alert for blocking users.
+//  The one confirm-then-block flow for every Block action (posts, comments,
+//  profiles, threads).
 //
 
 import SwiftUI
 
-struct BlockUserAlert: ViewModifier {
-    @Binding var isPresented: Bool
+/// Who a Block action targets. Failable so a malformed id can never turn into
+/// a block on some random UUID.
+struct BlockTarget: Identifiable, Equatable {
+    let id: UUID
     let username: String
-    let userId: UUID
-    let onBlock: () async throws -> Void
 
-    @State private var isBlocking = false
-    @State private var errorMessage: String?
-    @State private var showError = false
+    init?(userId: String, username: String?) {
+        guard let uuid = UUID(uuidString: userId) else { return nil }
+        self.id = uuid
+        self.username = username ?? "user"
+    }
+}
+
+private struct BlockUserAlert: ViewModifier {
+    @Binding var target: BlockTarget?
+    let onBlocked: () -> Void
+
+    /// Survives the binding clearing as the alert dismisses, so the title
+    /// doesn't flicker while it animates out.
+    @State private var shownTarget: BlockTarget?
+    /// Set when a block fails; drives the failure alert, which names the person.
+    @State private var failedTarget: BlockTarget?
+
+    private var current: BlockTarget? { target ?? shownTarget }
 
     func body(content: Content) -> some View {
         content
-            .alert("Block @\(username)?", isPresented: $isPresented) {
+            .onChange(of: target) { _, newValue in
+                if let newValue { shownTarget = newValue }
+            }
+            .alert(
+                "Block @\(current?.username ?? "user")?",
+                isPresented: Binding(
+                    get: { target != nil },
+                    set: { if !$0 { target = nil } }
+                )
+            ) {
                 Button("Cancel", role: .cancel) {}
-
-                Button("Block", role: .destructive) {
-                    Task {
-                        await blockUser()
+                if let blocked = current {
+                    Button("Block", role: .destructive) {
+                        Task { await block(blocked) }
                     }
                 }
             } message: {
                 Text("You won't see their posts or comments, and they won't be able to see yours.")
             }
-            .alert("Error", isPresented: $showError) {
+            .alert(
+                "Couldn't Block @\(failedTarget?.username ?? "user")",
+                isPresented: Binding(
+                    get: { failedTarget != nil },
+                    set: { if !$0 { failedTarget = nil } }
+                )
+            ) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(errorMessage ?? "Failed to block user")
+                Text("Check your connection and try again.")
             }
     }
 
-    private func blockUser() async {
-        isBlocking = true
-        defer { isBlocking = false }
-
+    private func block(_ blocked: BlockTarget) async {
         do {
-            try await onBlock()
+            try await ModerationService.shared.blockUser(blocked.id)
             UIImpactFeedbackGenerator.medium()
+            onBlocked()
         } catch {
-            errorMessage = error.localizedDescription
-            showError = true
+            failedTarget = blocked
         }
     }
 }
 
 extension View {
-    func blockUserAlert(
-        isPresented: Binding<Bool>,
-        username: String,
-        userId: UUID,
-        onBlock: @escaping () async throws -> Void
-    ) -> some View {
-        modifier(BlockUserAlert(
-            isPresented: isPresented,
-            username: username,
-            userId: userId,
-            onBlock: onBlock
-        ))
+    /// Confirms, then blocks `target`. `onBlocked` runs only on success.
+    func blockUserAlert(target: Binding<BlockTarget?>, onBlocked: @escaping () -> Void = {}) -> some View {
+        modifier(BlockUserAlert(target: target, onBlocked: onBlocked))
     }
 }

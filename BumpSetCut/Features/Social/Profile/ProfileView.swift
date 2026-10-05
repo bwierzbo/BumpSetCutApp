@@ -12,7 +12,7 @@ struct ProfileView: View {
     @State private var selectedHighlightIndex: Int?
     @State private var highlightToDelete: Highlight?
     @State private var showReportSheet = false
-    @State private var showBlockAlert = false
+    @State private var blockTarget: BlockTarget?
     @State private var showingSettings = false
     @State private var toast: BSCToastMessage?
     /// "Send to Friend" from the full-screen post viewer; its toast lives on
@@ -152,13 +152,13 @@ struct ProfileView: View {
             } else {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
-                        Button(role: .destructive) {
+                        Button {
                             showReportSheet = true
                         } label: {
                             Label("Report User", systemImage: "exclamationmark.triangle")
                         }
                         Button(role: .destructive) {
-                            showBlockAlert = true
+                            blockTarget = BlockTarget(userId: viewModel.userId, username: viewModel.profile?.username)
                         } label: {
                             Label("Block @\(viewModel.profile?.username ?? "user")", systemImage: "hand.raised")
                         }
@@ -184,18 +184,9 @@ struct ProfileView: View {
                 reportedUserId: UUID(uuidString: viewModel.userId) ?? UUID()
             )
         }
-        .alert("Block @\(viewModel.profile?.username ?? "user")?", isPresented: $showBlockAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Block", role: .destructive) {
-                guard let userId = UUID(uuidString: viewModel.userId) else { return }
-                Task {
-                    try? await ModerationService.shared.blockUser(userId)
-                    dismiss()
-                }
-            }
-        } message: {
-            Text("You won't see their posts or comments, and they won't be able to see yours.")
-        }
+        // Their profile is hidden once blocked, so leave it — but only when
+        // the block actually went through.
+        .blockUserAlert(target: $blockTarget) { dismiss() }
     }
 
     // MARK: - Message Button

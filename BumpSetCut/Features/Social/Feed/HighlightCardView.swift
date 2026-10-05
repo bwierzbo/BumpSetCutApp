@@ -29,7 +29,7 @@ struct HighlightCardView: View {
     @State private var loopObservers: [Int: Any] = [:]
     @State private var showDeleteConfirmation = false
     @State private var showReportSheet = false
-    @State private var showBlockAlert = false
+    @State private var blockTarget: BlockTarget?
     @State private var showLikeHeart = false
     @State private var currentVideoPage = 0
     @State private var isPaused = false
@@ -219,15 +219,7 @@ struct HighlightCardView: View {
                 reportedUserId: UUID(uuidString: highlight.authorId) ?? UUID()
             )
         }
-        .blockUserAlert(
-            isPresented: $showBlockAlert,
-            username: highlight.author?.username ?? "user",
-            userId: UUID(uuidString: highlight.authorId) ?? UUID()
-        ) {
-            try await ModerationService.shared.blockUser(
-                UUID(uuidString: highlight.authorId) ?? UUID()
-            )
-        }
+        .blockUserAlert(target: $blockTarget)
     }
 
     // MARK: - Overlay Controls
@@ -332,7 +324,7 @@ struct HighlightCardView: View {
                             }
 
                             Button(role: .destructive) {
-                                showBlockAlert = true
+                                blockTarget = BlockTarget(userId: highlight.authorId, username: highlight.author?.username)
                             } label: {
                                 Label("Block @\(highlight.author?.username ?? "user")", systemImage: "hand.raised")
                             }
