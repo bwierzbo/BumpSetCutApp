@@ -15,10 +15,11 @@ struct ProfileView: View {
     @State private var blockTarget: BlockTarget?
     @State private var showingSettings = false
     @State private var toast: BSCToastMessage?
-    /// "Send to Friend" from the full-screen post viewer; its toast lives on
-    /// the cover content so it is actually visible there.
+    /// "Send to Friend" from the full-screen post viewer.
     @State private var sendRequest: SendToRequest?
-    @State private var sendToast: BSCToastMessage?
+    /// Toasts while the post viewer is open (sent, failed like) — shown on the
+    /// cover's content, since one on this view would be hidden beneath it.
+    @State private var coverToast: BSCToastMessage?
     @Environment(AuthenticationService.self) private var authService
     @Environment(AppSettings.self) private var appSettings
     @Environment(AppNavigationState.self) private var navigationState
@@ -72,7 +73,12 @@ struct ProfileView: View {
         .bscToast($toast)
         .onChange(of: viewModel.actionError) { _, message in
             if let message {
-                toast = BSCToastMessage(text: message, style: .error)
+                // While the post viewer covers this screen, show it there.
+                if selectedHighlightIndex != nil {
+                    coverToast = BSCToastMessage(text: message, style: .error)
+                } else {
+                    toast = BSCToastMessage(text: message, style: .error)
+                }
                 viewModel.actionError = nil
             }
         }
@@ -115,10 +121,10 @@ struct ProfileView: View {
                 // never seen.
                 .sheet(item: $sendRequest) { request in
                     SendToSheet(highlight: request.highlight) { conversationId, username in
-                        sendToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
+                        coverToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
                     }
                 }
-                .bscToast($sendToast)
+                .bscToast($coverToast)
             }
         }
         .alert("Delete Post?", isPresented: Binding(

@@ -67,5 +67,6 @@ struct HighlightDetailCover: View {
                 viewModel.actionError = nil
             }
         }
+        .dismissOnAppNavigation()
     }
 }

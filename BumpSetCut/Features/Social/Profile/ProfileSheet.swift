@@ -27,6 +27,7 @@ struct ProfileSheet: View {
                 // destination for the follower/following lists.
                 .profileNavigationDestinations()
         }
+        .dismissOnAppNavigation()
         .presentationDragIndicator(.visible)
     }
 }
