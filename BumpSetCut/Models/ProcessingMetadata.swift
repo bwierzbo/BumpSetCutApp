@@ -39,6 +39,14 @@ struct ProcessingMetadata: Codable, Identifiable {
     /// and file can be checked against each other after an interruption.
     let sourceDurationSec: Double?
 
+    /// Where the video was filmed from, as picked before processing (nil for
+    /// videos processed before the picker existed — treat as end line).
+    let cameraSetup: CameraSetup?
+    /// Horizontal centre of the detected net (Vision-normalised, 0 = left), the
+    /// reference that side-on serve detection compares `RallySegment.serveBallX`
+    /// against. nil if no net was found.
+    let netCenterX: Double?
+
     init(videoId: UUID,
          processingConfig: ProcessorConfig,
          rallySegments: [RallySegment],
@@ -49,7 +57,8 @@ struct ProcessingMetadata: Codable, Identifiable {
          physicsValidation: [PhysicsValidationData]? = nil,
          performanceMetrics: PerformanceData,
          eventLog: [ProcessingEvent]? = nil,
-         sourceDurationSec: Double? = nil) {
+         sourceDurationSec: Double? = nil,
+         netCenterX: Double? = nil) {
         self.id = UUID()
         self.videoId = videoId
         self.processingVersion = "1.0"
@@ -64,6 +73,8 @@ struct ProcessingMetadata: Codable, Identifiable {
         self.performanceMetrics = performanceMetrics
         self.eventLog = eventLog
         self.sourceDurationSec = sourceDurationSec
+        self.cameraSetup = processingConfig.camera
+        self.netCenterX = netCenterX
     }
 
     // Custom decoder for backwards compatibility
@@ -86,13 +97,15 @@ struct ProcessingMetadata: Codable, Identifiable {
         performanceMetrics = try container.decode(PerformanceData.self, forKey: .performanceMetrics)
         eventLog = try container.decodeIfPresent([ProcessingEvent].self, forKey: .eventLog)
         sourceDurationSec = try container.decodeIfPresent(Double.self, forKey: .sourceDurationSec)
+        cameraSetup = try container.decodeIfPresent(CameraSetup.self, forKey: .cameraSetup)
+        netCenterX = try container.decodeIfPresent(Double.self, forKey: .netCenterX)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, videoId, processingVersion, processingDate, processingConfig
         case rallySegments, processingStats, qualityMetrics
         case trajectoryData, classificationResults, physicsValidation
-        case performanceMetrics, eventLog, sourceDurationSec
+        case performanceMetrics, eventLog, sourceDurationSec, cameraSetup, netCenterX
     }
 
     /// Copy preserving identity and all processing data, with edited rally
@@ -121,6 +134,8 @@ struct ProcessingMetadata: Codable, Identifiable {
         self.performanceMetrics = other.performanceMetrics
         self.eventLog = other.eventLog
         self.sourceDurationSec = sourceDurationSec
+        self.cameraSetup = other.cameraSetup
+        self.netCenterX = other.netCenterX
     }
 }
 
@@ -251,12 +266,16 @@ struct RallySegment: Codable, Identifiable {
     let detectionCount: Int
     let averageTrajectoryLength: Double
     let ballSizeTrend: Double?
+    /// Mean horizontal ball position (Vision-normalised, 0 = left) over the
+    /// rally's opening detections — the serve's side of the net when filmed
+    /// side-on, as `ballSizeTrend` is from an end line. nil if too few samples.
+    let serveBallX: Double?
     /// True for segments the user created or re-timed in the timeline editor.
     /// Manual segments are human ground truth: reprocessing must not clobber
     /// them, and manual adds are labeled false negatives for the flywheel.
     let isManual: Bool
 
-    init(startTime: CMTime, endTime: CMTime, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double, ballSizeTrend: Double? = nil) {
+    init(startTime: CMTime, endTime: CMTime, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double, ballSizeTrend: Double? = nil, serveBallX: Double? = nil) {
         self.id = UUID()
         self.startTime = CMTimeGetSeconds(startTime)
         self.endTime = CMTimeGetSeconds(endTime)
@@ -265,6 +284,7 @@ struct RallySegment: Codable, Identifiable {
         self.detectionCount = detectionCount
         self.averageTrajectoryLength = averageTrajectoryLength
         self.ballSizeTrend = ballSizeTrend
+        self.serveBallX = serveBallX
         self.isManual = false
     }
 
@@ -278,11 +298,12 @@ struct RallySegment: Codable, Identifiable {
         detectionCount = try container.decode(Int.self, forKey: .detectionCount)
         averageTrajectoryLength = try container.decode(Double.self, forKey: .averageTrajectoryLength)
         ballSizeTrend = try container.decodeIfPresent(Double.self, forKey: .ballSizeTrend)
+        serveBallX = try container.decodeIfPresent(Double.self, forKey: .serveBallX)
         isManual = try container.decodeIfPresent(Bool.self, forKey: .isManual) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, startTime, endTime, confidence, quality, detectionCount, averageTrajectoryLength, ballSizeTrend, isManual
+        case id, startTime, endTime, confidence, quality, detectionCount, averageTrajectoryLength, ballSizeTrend, serveBallX, isManual
     }
 
     var duration: Double {
@@ -309,12 +330,13 @@ struct RallySegment: Codable, Identifiable {
             quality: quality,
             detectionCount: detectionCount,
             averageTrajectoryLength: averageTrajectoryLength,
-            ballSizeTrend: ballSizeTrend
+            ballSizeTrend: ballSizeTrend,
+            serveBallX: serveBallX
         )
     }
 
     /// Initializer accepting raw seconds (for adjusted times)
-    init(startTimeSeconds: Double, endTimeSeconds: Double, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double, ballSizeTrend: Double? = nil) {
+    init(startTimeSeconds: Double, endTimeSeconds: Double, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double, ballSizeTrend: Double? = nil, serveBallX: Double? = nil) {
         self.id = UUID()
         self.startTime = startTimeSeconds
         self.endTime = endTimeSeconds
@@ -323,12 +345,13 @@ struct RallySegment: Codable, Identifiable {
         self.detectionCount = detectionCount
         self.averageTrajectoryLength = averageTrajectoryLength
         self.ballSizeTrend = ballSizeTrend
+        self.serveBallX = serveBallX
         self.isManual = false
     }
 
     /// Full initializer preserving identity — used by the timeline editor so an
     /// edited segment keeps its id (index-keyed sidecar data is remapped by id).
-    init(id: UUID, startTimeSeconds: Double, endTimeSeconds: Double, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double, ballSizeTrend: Double?, isManual: Bool) {
+    init(id: UUID, startTimeSeconds: Double, endTimeSeconds: Double, confidence: Double, quality: Double, detectionCount: Int, averageTrajectoryLength: Double, ballSizeTrend: Double?, serveBallX: Double?, isManual: Bool) {
         self.id = id
         self.startTime = startTimeSeconds
         self.endTime = endTimeSeconds
@@ -337,6 +360,7 @@ struct RallySegment: Codable, Identifiable {
         self.detectionCount = detectionCount
         self.averageTrajectoryLength = averageTrajectoryLength
         self.ballSizeTrend = ballSizeTrend
+        self.serveBallX = serveBallX
         self.isManual = isManual
     }
 }
@@ -621,7 +645,8 @@ extension ProcessingMetadata {
                                      classifications: [ProcessingClassificationResult],
                                      physics: [PhysicsValidationData],
                                      performance: PerformanceData,
-                                     eventLog: [ProcessingEvent]? = nil) -> ProcessingMetadata {
+                                     eventLog: [ProcessingEvent]? = nil,
+                                     netCenterX: Double? = nil) -> ProcessingMetadata {
         return ProcessingMetadata(
             videoId: videoId,
             processingConfig: config,
@@ -632,7 +657,8 @@ extension ProcessingMetadata {
             classificationResults: classifications,
             physicsValidation: physics,
             performanceMetrics: performance,
-            eventLog: eventLog
+            eventLog: eventLog,
+            netCenterX: netCenterX
         )
     }
 }

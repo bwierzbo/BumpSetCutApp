@@ -495,6 +495,21 @@ final class RallyLabModel {
 
     /// Default config with the panel's tunables applied — used for pipeline
     /// runs, replays, and as the sweep's base.
+    /// Camera zone override for the open video; nil = read it from the clip ID.
+    var cameraZoneOverride: CameraZone? {
+        didSet {
+            guard cameraZoneOverride != oldValue, !evidence.isEmpty else { return }
+            detectionConfigDirty = true
+        }
+    }
+
+    /// Where the open video was filmed from: the override, else its clip ID.
+    var cameraSetup: CameraSetup {
+        let fromClip = CameraSetup(clipID: videoURL?.deletingPathExtension().lastPathComponent ?? "")
+        guard let zone = cameraZoneOverride else { return fromClip }
+        return CameraSetup(position: zone.presetPosition, height: fromClip.height)
+    }
+
     func currentConfig() -> ProcessorConfig {
         var cfg = ProcessorConfig()
         cfg.detectionConfidence = detectionConfidence
@@ -545,6 +560,9 @@ final class RallyLabModel {
         cfg.rallyScoreTravelWeight = travelWeight
         cfg.rallyScoreContinuityWeight = continuityWeight
         cfg.rallyScoreSizeWeight = sizeWeight
+        // Last: the angle-dependent rules override the panel for corner and
+        // sideline clips, exactly as the app does for that camera position.
+        cfg.applyCamera(cameraSetup)
         return cfg
     }
 

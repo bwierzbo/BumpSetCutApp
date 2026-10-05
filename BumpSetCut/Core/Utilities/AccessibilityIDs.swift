@@ -184,6 +184,7 @@ enum AccessibilityID {
         static let cancelButton = "process.cancelButton"
         static let viewRallies = "process.viewRallies"
         static let doneButton = "process.doneButton"
+        static let cameraSetupContinue = "process.cameraSetupContinue"
     }
 
     enum Upload {

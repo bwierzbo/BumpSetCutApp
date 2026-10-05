@@ -198,6 +198,7 @@ final class RallyTimelineViewModel {
                     detectionCount: source.detectionCount,
                     averageTrajectoryLength: source.averageTrajectoryLength,
                     ballSizeTrend: source.ballSizeTrend,
+                    serveBallX: source.serveBallX,
                     isManual: source.isManual || retimed
                 )
             } else {
@@ -210,6 +211,7 @@ final class RallyTimelineViewModel {
                     detectionCount: 0,
                     averageTrajectoryLength: 0,
                     ballSizeTrend: nil,
+                    serveBallX: nil,
                     isManual: true
                 )
             }

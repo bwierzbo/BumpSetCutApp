@@ -130,8 +130,11 @@ final class ProcessingCoordinator {
         self.showCompletionPill = false
         self.completedRallyCount = 0
 
-        // Create fresh processor
+        // Create fresh processor. Rules that depend on the viewing angle follow
+        // where the user said they filmed from (end line when not given).
         self.processor = VideoProcessor()
+        var config = config
+        config.applyCamera(mediaStore.getAllVideos().first { $0.id == videoId }?.cameraSetup)
         self.processor.config = config
         // Data flywheel: collect per-frame evidence only for opted-in users, so
         // borderline rallies can be staged for relabeling after processing.

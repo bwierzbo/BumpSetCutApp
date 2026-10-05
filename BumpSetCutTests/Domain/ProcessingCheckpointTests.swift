@@ -22,7 +22,7 @@ final class ProcessingCheckpointTests: XCTestCase {
             resumeTime: resumeTime,
             rawSegments: [.init(start: 10, end: 22), .init(start: 45, end: 61)],
             ballHeights: [.init(t: 10.5, y: 0.8), .init(t: 11.0, y: 0.6)],
-            ballSizes: [.init(t: 10.5, area: 0.0012)],
+            ballSizes: [.init(t: 10.5, area: 0.0012, x: 0.42)],
             evidence: [],
             physics: [.init(t: 11.2, isValid: true, rSquared: 0.91, confidenceLevel: 0.8)],
             trajectorySpans: [.init(start: 10.4, end: 12.1)],
@@ -52,6 +52,7 @@ final class ProcessingCheckpointTests: XCTestCase {
         XCTAssertEqual(loaded.rawSegments[1].start, 45)
         XCTAssertEqual(loaded.counters.rawFrameIndex, 3600)
         XCTAssertEqual(loaded.physics.first?.rSquared ?? 0, 0.91, accuracy: 0.0001)
+        XCTAssertEqual(loaded.ballSizes.first?.x ?? 0, 0.42, accuracy: 0.0001)
         let net = try XCTUnwrap(loaded.net?.detectedNet)
         XCTAssertEqual(net.box.minX, 0.2, accuracy: 0.0001)
         XCTAssertEqual(net.confidence, 0.9, accuracy: 0.0001)

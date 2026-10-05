@@ -279,6 +279,35 @@ struct ProcessorConfig {
     var multiCourtSpatialLockEnabled: Bool = true
     var multiCourtMaxLateralDistance: CGFloat = 0.25
 
+    // MARK: - Camera position
+    /// Where the video was filmed from (picked on the court diagram before
+    /// processing). nil = not given, treated as an end-line camera — what the
+    /// rules below are built for. Set with `applyCamera(_:)`, which also adjusts
+    /// the rules that depend on the viewing angle.
+    var camera: CameraSetup? = nil
+
+    /// The net-geometry rules assume the net runs across the frame, as it does
+    /// from behind an end line. From a corner the net is diagonal, and from the
+    /// sideline it is a near-vertical band:
+    /// - Off-court rejection keeps only balls between the net posts — from the
+    ///   side that is a narrow strip, so it would throw out most of the court.
+    /// - The one-court lateral lock assumes a rally stays within a band of the
+    ///   frame's width; side-on, the ball crosses the whole frame every rally.
+    /// The above-/under-net rules compare heights, which still hold.
+    mutating func applyCamera(_ setup: CameraSetup?) {
+        camera = setup
+        switch setup?.zone ?? .endline {
+        case .endline:
+            break
+        case .corner:
+            enableOffCourtRejection = false
+            multiCourtMaxLateralDistance = 0.45
+        case .sideline:
+            enableOffCourtRejection = false
+            multiCourtSpatialLockEnabled = false
+        }
+    }
+
     // MARK: - Off-court rejection (net horizontal extent)
     /// Reject detections whose center falls outside the net's horizontal span (the
     /// posts define THIS court's width) plus `offCourtMarginX`. A ball on an

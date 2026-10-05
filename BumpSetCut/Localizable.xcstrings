@@ -301,6 +301,7 @@
         }
       }
     },
+    "%lld degrees off the court's long axis" : {},
     "%lld favorited" : {
       "comment" : "Overview stat: number of favorited rallies"
     },
@@ -741,6 +742,7 @@
     "Beach" : {
       "comment" : "Volleyball play type"
     },
+    "Best results: the whole court in frame and the net running across it. Landscape, on a tripod or in the stands." : {},
     "Bio" : {},
     "Block" : {},
     "Block @%@" : {},
@@ -772,6 +774,18 @@
     "BumpSetCut Pro is a monthly auto-renewing subscription (%@/month). Payment will be charged to your Apple ID account at confirmation of purchase. The subscription automatically renews unless it is cancelled at least 24 hours before the end of the current period, and your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscription in your App Store account settings at any time." : {
       "comment" : "Auto-renew disclosure on the paywall; %@ is the localized monthly price"
     },
+    "Camera at %@, %lld degrees" : {
+      "comment" : "VoiceOver value of the court diagram; %1$@ is the zone (End line/Corner/Sideline), %2$lld the viewing angle",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Camera at %1$@, %2$lld degrees"
+          }
+        }
+      }
+    },
+    "Camera height" : {},
     "Cancel" : {},
     "Cancel Import" : {},
     "Cancel Processing" : {},
@@ -834,6 +848,7 @@
     "Conversation options" : {},
     "Copied!" : {},
     "Copy" : {},
+    "Corner" : {},
     "Couldn't Restore Purchases" : {},
     "Couldn't Save" : {},
     "Couldn't accept that request" : {},
@@ -862,6 +877,7 @@
     "Couldn't unblock @%@. Check your connection." : {},
     "Couldn't update follow" : {},
     "Couldn't update like" : {},
+    "Court diagram" : {},
     "Create" : {},
     "Create New Folder" : {},
     "Create new folder" : {},
@@ -916,6 +932,7 @@
     },
     "Don't have an account? Sign Up" : {},
     "Done" : {},
+    "Drag the camera to where you filmed from." : {},
     "Drop videos here to upload" : {},
     "Duration: %@" : {},
     "Each clip includes the detector's per-frame data so the frames can be relabeled." : {},
@@ -931,6 +948,7 @@
     "Enable Notifications" : {},
     "Enable advanced debug tools" : {},
     "Enabled" : {},
+    "End line" : {},
     "Enter Code" : {},
     "Enter a new name for the folder." : {},
     "Enter a new name for this rally." : {},
@@ -1124,6 +1142,7 @@
     },
     "Go Back" : {},
     "Good lighting so the ball is clearly visible" : {},
+    "Good. Raising the phone 2 m or more — stands, a tripod or a fence — stops players blocking the ball." : {},
     "Got it" : {},
     "Grass" : {
       "comment" : "Volleyball play type"
@@ -1137,6 +1156,7 @@
       "comment" : "Xcode preview sample text — not shown in the app",
       "shouldTranslate" : false
     },
+    "Ground level" : {},
     "Hand" : {},
     "Handedness" : {},
     "Handles can only use letters, numbers, periods and underscores." : {},
@@ -1283,6 +1303,7 @@
     "Move Video" : {},
     "Move to Folder" : {},
     "My Posts" : {},
+    "NET" : {},
     "Name" : {
       "comment" : "Sort option"
     },
@@ -1545,6 +1566,7 @@
     },
     "Purchase Didn't Go Through" : {},
     "Purple" : {},
+    "Raised (2 m+)" : {},
     "Rallies" : {
       "comment" : "Label under a rally count other than one"
     },
@@ -1585,6 +1607,7 @@
     "Recent" : {
       "comment" : "Recipient picker section: recent conversations"
     },
+    "Recommended" : {},
     "Red" : {},
     "Refresh" : {},
     "Remove" : {},
@@ -1777,6 +1800,7 @@
     },
     "Shows gesture tips" : {},
     "Shows the rally overview" : {},
+    "Sideline" : {},
     "Sign In" : {},
     "Sign In Failed" : {},
     "Sign Out" : {},
@@ -1831,6 +1855,7 @@
     "Swipe Through Rallies" : {},
     "Swipe left to remove" : {},
     "Swipe right to save" : {},
+    "Swipe up or down to move the camera between end line, corner and sideline." : {},
     "Swipe up to favorite" : {},
     "Switch between Pro and Free tier for testing" : {},
     "System" : {
@@ -2061,6 +2086,7 @@
       "comment" : "Post upload progress percentage"
     },
     "Use Photo" : {},
+    "Use recommended setup" : {},
     "Use this photo?" : {},
     "Used for videos processed from now on" : {},
     "Username" : {},
@@ -2108,6 +2134,9 @@
     "What's wrong with this Highlight?" : {},
     "What's wrong with this Message?" : {},
     "What's wrong with this Profile?" : {},
+    "Where did you film from?" : {},
+    "Works, but filtering out rallies on a neighbouring court is off from a corner, so some may be included. Behind an end line gives the best results." : {},
+    "Works, but filtering out rallies on a neighbouring court is off from the side, so some may be included. Behind an end line gives the best results." : {},
     "Wrong start / end" : {},
     "Yellow" : {},
     "Yesterday" : {
@@ -2197,6 +2226,9 @@
     },
     "~%@" : {
       "comment" : "Approximate duration, e.g. ~2m 30s"
+    },
+    "· %lld°" : {
+      "comment" : "Camera viewing angle next to the zone name, in degrees off the court's long axis"
     }
   },
   "version" : "1.0"

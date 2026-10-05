@@ -668,6 +668,15 @@ extension MediaStore {
         })
     }
 
+    /// Record where a video was filmed from (picked before processing).
+    @discardableResult
+    func setCameraSetup(_ setup: CameraSetup, forVideoId videoId: UUID) -> Bool {
+        guard let key = manifest.videos.first(where: { $0.value.id == videoId })?.key else { return false }
+        return commit {
+            manifest.videos[key]?.cameraSetup = setup
+        }
+    }
+
     func renameVideo(fileName: String, to newName: String) -> Bool {
         guard manifest.videos[fileName] != nil else { return false }
         return commit {

@@ -67,6 +67,9 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
     var sourceVideoId: UUID?
     var sourceRallyIndex: Int?
 
+    /// Where the video was filmed from, picked before processing.
+    var cameraSetup: CameraSetup?
+
     // Custom decoder to handle backwards compatibility
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -100,6 +103,7 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         // Favorite source tracking with defaults for backwards compatibility
         sourceVideoId = try container.decodeIfPresent(UUID.self, forKey: .sourceVideoId)
         sourceRallyIndex = try container.decodeIfPresent(Int.self, forKey: .sourceRallyIndex)
+        cameraSetup = try container.decodeIfPresent(CameraSetup.self, forKey: .cameraSetup)
     }
     
     // Custom encoder
@@ -134,6 +138,7 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         // Favorite source tracking
         try container.encodeIfPresent(sourceVideoId, forKey: .sourceVideoId)
         try container.encodeIfPresent(sourceRallyIndex, forKey: .sourceRallyIndex)
+        try container.encodeIfPresent(cameraSetup, forKey: .cameraSetup)
     }
     
     // CodingKeys enum for custom coding
@@ -143,6 +148,7 @@ struct VideoMetadata: Codable, Identifiable, Hashable {
         case isProcessed, processedDate, originalVideoId, processedVideoIds
         case hasProcessingMetadata, metadataCreatedDate, metadataFileSize
         case sourceVideoId, sourceRallyIndex
+        case cameraSetup
     }
     
     var displayName: String {

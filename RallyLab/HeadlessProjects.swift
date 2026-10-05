@@ -107,7 +107,7 @@ enum HeadlessProjects {
                 for clip in args[(i + 1)...].prefix(while: { !$0.hasPrefix("--") }) {
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     log("\(clip):")
-                    guard let v = await RallyCutScore.process(session, config: config) else { log("   no rally times or couldn't process"); continue }
+                    guard let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) else { log("   no rally times or couldn't process"); continue }
                     var t = RallyCutScore.Tally()
                     t.add(clips: v.clips, truth: v.truth)
                     log("   " + t.line)
@@ -132,7 +132,7 @@ enum HeadlessProjects {
                 var videos: [RallyCutScore.Video] = []
                 for session in sessions {
                     log("\(session.name) (\(session.split))…")
-                    if let v = await RallyCutScore.process(session, config: config) { videos.append(v) } else { log("   no rally times or couldn't process") }
+                    if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) { videos.append(v) } else { log("   no rally times or couldn't process") }
                 }
                 if videos.isEmpty { log("❌ No fully marked videos (Track tab → Rally times → Whole video marked).") }
                 else { RallyCutScore.report(videos, log: log) }
@@ -354,5 +354,14 @@ enum HeadlessProjects {
 
     private static func log(_ message: String) {
         FileHandle.standardOutput.write(Data((message + "\n").utf8))
+    }
+}
+
+private extension ProcessorConfig {
+    /// This config with the camera position the session's clip ID names.
+    func withCamera(of session: VideoSession) -> ProcessorConfig {
+        var config = self
+        config.applyCamera(CameraSetup(clipID: session.name))
+        return config
     }
 }

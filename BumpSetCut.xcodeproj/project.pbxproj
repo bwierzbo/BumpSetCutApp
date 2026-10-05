@@ -78,6 +78,7 @@
 				Features/Processing/VideoFrameGeometry.swift,
 				Features/Processing/VideoProcessor.swift,
 				Features/RallyPlayback/Models/RallyPlayerState.swift,
+				Models/CameraSetup.swift,
 				Models/Detections.swift,
 				Models/FlywheelContribution.swift,
 				Models/GameScoring.swift,

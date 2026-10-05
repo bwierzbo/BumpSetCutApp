@@ -35,6 +35,9 @@ struct ProcessingCheckpoint: Codable {
     struct SizeSample: Codable {
         let t: Double
         let area: Double
+        /// Horizontal ball position; absent in checkpoints written before it was
+        /// recorded (they resume with no side-on serve position for earlier rallies).
+        var x: Double? = nil
     }
 
     /// Compact physics entry: exactly the fields the per-segment metrics read.

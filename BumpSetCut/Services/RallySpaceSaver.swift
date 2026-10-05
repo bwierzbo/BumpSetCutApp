@@ -197,6 +197,7 @@ enum RallySpaceSaver {
                 detectionCount: segment.detectionCount,
                 averageTrajectoryLength: segment.averageTrajectoryLength,
                 ballSizeTrend: segment.ballSizeTrend,
+                serveBallX: segment.serveBallX,
                 isManual: segment.isManual
             ))
         }

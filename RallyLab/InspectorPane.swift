@@ -310,6 +310,18 @@ struct InspectorPane: View {
                 .disabled(model.heatmapModel == nil)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help("The multi-frame model alone finds the ball; YOLO doesn't run. It runs on every frame it's fed (about 30 a second). Re-run to apply.")
+                Picker(selection: $model.cameraZoneOverride) {
+                    Text("auto: \(CameraSetup(clipID: model.videoURL?.deletingPathExtension().lastPathComponent ?? "").zone.title)")
+                        .tag(CameraZone?.none)
+                    ForEach(CameraZone.allCases, id: \.self) { zone in
+                        Text(zone.title).tag(Optional(zone))
+                    }
+                } label: {
+                    Text("camera").font(.system(.caption, design: .monospaced))
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Where the clip was filmed from — auto reads the clip ID (_sid_ sideline, _tri_/_hnd_ corner, else end line). Corner and sideline turn off off-court rejection (and loosen or drop the one-court lock), overriding those settings below, as the app does for that camera position. Re-run to apply.")
                 slider("detectionConf", value: $model.detectionConfidence, in: 0.1...0.95, format: "%.2f",
                        info: "Minimum YOLO confidence to keep a volleyball detection. Lower surfaces marginal/noisier detections (more recall); higher keeps only confident hits. Changes what the model detects, so it needs a re-run.")
                 Toggle(isOn: $model.adaptiveLetterbox) {

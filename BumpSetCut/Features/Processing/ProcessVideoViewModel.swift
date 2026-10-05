@@ -30,6 +30,52 @@ final class ProcessVideoViewModel {
     var showPreTrim: Bool = false
     var pendingDebugModeForTrim: Bool = false
 
+    // Camera position picker, shown before every run.
+    var showCameraSetup: Bool = false
+    /// What runs once the picker is confirmed and dismissed.
+    enum AfterCameraSetup { case trim, reprocess }
+    private var afterCameraSetup: AfterCameraSetup?
+
+    /// This video's camera position if it has one, else the last one picked —
+    /// most people film the same way every time.
+    var initialCameraSetup: CameraSetup? {
+        currentVideoMetadata?.cameraSetup ?? AppSettings.shared.lastCameraSetup
+    }
+
+    /// Ask where the video was filmed from, then do `next`.
+    func askCameraSetup(then next: AfterCameraSetup) {
+        afterCameraSetup = next
+        showCameraSetup = true
+    }
+
+    /// Keep the pick with the video (the coordinator applies it to the run) and
+    /// as the default for the next video.
+    func confirmCameraSetup(_ setup: CameraSetup) {
+        if let videoId = currentVideoMetadata?.id {
+            mediaStore.setCameraSetup(setup, forVideoId: videoId)
+            loadCurrentVideoMetadata()
+        }
+        AppSettings.shared.lastCameraSetup = setup
+        showCameraSetup = false
+    }
+
+    func cancelCameraSetup() {
+        afterCameraSetup = nil
+        showCameraSetup = false
+    }
+
+    /// Called when the picker has gone (a full-screen cover can't present the
+    /// trim screen until then).
+    func cameraSetupDismissed() {
+        let next = afterCameraSetup
+        afterCameraSetup = nil
+        switch next {
+        case .trim: showPreTrim = true
+        case .reprocess: reprocess()
+        case nil: break
+        }
+    }
+
     // Pending save state - holds temp URL while the processed video is auto-saved
     var pendingSaveURL: URL? = nil
     var pendingIsDebugMode: Bool = false

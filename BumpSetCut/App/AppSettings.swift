@@ -96,6 +96,15 @@ enum AppTheme: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The last camera position picked before processing — preselected for the
+    /// next video, since most people film the same way every time.
+    var lastCameraSetup: CameraSetup? {
+        didSet {
+            UserDefaults.standard.set(lastCameraSetup.flatMap { try? JSONEncoder().encode($0) },
+                                      forKey: "lastCameraSetup")
+        }
+    }
+
     /// Whether user has seen the "press & hold to trim" hint in the favorites feed
     var hasSeenFavoritesTrimHint: Bool {
         didSet {
@@ -142,6 +151,8 @@ enum AppTheme: String, CaseIterable, Identifiable {
         self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
         self.hasSeenRallyTips = UserDefaults.standard.bool(forKey: "hasSeenRallyTips")
         self.hasSeenFavoritesTrimHint = UserDefaults.standard.bool(forKey: "hasSeenFavoritesTrimHint")
+        self.lastCameraSetup = UserDefaults.standard.data(forKey: "lastCameraSetup")
+            .flatMap { try? JSONDecoder().decode(CameraSetup.self, from: $0) }
         self.hasSeenFavoritesOnboarding = UserDefaults.standard.bool(forKey: "hasSeenFavoritesOnboarding")
         self.hasUsedRallyTrim = UserDefaults.standard.bool(forKey: "hasUsedRallyTrim")
 

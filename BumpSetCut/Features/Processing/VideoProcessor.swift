@@ -593,7 +593,9 @@ final class VideoProcessor: @unchecked Sendable {
         var ballHeights: [(t: Double, y: CGFloat)] = (restored?.ballHeights ?? []).map { ($0.t, CGFloat($0.y)) }
         // Selected-track ball bbox areas for the per-rally serve-direction trend —
         // tracker.tracks is pruned as tracks go stale, so it can't be read after the loop.
-        var ballSizes: [(t: Double, area: Double)] = (restored?.ballSizes ?? []).map { ($0.t, $0.area) }
+        // Ball size (and horizontal position, for side-on serve detection) at
+        // each tracked sample.
+        var ballSizes: [(t: Double, area: Double, x: Double?)] = (restored?.ballSizes ?? []).map { ($0.t, $0.area, $0.x) }
 
         // Checkpoint cadence: at rally-idle, every ~30s of video, plus
         // immediately when background expiry requests one.
@@ -610,7 +612,7 @@ final class VideoProcessor: @unchecked Sendable {
                     .init(start: CMTimeGetSeconds($0.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd($0)))
                 },
                 ballHeights: ballHeights.map { .init(t: $0.t, y: Double($0.y)) },
-                ballSizes: ballSizes.map { .init(t: $0.t, area: $0.area) },
+                ballSizes: ballSizes.map { .init(t: $0.t, area: $0.area, x: $0.x) },
                 evidence: self.collectFrameEvidence ? self.frameEvidence.map(StoredFrameEvidence.init) : [],
                 physics: physicsValidationData.map {
                     .init(t: $0.timestamp, isValid: $0.isValid, rSquared: $0.rSquared, confidenceLevel: $0.confidenceLevel)
@@ -707,7 +709,7 @@ final class VideoProcessor: @unchecked Sendable {
                sized.bboxSize.width > 0, sized.bboxSize.height > 0 {
                 let sizeT = CMTimeGetSeconds(sized.time)
                 if ballSizes.last?.t != sizeT {
-                    ballSizes.append((sizeT, Double(sized.bboxSize.width * sized.bboxSize.height)))
+                    ballSizes.append((sizeT, Double(sized.bboxSize.width * sized.bboxSize.height), Double(sized.center.x)))
                 }
             }
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts, ballY: ballY)
@@ -989,12 +991,17 @@ final class VideoProcessor: @unchecked Sendable {
             // Sampled during the frame loop (ballSizes) — tracker.tracks prunes stale
             // tracks, so reading it here yielded nil for every rally but the last.
             let maxInitialSamples = 10
-            let trendPoints: [(time: Double, area: Double)] = Array(
+            let openingSamples = Array(
                 ballSizes.lazy
                     .filter { $0.t >= rangeStart && $0.t <= rangeEnd }
-                    .map { (time: $0.t - rangeStart, area: $0.area) }
                     .prefix(maxInitialSamples)
             )
+            let trendPoints = openingSamples.map { (time: $0.t - rangeStart, area: $0.area) }
+            // Where the ball is across the frame as the rally opens: the serve's
+            // side of the net when the camera is side-on.
+            let openingXs = openingSamples.compactMap(\.x)
+            let serveBallX: Double? = openingXs.count >= 3
+                ? openingXs.reduce(0, +) / Double(openingXs.count) : nil
             let ballSizeTrend: Double? = {
                 guard trendPoints.count >= 3 else { return nil }
                 let n = Double(trendPoints.count)
@@ -1014,7 +1021,8 @@ final class VideoProcessor: @unchecked Sendable {
                 quality: segmentQuality,
                 detectionCount: segmentPhysics.count,
                 averageTrajectoryLength: avgTrajLen,
-                ballSizeTrend: ballSizeTrend
+                ballSizeTrend: ballSizeTrend,
+                serveBallX: serveBallX
             )
         }
 
@@ -1086,7 +1094,8 @@ final class VideoProcessor: @unchecked Sendable {
             classifications: classificationResults,
             physics: physicsValidationData,
             performance: performanceMetrics,
-            eventLog: eventLog.allEvents
+            eventLog: eventLog.allEvents,
+            netCenterX: detectedNet.map { Double($0.box.midX) }
         )
 
         // Save metadata to store
