@@ -33,8 +33,7 @@ struct MainTabView: View {
     @State private var showLowStorageBanner = false
     @State private var lowStorageAvailable: Int64 = 0
     @State private var lowStorageDismissed = false
-    // Deep link (bumpsetcut://highlight/<id>) presentation
-    @State private var deepLinkedHighlight: Highlight?
+    // Comments over a deep-linked highlight (the highlight lives in navigationState)
     @State private var deepLinkedComments: Highlight?
     private var processingCoordinator = ProcessingCoordinator.shared
     private var flywheelService = FlywheelCaptureService.shared
@@ -231,8 +230,10 @@ struct MainTabView: View {
         .sheet(isPresented: $showUploadView) {
             UploadProgressSheet(uploadCoordinator: uploadCoordinator)
         }
-        .onOpenURL { url in handleDeepLink(url) }
-        .fullScreenCover(item: $deepLinkedHighlight) { highlight in
+        .onOpenURL { url in
+            Task { await navigationState.handleDeepLink(url) }
+        }
+        .fullScreenCover(item: $navigationState.deepLinkedHighlight) { highlight in
             deepLinkHighlightView(highlight)
                 .commentsPanel(item: $deepLinkedComments)
         }
@@ -240,33 +241,10 @@ struct MainTabView: View {
 
     // MARK: - Deep Links
 
-    /// Handle `bumpsetcut://highlight/<id>` by fetching the post and presenting it.
-    private func handleDeepLink(_ url: URL) {
-        guard url.scheme == "bumpsetcut" else { return }
-
-        // Validate the path component is a real UUID before feeding external input to the
-        // backend — never pass arbitrary deep-link strings straight into a query.
-        if url.host == "conversation" {
-            let id = url.lastPathComponent
-            guard UUID(uuidString: id) != nil else { return }
-            navigationState.pendingConversationId = id
-            return
-        }
-
-        guard url.host == "highlight" else { return }
-        let id = url.lastPathComponent
-        guard UUID(uuidString: id) != nil else { return }
-        Task {
-            if let highlight: Highlight = try? await SupabaseAPIClient.shared.request(.getHighlight(id: id)) {
-                deepLinkedHighlight = highlight
-            }
-        }
-    }
-
     /// Full-screen viewer for a deep-linked highlight (mirrors Search's detail).
     private func deepLinkHighlightView(_ highlight: Highlight) -> some View {
         HighlightDetailCover(highlight: highlight) {
-            deepLinkedHighlight = nil
+            navigationState.deepLinkedHighlight = nil
         }
     }
 

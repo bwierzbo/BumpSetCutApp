@@ -40,6 +40,10 @@ struct HomeView: View {
     // Account-linked stats: sign-in prompt from the stats slot
     @State private var showingStatsSignIn = false
 
+    // Badge counts for the toolbar (app-wide observable services).
+    private let messageService = DirectMessageService.shared
+    private let notificationService = SocialNotificationService.shared
+
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isLandscape: Bool { verticalSizeClass == .compact }
@@ -220,9 +224,7 @@ struct HomeView: View {
             // sign-in instead of showing device-local numbers.
             Group {
                 if authService.isAuthenticated {
-                    StatsCard(
-                        stats: viewModel.stats(isPro: SubscriptionService.shared.isPro)
-                    )
+                    StatsCard(stats: viewModel.stats)
                 } else {
                     StatsSignInCard { showingStatsSignIn = true }
                 }
@@ -427,7 +429,7 @@ struct HomeView: View {
 
     // MARK: - Messages Button
     private var messagesButton: some View {
-        let unread = DirectMessageService.shared.unreadCount
+        let unread = messageService.unreadCount
         return BSCIconButton(
             icon: "envelope.fill",
             style: .glass,
@@ -442,7 +444,7 @@ struct HomeView: View {
 
     // MARK: - Notifications Button
     private var notificationsButton: some View {
-        let unread = SocialNotificationService.shared.unreadCount
+        let unread = notificationService.unreadCount
         return BSCIconButton(
             icon: "bell.fill",
             style: .glass,

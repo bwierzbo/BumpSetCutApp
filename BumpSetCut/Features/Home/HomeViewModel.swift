@@ -8,6 +8,7 @@ final class HomeViewModel {
     // MARK: - Properties
     private let mediaStore: MediaStore
     private let metadataStore: MetadataStore
+    private let subscriptionService: SubscriptionService
 
     /// Account-linked lifetime totals (server + not-yet-synced increments).
     var totalRallies: Int { LifetimeStatsStore.shared.totalRallies }
@@ -39,9 +40,10 @@ final class HomeViewModel {
     }
 
     // MARK: - Initialization
-    init(mediaStore: MediaStore, metadataStore: MetadataStore) {
+    init(mediaStore: MediaStore, metadataStore: MetadataStore, subscriptionService: SubscriptionService? = nil) {
         self.mediaStore = mediaStore
         self.metadataStore = metadataStore
+        self.subscriptionService = subscriptionService ?? .shared
         seedLifetimeStatsIfNeeded()
     }
 
@@ -100,10 +102,9 @@ struct StatItem: Identifiable {
 }
 
 extension HomeViewModel {
-    func stats(isPro: Bool) -> [StatItem] {
-        let subscriptionService = SubscriptionService.shared
-
-        if isPro {
+    /// Home stats card: rallies + time cut, then Pro badge or weekly minutes left.
+    var stats: [StatItem] {
+        if subscriptionService.isPro {
             // Pro users: Show processing stats + Pro badge
             return [
                 StatItem(
