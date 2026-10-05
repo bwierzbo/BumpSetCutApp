@@ -164,6 +164,20 @@ Every failure the user should know about is shown exactly one of three ways — 
 
 Rules: never swallow a user-initiated failure with only a `print`/log; don't use an alert for something a toast covers (it blocks for no decision); a load failure replaces the empty state rather than adding a toast on top. Save failures in `MediaStore`/`MetadataStore` surface through `PersistenceMonitor` → the app-wide error toast in `MainTabView`.
 
+## Localization
+
+The app ships English only, but every user-facing string is localizable. Strings live in `BumpSetCut/Localizable.xcstrings` (permission prompts in `InfoPlist.xcstrings`); building fills the catalog from the code, so never hand-add keys there except plural variations.
+
+1. **Components take `LocalizedStringResource`** for their copy (`BSCButton.title`, `BSCEmptyState`, `BSCNameAlert`, `BSCStatusPill`, toasts, settings rows, `OnboardingPage`…). Call sites pass literals — `BSCButton(title: "Save")` — and the literal is extracted. Use `LocalizedStringKey` only for view-local helpers that never store the value.
+2. **`Text(someString)` is verbatim.** Only literals are looked up. English built in code — view-model messages, toasts, error descriptions, enum labels, notification bodies — is localized where it's created: `String(localized: "…", comment: "…")` or a `LocalizedStringResource` property. Add a `comment:` whenever the meaning isn't obvious from the English (a lone "Open", a format argument).
+3. **User and server data is never a key.** Usernames, captions, file/folder names and server error text go through `Text(verbatim:)` or the components' verbatim paths (`BSCToastMessage(verbatim:)`, `BSCEmptyState(messageVerbatim:)`). If a key in the catalog looks like data (or is only placeholders like `"%@ %@"`), the call site is wrong.
+4. **Whole sentences, with arguments.** Never assemble copy from fragments (`name + " liked your rally"`, `"tap to \(verb)"`, comma-joined labels): word order differs by language. Interpolate into one key — `"\(name) liked your rally"`. To style part of a sentence, interpolate a styled `Text`/`AttributedString` into the localized string (`Text("Type \(Text(verbatim: name).bold()) to confirm")`); don't use markdown around user data.
+5. **Enum raw values are identifiers.** Persisted/Codable raw values never change; anything shown in UI gets a `displayName: LocalizedStringResource`.
+6. **Formatters, not string math.** Durations, counts, percentages, sizes and dates go through `Core/Utilities/DisplayFormatting.swift` (`formattedClock()`, `formattedSpokenDuration()` for VoiceOver, `formattedSeconds()`, `formattedCompact()`, `formattedPercent()`, `formattedMultiplier()`, `formattedSignedDegrees()`), `StorageChecker.formatBytes`, `Date.formatted`, and StoreKit's `displayPrice`. No `String(format:)` for display text.
+7. **Plurals are one key.** Write `"\(count) rallies"` — never `count == 1 ? "rally" : "rallies"` — and add the English `one`/`other` variations to the catalog (substitutions when the string has more than one argument). Exception: a label that doesn't contain the number can't vary by plural; use two keys.
+8. **RTL.** Use `chevron.backward`/`.forward` (and `arrow.backward`/`.forward`) for navigation direction; keep `.left`/`.right` only for physical directions (swipe hints, trim handles). Time strips positioned with `.offset(x:)` force `.environment(\.layoutDirection, .leftToRight)` — time runs left to right in every language.
+9. **Not localized:** `print`/`Logger` output, analytics, the debug overlay, RallyLab, and tester-only model identifiers.
+
 ## Changing tokens
 
 1. Edit `DesignTokens.swift` (both modes for adaptive colors; verify contrast for anything that renders text — quick check: relative-luminance ratio ≥ 4.5 text / ≥ 3.0 icons).
