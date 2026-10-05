@@ -64,11 +64,19 @@ struct DropZoneView<Content: View>: View {
 
 // MARK: - Enhanced Upload Button
 
+/// A video the user picked for upload, held while the naming prompt is up.
+enum PickedVideo {
+    case photos(PhotosPickerItem)
+    /// Security-scoped URL from the Files importer.
+    case file(URL)
+}
+
 struct EnhancedUploadButton: View {
     /// Called with the picked video; the caller runs the naming prompt + upload.
-    let onVideoPicked: (PhotosPickerItem) -> Void
+    let onVideoPicked: (PickedVideo) -> Void
 
     @State private var showingPhotoPicker = false
+    @State private var showingFileImporter = false
     @State private var selectedItems: [PhotosPickerItem] = []
 
     var body: some View {
@@ -80,8 +88,7 @@ struct EnhancedUploadButton: View {
             }
             
             Button {
-                // This would trigger file picker for videos
-                showingPhotoPicker = true
+                showingFileImporter = true
             } label: {
                 Label("Browse Files", systemImage: "folder")
             }
@@ -110,8 +117,15 @@ struct EnhancedUploadButton: View {
         )
         .onChange(of: selectedItems) { _, items in
             if !items.isEmpty, let item = items.first {
-                onVideoPicked(item)
+                onVideoPicked(.photos(item))
                 selectedItems.removeAll()
+            }
+        }
+        .fileImporter(isPresented: $showingFileImporter, allowedContentTypes: [.movie]) { result in
+            // Import itself (copy + playability check) reports its own
+            // failures through the upload coordinator's import alert.
+            if case .success(let url) = result {
+                onVideoPicked(.file(url))
             }
         }
     }
