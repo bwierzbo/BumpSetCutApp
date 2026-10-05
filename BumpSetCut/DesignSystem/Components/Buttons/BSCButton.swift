@@ -177,7 +177,7 @@ private struct BSCButtonPressStyle: ButtonStyle {
     VStack(spacing: BSCSpacing.lg) {
         BSCButton(title: "Primary Action", icon: "play.fill", style: .primary) {}
 
-        BSCButton(title: "Secondary Action", icon: "arrow.right", style: .secondary) {}
+        BSCButton(title: "Secondary Action", icon: "arrow.forward", style: .secondary) {}
 
         BSCButton(title: "Ghost Button", style: .ghost) {}
 

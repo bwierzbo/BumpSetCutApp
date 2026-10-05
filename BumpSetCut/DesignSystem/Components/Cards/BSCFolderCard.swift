@@ -130,7 +130,7 @@ struct BSCFolderCard: View {
                             .fill(Color.bscSurfaceGlass)
                             .frame(width: BSCIconSize.lg, height: BSCIconSize.lg)
                             .overlay(
-                                Image(systemName: "chevron.right")
+                                Image(systemName: "chevron.forward")
                                     .bscFont(size: 10, weight: .bold)
                                     .foregroundColor(.bscTextSecondary)
                             )

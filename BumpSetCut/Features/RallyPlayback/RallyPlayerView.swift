@@ -149,7 +149,7 @@ struct RallyPlayerView: View {
             }
             .sheet(item: $pendingPicker) { target in
                 ClipPickerSheet(
-                    title: "Saved rallies",
+                    title: String(localized: "Saved rallies", comment: "Name of the rally set in the post picker's limit message"),
                     items: target.items,
                     maxSelection: target.purpose.maxSelection(itemCount: target.items.count),
                     confirmTitle: target.purpose.confirmTitle,
@@ -184,7 +184,7 @@ struct RallyPlayerView: View {
                     libraryType: .favorites,
                     title: "Save to Collection",
                     rootLabel: "Favorites",
-                    confirmLabel: "Save to",
+                    confirmTitle: { "Save to \($0)" },
                     initialSelection: viewModel.favoriteCollection(for: target.rallyIndex),
                     onSelect: { name in viewModel.selectFavoriteCollection(name) },
                     onCancel: { viewModel.collectionPickerTarget = nil }

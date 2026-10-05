@@ -15,8 +15,9 @@ struct CollectionPickerSheet: View {
     let libraryType: LibraryType
     let title: LocalizedStringResource
     let rootLabel: LocalizedStringResource
-    /// Action phrase before the destination on the confirm button ("Save to").
-    let confirmLabel: LocalizedStringResource
+    /// The confirm button's whole sentence for a destination name
+    /// (e.g. "Save to \(name)"), so word order stays translatable.
+    let confirmTitle: (_ destination: String) -> LocalizedStringResource
     let onSelect: (String?) -> Void
     let onCancel: () -> Void
 
@@ -31,7 +32,7 @@ struct CollectionPickerSheet: View {
         libraryType: LibraryType,
         title: LocalizedStringResource,
         rootLabel: LocalizedStringResource,
-        confirmLabel: LocalizedStringResource,
+        confirmTitle: @escaping (_ destination: String) -> LocalizedStringResource,
         initialSelection: String? = nil,
         onSelect: @escaping (String?) -> Void,
         onCancel: @escaping () -> Void
@@ -40,7 +41,7 @@ struct CollectionPickerSheet: View {
         self.libraryType = libraryType
         self.title = title
         self.rootLabel = rootLabel
-        self.confirmLabel = confirmLabel
+        self.confirmTitle = confirmTitle
         self.onSelect = onSelect
         self.onCancel = onCancel
         self._selectedName = State(initialValue: initialSelection)
@@ -73,8 +74,7 @@ struct CollectionPickerSheet: View {
                         Button {
                             onSelect(selectedName)
                         } label: {
-                            Text("\(confirmLabel) \(selectedName ?? String(localized: rootLabel))",
-                                 comment: "Collection picker confirm button: action phrase, then destination (e.g. Save to Favorites)")
+                            Text(confirmTitle(selectedName ?? String(localized: rootLabel)))
                                 .bscFont(size: 16, weight: .bold)
                                 .foregroundColor(.bscOnPrimary)
                                 .frame(maxWidth: .infinity)
