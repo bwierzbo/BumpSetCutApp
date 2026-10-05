@@ -8,15 +8,6 @@ import SwiftUI
 // text size the scaled value equals the requested size, so adopting them is
 // visually neutral.
 
-extension Font {
-    /// System font scaled with Dynamic Type. Uses the app-wide content size
-    /// category at evaluation time; prefer `View.bscFont(...)` in view code,
-    /// which re-renders when the user changes their text size.
-    static func bscScaled(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
-        .system(size: UIFontMetrics(forTextStyle: .body).scaledValue(for: size), weight: weight, design: design)
-    }
-}
-
 extension View {
     /// Drop-in replacement for `.font(.system(size:weight:design:))` that
     /// scales with Dynamic Type and live-updates on text-size changes.

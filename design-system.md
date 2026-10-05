@@ -39,7 +39,6 @@ BumpSetCut/DesignSystem/
 | `bscBackgroundMuted` | `#F0F0F3` | `#141416` | Subtle differentiation |
 | `bscSurfaceGlass` | black 8% | white 5% | Frosted panels |
 | `bscSurfaceBorder` | black 8% | white 8% | Hairline borders |
-| `bscSurfaceHighlight` | black 6% | white 12% | Top-edge shine |
 
 ### Media overlay (mode-invariant — video is always a dark context)
 
@@ -58,7 +57,6 @@ BumpSetCut/DesignSystem/
 | `bscTextPrimary` | `#1A1A1C` | `#F1EFEF` | 17.4 / 15.2 ✅ |
 | `bscTextSecondary` | `#6B6B76` | `#A1A1AA` | 5.3 / 6.8 ✅ |
 | `bscTextTertiary` | `#9E9EA8` | `#71717A` | 2.7 / 3.6 ❌ — decorative hints only |
-| `bscTextInverse` | `#F1EFEF` | `#0D0D0E` | for colored/inverted fills |
 
 ### Status + contrast-safe variants
 
@@ -69,15 +67,13 @@ Raw status hues are mode-invariant fills; **the `*Text` variants exist because t
 | `bscSuccess` | `#22C55E` (2.3 on white ❌) | `bscSuccessText` | `#15803D` / `#22C55E` | 5.0 / 7.6 ✅ |
 | `bscError` | `#EF4444` (3.8 icon-only) | `bscErrorText` | `#DC2626` / `#EF4444` | 4.8 / 4.6 ✅ |
 | `bscWarning` | `#F59E0B` (2.2 on white ❌) | `bscWarningText` | `#B45309` / `#F59E0B` | 5.0 / 8.1 ✅ |
-| `bscInfo` / `bscPrimary` | `#3B82F6` (3.7 icon-only) | `bscPrimaryText` | `#2563EB` / `#60A5FA` | 5.2 / 6.8 ✅ |
+| `bscPrimary` | `#3B82F6` (3.7 icon-only) | `bscPrimaryText` | `#2563EB` / `#60A5FA` | 5.2 / 6.8 ✅ |
 | `bscTeal` | `#14B8A6` (2.5 on white ❌) | `bscTealText` | `#0F766E` / `#2DD4BF` | 5.5 / 9.3 ✅ |
 | `bscOrange`/`bscWarmAccent` | `#FF6B35` (2.9 on white ❌) | `bscWarmAccentText` | `#C2410C` / `#FF8C5A` | 5.2 / 7.6 ✅ |
 
-Each status hue also has a `*Subtle` 15%-opacity background variant.
-
 ### On-fill labels and solid fills
 
-Colored fills are mode-invariant, so labels on them must be too — never use the adaptive `bscTextInverse` on a colored fill (it flips near-black in dark mode).
+Colored fills are mode-invariant, so labels on them must be too — never use an adaptive text token on a colored fill (it flips near-black in dark mode).
 
 | Token | Value | Use |
 |---|---|---|
@@ -88,7 +84,7 @@ Colored fills are mode-invariant, so labels on them must be too — never use th
 | `bscPrimaryGradient` | `#2563EB → #1D4ED8` | Primary CTA gradient (4.5 / 5.9 with bscOnPrimary) |
 | `bscDestructiveGradient` | `#DC2626 → #B91C1C` | Destructive CTA gradient (4.8 / 6.5) |
 
-`bscStatusOriginal/Processed/Versioned` are adaptive, text-safe status label colors (they color card labels, not fills).
+`bscStatusOriginal/Processed` are adaptive, text-safe status label colors (they color card labels, not fills).
 
 ### Rules
 
@@ -104,13 +100,13 @@ Colored fills are mode-invariant, so labels on them must be too — never use th
 | `xs` | 4 | | `md` | 10 | | `md` | 20 |
 | `sm` | 8 | | `lg` | 14 | | `lg` | 24 |
 | `md` | 12 | | `xl` | 20 | | `xl` | 32 |
-| `lg` | 16 | | `xxl` | 28 | | `xxl` | 48 |
-| `xl` | 24 | | `full` | 9999 | | | |
-| `xxl` / `xxxl` / `huge` | 32 / 48 / 64 | | | | | | |
+| `lg` | 16 | | `full` | 9999 | | | |
+| `xl` | 24 | | | | | | |
+| `xxl` / `huge` | 32 / 64 | | | | | | |
 
 - 8pt grid; `xxs`/`xs` are for optical nudges only.
-- `BSCContentWidth`: `compact` 320, `regular` 480, `wide` 720, `max` 1200 (pills/banners cap at 500 by convention).
-- Convenience: `.bscCardPadding()` (= lg all around), `.bscSectionPadding()` (= lg horizontal, md vertical).
+- `BSCContentWidth`: `compact` 320, `regular` 480, `wide` 720 (pills/banners cap at 500 by convention).
+- Convenience: `.bscCardPadding()` (= lg all around).
 
 ### Touch targets — `BSCTouchTarget`
 
@@ -135,9 +131,8 @@ Colored fills are mode-invariant, so labels on them must be too — never use th
 ## Animation
 
 - Curves: `bscQuick` 0.15s · `bscStandard` 0.25s · `bscEmphasized` 0.35s. Springs: `bscSpring` (default, soft) · `bscBounce` (energetic) · `bscSnappy` · `bscSwipe`. Ambient: `bscFloat` / `bscPulse` / `bscSpin`.
-- Transitions: `bscSlideUp/Down`, `bscScale(Up)`, `bscFade`, `bscBlur`. Durations for manual timing in `BSCDuration`.
-- Effect modifiers `.bscFloatingEffect()`, `.bscPulseGlow()`, `.bscStaggered(index:)`, `.bscShimmer()` **honor Reduce Motion and stop off-screen** — use them instead of hand-rolled `repeatForever` animations.
-- `BSCCardTransition` holds the card-stack math (rotation/scale/opacity/offset).
+- Transitions: `bscSlideUp`. Durations for manual timing in `BSCDuration` (`fast` 0.2s, `normal` 0.3s).
+- Effect modifiers `.bscFloatingEffect()`, `.bscStaggered(index:)`, `.bscShimmer()` **honor Reduce Motion and stop off-screen** — use them instead of hand-rolled `repeatForever` animations.
 
 ## Accessibility standard (enforced, not aspirational)
 
@@ -154,7 +149,7 @@ Every listed component is in active use — dead components were deleted in the 
 - **Buttons**: `BSCButton` (AA labels, 44pt min height), `BSCIconButton` (32–70pt visual, always ≥44pt hit area), `BSCMediaCloseButton` (scrimmed close for full-screen media)
 - **Cards**: `BSCCard`, `BSCFolderCard`, `BSCVideoCard`, plus the `bscSurfaceChrome()` modifier (the standard elevated fill + hairline border + md shadow)
 - **Feedback**: `BSCToast`, `BSCEmptyState` (presets), `BSCProgressView`, `BSCProgressRing`, `BSCStatusPill` (floating bottom pills), `BSCSkeletonView`, `LoadingStatusBar`
-- **Inputs/Nav**: `BSCSearchBar`, `BSCBreadcrumb`, `BSCNameAlert` (name-a-thing alert; `uploadNamePrompt` wraps it), `BSCSheetGrabber`
+- **Inputs/Nav**: `BSCSearchBar`, `BSCNameAlert` (name-a-thing alert; `uploadNamePrompt` wraps it), `BSCSheetGrabber`
 - **Misc**: `AvatarView`, `VideoThumbnailView`
 
 ## Changing tokens

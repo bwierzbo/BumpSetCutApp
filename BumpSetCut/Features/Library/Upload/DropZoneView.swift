@@ -125,12 +125,6 @@ extension DateFormatter {
         formatter.dateFormat = "yyyyMMdd_HHmmss"
         return formatter
     }()
-    
-    static let shortDate: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MM/dd/yyyy"
-        return formatter
-    }()
 }
 
 #Preview {

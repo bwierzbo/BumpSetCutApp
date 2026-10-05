@@ -57,13 +57,9 @@ extension Color {
 
     /// Secondary - Warm Orange (energetic accent, badges, highlights)
     static let bscOrange = Color(hex: "#FF6B35")
-    static let bscOrangeBright = Color(hex: "#FF8C5A")
-    static let bscOrangeDark = Color(hex: "#E55A28")
 
     /// Accent - Vibrant Teal (fresh, active)
     static let bscTeal = Color(hex: "#14B8A6")
-    static let bscTealBright = Color(hex: "#2DD4BF")
-    static let bscTealDark = Color(hex: "#0D9488")
 }
 
 // MARK: - Semantic Primary Colors
@@ -114,9 +110,6 @@ extension Color {
     /// Glass border - Subtle definition
     static let bscSurfaceBorder = Color(light: Color.black.opacity(0.08), dark: Color.white.opacity(0.08))
 
-    /// Glass highlight - Top edge shine
-    static let bscSurfaceHighlight = Color(light: Color.black.opacity(0.06), dark: Color.white.opacity(0.12))
-
     /// Media background - Full-bleed behind video players. Dark by design in all
     /// appearances: full-screen video is a dark context (letterbox bars stay black in
     /// light mode), matching TikTok/Reels/Photos. Themes can redefine this token.
@@ -153,28 +146,18 @@ extension Color {
     /// Tertiary text - Low emphasis, hints. FAILS WCAG AA (2.65 light / 3.60 dark) —
     /// decorative hints only, never the sole carrier of information.
     static let bscTextTertiary = Color(light: Color(hex: "#9E9EA8"), dark: Color(hex: "#71717A"))
-
-    /// Inverse text - For use on dark/colored backgrounds
-    static let bscTextInverse = Color(light: Color(hex: "#F1EFEF"), dark: Color(hex: "#0D0D0E"))
 }
 
 // MARK: - Status Colors
 extension Color {
     /// Success - Confirmations, completed states
     static let bscSuccess = Color(hex: "#22C55E")
-    static let bscSuccessSubtle = Color(hex: "#22C55E").opacity(0.15)
 
     /// Warning - Cautions, pending states
     static let bscWarning = Color(hex: "#F59E0B")
-    static let bscWarningSubtle = Color(hex: "#F59E0B").opacity(0.15)
 
     /// Error - Failures, destructive actions
     static let bscError = Color(hex: "#EF4444")
-    static let bscErrorSubtle = Color(hex: "#EF4444").opacity(0.15)
-
-    /// Info - Information, neutral highlights
-    static let bscInfo = Color(hex: "#3B82F6")
-    static let bscInfoSubtle = Color(hex: "#3B82F6").opacity(0.15)
 
     /// Contrast-safe text/icon variants for status colors in light mode.
     /// Use these (not the raw status colors) for any text or glyph on
@@ -203,9 +186,6 @@ extension Color {
 
     /// Processed video - Has AI-detected rallies
     static let bscStatusProcessed = Color.bscPrimaryText
-
-    /// Has versions - Multiple processed variants
-    static let bscStatusVersioned = Color.bscTealText
 }
 
 // MARK: - Gradient Definitions
@@ -219,30 +199,9 @@ extension LinearGradient {
         endPoint: .bottomTrailing
     )
 
-    /// Hero/header gradient (blue to teal transition)
-    static let bscHeroGradient = LinearGradient(
-        colors: [Color.bscBlue.opacity(0.8), Color.bscTeal.opacity(0.6)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-
     /// Card highlight gradient (subtle glass shine)
     static let bscCardGradient = LinearGradient(
         colors: [Color.white.opacity(0.1), Color.white.opacity(0.02)],
-        startPoint: .top,
-        endPoint: .bottom
-    )
-
-    /// AI/Processing gradient (tech feel)
-    static let bscAIGradient = LinearGradient(
-        colors: [Color.bscBlue, Color.bscTeal],
-        startPoint: .leading,
-        endPoint: .trailing
-    )
-
-    /// Background fade gradient (for headers)
-    static let bscBackgroundFade = LinearGradient(
-        colors: [Color.bscBackground, Color.bscBackground.opacity(0)],
         startPoint: .top,
         endPoint: .bottom
     )
@@ -254,57 +213,6 @@ extension LinearGradient {
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
-
-    /// Warm accent gradient (for special callouts, badges)
-    static let bscWarmGradient = LinearGradient(
-        colors: [Color.bscOrange, Color.bscOrangeDark],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-}
-
-// MARK: - Radial Gradients
-extension RadialGradient {
-    /// Glow effect for buttons and cards — defaults to primary blue
-    static func bscGlow(color: Color = .bscPrimary) -> RadialGradient {
-        RadialGradient(
-            colors: [color.opacity(0.4), color.opacity(0)],
-            center: .center,
-            startRadius: 0,
-            endRadius: 100
-        )
-    }
-}
-
-// MARK: - Color Namespace
-enum BSCColors {
-    // Brand
-    static let primary = Color.bscPrimary
-    static let primaryText = Color.bscPrimaryText
-    static let primarySubtle = Color.bscPrimarySubtle
-    static let warmAccent = Color.bscWarmAccent
-    static let secondary = Color.bscOrange
-    static let accent = Color.bscTeal
-
-    // Backgrounds
-    static let background = Color.bscBackground
-    static let backgroundElevated = Color.bscBackgroundElevated
-    static let backgroundMuted = Color.bscBackgroundMuted
-
-    // Surfaces
-    static let surfaceGlass = Color.bscSurfaceGlass
-    static let surfaceBorder = Color.bscSurfaceBorder
-
-    // Text
-    static let textPrimary = Color.bscTextPrimary
-    static let textSecondary = Color.bscTextSecondary
-    static let textTertiary = Color.bscTextTertiary
-
-    // Status
-    static let success = Color.bscSuccess
-    static let warning = Color.bscWarning
-    static let error = Color.bscError
-    static let info = Color.bscInfo
 }
 
 // MARK: - Spacing (8pt Grid System)
@@ -330,9 +238,6 @@ enum BSCSpacing {
     /// 32pt - 2X large
     static let xxl: CGFloat = 32
 
-    /// 48pt - 3X large
-    static let xxxl: CGFloat = 48
-
     /// 64pt - Huge
     static let huge: CGFloat = 64
 }
@@ -351,9 +256,6 @@ enum BSCRadius {
     /// 20pt - Extra large (hero cards, sheets)
     static let xl: CGFloat = 20
 
-    /// 28pt - 2X large (full-screen cards)
-    static let xxl: CGFloat = 28
-
     /// Pill shape (capsule)
     static let full: CGFloat = 9999
 }
@@ -364,10 +266,6 @@ struct BSCShadowStyle {
     let radius: CGFloat
     let x: CGFloat
     let y: CGFloat
-
-    func apply(to view: some View) -> some View {
-        view.shadow(color: color, radius: radius, x: x, y: y)
-    }
 }
 
 enum BSCShadow {
@@ -411,9 +309,6 @@ enum BSCShadow {
         y: 0
     )
 
-    /// Orange glow - Backward compatibility alias for glowPrimary
-    static let glowOrange = glowPrimary
-
     /// Blue glow - Specific blue accent glow
     static let glowBlue = BSCShadowStyle(
         color: .bscBlue.opacity(0.4),
@@ -444,11 +339,6 @@ extension View {
     func bscShadow(_ style: BSCShadowStyle) -> some View {
         shadow(color: style.color, radius: style.radius, x: style.x, y: style.y)
     }
-
-    func bscShadow(_ keyPath: KeyPath<BSCShadow.Type, BSCShadowStyle>) -> some View {
-        let style = BSCShadow.self[keyPath: keyPath]
-        return shadow(color: style.color, radius: style.radius, x: style.x, y: style.y)
-    }
 }
 
 // MARK: - Content Width Constraints
@@ -461,9 +351,6 @@ enum BSCContentWidth {
 
     /// Wide - Expanded content
     static let wide: CGFloat = 720
-
-    /// Maximum - Full content area
-    static let max: CGFloat = 1200
 }
 
 // MARK: - Icon Sizes
@@ -479,9 +366,6 @@ enum BSCIconSize {
 
     /// 32pt - Extra large icons
     static let xl: CGFloat = 32
-
-    /// 48pt - Hero icons
-    static let xxl: CGFloat = 48
 }
 
 // MARK: - Touch Target Sizes
@@ -502,22 +386,8 @@ enum BSCTouchTarget {
 
 // MARK: - Convenience Padding Modifier
 extension View {
-    func bscPadding(_ spacing: CGFloat) -> some View {
-        padding(spacing)
-    }
-
-    func bscPadding(horizontal: CGFloat = 0, vertical: CGFloat = 0) -> some View {
-        padding(.horizontal, horizontal)
-            .padding(.vertical, vertical)
-    }
-
     func bscCardPadding() -> some View {
         padding(BSCSpacing.lg)
-    }
-
-    func bscSectionPadding() -> some View {
-        padding(.horizontal, BSCSpacing.lg)
-            .padding(.vertical, BSCSpacing.md)
     }
 }
 
@@ -567,26 +437,11 @@ extension AnyTransition {
 
 // MARK: - Duration Constants
 enum BSCDuration {
-    /// Instant - Micro-interactions (0.1s)
-    static let instant: Double = 0.1
-
     /// Fast - Quick feedback (0.2s)
     static let fast: Double = 0.2
 
     /// Normal - Standard transitions (0.3s)
     static let normal: Double = 0.3
-
-    /// Slow - Emphasized transitions (0.5s)
-    static let slow: Double = 0.5
-
-    /// Very slow - Dramatic reveals (0.8s)
-    static let verySlow: Double = 0.8
-
-    /// Float cycle - Floating animation period (3s)
-    static let floatCycle: Double = 3.0
-
-    /// Pulse cycle - Glow pulse period (2s)
-    static let pulseCycle: Double = 2.0
 }
 
 // MARK: - Animation View Modifiers
@@ -594,11 +449,6 @@ extension View {
     /// Apply floating effect - Gentle up/down motion
     func bscFloatingEffect() -> some View {
         modifier(FloatingModifier())
-    }
-
-    /// Apply pulse glow effect
-    func bscPulseGlow(color: Color = .bscPrimary, isActive: Bool = true) -> some View {
-        modifier(PulseGlowModifier(color: color, isActive: isActive))
     }
 
     /// Apply staggered appearance animation
@@ -620,34 +470,6 @@ private struct FloatingModifier: ViewModifier {
                 if !reduceMotion { isFloating = true }
             }
             .onDisappear { isFloating = false }  // Stop animation when off-screen to save battery
-    }
-}
-
-// MARK: - Pulse Glow Modifier
-private struct PulseGlowModifier: ViewModifier {
-    let color: Color
-    let isActive: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isPulsing = false
-
-    func body(content: Content) -> some View {
-        content
-            .shadow(
-                color: isActive ? color.opacity(isPulsing ? 0.6 : 0.2) : .clear,
-                radius: isPulsing ? 20 : 10,
-                x: 0,
-                y: 0
-            )
-            .animation(reduceMotion ? nil : .bscPulse, value: isPulsing)
-            .onAppear {
-                if isActive && !reduceMotion { isPulsing = true }
-            }
-            .onDisappear {
-                isPulsing = false  // Stop pulsing when off-screen to save battery
-            }
-            .onChange(of: isActive) { _, newValue in
-                isPulsing = newValue && !reduceMotion
-            }
     }
 }
 
@@ -707,29 +529,5 @@ private struct ShimmerModifier: ViewModifier {
                     phase = 400
                 }
             }
-    }
-}
-
-// MARK: - Card Transition Helpers
-enum BSCCardTransition {
-    /// Calculate rotation for swipe gesture
-    static func rotation(for offset: CGFloat, maxRotation: Double = 10) -> Double {
-        let normalizedOffset = offset / 200
-        return Double(normalizedOffset) * maxRotation
-    }
-
-    /// Calculate scale for card stack
-    static func scale(for index: Int, maxScale: CGFloat = 1.0, scaleStep: CGFloat = 0.05) -> CGFloat {
-        max(0.8, maxScale - (CGFloat(index) * scaleStep))
-    }
-
-    /// Calculate opacity for card stack
-    static func opacity(for index: Int, maxOpacity: Double = 1.0, opacityStep: Double = 0.2) -> Double {
-        max(0.4, maxOpacity - (Double(index) * opacityStep))
-    }
-
-    /// Calculate Y offset for card stack
-    static func yOffset(for index: Int, offsetStep: CGFloat = 10) -> CGFloat {
-        CGFloat(index) * offsetStep
     }
 }

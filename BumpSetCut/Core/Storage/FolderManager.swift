@@ -22,19 +22,6 @@ class FolderManager {
     var currentPath: String = ""
     var isLoading = false
 
-    // MARK: - Navigation History
-    private var historyStack: [String] = []
-    private var historyIndex: Int = 0
-    private var isNavigatingHistory = false
-
-    var canGoBack: Bool {
-        historyIndex > 0
-    }
-
-    var canGoForward: Bool {
-        historyIndex < historyStack.count - 1
-    }
-
     var currentDepth: Int {
         // Depth relative to library root
         let relativePath = currentRelativePath
@@ -58,11 +45,7 @@ class FolderManager {
     init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
         self.mediaStore = mediaStore
         self.libraryType = libraryType
-
-        // Initialize history with library root
-        let rootPath = libraryType.rootPath
-        self.historyStack = [rootPath]
-        self.currentPath = rootPath
+        self.currentPath = libraryType.rootPath
     }
 
     /// Load contents on first access — avoids work when NavigationLink eagerly creates destinations
@@ -100,56 +83,6 @@ class FolderManager {
         loadContents(at: currentPath)
     }
     
-    // MARK: - Navigation
-
-    func navigateToFolder(_ path: String) {
-        guard path != currentPath else { return }
-
-        // Track navigation history (unless we're navigating through history)
-        if !isNavigatingHistory {
-            // Remove forward history when navigating to a new path
-            if historyIndex < historyStack.count - 1 {
-                historyStack = Array(historyStack.prefix(historyIndex + 1))
-            }
-            historyStack.append(path)
-            historyIndex = historyStack.count - 1
-        }
-
-        loadContents(at: path)
-    }
-
-    func navigateToParent() {
-        guard !isAtLibraryRoot else { return }
-
-        let parentPath = getParentPath(currentPath)
-        // Ensure we don't go above library root
-        if mediaStore.isPath(parentPath, in: libraryType) || parentPath == libraryType.rootPath {
-            navigateToFolder(parentPath)
-        } else {
-            navigateToFolder(libraryType.rootPath)
-        }
-    }
-
-    // MARK: - History Navigation
-
-    func navigateBack() {
-        guard canGoBack else { return }
-        isNavigatingHistory = true
-        historyIndex -= 1
-        let targetPath = historyStack[historyIndex]
-        loadContents(at: targetPath)
-        isNavigatingHistory = false
-    }
-
-    func navigateForward() {
-        guard canGoForward else { return }
-        isNavigatingHistory = true
-        historyIndex += 1
-        let targetPath = historyStack[historyIndex]
-        loadContents(at: targetPath)
-        isNavigatingHistory = false
-    }
-
     private func getParentPath(_ path: String) -> String {
         let components = path.split(separator: "/")
         if components.count <= 1 {

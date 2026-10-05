@@ -101,9 +101,6 @@ struct LibraryView: View {
             placement: .navigationBarDrawer(displayMode: .always),
             prompt: "Search videos and folders"
         )
-        .onChange(of: viewModel.searchText) { _, newSearchText in
-            viewModel.searchViewModel.searchText = newSearchText
-        }
         .onChange(of: viewModel.folderManager.store.contentVersion) { _, _ in
             viewModel.refresh()
         }
