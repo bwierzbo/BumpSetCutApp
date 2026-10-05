@@ -151,7 +151,12 @@ final class ProcessingCoordinator {
         // Notification Center. iOS only ever prompts while notDetermined, so
         // this is a one-time, contextual ask. Skipped under --uitesting: the
         // system alert blocks XCUITest from seeing the processing screen.
-        if !CommandLine.arguments.contains("--uitesting") {
+        #if DEBUG
+        let isUITesting = CommandLine.arguments.contains("--uitesting")
+        #else
+        let isUITesting = false
+        #endif
+        if !isUITesting {
             Task {
                 let center = UNUserNotificationCenter.current()
                 if await center.notificationSettings().authorizationStatus == .notDetermined {

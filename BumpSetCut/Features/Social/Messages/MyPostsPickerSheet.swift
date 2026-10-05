@@ -94,7 +94,7 @@ struct MyPostsPickerSheet: View {
                     .lineLimit(1)
                     .padding(.horizontal, BSCSpacing.xs)
                     .padding(.vertical, BSCSpacing.xxs)
-                    .background(Color.black.opacity(0.45))
+                    .background(Color.bscMediaScrim)
                     .clipShape(Capsule())
                     .padding(BSCSpacing.xs)
             }
