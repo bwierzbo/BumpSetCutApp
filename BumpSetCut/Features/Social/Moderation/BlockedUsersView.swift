@@ -9,21 +9,21 @@
 import SwiftUI
 
 struct BlockedUsersView: View {
-    @State private var moderationService = ModerationService.shared
-    @State private var profiles: [UserProfile] = []
-    @State private var isLoading = true
+    @State private var viewModel = BlockedUsersViewModel()
     /// The person an unblock failed for; drives the failure alert.
     @State private var unblockFailed: UserProfile?
-
-    private let apiClient: any APIClient = SupabaseAPIClient.shared
 
     var body: some View {
         ZStack {
             Color.bscBackground.ignoresSafeArea()
 
-            if isLoading {
+            if viewModel.isLoading {
                 ProgressView()
-            } else if profiles.isEmpty {
+            } else if viewModel.loadFailed {
+                BSCEmptyState.loadFailed(message: nil) {
+                    Task { await viewModel.load() }
+                }
+            } else if viewModel.profiles.isEmpty {
                 BSCEmptyState(
                     icon: "hand.raised",
                     title: "No Blocked Users",
@@ -32,7 +32,7 @@ struct BlockedUsersView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: BSCSpacing.sm) {
-                        ForEach(profiles, id: \.id) { profile in
+                        ForEach(viewModel.profiles, id: \.id) { profile in
                             blockedRow(profile)
                         }
                     }
@@ -51,7 +51,7 @@ struct BlockedUsersView: View {
             Text("Check your connection and try again.")
         }
         .task {
-            await loadProfiles()
+            await viewModel.load()
         }
     }
 
@@ -65,18 +65,11 @@ struct BlockedUsersView: View {
 
             Spacer()
 
-            Button {
-                Task { await unblock(profile) }
-            } label: {
-                Text("Unblock")
-                    .bscFont(size: 14, weight: .semibold)
-                    .foregroundColor(.bscPrimaryText)
-                    .padding(.horizontal, BSCSpacing.md)
-                    .padding(.vertical, BSCSpacing.xs)
-                    .background(Capsule().fill(Color.bscPrimary.opacity(0.15)))
-                    .contentShape(Capsule())
+            BSCButton(title: "Unblock", style: .secondary, size: .small) {
+                Task {
+                    if await !viewModel.unblock(profile) { unblockFailed = profile }
+                }
             }
-            .buttonStyle(.plain)
         }
         .padding(BSCSpacing.md)
         .background(
@@ -85,25 +78,4 @@ struct BlockedUsersView: View {
         )
     }
 
-    private func loadProfiles() async {
-        await moderationService.ensureBlocksLoaded()
-        var loaded: [UserProfile] = []
-        for userId in moderationService.blockedUserIds {
-            if let profile: UserProfile = try? await apiClient.request(.getProfile(userId: userId.uuidString.lowercased())) {
-                loaded.append(profile)
-            }
-        }
-        profiles = loaded.sorted { $0.username.localizedCaseInsensitiveCompare($1.username) == .orderedAscending }
-        isLoading = false
-    }
-
-    private func unblock(_ profile: UserProfile) async {
-        do {
-            guard let userId = UUID(uuidString: profile.id) else { return }
-            try await moderationService.unblockUser(userId)
-            profiles.removeAll { $0.id == profile.id }
-        } catch {
-            unblockFailed = profile
-        }
-    }
 }
