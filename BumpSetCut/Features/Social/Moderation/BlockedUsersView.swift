@@ -9,57 +9,49 @@
 import SwiftUI
 
 struct BlockedUsersView: View {
-    @Environment(\.dismiss) private var dismiss
     @State private var moderationService = ModerationService.shared
     @State private var profiles: [UserProfile] = []
     @State private var isLoading = true
-    @State private var unblockError: String?
+    /// The person an unblock failed for; drives the failure alert.
+    @State private var unblockFailed: UserProfile?
 
     private let apiClient: any APIClient = SupabaseAPIClient.shared
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.bscBackground.ignoresSafeArea()
+        ZStack {
+            Color.bscBackground.ignoresSafeArea()
 
-                if isLoading {
-                    ProgressView()
-                } else if profiles.isEmpty {
-                    BSCEmptyState(
-                        icon: "hand.raised",
-                        title: "No Blocked Users",
-                        message: "People you block will appear here."
-                    )
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: BSCSpacing.sm) {
-                            ForEach(profiles, id: \.id) { profile in
-                                blockedRow(profile)
-                            }
+            if isLoading {
+                ProgressView()
+            } else if profiles.isEmpty {
+                BSCEmptyState(
+                    icon: "hand.raised",
+                    title: "No Blocked Users",
+                    message: "People you block will appear here."
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: BSCSpacing.sm) {
+                        ForEach(profiles, id: \.id) { profile in
+                            blockedRow(profile)
                         }
-                        .padding(BSCSpacing.lg)
                     }
+                    .padding(BSCSpacing.lg)
                 }
             }
-            .navigationTitle("Blocked Users")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .foregroundColor(.bscPrimaryText)
-                }
-            }
-            .alert("Couldn't Unblock", isPresented: Binding(
-                get: { unblockError != nil },
-                set: { if !$0 { unblockError = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(unblockError ?? "")
-            }
-            .task {
-                await loadProfiles()
-            }
+        }
+        .navigationTitle("Blocked Users")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Couldn't Unblock @\(unblockFailed?.username ?? "user")", isPresented: Binding(
+            get: { unblockFailed != nil },
+            set: { if !$0 { unblockFailed = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Check your connection and try again.")
+        }
+        .task {
+            await loadProfiles()
         }
     }
 
@@ -111,7 +103,7 @@ struct BlockedUsersView: View {
             try await moderationService.unblockUser(userId)
             profiles.removeAll { $0.id == profile.id }
         } catch {
-            unblockError = error.localizedDescription
+            unblockFailed = profile
         }
     }
 }
