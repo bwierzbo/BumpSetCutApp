@@ -239,23 +239,8 @@ struct RallyPlayerView: View {
         .task(id: videoMetadata.id) {
             await viewModel.loadRallies()
         }
-        .onAppear {
-            // Show gesture tips on first launch
-            if !appSettings.hasSeenRallyTips {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    showingGestureTips = true
-                }
-            }
-            // Trim coach mark: appears after the video settles, hides after a
-            // while, and stops appearing for good once the user has trimmed.
-            if !appSettings.hasUsedRallyTrim {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    withAnimation(.bscSpring) { showTrimHint = true }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
-                    withAnimation(.bscQuick) { showTrimHint = false }
-                }
-            }
+        .task {
+            await showIntroHints()
         }
         .onDisappear {
             viewModel.cleanup()
@@ -515,6 +500,28 @@ struct RallyPlayerView: View {
                 }
             }
         }
+    }
+
+    /// First-run hints, timed from when the player appears. Runs in the view's
+    /// `.task`, so leaving the player cancels any that haven't fired yet.
+    private func showIntroHints() async {
+        let start = ContinuousClock.now
+        func wait(until offset: Duration) async -> Bool {
+            (try? await Task.sleep(until: start + offset, clock: .continuous)) != nil
+        }
+
+        // Gesture tips on first launch.
+        if !appSettings.hasSeenRallyTips {
+            guard await wait(until: .seconds(0.5)) else { return }
+            showingGestureTips = true
+        }
+
+        // Trim coach mark: appears after the video settles, hides after a
+        // while, and stops appearing for good once the user has trimmed.
+        guard !appSettings.hasUsedRallyTrim, await wait(until: .seconds(2)) else { return }
+        withAnimation(.bscSpring) { showTrimHint = true }
+        guard await wait(until: .seconds(10)) else { return }
+        withAnimation(.bscQuick) { showTrimHint = false }
     }
 
     /// Same rule the card uses to choose fit (portrait) or fill (landscape).
