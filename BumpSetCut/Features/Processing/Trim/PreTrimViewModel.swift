@@ -33,8 +33,6 @@ final class PreTrimViewModel {
 
     // MARK: - Rotation (degrees)
     var rotationDegrees: Double = 0
-    let maxRotationDegrees: Double = 10.0
-    let rotationStepDegrees: Double = 0.5
 
     // MARK: - Computed
     var selectionDuration: Double { max(0, endTime - startTime) }

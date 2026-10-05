@@ -29,8 +29,6 @@ struct RallyTrimOverlay: View {
     private let barHeight: CGFloat = 56
     private let borderThickness: CGFloat = 3
     private let minSelectionDuration: Double = 1.0
-    private let maxRotationDegrees: Double = 10.0
-    private let rotationStepDegrees: Double = 0.5
     private let zoomAccessibilityStep: Double = 0.25
     private let edgeZoneWidth: CGFloat = 20
     private let autoExtendRate: Double = 1.0   // video-seconds per second held at the edge
@@ -39,8 +37,6 @@ struct RallyTrimOverlay: View {
     private enum ExtendDirection { case left, right }
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
-    /// Angle readout width — grows with Dynamic Type so "+10.0°" never clips.
-    @ScaledMetric(relativeTo: .body) private var readoutWidth: CGFloat = 56
 
     @State private var thumbnails: [UIImage] = []
     @State private var leftGrabOffset: CGFloat?
@@ -85,7 +81,7 @@ struct RallyTrimOverlay: View {
                     if showsZoomControl || showsAngleControl {
                         HStack(spacing: BSCSpacing.lg) {
                             if showsZoomControl { zoomHintRow }
-                            if showsAngleControl { angleControl }
+                            if showsAngleControl { BSCStraightenControl(degrees: $trimRotation) }
                         }
                         .padding(.horizontal, BSCSpacing.lg)
                         .padding(.bottom, BSCSpacing.xs)
@@ -128,7 +124,7 @@ struct RallyTrimOverlay: View {
 
                 // Angle adjustment row (merged into the hint row when compact)
                 if showsAngleControl && !compact {
-                    angleControl
+                    BSCStraightenControl(degrees: $trimRotation)
                         .padding(.horizontal, BSCSpacing.lg)
                         .padding(.bottom, BSCSpacing.md)
                 }
@@ -200,93 +196,6 @@ struct RallyTrimOverlay: View {
             }
         }
         .foregroundColor(.bscOnMedia)
-    }
-
-    // MARK: - Angle Control
-
-    @ViewBuilder
-    private var angleControl: some View {
-        let max = maxRotationDegrees
-        let step = rotationStepDegrees
-        let binding = Binding(
-            get: { trimRotation },
-            set: { setRotation(snap(clampDeg($0, max: max), step: step)) }
-        )
-
-        HStack(spacing: BSCSpacing.md) {
-            Button {
-                setRotation(snap(clampDeg(trimRotation - step, max: max), step: step))
-            } label: {
-                Image(systemName: "minus")
-                    .bscFont(size: 13, weight: .bold)
-                    .foregroundColor(.bscOnMedia)
-                    .frame(width: 28, height: 28)
-                    .background(Color.bscOnMedia.opacity(0.15))
-                    .clipShape(Circle())
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Decrease angle")
-
-            Slider(value: binding, in: -max...max, step: step)
-                .tint(.bscPrimary)
-                .accessibilityLabel("Rotation angle")
-                .accessibilityValue(formatDegrees(trimRotation))
-
-            Button {
-                setRotation(snap(clampDeg(trimRotation + step, max: max), step: step))
-            } label: {
-                Image(systemName: "plus")
-                    .bscFont(size: 13, weight: .bold)
-                    .foregroundColor(.bscOnMedia)
-                    .frame(width: 28, height: 28)
-                    .background(Color.bscOnMedia.opacity(0.15))
-                    .clipShape(Circle())
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Increase angle")
-
-            Text(formatDegrees(trimRotation))
-                .bscFont(size: 13, weight: .medium, design: .monospaced)
-                .foregroundColor(.bscPrimary)
-                .frame(width: readoutWidth, alignment: .trailing)
-                // The slider already speaks this value.
-                .accessibilityHidden(true)
-
-            Button {
-                setRotation(0)
-            } label: {
-                Image(systemName: "arrow.counterclockwise")
-                    .bscFont(size: 12, weight: .semibold)
-                    .foregroundColor(Color.bscOnMedia.opacity(abs(trimRotation) < 0.01 ? 0.3 : 0.9))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .disabled(abs(trimRotation) < 0.01)
-            .accessibilityLabel("Reset angle")
-        }
-    }
-
-    /// Apply a snapped rotation value, ticking when it lands on a new 0.5° step.
-    private func setRotation(_ value: Double) {
-        guard value != trimRotation else { return }
-        selectionHaptic.selectionChanged()
-        selectionHaptic.prepare()
-        trimRotation = value
-    }
-
-    private func snap(_ value: Double, step: Double) -> Double {
-        guard step > 0 else { return value }
-        return (value / step).rounded() * step
-    }
-
-    private func clampDeg(_ value: Double, max: Double) -> Double {
-        min(max, Swift.max(-max, value))
-    }
-
-    private func formatDegrees(_ value: Double) -> String {
-        String(format: "%+.1f°", value)
     }
 
     // MARK: - Trim Bar

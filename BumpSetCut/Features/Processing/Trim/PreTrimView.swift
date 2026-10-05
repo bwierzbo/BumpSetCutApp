@@ -17,8 +17,6 @@ struct PreTrimView: View {
     @State private var viewModel: PreTrimViewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
-    /// Angle readout width — grows with Dynamic Type so "+10.0°" never clips.
-    @ScaledMetric(relativeTo: .body) private var readoutWidth: CGFloat = 56
 
     init(videoURL: URL, onSkip: @escaping () -> Void, onTrimmed: @escaping (URL) -> Void) {
         self.videoURL = videoURL
@@ -124,7 +122,7 @@ struct PreTrimView: View {
                 .padding(.top, BSCSpacing.xxs)
             }
 
-            angleControl
+            BSCStraightenControl(degrees: $viewModel.rotationDegrees)
                 .padding(.top, BSCSpacing.md)
 
             actionButtons
@@ -366,84 +364,6 @@ struct PreTrimView: View {
     private func timeForX(_ x: CGFloat, in width: CGFloat) -> Double {
         guard width > 0 else { return 0 }
         return Double(x / width) * viewModel.videoDuration
-    }
-
-    // MARK: - Angle Control
-
-    @ViewBuilder
-    private var angleControl: some View {
-        let max = viewModel.maxRotationDegrees
-        let step = viewModel.rotationStepDegrees
-        let binding = Binding(
-            get: { viewModel.rotationDegrees },
-            set: { viewModel.rotationDegrees = snap(clampDeg($0, max: max), step: step) }
-        )
-
-        HStack(spacing: BSCSpacing.md) {
-            Button {
-                viewModel.rotationDegrees = snap(clampDeg(viewModel.rotationDegrees - step, max: max), step: step)
-            } label: {
-                Image(systemName: "minus")
-                    .bscFont(size: 14, weight: .bold)
-                    .foregroundColor(.bscOnMedia)
-                    .frame(width: 30, height: 30)
-                    .background(Color.bscOnMedia.opacity(0.15))
-                    .clipShape(Circle())
-                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Decrease angle")
-
-            Slider(value: binding, in: -max...max, step: step)
-                .tint(.bscPrimary)
-                .accessibilityLabel("Rotation angle")
-                .accessibilityValue(formatDegrees(viewModel.rotationDegrees))
-
-            Button {
-                viewModel.rotationDegrees = snap(clampDeg(viewModel.rotationDegrees + step, max: max), step: step)
-            } label: {
-                Image(systemName: "plus")
-                    .bscFont(size: 14, weight: .bold)
-                    .foregroundColor(.bscOnMedia)
-                    .frame(width: 30, height: 30)
-                    .background(Color.bscOnMedia.opacity(0.15))
-                    .clipShape(Circle())
-                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Increase angle")
-
-            Text(formatDegrees(viewModel.rotationDegrees))
-                .bscFont(size: 13, weight: .medium, design: .monospaced)
-                .foregroundColor(.bscOnMedia)
-                .frame(width: readoutWidth, alignment: .trailing)
-
-            Button {
-                viewModel.rotationDegrees = 0
-            } label: {
-                Image(systemName: "arrow.counterclockwise")
-                    .bscFont(size: 13, weight: .semibold)
-                    .foregroundColor(Color.bscOnMedia.opacity(abs(viewModel.rotationDegrees) < 0.01 ? 0.3 : 0.9))
-                    .frame(width: 30, height: 30)
-                    .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                    .contentShape(Rectangle())
-            }
-            .disabled(abs(viewModel.rotationDegrees) < 0.01)
-            .accessibilityLabel("Reset angle")
-        }
-    }
-
-    private func snap(_ value: Double, step: Double) -> Double {
-        guard step > 0 else { return value }
-        return (value / step).rounded() * step
-    }
-
-    private func clampDeg(_ value: Double, max: Double) -> Double {
-        min(max, Swift.max(-max, value))
-    }
-
-    private func formatDegrees(_ value: Double) -> String {
-        String(format: "%+.1f°", value)
     }
 
     // MARK: - Action Buttons
