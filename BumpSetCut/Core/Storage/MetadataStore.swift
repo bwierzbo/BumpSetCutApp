@@ -125,6 +125,12 @@ final class MetadataStore {
         live.deletingLastPathComponent().appendingPathComponent(live.lastPathComponent + ".staged")
     }
 
+    private static let transactionTempSuffix = ".txn"
+
+    private func transactionTempURL(for live: URL) -> URL {
+        live.deletingLastPathComponent().appendingPathComponent(live.lastPathComponent + Self.transactionTempSuffix)
+    }
+
     // MARK: - Generic sidecar I/O
 
     /// Load a sidecar. Missing → nil. Present but unreadable/undecodable →
@@ -371,7 +377,8 @@ extension MetadataStore {
             writes.append((gameScoringURL(for: videoId), try jsonEncoder.encode(scoring)))
         }
 
-        let temps = writes.map { stagedURL(for: $0.live) }
+        // Not ".staged": those belong to Free Up Space's crash recovery.
+        let temps = writes.map { transactionTempURL(for: $0.live) }
         do {
             for (write, temp) in zip(writes, temps) {
                 try write.data.write(to: temp, options: .atomic)
@@ -384,6 +391,14 @@ extension MetadataStore {
 
         for (write, temp) in zip(writes, temps) {
             try install(temp, at: write.live)
+        }
+    }
+
+    /// Temp files of a multi-file save interrupted before its renames — the
+    /// live files are still the previous, consistent set, so just drop them.
+    func removeIncompleteTransactionFiles() {
+        for name in sidecarFileNames() where name.hasSuffix(Self.transactionTempSuffix) {
+            try? fileManager.removeItem(at: metadataDirectory.appendingPathComponent(name))
         }
     }
 }

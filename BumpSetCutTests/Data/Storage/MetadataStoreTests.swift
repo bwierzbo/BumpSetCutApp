@@ -502,7 +502,7 @@ final class MetadataStoreTests: XCTestCase {
         XCTAssertEqual(metadataStore.loadReviewSelections(for: testVideoId).saved, [0])
         XCTAssertNotNil(metadataStore.loadGameScoring(for: testVideoId))
         let names = try FileManager.default.contentsOfDirectory(atPath: metadataStore.metadataDirectory.path)
-        XCTAssertFalse(names.contains { $0.hasSuffix(".staged") })
+        XCTAssertFalse(names.contains { $0.hasSuffix(".staged") || $0.hasSuffix(".txn") })
     }
 
     // MARK: - Concurrency Tests

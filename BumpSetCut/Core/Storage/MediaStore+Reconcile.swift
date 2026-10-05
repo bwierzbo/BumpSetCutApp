@@ -92,6 +92,7 @@ extension MediaStore {
         }.value
 
         await recoverInterruptedReplacements()
+        metadataStore.removeIncompleteTransactionFiles()
         applyReconcile(missingVideoKeys: missingVideoKeys, missingFolderKeys: missingFolderKeys,
                        disk: disk, adoptUntracked: true)
         removeLeftoverManifestTemps()

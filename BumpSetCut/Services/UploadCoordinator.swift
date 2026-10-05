@@ -205,7 +205,7 @@ extension UploadCoordinator {
     /// Drag-and-drop: the delegate hands over a verified temp copy it owns.
     func importDroppedVideo(at tempURL: URL, destinationFolder: String) async {
         importWasCancelled = false
-        currentVideoName = tempURL.deletingPathExtension().lastPathComponent
+        currentVideoName = "video"
         isUploadInProgress = true
         guard saveVideoFromURL(tempURL, destinationFolder: destinationFolder, customName: nil) else {
             isUploadInProgress = false
