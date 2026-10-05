@@ -9,6 +9,9 @@
 import SwiftUI
 
 struct TrimCoachMark: View {
+    /// Players without crop controls (favorites feed) say "trim" only.
+    var text: String = "Hold anywhere to trim or crop"
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false
 
@@ -17,7 +20,8 @@ struct TrimCoachMark: View {
             Image(systemName: "hand.tap.fill")
                 .bscFont(size: 15, weight: .semibold)
                 .foregroundStyle(Color.bscPrimary)
-            Text("Hold anywhere to trim or crop")
+                .accessibilityHidden(true)
+            Text(text)
                 .bscFont(size: 14, weight: .semibold)
                 .foregroundColor(.bscOnMedia)
         }
