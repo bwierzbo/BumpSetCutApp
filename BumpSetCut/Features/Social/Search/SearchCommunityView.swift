@@ -10,9 +10,6 @@ import SwiftUI
 struct SearchCommunityView: View {
     @State private var viewModel = SearchCommunityViewModel()
     @State private var selectedHighlight: Highlight?
-    @State private var selectedHighlightForComments: Highlight?
-    @State private var sendRequest: SendToRequest?
-    @State private var sendToast: BSCToastMessage?
     @Environment(AuthenticationService.self) private var authService
     @Environment(AppNavigationState.self) private var navigationState
 
@@ -61,14 +58,7 @@ struct SearchCommunityView: View {
             consumePendingSearch(navigationState.pendingSearchQuery)
         }
         .fullScreenCover(item: $selectedHighlight) { highlight in
-            highlightDetail(highlight)
-                .commentsPanel(item: $selectedHighlightForComments)
-                .sheet(item: $sendRequest) { request in
-                    SendToSheet(highlight: request.highlight) { conversationId, username in
-                        sendToast = .sent(to: username, conversationId: conversationId, navigationState: navigationState)
-                    }
-                }
-                .bscToast($sendToast)
+            HighlightDetailCover(highlight: highlight) { selectedHighlight = nil }
         }
     }
 
@@ -369,37 +359,6 @@ struct SearchCommunityView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 60)
             .accessibilityIdentifier(AccessibilityID.Search.emptyResult)
-    }
-
-    // MARK: - Highlight Detail
-
-    private func highlightDetail(_ highlight: Highlight) -> some View {
-        ZStack {
-            HighlightCardView(
-                highlight: highlight,
-                onLike: {},
-                onComment: {
-                    selectedHighlightForComments = highlight
-                },
-                onProfile: { _ in },
-                onSend: authService.isAuthenticated
-                    ? { sendRequest = SendToRequest(highlight: highlight) }
-                    : nil
-            )
-
-            VStack {
-                HStack {
-                    Spacer()
-                    // xs outer padding keeps the icon visually 12pt from the edge
-                    // (the component's 44pt hit frame supplies the other 8pt).
-                    BSCMediaCloseButton {
-                        selectedHighlight = nil
-                    }
-                    .padding(BSCSpacing.xs)
-                }
-                Spacer()
-            }
-        }
     }
 }
 

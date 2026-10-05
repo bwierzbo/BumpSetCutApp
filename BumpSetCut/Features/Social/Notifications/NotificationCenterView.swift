@@ -25,45 +25,37 @@ struct NotificationCenterView: View {
                         .tint(.bscPrimary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if viewModel.notifications.isEmpty {
-                    BSCEmptyState(
-                        icon: viewModel.loadFailed ? "wifi.slash" : "bell",
-                        title: viewModel.loadFailed ? "Couldn't Load" : "No Notifications Yet",
-                        message: viewModel.loadFailed
-                            ? "Check your connection and pull to refresh."
-                            : "Likes, comments, and new followers on your posts show up here."
-                    )
+                    // In a ScrollView so pull-to-refresh works from here too —
+                    // the error copy tells people to pull.
+                    ScrollView {
+                        BSCEmptyState(
+                            icon: viewModel.loadFailed ? "wifi.slash" : "bell",
+                            title: viewModel.loadFailed ? "Couldn't Load" : "No Notifications Yet",
+                            message: viewModel.loadFailed
+                                ? "Check your connection and pull to refresh."
+                                : "Likes, comments, and new followers on your posts show up here."
+                        )
+                        .containerRelativeFrame([.horizontal, .vertical])
+                    }
                 } else {
                     notificationList
                 }
             }
+            .refreshable { await viewModel.loadInitial() }
             .background(Color.bscBackground)
             .navigationTitle("Notifications")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
-                        .foregroundColor(.bscTextSecondary)
                         .accessibilityIdentifier(AccessibilityID.Notifications.done)
                 }
             }
             .profileNavigationDestinations()
         }
         .task { await viewModel.loadInitial() }
-        .refreshable { await viewModel.loadInitial() }
-        .fullScreenCover(isPresented: Binding(
-            get: { viewModel.openedHighlight != nil },
-            set: { if !$0 { viewModel.openedHighlight = nil } }
-        )) {
-            if let highlight = viewModel.openedHighlight {
-                ProfileHighlightFeedView(
-                    highlights: [highlight],
-                    startIndex: 0,
-                    isOwnProfile: false,
-                    onLike: { _ in },
-                    onDelete: nil,
-                    onDismiss: { viewModel.openedHighlight = nil }
-                )
-            }
+        .fullScreenCover(item: $viewModel.openedHighlight) { highlight in
+            HighlightDetailCover(highlight: highlight) { viewModel.openedHighlight = nil }
         }
     }
 
@@ -106,6 +98,21 @@ struct NotificationCenterView: View {
             rowContent(notification)
         }
         .buttonStyle(.plain)
+        // One element reading as a sentence ("Sam liked your rally, 2 hours
+        // ago"); the avatar/username shortcut becomes a named action.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySentence(notification))
+        .accessibilityValue(notification.isRead ? "" : "Unread")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: "View profile") {
+            openProfile(notification)
+        }
+    }
+
+    private func accessibilitySentence(_ notification: SocialNotification) -> String {
+        let username = notification.actor?.username ?? "Someone"
+        let when = notification.createdAt.formatted(.relative(presentation: .named))
+        return "\(username) \(notification.message), \(when)"
     }
 
     private func rowContent(_ notification: SocialNotification) -> some View {
@@ -123,7 +130,6 @@ struct NotificationCenterView: View {
                 )
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(username)'s profile")
 
             VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                 Button {
@@ -135,7 +141,6 @@ struct NotificationCenterView: View {
                         .lineLimit(1)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(username)'s profile")
 
                 Text("\(notification.message) · \(notification.createdAt.formatted(.relative(presentation: .named)))")
                     .bscFont(size: 13)
@@ -151,7 +156,7 @@ struct NotificationCenterView: View {
 
             if !notification.isRead {
                 Circle()
-                    .fill(Color.bscPrimary)
+                    .fill(Color.bscPrimaryFill)
                     .frame(width: 8, height: 8)
             }
         }

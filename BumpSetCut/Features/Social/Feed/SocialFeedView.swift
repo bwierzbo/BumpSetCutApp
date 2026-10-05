@@ -87,23 +87,7 @@ struct SocialFeedView: View {
         // tab bar while the panel is open so it doesn't cover the input.
         .toolbarVisibility(selectedHighlightForComments == nil ? .automatic : .hidden, for: .tabBar)
         .sheet(item: $selectedProfileId) { profile in
-            NavigationStack {
-                ProfileView(userId: profile.id)
-                    .toolbar {
-                        // Pull-down fights the profile's own scroll/refresh, so
-                        // give an explicit way out (tester feedback).
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            BSCIconButton(icon: "chevron.left", style: .ghost, size: .compact, accessibilityLabel: "Back to feed") {
-                                selectedProfileId = nil
-                            }
-                            .accessibilityIdentifier(AccessibilityID.Feed.profileBack)
-                        }
-                    }
-                    // This sheet is its own NavigationStack, so it needs its own
-                    // profile destination for the follower/following lists.
-                    .profileNavigationDestinations()
-            }
-            .presentationDragIndicator(.visible)
+            ProfileSheet(userId: profile.id)
         }
         .onChange(of: navigationState.postedHighlight) { _, highlight in
             if let highlight {

@@ -104,26 +104,15 @@ final class ProfileViewModel {
     }
 
     func toggleLike(for highlight: Highlight) async {
-        guard let index = highlights.firstIndex(where: { $0.id == highlight.id }) else { return }
-
-        let wasLiked = highlights[index].isLikedByMe
-        highlights[index].isLikedByMe = !wasLiked
-        highlights[index].likesCount += wasLiked ? -1 : 1
-
-        do {
-            if wasLiked {
-                let _: EmptyResponse = try await apiClient.request(.unlikeHighlight(id: highlight.id))
-            } else {
-                let _: EmptyResponse = try await apiClient.request(.likeHighlight(id: highlight.id))
-            }
-        } catch {
-            // Re-resolve by id — the pre-await index is stale if the array
-            // shrank or reordered while the request was in flight
-            if let idx = highlights.firstIndex(where: { $0.id == highlight.id }) {
-                highlights[idx].isLikedByMe = wasLiked
-                highlights[idx].likesCount += wasLiked ? 1 : -1
+        guard highlights.contains(where: { $0.id == highlight.id }) else { return }
+        // Re-resolved by id — a pre-await index is stale if the array shrank
+        // or reordered while the request was in flight.
+        let succeeded = await HighlightLikeToggle.toggle(highlight, apiClient: apiClient) { id, mutate in
+            if let index = highlights.firstIndex(where: { $0.id == id }) {
+                mutate(&highlights[index])
             }
         }
+        if !succeeded { actionError = "Couldn't update like" }
     }
 
     @discardableResult
