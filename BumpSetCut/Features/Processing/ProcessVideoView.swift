@@ -456,13 +456,12 @@ private extension ProcessVideoView {
         HStack(spacing: BSCSpacing.xl) {
             statTile(
                 value: viewModel.detectedRallyCount.formatted(),
-                // Plural label under the big number ("Rally"/"Rallies"); the
-                // count argument drives the plural rule and isn't displayed.
-                label: LocalizedStringResource(
-                    "rallyCountStatLabel",
-                    defaultValue: "\(viewModel.detectedRallyCount) Rallies",
-                    comment: "Label under the rally-count stat. Plural variants omit the number: Rally / Rallies"
-                ),
+                // The label sits under the big number and doesn't contain it,
+                // so a plural variation isn't allowed (it must reference the
+                // number) — Apple's guidance is separate one / more strings.
+                label: viewModel.detectedRallyCount == 1
+                    ? LocalizedStringResource("Rally", comment: "Label under a rally count of exactly one")
+                    : LocalizedStringResource("Rallies", comment: "Label under a rally count other than one"),
                 color: .bscPrimaryText
             )
 
