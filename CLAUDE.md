@@ -32,7 +32,7 @@ Build rules:
 - `unable to attach DB` build errors mean the Xcode GUI holds the build database — the script retries once; after that ask the user to stop the Xcode build. Don't spam retries.
 - Ignore SourceKit/IDE diagnostics completely ("Cannot find X in scope" after edits is noise) — never mention them; only build output counts.
 - Don't rebuild targets untouched by the change.
-- If a test fails after your changes, use the **preexisting** skill before debugging — ~91 tests fail on a clean tree.
+- The unit suite is green (377/377 on 2026-10-04) — a failing test is most likely yours; confirm with the **preexisting** skill before debugging.
 
 ### Testing
 Two XCTest targets exist: **BumpSetCutTests** (unit) and **BumpSetCutUITests** (UI).

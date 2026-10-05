@@ -1,11 +1,11 @@
 ---
 name: preexisting
-description: Determine whether a failing test is a pre-existing failure or a regression from current changes. Use whenever a test fails after making changes in this repo — there are ~91 known-failing pre-existing tests, so never assume a failure is yours or spend time fixing one that isn't.
+description: Determine whether a failing test is a pre-existing failure or a regression from current changes. Use whenever a test fails after making changes in this repo. The unit suite was fully green on 2026-10-04 (377/377), so a failure is most likely new — this check confirms it before debugging.
 ---
 
 # Is this test failure pre-existing?
 
-This repo carries a baseline of ~91 known-failing tests (see MEMORY.md). Before debugging a failure as if the current changes caused it:
+The unit suite was fully green on 2026-10-04 (377 tests, 0 failures) — the old "~91 failing" baseline was fixed or removed. A failure is therefore most likely caused by the current changes, but check before debugging (a flaky or environment-dependent test can still fail on a clean tree):
 
 1. Note the exact failing test identifier(s), e.g. `BumpSetCutTests/SegmentBuilderTests/testSegmentAtEndOfVideoGetsClamped`.
 2. Stash the working tree and re-run ONLY those tests on the clean checkout:
