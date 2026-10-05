@@ -97,10 +97,14 @@ struct BSCVideoCard: View {
         } message: {
             Text("This deletes the current rallies and runs detection again on the full video.")
         }
-        .accessibilityElement(children: .combine)
+        // One button element (activate = play, or select in selection mode);
+        // the inner menu/quick-action buttons would otherwise be swallowed, so
+        // their actions are exposed as VoiceOver actions.
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabelText)
-        .accessibilityHint(isSelectable ? "Double tap to select" : "Double tap to play")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { handleTap() }
+        .accessibilityActions { contextMenuContent }
     }
 
     // MARK: - List Layout
