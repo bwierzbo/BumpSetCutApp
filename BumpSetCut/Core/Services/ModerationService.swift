@@ -189,14 +189,6 @@ final class ModerationService {
         return blockedUserIds.contains(userId)
     }
 
-    /// Check if user is blocked (remote check)
-    func checkIfBlocked(_ userId: UUID) async throws -> Bool {
-        let status: BlockStatusResult = try await apiClient.request(
-            .isUserBlocked(userId: userId.uuidString)
-        )
-        return status.isBlocked
-    }
-
     // MARK: - Filtering Helpers
 
     /// Whether a highlight should be hidden from this user's feeds
@@ -219,16 +211,4 @@ final class ModerationService {
         return blockedUserIds.contains(author)
     }
 
-    /// Filter out blocked users from a list of highlights
-    func filterBlockedContent<T: Identifiable>(
-        _ items: [T],
-        getUserId: (T) -> UUID
-    ) -> [T] {
-        return items.filter { !isBlocked(getUserId($0)) }
-    }
-
-    /// Filter out blocked users from a list of user profiles
-    func filterBlockedUsers(_ users: [UserProfile]) -> [UserProfile] {
-        return users.filter { UUID(uuidString: $0.id).map { !isBlocked($0) } ?? true }
-    }
 }

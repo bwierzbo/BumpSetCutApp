@@ -155,7 +155,7 @@ class AuthGateViewModel {
     func configureAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
         let nonce = Self.randomNonceString()
         currentNonce = nonce
-        request.requestedScopes = [.fullName, .email]
+        request.requestedScopes = [.email]
         request.nonce = Self.sha256(nonce)
     }
 

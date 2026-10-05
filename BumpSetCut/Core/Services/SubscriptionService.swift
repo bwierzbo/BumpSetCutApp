@@ -110,16 +110,6 @@ final class SubscriptionService {
         print("💎 Pro override set to: \(status)")
     }
 
-    // MARK: - Feature Checks
-
-    func canAccessFeature(_ feature: ProFeature) -> Bool {
-        return isPro
-    }
-
-    func requiresProMessage(for feature: ProFeature) -> String {
-        return "\(feature.rawValue) is a Pro feature. Upgrade to unlock!"
-    }
-
     // MARK: - Processing Limit Tracking
 
     private let processingHistoryKey = "processing_history"
@@ -249,12 +239,4 @@ final class SubscriptionService {
 
     // MARK: - Paywall Presentation
 
-    /// Check if user can access a feature, return error message if not
-    func checkFeatureAccess(_ feature: ProFeature) -> (allowed: Bool, message: String?) {
-        if isPro {
-            return (true, nil)
-        } else {
-            return (false, requiresProMessage(for: feature))
-        }
-    }
 }

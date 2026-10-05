@@ -25,10 +25,6 @@ struct UsernameAvailability: Decodable {
     let isAvailable: Bool
 }
 
-struct BlockStatusResult: Decodable {
-    let isBlocked: Bool
-}
-
 struct PollVoteRow: Decodable {
     let optionId: String
 }
@@ -509,18 +505,6 @@ final class SupabaseAPIClient: APIClient, MessageMediaClient, @unchecked Sendabl
                 .execute()
                 .value
             return response
-
-        case .isUserBlocked(let userId):
-            let myId = try await currentUserId()
-            let rows: [UserBlock] = try await supabase
-                .from("user_blocks")
-                .select()
-                .eq("blocker_id", value: myId)
-                .eq("blocked_id", value: userId)
-                .limit(1)
-                .execute()
-                .value
-            return try safeCast(BlockStatusResult(isBlocked: !rows.isEmpty))
 
         // MARK: Polls
 

@@ -56,7 +56,6 @@ enum APIEndpoint {
     case blockUser(userId: String, reason: String?)
     case unblockUser(userId: String)
     case getBlockedUsers
-    case isUserBlocked(userId: String)
 
     // Polls
     case createPoll(PollUpload)
@@ -128,7 +127,6 @@ enum APIEndpoint {
         case .blockUser(let userId, _): return "/moderation/blocks/\(userId)"
         case .unblockUser(let userId): return "/moderation/blocks/\(userId)"
         case .getBlockedUsers: return "/moderation/blocks"
-        case .isUserBlocked(let userId): return "/moderation/blocks/\(userId)/status"
         case .createPoll: return "/polls"
         case .createPollOptions(let pollId, _): return "/polls/\(pollId)/options"
         case .votePoll: return "/poll_votes"
