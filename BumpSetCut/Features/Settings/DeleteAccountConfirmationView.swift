@@ -46,9 +46,9 @@ struct DeleteAccountConfirmationView: View {
                     .padding(.horizontal, BSCSpacing.lg)
 
                 VStack(alignment: .leading, spacing: BSCSpacing.xs) {
-                    (Text("Type ").foregroundColor(.bscTextSecondary)
-                     + Text(username).fontWeight(.bold).foregroundColor(.bscTextPrimary)
-                     + Text(" to confirm").foregroundColor(.bscTextSecondary))
+                    Text("Type \(Text(verbatim: username).fontWeight(.bold).foregroundColor(.bscTextPrimary)) to confirm",
+                         comment: "Delete-account confirmation; the argument is the user's username, shown bold")
+                        .foregroundColor(.bscTextSecondary)
                         .bscFont(size: 13)
 
                     TextField("Username", text: $typed)

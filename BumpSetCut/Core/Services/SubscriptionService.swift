@@ -57,10 +57,18 @@ final class SubscriptionService {
     static let weeklyProcessingDurationMinutes: Double = 30 // Free users get 30 min/week
 
     // MARK: - Pro Entitlements
-    enum ProFeature: String, CaseIterable {
-        case offlineProcessing = "Offline Processing"
-        case unlimitedVideos = "Unlimited Videos"
-        case noWatermark = "No Watermark"
+    enum ProFeature: CaseIterable {
+        case offlineProcessing
+        case unlimitedVideos
+        case noWatermark
+
+        var title: LocalizedStringResource {
+            switch self {
+            case .offlineProcessing: return "Offline Processing"
+            case .unlimitedVideos: return "Unlimited Videos"
+            case .noWatermark: return "No Watermark"
+            }
+        }
 
         var icon: String {
             switch self {
@@ -70,7 +78,7 @@ final class SubscriptionService {
             }
         }
 
-        var description: String {
+        var description: LocalizedStringResource {
             switch self {
             case .offlineProcessing:
                 return "Process videos offline without any internet connection"
@@ -196,12 +204,14 @@ final class SubscriptionService {
         let remaining = max(0, cap - usedMinutes)
 
         if usedMinutes + videoMinutes > cap {
-            let resetDate = getNextResetDate()
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE" // Day name
-            let resetDay = formatter.string(from: resetDate)
-
-            return (false, "This video is \(String(format: "%.1f", videoMinutes)) min but you only have \(String(format: "%.1f", remaining)) min remaining this week. Your limit resets \(resetDay). Upgrade to Pro for unlimited processing!")
+            let resetDay = getNextResetDate().formatted(.dateTime.weekday(.wide))
+            let oneDecimal = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(1))
+            let video = videoMinutes.formatted(oneDecimal)
+            let left = remaining.formatted(oneDecimal)
+            return (false, String(
+                localized: "This video is \(video) min but you only have \(left) min remaining this week. Your limit resets \(resetDay). Upgrade to Pro for unlimited processing!",
+                comment: "Free-tier limit message; the last argument is a weekday name"
+            ))
         }
 
         return (true, nil)

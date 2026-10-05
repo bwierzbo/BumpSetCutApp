@@ -13,7 +13,7 @@ struct FlywheelConsentSheet: View {
     let onAccept: () -> Void
     let onCancel: () -> Void
 
-    private let bullets: [(icon: String, text: String)] = [
+    private let bullets: [(icon: String, text: LocalizedStringResource)] = [
         ("scissors", "We upload short clips of rallies the model struggled with — not your whole library."),
         ("chart.bar.doc.horizontal", "Each clip includes the detector's per-frame data so the frames can be relabeled."),
         ("person.crop.circle.badge.checkmark", "Clips are tied to your account and used only to improve detection."),

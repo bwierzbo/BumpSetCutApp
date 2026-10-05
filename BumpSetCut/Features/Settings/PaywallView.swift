@@ -47,7 +47,7 @@ struct PaywallView: View {
                             ForEach(SubscriptionService.ProFeature.allCases, id: \.self) { feature in
                                 FeatureRow(
                                     icon: feature.icon,
-                                    title: feature.rawValue,
+                                    title: feature.title,
                                     description: feature.description
                                 )
                             }
@@ -123,7 +123,7 @@ struct PaywallView: View {
                                         .contentShape(Rectangle())
                                 }
 
-                                Text("•")
+                                Text(verbatim: "•")
                                     .foregroundColor(.bscTextSecondary)
 
                                 Button {
@@ -158,7 +158,7 @@ struct PaywallView: View {
                 }
             }
             .alert(
-                failure?.title ?? "",
+                failure.map { Text($0.title) } ?? Text(verbatim: ""),
                 isPresented: Binding(
                     get: { failure != nil },
                     set: { if !$0 { failure = nil } }
@@ -176,16 +176,14 @@ struct PaywallView: View {
 
     /// Full auto-renew disclosure Apple expects adjacent to the purchase
     /// button (name, length, price, billing and cancellation mechanics).
-    private var subscriptionTerms: String {
+    private var subscriptionTerms: LocalizedStringResource {
+        // displayPrice is StoreKit's localized price; the literal is only a
+        // fallback while products load.
         let price = storeManager.proMonthlyProduct?.displayPrice ?? "$4.99"
-        return """
-        BumpSetCut Pro is a monthly auto-renewing subscription (\(price)/month). \
-        Payment will be charged to your Apple ID account at confirmation of purchase. \
-        The subscription automatically renews unless it is cancelled at least 24 hours \
-        before the end of the current period, and your account will be charged for \
-        renewal within 24 hours prior to the end of the current period. You can manage \
-        and cancel your subscription in your App Store account settings at any time.
-        """
+        return LocalizedStringResource(
+            "BumpSetCut Pro is a monthly auto-renewing subscription (\(price)/month). Payment will be charged to your Apple ID account at confirmation of purchase. The subscription automatically renews unless it is cancelled at least 24 hours before the end of the current period, and your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscription in your App Store account settings at any time.",
+            comment: "Auto-renew disclosure on the paywall; %@ is the localized monthly price"
+        )
     }
 
     // MARK: - Actions
@@ -232,7 +230,7 @@ private enum PaywallFailure {
     case restore
     case nothingToRestore
 
-    var title: String {
+    var title: LocalizedStringResource {
         switch self {
         case .purchase: return "Purchase Didn't Go Through"
         case .restore: return "Couldn't Restore Purchases"
@@ -240,7 +238,7 @@ private enum PaywallFailure {
         }
     }
 
-    var message: String {
+    var message: LocalizedStringResource {
         switch self {
         case .purchase: return "Your purchase couldn't be completed. Check your connection and try again."
         case .restore: return "We couldn't reach the App Store. Check your connection and try again."
@@ -253,8 +251,8 @@ private enum PaywallFailure {
 
 struct FeatureRow: View {
     let icon: String
-    let title: String
-    let description: String
+    let title: LocalizedStringResource
+    let description: LocalizedStringResource
 
     var body: some View {
         HStack(alignment: .top, spacing: BSCSpacing.md) {

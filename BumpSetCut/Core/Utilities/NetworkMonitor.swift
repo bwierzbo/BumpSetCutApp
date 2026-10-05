@@ -103,7 +103,7 @@ final class NetworkMonitor {
 
         // Free users require any network connection (WiFi or cellular)
         guard isConnected else {
-            return (false, "Internet connection required. Please connect to WiFi or cellular to process videos. Upgrade to Pro to process offline.")
+            return (false, String(localized: "Internet connection required. Please connect to WiFi or cellular to process videos. Upgrade to Pro to process offline."))
         }
 
         return (true, nil)
