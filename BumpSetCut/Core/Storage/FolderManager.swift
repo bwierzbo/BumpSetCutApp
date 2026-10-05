@@ -13,6 +13,7 @@ import Observation
 @Observable
 class FolderManager {
     private let mediaStore: MediaStore
+    private let metadataStore: MetadataStore
     private let logger = Logger(subsystem: "BumpSetCut", category: "FolderManager")
 
     let libraryType: LibraryType
@@ -42,8 +43,9 @@ class FolderManager {
 
     private var hasLoadedInitialContents = false
 
-    init(mediaStore: MediaStore, libraryType: LibraryType = .saved) {
+    init(mediaStore: MediaStore, libraryType: LibraryType = .saved, metadataStore: MetadataStore? = nil) {
         self.mediaStore = mediaStore
+        self.metadataStore = metadataStore ?? .shared
         self.libraryType = libraryType
         self.currentPath = libraryType.rootPath
     }
@@ -197,6 +199,17 @@ class FolderManager {
         } else {
             throw FolderOperationError.systemError("Failed to delete video")
         }
+    }
+
+    /// Remove a favorited rally clip. The source video's review selections are
+    /// un-starred first, so the rally player doesn't still show it as a favorite.
+    func removeFavorite(_ video: VideoMetadata) async throws {
+        if let sourceVideoId = video.sourceVideoId, let rallyIndex = video.sourceRallyIndex {
+            var selections = metadataStore.loadReviewSelections(for: sourceVideoId)
+            selections.favorited.remove(rallyIndex)
+            try metadataStore.saveReviewSelections(selections, for: sourceVideoId)
+        }
+        try await deleteVideo(video)
     }
 
     // MARK: - Search

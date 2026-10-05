@@ -213,15 +213,7 @@ struct FavoritesGridView: View {
                 if let video = videoToDelete {
                     Task {
                         do {
-                            // Sync unfavorite back to source video's review selections
-                            if let srcVideoId = video.sourceVideoId,
-                               let srcRallyIndex = video.sourceRallyIndex {
-                                let metadataStore = MetadataStore.shared
-                                var selections = metadataStore.loadReviewSelections(for: srcVideoId)
-                                selections.favorited.remove(srcRallyIndex)
-                                try metadataStore.saveReviewSelections(selections, for: srcVideoId)
-                            }
-                            try await folderManager.deleteVideo(video)
+                            try await folderManager.removeFavorite(video)
                         } catch {
                             mutationToast = BSCToastMessage(text: "Couldn't remove favorite", style: .error)
                         }
