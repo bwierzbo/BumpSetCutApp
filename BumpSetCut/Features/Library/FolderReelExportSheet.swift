@@ -102,7 +102,7 @@ struct FolderReelExportSheet: View {
                 .multilineTextAlignment(.center)
 
             if exportStatus == .exporting {
-                Label("\(clips.count) \(clips.count == 1 ? "clip" : "clips") · one video", systemImage: "film.stack")
+                Label("\(clips.count) clips · one video", systemImage: "film.stack")
                     .bscFont(size: 15)
                     .foregroundColor(.bscTextSecondary)
             } else if exportStatus == .preparing {
@@ -253,7 +253,7 @@ struct FolderReelExportSheet: View {
         let totalSourceBytes = clips.reduce(Int64(0)) { $0 + StorageChecker.getFileSize(at: $1.url) }
         let storageCheck = StorageChecker.checkAvailableSpace(requiredBytes: max(totalSourceBytes, 50_000_000))
         if !storageCheck.isSufficient {
-            storageError = storageCheck.shortMessage ?? "Not enough storage space"
+            storageError = storageCheck.shortMessage ?? String(localized: "Not enough storage space")
             return
         }
 
@@ -291,7 +291,7 @@ struct FolderReelExportSheet: View {
         } catch {
             cleanupOrphanedStitchFiles()
             if StorageChecker.isStorageError(error) {
-                storageError = "Your device ran out of storage during export. Free up space and try again."
+                storageError = String(localized: "Your device ran out of storage during export. Free up space and try again.")
             } else {
                 exportStatus = .failed(error.localizedDescription)
             }

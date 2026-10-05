@@ -23,23 +23,23 @@ enum FolderOperationError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidName(let name):
-            return "Invalid folder name: '\(name)'. Names cannot contain special characters or be empty."
+            return String(localized: "Invalid folder name: '\(name)'. Names cannot contain special characters or be empty.")
         case .nameConflict(let name):
-            return "A folder named '\(name)' already exists in this location."
+            return String(localized: "A folder named '\(name)' already exists in this location.")
         case .pathNotFound(let path):
-            return "Folder not found: '\(path)'"
+            return String(localized: "Folder not found: '\(path)'")
         case .circularReference(let path):
-            return "Cannot move folder '\(path)': This would create a circular reference."
+            return String(localized: "Cannot move folder '\(path)': This would create a circular reference.")
         case .notEmpty(let path, let videoCount):
-            return "Folder '\(path)' contains \(videoCount) videos. Please choose an option for handling them."
+            return String(localized: "Folder '\(path)' contains \(videoCount) videos. Please choose an option for handling them.")
         case .permissionDenied(let path):
-            return "Permission denied accessing folder: '\(path)'"
+            return String(localized: "Permission denied accessing folder: '\(path)'")
         case .systemError(let message):
-            return "System error: \(message)"
+            return String(localized: "System error: \(message)", comment: "%@ is an already-localized failure description")
         case .operationCancelled:
-            return "Operation was cancelled"
+            return String(localized: "Operation was cancelled")
         case .maxDepthReached:
-            return "Cannot create folder: Folders can only be created at the root level."
+            return String(localized: "Cannot create folder: Folders can only be created at the root level.")
         }
     }
 }

@@ -61,7 +61,7 @@ struct FavoritesFeedView: View {
                 VStack(spacing: BSCSpacing.md) {
                     HStack {
                         if videos.count > 1 {
-                            Text("\((currentIndex ?? startIndex) + 1)/\(videos.count)")
+                            Text(verbatim: "\(((currentIndex ?? startIndex) + 1).formatted())/\(videos.count.formatted())")
                                 .bscFont(size: 13, weight: .semibold, design: .monospaced)
                                 .foregroundColor(.bscOnMedia)
                                 .padding(.horizontal, BSCSpacing.sm)
@@ -215,7 +215,7 @@ struct FavoritesFeedView: View {
         // VoiceOver equivalents of tap-to-pause and long-press-to-trim.
         .accessibilityElement()
         .accessibilityLabel("Rally \(index + 1) video")
-        .accessibilityValue(currentIndex == index && isPaused ? "Paused" : "")
+        .accessibilityValue(currentIndex == index && isPaused ? Text("Paused") : Text(verbatim: ""))
         .accessibilityAction(named: "Play or pause") {
             guard !isTrimmingMode, currentIndex == index else { return }
             togglePause()

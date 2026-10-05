@@ -38,9 +38,9 @@ enum RallySpaceSaver {
 
         var errorDescription: String? {
             switch self {
-            case .noMetadata: return "This video hasn't been processed yet."
-            case .nothingToSave: return "There isn't enough dead time between rallies to make trimming worthwhile."
-            case .replaceFailed: return "The trimmed video couldn't be installed. The original is untouched."
+            case .noMetadata: return String(localized: "This video hasn't been processed yet.")
+            case .nothingToSave: return String(localized: "There isn't enough dead time between rallies to make trimming worthwhile.")
+            case .replaceFailed: return String(localized: "The trimmed video couldn't be installed. The original is untouched.")
             }
         }
     }

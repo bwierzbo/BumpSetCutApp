@@ -46,7 +46,7 @@ struct StatsCard: View {
             }
 
             // Value
-            Text(stat.value)
+            Text(verbatim: stat.value)
                 .bscFont(size: 22, weight: .bold)
                 .foregroundColor(.bscTextPrimary)
 
@@ -103,7 +103,7 @@ struct StatsCard: View {
 struct SingleStatCard: View {
     let icon: String
     let value: String
-    let label: String
+    let label: LocalizedStringResource
     let color: Color
 
     var body: some View {
@@ -121,7 +121,7 @@ struct SingleStatCard: View {
 
             // Text
             VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                Text(value)
+                Text(verbatim: value)
                     .bscFont(size: 20, weight: .bold)
                     .foregroundColor(.bscTextPrimary)
 

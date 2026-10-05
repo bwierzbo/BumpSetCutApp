@@ -204,7 +204,7 @@ enum ManifestLoadOutcome: Equatable {
 
     private enum ManifestWriteError: LocalizedError {
         case readOnly
-        var errorDescription: String? { "The library index couldn't be read at launch, so it isn't being overwritten." }
+        var errorDescription: String? { String(localized: "The library index couldn't be read at launch, so it isn't being overwritten.") }
     }
 
     private func writeManifest() throws {
@@ -419,11 +419,11 @@ extension MediaStore {
         var errorDescription: String? {
             switch self {
             case .invalidDestination:
-                return "That folder isn't available anymore."
+                return String(localized: "That folder isn't available anymore.")
             case .storageFull:
-                return "Your device ran out of storage space while importing the video. Free up space in Settings > General > iPhone Storage, then try again."
+                return String(localized: "Your device ran out of storage space while importing the video. Free up space in Settings > General > iPhone Storage, then try again.")
             case .registrationFailed:
-                return "The video couldn't be added to your library."
+                return String(localized: "The video couldn't be added to your library.")
             case .fileSystem(let error):
                 return error.localizedDescription
             }

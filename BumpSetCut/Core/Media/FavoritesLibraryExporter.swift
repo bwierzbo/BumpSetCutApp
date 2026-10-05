@@ -109,7 +109,8 @@ struct FavoritesLibraryExporter {
                 guard mediaStore.addVideo(
                     at: destURL,
                     toFolder: destFolderPath,
-                    customName: "\(source.displayName) - Rally \(rally.index + 1)",
+                    customName: String(localized: "\(source.displayName) - Rally \(rally.index + 1)",
+                                       comment: "Name of a favorited rally clip; %1$@ is the source video name, %2$lld the rally number"),
                     sourceVideoId: source.id,
                     sourceRallyIndex: rally.index
                 ) else {

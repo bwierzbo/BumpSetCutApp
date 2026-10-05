@@ -77,11 +77,15 @@ enum StorageChecker {
         let nsError = error as NSError
         // POSIX "No space left on device" (errno 28)
         if nsError.domain == NSPOSIXErrorDomain && nsError.code == 28 { return true }
+        // Cocoa out-of-space write error; AVFoundation's disk-full code. These
+        // are locale-independent, unlike the description check below.
+        if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileWriteOutOfSpaceError { return true }
+        if nsError.domain == "AVFoundationErrorDomain" && nsError.code == -11807 { return true }
         // Cocoa file write error with underlying POSIX 28
         if nsError.domain == NSCocoaErrorDomain,
            let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
            underlying.domain == NSPOSIXErrorDomain && underlying.code == 28 { return true }
-        // Check localizedDescription as last resort
+        // Check localizedDescription as last resort (only matches English text)
         let desc = error.localizedDescription.lowercased()
         return desc.contains("no space left") || desc.contains("not enough space") || desc.contains("disk full")
     }
@@ -113,7 +117,7 @@ enum StorageCheckResult {
             let availableStr = StorageChecker.formatBytes(available)
             let requiredStr = StorageChecker.formatBytes(required)
             let shortageStr = StorageChecker.formatBytes(shortage)
-            return "Not enough storage space. You have \(availableStr) available but need \(requiredStr). Please free up at least \(shortageStr) to continue."
+            return String(localized: "Not enough storage space. You have \(availableStr) available but need \(requiredStr). Please free up at least \(shortageStr) to continue.")
         }
     }
 
@@ -122,7 +126,7 @@ enum StorageCheckResult {
         case .sufficient:
             return nil
         case .insufficient(_, _, let shortage):
-            return "Free up \(StorageChecker.formatBytes(shortage)) to continue"
+            return String(localized: "Free up \(StorageChecker.formatBytes(shortage)) to continue")
         }
     }
 }

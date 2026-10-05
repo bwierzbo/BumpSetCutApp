@@ -30,12 +30,15 @@ struct ClipPickerItem<Payload>: Identifiable {
 }
 
 struct ClipPickerSheet<Payload>: View {
+    /// Display name of what's being posted from (a folder or video name, or a
+    /// caller-localized label) — shown as-is.
     let title: String
     let items: [ClipPickerItem<Payload>]
     let maxSelection: Int
-    /// Label for the confirm button, given the number selected. Posting and
-    /// exporting share this sheet but finish with different verbs.
-    var confirmTitle: (Int) -> String = { "Post \($0) \($0 == 1 ? "Rally" : "Rallies")" }
+    /// Label for the confirm button, given the number selected (already
+    /// localized). Posting and exporting share this sheet but finish with
+    /// different verbs.
+    var confirmTitle: (Int) -> String = { String(localized: "Post \($0) Rallies", comment: "Clip picker confirm button; plural on the count") }
     let onConfirm: ([Payload]) -> Void
     let onCancel: () -> Void
 
@@ -77,7 +80,7 @@ struct ClipPickerSheet<Payload>: View {
                         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.payload) })
                         onConfirm(selection.compactMap { byID[$0] })
                     } label: {
-                        Text(confirmTitle(selection.count))
+                        Text(verbatim: confirmTitle(selection.count))
                             .bscFont(size: 16, weight: .bold)
                             .foregroundColor(.bscOnPrimary)
                             .frame(maxWidth: .infinity)
@@ -117,7 +120,7 @@ struct ClipPickerSheet<Payload>: View {
                             .accessibilityIdentifier(AccessibilityID.Favorites.clipPickerSelectAll)
                         }
 
-                        Text("\(selection.count)/\(maxSelection)")
+                        Text(verbatim: "\(selection.count.formatted())/\(maxSelection.formatted())")
                             .bscFont(size: 14, weight: .semibold, design: .monospaced)
                             .foregroundColor(.bscTextSecondary)
                     }
@@ -159,7 +162,7 @@ struct ClipPickerSheet<Payload>: View {
                 if let previewName {
                     VStack {
                         Spacer()
-                        Text(previewName)
+                        Text(verbatim: previewName)
                             .bscFont(size: 15, weight: .semibold)
                             .foregroundColor(.bscOnMedia)
                             .padding(.horizontal, BSCSpacing.lg)
@@ -199,7 +202,7 @@ struct ClipPickerSheet<Payload>: View {
                 // while previewing so it doesn't sit over the playing clip.
                 Group {
                     if let order {
-                        Text("\(order + 1)")
+                        Text(verbatim: (order + 1).formatted())
                             .bscFont(size: 14, weight: .bold, design: .monospaced)
                             .foregroundColor(.bscOnPrimary)
                             .frame(width: badgeSize, height: badgeSize)
@@ -232,12 +235,12 @@ struct ClipPickerSheet<Payload>: View {
             }
 
             HStack(spacing: BSCSpacing.xs) {
-                Text(item.displayName)
+                Text(verbatim: item.displayName)
                     .bscFont(size: 12, weight: .medium)
                     .foregroundColor(.bscTextPrimary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Text(formatDuration(item.duration))
+                Text(verbatim: item.duration.formattedClock())
                     .bscFont(size: 11, design: .monospaced)
                     .foregroundColor(.bscTextSecondary)
             }
@@ -252,7 +255,9 @@ struct ClipPickerSheet<Payload>: View {
         .onTapGesture { toggle(item) }
         .animation(.bscQuick, value: order)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(item.isPosted ? "\(item.displayName), already posted" : item.displayName)
+        .accessibilityLabel(item.isPosted
+            ? Text("\(item.displayName), already posted", comment: "Clip picker cell VoiceOver label; %@ is the clip name")
+            : Text(verbatim: item.displayName))
         .accessibilityAddTraits(order != nil ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { toggle(item) }
     }
@@ -263,11 +268,5 @@ struct ClipPickerSheet<Payload>: View {
         } else if !atCapacity {
             selection.append(item.id)
         }
-    }
-
-    private func formatDuration(_ seconds: Double) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
     }
 }

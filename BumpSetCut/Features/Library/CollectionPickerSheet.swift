@@ -13,9 +13,10 @@ import SwiftUI
 struct CollectionPickerSheet: View {
     let mediaStore: MediaStore
     let libraryType: LibraryType
-    let title: String
-    let rootLabel: String
-    let confirmLabel: String
+    let title: LocalizedStringResource
+    let rootLabel: LocalizedStringResource
+    /// Action phrase before the destination on the confirm button ("Save to").
+    let confirmLabel: LocalizedStringResource
     let onSelect: (String?) -> Void
     let onCancel: () -> Void
 
@@ -28,9 +29,9 @@ struct CollectionPickerSheet: View {
     init(
         mediaStore: MediaStore,
         libraryType: LibraryType,
-        title: String,
-        rootLabel: String,
-        confirmLabel: String,
+        title: LocalizedStringResource,
+        rootLabel: LocalizedStringResource,
+        confirmLabel: LocalizedStringResource,
         initialSelection: String? = nil,
         onSelect: @escaping (String?) -> Void,
         onCancel: @escaping () -> Void
@@ -53,7 +54,7 @@ struct CollectionPickerSheet: View {
                 VStack(spacing: 0) {
                     ScrollView {
                         LazyVStack(spacing: BSCSpacing.xs) {
-                            folderRow(name: nil, label: rootLabel, icon: "star.fill", color: .bscBlue)
+                            folderRow(name: nil, label: String(localized: rootLabel), icon: "star.fill", color: .bscBlue)
 
                             if !folders.isEmpty {
                                 Divider()
@@ -72,7 +73,8 @@ struct CollectionPickerSheet: View {
                         Button {
                             onSelect(selectedName)
                         } label: {
-                            Text("\(confirmLabel) \(selectedName ?? rootLabel)")
+                            Text("\(confirmLabel) \(selectedName ?? String(localized: rootLabel))",
+                                 comment: "Collection picker confirm button: action phrase, then destination (e.g. Save to Favorites)")
                                 .bscFont(size: 16, weight: .bold)
                                 .foregroundColor(.bscOnPrimary)
                                 .frame(maxWidth: .infinity)
@@ -97,7 +99,7 @@ struct CollectionPickerSheet: View {
                     .background(Color.bscBackgroundElevated)
                 }
             }
-            .navigationTitle(title)
+            .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -117,6 +119,7 @@ struct CollectionPickerSheet: View {
         .accessibilityIdentifier(AccessibilityID.CollectionPicker.sheet)
     }
 
+    /// `label` is display text: the localized root label or a folder name.
     private func folderRow(name: String?, label: String, icon: String, color: Color) -> some View {
         let isSelected = selectedName == name
         return Button {
@@ -133,7 +136,7 @@ struct CollectionPickerSheet: View {
                         .foregroundColor(color)
                 }
 
-                Text(label)
+                Text(verbatim: label)
                     .bscFont(size: 16, weight: .medium)
                     .foregroundColor(.bscTextPrimary)
 

@@ -136,6 +136,7 @@ struct EnhancedUploadButton: View {
 extension DateFormatter {
     static let yyyyMMdd_HHmmss: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX") // file names, not display text
         formatter.dateFormat = "yyyyMMdd_HHmmss"
         return formatter
     }()

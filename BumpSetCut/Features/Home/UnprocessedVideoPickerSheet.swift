@@ -130,7 +130,7 @@ struct UnprocessedVideoPickerSheet: View {
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.forward")
                     .bscFont(size: 14, weight: .semibold)
             }
             .foregroundColor(.bscOnPrimary)
@@ -188,15 +188,15 @@ struct UnprocessedVideoPickerSheet: View {
 
                 HStack(spacing: BSCSpacing.sm) {
                     if let duration = video.duration {
-                        Text(formatDuration(duration))
+                        Text(verbatim: duration.formattedClock())
                             .bscFont(size: 12)
                             .foregroundColor(.bscTextSecondary)
 
-                        Text("\u{2022}")
+                        Text(verbatim: "\u{2022}")
                             .foregroundColor(.bscTextTertiary)
                     }
 
-                    Text(formatFileSize(video.fileSize))
+                    Text(verbatim: StorageChecker.formatBytes(video.fileSize))
                         .bscFont(size: 12)
                         .foregroundColor(.bscTextSecondary)
                 }
@@ -204,7 +204,7 @@ struct UnprocessedVideoPickerSheet: View {
 
             Spacer()
 
-            Image(systemName: "chevron.right")
+            Image(systemName: "chevron.forward")
                 .bscFont(size: 14, weight: .medium)
                 .foregroundColor(.bscTextSecondary)
         }
@@ -215,19 +215,6 @@ struct UnprocessedVideoPickerSheet: View {
             RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
                 .stroke(Color.bscSurfaceBorder, lineWidth: 1)
         )
-    }
-
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        let minutes = Int(duration) / 60
-        let seconds = Int(duration) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
-    private func formatFileSize(_ size: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: size)
     }
 }
 

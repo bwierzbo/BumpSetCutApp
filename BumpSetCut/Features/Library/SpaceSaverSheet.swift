@@ -187,7 +187,7 @@ struct SpaceSaverSheet: View {
         }
         self.estimate = estimate
         phase = .ready(
-            savedText: ByteCountFormatter.string(fromByteCount: estimate.savedBytes, countStyle: .file),
+            savedText: StorageChecker.formatBytes(estimate.savedBytes),
             minutesText: formatMinutes(estimate.savedSeconds)
         )
     }
@@ -209,7 +209,7 @@ struct SpaceSaverSheet: View {
                 }
                 await MainActor.run {
                     UINotificationFeedbackGenerator.success()
-                    phase = .done(savedText: ByteCountFormatter.string(fromByteCount: freed, countStyle: .file))
+                    phase = .done(savedText: StorageChecker.formatBytes(freed))
                 }
             } catch {
                 await MainActor.run {
@@ -220,12 +220,14 @@ struct SpaceSaverSheet: View {
         }
     }
 
+    /// "2m 30s", or whole units spelled out: "2 minutes", "45 seconds".
     private func formatMinutes(_ seconds: Double) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        if mins > 0 {
-            return secs > 0 ? "\(mins)m \(secs)s" : "\(mins) minutes"
+        let total = seconds.isFinite ? max(0, Int(seconds)) : 0
+        let duration = Duration.seconds(total)
+        if total >= 60 && total % 60 != 0 {
+            return duration.formatted(.units(allowed: [.minutes, .seconds], width: .narrow))
         }
-        return "\(secs) seconds"
+        let unit: Duration.UnitsFormatStyle.Unit = total >= 60 ? .minutes : .seconds
+        return duration.formatted(.units(allowed: [unit], width: .wide, zeroValueUnits: .show(length: 1)))
     }
 }

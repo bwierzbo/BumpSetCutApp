@@ -16,27 +16,46 @@ final class HomeViewModel {
     var totalTimeCutSeconds: Double { LifetimeStatsStore.shared.totalTimeCutSeconds }
 
     /// Compact display of total time cut, scaling up through units:
-    /// "45s" → "38m" → "2h 14m" → "3d 4h" → "1y 23d".
+    /// "45s" → "38m" → "2h 14m" → "3d 4h" → "1y 23d" (locale-aware unit
+    /// abbreviations; partial lower units are dropped, not rounded).
     var timeCutDisplay: String {
-        let total = Int(totalTimeCutSeconds.rounded())
+        Self.formatTimeCut(seconds: totalTimeCutSeconds)
+    }
+
+    static func formatTimeCut(seconds: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        let total = seconds.isFinite ? max(0, Int(seconds.rounded())) : 0
         let minute = 60
         let hour = 3600
         let day = 86_400
         let year = 365 * day
 
+        let components: DateComponents
+        let units: NSCalendar.Unit
         if total >= year {
-            return "\(total / year)y \((total % year) / day)d"
+            components = DateComponents(year: total / year, day: (total % year) / day)
+            units = [.year, .day]
+        } else if total >= day {
+            components = DateComponents(day: total / day, hour: (total % day) / hour)
+            units = [.day, .hour]
+        } else if total >= hour {
+            components = DateComponents(hour: total / hour, minute: (total % hour) / minute)
+            units = [.hour, .minute]
+        } else if total >= minute {
+            components = DateComponents(minute: total / minute)
+            units = [.minute]
+        } else {
+            components = DateComponents(second: total)
+            units = [.second]
         }
-        if total >= day {
-            return "\(total / day)d \((total % day) / hour)h"
-        }
-        if total >= hour {
-            return "\(total / hour)h \((total % hour) / minute)m"
-        }
-        if total >= minute {
-            return "\(total / minute)m"
-        }
-        return "\(total)s"
+
+        let formatter = DateComponentsFormatter()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = locale
+        formatter.calendar = calendar
+        formatter.unitsStyle = .abbreviated
+        formatter.allowedUnits = units
+        formatter.zeroFormattingBehavior = .pad
+        return formatter.string(from: components) ?? ""
     }
 
     // MARK: - Initialization
@@ -96,8 +115,9 @@ final class HomeViewModel {
 struct StatItem: Identifiable {
     let id = UUID()
     let icon: String
+    /// Already-formatted display value (a number, duration, or tier name).
     let value: String
-    let label: String
+    let label: LocalizedStringResource
     let color: Color
 }
 
@@ -109,7 +129,7 @@ extension HomeViewModel {
             return [
                 StatItem(
                     icon: "figure.volleyball",
-                    value: "\(totalRallies)",
+                    value: totalRallies.formatted(),
                     label: "Rallies",
                     color: .bscPrimaryText
                 ),
@@ -121,7 +141,7 @@ extension HomeViewModel {
                 ),
                 StatItem(
                     icon: "crown.fill",
-                    value: "Pro",
+                    value: String(localized: "Pro", comment: "Subscription tier name shown as a stat value"),
                     label: "Unlimited",
                     color: .bscWarningText
                 )
@@ -145,7 +165,7 @@ extension HomeViewModel {
             return [
                 StatItem(
                     icon: "figure.volleyball",
-                    value: "\(totalRallies)",
+                    value: totalRallies.formatted(),
                     label: "Rallies",
                     color: .bscPrimaryText
                 ),
@@ -157,7 +177,8 @@ extension HomeViewModel {
                 ),
                 StatItem(
                     icon: batteryIcon,
-                    value: "\(Int(remainingMin))m",
+                    value: Duration.seconds(Int(max(0, remainingMin)) * 60)
+                        .formatted(.units(allowed: [.minutes], width: .narrow, zeroValueUnits: .show(length: 1))),
                     label: "This Week",
                     color: remainingMin > 0 ? .bscPrimaryText : .bscErrorText
                 )

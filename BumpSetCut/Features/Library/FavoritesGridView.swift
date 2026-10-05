@@ -76,11 +76,12 @@ struct FavoritesGridView: View {
         folderManager.getSortedVideos(by: sortOption.videoSort)
     }
 
+    /// Navigation title: the localized root name, else the folder's own name.
     private var title: String {
         if folderManager.isAtLibraryRoot {
-            return "Favorite Rallies"
+            return String(localized: "Favorite Rallies")
         }
-        return folderManager.currentPath.components(separatedBy: "/").last ?? "Favorites"
+        return folderManager.currentPath.components(separatedBy: "/").last ?? String(localized: "Favorites")
     }
 
     var body: some View {
@@ -191,7 +192,6 @@ struct FavoritesGridView: View {
                     )
                 },
                 maxSelection: ShareRallyViewModel.maxClipsPerPost,
-                confirmTitle: { "Post \($0) \($0 == 1 ? "Rally" : "Rallies")" },
                 onConfirm: { selected in
                     clipPickerTarget = nil
                     guard !selected.isEmpty else { return }
@@ -254,7 +254,7 @@ struct FavoritesGridView: View {
     private var header: some View {
         HStack {
             Spacer()
-            Text("\(videos.count) \(videos.count == 1 ? "rally" : "rallies")")
+            Text("\(videos.count) rallies")
                 .bscFont(size: 13)
                 .foregroundColor(.bscTextSecondary)
                 .accessibilityIdentifier(AccessibilityID.Favorites.rallyCount)
@@ -264,7 +264,7 @@ struct FavoritesGridView: View {
 
     // MARK: - Section Header (library-style)
 
-    private func sectionHeader(_ title: String) -> some View {
+    private func sectionHeader(_ title: LocalizedStringResource) -> some View {
         Text(title)
             .bscFont(size: 16, weight: .semibold)
             .foregroundColor(.bscTextSecondary)
@@ -346,7 +346,7 @@ struct FavoritesGridView: View {
                     gridCell(video)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(video.displayName)
+                .accessibilityLabel(Text(verbatim: video.displayName))
                 .accessibilityIdentifier("favorites.gridCell.\(index)")
                 .draggable(video)
                 .contextMenu {
@@ -368,7 +368,7 @@ struct FavoritesGridView: View {
                     listRow(video)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(video.displayName)
+                .accessibilityLabel(Text(verbatim: video.displayName))
                 .accessibilityIdentifier("favorites.listRow.\(index)")
                 .draggable(video)
                 .contextMenu {
@@ -386,14 +386,14 @@ struct FavoritesGridView: View {
                 .clipShape(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous))
 
             VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                Text(video.displayName)
+                Text(verbatim: video.displayName)
                     .bscFont(size: 15, weight: .medium)
                     .foregroundColor(.bscTextPrimary)
                     .lineLimit(1)
 
                 HStack(spacing: BSCSpacing.xs) {
                     if let duration = video.duration {
-                        Text(formatDuration(duration))
+                        Text(verbatim: duration.formattedClock())
                             .bscFont(size: 12, design: .monospaced)
                     }
                     Text(video.createdDate.formatted(date: .abbreviated, time: .omitted))
@@ -404,7 +404,7 @@ struct FavoritesGridView: View {
 
             Spacer()
 
-            Image(systemName: "chevron.right")
+            Image(systemName: "chevron.forward")
                 .bscFont(size: 12)
                 .foregroundColor(.bscTextSecondary)
         }
@@ -466,7 +466,7 @@ struct FavoritesGridView: View {
                 .clipped()
 
                 if let duration = video.duration {
-                    Text(formatDuration(duration))
+                    Text(verbatim: duration.formattedClock())
                         .bscFont(size: 10, weight: .medium, design: .monospaced)
                         .foregroundColor(.bscOnMedia)
                         .padding(.horizontal, BSCSpacing.xs)
@@ -492,7 +492,7 @@ struct FavoritesGridView: View {
                 Menu {
                     Picker("Sort", selection: $sortOption) {
                         ForEach(ContentSortOption.allCases, id: \.self) { option in
-                            Label(option.rawValue, systemImage: option.icon)
+                            Label { Text(option.displayName) } icon: { Image(systemName: option.icon) }
                                 .tag(option)
                         }
                     }
@@ -501,7 +501,7 @@ struct FavoritesGridView: View {
 
                     Picker("View", selection: $viewMode) {
                         ForEach(ViewMode.allCases, id: \.self) { mode in
-                            Label(mode.rawValue, systemImage: mode.icon)
+                            Label { Text(mode.displayName) } icon: { Image(systemName: mode.icon) }
                                 .tag(mode)
                         }
                     }
@@ -609,7 +609,7 @@ struct FavoritesGridView: View {
                             moveTarget = nil
                         }
                     } label: {
-                        Label(folder.name, systemImage: "folder")
+                        Label { Text(verbatim: folder.name) } icon: { Image(systemName: "folder") }
                     }
                     .disabled(video.folderPath == folder.path)
                 }
@@ -660,7 +660,7 @@ struct FavoritesGridView: View {
             }
             if skipped > 0 {
                 mutationToast = BSCToastMessage(
-                    text: "\(skipped) \(skipped == 1 ? "clip" : "clips") over 1 minute skipped",
+                    text: "\(skipped) clips over 1 minute skipped",
                     style: .info
                 )
             }
@@ -686,11 +686,5 @@ struct FavoritesGridView: View {
             showingCreateFolder = false
             newFolderName = ""
         }
-    }
-
-    private func formatDuration(_ seconds: TimeInterval) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
     }
 }

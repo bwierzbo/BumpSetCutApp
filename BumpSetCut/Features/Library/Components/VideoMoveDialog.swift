@@ -41,7 +41,7 @@ struct VideoMoveDialog: View {
                             .textCase(.uppercase)
                             .tracking(0.5)
 
-                        Text(currentFolder.isEmpty ? "Root" : currentFolder)
+                        (currentFolder.isEmpty ? Text("Root") : Text(verbatim: currentFolder))
                             .bscFont(size: 14)
                             .foregroundColor(.bscTextPrimary)
                             .padding(.horizontal, BSCSpacing.md)
@@ -69,8 +69,8 @@ struct VideoMoveDialog: View {
                         FolderRowView(
                             icon: "house.fill",
                             iconColor: .bscPrimary,
-                            name: "Root",
-                            subtitle: "Main folder",
+                            name: String(localized: "Root"),
+                            subtitle: String(localized: "Main folder"),
                             isSelected: selectedFolderPath == libraryRootPath,
                             isDisabled: libraryRootPath == currentFolder
                         ) {
@@ -83,7 +83,7 @@ struct VideoMoveDialog: View {
                                 icon: "folder.fill",
                                 iconColor: .bscPrimary,
                                 name: folder.name,
-                                subtitle: "\(folder.videoCount) videos",
+                                subtitle: String(localized: "\(folder.videoCount) videos"),
                                 isSelected: selectedFolderPath == folder.path,
                                 isDisabled: folder.path == currentFolder
                             ) {
@@ -178,6 +178,7 @@ struct VideoMoveDialog: View {
 private struct FolderRowView: View {
     let icon: String
     let iconColor: Color
+    /// Display text (already localized or a folder name), shown as-is.
     let name: String
     let subtitle: String
     let isSelected: Bool
@@ -213,11 +214,11 @@ private struct FolderRowView: View {
                 .frame(width: 36, height: 36)
 
                 VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                    Text(name)
+                    Text(verbatim: name)
                         .bscFont(size: 15, weight: .medium)
                         .foregroundColor(.bscTextPrimary)
 
-                    Text(subtitle)
+                    Text(verbatim: subtitle)
                         .bscFont(size: 12)
                         .foregroundColor(.bscTextSecondary)
                 }

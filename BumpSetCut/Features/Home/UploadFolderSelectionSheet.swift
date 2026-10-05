@@ -29,7 +29,7 @@ struct UploadFolderSelectionSheet: View {
                     ScrollView {
                         LazyVStack(spacing: BSCSpacing.xs) {
                             // Library root option
-                            folderRow(name: "Library", path: LibraryType.saved.rootPath, icon: "house.fill", color: .bscBlue)
+                            folderRow(name: String(localized: "Library"), path: LibraryType.saved.rootPath, icon: "house.fill", color: .bscBlue)
 
                             if !folders.isEmpty {
                                 Divider()
@@ -49,7 +49,7 @@ struct UploadFolderSelectionSheet: View {
                         Button {
                             onFolderSelected(selectedFolderPath)
                         } label: {
-                            Text("Upload to \(selectedFolderPath == LibraryType.saved.rootPath ? "Library" : selectedFolderPath.components(separatedBy: "/").last ?? "Folder")")
+                            Text("Upload to \(destinationName)", comment: "Upload button; %@ is the destination folder name or Library")
                                 .bscFont(size: 16, weight: .bold)
                                 .foregroundColor(.bscOnPrimary)
                                 .frame(maxWidth: .infinity)
@@ -91,6 +91,14 @@ struct UploadFolderSelectionSheet: View {
         }
     }
 
+    /// The chosen destination as shown on the upload button: "Library" at the
+    /// root, else the folder's own name.
+    private var destinationName: String {
+        if selectedFolderPath == LibraryType.saved.rootPath { return String(localized: "Library") }
+        return selectedFolderPath.components(separatedBy: "/").last ?? String(localized: "Folder")
+    }
+
+    /// `name` is display text: a localized label for the root, else a folder name.
     private func folderRow(name: String, path: String, icon: String, color: Color) -> some View {
         Button {
             selectedFolderPath = path

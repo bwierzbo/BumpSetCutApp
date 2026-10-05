@@ -308,7 +308,7 @@ struct HomeView: View {
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.forward")
                     .bscFont(size: 16, weight: .semibold)
             }
             .foregroundColor(.bscOnPrimary)
@@ -336,7 +336,7 @@ struct HomeView: View {
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.forward")
                     .bscFont(size: 14, weight: .semibold)
             }
             .foregroundColor(.bscTextPrimary)
@@ -395,7 +395,7 @@ struct HomeView: View {
 
     private func quickActionContent(
         icon: String,
-        title: String,
+        title: LocalizedStringResource,
         color: Color
     ) -> some View {
         // 6pt gap is deliberate; BSCSpacing has no token between xs (4) and sm (8)

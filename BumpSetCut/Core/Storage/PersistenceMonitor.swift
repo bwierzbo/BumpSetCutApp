@@ -26,7 +26,7 @@ final class PersistenceMonitor {
     @ObservationIgnored private var retries: [String: () -> Bool] = [:]
     @ObservationIgnored private let logger = Logger(subsystem: "BumpSetCut", category: "Persistence")
 
-    static let defaultFailureMessage = "Couldn't save changes. We'll keep trying."
+    static let defaultFailureMessage = String(localized: "Couldn't save changes. We'll keep trying.")
 
     /// Surface a failed save. With `retryKey`/`retry`, the save is re-attempted
     /// by `retryPending()` until it reports success.

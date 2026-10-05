@@ -114,7 +114,7 @@ struct FavoritesTipsOverlay: View {
         }
     }
 
-    private func tipRow(icon: String, color: Color, title: String, detail: String) -> some View {
+    private func tipRow(icon: String, color: Color, title: LocalizedStringResource, detail: LocalizedStringResource) -> some View {
         HStack(alignment: .top, spacing: BSCSpacing.md) {
             ZStack {
                 Circle()

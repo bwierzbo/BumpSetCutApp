@@ -118,7 +118,7 @@ class FolderManager {
             refreshContents()
             logger.info("Created folder: \(sanitizedName)")
         } else {
-            throw FolderOperationError.systemError("Failed to create folder")
+            throw FolderOperationError.systemError(String(localized: "Failed to create folder"))
         }
     }
 
@@ -139,7 +139,7 @@ class FolderManager {
             refreshContents()
             logger.info("Renamed folder: \(folder.path) to \(sanitizedName)")
         } else {
-            throw FolderOperationError.systemError("Failed to rename folder")
+            throw FolderOperationError.systemError(String(localized: "Failed to rename folder"))
         }
     }
 
@@ -162,7 +162,7 @@ class FolderManager {
             refreshContents()
             logger.info("Deleted folder: \(folder.path)")
         } else {
-            throw FolderOperationError.systemError("Failed to delete folder")
+            throw FolderOperationError.systemError(String(localized: "Failed to delete folder"))
         }
     }
 
@@ -175,7 +175,7 @@ class FolderManager {
             refreshContents()
             logger.info("Moved video: \(video.fileName) to \(targetFolderPath)")
         } else {
-            throw FolderOperationError.systemError("Failed to move video")
+            throw FolderOperationError.systemError(String(localized: "Failed to move video"))
         }
     }
 
@@ -186,7 +186,7 @@ class FolderManager {
             refreshContents()
             logger.info("Renamed video: \(video.fileName) to \(newName)")
         } else {
-            throw FolderOperationError.systemError("Failed to rename video")
+            throw FolderOperationError.systemError(String(localized: "Failed to rename video"))
         }
     }
 
@@ -197,7 +197,7 @@ class FolderManager {
             refreshContents()
             logger.info("Deleted video: \(video.fileName)")
         } else {
-            throw FolderOperationError.systemError("Failed to delete video")
+            throw FolderOperationError.systemError(String(localized: "Failed to delete video"))
         }
     }
 

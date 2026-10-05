@@ -191,7 +191,7 @@ extension UploadCoordinator {
             try FileManager.default.copyItem(at: url, to: tempURL)
         } catch {
             logger.error("Failed to copy video file: \(error.localizedDescription)")
-            importErrorMessage = "The video file couldn't be read. Try again, or copy it to On My iPhone first."
+            importErrorMessage = String(localized: "The video file couldn't be read. Try again, or copy it to On My iPhone first.")
             showImportError = true
             return
         }
@@ -202,13 +202,13 @@ extension UploadCoordinator {
         guard isPlayable else {
             try? FileManager.default.removeItem(at: tempURL)
             logger.error("Picked file is not a playable video, rejecting")
-            importErrorMessage = "That file isn't a playable video."
+            importErrorMessage = String(localized: "That file isn't a playable video.")
             showImportError = true
             return
         }
 
         importWasCancelled = false
-        currentVideoName = customName ?? "video"
+        currentVideoName = customName ?? String(localized: "video", comment: "Placeholder for an unnamed video being imported, as in Uploading video…")
         isUploadInProgress = true
         guard saveVideoFromURL(tempURL, destinationFolder: destinationFolder, customName: customName) else {
             isUploadInProgress = false
@@ -233,7 +233,7 @@ extension UploadCoordinator {
         await MainActor.run {
             importProgress = 0
             importWasCancelled = false
-            currentVideoName = MediaStore.sanitizedVideoName(customName) ?? "video"
+            currentVideoName = MediaStore.sanitizedVideoName(customName) ?? String(localized: "video", comment: "Placeholder for an unnamed video being imported, as in Uploading video…")
             uploadProgressText = "Importing from Photos…"
             beginImportContinuation()
         }
@@ -278,7 +278,7 @@ extension UploadCoordinator {
             await MainActor.run {
                 importProgress = nil
                 isUploadInProgress = false
-                importErrorMessage = "The video couldn't be imported from Photos. It may still be downloading from iCloud — open it in the Photos app to finish the download, then try again."
+                importErrorMessage = String(localized: "The video couldn't be imported from Photos. It may still be downloading from iCloud — open it in the Photos app to finish the download, then try again.")
                 showImportError = true
                 endImportContinuation(success: false)
             }
@@ -293,7 +293,7 @@ extension UploadCoordinator {
             await MainActor.run {
                 importProgress = nil
                 isUploadInProgress = false
-                storageWarningMessage = storageCheck.errorMessage ?? "Not enough storage space"
+                storageWarningMessage = storageCheck.errorMessage ?? String(localized: "Not enough storage space")
                 showStorageWarning = true
                 endImportContinuation(success: false)
             }
@@ -302,7 +302,7 @@ extension UploadCoordinator {
             return
         }
 
-        let fileSizeString = ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
+        let fileSizeString = StorageChecker.formatBytes(fileSize)
         await MainActor.run {
             currentFileSize = fileSizeString
             uploadProgressText = "Saving \(fileSizeString) video..."
@@ -468,9 +468,9 @@ extension UploadCoordinator {
     private static func importErrorMessage(for error: Error) -> String {
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain || nsError.domain == "CKErrorDomain" {
-            return "This video couldn't be downloaded from iCloud. Check your internet connection, make sure the full video has finished downloading in the Photos app, then try again."
+            return String(localized: "This video couldn't be downloaded from iCloud. Check your internet connection, make sure the full video has finished downloading in the Photos app, then try again.")
         }
-        return "The video couldn't be imported from Photos. It may still be downloading from iCloud — open it in the Photos app to finish the download, then try again."
+        return String(localized: "The video couldn't be imported from Photos. It may still be downloading from iCloud — open it in the Photos app to finish the download, then try again.")
     }
 
     /// Hand a temp file we own to the library's single import path. Returns
@@ -481,9 +481,9 @@ extension UploadCoordinator {
         if let name = MediaStore.sanitizedVideoName(customName) {
             resolvedName = name
         } else {
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "dd/MM/yyyy"
-            resolvedName = "Uploaded video \(dateFormatter.string(from: Date()))"
+            let date = Date().formatted(date: .numeric, time: .omitted)
+            resolvedName = String(localized: "Uploaded video \(date)",
+                                  comment: "Default name for an imported video; %@ is today's date")
         }
 
         do {
