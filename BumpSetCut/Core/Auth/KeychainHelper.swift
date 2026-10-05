@@ -8,23 +8,33 @@ enum KeychainHelper {
 
     // MARK: - Raw Data Operations
 
+    /// Update in place, adding only when the item doesn't exist yet — never
+    /// delete-then-add, which loses the stored value if the add then fails.
     static func save(data: Data, for key: String) throws {
-        // Delete existing item first
-        try? delete(for: key)
-
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
+            kSecAttrAccount as String: key
+        ]
+        let attributes: [String: Any] = [
             kSecValueData as String: data,
             // ThisDeviceOnly: tokens never sync to iCloud Keychain or migrate off-device
             // via encrypted backups, while still being available after first unlock.
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
 
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw KeychainError.saveFailed(status)
+        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        switch updateStatus {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            let addQuery = query.merging(attributes) { _, new in new }
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw KeychainError.saveFailed(addStatus)
+            }
+        default:
+            throw KeychainError.saveFailed(updateStatus)
         }
     }
 
