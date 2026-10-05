@@ -45,6 +45,7 @@ final class RallyPlayerViewModel {
     let playerCache = RallyPlayerCache()
     let thumbnailCache = RallyThumbnailCache()
     let metadataStore = MetadataStore.shared
+    private let flywheel: RallyFlywheelReporter
 
     // MARK: - Task Management
 
@@ -382,9 +383,10 @@ final class RallyPlayerViewModel {
 
     // MARK: - Initialization
 
-    init(videoMetadata: VideoMetadata, mediaStore: MediaStore) {
+    init(videoMetadata: VideoMetadata, mediaStore: MediaStore, flywheel: RallyFlywheelReporter = .live) {
         self.videoMetadata = videoMetadata
         self.mediaStore = mediaStore
+        self.flywheel = flywheel
     }
 
     // MARK: - Loading
@@ -625,38 +627,34 @@ final class RallyPlayerViewModel {
 
     /// True when the user has opted into contributing training data — gates the
     /// "report a mistake" affordance in the rally UI.
-    var isFlywheelEnabled: Bool { AppSettings.shared.enableDataFlywheel }
+    var isFlywheelEnabled: Bool { flywheel.isEnabled() }
 
     /// Whether the user has reported any rally in this video — drives the flag
     /// indicator, which stays lit across the whole video once reported.
     var currentVideoIsReported: Bool {
-        FlywheelCaptureService.shared.reportedCount(
-            videoId: videoMetadata.originalVideoId ?? videoMetadata.id
-        ) > 0
+        flywheel.reportedCount(videoMetadata.originalVideoId ?? videoMetadata.id) > 0
     }
 
     /// Report the current rally as a model mistake (explicit opt-in contribution).
     func reportCurrentRallyMistake(reason: String?) {
         let videoId = videoMetadata.originalVideoId ?? videoMetadata.id
         // Mark immediately so the indicator flips on sheet dismiss.
-        FlywheelCaptureService.shared.markRallyReported(videoId: videoId, rallyIndex: currentRallyIndex)
+        flywheel.markReported(videoId, currentRallyIndex)
         stageFlywheelCorrection(rallyIndex: currentRallyIndex, trigger: .reported, reason: reason)
     }
 
     /// Stage a flywheel contribution for a corrected/reported rally. No-op unless
     /// opted in or the rally has no backing segment.
     private func stageFlywheelCorrection(rallyIndex: Int, trigger: FlywheelTrigger, reason: String? = nil) {
-        guard AppSettings.shared.enableDataFlywheel else { return }
+        guard flywheel.isEnabled() else { return }
         guard let segments = processingMetadata?.rallySegments,
               rallyIndex >= 0, rallyIndex < segments.count else { return }
         let segment = segments[rallyIndex]
         let videoId = videoMetadata.originalVideoId ?? videoMetadata.id
         let originalURL = videoMetadata.originalURL
+        let stage = flywheel.stageCorrection
         let task = Task {
-            await FlywheelCaptureService.shared.stageCorrection(
-                videoId: videoId, rallyIndex: rallyIndex, segment: segment,
-                trigger: trigger, reason: reason, originalURL: originalURL
-            )
+            await stage(videoId, rallyIndex, segment, trigger, reason, originalURL)
         }
         activeTasks.append(task)
         pruneCompletedTasks()
@@ -935,107 +933,20 @@ final class RallyPlayerViewModel {
         isSavingFavorites = true
         defer { isSavingFavorites = false }
 
-        let asset = AVURLAsset(url: videoMetadata.originalURL)
-        let exporter = VideoExporter()
-        let fileManager = FileManager.default
-        let baseDir = StorageManager.getPersistentStorageDirectory()
-        let favoritesDir = baseDir.appendingPathComponent(LibraryType.favorites.rootPath, isDirectory: true)
-        try? fileManager.createDirectory(at: favoritesDir, withIntermediateDirectories: true)
-
-        // Export, Done, and back navigation all call this — skip rallies already
-        // copied on a previous pass instead of duplicating the clip each time.
-        // Prefix scan, not root-only: clips the user moved into Favorites
-        // subfolders still count as copied.
-        let alreadyCopiedByIndex = Dictionary(
-            mediaStore.getAllVideos(in: .favorites)
-                .filter { $0.sourceVideoId == videoMetadata.id }
-                .compactMap { video in video.sourceRallyIndex.map { ($0, video) } },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        // Resolve a collection choice to a manifest folder path, creating the
-        // physical directory + manifest entry when missing (a collection the
-        // user deleted since choosing it gets recreated by name).
-        var resolvedFolderPaths: [String: String] = [:]
-        func destinationFolderPath(forCollection name: String?) -> String {
-            guard let name else { return LibraryType.favorites.rootPath }
-            if let cached = resolvedFolderPaths[name] { return cached }
-            let path = "\(LibraryType.favorites.rootPath)/\(name)"
-            try? fileManager.createDirectory(at: baseDir.appendingPathComponent(path, isDirectory: true),
-                                             withIntermediateDirectories: true)
-            if !mediaStore.getAllFolders(in: .favorites).contains(where: { $0.path == path }) {
-                _ = mediaStore.createFolder(name: name, parentPath: LibraryType.favorites.rootPath)
+        // Respect the user's per-rally trims and framing.
+        let rallies = favoritedRallies.sorted()
+            .filter { $0 < metadata.rallySegments.count }
+            .map { index in
+                FavoritesLibraryExporter.Rally(
+                    index: index,
+                    startTime: effectiveStartTime(for: index),
+                    endTime: effectiveEndTime(for: index),
+                    crop: framingCrop(for: index),
+                    collection: actions.favoriteCollections[index]
+                )
             }
-            resolvedFolderPaths[name] = path
-            return path
-        }
-
-        var failureCount = 0
-        for index in favoritedRallies.sorted() {
-            guard index < metadata.rallySegments.count else { continue }
-            let chosenCollection = actions.favoriteCollections[index]
-
-            if let existing = alreadyCopiedByIndex[index] {
-                // Already copied: honor a later explicit collection choice by
-                // re-filing the existing clip. Manual drags (no recorded
-                // choice) are never disturbed.
-                if let chosenCollection {
-                    let destPath = destinationFolderPath(forCollection: chosenCollection)
-                    if existing.folderPath != destPath {
-                        _ = mediaStore.moveVideo(fileName: existing.fileName, toFolder: destPath)
-                    }
-                }
-                continue
-            }
-
-            do {
-                // Respect the user's per-rally trim adjustments
-                let start = effectiveStartTime(for: index)
-                let end = effectiveEndTime(for: index)
-                guard end > start else { continue }
-                let startTime = CMTime(seconds: start, preferredTimescale: 600)
-                let endTime = CMTime(seconds: end, preferredTimescale: 600)
-                let timeRange = CMTimeRange(start: startTime, end: endTime)
-
-                // Export to temp. A framed rally is burned in here, so the
-                // favorites clip looks like the player did; unframed rallies
-                // keep the cheap passthrough.
-                let exportedURL: URL
-                if let crop = framingCrop(for: index) {
-                    exportedURL = try await exporter.exportStitchedClips(
-                        [.init(url: videoMetadata.originalURL, timeRange: timeRange, crop: crop)]
-                    )
-                } else {
-                    let tempURL = fileManager.temporaryDirectory
-                        .appendingPathComponent("fav_rally_\(index)_\(UUID().uuidString).mp4")
-                    exportedURL = try await exporter.exportClip(asset: asset, timeRange: timeRange, to: tempURL)
-                }
-
-                // Move to persistent storage (into the chosen collection)
-                let destFolderPath = destinationFolderPath(forCollection: chosenCollection)
-                let destFileName = UUID().uuidString + ".mp4"
-                let destURL = baseDir.appendingPathComponent(destFolderPath, isDirectory: true)
-                    .appendingPathComponent(destFileName)
-                try fileManager.moveItem(at: exportedURL, to: destURL)
-
-                // Register in MediaStore with source backlink for sync. An
-                // unregistered clip would sit on disk untracked — remove it.
-                guard mediaStore.addVideo(
-                    at: destURL,
-                    toFolder: destFolderPath,
-                    customName: "\(videoMetadata.displayName) - Rally \(index + 1)",
-                    sourceVideoId: videoMetadata.id,
-                    sourceRallyIndex: index
-                ) else {
-                    try? fileManager.removeItem(at: destURL)
-                    failureCount += 1
-                    continue
-                }
-            } catch {
-                failureCount += 1
-                print("Failed to export favorite rally \(index): \(error)")
-            }
-        }
+        let failureCount = await FavoritesLibraryExporter(mediaStore: mediaStore)
+            .export(rallies, from: videoMetadata)
 
         if failureCount > 0 {
             favoritesErrorMessage = "\(failureCount) favorite\(failureCount == 1 ? "" : "s") couldn't be saved"

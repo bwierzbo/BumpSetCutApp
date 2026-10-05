@@ -1,58 +1,30 @@
 import AVFoundation
-import Combine
 
 // MARK: - Rally Player Cache
 
-/// Manages AVPlayer instances for rally playback with preloading support
+/// The rally player's sliding window of AVPlayers (one per rally URL) on top
+/// of `LoopingPlayerPool`, plus the "current rally" and its play state.
+/// In-rally looping lives in `RallyPlayerLifecycle` (it must stand down during
+/// trim mode); the pool only rewinds a player that reaches the end of the file.
 @MainActor
-final class RallyPlayerCache: ObservableObject {
-    @Published private(set) var currentPlayer: AVPlayer?
-    @Published private(set) var isPlaying: Bool = false
+final class RallyPlayerCache {
+    private(set) var currentPlayer: AVPlayer?
+    private(set) var isPlaying: Bool = false
 
-    private var players: [URL: AVPlayer] = [:]
-    private var notificationObservers: [URL: NSObjectProtocol] = [:]
-    private var playerCreationOrder: [URL] = []
+    private let pool = LoopingPlayerPool<URL>()
     private let maxCachedPlayers = 5  // Sliding window: current +/- 2
 
     // MARK: - Player Management
 
-    /// Get existing player for URL (returns nil if not preloaded)
+    /// Existing player for URL (nil if not preloaded).
     func getPlayer(for url: URL) -> AVPlayer? {
-        return players[url]
-    }
-
-    func getOrCreatePlayer(for url: URL) -> AVPlayer {
-        if let existing = players[url] {
-            return existing
-        }
-
-        let playerItem = AVPlayerItem(url: url)
-        let player = AVPlayer(playerItem: playerItem)
-
-        // Setup loop notification - attach to playerItem for stable reference
-        let observer = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: playerItem,
-            queue: .main
-        ) { [weak player] _ in
-            Task { @MainActor in
-                player?.seek(to: .zero)
-                player?.play()
-            }
-        }
-
-        players[url] = player
-        notificationObservers[url] = observer
-        playerCreationOrder.append(url)
-
-        return player
+        pool.player(for: url)
     }
 
     func setCurrentPlayer(for url: URL) {
         // Pause all other players before switching (prevents audio bleeding)
-        pauseAllExcept(url: url)
-
-        currentPlayer = getOrCreatePlayer(for: url)
+        pool.activate(url, play: false)
+        currentPlayer = pool.player(for: url, url: url)
     }
 
     // MARK: - Playback Control
@@ -67,12 +39,6 @@ final class RallyPlayerCache: ObservableObject {
         isPlaying = false
     }
 
-    func playFromBeginning() {
-        currentPlayer?.seek(to: .zero)
-        currentPlayer?.play()
-        isPlaying = true
-    }
-
     func togglePlayPause() {
         if isPlaying {
             pause()
@@ -81,30 +47,17 @@ final class RallyPlayerCache: ObservableObject {
         }
     }
 
-    func seek(to time: CMTime) {
-        currentPlayer?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
-    }
-
     /// Seek a specific player (by URL) to a given time
     func seek(url: URL, to time: CMTime) {
-        players[url]?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        pool.player(for: url)?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
     /// Seek a specific player and wait for completion
     func seekAsync(url: URL, to time: CMTime) async {
-        guard let player = players[url] else { return }
-
+        guard let player = pool.player(for: url) else { return }
         await withCheckedContinuation { continuation in
-            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
                 continuation.resume()
-            }
-        }
-    }
-
-    func seekAndPlay(to time: CMTime) {
-        currentPlayer?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            Task { @MainActor in
-                self?.play()
             }
         }
     }
@@ -113,162 +66,26 @@ final class RallyPlayerCache: ObservableObject {
 
     func preloadPlayers(for urls: [URL]) {
         for url in urls {
-            _ = getOrCreatePlayer(for: url)
+            pool.player(for: url, url: url)
         }
     }
-
-    func preloadAdjacentRallies(currentIndex: Int, urls: [URL]) {
-        var urlsToPreload: [URL] = []
-
-        // Preload next rally (most important - user likely to swipe forward)
-        if currentIndex + 1 < urls.count {
-            urlsToPreload.append(urls[currentIndex + 1])
-        }
-
-        // Preload previous rally
-        if currentIndex > 0 {
-            urlsToPreload.append(urls[currentIndex - 1])
-        }
-
-        preloadPlayers(for: urlsToPreload)
-    }
-
-    // MARK: - Cache Window Management
 
     /// Evict players outside the keep set to stay within maxCachedPlayers.
     /// `urlsToKeep` should include current +/- 2 rally URLs.
     func enforceCacheLimit(keeping urlsToKeep: Set<URL>) {
-        let keepSet = urlsToKeep
-        // Evict players not in the keep set, oldest first
-        let urlsToEvict = playerCreationOrder.filter { !keepSet.contains($0) }
-        for url in urlsToEvict {
-            guard players.count > maxCachedPlayers else { break }
-            removePlayer(for: url)
-        }
+        pool.retain(window: urlsToKeep, limit: maxCachedPlayers)
     }
 
-    // MARK: - Buffer State
-
-    /// Check if player is ready to play without buffering
-    func isPlayerReady(for url: URL) -> Bool {
-        guard let player = players[url],
-              let item = player.currentItem else { return false }
-        return item.status == .readyToPlay
-    }
-
-    /// Wait for player to be ready using KVO observation (no CPU-burning poll loop).
-    func waitForPlayerReady(for url: URL, timeout: TimeInterval = 2.0) async -> Bool {
-        guard let player = players[url],
-              let item = player.currentItem else { return false }
-
-        // Fast path: already ready
-        if item.status == .readyToPlay && item.isPlaybackLikelyToKeepUp {
-            return true
-        }
-
-        // Use KVO to wait for readiness instead of polling
-        return await withCheckedContinuation { continuation in
-            var statusObserver: NSKeyValueObservation?
-            var bufferObserver: NSKeyValueObservation?
-            var timeoutTask: DispatchWorkItem?
-            var hasResumed = false
-
-            let resumeOnce: @MainActor (Bool) -> Void = { result in
-                guard !hasResumed else { return }
-                hasResumed = true
-                timeoutTask?.cancel()
-                statusObserver?.invalidate()
-                bufferObserver?.invalidate()
-                continuation.resume(returning: result)
-            }
-
-            let checkReady: @MainActor () -> Void = {
-                if item.status == .readyToPlay && item.isPlaybackLikelyToKeepUp {
-                    resumeOnce(true)
-                } else if item.status == .failed {
-                    resumeOnce(false)
-                }
-            }
-
-            // KVO posts on any thread; checkReady (and its captured state) is
-            // only ever run on the main actor.
-            nonisolated(unsafe) let check = checkReady
-            statusObserver = item.observe(\.status, options: [.new]) { _, _ in
-                Task { @MainActor in check() }
-            }
-
-            bufferObserver = item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { _, _ in
-                Task { @MainActor in check() }
-            }
-
-            // Timeout fallback
-            let work = DispatchWorkItem {
-                Task { @MainActor in
-                    resumeOnce(item.status == .readyToPlay && item.isPlaybackLikelyToKeepUp)
-                }
-            }
-            timeoutTask = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: work)
-
-            // Check once more in case state changed between guard and observer setup
-            checkReady()
-        }
-    }
-
-    // MARK: - Audio Management
-
-    /// Pause all players except the specified URL (prevents audio bleeding)
-    private func pauseAllExcept(url: URL) {
-        for (playerURL, player) in players {
-            if playerURL != url {
-                player.pause()
-            }
-        }
-    }
-
-    /// Pause all cached players
-    func pauseAll() {
-        for player in players.values {
-            player.pause()
-        }
-        isPlaying = false
+    /// Wait for the player to be buffered enough to play without stalling.
+    func waitForPlayerReady(for url: URL, timeout: TimeInterval) async -> Bool {
+        await pool.waitUntilReady(url, timeout: timeout)
     }
 
     // MARK: - Cleanup
 
-    func removePlayer(for url: URL) {
-        // Remove observer first while player item still exists
-        if let observer = notificationObservers[url] {
-            NotificationCenter.default.removeObserver(observer)
-            notificationObservers.removeValue(forKey: url)
-        }
-
-        if let player = players[url] {
-            player.pause()
-            player.replaceCurrentItem(with: nil) // Release the player item
-            players.removeValue(forKey: url)
-        }
-
-        playerCreationOrder.removeAll { $0 == url }
-    }
-
     func cleanup() {
-        // Remove observers first
-        for observer in notificationObservers.values {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        notificationObservers.removeAll()
-
-        // Then clean up players
-        for player in players.values {
-            player.pause()
-            player.replaceCurrentItem(with: nil)
-        }
-        players.removeAll()
-
-        playerCreationOrder.removeAll()
+        pool.teardownAll()
         currentPlayer = nil
         isPlaying = false
     }
-
 }

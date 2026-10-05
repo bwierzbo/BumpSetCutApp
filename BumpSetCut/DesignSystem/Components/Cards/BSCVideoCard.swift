@@ -19,9 +19,6 @@ struct BSCVideoCard: View {
     let onRefresh: () -> Void
     var onRename: ((String) -> Void)? = nil
     var onMove: ((String) -> Void)? = nil
-    var isSelectable: Bool = false
-    var isSelected: Bool = false
-    var onSelectionToggle: (() -> Void)? = nil
     // Full-screen presentations are owned by the SCREEN, not this cell: cards live
     // in lazy containers whose cells get recycled on rotation/scroll, and a cover
     // presented from cell-local @State dismisses when its cell is torn down.
@@ -31,6 +28,9 @@ struct BSCVideoCard: View {
     var onScoreGame: (() -> Void)? = nil
     /// Optional "Free Up Space" entry (processed videos only); nil hides the item.
     var onFreeUpSpace: (() -> Void)? = nil
+    /// Optional "Reprocess" dev tool (processed videos only, behind a
+    /// confirmation); nil hides the item.
+    var onReprocess: (() -> Void)? = nil
 
     // MARK: - State
     @State private var thumbnail: UIImage?
@@ -52,9 +52,9 @@ struct BSCVideoCard: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture(perform: handleTap)
+        .onTapGesture(perform: onPlayVideo)
         .contextMenu { contextMenuContent }
-        .onAppear(perform: generateThumbnail)
+        .task(id: video.originalURL) { await loadThumbnail() }
         .sheet(isPresented: $showingProcessVideo) {
             NavigationStack {
                 ProcessVideoView(
@@ -92,29 +92,24 @@ struct BSCVideoCard: View {
             Text("Are you sure you want to delete this video? This action cannot be undone.")
         }
         .confirmationDialog("Reprocess this video?", isPresented: $showingReprocessConfirm, titleVisibility: .visible) {
-            Button("Delete rallies & reprocess", role: .destructive) { reprocessVideo() }
+            Button("Delete rallies & reprocess", role: .destructive) { onReprocess?() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This deletes the current rallies and runs detection again on the full video.")
         }
-        // One button element (activate = play, or select in selection mode);
-        // the inner menu/quick-action buttons would otherwise be swallowed, so
-        // their actions are exposed as VoiceOver actions.
+        // One button element (activate = play); the inner menu/quick-action
+        // buttons would otherwise be swallowed, so their actions are exposed
+        // as VoiceOver actions.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabelText)
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction { handleTap() }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onPlayVideo() }
         .accessibilityActions { contextMenuContent }
     }
 
     // MARK: - List Layout
     private var listLayout: some View {
         HStack(spacing: BSCSpacing.lg) {
-            // Selection checkbox
-            if isSelectable {
-                selectionCheckbox
-            }
-
             // Thumbnail
             thumbnailView
                 .frame(width: 72, height: 72)
@@ -137,8 +132,7 @@ struct BSCVideoCard: View {
             }
         }
         .padding(.vertical, BSCSpacing.sm)
-        .background(isSelected ? Color.bscPrimary.opacity(0.1) : Color.clear)
-        .bscInteractive(isSelected: isSelected, cornerRadius: BSCRadius.md)
+        .bscInteractive(isSelected: false, cornerRadius: BSCRadius.md)
     }
 
     // MARK: - Grid Layout
@@ -153,24 +147,18 @@ struct BSCVideoCard: View {
                 // Gradient overlay for better text readability
                 thumbnailGradientOverlay
 
-                // Selection checkbox
-                if isSelectable {
-                    selectionOverlay
-                }
-
                 // Duration badge (bottom-right)
                 durationBadgeOverlay
 
                 // Play button
                 playButtonOverlay
             }
-            .overlay(gridThumbnailBorder)
 
             // Info section
             gridInfoView
         }
         .frame(maxWidth: .infinity, maxHeight: 200)
-        .bscInteractive(isSelected: isSelected, cornerRadius: BSCRadius.lg)
+        .bscInteractive(isSelected: false, cornerRadius: BSCRadius.lg)
     }
 
     // MARK: - Thumbnail Views
@@ -203,51 +191,7 @@ struct BSCVideoCard: View {
 
     private var thumbnailBorder: some View {
         RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous)
-            .stroke(isSelected ? Color.bscPrimary : Color.bscSurfaceBorder, lineWidth: isSelected ? 2 : 1)
-    }
-
-    private var gridThumbnailBorder: some View {
-        RoundedRectangle(cornerRadius: BSCRadius.lg, style: .continuous)
-            .stroke(isSelected ? Color.bscPrimary : Color.clear, lineWidth: 3)
-    }
-
-    // MARK: - Selection Views
-    private var selectionCheckbox: some View {
-        Button {
-            onSelectionToggle?()
-        } label: {
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .bscFont(size: BSCIconSize.lg)
-                .foregroundColor(isSelected ? .bscPrimary : .bscTextSecondary)
-                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel(isSelected ? "Deselect video" : "Select video")
-    }
-
-    private var selectionOverlay: some View {
-        VStack {
-            HStack {
-                Spacer()
-                Button {
-                    onSelectionToggle?()
-                } label: {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .bscFont(size: BSCIconSize.lg)
-                        .foregroundColor(isSelected ? .bscPrimary : .bscOnMedia)
-                        .background(
-                            Circle()
-                                .fill(Color.bscMediaScrimBase.opacity(0.6))
-                                .frame(width: 28, height: 28)
-                        )
-                        .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel(isSelected ? "Deselect video" : "Select video")
-                .padding(BSCSpacing.sm)
-            }
-            Spacer()
-        }
+            .stroke(Color.bscSurfaceBorder, lineWidth: 1)
     }
 
     private var durationBadgeOverlay: some View {
@@ -498,9 +442,9 @@ struct BSCVideoCard: View {
             Divider()
         }
 
-        // Dev tool (gated behind Debug Features): delete the current rallies and
+        // Dev tool (the caller passes it only with Debug Features on): delete the current rallies and
         // re-run detection on the full video with the current pipeline.
-        if AppSettings.shared.enableDebugFeatures && video.hasProcessingMetadata {
+        if onReprocess != nil && video.hasProcessingMetadata {
             Button {
                 showingReprocessConfirm = true
             } label: {
@@ -543,51 +487,14 @@ struct BSCVideoCard: View {
         }
     }
 
-    // MARK: - Actions
-    private func handleTap() {
-        if isSelectable {
-            onSelectionToggle?()
-        } else {
-            onPlayVideo()
-        }
-    }
-
-    /// Re-run detection on the full source video with the current pipeline
-    /// (dev tool). The new run replaces the rally metadata when it lands.
-    /// Progress is shown by the app-wide ProcessingCoordinator.
-    private func reprocessVideo() {
-        let videoId = video.id
-        mediaStore.prepareForReprocess(videoId: videoId)
-        ProcessingCoordinator.shared.startProcessing(
-            videoURL: video.originalURL,
-            mediaStore: mediaStore,
-            videoId: videoId,
-            isDebugMode: false
-        )
-        onRefresh()
-    }
-
-    private func generateThumbnail() {
-        Task {
-            let image = await createThumbnail(from: video.originalURL)
-            await MainActor.run {
-                thumbnail = image
-            }
-        }
-    }
-
-    private func createThumbnail(from url: URL) async -> UIImage? {
-        let asset = AVURLAsset(url: url)
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.appliesPreferredTrackTransform = true
-        imageGenerator.maximumSize = CGSize(width: 400, height: 400)
-
-        do {
-            let cgImage = try await imageGenerator.image(at: CMTime(seconds: 1.0, preferredTimescale: 600)).image
-            return UIImage(cgImage: cgImage)
-        } catch {
-            return nil
-        }
+    // MARK: - Thumbnail
+    /// Cached across the lazy grid's cell recycling — only the first
+    /// appearance of a video decodes a frame.
+    private func loadThumbnail() async {
+        let time = CMTime(seconds: 1.0, preferredTimescale: 600)
+        thumbnail = ThumbnailService.shared.cachedStill(url: video.originalURL, at: time)
+        guard thumbnail == nil else { return }
+        thumbnail = try? await ThumbnailService.shared.still(url: video.originalURL, at: time)
     }
 
     // MARK: - Formatters

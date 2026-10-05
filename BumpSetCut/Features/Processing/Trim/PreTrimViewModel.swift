@@ -33,8 +33,6 @@ final class PreTrimViewModel {
 
     // MARK: - Rotation (degrees)
     var rotationDegrees: Double = 0
-    let maxRotationDegrees: Double = 10.0
-    let rotationStepDegrees: Double = 0.5
 
     // MARK: - Computed
     var selectionDuration: Double { max(0, endTime - startTime) }
@@ -127,23 +125,8 @@ final class PreTrimViewModel {
 
     // MARK: - Thumbnails
     private func generateThumbnails() async {
-        let asset = AVURLAsset(url: videoURL)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 200, height: 200)
-
-        let times: [CMTime] = (0..<thumbnailCount).map { i in
-            let t = videoDuration * Double(i) / Double(thumbnailCount - 1)
-            return CMTimeMakeWithSeconds(t, preferredTimescale: 600)
-        }
-
-        var result: [UIImage] = []
-        for await imageResult in generator.images(for: times) {
-            if let cgImage = try? imageResult.image {
-                result.append(UIImage(cgImage: cgImage))
-            }
-        }
-
-        thumbnails = result
+        thumbnails = await ThumbnailService.shared.filmstrip(
+            url: videoURL, start: 0, duration: videoDuration, count: thumbnailCount
+        )
     }
 }

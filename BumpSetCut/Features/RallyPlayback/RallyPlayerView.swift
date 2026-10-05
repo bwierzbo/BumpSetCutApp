@@ -15,7 +15,8 @@ struct RallyPlayerView: View {
 
     let videoMetadata: VideoMetadata
 
-    @State private var viewModel: RallyPlayerViewModel
+    // Internal (not private) for the gesture builders in RallyPlayerView+Gestures.
+    @State var viewModel: RallyPlayerViewModel
     @State private var showingGestureTips = false
     @State private var showTrimHint = false
     @State private var showTimelineEditor = false
@@ -31,7 +32,7 @@ struct RallyPlayerView: View {
     @State private var showPostAnotherPrompt = false
     /// Rotation captured at the start of a two-finger twist (RotationGesture
     /// reports angle relative to its own start).
-    @State private var twistBaseRotation: Double?
+    @State var twistBaseRotation: Double?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(AppNavigationState.self) private var navigationState
@@ -238,23 +239,8 @@ struct RallyPlayerView: View {
         .task(id: videoMetadata.id) {
             await viewModel.loadRallies()
         }
-        .onAppear {
-            // Show gesture tips on first launch
-            if !appSettings.hasSeenRallyTips {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    showingGestureTips = true
-                }
-            }
-            // Trim coach mark: appears after the video settles, hides after a
-            // while, and stops appearing for good once the user has trimmed.
-            if !appSettings.hasUsedRallyTrim {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    withAnimation(.bscSpring) { showTrimHint = true }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
-                    withAnimation(.bscQuick) { showTrimHint = false }
-                }
-            }
+        .task {
+            await showIntroHints()
         }
         .onDisappear {
             viewModel.cleanup()
@@ -516,6 +502,28 @@ struct RallyPlayerView: View {
         }
     }
 
+    /// First-run hints, timed from when the player appears. Runs in the view's
+    /// `.task`, so leaving the player cancels any that haven't fired yet.
+    private func showIntroHints() async {
+        let start = ContinuousClock.now
+        func wait(until offset: Duration) async -> Bool {
+            (try? await Task.sleep(until: start + offset, clock: .continuous)) != nil
+        }
+
+        // Gesture tips on first launch.
+        if !appSettings.hasSeenRallyTips {
+            guard await wait(until: .seconds(0.5)) else { return }
+            showingGestureTips = true
+        }
+
+        // Trim coach mark: appears after the video settles, hides after a
+        // while, and stops appearing for good once the user has trimmed.
+        guard !appSettings.hasUsedRallyTrim, await wait(until: .seconds(2)) else { return }
+        withAnimation(.bscSpring) { showTrimHint = true }
+        guard await wait(until: .seconds(10)) else { return }
+        withAnimation(.bscQuick) { showTrimHint = false }
+    }
+
     /// Same rule the card uses to choose fit (portrait) or fill (landscape).
     private var isPortrait: Bool {
         verticalSizeClass == .regular
@@ -584,219 +592,6 @@ struct RallyPlayerView: View {
         case 0: return 100     // Current - below sliding-out card
         default: return Double(-position)  // Next cards below
         }
-    }
-
-    // MARK: - Gesture Handling
-
-    private func swipeGesture(geometry: GeometryProxy) -> some Gesture {
-        DragGesture()
-            .onChanged { value in
-                // Ignore gestures during transitions
-                guard !viewModel.isTransitioning, !viewModel.isPerformingAction else { return }
-
-                viewModel.isDragging = true
-
-                if viewModel.isZoomed {
-                    // Pan within zoomed content
-                    let newOffset = CGSize(
-                        width: viewModel.baseZoomOffset.width + value.translation.width,
-                        height: viewModel.baseZoomOffset.height + value.translation.height
-                    )
-                    viewModel.zoomOffset = clampedOffset(newOffset, scale: viewModel.zoomScale, cardSize: geometry.size)
-                } else {
-                    // Lock drag axis after initial movement exceeds threshold
-                    if viewModel.dragAxis == nil {
-                        let absW = abs(value.translation.width)
-                        let absH = abs(value.translation.height)
-                        if absW > 10 || absH > 10 {
-                            viewModel.dragAxis = absW >= absH ? .horizontal : .vertical
-                            // Subtle tick the moment the swipe direction is committed.
-                            UIImpactFeedbackGenerator.light()
-                        }
-                    }
-
-                    switch viewModel.dragAxis {
-                    case .horizontal, .none:
-                        viewModel.dragOffset = CGSize(width: value.translation.width, height: 0)
-                    case .vertical:
-                        // Only track upward drags (negative height)
-                        let clampedHeight = min(value.translation.height, 0)
-                        viewModel.dragOffset = CGSize(width: 0, height: clampedHeight)
-                    }
-                }
-            }
-            .onEnded { value in
-                // Ignore gestures during transitions
-                guard !viewModel.isTransitioning, !viewModel.isPerformingAction else { return }
-
-                let lockedAxis = viewModel.dragAxis
-                viewModel.isDragging = false
-                viewModel.dragAxis = nil
-
-                if viewModel.isZoomed {
-                    // Snap offset to bounds
-                    viewModel.baseZoomOffset = viewModel.zoomOffset
-                    return
-                }
-
-                let actionThreshold: CGFloat = 150
-
-                if lockedAxis == .vertical {
-                    // Vertical swipe-up → favorite
-                    let verticalOffset = viewModel.dragOffset.height  // negative = up
-                    let verticalVelocity = value.velocity.height       // negative = up
-                    let triggeredByVelocity = verticalVelocity < -300
-                    let triggeredByDistance = verticalOffset < -actionThreshold
-
-                    if triggeredByVelocity || triggeredByDistance {
-                        viewModel.performAction(.favorite, direction: .up, fromDragOffset: viewModel.dragOffset.height)
-                        return
-                    }
-                } else {
-                    // Horizontal swipe → save/remove
-                    let horizontalOffset = viewModel.dragOffset.width
-                    let horizontalVelocity = value.velocity.width
-                    let dragWidth = viewModel.dragOffset.width
-
-                    let triggeredByVelocity = abs(horizontalVelocity) > 300
-                    let triggeredByDistance = abs(horizontalOffset) > actionThreshold
-
-                    if triggeredByVelocity || triggeredByDistance {
-                        if horizontalOffset < 0 || (triggeredByVelocity && horizontalVelocity < -300) {
-                            viewModel.performAction(.remove, direction: .left, fromDragOffset: dragWidth)
-                            return
-                        } else if horizontalOffset > 0 || (triggeredByVelocity && horizontalVelocity > 300) {
-                            viewModel.performAction(.save, direction: .right, fromDragOffset: dragWidth)
-                            return
-                        }
-                    }
-                }
-
-                // No action - animate back to center
-                withAnimation(.bscSwipe) {
-                    viewModel.dragOffset = .zero
-                }
-            }
-    }
-
-    // MARK: - Pinch-to-Zoom
-
-    private func pinchGesture() -> some Gesture {
-        MagnificationGesture()
-            .onChanged { value in
-                let clamped = min(max(viewModel.baseZoomScale * value, 1.0), 5.0)
-                // Tick once when first reaching the zoom cap.
-                if clamped == 5.0 && viewModel.zoomScale < 5.0 {
-                    UIImpactFeedbackGenerator.light()
-                }
-                viewModel.zoomScale = clamped
-            }
-            .onEnded { value in
-                let newScale = viewModel.baseZoomScale * value
-                viewModel.zoomScale = min(max(newScale, 1.0), 5.0)
-                viewModel.baseZoomScale = viewModel.zoomScale
-
-                if viewModel.zoomScale <= 1.01 {
-                    viewModel.resetZoom()
-                }
-            }
-    }
-
-    private func toggleZoom(cardSize: CGSize) {
-        if viewModel.isZoomed {
-            viewModel.resetZoom()
-        } else {
-            withAnimation(.bscSnappy) {
-                viewModel.zoomScale = 2.5
-                viewModel.zoomOffset = .zero
-            }
-            viewModel.baseZoomScale = 2.5
-            viewModel.baseZoomOffset = .zero
-        }
-    }
-
-    // MARK: - Trim-Mode Editing (pinch zoom · twist angle · drag pan)
-
-    /// Maximum crop zoom in trim mode.
-    private static let trimZoomLimit: CGFloat = 3.0
-
-    /// The live crop zoom (what confirmTrim saves), for the trim overlay's
-    /// readout and its VoiceOver-adjustable zoom control.
-    private func liveTrimZoom(cardSize: CGSize) -> Binding<Double> {
-        Binding(
-            get: { Double(viewModel.zoomScale) },
-            set: { newValue in
-                let scale = min(max(CGFloat(newValue), 1.0), Self.trimZoomLimit)
-                viewModel.zoomScale = scale
-                viewModel.zoomOffset = clampedOffset(viewModel.zoomOffset, scale: scale, cardSize: cardSize)
-                viewModel.baseZoomScale = scale
-                viewModel.baseZoomOffset = viewModel.zoomOffset
-            }
-        )
-    }
-
-    private func trimEditGesture(geometry: GeometryProxy) -> some Gesture {
-        let zoomLimit = Self.trimZoomLimit
-        let angleLimit: Double = 10.0
-
-        let magnify = MagnificationGesture()
-            .onChanged { value in
-                let newScale = min(max(viewModel.baseZoomScale * value, 1.0), zoomLimit)
-                // Tick once when first reaching the zoom cap.
-                if newScale == zoomLimit && viewModel.zoomScale < zoomLimit {
-                    UIImpactFeedbackGenerator.light()
-                }
-                viewModel.zoomScale = newScale
-                viewModel.zoomOffset = clampedOffset(viewModel.zoomOffset, scale: newScale, cardSize: geometry.size)
-            }
-            .onEnded { _ in
-                viewModel.baseZoomScale = viewModel.zoomScale
-                viewModel.baseZoomOffset = viewModel.zoomOffset
-            }
-
-        let twist = RotationGesture()
-            .onChanged { angle in
-                if twistBaseRotation == nil { twistBaseRotation = viewModel.currentTrimRotation }
-                let proposed = (twistBaseRotation ?? 0) + angle.degrees
-                viewModel.currentTrimRotation = min(max(proposed, -angleLimit), angleLimit)
-            }
-            .onEnded { _ in
-                twistBaseRotation = nil
-            }
-
-        let pan = DragGesture()
-            .onChanged { value in
-                let proposed = CGSize(
-                    width: viewModel.baseZoomOffset.width + value.translation.width,
-                    height: viewModel.baseZoomOffset.height + value.translation.height
-                )
-                viewModel.zoomOffset = clampedOffset(proposed, scale: viewModel.zoomScale, cardSize: geometry.size)
-            }
-            .onEnded { _ in
-                viewModel.baseZoomOffset = viewModel.zoomOffset
-            }
-
-        return magnify.simultaneously(with: twist).simultaneously(with: pan)
-    }
-
-    /// Reset the live editing zoom/pan to 1× / centered (overlay reset button).
-    private func resetTrimZoom() {
-        withAnimation(.bscSnappy) {
-            viewModel.zoomScale = 1.0
-            viewModel.zoomOffset = .zero
-        }
-        viewModel.baseZoomScale = 1.0
-        viewModel.baseZoomOffset = .zero
-    }
-
-    /// Clamp pan offset so zoomed content stays visible
-    private func clampedOffset(_ offset: CGSize, scale: CGFloat, cardSize: CGSize) -> CGSize {
-        let maxX = max(0, (cardSize.width * scale - cardSize.width) / 2)
-        let maxY = max(0, (cardSize.height * scale - cardSize.height) / 2)
-        return CGSize(
-            width: min(max(offset.width, -maxX), maxX),
-            height: min(max(offset.height, -maxY), maxY)
-        )
     }
 
     // MARK: - Helpers
@@ -868,214 +663,6 @@ struct RallyPlayerView: View {
         }
         guard items.count > 1 else { return nil }
         return RallyPickerTarget(items: items, purpose: purpose)
-    }
-}
-
-// MARK: - Top Card Drag Modifier
-
-/// Applies drag/transition transforms for vertical scroll navigation.
-/// During transitions, old and new cards move together (connected edge-to-edge) like a continuous scroll.
-///
-/// IMPORTANT: Uses a single modifier chain (offset + rotation) for ALL states to preserve
-/// SwiftUI structural identity. Using if/else branches causes view tree destruction/recreation,
-/// which tears down AVPlayerLayer and causes black flash artifacts.
-struct TopCardDragModifier: ViewModifier {
-    let isTopCard: Bool        // Current card during normal drag (not during transition)
-    let isSlidingOut: Bool     // Previous card sliding off-screen during transition
-    let isSlidingIn: Bool      // New current card sliding in from off-screen during transition
-    let dragOffset: CGSize
-    let swipeOffset: CGFloat       // Horizontal swipe (actions)
-    let swipeOffsetY: CGFloat      // Vertical swipe (navigation)
-    let swipeRotation: Double
-    let slideInOffset: CGFloat     // Card height offset for sliding-in card (+height or -height)
-    var actionSwipeOffsetY: CGFloat = 0  // Vertical swipe for favorite action
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        content
-            .offset(x: computedOffsetX, y: computedOffsetY)
-            .rotationEffect(.degrees(computedRotation))
-    }
-
-    private var computedOffsetX: CGFloat {
-        if isTopCard {
-            return swipeOffset + dragOffset.width
-        }
-        return 0
-    }
-
-    private var computedOffsetY: CGFloat {
-        if isTopCard {
-            return dragOffset.height + actionSwipeOffsetY
-        } else if isSlidingOut {
-            return swipeOffsetY
-        } else if isSlidingIn {
-            return swipeOffsetY + slideInOffset
-        }
-        return 0
-    }
-
-    private var computedRotation: Double {
-        if isTopCard {
-            return swipeRotation + dragRotation
-        }
-        return 0
-    }
-
-    private var dragRotation: Double {
-        // Reduce Motion: the card follows the finger without tilting.
-        guard !reduceMotion else { return 0 }
-        let rotation = Double(dragOffset.width) / 30.0
-        return max(-10, min(10, rotation))
-    }
-}
-
-// MARK: - Unified Rally Card
-
-/// Single card component using custom AVPlayerLayer for smooth transitions
-/// Adjacent players stay mounted, thumbnail visible until video playing
-struct UnifiedRallyCard: View {
-    let url: URL
-    let rallyIndex: Int
-    let size: CGSize
-    let position: Int  // -1 = previous, 0 = current, 1+ = next
-    let previousRallyIndex: Int?  // Track which rally was just current (for seamless transitions)
-    let playerCache: RallyPlayerCache
-    let thumbnailCache: RallyThumbnailCache
-    var videoDisplaySize: CGSize?
-    var rotationDegrees: Double = 0
-    var zoomScale: CGFloat = 1.0
-    var zoomOffset: CGSize = .zero
-    var onDoubleTap: (() -> Void)?
-    /// Enters trim mode — the accessible equivalent of the long-press.
-    var onTrim: (() -> Void)?
-
-    @State private var thumbnail: UIImage?
-    // First video frame rendered — the thumbnail then unmounts. Keeping it
-    // mounted behind a live video causes rotation artifacts: the SwiftUI image
-    // animates with the rotation while the AVPlayerLayer resizes on UIKit's
-    // schedule, so the mismatched thumbnail peeks out around the video.
-    @State private var isVideoReady = false
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-
-    private var isPortrait: Bool {
-        verticalSizeClass == .regular
-    }
-
-    private var isCurrent: Bool { position == 0 }
-    private var isPreviousRally: Bool {
-        guard let prevIndex = previousRallyIndex else { return false }
-        return rallyIndex == prevIndex
-    }
-    private var isPreloaded: Bool { position >= -1 && position <= 1 }
-
-    /// Clamp the pan offset to the current zoom so the video can never be pushed
-    /// off-screen (which would expose the black background — the "zoom-out went
-    /// black" bug). At zoom 1.0 the max is 0, forcing a centered frame.
-    private var safeZoomOffset: CGSize {
-        let maxX = max(0, (size.width * zoomScale - size.width) / 2)
-        let maxY = max(0, (size.height * zoomScale - size.height) / 2)
-        return CGSize(
-            width: min(max(zoomOffset.width, -maxX), maxX),
-            height: min(max(zoomOffset.height, -maxY), maxY)
-        )
-    }
-
-    /// The rectangle the video content occupies. In portrait a non-square video
-    /// is letterboxed, so rotation must happen inside this fitted rect (filled,
-    /// not the whole screen-shaped card) to crop & scale like Apple's editor
-    /// instead of tilting the letterbox bars. In landscape the video already
-    /// fills the card, so the rect is the full card.
-    private var videoRect: CGSize {
-        if isPortrait {
-            // Prefer the source video's true display size (reliable, available
-            // immediately); fall back to the thumbnail's size, then the card.
-            let content = videoDisplaySize ?? thumbnail?.size ?? size
-            return RotationGeometry.aspectFitSize(content: content, in: size)
-        }
-        return size
-    }
-
-    var body: some View {
-        let rect = videoRect
-        return ZStack {
-            Color.bscMediaBackground
-
-            // Content layer (thumbnail + video) — rotated within the video rect.
-            ZStack {
-                // Thumbnail fallback behind the video layer.
-                if let thumbnail = thumbnail, showThumbnail {
-                    Image(uiImage: thumbnail)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                }
-
-                // Video player layer - always at full opacity for preloaded cards.
-                // AVPlayerLayer has clear background, so it's transparent when no content
-                // and shows the video frame when content is rendered. No opacity toggling
-                // eliminates any flash from layer compositing delays.
-                if isPreloaded, let player = playerCache.getPlayer(for: url) {
-                    CustomVideoPlayerView(
-                        player: player,
-                        gravity: .resizeAspectFill,
-                        onReadyForDisplay: { ready in
-                            guard ready != isVideoReady else { return }
-                            // Async: updateUIView reports synchronously during view updates
-                            DispatchQueue.main.async { isVideoReady = ready }
-                        }
-                    )
-                    .allowsHitTesting(isCurrent)
-                }
-            }
-            .frame(width: rect.width, height: rect.height)
-            .rotationEffect(.degrees(rotationDegrees))
-            .scaleEffect(RotationGeometry.coverScale(angleDegrees: rotationDegrees, size: rect))
-            .frame(width: rect.width, height: rect.height)
-            .clipped()
-        }
-        .scaleEffect(zoomScale)
-        .offset(safeZoomOffset)
-        .frame(width: size.width, height: size.height)
-        .clipped()
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            if isCurrent {
-                onDoubleTap?()
-            }
-        }
-        .onTapGesture(count: 1) {
-            if isCurrent {
-                playerCache.togglePlayPause()
-            }
-        }
-        .accessibilityElement()
-        .accessibilityLabel("Rally \(rallyIndex + 1) video")
-        .accessibilityAction(named: "Play or pause") {
-            if isCurrent {
-                playerCache.togglePlayPause()
-            }
-        }
-        .accessibilityAction(named: "Toggle zoom") {
-            if isCurrent {
-                onDoubleTap?()
-            }
-        }
-        .accessibilityAction(named: "Trim rally") {
-            onTrim?()
-        }
-        .task(id: url) {
-            isVideoReady = false
-            thumbnail = await thumbnailCache.getThumbnailAsync(for: url)
-        }
-    }
-
-    private var showThumbnail: Bool {
-        // Only until the player has rendered its first frame — after that the
-        // video fully covers the card and the thumbnail must not linger behind it.
-        guard !isVideoReady else { return false }
-        if isCurrent { return true }
-        return isPreviousRally || position == 1
     }
 }
 

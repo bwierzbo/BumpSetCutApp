@@ -25,10 +25,9 @@ struct PressToPlayThumbnail: View {
     /// The container presents it at full size and dims its own chrome.
     var onPreviewChanged: (AVPlayer?) -> Void = { _ in }
 
-    @State private var player: AVPlayer?
-    @State private var isPreviewing = false
-    @State private var boundaryObserver: Any?
-    @State private var loopObserver: NSObjectProtocol?
+    // Muted: these sit in grids browsed quickly, where a burst of court
+    // audio on every press would be jarring.
+    @State private var preview = LoopingPlayerPool<URL>(isMuted: true)
 
     var body: some View {
         GeometryReader { geo in
@@ -45,53 +44,21 @@ struct PressToPlayThumbnail: View {
     }
 
     private func startPreview() {
-        guard !isPreviewing else { return }
+        guard preview.player(for: videoURL) == nil else { return }
 
-        let item = AVPlayerItem(url: videoURL)
-        let preview = AVPlayer(playerItem: item)
-        // Muted: these sit in grids browsed quickly, where a burst of court
-        // audio on every press would be jarring.
-        preview.isMuted = true
-        preview.actionAtItemEnd = .none
-
-        if let timeRange {
-            preview.seek(to: timeRange.start, toleranceBefore: .zero, toleranceAfter: .zero)
-            let end = CMTimeAdd(timeRange.start, timeRange.duration)
-            boundaryObserver = preview.addBoundaryTimeObserver(
-                forTimes: [NSValue(time: end)], queue: .main
-            ) {
-                preview.seek(to: timeRange.start, toleranceBefore: .zero, toleranceAfter: .zero)
-                preview.play()
-            }
-        } else {
-            loopObserver = NotificationCenter.default.addObserver(
-                forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
-            ) { _ in
-                preview.seek(to: .zero)
-                preview.play()
-            }
-        }
-
-        player = preview
-        preview.play()
-        isPreviewing = true
-        onPreviewChanged(preview)
+        let player = preview.player(
+            for: videoURL, url: videoURL,
+            loopStart: timeRange?.start ?? .zero,
+            loopEnd: timeRange.map { CMTimeAdd($0.start, $0.duration) }
+        )
+        player.play()
+        onPreviewChanged(player)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
     private func stopPreview() {
-        guard player != nil else { return }
-        if let boundaryObserver {
-            player?.removeTimeObserver(boundaryObserver)
-        }
-        boundaryObserver = nil
-        if let loopObserver {
-            NotificationCenter.default.removeObserver(loopObserver)
-        }
-        loopObserver = nil
-        player?.pause()
-        player = nil
-        isPreviewing = false
+        guard preview.player(for: videoURL) != nil else { return }
+        preview.teardownAll()
         onPreviewChanged(nil)
     }
 }

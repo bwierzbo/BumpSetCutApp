@@ -13,8 +13,7 @@ struct ShareRallySheet: View {
     @Environment(AppNavigationState.self) private var navigationState
     @Environment(AuthenticationService.self) private var authService
     @State private var viewModel: ShareRallyViewModel
-    @State private var playerPool: [Int: AVPlayer] = [:]
-    @State private var loopObservers: [Int: Any] = [:]
+    @State private var playerPool = LoopingPlayerPool<Int>(automaticallyWaitsToMinimizeStalling: false)
     @State private var carouselSelection: Int = 0
     @State private var showAuthGate = false
     @State private var showLocationPicker = false
@@ -159,16 +158,16 @@ struct ShareRallySheet: View {
             carouselSelection = viewModel.selectedPage
             updatePlayerPool(activePage: viewModel.selectedPage)
         }
-        .onDisappear { cleanupAllPlayers() }
+        .onDisappear { playerPool.teardownAll() }
         .onChange(of: carouselSelection) { _, newPage in
             viewModel.selectedPage = newPage
             updatePlayerPool(activePage: newPage)
         }
         .onChange(of: isCaptionFocused) { _, focused in
             if focused {
-                playerPool[viewModel.selectedPage]?.pause()
+                playerPool.player(for: viewModel.selectedPage)?.pause()
             } else {
-                playerPool[viewModel.selectedPage]?.play()
+                playerPool.player(for: viewModel.selectedPage)?.play()
             }
         }
         .onChange(of: viewModel.state) { _, newState in
@@ -206,7 +205,7 @@ struct ShareRallySheet: View {
                             // File-based thumbnail while the player warms up
                             VideoThumbnailView(thumbnailURL: nil, videoURL: clip.url)
 
-                            if let pagePlayer = playerPool[pageIndex] {
+                            if let pagePlayer = playerPool.player(for: pageIndex) {
                                 CustomVideoPlayerView(
                                     player: pagePlayer,
                                     gravity: .resizeAspectFill,
@@ -281,7 +280,7 @@ struct ShareRallySheet: View {
                             }
 
                             // Preloaded video player (current ±4 pages have players)
-                            if let pagePlayer = playerPool[pageIndex] {
+                            if let pagePlayer = playerPool.player(for: pageIndex) {
                                 CustomVideoPlayerView(
                                     player: pagePlayer,
                                     gravity: .resizeAspectFill,
@@ -532,68 +531,19 @@ struct ShareRallySheet: View {
         guard pageCount > 0 else { return }
         let lo = max(0, activePage - preloadRadius)
         let hi = min(pageCount - 1, activePage + preloadRadius)
-        let visibleRange = lo...hi
+        playerPool.retain(window: Set(lo...hi))
 
-        // Remove players outside the window
-        for pageIndex in playerPool.keys where !visibleRange.contains(pageIndex) {
-            if let observer = loopObservers.removeValue(forKey: pageIndex) {
-                playerPool[pageIndex]?.removeTimeObserver(observer)
-            }
-            playerPool[pageIndex]?.pause()
-            playerPool[pageIndex]?.replaceCurrentItem(with: nil)
-            playerPool.removeValue(forKey: pageIndex)
-        }
-
-        // Create players for pages in the window that don't have one
-        for pageIndex in visibleRange {
+        // Create players for pages in the window that don't have one, each
+        // looping over its own slice; only the active page plays.
+        for pageIndex in lo...hi {
             guard let config = playbackConfig(forPage: pageIndex) else { continue }
-
-            if playerPool[pageIndex] == nil {
-                let player = AVPlayer(url: config.url)
-                player.automaticallyWaitsToMinimizeStalling = false
-                let startTime = CMTimeMakeWithSeconds(config.start, preferredTimescale: 600)
-                let endTime = CMTimeMakeWithSeconds(config.end, preferredTimescale: 600)
-
-                player.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
-
-                // Set up looping
-                let observer = player.addBoundaryTimeObserver(
-                    forTimes: [NSValue(time: endTime)],
-                    queue: .main
-                ) { [weak player] in
-                    player?.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
-                }
-                loopObservers[pageIndex] = observer
-
-                // Only play the active page
-                if pageIndex == activePage {
-                    player.play()
-                } else {
-                    player.pause()
-                }
-
-                playerPool[pageIndex] = player
-            } else {
-                // Player exists — play/pause based on active page
-                if pageIndex == activePage {
-                    playerPool[pageIndex]?.play()
-                } else {
-                    playerPool[pageIndex]?.pause()
-                }
-            }
+            playerPool.player(
+                for: pageIndex, url: config.url,
+                loopStart: CMTimeMakeWithSeconds(config.start, preferredTimescale: 600),
+                loopEnd: CMTimeMakeWithSeconds(config.end, preferredTimescale: 600)
+            )
         }
-    }
-
-    private func cleanupAllPlayers() {
-        for (pageIndex, player) in playerPool {
-            if let observer = loopObservers[pageIndex] {
-                player.removeTimeObserver(observer)
-            }
-            player.pause()
-            player.replaceCurrentItem(with: nil)
-        }
-        playerPool.removeAll()
-        loopObservers.removeAll()
+        playerPool.activate(activePage)
     }
 
     // MARK: - Caption
