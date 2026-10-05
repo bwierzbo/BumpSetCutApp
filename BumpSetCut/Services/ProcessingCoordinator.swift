@@ -324,7 +324,7 @@ final class ProcessingCoordinator {
                 await MainActor.run {
                     guard gen == self.runGeneration else { return }
                     if StorageChecker.isStorageError(error) {
-                        self.errorMessage = "Ran out of storage space during processing. Free up space and try again."
+                        self.errorMessage = String(localized: "Ran out of storage space during processing. Free up space and try again.")
                     } else {
                         self.errorMessage = error.localizedDescription
                     }
@@ -420,18 +420,25 @@ final class ProcessingCoordinator {
         // The pill above does the same for their return to the app.
         if noRalliesDetected {
             postLocalNotification(
-                title: "No rallies detected",
-                body: "\(videoName) finished processing but no rallies were found. Try Higher Sensitivity from the video."
+                title: String(localized: "No rallies detected"),
+                body: String(localized: "\(videoName) finished processing but no rallies were found. Try Higher Sensitivity from the video.",
+                             comment: "Notification body; %@ is the video name")
             )
         } else if let errorMessage {
-            postLocalNotification(title: "Processing failed", body: "\(videoName): \(errorMessage)")
+            postLocalNotification(
+                title: String(localized: "Processing failed"),
+                body: String(localized: "\(videoName): \(errorMessage)",
+                             comment: "Processing-failed notification body: video name, then the error message")
+            )
         } else {
             let count = completedRallyCount
             postLocalNotification(
-                title: "Your rallies are ready 🏐",
+                title: String(localized: "Your rallies are ready 🏐"),
                 body: count > 0
-                    ? "Found \(count) \(count == 1 ? "rally" : "rallies") in \(videoName). Open BumpSetCut to watch them."
-                    : "\(videoName) finished processing. Open BumpSetCut to watch your rallies."
+                    ? String(localized: "Found \(count) rallies in \(videoName). Open BumpSetCut to watch them.",
+                             comment: "Notification body; first argument is the rally count, second the video name")
+                    : String(localized: "\(videoName) finished processing. Open BumpSetCut to watch your rallies.",
+                             comment: "Notification body; %@ is the video name")
             )
         }
 
@@ -467,13 +474,14 @@ final class ProcessingCoordinator {
         setKeepAwake(false)
         stopBackgroundObserver()
         ProcessingBackgroundKeeper.processing.finish(success: false)
-        errorMessage = "Processing was paused — your progress is saved. Start it again to continue."
+        errorMessage = String(localized: "Processing was paused — your progress is saved. Start it again to continue.")
         didComplete = true
         showCompletionPill = true
         logger.warning("Processing interrupted by background expiry for \(self.videoName)")
         postLocalNotification(
-            title: "Processing paused",
-            body: "\(videoName) couldn't keep running in the background. Your progress is saved — open BumpSetCut and start it again to continue."
+            title: String(localized: "Processing paused"),
+            body: String(localized: "\(videoName) couldn't keep running in the background. Your progress is saved — open BumpSetCut and start it again to continue.",
+                         comment: "Notification body; %@ is the video name")
         )
     }
 

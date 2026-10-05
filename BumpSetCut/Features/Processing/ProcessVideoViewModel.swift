@@ -86,14 +86,13 @@ final class ProcessVideoViewModel {
 
     /// Time cut = original video duration minus total rally duration.
     var timeCutFormatted: String? {
-        guard let cut = timeCutSeconds?.cut else { return nil }
-        return String(format: "%d:%02d", Int(cut) / 60, Int(cut) % 60)
+        timeCutSeconds?.cut.formattedClock()
     }
 
-    /// Percentage of original video that was cut.
-    var timeCutPercent: Int? {
+    /// Share of the original video that was cut, as display text ("42%").
+    var timeCutPercentFormatted: String? {
         guard let (cut, original) = timeCutSeconds else { return nil }
-        return Int((cut / original) * 100)
+        return (cut / original).formattedPercent()
     }
 
     var canBeProcessed: Bool {
@@ -164,8 +163,8 @@ final class ProcessVideoViewModel {
                 icon: "arrow.branch",
                 color: .bscBlue,
                 title: "Already Has Versions",
-                description: "This original video already has \(count) processed version\(count == 1 ? "" : "s"). To avoid duplicates, videos can only be processed once.",
-                detail: "\(count) processed version\(count == 1 ? "" : "s") exist"
+                description: "This original video already has \(count) processed versions. To avoid duplicates, videos can only be processed once.",
+                detail: "\(count) processed versions exist"
             )
         }
     }
@@ -173,9 +172,9 @@ final class ProcessVideoViewModel {
     struct StatusInfo {
         let icon: String
         let color: Color
-        let title: String
-        let description: String
-        let detail: String?
+        let title: LocalizedStringResource
+        let description: LocalizedStringResource
+        let detail: LocalizedStringResource?
     }
 
     // MARK: - Initialization
@@ -280,7 +279,7 @@ final class ProcessVideoViewModel {
     func startProcessing(isDebugMode: Bool, config: ProcessorConfig = ProcessorConfig()) {
         // Block concurrent processing — only one video at a time
         if coordinator.isProcessing, coordinator.videoURL != videoURL {
-            errorMessage = "Another video is already being processed. Please wait for it to finish or cancel it first."
+            errorMessage = String(localized: "Another video is already being processed. Please wait for it to finish or cancel it first.")
             showError = true
             return
         }
@@ -289,7 +288,7 @@ final class ProcessVideoViewModel {
         let videoDuration = cachedOriginalDuration ?? currentVideoMetadata?.duration ?? 0
         let processingCheck = SubscriptionService.shared.canProcessVideo(durationSeconds: videoDuration)
         if !processingCheck.allowed {
-            processingLimitMessage = processingCheck.message ?? "Processing limit reached"
+            processingLimitMessage = processingCheck.message ?? String(localized: "Processing limit reached")
             showProcessingLimit = true
             return
         }
@@ -299,7 +298,7 @@ final class ProcessVideoViewModel {
         let networkCheck = NetworkMonitor.shared.canProcessVideo(isPro: isPro)
 
         if !networkCheck.allowed {
-            errorMessage = networkCheck.reason ?? "Network connection required"
+            errorMessage = networkCheck.reason ?? String(localized: "Network connection required")
             showError = true
             return
         }
@@ -310,7 +309,7 @@ final class ProcessVideoViewModel {
         let storageCheck = StorageChecker.checkAvailableSpace(requiredBytes: requiredSpace)
 
         if !storageCheck.isSufficient {
-            storageWarningMessage = storageCheck.errorMessage ?? "Not enough storage space to process this video"
+            storageWarningMessage = storageCheck.errorMessage ?? String(localized: "Not enough storage space to process this video")
             showStorageWarning = true
             return
         }

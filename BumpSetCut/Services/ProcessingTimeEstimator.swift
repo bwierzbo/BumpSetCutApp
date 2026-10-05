@@ -46,12 +46,12 @@ enum ProcessingTimeEstimator {
         UserDefaults.standard.set(updated, forKey: ratioKey)
     }
 
-    /// Human-readable short duration, e.g. "~2m 30s", "~45s", "under a minute".
-    static func formatEstimate(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds.rounded())
-        if total < 60 { return "~\(max(5, total))s" }
-        let mins = total / 60
-        let secs = total % 60
-        return secs == 0 ? "~\(mins)m" : "~\(mins)m \(secs)s"
+    /// Approximate short duration, locale-aware: "~45s", "~2m", "~2m 30s"
+    /// (English). Never shows less than ~5s.
+    static func formatEstimate(_ seconds: TimeInterval, locale: Locale = .autoupdatingCurrent) -> String {
+        let total = max(5, Int64(seconds.isFinite ? seconds.rounded() : 0))
+        let duration = Duration.seconds(total)
+            .formatted(.units(allowed: [.minutes, .seconds], width: .narrow).locale(locale))
+        return String(localized: "~\(duration)", comment: "Approximate duration, e.g. ~2m 30s")
     }
 }

@@ -330,7 +330,7 @@ private extension ProcessVideoView {
         .bscGlass(cornerRadius: BSCRadius.xl, padding: BSCSpacing.xl)
     }
 
-    private func tipRow(icon: String, text: String) -> some View {
+    private func tipRow(icon: String, text: LocalizedStringResource) -> some View {
         HStack(alignment: .top, spacing: BSCSpacing.sm) {
             Image(systemName: icon)
                 .bscFont(size: 14)
@@ -425,7 +425,7 @@ private extension ProcessVideoView {
 
     /// Results summary shown once processing has finished — the state the view
     /// stays on instead of auto-dismissing, so it must survive a background return.
-    func completionSummary(subtitle: String, showsRallyStats: Bool) -> some View {
+    func completionSummary(subtitle: LocalizedStringResource, showsRallyStats: Bool) -> some View {
         VStack(spacing: BSCSpacing.lg) {
             statusBadge(
                 icon: "checkmark.circle.fill",
@@ -455,8 +455,14 @@ private extension ProcessVideoView {
     var rallyStats: some View {
         HStack(spacing: BSCSpacing.xl) {
             statTile(
-                value: "\(viewModel.detectedRallyCount)",
-                label: viewModel.detectedRallyCount == 1 ? "Rally" : "Rallies",
+                value: viewModel.detectedRallyCount.formatted(),
+                // Plural label under the big number ("Rally"/"Rallies"); the
+                // count argument drives the plural rule and isn't displayed.
+                label: LocalizedStringResource(
+                    "rallyCountStatLabel",
+                    defaultValue: "\(viewModel.detectedRallyCount) Rallies",
+                    comment: "Label under the rally-count stat. Plural variants omit the number: Rally / Rallies"
+                ),
                 color: .bscPrimaryText
             )
 
@@ -464,16 +470,16 @@ private extension ProcessVideoView {
                 statTile(value: timeCut, label: "Time Saved", color: .bscTealText)
             }
 
-            if let percent = viewModel.timeCutPercent {
-                statTile(value: "\(percent)%", label: "Dead Time Cut", color: .bscPrimaryText)
+            if let percent = viewModel.timeCutPercentFormatted {
+                statTile(value: percent, label: "Dead Time Cut", color: .bscPrimaryText)
             }
         }
         .padding(.top, BSCSpacing.xs)
     }
 
-    func statTile(value: String, label: String, color: Color) -> some View {
+    func statTile(value: String, label: LocalizedStringResource, color: Color) -> some View {
         VStack(spacing: BSCSpacing.xxs) {
-            Text(value)
+            Text(verbatim: value)
                 .bscFont(size: 24, weight: .bold)
                 .foregroundColor(color)
             Text(label)
@@ -585,14 +591,14 @@ private extension ProcessVideoView {
                 }
             }
 
-            BSCButton(title: "Back to Library", icon: "chevron.left", style: .ghost, size: .medium) {
+            BSCButton(title: "Back to Library", icon: "chevron.backward", style: .ghost, size: .medium) {
                 dismiss()
             }
         }
     }
 
     var alreadyProcessedButtons: some View {
-        BSCButton(title: "Back to Library", icon: "chevron.left", style: .secondary, size: .large) {
+        BSCButton(title: "Back to Library", icon: "chevron.backward", style: .secondary, size: .large) {
             dismiss()
         }
     }

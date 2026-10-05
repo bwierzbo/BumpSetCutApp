@@ -94,17 +94,22 @@ struct PreTrimView: View {
     /// tightens the vertical rhythm.
     private func controls(compact: Bool) -> some View {
         VStack(spacing: 0) {
-            timeLabels
-                .padding(.horizontal, BSCSpacing.sm)
-                .padding(.bottom, BSCSpacing.sm)
+            // Time runs left→right in every language: the labels and the
+            // trim strip (positioned by .offset(x:)) stay LTR under RTL.
+            Group {
+                timeLabels
+                    .padding(.horizontal, BSCSpacing.sm)
+                    .padding(.bottom, BSCSpacing.sm)
 
-            // Filmstrip trim bar
-            if viewModel.videoDuration > 0 {
-                GeometryReader { geo in
-                    trimBar(totalWidth: geo.size.width)
+                // Filmstrip trim bar
+                if viewModel.videoDuration > 0 {
+                    GeometryReader { geo in
+                        trimBar(totalWidth: geo.size.width)
+                    }
+                    .frame(height: barHeight)
                 }
-                .frame(height: barHeight)
             }
+            .environment(\.layoutDirection, .leftToRight)
 
             Text("Duration: \(formatTime(viewModel.selectionDuration))")
                 .bscFont(size: 13, weight: .medium, design: .monospaced)
@@ -258,7 +263,7 @@ struct PreTrimView: View {
                 .gesture(leftHandleDrag(totalWidth: totalWidth))
                 .accessibilityElement()
                 .accessibilityLabel("Trim start")
-                .accessibilityValue(formatTime(viewModel.startTime))
+                .accessibilityValue(viewModel.startTime.formattedSpokenDuration())
                 .accessibilityAdjustableAction { direction in
                     let delta = direction == .increment ? 0.5 : -0.5
                     viewModel.updateStartTime(viewModel.startTime + delta)
@@ -270,7 +275,7 @@ struct PreTrimView: View {
                 .gesture(rightHandleDrag(totalWidth: totalWidth))
                 .accessibilityElement()
                 .accessibilityLabel("Trim end")
-                .accessibilityValue(formatTime(viewModel.endTime))
+                .accessibilityValue(viewModel.endTime.formattedSpokenDuration())
                 .accessibilityAdjustableAction { direction in
                     let delta = direction == .increment ? 0.5 : -0.5
                     viewModel.updateEndTime(viewModel.endTime + delta)
@@ -375,7 +380,7 @@ struct PreTrimView: View {
                 ProgressView(value: viewModel.exportProgress)
                     .tint(.bscPrimary)
 
-                Text("Trimming video... \(Int(viewModel.exportProgress * 100))%")
+                Text("Trimming video... \(viewModel.exportProgress.formattedPercent())")
                     .bscFont(size: 14, weight: .medium)
                     .foregroundColor(.bscOnMedia)
             }
@@ -416,10 +421,7 @@ struct PreTrimView: View {
     // MARK: - Formatting
 
     private func formatTime(_ seconds: Double) -> String {
-        let totalSeconds = Int(seconds)
-        let minutes = totalSeconds / 60
-        let secs = totalSeconds % 60
-        return String(format: "%d:%02d", minutes, secs)
+        seconds.formattedClock()
     }
 }
 

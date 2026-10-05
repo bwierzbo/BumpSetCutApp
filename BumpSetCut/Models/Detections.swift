@@ -38,22 +38,24 @@ enum ProcessingError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        // Shown to users (processing alerts/notifications), so localized.
         case .modelNotFound:
-            return "AI model not found. Please reinstall the app."
+            return String(localized: "AI model not found. Please reinstall the app.")
         case .noVideoTrack:
-            return "No video track found in the file. The file may be corrupted."
+            return String(localized: "No video track found in the file. The file may be corrupted.")
         case .noRalliesDetected:
-            return "No volleyball rallies were detected in this video."
+            return String(localized: "No volleyball rallies were detected in this video.")
         case .assetReaderFailed(let underlying):
-            return "Failed to read video: \(underlying?.localizedDescription ?? "unknown error")"
+            let reason = underlying?.localizedDescription ?? String(localized: "unknown error")
+            return String(localized: "Failed to read video: \(reason)", comment: "%@ is the underlying system error")
         case .exportSessionFailed(let reason):
-            return "Video export failed: \(reason)"
+            return String(localized: "Video export failed: \(reason)", comment: "%@ is the underlying failure reason")
         case .compositionFailed:
-            return "Failed to create video composition."
+            return String(localized: "Failed to create video composition.")
         case .metadataStoreUnavailable:
-            return "Unable to save processing results."
+            return String(localized: "Unable to save processing results.")
         case .exportCancelled:
-            return "Export was cancelled."
+            return String(localized: "Export was cancelled.")
         }
     }
 }

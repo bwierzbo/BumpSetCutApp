@@ -25,13 +25,13 @@ final class ProcessingBackgroundKeeper {
     /// Continuation for rally-detection processing runs.
     static let processing = ProcessingBackgroundKeeper(
         identifier: "app.BumpSetCut.processing",
-        title: "Detecting rallies"
+        title: String(localized: "Detecting rallies", comment: "System background-task title while processing a video")
     )
 
     /// Continuation for Photos/iCloud video imports.
     static let importing = ProcessingBackgroundKeeper(
         identifier: "app.BumpSetCut.import",
-        title: "Importing video"
+        title: String(localized: "Importing video", comment: "System background-task title while importing a video")
     )
 
     /// True while a continued-processing task is keeping us alive — legacy
@@ -137,7 +137,11 @@ final class ProcessingBackgroundKeeper {
         let clamped = Int64(min(100, max(0, fraction * 100)))
         if continued.progress.completedUnitCount != clamped {
             continued.progress.completedUnitCount = clamped
-            continued.updateTitle(title, subtitle: "\(subtitle) · \(clamped)%")
+            let percent = (Double(clamped) / 100).formattedPercent()
+            continued.updateTitle(title, subtitle: String(
+                localized: "\(subtitle) · \(percent)",
+                comment: "System background-task subtitle: video name, then progress percentage"
+            ))
         }
         // Belt and braces for a cancel the handlers somehow didn't deliver.
         if continued.progress.isCancelled {

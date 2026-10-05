@@ -156,9 +156,9 @@ enum PreTrimError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .exportSessionUnavailable: return "Export session unavailable"
-        case .noVideoTrack: return "No video track found"
-        case .compositionFailed: return "Failed to create composition"
+        case .exportSessionUnavailable: return String(localized: "Export session unavailable")
+        case .noVideoTrack: return String(localized: "No video track found")
+        case .compositionFailed: return String(localized: "Failed to create composition")
         case .exportFailed(let msg): return msg
         }
     }
