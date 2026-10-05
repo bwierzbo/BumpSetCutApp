@@ -1083,10 +1083,13 @@ struct FavoritesFeedView: View {
             object: player.currentItem,
             queue: .main
         ) { [weak player] _ in
-            let trim = savedTrims[index]
-            let startTime = max(0, -(trim?.before ?? 0))
-            player?.seek(to: CMTimeMakeWithSeconds(startTime, preferredTimescale: 600))
-            player?.play()
+            // queue: .main above — this is the main actor.
+            MainActor.assumeIsolated {
+                let trim = savedTrims[index]
+                let startTime = max(0, -(trim?.before ?? 0))
+                player?.seek(to: CMTimeMakeWithSeconds(startTime, preferredTimescale: 600))
+                player?.play()
+            }
         }
         loopObservers[index] = observer
         players[index] = player

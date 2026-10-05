@@ -252,7 +252,7 @@ final class ShareRallyViewModel {
     static let maxDurationSeconds: Double = 60
     /// A multi-rally post carries at most this many clips; callers with more
     /// present a picker first.
-    static let maxClipsPerPost = 10
+    nonisolated static let maxClipsPerPost = 10
 
     var currentDuration: Double? {
         guard let info = currentShareInfo else { return nil }

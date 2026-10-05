@@ -555,44 +555,11 @@ extension Animation {
 // MARK: - Transition Presets
 extension AnyTransition {
     /// Slide up with fade - Modal presentations
-    static let bscSlideUp = AnyTransition.asymmetric(
-        insertion: .move(edge: .bottom).combined(with: .opacity),
-        removal: .move(edge: .bottom).combined(with: .opacity)
-    )
-
-    /// Slide down with fade - Dropdown menus
-    static let bscSlideDown = AnyTransition.asymmetric(
-        insertion: .move(edge: .top).combined(with: .opacity),
-        removal: .move(edge: .top).combined(with: .opacity)
-    )
-
-    /// Scale with fade - Cards, buttons
-    static let bscScale = AnyTransition.scale(scale: 0.9).combined(with: .opacity)
-
-    /// Scale up - Appearing elements
-    static let bscScaleUp = AnyTransition.scale(scale: 0.8).combined(with: .opacity)
-
-    /// Simple fade - Subtle transitions
-    static let bscFade = AnyTransition.opacity
-
-    /// Blur transition - Premium feel
-    static var bscBlur: AnyTransition {
-        .modifier(
-            active: BlurModifier(blur: 10, opacity: 0),
-            identity: BlurModifier(blur: 0, opacity: 1)
+    static var bscSlideUp: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: .bottom).combined(with: .opacity),
+            removal: .move(edge: .bottom).combined(with: .opacity)
         )
-    }
-}
-
-// MARK: - Blur Transition Modifier
-private struct BlurModifier: ViewModifier {
-    let blur: CGFloat
-    let opacity: Double
-
-    func body(content: Content) -> some View {
-        content
-            .blur(radius: blur)
-            .opacity(opacity)
     }
 }
 

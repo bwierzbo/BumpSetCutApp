@@ -10,6 +10,7 @@ import AVFoundation
 import CoreGraphics
 import UIKit
 import os
+@preconcurrency import Dispatch
 import os.log
 
 /// Infrastructure layer service for extracting video frames with LRU caching
@@ -250,7 +251,7 @@ final class FrameExtractor {
                 // was never deallocated — one heap leak per extraction)
                 let hasResumed = OSAllocatedUnfairLock(initialState: false)
 
-                func resumeOnce(with result: Result<UIImage, Error>) {
+                @Sendable func resumeOnce(with result: Result<UIImage, Error>) {
                     let shouldResume = hasResumed.withLock { resumed -> Bool in
                         guard !resumed else { return false }
                         resumed = true

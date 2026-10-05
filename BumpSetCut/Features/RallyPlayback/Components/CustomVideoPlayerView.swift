@@ -68,10 +68,10 @@ final class PlayerUIView: UIView {
 
         // Observe isReadyForDisplay - this is the KEY to eliminating black flash
         // isReadyForDisplay becomes true when first video frame is rendered
-        readyObserver = playerLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] layer, change in
-            if let isReady = change.newValue {
-                self?.onReadyForDisplay?(isReady)
-            }
+        // KVO may post off the main thread; the callers update view state.
+        readyObserver = playerLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, change in
+            guard let isReady = change.newValue, let self else { return }
+            DispatchQueue.main.async { self.onReadyForDisplay?(isReady) }
         }
     }
 

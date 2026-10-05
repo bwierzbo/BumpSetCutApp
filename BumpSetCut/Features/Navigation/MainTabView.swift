@@ -14,16 +14,10 @@ enum AppTab: Int, CaseIterable {
     case profile
 }
 
-// Environment key for changing tabs from child views
-private struct ChangeTabKey: EnvironmentKey {
-    static let defaultValue: (AppTab) -> Void = { _ in }
-}
 
 extension EnvironmentValues {
-    var changeTab: (AppTab) -> Void {
-        get { self[ChangeTabKey.self] }
-        set { self[ChangeTabKey.self] = newValue }
-    }
+    /// Switch tabs from a child view.
+    @Entry var changeTab: (AppTab) -> Void = { _ in }
 }
 
 struct MainTabView: View {

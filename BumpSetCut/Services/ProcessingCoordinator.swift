@@ -168,6 +168,11 @@ final class ProcessingCoordinator {
         }
         keeper.begin(subtitle: videoName)
 
+        // This run's processor. The task reads it after every await, and a new
+        // run replaces self.processor — reading the property there could pick up
+        // the next run's processor (its evidence, mid-append) for this video.
+        let processor = self.processor
+
         currentTask = Task { [weak self] in
             guard let self else { return }
 
@@ -177,7 +182,7 @@ final class ProcessingCoordinator {
                     try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
                     guard let self else { break }
                     await MainActor.run {
-                        self.progress = min(1.0, max(0.0, self.processor.progress))
+                        self.progress = min(1.0, max(0.0, processor.progress))
                         ProcessingBackgroundKeeper.processing.updateProgress(self.progress, subtitle: self.videoName)
                     }
                 }
@@ -191,10 +196,11 @@ final class ProcessingCoordinator {
                 // 30s guard expiring must NOT kill the run — checkpoint and
                 // keep going instead.
                 let task = self.currentTask
-                processor.setBackgroundCancellationHandler { [weak self] in
+                // Weak: the processor stores this handler.
+                processor.setBackgroundCancellationHandler { [weak self, weak processor] in
                     guard let self else { return }
                     if ProcessingBackgroundKeeper.processing.isActive {
-                        self.processor.requestCheckpoint()
+                        processor?.requestCheckpoint()
                         return
                     }
                     task?.cancel()
@@ -264,7 +270,7 @@ final class ProcessingCoordinator {
                     // Data flywheel (opted-in users only): persist the detector's
                     // per-frame evidence scoped to rally windows, then stage the
                     // borderline-confidence rallies for relabeling.
-                    let collectedEvidence = self.processor.frameEvidence
+                    let collectedEvidence = processor.frameEvidence
                     await MainActor.run {
                         guard AppSettings.shared.enableDataFlywheel else { return }
                         let stored = FlywheelCaptureService.scopedEvidence(
@@ -294,7 +300,7 @@ final class ProcessingCoordinator {
                 // Data flywheel (opted-in users only): a video where the detector
                 // found NO rallies is a hard negative worth relabeling. Persist the
                 // full per-frame evidence, then stage whole-video frame groupings.
-                let collectedEvidence = self.processor.frameEvidence
+                let collectedEvidence = processor.frameEvidence
                 await MainActor.run {
                     if gen == self.runGeneration {
                         self.noRalliesDetected = true

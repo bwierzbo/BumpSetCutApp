@@ -8,7 +8,7 @@
 
 import AVFoundation
 
-final class PreTrimService {
+final class PreTrimService: Sendable {
 
     /// Export a trimmed portion of the source video.
     /// - Parameters:
@@ -23,7 +23,7 @@ final class PreTrimService {
         startTime: Double,
         endTime: Double,
         rotationDegrees: Double = 0,
-        progressHandler: ((Double) -> Void)? = nil
+        progressHandler: (@Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         let asset = AVURLAsset(url: sourceURL)
         let start = CMTime(seconds: startTime, preferredTimescale: 600)
@@ -57,7 +57,7 @@ final class PreTrimService {
         asset: AVAsset,
         timeRange: CMTimeRange,
         to outURL: URL,
-        progressHandler: ((Double) -> Void)?
+        progressHandler: (@Sendable (Double) -> Void)?
     ) async throws -> URL {
         guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
             throw PreTrimError.exportSessionUnavailable
@@ -65,33 +65,8 @@ final class PreTrimService {
 
         exporter.timeRange = timeRange
 
-        if #available(iOS 18.0, *) {
-            let pollTask = Task.detached { [weak exporter] in
-                while let exp = exporter, exp.progress < 1.0 {
-                    progressHandler?(Double(exp.progress))
-                    try await Task.sleep(nanoseconds: 100_000_000)
-                }
-            }
-            try await exporter.export(to: outURL, as: .mp4)
-            pollTask.cancel()
-            progressHandler?(1.0)
-            return outURL
-        } else {
-            exporter.outputURL = outURL
-            exporter.outputFileType = .mp4
-            exporter.exportAsynchronously(completionHandler: {})
-
-            while exporter.status == .exporting {
-                progressHandler?(Double(exporter.progress))
-                try await Task.sleep(nanoseconds: 100_000_000)
-            }
-
-            guard exporter.status == .completed else {
-                throw exporter.error ?? PreTrimError.exportFailed("Passthrough export failed")
-            }
-            progressHandler?(1.0)
-            return outURL
-        }
+        try await exporter.export(to: outURL, as: .mp4, progress: progressHandler)
+        return outURL
     }
 
     // MARK: - Composition-based Export
@@ -101,7 +76,7 @@ final class PreTrimService {
         timeRange: CMTimeRange,
         rotationDegrees: Double,
         to outURL: URL,
-        progressHandler: ((Double) -> Void)?
+        progressHandler: (@Sendable (Double) -> Void)?
     ) async throws -> URL {
         // Clean up partial file from failed passthrough
         try? FileManager.default.removeItem(at: outURL)
@@ -166,34 +141,8 @@ final class PreTrimService {
         }
         exporter.videoComposition = videoComposition
 
-        if #available(iOS 18.0, *) {
-            let pollTask = Task.detached { [weak exporter] in
-                while let exp = exporter, exp.progress < 1.0 {
-                    progressHandler?(Double(exp.progress))
-                    try await Task.sleep(nanoseconds: 100_000_000)
-                }
-            }
-            try await exporter.export(to: outURL, as: .mp4)
-            pollTask.cancel()
-            progressHandler?(1.0)
-            return outURL
-        } else {
-            exporter.outputURL = outURL
-            exporter.outputFileType = .mp4
-            exporter.shouldOptimizeForNetworkUse = true
-            exporter.exportAsynchronously(completionHandler: {})
-
-            while exporter.status == .exporting {
-                progressHandler?(Double(exporter.progress))
-                try await Task.sleep(nanoseconds: 100_000_000)
-            }
-
-            guard exporter.status == .completed else {
-                throw exporter.error ?? PreTrimError.exportFailed("Re-encoding export failed")
-            }
-            progressHandler?(1.0)
-            return outURL
-        }
+        try await exporter.export(to: outURL, as: .mp4, progress: progressHandler)
+        return outURL
     }
 }
 

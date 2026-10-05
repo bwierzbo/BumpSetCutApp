@@ -14,7 +14,7 @@ final class RallyPlayerLifecycle {
     // MARK: - Rally Looping
 
     func setupLooping(player: AVPlayer, startTime: Double, endTime: Double,
-                      isTrimmingMode: @escaping () -> Bool,
+                      isTrimmingMode: @escaping @MainActor () -> Bool,
                       playerCache: RallyPlayerCache) {
         removeLooping()
 
@@ -22,9 +22,10 @@ final class RallyPlayerLifecycle {
         let startCMTime = CMTimeMakeWithSeconds(startTime, preferredTimescale: 600)
 
         let interval = CMTimeMakeWithSeconds(0.05, preferredTimescale: 600)
+        nonisolated(unsafe) let trimming = isTrimmingMode   // called on the main actor only
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
-                guard let _ = self, !isTrimmingMode() else { return }
+                guard let _ = self, !trimming() else { return }
                 if CMTimeCompare(time, endCMTime) >= 0 {
                     playerCache.currentPlayer?.seek(to: startCMTime, toleranceBefore: .zero, toleranceAfter: .zero)
                 }

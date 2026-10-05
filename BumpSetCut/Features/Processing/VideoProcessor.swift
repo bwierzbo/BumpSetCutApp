@@ -9,9 +9,15 @@ import Foundation
 import AVFoundation
 import Vision
 import CoreMedia
+import os
 
+/// Concurrency rule (why @unchecked Sendable holds): one `process*` call in
+/// flight per instance; the UI fields below are written only on the main
+/// actor; `requestCheckpoint()` is the only cross-thread entry point and is
+/// lock-protected. Callers read results (`frameEvidence`, …) after the call
+/// returns, from the instance they started it on.
 @Observable
-final class VideoProcessor {
+final class VideoProcessor: @unchecked Sendable {
 
     // MARK: - UI observed
     var isProcessing = false
@@ -154,13 +160,13 @@ final class VideoProcessor {
     private(set) var lastVideoDurationSec: Double = 0
 
     /// Set when background time is about to run out: the frame loop writes a
-    /// resume checkpoint at the next rally-idle frame. Plain bool by design —
-    /// a torn read only delays the checkpoint one frame.
-    nonisolated(unsafe) private var urgentCheckpointRequested = false
+    /// resume checkpoint at the next rally-idle frame. Set from the main
+    /// thread, taken by the frame loop on its own — hence the lock.
+    @ObservationIgnored private let urgentCheckpoint = OSAllocatedUnfairLock(initialState: false)
 
     /// Ask the frame loop to checkpoint as soon as it's safe (rally-idle).
     func requestCheckpoint() {
-        urgentCheckpointRequested = true
+        urgentCheckpoint.withLock { $0 = true }
     }
 
     // MARK: - Entry point (now generates metadata instead of video files)
@@ -503,7 +509,7 @@ final class VideoProcessor {
             metadataStore?.processingCheckpointFileURL(for: videoId)
         }
         let configHash = ProcessingCheckpoint.hash(of: config)
-        urgentCheckpointRequested = false
+        urgentCheckpoint.withLock { $0 = false }
         var restored: ProcessingCheckpoint?
         if let checkpointURL, let candidate = ProcessingCheckpoint.load(from: checkpointURL) {
             if candidate.isValid(for: videoId, configHash: configHash,
@@ -787,10 +793,15 @@ final class VideoProcessor {
             // immediate write when background expiry asked for one.
             if !isActive {
                 let nowSec = CMTimeGetSeconds(pts)
-                if urgentCheckpointRequested || nowSec - lastCheckpointTime >= 30 {
+                // Taken and cleared in one step, so a request arriving
+                // mid-write isn't lost.
+                let urgent = urgentCheckpoint.withLock { requested in
+                    defer { requested = false }
+                    return requested
+                }
+                if urgent || nowSec - lastCheckpointTime >= 30 {
                     writeCheckpoint(nowSec)
                     lastCheckpointTime = nowSec
-                    urgentCheckpointRequested = false
                 }
             }
 

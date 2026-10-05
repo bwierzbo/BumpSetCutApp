@@ -78,7 +78,8 @@ struct VideoThumbnailView: View {
             "AVURLAssetOutOfBandMIMETypeKey": "video/mp4",
             AVURLAssetPreferPreciseDurationAndTimingKey: false
         ])
-        let generator = AVAssetImageGenerator(asset: asset)
+        // Only the one child task below uses it.
+        nonisolated(unsafe) let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 400, height: 400)
         generator.requestedTimeToleranceBefore = .positiveInfinity

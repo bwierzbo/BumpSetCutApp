@@ -295,29 +295,13 @@ struct EditProfileView: View {
 
     private var avatarSection: some View {
         VStack(spacing: BSCSpacing.sm) {
+            // Read here: PhotosPicker's label closure isn't main-actor
+            // isolated, so it can't read this view's state itself.
+            let preview = pendingAvatarImage ?? avatarImage
+            let url = currentAvatarURL
+            let name = username.isEmpty ? "?" : username
             PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                ZStack(alignment: .bottomTrailing) {
-                    if let preview = pendingAvatarImage ?? avatarImage {
-                        Image(uiImage: preview)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 90, height: 90)
-                            .clipShape(Circle())
-                    } else {
-                        AvatarView(url: currentAvatarURL, name: username.isEmpty ? "?" : username, size: 90)
-                    }
-
-                    // Camera badge
-                    Circle()
-                        .fill(Color.bscPrimaryFill)
-                        .frame(width: 28, height: 28)
-                        .overlay(
-                            Image(systemName: "camera.fill")
-                                .bscFont(size: 12, weight: .semibold)
-                                .foregroundColor(.bscOnPrimary)
-                        )
-                        .offset(x: 2, y: 2)
-                }
+                EditableAvatar(preview: preview, url: url, name: name)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Change profile photo")
@@ -422,6 +406,40 @@ private extension UIImage {
         let renderer = UIGraphicsImageRenderer(size: newSize)
         return renderer.image { _ in
             draw(in: CGRect(origin: .zero, size: newSize))
+        }
+    }
+}
+
+// MARK: - Editable Avatar
+
+/// The profile photo with a camera badge, as the photo picker's label.
+private struct EditableAvatar: View {
+    let preview: UIImage?
+    let url: URL?
+    let name: String
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            if let preview {
+                Image(uiImage: preview)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 90, height: 90)
+                    .clipShape(Circle())
+            } else {
+                AvatarView(url: url, name: name, size: 90)
+            }
+
+            // Camera badge
+            Circle()
+                .fill(Color.bscPrimaryFill)
+                .frame(width: 28, height: 28)
+                .overlay(
+                    Image(systemName: "camera.fill")
+                        .bscFont(size: 12, weight: .semibold)
+                        .foregroundColor(.bscOnPrimary)
+                )
+                .offset(x: 2, y: 2)
         }
     }
 }

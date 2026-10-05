@@ -408,24 +408,8 @@ final class VideoExporter {
 
         exporter.timeRange = timeRange
 
-        if #available(iOS 18.0, *) {
-            try await exporter.export(to: outURL, as: .mp4)
-            return outURL
-        } else {
-            exporter.outputURL = outURL
-            exporter.outputFileType = .mp4
-
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                exporter.exportAsynchronously {
-                    cont.resume()
-                }
-            }
-
-            if exporter.status == .failed {
-                throw exporter.error ?? ProcessingError.exportSessionFailed("Passthrough export failed")
-            }
-            return outURL
-        }
+        try await exporter.export(to: outURL, as: .mp4)
+        return outURL
     }
 
     /// Export a time range using composition + re-encoding (HighestQuality).
@@ -465,25 +449,8 @@ final class VideoExporter {
             exporter.videoComposition = applyWatermark(to: comp, videoSize: videoSize, transform: preferredTransform)
         }
 
-        if #available(iOS 18.0, *) {
-            try await exporter.export(to: outURL, as: .mp4)
-            return outURL
-        } else {
-            exporter.outputURL = outURL
-            exporter.outputFileType = .mp4
-            exporter.shouldOptimizeForNetworkUse = true
-
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                exporter.exportAsynchronously {
-                    cont.resume()
-                }
-            }
-
-            if exporter.status == .failed {
-                throw exporter.error ?? ProcessingError.exportSessionFailed("Re-encoding export failed")
-            }
-            return outURL
-        }
+        try await exporter.export(to: outURL, as: .mp4)
+        return outURL
     }
 
     // MARK: - Photo Library Export
@@ -641,8 +608,7 @@ final class VideoExporter {
         }
     }
 
-    /// Shared progress-reporting export for stitched compositions
-    /// (iOS-18 async export vs. the legacy polling path).
+    /// Shared progress-reporting export for stitched compositions.
     private func exportComposition(
         _ composition: AVMutableComposition,
         videoComposition: AVVideoComposition?,
@@ -656,41 +622,8 @@ final class VideoExporter {
         }
         exporter.videoComposition = videoComposition
 
-        if #available(iOS 18.0, *) {
-            // Poll progress on a background task while awaiting export
-            let pollTask = Task.detached { [weak exporter] in
-                while let exp = exporter, exp.progress < 1.0 {
-                    progressHandler?(Double(exp.progress))
-                    try await Task.sleep(nanoseconds: 100_000_000) // 100ms
-                }
-            }
-            try await exporter.export(to: outputURL, as: fileType)
-            pollTask.cancel()
-            progressHandler?(1.0)
-            return outputURL
-        } else {
-            exporter.outputURL = outputURL
-            exporter.outputFileType = fileType
-            exporter.shouldOptimizeForNetworkUse = true
-            exporter.exportAsynchronously(completionHandler: {})
-
-            while exporter.status == .exporting {
-                progressHandler?(Double(exporter.progress))
-                try await Task.sleep(nanoseconds: 100_000_000) // 100ms
-            }
-
-            switch exporter.status {
-            case .completed:
-                progressHandler?(1.0)
-                return outputURL
-            case .failed:
-                throw exporter.error ?? ProcessingError.exportSessionFailed("Stitched export failed")
-            case .cancelled:
-                throw ProcessingError.exportCancelled
-            default:
-                throw ProcessingError.exportSessionFailed("Unexpected stitched export status: \(exporter.status.rawValue)")
-            }
-        }
+        try await exporter.export(to: outputURL, as: fileType, progress: progressHandler)
+        return outputURL
     }
 
     // MARK: - Watermark

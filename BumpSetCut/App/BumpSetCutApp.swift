@@ -146,20 +146,22 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     }
 
     /// Don't banner a message for the thread that's already open.
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                               willPresent notification: UNNotification) async
+    /// Nonisolated: the notification objects aren't Sendable, so only the id
+    /// string crosses to the main actor.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                           willPresent notification: UNNotification) async
     -> UNNotificationPresentationOptions {
         let conversationId = notification.request.content.userInfo["conversationId"] as? String
-        if let conversationId, conversationId == DirectMessageService.shared.activeConversationId {
-            return []
+        let isOpen = await MainActor.run {
+            conversationId != nil && conversationId == DirectMessageService.shared.activeConversationId
         }
-        return [.banner, .sound, .badge]
+        return isOpen ? [] : [.banner, .sound, .badge]
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                               didReceive response: UNNotificationResponse) async {
-        if let conversationId = response.notification.request.content.userInfo["conversationId"] as? String {
-            DirectMessageService.shared.pendingConversationId = conversationId
-        }
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                           didReceive response: UNNotificationResponse) async {
+        guard let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
+        else { return }
+        await MainActor.run { DirectMessageService.shared.pendingConversationId = conversationId }
     }
 }

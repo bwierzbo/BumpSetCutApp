@@ -173,7 +173,7 @@ final class RallyPlayerCache: ObservableObject {
             var timeoutTask: DispatchWorkItem?
             var hasResumed = false
 
-            let resumeOnce: (Bool) -> Void = { result in
+            let resumeOnce: @MainActor (Bool) -> Void = { result in
                 guard !hasResumed else { return }
                 hasResumed = true
                 timeoutTask?.cancel()
@@ -182,7 +182,7 @@ final class RallyPlayerCache: ObservableObject {
                 continuation.resume(returning: result)
             }
 
-            let checkReady: () -> Void = {
+            let checkReady: @MainActor () -> Void = {
                 if item.status == .readyToPlay && item.isPlaybackLikelyToKeepUp {
                     resumeOnce(true)
                 } else if item.status == .failed {
@@ -190,12 +190,15 @@ final class RallyPlayerCache: ObservableObject {
                 }
             }
 
+            // KVO posts on any thread; checkReady (and its captured state) is
+            // only ever run on the main actor.
+            nonisolated(unsafe) let check = checkReady
             statusObserver = item.observe(\.status, options: [.new]) { _, _ in
-                Task { @MainActor in checkReady() }
+                Task { @MainActor in check() }
             }
 
             bufferObserver = item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { _, _ in
-                Task { @MainActor in checkReady() }
+                Task { @MainActor in check() }
             }
 
             // Timeout fallback

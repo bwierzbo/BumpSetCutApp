@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import MapKit
+@preconcurrency import MapKit
 
 // MARK: - Picked Location
 
