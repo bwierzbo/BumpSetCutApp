@@ -38,3 +38,12 @@ struct LibraryScreen {
         app.descendants(matching: .any)["library.filter.unprocessed"]
     }
 }
+
+extension XCUIApplication {
+    /// A library video or folder card. Cards are single button elements whose
+    /// label starts with the item's name ("Name, Ready, 0:42…" /
+    /// "Name folder, 3 videos"), so their text isn't a separate element.
+    func libraryCard(named name: String) -> XCUIElement {
+        buttons.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
+    }
+}

@@ -42,7 +42,7 @@ final class FavoritesEmptyStateTests: BSCUITestCase {
         createButton.tap()
 
         // Folder should appear
-        let folderText = app.staticTexts["Fav Folder"]
+        let folderText = app.libraryCard(named: "Fav Folder")
         XCTAssertTrue(folderText.waitForExistence(timeout: 5))
     }
 

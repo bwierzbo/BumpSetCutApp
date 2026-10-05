@@ -37,7 +37,7 @@ final class LibraryProcessedTests: PreProcessedVideoTestCase {
         library.filterProcessed.tap()
 
         // Pre-processed video should appear under Processed filter
-        let videoCard = app.staticTexts["Test Rally Video"]
+        let videoCard = app.libraryCard(named: "Test Rally Video")
         XCTAssertTrue(videoCard.waitForExistence(timeout: 5),
                        "Pre-processed video should appear under Processed filter")
     }
@@ -52,7 +52,7 @@ final class LibraryProcessedTests: PreProcessedVideoTestCase {
         library.filterUnprocessed.tap()
 
         // Pre-processed video should NOT appear under Unprocessed filter
-        let videoCard = app.staticTexts["Test Rally Video"]
+        let videoCard = app.libraryCard(named: "Test Rally Video")
         let predicate = NSPredicate(format: "exists == false")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: videoCard)
         let result = XCTWaiter.wait(for: [expectation], timeout: 5)

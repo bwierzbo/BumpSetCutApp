@@ -55,7 +55,7 @@ final class LibraryEmptyStateTests: BSCUITestCase {
         createButton.tap()
 
         // Folder should now appear in the library
-        let folderText = app.staticTexts["Test Folder"]
+        let folderText = app.libraryCard(named: "Test Folder")
         XCTAssertTrue(folderText.waitForExistence(timeout: 5))
     }
 

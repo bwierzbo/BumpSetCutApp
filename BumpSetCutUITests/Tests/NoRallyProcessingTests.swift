@@ -65,7 +65,7 @@ final class NoRallyProcessingTests: VideoTestCase {
 
         // Should return to home or library view
         let homeExists = app.descendants(matching: .any)["home.viewLibrary"].firstMatch.waitForExistence(timeout: 5)
-        let libraryExists = app.staticTexts["Test Rally Video"].waitForExistence(timeout: 5)
+        let libraryExists = app.libraryCard(named: "Test Rally Video").waitForExistence(timeout: 5)
         XCTAssertTrue(homeExists || libraryExists, "Should navigate back to home or library")
     }
 }

@@ -38,7 +38,7 @@ final class LibrarySearchTests: VideoTestCase {
         searchField.typeText("Test Rally")
 
         // Video should still be visible (matches search)
-        let videoName = app.staticTexts["Test Rally Video"]
+        let videoName = app.libraryCard(named: "Test Rally Video")
         XCTAssertTrue(
             videoName.waitForExistence(timeout: 5),
             "Video matching search should remain visible"
@@ -57,7 +57,7 @@ final class LibrarySearchTests: VideoTestCase {
         searchField.typeText("zzzznonexistentvideo")
 
         // Test video should disappear
-        let videoName = app.staticTexts["Test Rally Video"]
+        let videoName = app.libraryCard(named: "Test Rally Video")
         let predicate = NSPredicate(format: "exists == false")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: videoName)
         let result = XCTWaiter.wait(for: [expectation], timeout: 5)

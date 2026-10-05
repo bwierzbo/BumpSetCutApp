@@ -20,7 +20,7 @@ final class LibraryWithContentTests: VideoTestCase {
         XCTAssertFalse(emptyState.waitForExistence(timeout: 3), "Library should not show empty state")
 
         // Video card should be visible
-        let videoName = app.staticTexts["Test Rally Video"]
+        let videoName = app.libraryCard(named: "Test Rally Video")
         XCTAssertTrue(videoName.waitForExistence(timeout: 3), "Video card should be visible")
     }
 
@@ -32,7 +32,7 @@ final class LibraryWithContentTests: VideoTestCase {
             libraryScreen.filterUnprocessed.tap()
 
             // Test video is unprocessed, should still be visible
-            let videoName = app.staticTexts["Test Rally Video"]
+            let videoName = app.libraryCard(named: "Test Rally Video")
             XCTAssertTrue(videoName.waitForExistence(timeout: 3), "Unprocessed video should appear under Unprocessed filter")
         }
 
@@ -41,7 +41,7 @@ final class LibraryWithContentTests: VideoTestCase {
             libraryScreen.filterProcessed.tap()
 
             // Test video is NOT processed, should not be visible
-            let videoName = app.staticTexts["Test Rally Video"]
+            let videoName = app.libraryCard(named: "Test Rally Video")
             let predicate = NSPredicate(format: "exists == false")
             let expectation = XCTNSPredicateExpectation(predicate: predicate, object: videoName)
             let result = XCTWaiter.wait(for: [expectation], timeout: 5)
@@ -81,7 +81,7 @@ final class LibraryWithContentTests: VideoTestCase {
         if libraryScreen.filterAll.waitForExistence(timeout: 3) {
             libraryScreen.filterAll.tap()
 
-            let videoName = app.staticTexts["Test Rally Video"]
+            let videoName = app.libraryCard(named: "Test Rally Video")
             XCTAssertTrue(videoName.waitForExistence(timeout: 3), "Video should be visible under All filter")
         }
     }
@@ -102,7 +102,7 @@ final class LibraryWithContentTests: VideoTestCase {
 
     func testVideoCountDisplayed() {
         // At least one video exists, verify the library shows content
-        let videoName = app.staticTexts["Test Rally Video"]
+        let videoName = app.libraryCard(named: "Test Rally Video")
         XCTAssertTrue(videoName.waitForExistence(timeout: 3), "Library should display the test video")
     }
 }

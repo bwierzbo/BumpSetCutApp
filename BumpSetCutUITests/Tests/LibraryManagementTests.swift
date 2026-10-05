@@ -23,7 +23,7 @@ final class LibraryManagementTests: VideoTestCase {
 
     /// 4.5.1 — Long-press video shows context menu with Delete, Rename, Move
     func testVideoContextMenuAppears() {
-        let videoCard = app.staticTexts["Test Rally Video"]
+        let videoCard = app.libraryCard(named: "Test Rally Video")
         guard videoCard.waitForExistence(timeout: 5) else {
             XCTFail("Video card should exist in library")
             return
@@ -49,7 +49,7 @@ final class LibraryManagementTests: VideoTestCase {
 
     /// 4.5.2 — Rename video via context menu
     func testRenameVideo() {
-        let videoCard = app.staticTexts["Test Rally Video"]
+        let videoCard = app.libraryCard(named: "Test Rally Video")
         guard videoCard.waitForExistence(timeout: 5) else { return }
 
         videoCard.press(forDuration: 1.0)
@@ -82,7 +82,7 @@ final class LibraryManagementTests: VideoTestCase {
         }
 
         // Verify name updated
-        let renamedVideo = app.staticTexts["Renamed Video"]
+        let renamedVideo = app.libraryCard(named: "Renamed Video")
         XCTAssertTrue(renamedVideo.waitForExistence(timeout: 5),
                        "Video name should update after rename")
     }
@@ -114,14 +114,14 @@ final class LibraryManagementTests: VideoTestCase {
         createButton.tap()
 
         // Verify folder was created
-        let folderText = app.staticTexts["Move Target"]
+        let folderText = app.libraryCard(named: "Move Target")
         guard folderText.waitForExistence(timeout: 5) else {
             XCTFail("Folder was not created")
             return
         }
 
         // Now long-press the video to get context menu
-        let videoCard = app.staticTexts["Test Rally Video"]
+        let videoCard = app.libraryCard(named: "Test Rally Video")
         guard videoCard.waitForExistence(timeout: 5) else {
             XCTFail("Video card not found")
             return
@@ -180,7 +180,7 @@ final class LibraryManagementTests: VideoTestCase {
         createButton.tap()
 
         // Tap the folder to navigate into it
-        let folderText = app.staticTexts["Nav Folder"]
+        let folderText = app.libraryCard(named: "Nav Folder")
         guard folderText.waitForExistence(timeout: 5) else { return }
         folderText.tap()
 
@@ -210,7 +210,7 @@ final class LibraryManagementTests: VideoTestCase {
         guard createButton.waitForExistence(timeout: 3) else { return }
         createButton.tap()
 
-        let folderText = app.staticTexts["Back Test Folder"]
+        let folderText = app.libraryCard(named: "Back Test Folder")
         guard folderText.waitForExistence(timeout: 5) else { return }
         folderText.tap()
 
@@ -227,7 +227,7 @@ final class LibraryManagementTests: VideoTestCase {
         backButton.tap()
 
         // Should be back at library root with video visible
-        let videoCard = app.staticTexts["Test Rally Video"]
+        let videoCard = app.libraryCard(named: "Test Rally Video")
         XCTAssertTrue(videoCard.waitForExistence(timeout: 5),
                        "Should return to library root showing video")
     }
@@ -259,7 +259,7 @@ final class LibraryManagementTests: VideoTestCase {
         createButton.tap()
 
         // Long-press folder to get context menu
-        let folderText = app.staticTexts["Old Name"]
+        let folderText = app.libraryCard(named: "Old Name")
         guard folderText.waitForExistence(timeout: 5) else {
             XCTFail("Folder 'Old Name' not found")
             return
@@ -297,7 +297,7 @@ final class LibraryManagementTests: VideoTestCase {
         }
 
         // Verify name updated
-        let renamedFolder = app.staticTexts["New Name"]
+        let renamedFolder = app.libraryCard(named: "New Name")
         XCTAssertTrue(renamedFolder.waitForExistence(timeout: 5),
                        "Folder name should update after rename")
     }
@@ -318,7 +318,7 @@ final class LibraryManagementTests: VideoTestCase {
         createButton.tap()
 
         // Long-press folder
-        let folderText = app.staticTexts["Delete Me"]
+        let folderText = app.libraryCard(named: "Delete Me")
         guard folderText.waitForExistence(timeout: 5) else { return }
         folderText.press(forDuration: 1.0)
 
@@ -357,7 +357,7 @@ final class LibraryManagementTests: VideoTestCase {
         sleep(1)
 
         // App should still be running
-        let videoCard = app.staticTexts["Test Rally Video"]
+        let videoCard = app.libraryCard(named: "Test Rally Video")
         XCTAssertTrue(videoCard.waitForExistence(timeout: 5),
                        "Library should still show content after pull-to-refresh")
     }

@@ -48,7 +48,7 @@ final class ProcessingTests: VideoTestCase {
         processScreen.cancelButton.tap()
 
         // Should return (dismiss). Verify by checking we're back at library or home.
-        let libraryExists = app.staticTexts["Test Rally Video"].waitForExistence(timeout: 5)
+        let libraryExists = app.libraryCard(named: "Test Rally Video").waitForExistence(timeout: 5)
         let homeExists = app.descendants(matching: .any)["home.viewLibrary"].firstMatch.waitForExistence(timeout: 5)
         XCTAssertTrue(libraryExists || homeExists, "Should navigate back after cancelling")
     }
@@ -130,7 +130,7 @@ final class ProcessingTests: VideoTestCase {
         processScreen.doneButton.tap()
 
         // Should dismiss back to library or home
-        let libraryExists = app.staticTexts["Test Rally Video"].waitForExistence(timeout: 5)
+        let libraryExists = app.libraryCard(named: "Test Rally Video").waitForExistence(timeout: 5)
         let homeExists = app.descendants(matching: .any)["home.viewLibrary"].firstMatch.waitForExistence(timeout: 5)
         XCTAssertTrue(libraryExists || homeExists, "Should navigate back after tapping Done")
     }
