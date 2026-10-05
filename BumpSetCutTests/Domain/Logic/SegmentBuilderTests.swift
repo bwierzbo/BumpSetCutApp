@@ -17,7 +17,8 @@ final class SegmentBuilderTests: XCTestCase {
     override func setUp() {
         super.setUp()
         config = ProcessorConfig()
-        // Defaults: preroll=2.0, postroll=0.5, minGapToMerge=0.3, minSegmentLength=0.5
+        // Tuned defaults (2026-06-14): preroll=2.0, minGapToMerge≈1.35,
+        // minSegmentLength≈2.61 — tests that depend on a value pin it.
     }
 
     override func tearDown() {
@@ -278,16 +279,16 @@ final class SegmentBuilderTests: XCTestCase {
     func testSegmentAtEndOfVideoGetsClamped() {
         let builder = SegmentBuilder(config: config)
 
-        // Rally right at the end: 19.0-20.0 with post-roll would exceed duration
-        builder.appendRaw(start: time(19.0), end: time(20.0))
+        // Rally right at the end: 17.0-20.0 with post-roll would exceed duration
+        // (long enough to survive minSegmentLength after padding).
+        builder.appendRaw(start: time(17.0), end: time(20.0))
 
         let segments = builder.finalize(until: time(20.0))
         XCTAssertEqual(segments.count, 1)
 
         if let seg = segments.first {
-            let end = endSeconds(seg)
-            XCTAssertLessThanOrEqual(end, 20.0 + 0.01,
-                                     "Segment end should be clamped to video duration")
+            XCTAssertEqual(endSeconds(seg), 20.0, accuracy: 0.01,
+                           "Segment end should be clamped to video duration")
         }
     }
 

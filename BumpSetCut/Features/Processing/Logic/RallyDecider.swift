@@ -117,9 +117,13 @@ final class RallyDecider {
     }
 
     private func shouldStart(now: CMTime) -> Bool {
-        // Start only after continuous projectile evidence for at least startBuffer seconds
-        guard let runStart = projRunStart else { return false }
-        let dt = CMTimeGetSeconds(CMTimeSubtract(now, runStart))
+        // Start only after continuous projectile evidence spanning at least
+        // startBuffer seconds — measured to the last projectile frame, not to
+        // now: the grace period keeps a dropped frame from restarting the run,
+        // but dropped frames must not count toward it (two projectile frames
+        // plus gaps used to start a rally with no ball in the air).
+        guard let runStart = projRunStart, let last = lastProjectile else { return false }
+        let dt = CMTimeGetSeconds(CMTimeSubtract(last, runStart))
         return dt >= config.startBuffer
     }
 

@@ -78,6 +78,9 @@ final class RallyDeciderGracePeriodTests: XCTestCase {
     func testGracePeriodZero_StrictBehavior() {
         var config = ProcessorConfig()
         config.projDropGracePeriod = 0 // any non-projectile frame resets immediately
+        // Pinned: the tuned default (0.1685s) would start a rally inside the
+        // 8-frame lead-in, before the dropped frame this test is about.
+        config.startBuffer = 0.3
 
         let decider = RallyDecider(config: config)
         let dt = 1.0 / 30.0
