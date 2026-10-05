@@ -15,19 +15,16 @@ final class DebugPerformanceTests: XCTestCase {
     
     var videoProcessor: VideoProcessor!
     var debugger: TrajectoryDebugger!
-    var mockMetricsCollector: MetricsCollector!
     
     override func setUp() {
         super.setUp()
         videoProcessor = VideoProcessor()
-        mockMetricsCollector = MetricsCollector(config: MetricsCollector.MetricsConfig.default)
-        debugger = TrajectoryDebugger(metricsCollector: mockMetricsCollector)
+        debugger = TrajectoryDebugger()
     }
     
     override func tearDown() {
         videoProcessor = nil
         debugger = nil
-        mockMetricsCollector = nil
         super.tearDown()
     }
     

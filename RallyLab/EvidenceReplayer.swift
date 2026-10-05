@@ -83,7 +83,7 @@ enum EvidenceReplayer {
                     if let y = f.trackPoint?.y { return y }
                     return f.detections.filter { !$0.isOffCourt }.map { $0.bbox.midY }.max()
                 }
-                return VideoProcessor.rallyClearsNetTop(ySamples: ys, netTopY: netTopY,
+                return NetClearanceRule.rallyClearsNetTop(ySamples: ys, netTopY: netTopY,
                                                         arcProminence: cfg.aboveNetArcProminence)
             }
         }

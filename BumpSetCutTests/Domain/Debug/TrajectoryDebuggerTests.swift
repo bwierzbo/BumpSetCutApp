@@ -14,17 +14,14 @@ import CoreMedia
 final class TrajectoryDebuggerTests: XCTestCase {
     
     var debugger: TrajectoryDebugger!
-    var mockMetricsCollector: MetricsCollector!
     
     override func setUp() {
         super.setUp()
-        mockMetricsCollector = MetricsCollector(config: MetricsCollector.MetricsConfig.default)
-        debugger = TrajectoryDebugger(metricsCollector: mockMetricsCollector)
+        debugger = TrajectoryDebugger()
     }
     
     override func tearDown() {
         debugger = nil
-        mockMetricsCollector = nil
         super.tearDown()
     }
     

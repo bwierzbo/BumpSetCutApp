@@ -41,14 +41,6 @@ final class TrajectoryDebugger {
     
     var config = DebugConfiguration()
     
-    // MARK: - Dependencies
-    
-    private let metricsCollector: MetricsCollector
-
-    init(metricsCollector: MetricsCollector) {
-        self.metricsCollector = metricsCollector
-    }
-
     /// Configure memory limits from ProcessorConfig
     func configureMemoryLimits(from processorConfig: ProcessorConfig) {
         if processorConfig.enableMemoryLimits {

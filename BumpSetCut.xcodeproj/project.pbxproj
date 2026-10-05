@@ -73,6 +73,9 @@
 				Features/Processing/ProcessingEventLog.swift,
 				Features/Processing/Quality/TrajectoryQualityScore.swift,
 				Features/Processing/Tracking/KalmanBallTracker.swift,
+				Features/Processing/Logic/NetClearanceRule.swift,
+				Features/Processing/ProcessingQualityMetrics.swift,
+				Features/Processing/VideoFrameGeometry.swift,
 				Features/Processing/VideoProcessor.swift,
 				Features/RallyPlayback/Models/RallyPlayerState.swift,
 				Models/Detections.swift,
@@ -86,7 +89,6 @@
 				Resources/ML/bestv2.mlpackage,
 				Resources/ML/bestv3.mlpackage,
 				Resources/ML/net.mlpackage,
-				Services/MetricsCollector.swift,
 			);
 			target = RA11AB012E1C86F400000001 /* RallyLab */;
 		};

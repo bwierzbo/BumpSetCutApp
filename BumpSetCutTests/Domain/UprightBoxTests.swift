@@ -30,7 +30,7 @@ final class UprightBoxTests: XCTestCase {
             let shown = CGRect(origin: .zero, size: stored).applying(t).size
             let expected = CGPoint(x: pixel.x / shown.width, y: 1 - pixel.y / shown.height)
 
-            let upright = VideoProcessor.upright(box, from: VideoProcessor.orientation(for: t))
+            let upright = VideoFrameGeometry.upright(box, from: VideoFrameGeometry.orientation(for: t))
             XCTAssertEqual(upright.midX, expected.x, accuracy: 1e-9, "\(t)")
             XCTAssertEqual(upright.midY, expected.y, accuracy: 1e-9, "\(t)")
         }
@@ -39,16 +39,16 @@ final class UprightBoxTests: XCTestCase {
     func testQuarterTurnsSwapTheBoxSides() {
         let box = CGRect(x: 0.4, y: 0.4, width: 0.02, height: 0.05)
         for orientation in [CGImagePropertyOrientation.right, .left] {
-            let upright = VideoProcessor.upright(box, from: orientation)
+            let upright = VideoFrameGeometry.upright(box, from: orientation)
             XCTAssertEqual(upright.width, box.height, accuracy: 1e-12)
             XCTAssertEqual(upright.height, box.width, accuracy: 1e-12)
         }
-        XCTAssertEqual(VideoProcessor.upright(box, from: .down).size, box.size)
+        XCTAssertEqual(VideoFrameGeometry.upright(box, from: .down).size, box.size)
     }
 
     func testOppositeQuarterTurnsUndoEachOther() {
         let box = CGRect(x: 0.7, y: 0.1, width: 0.03, height: 0.06)
-        let back = VideoProcessor.upright(VideoProcessor.upright(box, from: .right), from: .left)
+        let back = VideoFrameGeometry.upright(VideoFrameGeometry.upright(box, from: .right), from: .left)
         XCTAssertEqual(back.midX, box.midX, accuracy: 1e-12)
         XCTAssertEqual(back.midY, box.midY, accuracy: 1e-12)
         XCTAssertEqual(back.size.width, box.size.width, accuracy: 1e-12)
@@ -56,6 +56,6 @@ final class UprightBoxTests: XCTestCase {
 
     func testUprightVideoIsUntouched() {
         let box = CGRect(x: 0.3, y: 0.5, width: 0.02, height: 0.03)
-        XCTAssertEqual(VideoProcessor.upright(box, from: .up), box)
+        XCTAssertEqual(VideoFrameGeometry.upright(box, from: .up), box)
     }
 }

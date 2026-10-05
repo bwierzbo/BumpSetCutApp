@@ -20,13 +20,15 @@ import os
 final class VideoProcessor: @unchecked Sendable {
 
     // MARK: - UI observed
+    // (Only these four are observed; everything below is per-run state marked
+    // @ObservationIgnored, so the frame loop's mutations skip the registrar.)
     var isProcessing = false
     var progress: Double = 0.0
     var processedURL: URL?
     var processedMetadata: ProcessingMetadata?
 
     // MARK: - Config + deps
-    var config = ProcessorConfig()
+    @ObservationIgnored var config = ProcessorConfig()
 
     /// Max seconds since a track's last real detection for it to still count as
     /// a live ball. Large enough to ride out brief occlusions (a few frames),
@@ -35,35 +37,32 @@ final class VideoProcessor: @unchecked Sendable {
 
     /// Identity of the track currently driving the rally, for selection stickiness
     /// across frames. Reset per video.
-    private var selectedTrackId: UUID?
+    @ObservationIgnored private var selectedTrackId: UUID?
     // Consecutive processed frames the selected track has failed the gate while
     // still fresh — the lock is held through short blips (every ball contact
     // breaks the parabola fit for a few frames).
-    private var selectedDropCount = 0
+    @ObservationIgnored private var selectedDropCount = 0
 
     // iOS: CPU+ANE so detection keeps running when processing continues in
     // the background (GPU access is restricted there); the ANE is this
     // model's primary engine, so foreground speed is unaffected. macOS
     // (RallyLab) has no such restriction and keeps every engine.
     #if os(iOS)
-    private var detector = YOLODetector(computeUnits: .cpuAndNeuralEngine)
+    @ObservationIgnored private var detector = YOLODetector(computeUnits: .cpuAndNeuralEngine)
     #else
-    private var detector = YOLODetector()
+    @ObservationIgnored private var detector = YOLODetector()
     #endif
-    private var gate = BallisticsGate(config: ProcessorConfig())
-    private var decider = RallyDecider(config: ProcessorConfig())
-    private var segments = SegmentBuilder(config: ProcessorConfig())
+    @ObservationIgnored private var gate = BallisticsGate(config: ProcessorConfig())
+    @ObservationIgnored private var decider = RallyDecider(config: ProcessorConfig())
+    @ObservationIgnored private var segments = SegmentBuilder(config: ProcessorConfig())
 
     // Net detection (for off-court / under-net rules). The net is stationary, so a
     // single pre-pass samples it across the video (same spread as RallyLab's Net
     // tab) and freezes one box for the whole run. Reset per video.
-    private var netDetector: NetDetector?
-    private var detectedNet: DetectedNet?
+    @ObservationIgnored private var netDetector: NetDetector?
+    @ObservationIgnored private var detectedNet: DetectedNet?
 
-    #if os(iOS)
-    private let exporter = VideoExporter()
-    #endif
-    private var metadataStore: MetadataStore?
+    @ObservationIgnored private var metadataStore: MetadataStore?
 
     // Background execution protection
     private let backgroundGuard = BackgroundProcessingGuard()
@@ -76,8 +75,7 @@ final class VideoProcessor: @unchecked Sendable {
     }
 
     // Debug data collection
-    var trajectoryDebugger: TrajectoryDebugger?
-    private var metricsCollector: MetricsCollector?
+    @ObservationIgnored var trajectoryDebugger: TrajectoryDebugger?
 
     // MARK: - Frame evidence capture (for offline replay/evaluation tools)
 
@@ -155,9 +153,9 @@ final class VideoProcessor: @unchecked Sendable {
 
     /// Off by default: evidence costs memory proportional to frame count, so
     /// only evaluation tools (RallyLab) opt in.
-    var collectFrameEvidence = false
-    private(set) var frameEvidence: [FrameEvidence] = []
-    private(set) var lastVideoDurationSec: Double = 0
+    @ObservationIgnored var collectFrameEvidence = false
+    @ObservationIgnored private(set) var frameEvidence: [FrameEvidence] = []
+    @ObservationIgnored private(set) var lastVideoDurationSec: Double = 0
 
     /// Set when background time is about to run out: the frame loop writes a
     /// resume checkpoint at the next rally-idle frame. Set from the main
@@ -169,36 +167,6 @@ final class VideoProcessor: @unchecked Sendable {
         urgentCheckpoint.withLock { $0 = true }
     }
 
-    // MARK: - Entry point (now generates metadata instead of video files)
-    /// The orientation that turns a track's stored frames upright, from its
-    /// preferredTransform (the rotation flag phones write for portrait video).
-    static func orientation(for transform: CGAffineTransform) -> CGImagePropertyOrientation {
-        switch (transform.a.rounded(), transform.b.rounded(), transform.c.rounded(), transform.d.rounded()) {
-        case (0, 1, -1, 0): return .right
-        case (0, -1, 1, 0): return .left
-        case (-1, 0, 0, -1): return .down
-        default: return .up
-        }
-    }
-
-    /// A Vision-normalised (bottom-left origin) box in the stored frame, in
-    /// the upright frame `orientation` turns it into — the space Vision
-    /// reports YOLO's boxes in when given that orientation.
-    static func upright(_ rect: CGRect, from orientation: CGImagePropertyOrientation) -> CGRect {
-        let (x, y) = (rect.midX, rect.midY)
-        let center: CGPoint, size: CGSize
-        switch orientation {
-        case .right: (center, size) = (CGPoint(x: y, y: 1 - x), CGSize(width: rect.height, height: rect.width))
-        case .left: (center, size) = (CGPoint(x: 1 - y, y: x), CGSize(width: rect.height, height: rect.width))
-        case .down: (center, size) = (CGPoint(x: 1 - x, y: 1 - y), rect.size)
-        default: return rect
-        }
-        return CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
-    }
-
-    /// Load the configured ball model (if it isn't the one loaded) and set how
-    /// frames are fitted into it: models trained on letterboxed frames get
-    /// every frame letterboxed; the shipping model keeps the config's choice.
     /// BGRA frames for detection; with `standardColor`, converted to SDR
     /// BT.709 (tone-mapping HDR) as AVAssetImageGenerator — and so training —
     /// sees them.
@@ -215,10 +183,10 @@ final class VideoProcessor: @unchecked Sendable {
     }
 
     /// The multi-frame model (config.heatmapModel) and the last frames it sees.
-    private var heatDetector: HeatmapBallDetector?
-    private var heatModelURL: URL?
-    private var heatFrames: [HeatmapBallDetector.Frame] = []
-    private var heatLastTime: Double?
+    @ObservationIgnored private var heatDetector: HeatmapBallDetector?
+    @ObservationIgnored private var heatModelURL: URL?
+    @ObservationIgnored private var heatFrames: [HeatmapBallDetector.Frame] = []
+    @ObservationIgnored private var heatLastTime: Double?
 
     /// Load the configured multi-frame model, if it changed.
     private func prepareHeatmap() {
@@ -255,7 +223,7 @@ final class VideoProcessor: @unchecked Sendable {
                                        orientation: CGImagePropertyOrientation) -> [DetectionResult] {
         guard let heat = heatDetector, heatFrames.count == heat.seq else { return [] }
         return heat.peaks(in: heatFrames, target: heat.seq - 1).compactMap { peak in
-            let rect = Self.upright(peak.rect, from: orientation)
+            let rect = VideoFrameGeometry.upright(peak.rect, from: orientation)
             let c = CGPoint(x: rect.midX, y: rect.midY)
             let known = dets.contains { d in
                 hypot(d.bbox.midX - c.x, (d.bbox.midY - c.y) * 9 / 16) < max(d.bbox.width, 0.012)
@@ -264,6 +232,9 @@ final class VideoProcessor: @unchecked Sendable {
         }
     }
 
+    /// Load the configured ball model (if it isn't the one loaded) and set how
+    /// frames are fitted into it: models trained on letterboxed frames get
+    /// every frame letterboxed; the shipping model keeps the config's choice.
     private func prepareDetector() {
         if detector.modelName != config.ballModel.rawValue {
             #if os(iOS)
@@ -299,10 +270,7 @@ final class VideoProcessor: @unchecked Sendable {
         }
 
         // Initialize debug session
-        await MainActor.run {
-            metricsCollector = MetricsCollector(config: MetricsCollector.MetricsConfig.default)
-        }
-        trajectoryDebugger = TrajectoryDebugger(metricsCollector: metricsCollector!)
+        trajectoryDebugger = TrajectoryDebugger()
         trajectoryDebugger?.isEnabled = true
         trajectoryDebugger?.isRecording = true
         trajectoryDebugger?.startDebugSession(name: "Video Processing Session")
@@ -329,7 +297,7 @@ final class VideoProcessor: @unchecked Sendable {
         let preferredTransform = (try? await track.load(.preferredTransform)) ?? .identity
         // Same frame space as processVideo: upright when the rotation is applied.
         let frameOrientation: CGImagePropertyOrientation = config.applyVideoRotation
-            ? Self.orientation(for: preferredTransform)
+            ? VideoFrameGeometry.orientation(for: preferredTransform)
             : .up
         // Reuse last overlay on skipped frames
         var lastDets: [DetectionResult] = []
@@ -499,7 +467,7 @@ final class VideoProcessor: @unchecked Sendable {
         let fps = max(10, Int(try await track.load(.nominalFrameRate)))
         lastVideoDurationSec = CMTimeGetSeconds(duration)
         let frameOrientation: CGImagePropertyOrientation = config.applyVideoRotation
-            ? Self.orientation(for: (try? await track.load(.preferredTransform)) ?? .identity)
+            ? VideoFrameGeometry.orientation(for: (try? await track.load(.preferredTransform)) ?? .identity)
             : .up
 
         // Resumable processing: a checkpoint from an interrupted run (same
@@ -819,7 +787,7 @@ final class VideoProcessor: @unchecked Sendable {
             // Collect trajectory/classification/physics data for metadata.
             if let track = activeTrack {
                 // Calculate metrics for this track segment
-                let (rSquared, velocity, acceleration) = calculateTrackMetrics(track)
+                let (rSquared, velocity, acceleration) = ProcessingQualityMetrics.calculateTrackMetrics(track)
                 if rSquared > 0 {
                     rSquaredSum += rSquared
                     rSquaredCount += 1
@@ -834,7 +802,7 @@ final class VideoProcessor: @unchecked Sendable {
                             position: position.0,
                             velocity: velocity,
                             acceleration: acceleration,
-                            confidence: calculateTrackConfidence(track)
+                            confidence: ProcessingQualityMetrics.calculateTrackConfidence(track)
                         )
                     }
 
@@ -848,7 +816,7 @@ final class VideoProcessor: @unchecked Sendable {
                         points: trajectoryPoints,
                         rSquared: rSquared,
                         movementType: classification.movementType,
-                        confidence: calculateTrackConfidence(track),
+                        confidence: ProcessingQualityMetrics.calculateTrackConfidence(track),
                         quality: classification.details.physicsScore
                     )
                     trajectoryDataCollection.append(newTrajectory)
@@ -873,7 +841,7 @@ final class VideoProcessor: @unchecked Sendable {
                         classificationResults.removeFirst(classificationResults.count - maxClassificationResults)
                     }
 
-                    confidenceSum += calculateTrackConfidence(track)
+                    confidenceSum += ProcessingQualityMetrics.calculateTrackConfidence(track)
                 }
 
                 // Store physics validation data from real gate results
@@ -938,7 +906,7 @@ final class VideoProcessor: @unchecked Sendable {
                 let s = CMTimeGetSeconds(seg.raw.start)
                 let e = CMTimeGetSeconds(CMTimeRangeGetEnd(seg.raw))
                 let ys = ballHeights.filter { $0.t >= s && $0.t <= e }.map { $0.y }
-                return Self.rallyClearsNetTop(ySamples: ys, netTopY: netTopY,
+                return NetClearanceRule.rallyClearsNetTop(ySamples: ys, netTopY: netTopY,
                                               arcProminence: config.aboveNetArcProminence)
             }.map { $0.padded }
             if keep.count != before {
@@ -1068,13 +1036,13 @@ final class VideoProcessor: @unchecked Sendable {
 
         // Generate quality metrics
         let qualityMetrics = QualityMetrics(
-            overallQuality: calculateOverallQuality(stats: processingStats, rSquaredAvg: rSquaredCount > 0 ? rSquaredSum / Double(rSquaredCount) : 0),
+            overallQuality: ProcessingQualityMetrics.calculateOverallQuality(stats: processingStats, rSquaredAvg: rSquaredCount > 0 ? rSquaredSum / Double(rSquaredCount) : 0),
             averageRSquared: rSquaredCount > 0 ? rSquaredSum / Double(rSquaredCount) : 0,
-            trajectoryConsistency: calculateTrajectoryConsistency(trajectoryDataCollection),
+            trajectoryConsistency: ProcessingQualityMetrics.calculateTrajectoryConsistency(trajectoryDataCollection),
             physicsValidationRate: frameCount > 0 ? Double(physicsValidFrameCount) / Double(frameCount) : 0,
-            movementClassificationAccuracy: calculateClassificationAccuracy(classificationResults),
-            confidenceDistribution: calculateConfidenceDistribution(classificationResults),
-            qualityBreakdown: calculateQualityBreakdown(trajectoryDataCollection)
+            movementClassificationAccuracy: ProcessingQualityMetrics.calculateClassificationAccuracy(classificationResults),
+            confidenceDistribution: ProcessingQualityMetrics.calculateConfidenceDistribution(classificationResults),
+            qualityBreakdown: ProcessingQualityMetrics.calculateQualityBreakdown(trajectoryDataCollection)
         )
 
         // Generate performance metrics
@@ -1086,7 +1054,7 @@ final class VideoProcessor: @unchecked Sendable {
             peakMemoryUsageMB: 0, // Could implement memory tracking
             averageMemoryUsageMB: 0,
             cpuUsagePercent: nil,
-            processingOverheadPercent: calculateProcessingOverhead(processingDuration: endTime.timeIntervalSince(startTime), videoDuration: CMTimeGetSeconds(duration)),
+            processingOverheadPercent: ProcessingQualityMetrics.calculateProcessingOverhead(processingDuration: endTime.timeIntervalSince(startTime), videoDuration: CMTimeGetSeconds(duration)),
             detectionLatencyMs: nil
         )
 
@@ -1322,219 +1290,4 @@ final class VideoProcessor: @unchecked Sendable {
                            confidence: confs.reduce(0, +) / Double(confs.count))
     }
 
-    // MARK: - Above-net (multi-contact) rule
-
-    /// A rally with multiple ball contacts must clear the net top at least once; a
-    /// single trajectory is exempt. `ySamples` are the ball's Vision-y positions
-    /// over the segment, in time order. `netTopY` should already include any
-    /// leniency margin. Returns true to KEEP the segment.
-    static func rallyClearsNetTop(ySamples: [CGFloat], netTopY: CGFloat,
-                                  arcProminence: CGFloat) -> Bool {
-        guard countArcs(ySamples, prominence: arcProminence) >= 2 else {
-            return true        // single trajectory (or too few samples) → exempt
-        }
-        return ySamples.contains { $0 > netTopY }
-    }
-
-    /// Counts distinct arcs (apexes) in a vertical-position series: each up-then-down
-    /// of at least `prominence` is one arc/contact. A simple hysteresis walk, robust
-    /// to per-sample jitter below the prominence.
-    private static func countArcs(_ ys: [CGFloat], prominence: CGFloat) -> Int {
-        guard ys.count >= 3 else { return ys.isEmpty ? 0 : 1 }
-        var arcs = 0
-        var rising = true
-        var extreme = ys[0]            // running peak while rising, valley while falling
-        for y in ys.dropFirst() {
-            if rising {
-                if y > extreme { extreme = y }
-                else if y < extreme - prominence { arcs += 1; rising = false; extreme = y }
-            } else {
-                if y < extreme { extreme = y }
-                else if y > extreme + prominence { rising = true; extreme = y }
-            }
-        }
-        return arcs
-    }
-
-    private func calculateTrackMetrics(_ track: KalmanBallTracker.TrackedBall) -> (rSquared: Double, velocity: Double, acceleration: Double) {
-        guard track.positions.count >= 3 else {
-            return (0.0, 0.0, 0.0)
-        }
-
-        // Calculate velocity from last few points
-        let recent = track.positions.suffix(3)
-        var velocitySum = 0.0
-        let accelerationSum = 0.0
-
-        if recent.count >= 2 {
-            let positions = Array(recent)
-            for i in 1..<positions.count {
-                let dt = CMTimeGetSeconds(positions[i].1) - CMTimeGetSeconds(positions[i-1].1)
-                if dt > 0 {
-                    let dx = positions[i].0.x - positions[i-1].0.x
-                    let dy = positions[i].0.y - positions[i-1].0.y
-                    let velocity = sqrt(dx*dx + dy*dy) / dt
-                    velocitySum += Double(velocity)
-                }
-            }
-
-            // Simple R² calculation based on trajectory linearity (simplified)
-            let rSquared = calculateSimpleRSquared(positions: track.positions.map { $0.0 })
-            return (rSquared, velocitySum / Double(recent.count - 1), accelerationSum)
-        }
-
-        return (0.0, 0.0, 0.0)
-    }
-
-    private func calculateTrackConfidence(_ track: KalmanBallTracker.TrackedBall) -> Double {
-        // Calculate confidence based on track age, consistency, and displacement
-        guard track.positions.count >= 2 else {
-            return 0.3 // Low confidence for single-point tracks
-        }
-
-        // Age-based confidence (longer tracks are more reliable)
-        let ageConfidence = min(1.0, Double(track.age) / 10.0)
-
-        // Movement-based confidence (tracks that move are more likely to be balls)
-        let movementConfidence = min(1.0, Double(track.netDisplacement) * 5.0)
-
-        // Combine factors
-        let baseConfidence = (ageConfidence + movementConfidence) / 2.0
-
-        // Ensure reasonable bounds
-        return max(0.1, min(0.95, baseConfidence))
-    }
-
-    private func calculateSimpleRSquared(positions: [CGPoint]) -> Double {
-        guard positions.count >= 3 else { return 0.0 }
-
-        // Calculate linear regression R²
-        let n = Double(positions.count)
-        let sumX = positions.reduce(0) { $0 + Double($1.x) }
-        let sumY = positions.reduce(0) { $0 + Double($1.y) }
-        let sumXY = positions.reduce(0) { $0 + Double($1.x * $1.y) }
-        let sumXX = positions.reduce(0) { $0 + Double($1.x * $1.x) }
-        let sumYY = positions.reduce(0) { $0 + Double($1.y * $1.y) }
-
-        let numerator = n * sumXY - sumX * sumY
-        let denominator = sqrt((n * sumXX - sumX * sumX) * (n * sumYY - sumY * sumY))
-
-        guard denominator > 0 else { return 0.0 }
-        let correlation = numerator / denominator
-        return max(0.0, min(1.0, correlation * correlation))
-    }
-
-    private func calculateOverallQuality(stats: ProcessingStats, rSquaredAvg: Double) -> Double {
-        let detectionQuality = stats.detectionRate
-        let physicsQuality = stats.physicsValidFrames > 0 ? Double(stats.physicsValidFrames) / Double(stats.processedFrames) : 0
-        let trajectoryQuality = rSquaredAvg
-        let completenessQuality = stats.processingCompleteness
-
-        return (detectionQuality + physicsQuality + trajectoryQuality + completenessQuality) / 4.0
-    }
-
-    private func calculateTrajectoryConsistency(_ trajectories: [ProcessingTrajectoryData]) -> Double {
-        guard !trajectories.isEmpty else { return 0.0 }
-
-        let avgRSquared = trajectories.reduce(0) { $0 + $1.rSquared } / Double(trajectories.count)
-        return avgRSquared
-    }
-
-    private func calculateClassificationAccuracy(_ classifications: [ProcessingClassificationResult]) -> Double? {
-        guard !classifications.isEmpty else { return nil }
-
-        let avgConfidence = classifications.reduce(0) { $0 + $1.confidence } / Double(classifications.count)
-        return avgConfidence
-    }
-
-    private func calculateConfidenceDistribution(_ classifications: [ProcessingClassificationResult]) -> ConfidenceDistribution {
-        var high = 0
-        var medium = 0
-        var low = 0
-
-        for classification in classifications {
-            if classification.confidence >= 0.8 {
-                high += 1
-            } else if classification.confidence >= 0.5 {
-                medium += 1
-            } else {
-                low += 1
-            }
-        }
-
-        return ConfidenceDistribution(high: high, medium: medium, low: low)
-    }
-
-    private func calculateQualityBreakdown(_ trajectories: [ProcessingTrajectoryData]) -> QualityBreakdown {
-        guard !trajectories.isEmpty else {
-            return QualityBreakdown(
-                velocityConsistency: 0,
-                accelerationPattern: 0,
-                smoothnessScore: 0,
-                verticalMotionScore: 0,
-                overallCoherence: 0
-            )
-        }
-
-        // Calculate average metrics across all trajectories
-        var totalVelocityConsistency = 0.0
-        var totalAccelerationPattern = 0.0
-        var totalSmoothness = 0.0
-        var totalVerticalMotion = 0.0
-
-        for trajectory in trajectories {
-            totalVelocityConsistency += velocityConsistencyScore(for: trajectory.points)
-            totalAccelerationPattern += trajectory.rSquared
-            totalSmoothness += trajectory.quality
-            totalVerticalMotion += verticalMotionScore(for: trajectory.points)
-        }
-
-        let count = Double(trajectories.count)
-        let velocityConsistency = totalVelocityConsistency / count
-        let accelerationPattern = totalAccelerationPattern / count
-        let smoothnessScore = totalSmoothness / count
-        let verticalMotionScore = totalVerticalMotion / count
-        let overallCoherence = (velocityConsistency + accelerationPattern + smoothnessScore + verticalMotionScore) / 4.0
-
-        return QualityBreakdown(
-            velocityConsistency: velocityConsistency,
-            accelerationPattern: accelerationPattern,
-            smoothnessScore: smoothnessScore,
-            verticalMotionScore: verticalMotionScore,
-            overallCoherence: overallCoherence
-        )
-    }
-
-    /// 0–1 (higher = more consistent). Coefficient of variation of point velocities,
-    /// inverted and clamped so callers can average it directly into a coherence score.
-    private func velocityConsistencyScore(for points: [ProcessingTrajectoryPoint]) -> Double {
-        let velocities = points.map(\.velocity).filter { $0.isFinite && $0 > 0 }
-        guard velocities.count >= 2 else { return 0 }
-        let mean = velocities.reduce(0, +) / Double(velocities.count)
-        guard mean > 0 else { return 0 }
-        let variance = velocities.map { pow($0 - mean, 2) }.reduce(0, +) / Double(velocities.count)
-        let cv = sqrt(variance) / mean
-        return max(0, min(1, 1 - cv))
-    }
-
-    /// 0–1 (higher = more vertical motion). Ratio of summed |dy| to total path length —
-    /// rallies are vertical (set, spike, dig) so a high score means a plausible ball path.
-    private func verticalMotionScore(for points: [ProcessingTrajectoryPoint]) -> Double {
-        guard points.count >= 2 else { return 0 }
-        var verticalDistance = 0.0
-        var totalDistance = 0.0
-        for i in 1..<points.count {
-            let dx = Double(points[i].position.x - points[i - 1].position.x)
-            let dy = Double(points[i].position.y - points[i - 1].position.y)
-            verticalDistance += abs(dy)
-            totalDistance += sqrt(dx * dx + dy * dy)
-        }
-        guard totalDistance > 0 else { return 0 }
-        return min(1, verticalDistance / totalDistance)
-    }
-
-    private func calculateProcessingOverhead(processingDuration: TimeInterval, videoDuration: TimeInterval) -> Double {
-        guard videoDuration > 0 else { return 0 }
-        return (processingDuration / videoDuration - 1.0) * 100.0
-    }
 }
