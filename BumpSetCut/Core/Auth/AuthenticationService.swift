@@ -243,12 +243,19 @@ final class AuthenticationService {
 
     // MARK: - Account Deletion
 
+    /// Accounts linked to Sign in with Apple confirm with Apple first, so the
+    /// server can revoke the app's Apple tokens (required by Apple).
     func deleteAccount() async throws {
         let session = try await supabase.auth.session
+        var body: [String: String] = [:]
+        if session.user.identities?.contains(where: { $0.provider == "apple" }) == true {
+            body["appleAuthorizationCode"] = try await AppleReauthorization.authorizationCode()
+        }
         try await supabase.functions.invoke(
             "delete-account",
             options: .init(
-                headers: ["Authorization": "Bearer \(session.accessToken)"]
+                headers: ["Authorization": "Bearer \(session.accessToken)"],
+                body: body
             )
         )
         signOut()
