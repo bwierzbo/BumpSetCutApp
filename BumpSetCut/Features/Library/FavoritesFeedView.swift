@@ -19,12 +19,10 @@ struct FavoritesFeedView: View {
 
     @State private var currentIndex: Int?
     @State private var hasScrolledToStart = false
-    @State private var players: [Int: AVPlayer] = [:]
+    @State private var playerPool = LoopingPlayerPool<Int>(automaticallyWaitsToMinimizeStalling: false)
     // Indices whose player has rendered a frame — their thumbnails unmount so
     // they can't peek out around the video layer during rotation.
     @State private var readyPlayers: Set<Int> = []
-    @State private var loopObservers: [Int: Any] = [:]
-    @State private var boundaryObservers: [Int: Any] = [:]
 
     // Tap-to-pause
     @State private var isPaused = false
@@ -133,7 +131,7 @@ struct FavoritesFeedView: View {
                         videoURL: videos[idx].originalURL,
                         videoDuration: clipDuration,
                         onScrub: { time in
-                            if let player = players[idx] {
+                            if let player = playerPool.player(for: idx) {
                                 player.seek(to: CMTimeMakeWithSeconds(time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
                             }
                         },
@@ -161,12 +159,15 @@ struct FavoritesFeedView: View {
             await maybeShowTrimHint()
         }
         .onChange(of: currentIndex) { oldIdx, newIdx in
-            if let old = oldIdx { players[old]?.pause() }
+            if let old = oldIdx { playerPool.player(for: old)?.pause() }
             isPaused = false
             isTrimmingMode = false
             if let new = newIdx { setupPlayer(at: new) }
         }
-        .onDisappear { teardownAll() }
+        .onDisappear {
+            playerPool.teardownAll()
+            readyPlayers.removeAll()
+        }
     }
 
     // MARK: - Video Card
@@ -184,7 +185,7 @@ struct FavoritesFeedView: View {
                 )
             }
 
-            if let player = players[index] {
+            if let player = playerPool.player(for: index) {
                 CustomVideoPlayerView(
                     player: player,
                     gravity: .resizeAspect,
@@ -229,7 +230,7 @@ struct FavoritesFeedView: View {
     // MARK: - Pause
 
     private func togglePause() {
-        guard let idx = currentIndex, let player = players[idx] else { return }
+        guard let idx = currentIndex, let player = playerPool.player(for: idx) else { return }
         if isPaused {
             player.play()
         } else {
@@ -264,7 +265,7 @@ struct FavoritesFeedView: View {
         withAnimation(.bscQuick) { showTrimHint = false }
 
         // Pause playback
-        players[index]?.pause()
+        playerPool.player(for: index)?.pause()
         isPaused = false
 
         // Load clip duration
@@ -312,7 +313,7 @@ struct FavoritesFeedView: View {
     }
 
     private func applyTrimAndPlay(at index: Int) {
-        guard let player = players[index] else { return }
+        guard let player = playerPool.player(for: index) else { return }
         let trim = savedTrims[index]
 
         // trimBefore > 0 means extend before start (not applicable for favorites clips starting at 0)
@@ -321,26 +322,13 @@ struct FavoritesFeedView: View {
         // trimAfter < 0 means cut from end
         let startTime = max(0, -(trim?.before ?? 0))
         let endTime = clipDuration + (trim?.after ?? 0)
+        let start = CMTimeMakeWithSeconds(startTime, preferredTimescale: 600)
 
-        // Remove old boundary observer
-        if let obs = boundaryObservers[index] {
-            player.removeTimeObserver(obs)
-            boundaryObservers[index] = nil
-        }
+        // Loop over the trimmed slice; an untrimmed end loops at end of file.
+        let end = endTime < clipDuration - 0.05 ? CMTimeMakeWithSeconds(endTime, preferredTimescale: 600) : nil
+        playerPool.setLoop(for: index, start: start, end: end)
 
-        // Seek to trim start
-        player.seek(to: CMTimeMakeWithSeconds(startTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-
-        // Add boundary observer for trim end
-        if endTime < clipDuration - 0.05 {
-            let boundary = CMTimeMakeWithSeconds(endTime, preferredTimescale: 600)
-            let obs = player.addBoundaryTimeObserver(forTimes: [NSValue(time: boundary)], queue: .main) { [weak player] in
-                player?.seek(to: CMTimeMakeWithSeconds(startTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-                player?.play()
-            }
-            boundaryObservers[index] = obs
-        }
-
+        player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
         player.play()
         isPaused = false
     }
@@ -351,9 +339,8 @@ struct FavoritesFeedView: View {
         guard index < videos.count else { return }
         // Keep the neighbours' players for a quick swipe back; a player per
         // page visited piled up until the feed closed.
-        for idx in players.keys where abs(idx - index) > 1 {
-            teardown(at: idx)
-        }
+        playerPool.retain(window: Set(index - 1...index + 1))
+        readyPlayers.formIntersection(playerPool.players.keys)
 
         // Load saved trim for this clip
         if savedTrims[index] == nil {
@@ -364,58 +351,18 @@ struct FavoritesFeedView: View {
             }
         }
 
-        if players[index] != nil {
-            applyTrimAndPlay(at: index)
-            return
-        }
+        if playerPool.player(for: index) == nil {
+            playerPool.player(for: index, url: videos[index].originalURL)
 
-        let player = AVPlayer(url: videos[index].originalURL)
-        player.isMuted = false
-        player.automaticallyWaitsToMinimizeStalling = false
-
-        // Load clip duration for trim
-        let asset = AVURLAsset(url: videos[index].originalURL)
-        Task {
-            let duration = try? await asset.load(.duration)
-            let secs = duration.map { CMTimeGetSeconds($0) } ?? 0
-            if secs > 0 { clipDuration = secs }
-        }
-
-        let observer = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem,
-            queue: .main
-        ) { [weak player] _ in
-            // queue: .main above — this is the main actor.
-            MainActor.assumeIsolated {
-                let trim = savedTrims[index]
-                let startTime = max(0, -(trim?.before ?? 0))
-                player?.seek(to: CMTimeMakeWithSeconds(startTime, preferredTimescale: 600))
-                player?.play()
+            // Load clip duration for trim
+            let asset = AVURLAsset(url: videos[index].originalURL)
+            Task {
+                let duration = try? await asset.load(.duration)
+                let secs = duration.map { CMTimeGetSeconds($0) } ?? 0
+                if secs > 0 { clipDuration = secs }
             }
         }
-        loopObservers[index] = observer
-        players[index] = player
 
         applyTrimAndPlay(at: index)
-    }
-
-    private func teardown(at idx: Int) {
-        guard let player = players.removeValue(forKey: idx) else { return }
-        if let obs = loopObservers.removeValue(forKey: idx) {
-            NotificationCenter.default.removeObserver(obs)
-        }
-        if let obs = boundaryObservers.removeValue(forKey: idx) {
-            player.removeTimeObserver(obs)
-        }
-        player.pause()
-        player.replaceCurrentItem(with: nil)
-        readyPlayers.remove(idx)
-    }
-
-    private func teardownAll() {
-        for idx in Array(players.keys) {
-            teardown(at: idx)
-        }
     }
 }
