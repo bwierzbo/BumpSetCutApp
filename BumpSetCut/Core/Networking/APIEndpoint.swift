@@ -87,7 +87,9 @@ enum APIEndpoint {
 
     // Lifetime Stats (account-linked)
     case getMyStats
-    case addMyStats(rallies: Int, timeCutSeconds: Double)
+    /// `batchId` makes the increment idempotent: resending a batch whose
+    /// response was lost must not credit it twice.
+    case addMyStats(rallies: Int, timeCutSeconds: Double, batchId: UUID)
 
     // Upload
     case createUploadURL

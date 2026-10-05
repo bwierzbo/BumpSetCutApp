@@ -63,10 +63,12 @@ struct ConversationIdParams: Encodable {
 struct AddUserStatsParams: Encodable {
     let rallies: Int
     let timeCutSeconds: Double
+    let batchId: UUID
 
     enum CodingKeys: String, CodingKey {
         case rallies = "p_rallies"
         case timeCutSeconds = "p_time_cut_seconds"
+        case batchId = "p_batch_id"
     }
 }
 
@@ -730,11 +732,11 @@ final class SupabaseAPIClient: APIClient, MessageMediaClient, @unchecked Sendabl
                 .value
             return try safeCast(rows.first ?? UserStats.empty(userId: myId))
 
-        case .addMyStats(let rallies, let timeCutSeconds):
+        case .addMyStats(let rallies, let timeCutSeconds, let batchId):
             // The RPC increments atomically server-side; re-reading the row
             // afterwards keeps the decode path identical to getMyStats.
             try await supabase
-                .rpc("add_user_stats", params: AddUserStatsParams(rallies: rallies, timeCutSeconds: timeCutSeconds))
+                .rpc("add_user_stats", params: AddUserStatsParams(rallies: rallies, timeCutSeconds: timeCutSeconds, batchId: batchId))
                 .execute()
             let myId = try await currentUserId()
             let rows: [UserStats] = try await supabase
