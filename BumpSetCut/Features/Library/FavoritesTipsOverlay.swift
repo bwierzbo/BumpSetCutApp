@@ -19,81 +19,99 @@ struct FavoritesTipsOverlay: View {
                 .ignoresSafeArea()
                 .opacity(showingContent ? 1 : 0)
 
-            VStack(spacing: BSCSpacing.xl) {
-                VStack(spacing: BSCSpacing.sm) {
-                    Image(systemName: "star.fill")
-                        .bscFont(size: 40)
-                        .foregroundColor(.bscPrimary)
-
-                    Text("Favorite Rallies")
-                        .bscFont(size: 28, weight: .bold)
-                        .foregroundColor(.bscOnMedia)
+            // Centred; scrolls only when large text makes it taller than the screen.
+            GeometryReader { geo in
+                ScrollView {
+                    content
+                        .padding(.horizontal, BSCSpacing.xl)
+                        .padding(.vertical, BSCSpacing.lg)
+                        .frame(maxWidth: .infinity, minHeight: geo.size.height)
                 }
-                .opacity(showingContent ? 1 : 0)
-                .offset(y: showingContent ? 0 : -20)
-
-                VStack(alignment: .leading, spacing: BSCSpacing.lg) {
-                    tipRow(
-                        icon: "arrow.up",
-                        color: .bscPrimary,
-                        title: "Swipe up to favorite",
-                        detail: "In the rally player, swipe a rally up to save it here."
-                    )
-                    tipRow(
-                        icon: "folder.fill.badge.plus",
-                        color: .bscBlue,
-                        title: "File into collections",
-                        detail: "Tap Choose Folder on the toast to organize by weekend, team, or play."
-                    )
-                    tipRow(
-                        icon: "hand.tap.fill",
-                        color: .bscWarningText,
-                        title: "Long-press a rally",
-                        detail: "Rename, move, post it to the community, or save it to Photos."
-                    )
-                    tipRow(
-                        icon: "square.stack.fill",
-                        color: .bscSuccessText,
-                        title: "Post a folder",
-                        detail: "Share a collection as one post you swipe through rally by rally."
-                    )
-                    tipRow(
-                        icon: "film.stack",
-                        color: .bscTealText,
-                        title: "Export a highlight video",
-                        detail: "Stitch a collection into a single video saved to Photos."
-                    )
-                }
-                .padding(BSCSpacing.xl)
-                .background(
-                    RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
-                        .fill(Color.bscMediaScrim)
-                )
-                .opacity(showingContent ? 1 : 0)
-                .offset(y: showingContent ? 0 : 10)
-
-                Text("Tap anywhere to continue")
-                    .bscFont(size: 15)
-                    .foregroundColor(.bscOnMediaSecondary)
-                    .opacity(showingContent ? 1 : 0)
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .padding(.horizontal, BSCSpacing.xl)
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.bscQuick) {
-                showingContent = false
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + BSCDuration.fast) {
-                onDismiss()
-            }
-        }
+        .onTapGesture { dismiss() }
+        // Modal: VoiceOver stays inside, and the escape gesture closes it.
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape) { dismiss() }
         .onAppear {
             withAnimation(.bscSpring.delay(0.1)) {
                 showingContent = true
             }
         }
         .accessibilityIdentifier(AccessibilityID.Favorites.tipsOverlay)
+    }
+
+    private func dismiss() {
+        withAnimation(.bscQuick) {
+            showingContent = false
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + BSCDuration.fast) {
+            onDismiss()
+        }
+    }
+
+    private var content: some View {
+        VStack(spacing: BSCSpacing.xl) {
+            VStack(spacing: BSCSpacing.sm) {
+                Image(systemName: "star.fill")
+                    .bscFont(size: 40)
+                    .foregroundColor(.bscPrimary)
+
+                Text("Favorite Rallies")
+                    .bscFont(size: 28, weight: .bold)
+                    .foregroundColor(.bscOnMedia)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            .opacity(showingContent ? 1 : 0)
+            .offset(y: showingContent ? 0 : -20)
+
+            VStack(alignment: .leading, spacing: BSCSpacing.lg) {
+                tipRow(
+                    icon: "arrow.up",
+                    color: .bscPrimary,
+                    title: "Swipe up to favorite",
+                    detail: "In the rally player, swipe a rally up to save it here."
+                )
+                tipRow(
+                    icon: "folder.fill.badge.plus",
+                    color: .bscBlue,
+                    title: "File into collections",
+                    detail: "Tap Choose Folder on the toast to organize by weekend, team, or play."
+                )
+                tipRow(
+                    icon: "hand.tap.fill",
+                    color: .bscWarningText,
+                    title: "Long-press a rally",
+                    detail: "Rename, move, post it to the community, or save it to Photos."
+                )
+                tipRow(
+                    icon: "square.stack.fill",
+                    color: .bscSuccessText,
+                    title: "Post a folder",
+                    detail: "Share a collection as one post you swipe through rally by rally."
+                )
+                tipRow(
+                    icon: "film.stack",
+                    color: .bscTealText,
+                    title: "Export a highlight video",
+                    detail: "Stitch a collection into a single video saved to Photos."
+                )
+            }
+            .padding(BSCSpacing.xl)
+            .background(
+                RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
+                    .fill(Color.bscMediaScrim)
+            )
+            .opacity(showingContent ? 1 : 0)
+            .offset(y: showingContent ? 0 : 10)
+
+            // Explicit dismiss (tapping anywhere also works).
+            BSCButton(title: "Got it", style: .primary, size: .large) { dismiss() }
+                .frame(maxWidth: BSCContentWidth.compact)
+                .opacity(showingContent ? 1 : 0)
+        }
     }
 
     private func tipRow(icon: String, color: Color, title: String, detail: String) -> some View {
@@ -106,6 +124,7 @@ struct FavoritesTipsOverlay: View {
                     .bscFont(size: 15, weight: .semibold)
                     .foregroundColor(color)
             }
+            .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
                 Text(title)
@@ -113,7 +132,7 @@ struct FavoritesTipsOverlay: View {
                     .foregroundColor(.bscOnMedia)
                 Text(detail)
                     .bscFont(size: 13)
-                    .foregroundColor(.bscOnMediaSecondary)
+                    .foregroundColor(.bscOnMedia)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
