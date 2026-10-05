@@ -154,7 +154,7 @@ final class GameScoringTests: XCTestCase {
         // Delete the middle rally: index 2 becomes index 1.
         viewModel.selectedSegmentID = viewModel.segments[1].id
         viewModel.deleteSelected()
-        try viewModel.save()
+        try viewModel.save(mediaStore: nil)
 
         let remapped = metadataStore.loadGameScoring(for: videoId)
         XCTAssertEqual(remapped?.pointWinners, [0: .teamA, 1: .teamB])

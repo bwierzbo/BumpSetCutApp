@@ -18,6 +18,8 @@ struct RallyTimelineView: View {
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    /// Injected at the app root; favorite clips follow their rallies on save.
+    @Environment(MediaStore.self) private var mediaStore: MediaStore?
     @State private var viewModel: RallyTimelineViewModel
     @State private var player: AVPlayer
     @State private var isPlaying = false
@@ -170,7 +172,7 @@ struct RallyTimelineView: View {
 
             Button {
                 do {
-                    try viewModel.save()
+                    try viewModel.save(mediaStore: mediaStore)
                     onSaved()
                     dismiss()
                 } catch {

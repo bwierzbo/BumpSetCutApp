@@ -171,8 +171,13 @@ final class RallyTimelineViewModel {
 
     /// Write the edited segments to ProcessingMetadata and remap the
     /// index-keyed sidecars so surviving rallies keep their trim framing and
-    /// review selections.
-    func save() throws {
+    /// review selections. Favorite clips in `mediaStore` that point at a
+    /// rally by index follow it too.
+    ///
+    /// The sidecars are keyed by rally *index*, so every edit has to rewrite
+    /// them together (as one best-effort transaction). Keying them by
+    /// `RallySegment.id` would remove that coupling — the long-term fix.
+    func save(mediaStore: MediaStore?) throws {
         guard let metadata = originalMetadata else { throw SaveError.noMetadata }
 
         let sorted = segments.sorted { $0.start < $1.start }
@@ -247,20 +252,25 @@ final class RallyTimelineViewModel {
             posted: Set(oldSelections.posted.compactMap { oldToNew[$0] })
         )
 
-        do {
-            try metadataStore.saveMetadata(metadata.withRallySegments(newRallySegments))
-            try metadataStore.saveTrimAdjustments(newAdjustments, for: videoId)
-            try metadataStore.saveReviewSelections(newSelections, for: videoId)
+        // Game scoring follows its rallies to their new indices too.
+        var newScoring = metadataStore.loadGameScoring(for: videoId)
+        if var scoring = newScoring {
+            scoring.pointWinners = Dictionary(uniqueKeysWithValues:
+                scoring.pointWinners.compactMap { old, winner in oldToNew[old].map { ($0, winner) } })
+            scoring.setBreaks = Set(scoring.setBreaks.compactMap { oldToNew[$0] })
+            newScoring = scoring
+        }
 
-            // Game scoring follows its rallies to their new indices too.
-            if var scoring = metadataStore.loadGameScoring(for: videoId) {
-                scoring.pointWinners = Dictionary(uniqueKeysWithValues:
-                    scoring.pointWinners.compactMap { old, winner in oldToNew[old].map { ($0, winner) } })
-                scoring.setBreaks = Set(scoring.setBreaks.compactMap { oldToNew[$0] })
-                try metadataStore.saveGameScoring(scoring, for: videoId)
-            }
+        do {
+            try metadataStore.saveTimelineEdit(
+                metadata: metadata.withRallySegments(newRallySegments),
+                trims: newAdjustments,
+                selections: newSelections,
+                scoring: newScoring
+            )
         } catch {
             throw SaveError.writeFailed(error)
         }
+        mediaStore?.remapFavoriteSourceIndices(sourceVideoId: videoId, oldToNew: oldToNew)
     }
 }
