@@ -88,6 +88,10 @@ import AVFoundation
                 .task {
                     await authService.restoreSession()
                 }
+                // TestFlight tools follow the signed-in account (app_testers).
+                .task(id: authService.currentUser?.id) {
+                    await SubscriptionService.shared.refreshTesterStatus(userId: authService.currentUser?.id)
+                }
                 .onChange(of: networkMonitor.isConnected) { _, isConnected in
                     if isConnected {
                         Task {

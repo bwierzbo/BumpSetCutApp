@@ -50,8 +50,8 @@ struct SettingsView: View {
                             .offset(y: hasAppeared ? 0 : 20)
                             .animation(.bscSpring.delay(0.1), value: hasAppeared)
                         #else
-                        // TestFlight testers get the tier toggle debug builds have
-                        if SubscriptionService.isTestFlight {
+                        // Allowlisted testers get the tier toggle debug builds have
+                        if SubscriptionService.shared.isTester {
                             testerSection
                                 .opacity(hasAppeared ? 1 : 0)
                                 .offset(y: hasAppeared ? 0 : 20)

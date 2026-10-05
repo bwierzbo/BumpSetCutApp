@@ -3,6 +3,9 @@ import Supabase
 
 // MARK: - Helper Types
 
+/// app_testers row — only its presence matters.
+private struct AppTesterRow: Decodable { let userId: String }
+
 struct FollowRow: Decodable {
     // No custom CodingKeys: the decoder's `.convertFromSnakeCase` strategy maps
     // `following_id` → `followingId` automatically. Pinning the raw value to
@@ -729,6 +732,17 @@ final class SupabaseAPIClient: APIClient, MessageMediaClient, @unchecked Sendabl
                 .execute()
                 .value
             return try safeCast(rows.first ?? UserStats.empty(userId: myId))
+
+        case .amITester:
+            let myId = try await currentUserId()
+            let rows: [AppTesterRow] = try await supabase
+                .from("app_testers")
+                .select("user_id")
+                .eq("user_id", value: myId)
+                .limit(1)
+                .execute()
+                .value
+            return try safeCast(!rows.isEmpty)
 
         case .addMyStats(let rallies, let timeCutSeconds):
             // The RPC increments atomically server-side; re-reading the row

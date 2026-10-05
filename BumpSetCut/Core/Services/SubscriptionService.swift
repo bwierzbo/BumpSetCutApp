@@ -20,23 +20,38 @@ final class SubscriptionService {
         #if DEBUG
         return forcePro
         #else
-        // TestFlight runs against the StoreKit sandbox — real subscriptions
-        // can't exist there, so testers get Pro with a Settings toggle.
-        if Self.isTestFlight { return forcePro }
+        // Testers get Pro with a Settings toggle (TestFlight runs against the
+        // StoreKit sandbox). Everyone else — App Review included — goes
+        // through the real subscription.
+        if isTester { return forcePro }
         return StoreManager.shared.hasActiveSubscription
         #endif
     }
 
-    /// True when this install came through TestFlight: a sandbox receipt with
-    /// no embedded provisioning profile (which would mean an Xcode/Ad Hoc build).
-    static let isTestFlight: Bool = {
-        #if targetEnvironment(simulator)
-        return false
-        #else
-        guard Bundle.main.path(forResource: "embedded", ofType: "mobileprovision") == nil else { return false }
-        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
-        #endif
-    }()
+    /// The signed-in account is on the server's app_testers allowlist. Not
+    /// derived from the install: App Review installs carry the same sandbox
+    /// receipt as TestFlight ones.
+    private(set) var isTester = false
+
+    /// Re-check the allowlist for the signed-in account (nil = signed out).
+    /// The last answer per account is cached, so testers keep their tools
+    /// offline; a failed check keeps the cached answer.
+    func refreshTesterStatus(userId: String?, apiClient: (any APIClient)? = nil) async {
+        guard let userId else {
+            isTester = false
+            return
+        }
+        let cacheKey = "tester_status_\(userId)"
+        isTester = UserDefaults.standard.bool(forKey: cacheKey)
+        do {
+            let client = apiClient ?? SupabaseAPIClient.shared
+            let tester: Bool = try await client.request(.amITester)
+            isTester = tester
+            UserDefaults.standard.set(tester, forKey: cacheKey)
+        } catch {
+            print("💎 Tester check failed, keeping cached answer: \(error.localizedDescription)")
+        }
+    }
 
     // MARK: - Free Tier Limits
     static let weeklyProcessingDurationMinutes: Double = 30 // Free users get 30 min/week
@@ -79,10 +94,10 @@ final class SubscriptionService {
         print("💎 Subscription status refreshed: \(isPro ? "Pro" : "Free")")
     }
 
-    // MARK: - Tier Override (DEBUG builds + TestFlight installs)
+    // MARK: - Tier Override (DEBUG builds + allowlisted testers)
 
     /// Manual Pro/Free override. Consulted by `isPro` only in DEBUG builds and
-    /// TestFlight installs — production App Store builds ignore it entirely.
+    /// for allowlisted testers — everyone else ignores it entirely.
     private(set) var forcePro: Bool = {
         // UI tests pass --force-free to exercise the free tier and paywall
         if CommandLine.arguments.contains("--force-free") { return false }

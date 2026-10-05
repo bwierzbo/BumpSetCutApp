@@ -87,6 +87,8 @@ enum APIEndpoint {
 
     // Lifetime Stats (account-linked)
     case getMyStats
+    /// Whether the signed-in account is on the app_testers allowlist.
+    case amITester
     case addMyStats(rallies: Int, timeCutSeconds: Double)
 
     // Upload
@@ -149,6 +151,7 @@ enum APIEndpoint {
         case .registerDeviceToken: return "/device-tokens"
         case .deleteDeviceToken(let token): return "/device-tokens/\(token)"
         case .getMyStats: return "/stats/me"
+        case .amITester: return "/testers/me"
         case .addMyStats: return "/stats/me/add"
         case .createUploadURL: return "/uploads"
         }
