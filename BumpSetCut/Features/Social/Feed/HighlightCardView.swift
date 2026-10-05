@@ -109,7 +109,6 @@ struct HighlightCardView: View {
                         }
                     }
                     .onTapGesture(count: 1) {
-                        UIImpactFeedbackGenerator.light()
                         togglePlayback()
                     }
                     .accessibilityAction(named: "Like") {
@@ -359,7 +358,9 @@ struct HighlightCardView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(highlight.isLikedByMe ? "Unlike" : "Like")
-                    .accessibilityHint("\(highlight.likesCount) likes")
+                    // Only speak the count when it's on screen — hidden likes
+                    // stay hidden for VoiceOver too.
+                    .accessibilityValue(highlight.hideLikes ? "" : "\(highlight.likesCount) likes")
 
                     // Comments
                     Button {
@@ -380,7 +381,7 @@ struct HighlightCardView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Comments")
-                    .accessibilityHint("\(highlight.commentsCount) comments")
+                    .accessibilityValue("\(highlight.commentsCount) comments")
                     .accessibilityIdentifier(AccessibilityID.Feed.commentButton)
 
                     // Send to a friend as a direct message

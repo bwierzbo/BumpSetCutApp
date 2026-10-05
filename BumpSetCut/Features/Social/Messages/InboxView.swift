@@ -15,6 +15,8 @@ struct InboxView: View {
     @State private var viewModel: InboxViewModel
     @State private var path = SwiftUI.NavigationPath()
     @State private var toast: BSCToastMessage?
+    /// A Leave/Delete awaiting confirmation (the thread view asks too).
+    @State private var pendingLeave: ConversationSummary?
 
     init(currentUserId: String) {
         _viewModel = State(initialValue: InboxViewModel(currentUserId: currentUserId))
@@ -33,7 +35,11 @@ struct InboxView: View {
                             .tint(.bscPrimary)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if viewModel.visible.isEmpty {
-                        emptyState
+                        // In a ScrollView so pull-to-refresh reaches it.
+                        ScrollView {
+                            emptyState
+                                .containerRelativeFrame([.horizontal, .vertical])
+                        }
                     } else {
                         conversationList
                     }
@@ -42,9 +48,8 @@ struct InboxView: View {
             .navigationTitle("Messages")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
-                        .foregroundColor(.bscTextSecondary)
                         .accessibilityIdentifier(AccessibilityID.Messages.done)
                 }
             }
@@ -54,6 +59,24 @@ struct InboxView: View {
             .profileNavigationDestinations()
         }
         .bscToast($toast)
+        .confirmationDialog(
+            pendingLeave?.isRequest == true ? "Delete this request?" : "Leave this conversation?",
+            isPresented: Binding(
+                get: { pendingLeave != nil },
+                set: { if !$0 { pendingLeave = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingLeave
+        ) { summary in
+            Button(summary.isRequest ? "Delete" : "Leave", role: .destructive) {
+                Task { await viewModel.leave(summary) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { summary in
+            Text(summary.isRequest
+                 ? "@\(summary.otherUsername) won't be notified. They can still message you again."
+                 : "You'll stop receiving messages here. They can still message you again.")
+        }
         .task {
             viewModel.startListening()
             await viewModel.loadInitial()
@@ -182,10 +205,10 @@ struct InboxView: View {
                         if summary.unreadCount > 0 {
                             Text("\(summary.unreadCount)")
                                 .bscFont(size: 11, weight: .bold)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .frame(minWidth: 18, minHeight: 18)
-                                .background(Capsule().fill(Color.bscPrimary))
+                                .foregroundColor(.bscOnPrimary)
+                                .padding(.horizontal, BSCSpacing.xs)
+                                .padding(.vertical, BSCSpacing.xxs)
+                                .background(Capsule().fill(Color.bscPrimaryFill))
                         }
                     }
                 }
@@ -205,9 +228,17 @@ struct InboxView: View {
             "\(summary.otherUsername), \(viewModel.previewText(for: summary))"
             + (summary.unreadCount > 0 ? ", \(summary.unreadCount) unread" : "")
         )
+        // The row reads as one element, which swallows the inline request
+        // buttons — expose them as actions instead.
+        .accessibilityActions {
+            if summary.isRequest {
+                Button("Accept") { Task { await viewModel.accept(summary) } }
+                Button("Delete") { pendingLeave = summary }
+            }
+        }
         .contextMenu {
             Button(role: .destructive) {
-                Task { await viewModel.leave(summary) }
+                pendingLeave = summary
             } label: {
                 Label(summary.isRequest ? "Delete Request" : "Leave Conversation", systemImage: "trash")
             }
@@ -216,28 +247,14 @@ struct InboxView: View {
 
     private func requestActions(_ summary: ConversationSummary) -> some View {
         HStack(spacing: BSCSpacing.sm) {
-            Button {
+            BSCButton(title: "Accept", style: .primary, size: .small) {
                 Task { await viewModel.accept(summary) }
-            } label: {
-                Text("Accept")
-                    .bscFont(size: 13, weight: .semibold)
-                    .foregroundColor(.bscOnPrimary)
-                    .frame(maxWidth: .infinity, minHeight: 36)
-                    .background(Capsule().fill(Color.bscPrimaryFill))
             }
-            .buttonStyle(.plain)
             .accessibilityIdentifier(AccessibilityID.Messages.acceptRequest)
 
-            Button {
-                Task { await viewModel.leave(summary) }
-            } label: {
-                Text("Delete")
-                    .bscFont(size: 13, weight: .semibold)
-                    .foregroundColor(.bscTextSecondary)
-                    .frame(maxWidth: .infinity, minHeight: 36)
-                    .background(Capsule().fill(Color.bscSurfaceGlass))
+            BSCButton(title: "Delete", style: .secondary, size: .small) {
+                pendingLeave = summary
             }
-            .buttonStyle(.plain)
             .accessibilityIdentifier(AccessibilityID.Messages.deleteRequest)
         }
         .padding(.leading, 48 + BSCSpacing.md)

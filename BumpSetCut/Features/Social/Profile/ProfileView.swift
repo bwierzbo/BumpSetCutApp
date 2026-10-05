@@ -315,8 +315,7 @@ struct ProfileView: View {
                 .accessibilityIdentifier(AccessibilityID.Profile.editProfileButton)
             } else {
                 messageButton
-                Button {
-                    UIImpactFeedbackGenerator.light()
+                FollowButton(isFollowing: viewModel.isFollowing, isFullWidth: true) {
                     Task {
                         let wasFollowing = viewModel.isFollowing
                         let succeeded = await viewModel.toggleFollow()
@@ -324,14 +323,6 @@ struct ProfileView: View {
                             UINotificationFeedbackGenerator.success()
                         }
                     }
-                } label: {
-                    Text(viewModel.isFollowing ? "Following" : "Follow")
-                        .bscFont(size: 14, weight: .semibold)
-                        .foregroundColor(viewModel.isFollowing ? .bscTextPrimary : .bscOnPrimary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, BSCSpacing.sm)
-                        .background(viewModel.isFollowing ? Color.bscSurfaceGlass : Color.bscPrimaryFill)
-                        .clipShape(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous))
                 }
                 .accessibilityIdentifier(AccessibilityID.Profile.followButton)
             }
@@ -460,8 +451,8 @@ struct ProfileView: View {
                     }
                 }
                 .foregroundColor(.bscOnMedia)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 3)
+                .padding(.horizontal, BSCSpacing.xs)
+                .padding(.vertical, BSCSpacing.xxs)
                 .background(Color.bscMediaScrim)
                 .clipShape(Capsule())
                 .padding(BSCSpacing.xs)

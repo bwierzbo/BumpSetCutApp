@@ -29,6 +29,8 @@ final class FollowListViewModel {
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
     private(set) var hasMorePages = true
+    /// The first page failed — shown as an error, not as "no followers".
+    private(set) var loadFailed = false
 
     let userId: String
     let mode: FollowListMode
@@ -52,6 +54,7 @@ final class FollowListViewModel {
     func loadInitial() async {
         guard !isLoading else { return }
         isLoading = true
+        loadFailed = false
 
         do {
             switch mode {
@@ -70,9 +73,10 @@ final class FollowListViewModel {
             }
             currentPage = 1
         } catch {
-            // Keep empty on failure, but never swallow silently — a decode/network
-            // failure must be visible, not indistinguishable from "no followers".
+            // A decode/network failure must be visible, not indistinguishable
+            // from "no followers".
             print("⚠️ [FollowListViewModel] loadInitial(\(mode)) failed: \(error)")
+            loadFailed = true
         }
 
         isLoading = false

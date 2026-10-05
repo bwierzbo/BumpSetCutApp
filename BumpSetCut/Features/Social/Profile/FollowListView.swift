@@ -25,6 +25,7 @@ extension View {
 
 struct FollowListView: View {
     @State private var viewModel: FollowListViewModel
+    @Environment(\.changeTab) private var changeTab
 
     init(userId: String, mode: FollowListMode) {
         _viewModel = State(initialValue: FollowListViewModel(userId: userId, mode: mode))
@@ -44,7 +45,7 @@ struct FollowListView: View {
                                     .frame(width: 44, height: 44)
                                     .clipShape(Circle())
 
-                                VStack(alignment: .leading, spacing: 4) {
+                                VStack(alignment: .leading, spacing: BSCSpacing.xs) {
                                     BSCSkeletonView()
                                         .frame(width: 120, height: 14)
                                         .clipShape(Capsule())
@@ -58,16 +59,25 @@ struct FollowListView: View {
                     }
                 }
             } else if viewModel.users.isEmpty {
-                // Empty state
-                Group {
-                    switch viewModel.mode {
-                    case .followers:
-                        BSCEmptyState.noFollowers()
-                    case .following:
-                        BSCEmptyState.noFollowing {
-                            // Navigate to search/discover
+                // In a ScrollView so pull-to-refresh works on these too.
+                ScrollView {
+                    Group {
+                        if viewModel.loadFailed {
+                            BSCEmptyState.loadFailed {
+                                Task { await viewModel.loadInitial() }
+                            }
+                        } else {
+                            switch viewModel.mode {
+                            case .followers:
+                                BSCEmptyState.noFollowers()
+                            case .following:
+                                BSCEmptyState.noFollowing {
+                                    changeTab(.search)
+                                }
+                            }
                         }
                     }
+                    .containerRelativeFrame([.horizontal, .vertical])
                 }
             } else {
                 ScrollView {
@@ -93,6 +103,9 @@ struct FollowListView: View {
         }
         .navigationTitle(viewModel.title)
         .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            await viewModel.loadInitial()
+        }
         .task {
             await viewModel.loadInitial()
         }

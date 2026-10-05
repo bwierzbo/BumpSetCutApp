@@ -50,7 +50,12 @@ struct BSCIconButton: View {
 
     // MARK: - Body
     var body: some View {
-        Button(action: action) {
+        Button {
+            // On the action, not on touch-down — a touch that's cancelled
+            // (scroll, drag off) shouldn't buzz.
+            UIImpactFeedbackGenerator.light()
+            action()
+        } label: {
             ZStack {
                 // Background
                 Circle()
@@ -159,11 +164,6 @@ private struct BSCIconButtonPressStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
             .animation(.bscBounce, value: configuration.isPressed)
-            .onChange(of: configuration.isPressed) { _, isPressed in
-                if isPressed {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                }
-            }
     }
 }
 
