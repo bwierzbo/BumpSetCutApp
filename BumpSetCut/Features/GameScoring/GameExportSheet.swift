@@ -53,7 +53,7 @@ struct GameExportSheet: View {
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: BSCSpacing.xxl) {
                 if isConfiguring {
                     configureView

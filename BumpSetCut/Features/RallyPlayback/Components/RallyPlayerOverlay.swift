@@ -1,6 +1,8 @@
 import SwiftUI
 
 // MARK: - Rally Player Overlay
+/// Top chrome bar of the rally player: rally counter on the leading edge,
+/// share / help / close on the trailing edge. The caller positions it.
 struct RallyPlayerOverlay: View {
     let currentIndex: Int
     let totalCount: Int
@@ -13,29 +15,26 @@ struct RallyPlayerOverlay: View {
     var onShare: () -> Void = {}
     var isPreparingShare: Bool = false
 
+    /// Circular chrome buttons grow with Dynamic Type so their glyphs never clip.
+    @ScaledMetric(relativeTo: .body) private var buttonSize: CGFloat = BSCTouchTarget.standard
+
     var body: some View {
-        VStack {
-            HStack(alignment: .top) {
-                // Back button
-                backButton
+        HStack(alignment: .top, spacing: BSCSpacing.sm) {
+            rallyCounter
 
-                Spacer()
+            Spacer(minLength: 0)
 
-                // Rally counter with status + quick actions
-                HStack(spacing: BSCSpacing.sm) {
-                    shareButton
+            shareButton
 
-                    rallyCounter
+            helpButton
 
-                    // Help/Tips button
-                    helpButton
-                }
-            }
-            .padding(.horizontal, BSCSpacing.lg)
-            .padding(.top, BSCSpacing.md)
-
-            Spacer()
+            BSCMediaCloseButton(action: onDismiss)
+                .accessibilityIdentifier(AccessibilityID.RallyPlayer.back)
         }
+        .padding(.horizontal, BSCSpacing.lg)
+        .padding(.top, BSCSpacing.md)
+        // Four controls share one row: past xxxLarge they can't all fit.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     // MARK: - Share Button
@@ -51,15 +50,8 @@ struct RallyPlayerOverlay: View {
                         .foregroundColor(.bscOnMedia)
                 }
             }
-            .frame(width: 44, height: 44)
-            .background(
-                Circle()
-                    .fill(Color.bscMediaScrim)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1)
-                    )
-            )
+            .frame(width: buttonSize, height: buttonSize)
+            .background(chromeCircle)
         }
         .disabled(isPreparingShare)
         .accessibilityLabel("Share rally")
@@ -71,41 +63,22 @@ struct RallyPlayerOverlay: View {
         Button(action: onShowTips) {
             Image(systemName: "questionmark.circle")
                 .bscFont(size: 16, weight: .medium)
-                .foregroundColor(.bscOnMediaSecondary)
-                .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(Color.bscOnMedia.opacity(0.1))
-                        .overlay(
-                            Circle()
-                                .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1)
-                        )
-                )
+                .foregroundColor(.bscOnMedia)
+                .frame(width: buttonSize, height: buttonSize)
+                .background(chromeCircle)
         }
         .accessibilityLabel("Help")
-        .accessibilityHint("Show gesture tips")
+        .accessibilityHint("Shows gesture tips")
         .accessibilityIdentifier(AccessibilityID.RallyPlayer.help)
     }
 
-    // MARK: - Back Button
-    private var backButton: some View {
-        Button(action: onDismiss) {
-            Image(systemName: "chevron.left")
-                .bscFont(size: 18, weight: .semibold)
-                .foregroundColor(.bscOnMedia)
-                .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(Color.bscMediaScrim)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1)
-                        )
-                )
-        }
-        .accessibilityLabel("Back")
-        .accessibilityHint("Return to library")
-        .accessibilityIdentifier(AccessibilityID.RallyPlayer.back)
+    private var chromeCircle: some View {
+        Circle()
+            .fill(Color.bscMediaScrim)
+            .overlay(
+                Circle()
+                    .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1)
+            )
     }
 
     // MARK: - Rally Counter
@@ -125,11 +98,11 @@ struct RallyPlayerOverlay: View {
 
                 Text("/")
                     .bscFont(size: 14)
-                    .foregroundColor(.bscOnMediaSecondary)
+                    .foregroundColor(.bscOnMedia)
 
                 Text("\(totalCount)")
                     .bscFont(size: 14, weight: .medium)
-                    .foregroundColor(.bscOnMediaSecondary)
+                    .foregroundColor(.bscOnMedia)
 
                 Image(systemName: "square.grid.2x2")
                     .bscFont(size: 11, weight: .semibold)
@@ -137,7 +110,7 @@ struct RallyPlayerOverlay: View {
                     .padding(.leading, BSCSpacing.xxs)
             }
             .padding(.horizontal, BSCSpacing.lg)
-            .padding(.vertical, BSCSpacing.sm)
+            .frame(minHeight: buttonSize)
             .background(
                 Capsule()
                     .fill(Color.bscMediaScrim)
@@ -147,13 +120,26 @@ struct RallyPlayerOverlay: View {
                     )
             )
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Rally \(currentIndex + 1) of \(totalCount)")
-        .accessibilityHint("Tap to see rally overview")
+        .accessibilityValue(statusDescription)
+        .accessibilityHint("Shows the rally overview")
+        .accessibilityAction { onShowOverview() }
         .accessibilityIdentifier(AccessibilityID.RallyPlayer.counter)
         .animation(.bscStandard, value: currentIndex)
         .animation(.bscQuick, value: isSaved)
         .animation(.bscQuick, value: isRemoved)
         .animation(.bscQuick, value: isFavorited)
+    }
+
+    /// Spoken status — the border color alone carries it visually.
+    private var statusDescription: String {
+        var parts: [String] = []
+        if isSaved { parts.append("Saved") }
+        if isRemoved { parts.append("Removed") }
+        if isFavorited { parts.append("Favorited") }
+        return parts.isEmpty ? "Not reviewed" : parts.joined(separator: ", ")
     }
 
     private var statusBorderColor: Color {
@@ -171,7 +157,7 @@ struct RallyPlayerOverlay: View {
 
 // MARK: - Preview
 #Preview("RallyPlayerOverlay") {
-    ZStack {
+    ZStack(alignment: .top) {
         Color.bscMediaBackground
         RallyPlayerOverlay(
             currentIndex: 2,

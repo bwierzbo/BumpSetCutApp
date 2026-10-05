@@ -26,6 +26,8 @@ struct ProcessVideoView: View {
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
+    /// Status badge circle grows with Dynamic Type alongside its bscFont glyph.
+    @ScaledMetric(relativeTo: .body) private var statusBadgeSize: CGFloat = 80
 
     // MARK: - Body
     var body: some View {
@@ -412,7 +414,7 @@ private extension ProcessVideoView {
         ZStack {
             Circle()
                 .fill(background.opacity(0.15))
-                .frame(width: 80, height: 80)
+                .frame(width: statusBadgeSize, height: statusBadgeSize)
 
             Image(systemName: icon)
                 .bscFont(size: iconSize)
@@ -658,6 +660,8 @@ private struct ProcessingIconView: View {
     @State private var isAnimating = false
     @State private var pulseScale: CGFloat = 1.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Rings and circles grow with Dynamic Type alongside the bscFont glyph.
+    @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
 
     var body: some View {
         ZStack {
@@ -668,7 +672,7 @@ private struct ProcessingIconView: View {
                         LinearGradient.bscPrimaryGradient,
                         lineWidth: 3
                     )
-                    .frame(width: 100, height: 100)
+                    .frame(width: 100 * scale, height: 100 * scale)
                     .rotationEffect(.degrees(isAnimating ? 360 : 0))
                     .animation(isAnimating ? .bscSpin : .bscStandard, value: isAnimating)
             }
@@ -680,16 +684,16 @@ private struct ProcessingIconView: View {
                         colors: [Color.bscBlue.opacity(0.3), Color.clear],
                         center: .center,
                         startRadius: 0,
-                        endRadius: 60
+                        endRadius: 60 * scale
                     )
                 )
-                .frame(width: 120, height: 120)
+                .frame(width: 120 * scale, height: 120 * scale)
                 .scaleEffect(pulseScale)
 
             // Icon background
             Circle()
                 .fill(Color.bscSurfaceGlass)
-                .frame(width: 80, height: 80)
+                .frame(width: 80 * scale, height: 80 * scale)
                 .overlay(
                     Circle()
                         .stroke(

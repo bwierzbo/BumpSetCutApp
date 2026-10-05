@@ -32,7 +32,6 @@ final class LibraryViewModel {
     var searchText: String = ""
     var showingCreateFolder: Bool = false
     var newFolderName: String = ""
-    var isSearching: Bool = false
     var videoFilter: VideoFilter = .all
 
     // MARK: - Computed Properties
@@ -56,24 +55,6 @@ final class LibraryViewModel {
         folderManager.isAtLibraryRoot
     }
 
-    var canGoBack: Bool {
-        folderManager.canGoBack
-    }
-
-    var canGoForward: Bool {
-        folderManager.canGoForward
-    }
-
-    var currentDepth: Int {
-        folderManager.currentDepth
-    }
-
-    var depthIndicator: String? {
-        let depth = currentDepth
-        guard depth > 0 else { return nil }
-        return "Level \(depth) of \(FolderManager.maxDepth)"
-    }
-
     var title: String {
         if isAtRoot {
             return libraryType == .saved ? "Library" : libraryType.displayName
@@ -90,10 +71,6 @@ final class LibraryViewModel {
 
     var isEmpty: Bool {
         filteredFolders.isEmpty && filteredVideos.isEmpty && !isLoading
-    }
-
-    var emptyStateMessage: String {
-        searchText.isEmpty ? "No content in this folder yet." : "No matching content found."
     }
 
     // MARK: - Filtered Content
@@ -181,9 +158,16 @@ final class LibraryViewModel {
     }
 
     // MARK: - Initialization
-    init(mediaStore: MediaStore, uploadCoordinator: UploadCoordinator, libraryType: LibraryType = .saved) {
+    /// `folderPath` nil shows the library root; a path shows that folder. Each
+    /// folder is its own pushed screen, so the system back button and edge
+    /// swipe handle going up a level.
+    init(mediaStore: MediaStore, uploadCoordinator: UploadCoordinator, libraryType: LibraryType = .saved, folderPath: String? = nil) {
         self.libraryType = libraryType
         self.folderManager = FolderManager(mediaStore: mediaStore, libraryType: libraryType)
+        if let folderPath {
+            // Contents load lazily on appear (loadInitialContentsIfNeeded).
+            folderManager.currentPath = folderPath
+        }
         self.uploadCoordinator = uploadCoordinator
         self.searchViewModel = SearchViewModel(mediaStore: mediaStore)
 
@@ -201,22 +185,6 @@ final class LibraryViewModel {
     // MARK: - Actions
     func refresh() {
         folderManager.refreshContents()
-    }
-
-    func navigateToFolder(_ path: String) {
-        folderManager.navigateToFolder(path)
-    }
-
-    func navigateBack() {
-        folderManager.navigateBack()
-    }
-
-    func navigateForward() {
-        folderManager.navigateForward()
-    }
-
-    func navigateToParent() {
-        folderManager.navigateToParent()
     }
 
     func createFolder() async throws {

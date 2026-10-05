@@ -66,14 +66,13 @@ Raw status hues are mode-invariant fills; **the `*Text` variants exist because t
 
 | Fill token | Value | Text/icon variant | Light / Dark | AA (L/D) |
 |---|---|---|---|---|
-| `bscSuccess` | `#22C55E` (2.3 on white ❌) | `bscSuccessText` | `#16A34A` / `#22C55E` | 3.3ᶦ / 7.6 ✅ |
+| `bscSuccess` | `#22C55E` (2.3 on white ❌) | `bscSuccessText` | `#15803D` / `#22C55E` | 5.0 / 7.6 ✅ |
 | `bscError` | `#EF4444` (3.8 icon-only) | `bscErrorText` | `#DC2626` / `#EF4444` | 4.8 / 4.6 ✅ |
 | `bscWarning` | `#F59E0B` (2.2 on white ❌) | `bscWarningText` | `#B45309` / `#F59E0B` | 5.0 / 8.1 ✅ |
 | `bscInfo` / `bscPrimary` | `#3B82F6` (3.7 icon-only) | `bscPrimaryText` | `#2563EB` / `#60A5FA` | 5.2 / 6.8 ✅ |
 | `bscTeal` | `#14B8A6` (2.5 on white ❌) | `bscTealText` | `#0F766E` / `#2DD4BF` | 5.5 / 9.3 ✅ |
 | `bscOrange`/`bscWarmAccent` | `#FF6B35` (2.9 on white ❌) | `bscWarmAccentText` | `#C2410C` / `#FF8C5A` | 5.2 / 7.6 ✅ |
 
-ᶦ passes the 3:1 non-text bar; prefer it for icons, not body text, in light mode.
 Each status hue also has a `*Subtle` 15%-opacity background variant.
 
 ### On-fill labels and solid fills

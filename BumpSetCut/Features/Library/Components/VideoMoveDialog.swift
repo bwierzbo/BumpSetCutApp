@@ -17,7 +17,7 @@ struct VideoMoveDialog: View {
     @State private var folders: [FolderMetadata] = []
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 0) {
                 // Header
                 VStack(alignment: .leading, spacing: BSCSpacing.sm) {

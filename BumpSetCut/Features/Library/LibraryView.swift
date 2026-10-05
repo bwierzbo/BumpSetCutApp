@@ -28,100 +28,114 @@ struct LibraryView: View {
     @State private var viewingRalliesVideo: VideoMetadata?
     @State private var scoringVideo: VideoMetadata?
     @State private var spaceSaverVideo: VideoMetadata?
-    @Environment(\.dismiss) private var dismiss
+    // Path of the folder pushed onto the enclosing navigation stack.
+    @State private var openedFolderPath: String?
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
 
-    init(mediaStore: MediaStore, uploadCoordinator: UploadCoordinator, libraryType: LibraryType = .saved) {
-        self._viewModel = State(wrappedValue: LibraryViewModel(mediaStore: mediaStore, uploadCoordinator: uploadCoordinator, libraryType: libraryType))
+    /// Pushed into the caller's NavigationStack (never wraps its own). A folder
+    /// opens as another pushed LibraryView, so back/edge-swipe are the system's.
+    init(mediaStore: MediaStore, uploadCoordinator: UploadCoordinator, libraryType: LibraryType = .saved, folderPath: String? = nil) {
+        self._viewModel = State(wrappedValue: LibraryViewModel(
+            mediaStore: mediaStore,
+            uploadCoordinator: uploadCoordinator,
+            libraryType: libraryType,
+            folderPath: folderPath
+        ))
     }
 
     // MARK: - Body
     var body: some View {
-        NavigationStack {
-            ZStack {
-                // Background
-                Color.bscBackground
-                    .ignoresSafeArea()
+        ZStack {
+            // Background
+            Color.bscBackground
+                .ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    if viewModel.libraryType == .saved {
-                        // Main content with drop zone
-                        DropZoneView(
-                            uploadCoordinator: viewModel.uploadCoordinator,
-                            destinationFolder: viewModel.currentPath
-                        ) {
-                            mainContent
-                        }
-                    } else {
+            VStack(spacing: 0) {
+                if viewModel.libraryType == .saved {
+                    // Main content with drop zone
+                    DropZoneView(
+                        uploadCoordinator: viewModel.uploadCoordinator,
+                        destinationFolder: viewModel.currentPath
+                    ) {
                         mainContent
                     }
+                } else {
+                    mainContent
+                }
 
-                    // Status bars
-                    statusBars
-                }
+                // Status bars
+                statusBars
             }
-            .bscToast($mutationToast)
-            .fullScreenCover(item: $playingVideo) { video in
-                VideoPlayerView(videoURL: video.originalURL)
-            }
-            .fullScreenCover(item: $viewingRalliesVideo) { video in
-                RallyPlayerView(videoMetadata: video, mediaStore: viewModel.folderManager.store)
-            }
-            .fullScreenCover(item: $scoringVideo) { video in
-                GameScoringView(videoMetadata: video)
-            }
-            .sheet(item: $spaceSaverVideo) { video in
-                SpaceSaverSheet(
-                    video: video,
-                    mediaStore: viewModel.folderManager.store,
-                    metadataStore: MetadataStore()
-                )
-            }
-            .sheet(isPresented: $viewModel.showingCreateFolder) {
-                createFolderSheet
-            }
-            .searchable(
-                text: $viewModel.searchText,
-                placement: .navigationBarDrawer(displayMode: .always),
-                prompt: "Search videos and folders"
+        }
+        .bscToast($mutationToast)
+        .navigationDestination(item: $openedFolderPath) { path in
+            LibraryView(
+                mediaStore: viewModel.folderManager.store,
+                uploadCoordinator: viewModel.uploadCoordinator,
+                libraryType: viewModel.libraryType,
+                folderPath: path
             )
-            .onChange(of: viewModel.searchText) { _, newSearchText in
-                viewModel.searchViewModel.searchText = newSearchText
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .uploadCompleted)) { _ in
-                viewModel.refresh()
-            }
-            .onChange(of: viewModel.folderManager.store.contentVersion) { _, _ in
-                viewModel.refresh()
-            }
-            .onAppear {
-                viewModel.folderManager.loadInitialContentsIfNeeded()
-                withAnimation(.bscSpring.delay(0.1)) {
-                    hasAppeared = true
-                }
-            }
-            .photosPicker(
-                isPresented: $showingPhotoPicker,
-                selection: $selectedPhotoItems,
-                maxSelectionCount: 1,
-                matching: .videos,
-                preferredItemEncoding: .current, // deliver original bytes; avoid slow re-encode on import
-                photoLibrary: .shared() // items carry a PhotoKit identifier → background-capable iCloud fetch
+        }
+        .fullScreenCover(item: $playingVideo) { video in
+            VideoPlayerView(videoURL: video.originalURL)
+        }
+        .fullScreenCover(item: $viewingRalliesVideo) { video in
+            RallyPlayerView(videoMetadata: video, mediaStore: viewModel.folderManager.store)
+        }
+        .fullScreenCover(item: $scoringVideo) { video in
+            GameScoringView(videoMetadata: video)
+        }
+        .sheet(item: $spaceSaverVideo) { video in
+            SpaceSaverSheet(
+                video: video,
+                mediaStore: viewModel.folderManager.store,
+                metadataStore: MetadataStore()
             )
-            .onChange(of: selectedPhotoItems) { _, items in
-                if !items.isEmpty, let item = items.first {
-                    pendingUploadItem = item
-                    selectedPhotoItems.removeAll()
-                    showingNamePrompt = true
-                }
+        }
+        .sheet(isPresented: $viewModel.showingCreateFolder) {
+            createFolderSheet
+        }
+        .searchable(
+            text: $viewModel.searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search videos and folders"
+        )
+        .onChange(of: viewModel.searchText) { _, newSearchText in
+            viewModel.searchViewModel.searchText = newSearchText
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .uploadCompleted)) { _ in
+            viewModel.refresh()
+        }
+        .onChange(of: viewModel.folderManager.store.contentVersion) { _, _ in
+            viewModel.refresh()
+        }
+        .onAppear {
+            viewModel.folderManager.loadInitialContentsIfNeeded()
+            withAnimation(.bscSpring.delay(0.1)) {
+                hasAppeared = true
             }
-            .uploadNamePrompt(isPresented: $showingNamePrompt) { name in
-                if let item = pendingUploadItem {
-                    viewModel.uploadCoordinator.handlePhotosPickerItem(item, destinationFolder: viewModel.currentPath, customName: name)
-                }
-                pendingUploadItem = nil
+        }
+        .photosPicker(
+            isPresented: $showingPhotoPicker,
+            selection: $selectedPhotoItems,
+            maxSelectionCount: 1,
+            matching: .videos,
+            preferredItemEncoding: .current, // deliver original bytes; avoid slow re-encode on import
+            photoLibrary: .shared() // items carry a PhotoKit identifier → background-capable iCloud fetch
+        )
+        .onChange(of: selectedPhotoItems) { _, items in
+            if !items.isEmpty, let item = items.first {
+                pendingUploadItem = item
+                selectedPhotoItems.removeAll()
+                showingNamePrompt = true
             }
+        }
+        .uploadNamePrompt(isPresented: $showingNamePrompt) { name in
+            if let item = pendingUploadItem {
+                viewModel.uploadCoordinator.handlePhotosPickerItem(item, destinationFolder: viewModel.currentPath, customName: name)
+            }
+            pendingUploadItem = nil
         }
     }
 }
@@ -185,31 +199,9 @@ private extension LibraryView {
             }
             .background(Color.bscBackground)
             .toolbar { toolbarContent }
-            .navigationBarBackButtonHidden(!viewModel.isAtRoot)  // Hide default back when in folder
             .refreshable {
                 viewModel.refresh()
             }
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 20)
-                    .onEnded { value in
-                        // Swipe right to go back
-                        let horizontalDistance = value.translation.width
-                        let verticalDistance = abs(value.translation.height)
-
-                        // Trigger if swiped right and mostly horizontal (reduced threshold for easier swipe)
-                        if horizontalDistance > 60 && horizontalDistance > verticalDistance * 1.5 {
-                            if !viewModel.isAtRoot {
-                                // In folder: go to parent folder
-                                withAnimation(.bscSpring) {
-                                    viewModel.navigateToParent()
-                                }
-                            } else {
-                                // At root: dismiss to main screen
-                                dismiss()
-                            }
-                        }
-                    }
-            )
         }
     }
 
@@ -352,11 +344,7 @@ private extension LibraryView {
             folder: folder,
             displayMode: displayMode,
             isDropTargeted: dropTargetFolderPath == folder.path,
-            onTap: {
-                withAnimation(.bscSpring) {
-                    viewModel.navigateToFolder(folder.path)
-                }
-            },
+            onTap: { openedFolderPath = folder.path },
             onRename: { newName in
                 runMutation(failureMessage: "Couldn't rename folder") {
                     try await viewModel.renameFolder(folder, to: newName)
@@ -483,18 +471,6 @@ private extension LibraryView {
 private extension LibraryView {
     @ToolbarContentBuilder
     var toolbarContent: some ToolbarContent {
-        // Custom back button when inside a folder
-        if !viewModel.isAtRoot {
-            ToolbarItem(placement: .navigationBarLeading) {
-                BSCIconButton(icon: "chevron.left", style: .ghost, size: .compact, accessibilityLabel: "Back") {
-                    withAnimation(.bscSpring) {
-                        viewModel.navigateToParent()
-                    }
-                }
-                .transition(.move(edge: .leading).combined(with: .opacity))
-            }
-        }
-
         ToolbarItem(placement: .navigationBarTrailing) {
             HStack(spacing: BSCSpacing.md) {
                 // Sort/View menu
@@ -549,7 +525,7 @@ private extension LibraryView {
 // MARK: - Create Folder Sheet
 private extension LibraryView {
     var createFolderSheet: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: BSCSpacing.xl) {
                 VStack(alignment: .leading, spacing: BSCSpacing.sm) {
                     Text("Folder Name")
@@ -609,6 +585,8 @@ private extension LibraryView {
 // MARK: - Preview
 #Preview("Library") {
     let store = MediaStore()
-    LibraryView(mediaStore: store, uploadCoordinator: UploadCoordinator(mediaStore: store))
-        .environment(AppSettings.shared)
+    NavigationStack {
+        LibraryView(mediaStore: store, uploadCoordinator: UploadCoordinator(mediaStore: store))
+    }
+    .environment(AppSettings.shared)
 }

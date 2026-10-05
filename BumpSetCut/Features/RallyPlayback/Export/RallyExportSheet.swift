@@ -16,7 +16,7 @@ struct RallyExportSheet: View {
     @State private var exportProgress: Double = 0.0
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: BSCSpacing.xl) {
                 if savedRallies.isEmpty {
                     noSavedRalliesView

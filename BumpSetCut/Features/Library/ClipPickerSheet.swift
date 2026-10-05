@@ -47,6 +47,8 @@ struct ClipPickerSheet<Payload>: View {
     /// outside the scroll view that clips it, so the preview lives up here.
     @State private var previewPlayer: AVPlayer?
     @State private var previewName: String?
+    /// Selection badge grows with Dynamic Type so its number never clips.
+    @ScaledMetric(relativeTo: .body) private var badgeSize: CGFloat = 28
 
     private var canSelectAll: Bool { items.count <= maxSelection }
     private var atCapacity: Bool { selection.count >= maxSelection }
@@ -149,7 +151,7 @@ struct ClipPickerSheet<Payload>: View {
     private var heldClipPreview: some View {
         if let previewPlayer {
             ZStack {
-                Color.black.opacity(0.92).ignoresSafeArea()
+                Color.bscMediaScrimBase.opacity(0.92).ignoresSafeArea()
 
                 CustomVideoPlayerView(player: previewPlayer, gravity: .resizeAspect) { _ in }
                     .ignoresSafeArea()
@@ -162,7 +164,7 @@ struct ClipPickerSheet<Payload>: View {
                             .foregroundColor(.bscOnMedia)
                             .padding(.horizontal, BSCSpacing.lg)
                             .padding(.vertical, BSCSpacing.sm)
-                            .background(Capsule().fill(Color.black.opacity(0.55)))
+                            .background(Capsule().fill(Color.bscMediaScrim))
                             .padding(.bottom, BSCSpacing.xxl)
                     }
                 }
@@ -200,27 +202,27 @@ struct ClipPickerSheet<Payload>: View {
                         Text("\(order + 1)")
                             .bscFont(size: 14, weight: .bold, design: .monospaced)
                             .foregroundColor(.bscOnPrimary)
-                            .frame(width: 28, height: 28)
-                            .background(Circle().fill(Color.bscPrimary))
+                            .frame(width: badgeSize, height: badgeSize)
+                            .background(Circle().fill(Color.bscPrimaryFill))
                     } else {
                         Circle()
-                            .stroke(Color.white.opacity(0.9), lineWidth: 2)
-                            .background(Circle().fill(Color.black.opacity(0.25)))
-                            .frame(width: 28, height: 28)
+                            .stroke(Color.bscOnMedia.opacity(0.9), lineWidth: 2)
+                            .background(Circle().fill(Color.bscMediaScrimBase.opacity(0.25)))
+                            .frame(width: badgeSize, height: badgeSize)
                     }
                 }
                 .padding(BSCSpacing.sm)
-                .shadow(color: .black.opacity(0.4), radius: 2)
+                .shadow(color: Color.bscMediaScrimBase.opacity(0.4), radius: 2)
                 .opacity(isPreviewing ? 0 : 1)
                 .animation(.bscQuick, value: isPreviewing)
 
                 if item.isPosted {
                     Label("Posted", systemImage: "checkmark.circle.fill")
                         .bscFont(size: 11, weight: .semibold)
-                        .foregroundColor(.white)
+                        .foregroundColor(.bscOnMedia)
                         .padding(.horizontal, BSCSpacing.xs)
                         .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.black.opacity(0.6)))
+                        .background(Capsule().fill(Color.bscMediaScrimBase.opacity(0.6)))
                         .padding(BSCSpacing.sm)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         .opacity(isPreviewing ? 0 : 1)

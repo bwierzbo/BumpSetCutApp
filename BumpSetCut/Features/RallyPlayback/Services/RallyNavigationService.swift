@@ -54,9 +54,10 @@ final class RallyNavigationService {
 
     // MARK: - Transition Lifecycle
 
-    /// Begins a transition to a new index. Returns the screen-height-based target offset
-    /// for the slide-out animation, or nil if the transition cannot proceed.
-    func beginTransition(to index: Int, totalCount: Int, direction: NavigationDirection) -> CGFloat? {
+    /// Begins a transition to a new index. Returns the target offset for the
+    /// slide-out animation — `travel` (the rally card's height) in the direction
+    /// of travel — or nil if the transition cannot proceed.
+    func beginTransition(to index: Int, totalCount: Int, direction: NavigationDirection, travel: CGFloat) -> CGFloat? {
         guard index >= 0 && index < totalCount else { return nil }
         guard !isTransitioning else { return nil }
 
@@ -64,8 +65,7 @@ final class RallyNavigationService {
         isTransitioning = true
         transitionDirection = direction
 
-        let screenHeight = UIScreen.main.bounds.height
-        return direction == .down ? -screenHeight : screenHeight
+        return direction == .down ? -travel : travel
     }
 
     /// Updates the current index after beginning a transition.

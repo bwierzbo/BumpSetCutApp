@@ -179,7 +179,9 @@ extension Color {
     /// Contrast-safe text/icon variants for status colors in light mode.
     /// Use these (not the raw status colors) for any text or glyph on
     /// light backgrounds — the raw values fail WCAG AA there.
-    static let bscSuccessText = Color(light: Color(hex: "#16A34A"), dark: Color(hex: "#22C55E"))
+    /// bscSuccessText light is green-700 (5.0:1 on white); green-600 (#16A34A)
+    /// only reaches 3.3:1 and fails AA for body text.
+    static let bscSuccessText = Color(light: Color(hex: "#15803D"), dark: Color(hex: "#22C55E"))
     static let bscErrorText = Color(light: Color(hex: "#DC2626"), dark: Color(hex: "#EF4444"))
     static let bscWarningText = Color(light: Color(hex: "#B45309"), dark: Color(hex: "#F59E0B"))
 

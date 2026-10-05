@@ -230,6 +230,11 @@ struct RallyPlayerView: View {
                 set: { if $0 == nil { viewModel.favoritesErrorMessage = nil } }
             ))
         }
+        // Full-screen video: hide the status bar and home indicator, and make
+        // edge swipes need a second swipe so they don't fight the card gestures.
+        .statusBarHidden()
+        .persistentSystemOverlays(.hidden)
+        .defersSystemGestures(on: .vertical)
         .task(id: videoMetadata.id) {
             await viewModel.loadRallies()
         }
@@ -310,7 +315,8 @@ struct RallyPlayerView: View {
                         rotationDegrees: viewModel.rotationDegrees(for: rallyIndex),
                         zoomScale: cardZoom,
                         zoomOffset: cardOffset,
-                        onDoubleTap: position == 0 ? { toggleZoom(cardSize: geometry.size) } : nil
+                        onDoubleTap: position == 0 ? { toggleZoom(cardSize: geometry.size) } : nil,
+                        onTrim: position == 0 && !interactionBlocked ? { beginTrim() } : nil
                     )
                     .scaleEffect(scaleForPosition(position))
                     .offset(y: offsetForPosition(position))
@@ -337,89 +343,80 @@ struct RallyPlayerView: View {
             .contentShape(Rectangle())
             .simultaneousGesture(viewModel.isTrimmingMode ? trimEditGesture(geometry: geometry) : nil)
 
-            // Navigation overlay (above all cards)
-            RallyPlayerOverlay(
-                currentIndex: viewModel.currentRallyIndex,
-                totalCount: viewModel.totalRallies,
-                isSaved: viewModel.currentRallyIsSaved,
-                isRemoved: viewModel.currentRallyIsRemoved,
-                isFavorited: viewModel.currentRallyIsFavorited,
-                onDismiss: {
-                    Task {
-                        await viewModel.copyFavoritesToLibrary()
-                        dismiss()
-                    }
-                },
-                onShowTips: { showingGestureTips = true },
-                onShowOverview: { viewModel.showOverviewSheet = true },
-                onShare: { viewModel.shareCurrentRally() },
-                isPreparingShare: viewModel.isPreparingShare
-            )
-            .zIndex(200)
-
-            // Action buttons (above all cards) - hidden while trimming or while
-            // the rotation-propagation prompt is up.
-            if !interactionBlocked {
-                RallyActionButtons(
+            // Player chrome (above all cards), stacked top to bottom so each
+            // piece is anchored to its neighbour instead of a hand-tuned offset.
+            // Empty space passes touches through to the cards.
+            VStack(spacing: BSCSpacing.sm) {
+                RallyPlayerOverlay(
+                    currentIndex: viewModel.currentRallyIndex,
+                    totalCount: viewModel.totalRallies,
                     isSaved: viewModel.currentRallyIsSaved,
                     isRemoved: viewModel.currentRallyIsRemoved,
                     isFavorited: viewModel.currentRallyIsFavorited,
-                    canUndo: viewModel.canUndo,
-                    onRemove: { performAction(.remove) },
-                    onUndo: { viewModel.undoLastAction() },
-                    onFavorite: { viewModel.performAction(.favorite, direction: .up) },
-                    onSave: { performAction(.save) }
-                )
-                .zIndex(200)
-                .transition(.opacity)
-            }
-
-            // Report-a-mistake affordance (data flywheel, opted-in users only).
-            // Top-trailing, below the overlay chrome — tester feedback: at the
-            // bottom it sat nearly on top of the Save action button.
-            if viewModel.isFlywheelEnabled && !interactionBlocked {
-                VStack {
-                    HStack {
-                        Spacer()
-                        Button {
-                            showReportMistake = true
-                        } label: {
-                            Image(systemName: viewModel.currentVideoIsReported ? "flag.fill" : "flag")
-                                .bscFont(size: 14, weight: .semibold)
-                                .foregroundColor(viewModel.currentVideoIsReported ? .bscOrange : .bscOnMedia)
-                                .padding(BSCSpacing.sm)
-                                .background(Color.bscMediaScrimBase.opacity(0.35))
-                                .clipShape(Circle())
-                                .overlay(
-                                    Circle().stroke(Color.bscOrange,
-                                                    lineWidth: viewModel.currentVideoIsReported ? 1.5 : 0)
-                                )
-                                .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
-                                .contentShape(Rectangle())
+                    onDismiss: {
+                        Task {
+                            await viewModel.copyFavoritesToLibrary()
+                            dismiss()
                         }
-                        .accessibilityLabel(viewModel.currentVideoIsReported ? "Video reported" : "Report a detection mistake")
-                        .padding(.trailing, BSCSpacing.lg)
-                        .padding(.top, verticalSizeClass == .compact ? 76 : 120)
-                    }
-                    Spacer()
-                }
-                .zIndex(200)
-                .transition(.opacity)
-            }
+                    },
+                    onShowTips: { showingGestureTips = true },
+                    onShowOverview: { viewModel.showOverviewSheet = true },
+                    onShare: { viewModel.shareCurrentRally() },
+                    isPreparingShare: viewModel.isPreparingShare
+                )
 
-            // "Hold to trim" coach mark — shows every session until the user
-            // actually enters trim mode once (tester feedback: the one-time
-            // tips overlay wasn't enough to make trimming discoverable).
-            if showTrimHint && !appSettings.hasUsedRallyTrim && !showingGestureTips && !interactionBlocked {
-                VStack {
-                    Spacer()
-                    TrimCoachMark()
-                        .padding(.bottom, verticalSizeClass == .compact ? 130 : 170)
+                // Report-a-mistake affordance (data flywheel, opted-in users
+                // only), directly under the top bar — tester feedback: at the
+                // bottom it sat nearly on top of the Save action button.
+                if viewModel.isFlywheelEnabled && !interactionBlocked {
+                    reportMistakeButton
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.trailing, BSCSpacing.lg)
+                        .transition(.opacity)
                 }
-                .allowsHitTesting(false)
-                .zIndex(210)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+
+                Spacer(minLength: 0)
+
+                // "Hold to trim" coach mark — shows every session until the user
+                // actually enters trim mode once (tester feedback: the one-time
+                // tips overlay wasn't enough to make trimming discoverable).
+                if showTrimHint && !appSettings.hasUsedRallyTrim && !showingGestureTips && !interactionBlocked {
+                    TrimCoachMark()
+                        .allowsHitTesting(false)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+
+                // Action feedback, just above the action row.
+                if let feedback = viewModel.actionFeedback {
+                    let favoriteIndex = feedback.type == .favorite ? feedback.rallyIndex : nil
+                    RallyActionFeedbackView(
+                        feedback: feedback,
+                        isShowing: viewModel.showActionFeedback,
+                        actionLabel: favoriteIndex != nil ? "Choose Folder" : nil,
+                        onAction: favoriteIndex.map { index in
+                            { viewModel.presentCollectionPicker(for: index) }
+                        }
+                    )
+                }
+
+                // Hidden while trimming or while the rotation-propagation
+                // prompt is up.
+                if !interactionBlocked {
+                    RallyActionButtons(
+                        isSaved: viewModel.currentRallyIsSaved,
+                        isRemoved: viewModel.currentRallyIsRemoved,
+                        isFavorited: viewModel.currentRallyIsFavorited,
+                        canUndo: viewModel.canUndo,
+                        onRemove: { performAction(.remove) },
+                        onUndo: { viewModel.undoLastAction() },
+                        onFavorite: { viewModel.performAction(.favorite, direction: .up) },
+                        onSave: { performAction(.save) }
+                    )
+                    .transition(.opacity)
+                }
             }
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            .zIndex(200)
 
             // Trim overlay
             if viewModel.isTrimmingMode, let segment = currentRallySegment {
@@ -427,7 +424,7 @@ struct RallyPlayerView: View {
                     trimBefore: $viewModel.currentTrimBefore,
                     trimAfter: $viewModel.currentTrimAfter,
                     trimRotation: $viewModel.currentTrimRotation,
-                    trimZoom: $viewModel.currentTrimZoom,
+                    trimZoom: liveTrimZoom(cardSize: geometry.size),
                     rallyStartTime: segment.startTime,
                     rallyEndTime: segment.endTime,
                     videoURL: videoMetadata.originalURL,
@@ -442,20 +439,6 @@ struct RallyPlayerView: View {
                 )
                 .zIndex(250)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
-            // Action feedback (topmost)
-            if let feedback = viewModel.actionFeedback {
-                let favoriteIndex = feedback.type == .favorite ? feedback.rallyIndex : nil
-                RallyActionFeedbackView(
-                    feedback: feedback,
-                    isShowing: viewModel.showActionFeedback,
-                    actionLabel: favoriteIndex != nil ? "Choose Folder" : nil,
-                    onAction: favoriteIndex.map { index in
-                        { viewModel.presentCollectionPicker(for: index) }
-                    }
-                )
-                .zIndex(300)
             }
 
             // Adjustment propagation prompt - video stays paused & dimmed behind it
@@ -501,13 +484,7 @@ struct RallyPlayerView: View {
         .simultaneousGesture(interactionBlocked ? nil : pinchGesture())
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5)
-                .onEnded { _ in
-                    guard !viewModel.isTransitioning, !viewModel.isPerformingAction,
-                          !viewModel.isTrimmingMode, !viewModel.isAwaitingPropagationChoice else { return }
-                    appSettings.hasUsedRallyTrim = true
-                    withAnimation(.bscQuick) { showTrimHint = false }
-                    viewModel.enterTrimMode()
-                }
+                .onEnded { _ in beginTrim() }
         )
         .onAppear {
             viewModel.updateCardSize(geometry.size, isPortrait: isPortrait)
@@ -548,6 +525,26 @@ struct RallyPlayerView: View {
     /// long-pressing are disabled, and the normal chrome stays hidden.
     private var interactionBlocked: Bool {
         viewModel.isTrimmingMode || viewModel.isAwaitingPropagationChoice
+    }
+
+    private var reportMistakeButton: some View {
+        Button {
+            showReportMistake = true
+        } label: {
+            Image(systemName: viewModel.currentVideoIsReported ? "flag.fill" : "flag")
+                .bscFont(size: 14, weight: .semibold)
+                .foregroundColor(viewModel.currentVideoIsReported ? .bscOrange : .bscOnMedia)
+                .padding(BSCSpacing.sm)
+                .background(Color.bscMediaScrimBase.opacity(0.35))
+                .clipShape(Circle())
+                .overlay(
+                    Circle().stroke(Color.bscOrange,
+                                    lineWidth: viewModel.currentVideoIsReported ? 1.5 : 0)
+                )
+                .frame(minWidth: BSCTouchTarget.standard, minHeight: BSCTouchTarget.standard)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(viewModel.currentVideoIsReported ? "Video reported" : "Report a detection mistake")
     }
 
     // MARK: - Stack Position Helpers
@@ -720,8 +717,26 @@ struct RallyPlayerView: View {
 
     // MARK: - Trim-Mode Editing (pinch zoom · twist angle · drag pan)
 
+    /// Maximum crop zoom in trim mode.
+    private static let trimZoomLimit: CGFloat = 3.0
+
+    /// The live crop zoom (what confirmTrim saves), for the trim overlay's
+    /// readout and its VoiceOver-adjustable zoom control.
+    private func liveTrimZoom(cardSize: CGSize) -> Binding<Double> {
+        Binding(
+            get: { Double(viewModel.zoomScale) },
+            set: { newValue in
+                let scale = min(max(CGFloat(newValue), 1.0), Self.trimZoomLimit)
+                viewModel.zoomScale = scale
+                viewModel.zoomOffset = clampedOffset(viewModel.zoomOffset, scale: scale, cardSize: cardSize)
+                viewModel.baseZoomScale = scale
+                viewModel.baseZoomOffset = viewModel.zoomOffset
+            }
+        )
+    }
+
     private func trimEditGesture(geometry: GeometryProxy) -> some Gesture {
-        let zoomLimit: CGFloat = 3.0
+        let zoomLimit = Self.trimZoomLimit
         let angleLimit: Double = 10.0
 
         let magnify = MagnificationGesture()
@@ -785,6 +800,15 @@ struct RallyPlayerView: View {
     }
 
     // MARK: - Helpers
+
+    /// Long-press (or the card's "Trim rally" accessibility action) enters trim mode.
+    private func beginTrim() {
+        guard !viewModel.isTransitioning, !viewModel.isPerformingAction,
+              !viewModel.isTrimmingMode, !viewModel.isAwaitingPropagationChoice else { return }
+        appSettings.hasUsedRallyTrim = true
+        withAnimation(.bscQuick) { showTrimHint = false }
+        viewModel.enterTrimMode()
+    }
 
     private func performAction(_ action: RallySwipeAction) {
         let direction: RallySwipeDirection = action == .save ? .right : .left
@@ -866,6 +890,8 @@ struct TopCardDragModifier: ViewModifier {
     let slideInOffset: CGFloat     // Card height offset for sliding-in card (+height or -height)
     var actionSwipeOffsetY: CGFloat = 0  // Vertical swipe for favorite action
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func body(content: Content) -> some View {
         content
             .offset(x: computedOffsetX, y: computedOffsetY)
@@ -898,6 +924,8 @@ struct TopCardDragModifier: ViewModifier {
     }
 
     private var dragRotation: Double {
+        // Reduce Motion: the card follows the finger without tilting.
+        guard !reduceMotion else { return 0 }
         let rotation = Double(dragOffset.width) / 30.0
         return max(-10, min(10, rotation))
     }
@@ -920,6 +948,8 @@ struct UnifiedRallyCard: View {
     var zoomScale: CGFloat = 1.0
     var zoomOffset: CGSize = .zero
     var onDoubleTap: (() -> Void)?
+    /// Enters trim mode — the accessible equivalent of the long-press.
+    var onTrim: (() -> Void)?
 
     @State private var thumbnail: UIImage?
     // First video frame rendered — the thumbnail then unmounts. Keeping it
@@ -1019,6 +1049,8 @@ struct UnifiedRallyCard: View {
                 playerCache.togglePlayPause()
             }
         }
+        .accessibilityElement()
+        .accessibilityLabel("Rally \(rallyIndex + 1) video")
         .accessibilityAction(named: "Play or pause") {
             if isCurrent {
                 playerCache.togglePlayPause()
@@ -1028,6 +1060,9 @@ struct UnifiedRallyCard: View {
             if isCurrent {
                 onDoubleTap?()
             }
+        }
+        .accessibilityAction(named: "Trim rally") {
+            onTrim?()
         }
         .task(id: url) {
             isVideoReady = false

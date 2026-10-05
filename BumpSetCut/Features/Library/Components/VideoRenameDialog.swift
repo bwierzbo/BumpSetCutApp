@@ -23,7 +23,7 @@ struct VideoRenameDialog: View {
     }
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: BSCSpacing.xl) {
                 VStack(alignment: .leading, spacing: BSCSpacing.sm) {
                     Text("Rename Video")

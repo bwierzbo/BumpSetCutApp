@@ -21,7 +21,7 @@ struct UploadProgressSheet: View {
     private var isComplete: Bool { didComplete || uploadCoordinator.showCompleted }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: BSCSpacing.xxl) {
                 Spacer()
 

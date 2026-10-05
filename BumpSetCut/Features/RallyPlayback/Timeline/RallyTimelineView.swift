@@ -35,6 +35,10 @@ struct RallyTimelineView: View {
     private let trackHeight: CGFloat = 64
     private let handleWidth: CGFloat = 18
     private let horizontalInset: CGFloat = BSCSpacing.lg
+    // VoiceOver adjustable-action steps (seconds).
+    private let fineSeekStep: Double = 1
+    private let coarseSeekStep: Double = 10
+    private let edgeAdjustStep: Double = 0.5
 
     /// Where the playhead starts (seconds); nil = the first rally. Callers
     /// chasing a specific problem (e.g. a missed serve noticed while scoring)
@@ -62,6 +66,12 @@ struct RallyTimelineView: View {
                 .contentShape(Rectangle())
                 .gesture(videoScrubGesture)
                 .onTapGesture { togglePlayback() }
+                .accessibilityElement()
+                .accessibilityLabel("Video")
+                .accessibilityValue(isPlaying ? "Playing" : "Paused")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Plays or pauses. Adjust the playhead to scrub.")
+                .accessibilityAction { togglePlayback() }
 
             // Center play affordance (hidden while playing — tap video to pause)
             if !isPlaying {
@@ -89,7 +99,7 @@ struct RallyTimelineView: View {
                 if viewModel.loadFailed {
                     Text("Couldn't load this video's rally data")
                         .bscFont(size: 15)
-                        .foregroundColor(.bscOnMediaSecondary)
+                        .foregroundColor(.bscOnMedia)
                     Spacer()
                 } else {
                     // Bottom control cluster over a scrim so the video stays visible
@@ -163,7 +173,7 @@ struct RallyTimelineView: View {
                     .foregroundColor(.bscOnMedia)
                 Text("\(viewModel.segments.count) \(viewModel.segments.count == 1 ? "rally" : "rallies")")
                     .bscFont(size: 12)
-                    .foregroundColor(.bscOnMediaSecondary)
+                    .foregroundColor(.bscOnMedia)
             }
 
             Spacer()
@@ -213,8 +223,9 @@ struct RallyTimelineView: View {
                 .foregroundColor(.bscOnMedia)
             Text("/ \(timeString(viewModel.videoDuration))")
                 .bscFont(size: 14, design: .monospaced)
-                .foregroundColor(.bscOnMediaSecondary)
+                .foregroundColor(.bscOnMedia)
         }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Timeline Strip
@@ -237,10 +248,15 @@ struct RallyTimelineView: View {
                         .fill(Color.bscOnMedia.opacity(0.12))
                         .frame(width: contentWidth, height: trackHeight)
                         .onTapGesture { location in
-                            pausePlayback()
-                            let time = clampTime(Double(location.x / pps))
-                            setPlayhead(time)
-                            seek(to: time, precise: true)
+                            movePlayhead(to: Double(location.x / pps))
+                        }
+                        // VoiceOver equivalent of tap-to-seek: coarse steps
+                        // (the playhead itself adjusts finely).
+                        .accessibilityElement()
+                        .accessibilityLabel("Timeline")
+                        .accessibilityValue(timeString(viewModel.playhead))
+                        .accessibilityAdjustableAction { direction in
+                            movePlayhead(to: viewModel.playhead + (direction == .increment ? coarseSeekStep : -coarseSeekStep))
                         }
                         .accessibilityIdentifier("timeline.track")
 
@@ -248,8 +264,8 @@ struct RallyTimelineView: View {
                     ticks(pps: pps)
 
                     // Rally segments
-                    ForEach(viewModel.segments) { segment in
-                        segmentBlock(segment, pps: pps)
+                    ForEach(Array(viewModel.segments.enumerated()), id: \.element.id) { index, segment in
+                        segmentBlock(segment, number: index + 1, pps: pps)
                     }
 
                     // Playhead
@@ -282,7 +298,7 @@ struct RallyTimelineView: View {
     }
 
     @ViewBuilder
-    private func segmentBlock(_ segment: RallyTimelineViewModel.EditableSegment, pps: CGFloat) -> some View {
+    private func segmentBlock(_ segment: RallyTimelineViewModel.EditableSegment, number: Int, pps: CGFloat) -> some View {
         let isSelected = viewModel.selectedSegmentID == segment.id
         let x = CGFloat(segment.start) * pps
         let width = max(CGFloat(segment.duration) * pps, 8)
@@ -310,15 +326,13 @@ struct RallyTimelineView: View {
         }
         .frame(width: width, height: trackHeight)
         .offset(x: x)
-        .onTapGesture {
-            UIImpactFeedbackGenerator.light()
-            pausePlayback()
-            viewModel.selectedSegmentID = isSelected ? nil : segment.id
-            if !isSelected {
-                setPlayhead(segment.start)
-                seek(to: segment.start, precise: true)
-            }
-        }
+        .onTapGesture { toggleSelection(segment) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Rally \(number)\(segment.isManual ? ", added manually" : "")")
+        .accessibilityValue("\(timeString(segment.start)) to \(timeString(segment.end)), \(Int(segment.duration.rounded())) seconds")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint(isSelected ? "Deselects the rally" : "Selects the rally to edit its edges")
+        .accessibilityAction { toggleSelection(segment) }
         .overlay(alignment: .topLeading) {
             if isSelected {
                 edgeHandle(edge: .leading, segment: segment, pps: pps)
@@ -329,7 +343,35 @@ struct RallyTimelineView: View {
         }
     }
 
+    private func toggleSelection(_ segment: RallyTimelineViewModel.EditableSegment) {
+        let isSelected = viewModel.selectedSegmentID == segment.id
+        UIImpactFeedbackGenerator.light()
+        pausePlayback()
+        viewModel.selectedSegmentID = isSelected ? nil : segment.id
+        if !isSelected {
+            setPlayhead(segment.start)
+            seek(to: segment.start, precise: true)
+        }
+    }
+
     private enum HandleEdge { case leading, trailing }
+
+    /// Moves a segment edge and parks the playhead on it (drag and VoiceOver).
+    private func moveEdge(_ edge: HandleEdge, of id: UUID, to time: Double, precise: Bool) {
+        switch edge {
+        case .leading:
+            viewModel.setStart(time, for: id)
+            if let updated = viewModel.selectedSegment {
+                viewModel.playhead = updated.start
+            }
+        case .trailing:
+            viewModel.setEnd(time, for: id)
+            if let updated = viewModel.selectedSegment {
+                viewModel.playhead = updated.end
+            }
+        }
+        seek(to: viewModel.playhead, precise: precise)
+    }
 
     private func edgeHandle(edge: HandleEdge, segment: RallyTimelineViewModel.EditableSegment, pps: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: BSCRadius.sm)
@@ -340,7 +382,8 @@ struct RallyTimelineView: View {
                     .bscFont(size: 14, weight: .bold)
                     .foregroundColor(.bscOnPrimary)
             )
-            .contentShape(Rectangle().inset(by: -8))
+            // 44pt-wide hit area around the 18pt visual handle.
+            .contentShape(Rectangle().inset(by: -(BSCTouchTarget.standard - handleWidth) / 2))
             .highPriorityGesture(
                 DragGesture(minimumDistance: 1)
                     .onChanged { value in
@@ -349,20 +392,10 @@ struct RallyTimelineView: View {
                         switch edge {
                         case .leading:
                             if startDragAnchor == nil { startDragAnchor = segment.start }
-                            let newStart = (startDragAnchor ?? segment.start) + delta
-                            viewModel.setStart(newStart, for: segment.id)
-                            if let updated = viewModel.selectedSegment {
-                                viewModel.playhead = updated.start
-                                seek(to: updated.start)
-                            }
+                            moveEdge(.leading, of: segment.id, to: (startDragAnchor ?? segment.start) + delta, precise: false)
                         case .trailing:
                             if endDragAnchor == nil { endDragAnchor = segment.end }
-                            let newEnd = (endDragAnchor ?? segment.end) + delta
-                            viewModel.setEnd(newEnd, for: segment.id)
-                            if let updated = viewModel.selectedSegment {
-                                viewModel.playhead = updated.end
-                                seek(to: updated.end)
-                            }
+                            moveEdge(.trailing, of: segment.id, to: (endDragAnchor ?? segment.end) + delta, precise: false)
                         }
                     }
                     .onEnded { _ in
@@ -372,7 +405,14 @@ struct RallyTimelineView: View {
                         UISelectionFeedbackGenerator().selectionChanged()
                     }
             )
-            .accessibilityLabel(edge == .leading ? "Rally start handle" : "Rally end handle")
+            .accessibilityElement()
+            .accessibilityLabel(edge == .leading ? "Rally start" : "Rally end")
+            .accessibilityValue(timeString(edge == .leading ? segment.start : segment.end))
+            .accessibilityAdjustableAction { direction in
+                let step = direction == .increment ? edgeAdjustStep : -edgeAdjustStep
+                let current = edge == .leading ? segment.start : segment.end
+                moveEdge(edge, of: segment.id, to: current + step, precise: true)
+            }
     }
 
     private func playheadMarker(pps: CGFloat) -> some View {
@@ -384,9 +424,9 @@ struct RallyTimelineView: View {
                 .fill(Color.bscOnMedia)
                 .frame(width: 2, height: trackHeight - 5)
         }
-        .frame(width: 30) // widened hit area
+        .frame(width: BSCTouchTarget.standard) // widened hit area
         .contentShape(Rectangle())
-        .offset(x: CGFloat(viewModel.playhead) * pps - 15, y: -6)
+        .offset(x: CGFloat(viewModel.playhead) * pps - BSCTouchTarget.standard / 2, y: -6)
         .highPriorityGesture(
             DragGesture(minimumDistance: 1)
                 .onChanged { value in
@@ -400,7 +440,12 @@ struct RallyTimelineView: View {
                     seek(to: viewModel.playhead, precise: true)
                 }
         )
+        .accessibilityElement()
         .accessibilityLabel("Playhead")
+        .accessibilityValue(timeString(viewModel.playhead))
+        .accessibilityAdjustableAction { direction in
+            movePlayhead(to: viewModel.playhead + (direction == .increment ? fineSeekStep : -fineSeekStep))
+        }
     }
 
     // MARK: - Edit Controls
@@ -460,6 +505,15 @@ struct RallyTimelineView: View {
 
     private func clampTime(_ time: Double) -> Double {
         min(max(time, 0), viewModel.videoDuration)
+    }
+
+    /// Pause and land the playhead precisely on `time` (tap-to-seek and the
+    /// VoiceOver adjustable actions).
+    private func movePlayhead(to time: Double) {
+        pausePlayback()
+        let clamped = clampTime(time)
+        setPlayhead(clamped)
+        seek(to: clamped, precise: true)
     }
 
     private func setPlayhead(_ time: Double) {

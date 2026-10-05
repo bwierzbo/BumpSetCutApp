@@ -30,6 +30,11 @@ struct BSCFolderCard: View {
     @State private var newName = ""
     @State private var isPressed = false
 
+    // Fixed heights keep grid rows uniform; scaled so large text isn't clipped.
+    @ScaledMetric(relativeTo: .body) private var gridCardHeight: CGFloat = 160
+    @ScaledMetric(relativeTo: .body) private var gridInfoHeight: CGFloat = 60
+    @ScaledMetric(relativeTo: .body) private var listInfoHeight: CGFloat = 56
+
     // MARK: - Body
     var body: some View {
         Group {
@@ -78,9 +83,13 @@ struct BSCFolderCard: View {
                  "This folder contains \(folder.videoCount) videos. They will be moved to the parent folder." :
                  "Are you sure you want to delete this folder?")
         }
-        .accessibilityElement(children: .combine)
+        // One button element; the inner menu/open buttons would otherwise be
+        // swallowed, so their actions are exposed as VoiceOver actions.
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(folder.name) folder, \(folder.videoCount) videos")
-        .accessibilityHint("Double tap to open, long press for options")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onTap() }
+        .accessibilityActions { contextMenuContent }
     }
 
     // MARK: - List Content
@@ -137,7 +146,7 @@ struct BSCFolderCard: View {
 
             Spacer(minLength: 0)
         }
-        .frame(height: 160)
+        .frame(height: gridCardHeight)
         .frame(maxWidth: .infinity)
         .padding(BSCSpacing.lg)
         .overlay(alignment: .topTrailing) {
@@ -210,7 +219,7 @@ struct BSCFolderCard: View {
                 Spacer()
             }
         }
-        .frame(height: 56, alignment: .top)
+        .frame(height: listInfoHeight, alignment: .top)
     }
 
     // MARK: - Grid Info View
@@ -238,7 +247,7 @@ struct BSCFolderCard: View {
                 Spacer()
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 60, maxHeight: 60, alignment: .top)
+        .frame(maxWidth: .infinity, minHeight: gridInfoHeight, maxHeight: gridInfoHeight, alignment: .top)
     }
 
     // MARK: - Content Badge

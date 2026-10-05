@@ -1,6 +1,8 @@
 import SwiftUI
 
 // MARK: - Rally Action Buttons
+/// Bottom action row of the rally player. The caller anchors it to the bottom
+/// of the player chrome.
 struct RallyActionButtons: View {
     let isSaved: Bool
     let isRemoved: Bool
@@ -12,71 +14,73 @@ struct RallyActionButtons: View {
     let onSave: () -> Void
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @ScaledMetric(relativeTo: .body) private var textScale: CGFloat = 1
 
     private var isPortrait: Bool { verticalSizeClass == .regular }
 
+    /// Four circles share one row, so they grow with Dynamic Type only a
+    /// little; the Large Content Viewer covers larger sizes.
+    private var scale: CGFloat { min(textScale, RallyActionButton.maxScale) }
+
     var body: some View {
-        VStack {
-            Spacer()
+        HStack(spacing: scale > 1 ? BSCSpacing.lg : BSCSpacing.xl) {
+            RallyActionButton(
+                icon: "xmark",
+                color: .bscError,
+                size: .large,
+                scale: scale,
+                isActive: isRemoved,
+                action: onRemove
+            )
+            .accessibilityLabel("Remove rally")
+            .accessibilityValue(isRemoved ? "Removed" : "")
+            .accessibilityAddTraits(isRemoved ? .isSelected : [])
+            .accessibilityIdentifier(AccessibilityID.RallyPlayer.remove)
+            .id("remove-\(isRemoved)")
 
-            HStack(spacing: BSCSpacing.xl) {
-                // Remove button - fixed container prevents layout shift
-                RallyActionButton(
-                    icon: "xmark",
-                    color: .bscError,
-                    size: .large,
-                    isActive: isRemoved,
-                    action: onRemove
-                )
-                .frame(width: 80, height: 80)
-                .accessibilityLabel("Remove rally")
-                .accessibilityIdentifier(AccessibilityID.RallyPlayer.remove)
-                .id("remove-\(isRemoved)")
+            RallyActionButton(
+                icon: "arrow.uturn.backward",
+                color: .bscOnMediaSecondary,
+                size: .medium,
+                scale: scale,
+                isActive: false,
+                action: onUndo
+            )
+            .opacity(canUndo ? 1.0 : 0.4)
+            .disabled(!canUndo)
+            .accessibilityLabel("Undo")
+            .accessibilityValue(canUndo ? "Available" : "No action to undo")
+            .accessibilityIdentifier(AccessibilityID.RallyPlayer.undo)
+            .id("undo-\(canUndo)")
 
-                // Undo button - fixed container
-                RallyActionButton(
-                    icon: "arrow.uturn.backward",
-                    color: .bscOnMediaSecondary,
-                    size: .medium,
-                    isActive: false,
-                    action: onUndo
-                )
-                .frame(width: 65, height: 65)
-                .opacity(canUndo ? 1.0 : 0.4)
-                .disabled(!canUndo)
-                .accessibilityLabel("Undo")
-                .accessibilityValue(canUndo ? "Available" : "No action to undo")
-                .accessibilityIdentifier(AccessibilityID.RallyPlayer.undo)
-                .id("undo-\(canUndo)")
+            // Button equivalent of swipe-up
+            RallyActionButton(
+                icon: isFavorited ? "star.fill" : "star",
+                color: .bscPrimary,
+                size: .medium,
+                scale: scale,
+                isActive: isFavorited,
+                action: onFavorite
+            )
+            .accessibilityLabel(isFavorited ? "Favorited rally" : "Favorite rally")
+            .accessibilityAddTraits(isFavorited ? .isSelected : [])
+            .accessibilityIdentifier(AccessibilityID.RallyPlayer.favorite)
+            .id("favorite-\(isFavorited)")
 
-                // Favorite button - fixed container (button equivalent of swipe-up)
-                RallyActionButton(
-                    icon: isFavorited ? "star.fill" : "star",
-                    color: .bscPrimary,
-                    size: .medium,
-                    isActive: isFavorited,
-                    action: onFavorite
-                )
-                .frame(width: 65, height: 65)
-                .accessibilityLabel(isFavorited ? "Favorited rally" : "Favorite rally")
-                .accessibilityIdentifier(AccessibilityID.RallyPlayer.favorite)
-                .id("favorite-\(isFavorited)")
-
-                // Save button - fixed container
-                RallyActionButton(
-                    icon: isSaved ? "heart.fill" : "heart",
-                    color: .bscSuccessFill,
-                    size: .large,
-                    isActive: isSaved,
-                    action: onSave
-                )
-                .frame(width: 80, height: 80)
-                .accessibilityLabel(isSaved ? "Unsave rally" : "Save rally")
-                .accessibilityIdentifier(AccessibilityID.RallyPlayer.save)
-                .id("save-\(isSaved)")
-            }
-            .padding(.bottom, isPortrait ? 60 : 20)
+            RallyActionButton(
+                icon: isSaved ? "heart.fill" : "heart",
+                color: .bscSuccessFill,
+                size: .large,
+                scale: scale,
+                isActive: isSaved,
+                action: onSave
+            )
+            .accessibilityLabel(isSaved ? "Unsave rally" : "Save rally")
+            .accessibilityAddTraits(isSaved ? .isSelected : [])
+            .accessibilityIdentifier(AccessibilityID.RallyPlayer.save)
+            .id("save-\(isSaved)")
         }
+        .padding(.bottom, isPortrait ? 60 : 20)
     }
 }
 
@@ -101,11 +105,21 @@ private struct RallyActionButton: View {
         }
     }
 
+    /// Upper bound on Dynamic Type growth for the action row.
+    static let maxScale: CGFloat = 1.1
+
     let icon: String
     let color: Color
     let size: Size
+    /// Dynamic Type factor (already capped) applied to circle and glyph
+    /// together, so the glyph can never outgrow its circle.
+    let scale: CGFloat
     let isActive: Bool
     let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var circleSize: CGFloat { size.frameSize * scale }
 
     var body: some View {
         Button(action: action) {
@@ -117,11 +131,11 @@ private struct RallyActionButton: View {
                             RadialGradient(
                                 colors: [color.opacity(0.4), Color.clear],
                                 center: .center,
-                                startRadius: size.frameSize / 2,
-                                endRadius: size.frameSize / 2 + 20
+                                startRadius: circleSize / 2,
+                                endRadius: circleSize / 2 + 20
                             )
                         )
-                        .frame(width: size.frameSize + 40, height: size.frameSize + 40)
+                        .frame(width: circleSize + 40, height: circleSize + 40)
                 }
 
                 // Glass background
@@ -131,7 +145,7 @@ private struct RallyActionButton: View {
                             ? color.opacity(0.9)
                             : Color.bscMediaScrim
                     )
-                    .frame(width: size.frameSize, height: size.frameSize)
+                    .frame(width: circleSize, height: circleSize)
                     .overlay(
                         Circle()
                             .stroke(Color.bscOnMedia.opacity(0.4), lineWidth: 1.5)
@@ -143,15 +157,19 @@ private struct RallyActionButton: View {
                         y: BSCShadow.md.y
                     )
 
-                // Icon
+                // Sized with the circle (not bscFont) so it can't clip.
                 Image(systemName: icon)
-                    .bscFont(size: size.iconSize, weight: .bold)
+                    .font(.system(size: size.iconSize * scale, weight: .bold))
                     .foregroundColor(.bscOnMedia)
             }
         }
         .buttonStyle(RallyActionButtonStyle())
-        .scaleEffect(isActive ? 1.15 : 1.0)
-        .animation(.bscBounce, value: isActive)
+        // Fixed container (circle + room for the active scale) prevents layout shift.
+        .frame(width: circleSize + 10, height: circleSize + 10)
+        .accessibilityShowsLargeContentViewer()
+        // Reduce Motion: the active state is the fill and glow — no bounce.
+        .scaleEffect(isActive && !reduceMotion ? 1.15 : 1.0)
+        .animation(reduceMotion ? .bscQuick : .bscBounce, value: isActive)
     }
 }
 
@@ -165,6 +183,8 @@ private struct RallyActionButtonStyle: ButtonStyle {
 }
 
 // MARK: - Action Feedback View
+/// Toast confirming a rally action. The caller places it just above the
+/// action row; RallyActionManager announces the message for VoiceOver.
 struct RallyActionFeedbackView: View {
     let feedback: RallyActionFeedback
     let isShowing: Bool
@@ -174,75 +194,59 @@ struct RallyActionFeedbackView: View {
     var actionLabel: String? = nil
     var onAction: (() -> Void)? = nil
 
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-
-    private var isPortrait: Bool { verticalSizeClass == .regular }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack {
-            if isPortrait {
-                Spacer()
-            } else {
-                Spacer().frame(height: 60)
+        HStack(spacing: BSCSpacing.md) {
+            // Icon with glow
+            ZStack {
+                Circle()
+                    .fill(feedback.type.feedbackColor.opacity(0.2))
+                    .frame(width: 40, height: 40)
+
+                Image(systemName: feedback.type.iconName)
+                    .bscFont(size: 20, weight: .bold)
+                    .foregroundColor(feedback.type.feedbackColor)
             }
+            .accessibilityHidden(true)
 
-            // Feedback toast
-            HStack(spacing: BSCSpacing.md) {
-                // Icon with glow
-                ZStack {
-                    Circle()
-                        .fill(feedback.type.feedbackColor.opacity(0.2))
-                        .frame(width: 40, height: 40)
+            Text(feedback.message)
+                .bscFont(size: 16, weight: .semibold)
+                .foregroundColor(.bscOnMedia)
 
-                    Image(systemName: feedback.type.iconName)
-                        .bscFont(size: 20, weight: .bold)
+            if let actionLabel, let onAction {
+                Button(action: onAction) {
+                    Text(actionLabel)
+                        .bscFont(size: 15, weight: .bold)
                         .foregroundColor(feedback.type.feedbackColor)
+                        .padding(.horizontal, BSCSpacing.md)
+                        .padding(.vertical, BSCSpacing.sm)
+                        .background(
+                            Capsule().fill(feedback.type.feedbackColor.opacity(0.18))
+                        )
+                        .contentShape(Capsule())
                 }
-
-                Text(feedback.message)
-                    .bscFont(size: 16, weight: .semibold)
-                    .foregroundColor(.bscOnMedia)
-
-                if let actionLabel, let onAction {
-                    Button(action: onAction) {
-                        Text(actionLabel)
-                            .bscFont(size: 15, weight: .bold)
-                            .foregroundColor(feedback.type.feedbackColor)
-                            .padding(.horizontal, BSCSpacing.md)
-                            .padding(.vertical, BSCSpacing.sm)
-                            .background(
-                                Capsule().fill(feedback.type.feedbackColor.opacity(0.18))
-                            )
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier(AccessibilityID.RallyPlayer.chooseFolder)
-                }
-            }
-            .padding(.horizontal, BSCSpacing.xl)
-            .padding(.vertical, BSCSpacing.lg)
-            .background(
-                RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
-                    .fill(Color.bscMediaScrim)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
-                            .stroke(feedback.type.feedbackColor.opacity(0.4), lineWidth: 2)
-                    )
-            )
-            .bscShadow(BSCShadow.lg)
-            .scaleEffect(isShowing ? 1.0 : 0.8)
-            .opacity(isShowing ? 1.0 : 0.0)
-            .animation(.bscBounce, value: isShowing)
-
-            if isPortrait {
-                Spacer()
-                    .frame(height: 190)  // Spacing to clear buttons
-            } else {
-                Spacer()
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(AccessibilityID.RallyPlayer.chooseFolder)
             }
         }
+        .padding(.horizontal, BSCSpacing.xl)
+        .padding(.vertical, BSCSpacing.lg)
+        .background(
+            RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
+                .fill(Color.bscMediaScrim)
+                .overlay(
+                    RoundedRectangle(cornerRadius: BSCRadius.xl, style: .continuous)
+                        .stroke(feedback.type.feedbackColor.opacity(0.4), lineWidth: 2)
+                )
+        )
+        .bscShadow(BSCShadow.lg)
+        // Reduce Motion: fade only, no grow-in.
+        .scaleEffect(isShowing || reduceMotion ? 1.0 : 0.8)
+        .opacity(isShowing ? 1.0 : 0.0)
+        .animation(reduceMotion ? .bscQuick : .bscBounce, value: isShowing)
         // Purely-visual toasts pass every touch through to the player; with an
-        // action only the capsule itself is tappable (spacers never hit-test).
+        // action only the capsule itself is tappable.
         .allowsHitTesting(onAction != nil)
     }
 }
@@ -267,7 +271,7 @@ extension RallyActionFeedback.ActionType {
 
 // MARK: - Preview
 #Preview("RallyActionButtons") {
-    ZStack {
+    ZStack(alignment: .bottom) {
         Color.bscMediaBackground
         RallyActionButtons(
             isSaved: false,
@@ -281,7 +285,7 @@ extension RallyActionFeedback.ActionType {
 }
 
 #Preview("RallyActionButtons - Saved") {
-    ZStack {
+    ZStack(alignment: .bottom) {
         Color.bscMediaBackground
         RallyActionButtons(
             isSaved: true,

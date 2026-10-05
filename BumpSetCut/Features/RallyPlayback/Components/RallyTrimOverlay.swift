@@ -31,6 +31,7 @@ struct RallyTrimOverlay: View {
     private let minSelectionDuration: Double = 1.0
     private let maxRotationDegrees: Double = 10.0
     private let rotationStepDegrees: Double = 0.5
+    private let zoomAccessibilityStep: Double = 0.25
     private let edgeZoneWidth: CGFloat = 20
     private let autoExtendRate: Double = 1.0   // video-seconds per second held at the edge
     private let autoExtendTickSeconds: Double = 0.1
@@ -38,6 +39,8 @@ struct RallyTrimOverlay: View {
     private enum ExtendDirection { case left, right }
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// Angle readout width — grows with Dynamic Type so "+10.0°" never clips.
+    @ScaledMetric(relativeTo: .body) private var readoutWidth: CGFloat = 56
 
     @State private var thumbnails: [UIImage] = []
     @State private var leftGrabOffset: CGFloat?
@@ -174,9 +177,17 @@ struct RallyTrimOverlay: View {
 
             Spacer()
 
+            // Pinch has no VoiceOver equivalent, so the readout doubles as an
+            // adjustable zoom control (the binding's owner clamps the range).
             Text(String(format: "%.1f×", trimZoom))
                 .bscFont(size: 12, weight: .semibold, design: .monospaced)
                 .foregroundColor(.bscPrimary)
+                .accessibilityElement()
+                .accessibilityLabel("Zoom")
+                .accessibilityValue(String(format: "%.1f times", trimZoom))
+                .accessibilityAdjustableAction { direction in
+                    trimZoom += direction == .increment ? zoomAccessibilityStep : -zoomAccessibilityStep
+                }
 
             if trimZoom > 1.01 {
                 Button { onResetZoom() } label: {
@@ -185,6 +196,7 @@ struct RallyTrimOverlay: View {
                         .frame(width: BSCTouchTarget.standard, height: BSCTouchTarget.standard)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel("Reset zoom")
             }
         }
         .foregroundColor(.bscOnMedia)
@@ -214,9 +226,12 @@ struct RallyTrimOverlay: View {
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
+            .accessibilityLabel("Decrease angle")
 
             Slider(value: binding, in: -max...max, step: step)
                 .tint(.bscPrimary)
+                .accessibilityLabel("Rotation angle")
+                .accessibilityValue(formatDegrees(trimRotation))
 
             Button {
                 setRotation(snap(clampDeg(trimRotation + step, max: max), step: step))
@@ -230,11 +245,14 @@ struct RallyTrimOverlay: View {
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
+            .accessibilityLabel("Increase angle")
 
             Text(formatDegrees(trimRotation))
                 .bscFont(size: 13, weight: .medium, design: .monospaced)
                 .foregroundColor(.bscPrimary)
-                .frame(width: 56, alignment: .trailing)
+                .frame(width: readoutWidth, alignment: .trailing)
+                // The slider already speaks this value.
+                .accessibilityHidden(true)
 
             Button {
                 setRotation(0)
@@ -246,6 +264,7 @@ struct RallyTrimOverlay: View {
                     .contentShape(Rectangle())
             }
             .disabled(abs(trimRotation) < 0.01)
+            .accessibilityLabel("Reset angle")
         }
     }
 

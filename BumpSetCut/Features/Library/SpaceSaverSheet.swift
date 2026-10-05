@@ -33,7 +33,7 @@ struct SpaceSaverSheet: View {
     @State private var trimTask: Task<Void, Never>?
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: BSCSpacing.xxl) {
                 Spacer()
 
