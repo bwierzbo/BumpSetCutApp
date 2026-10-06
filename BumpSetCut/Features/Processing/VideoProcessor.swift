@@ -182,15 +182,16 @@ final class VideoProcessor: @unchecked Sendable {
         return settings
     }
 
-    /// The multi-frame model (config.heatmapModel) and the last frames it sees.
+    /// The multi-frame model (config.heatmapModel), run on overlapping
+    /// windows of the frames it's fed.
     @ObservationIgnored private var heatDetector: HeatmapBallDetector?
     @ObservationIgnored private var heatModelURL: URL?
-    @ObservationIgnored private var heatFrames: [HeatmapBallDetector.Frame] = []
+    @ObservationIgnored private var heatWindows: HeatmapWindows?
     @ObservationIgnored private var heatLastTime: Double?
 
     /// Load the configured multi-frame model, if it changed.
     private func prepareHeatmap() {
-        heatFrames = []
+        defer { heatWindows = heatDetector.map { HeatmapWindows(detector: $0, hop: config.heatmapHop) } }
         heatLastTime = nil
         guard config.heatmapModel != heatModelURL else { return }
         heatModelURL = config.heatmapModel
@@ -201,28 +202,24 @@ final class VideoProcessor: @unchecked Sendable {
         #endif
     }
 
-    /// Keep the last frames for the multi-frame model, about 1/30 s apart
-    /// whatever the video's rate (as it was trained). Called on every decoded
-    /// frame, skipped ones included. True when this frame went in.
-    private func feedHeatmap(_ pix: CVPixelBuffer, at seconds: Double) -> Bool {
-        guard let heat = heatDetector else { return false }
-        if let last = heatLastTime, seconds - last < 1.0 / 30 - 0.004 { return false }
-        guard let frame = heat.grayscale(pix) else { return false }
-        heatFrames.append(frame)
-        if heatFrames.count > heat.seq { heatFrames.removeFirst(heatFrames.count - heat.seq) }
+    /// The frame as the multi-frame model takes it, if it takes this one:
+    /// frames about 1/30 s apart whatever the video's rate (as it was
+    /// trained). Asked of every decoded frame, skipped ones included.
+    private func heatmapFrame(_ pix: CVPixelBuffer, at seconds: Double) -> HeatmapBallDetector.Frame? {
+        guard let heat = heatDetector else { return nil }
+        if let last = heatLastTime, seconds - last < 1.0 / 30 - 0.004 { return nil }
+        guard let frame = heat.grayscale(pix) else { return nil }
         heatLastTime = seconds
-        return true
+        return frame
     }
 
-    /// The multi-frame model's balls on the newest frame that YOLO didn't
-    /// already find (a peak near a YOLO box is the same ball). The newest
-    /// frame is the last of the window: no waiting for frames ahead. The
-    /// model reads frames as stored (as it was trained); its boxes are turned
-    /// into the `orientation` space YOLO's are in.
-    private func heatmapOnlyDetections(beside dets: [DetectionResult], at pts: CMTime,
+    /// The multi-frame model's balls YOLO didn't already find (a peak near a
+    /// YOLO box is the same ball). The model reads frames as stored (as it
+    /// was trained); its boxes are turned into the `orientation` space YOLO's
+    /// are in.
+    private func heatmapOnlyDetections(_ peaks: [HeatmapBallDetector.Peak], beside dets: [DetectionResult], at pts: CMTime,
                                        orientation: CGImagePropertyOrientation) -> [DetectionResult] {
-        guard let heat = heatDetector, heatFrames.count == heat.seq else { return [] }
-        return heat.peaks(in: heatFrames, target: heat.seq - 1).compactMap { peak in
+        peaks.compactMap { peak in
             let rect = VideoFrameGeometry.upright(peak.rect, from: orientation)
             let c = CGPoint(x: rect.midX, y: rect.midY)
             let known = dets.contains { d in
@@ -600,7 +597,8 @@ final class VideoProcessor: @unchecked Sendable {
         // Checkpoint cadence: at rally-idle, every ~30s of video, plus
         // immediately when background expiry requests one.
         var lastCheckpointTime = restored?.resumeTime ?? 0
-        let writeCheckpoint: (Double) -> Void = { [weak self] nowSec in
+        let writeCheckpoint: (_ nowSec: Double, _ rawFrameIndex: Int, _ skippedFrames: Int) -> Void = {
+            [weak self] nowSec, rawFrameIndex, skippedFrames in
             guard let self, let checkpointURL else { return }
             ProcessingCheckpoint(
                 videoId: videoId,
@@ -633,44 +631,35 @@ final class VideoProcessor: @unchecked Sendable {
         // The multi-frame model finds the ball by itself; YOLO doesn't run.
         let heatAlone = config.heatmapOnly && heatDetector != nil
 
-        while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
-              let pix = CMSampleBufferGetImageBuffer(sbuf) {
-
-            // Check for cancellation before processing each frame
-            try Task.checkCancellation()
-
-            let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
-            rawFrameIndex += 1
-            let heatFresh = feedHeatmap(pix, at: CMTimeGetSeconds(pts))
-
-            // Single processing path: a dynamic stride skips frames (denser
-            // while tracking a ball, sparser when idle) so we never run
-            // detection on every frame.
-            let recommendedStride = tracker.recommendedStride(currentTime: pts)
-            // The multi-frame model alone runs on exactly the frames it's fed
-            // (~30/s): a processed frame it hadn't seen would read as "no ball".
-            let shouldProcess = heatAlone
-                ? heatFresh
-                : (rawFrameIndex == 1) || (rawFrameIndex % recommendedStride == 0)
-
-            // Skip detection/tracking on non-processed frames
-            guard shouldProcess else {
-                skippedFrames += 1
-                // Keep progress advancing through skipped frames (~once per second)
-                if rawFrameIndex % fps == 0 {
-                    let p = min(1.0, Double(rawFrameIndex) / Double(max(totalFramesEstimate, 1)))
-                    await MainActor.run { self.progress = p }
-                }
-                CMSampleBufferInvalidate(sbuf)
-                continue
+        // A processed frame, detected by YOLO, waiting for the multi-frame
+        // model: its answer comes a few fed frames later, from the window
+        // that has the frame near its middle. Without that model nothing
+        // waits. The counters are the decoder's at this frame, for a
+        // checkpoint written as it's handled.
+        struct PendingFrame {
+            let pts: CMTime
+            let rawFrameIndex: Int
+            let skippedFrames: Int
+            let yoloDets: [DetectionResult]
+            /// Its index among the frames fed to the multi-frame model.
+            let heatIndex: Int?
+        }
+        var pending: [PendingFrame] = []
+        var heatPeaks: [Int: [HeatmapBallDetector.Peak]] = [:]
+        func keepHeatPeaks(_ answers: [[HeatmapBallDetector.Peak]], answeredThrough end: Int) {
+            for (k, peaks) in answers.enumerated() {
+                let index = end - answers.count + k
+                if pending.contains(where: { $0.heatIndex == index }) { heatPeaks[index] = peaks }
             }
+        }
 
-            // Detect: YOLO, plus the multi-frame model's balls YOLO missed — or
-            // the multi-frame model alone (config.heatmapOnly).
-            let yoloDets = heatAlone ? [] : detector.detect(in: pix, at: pts, orientation: frameOrientation)
-            let heatDets = heatFresh
-                ? heatmapOnlyDetections(beside: yoloDets, at: pts, orientation: frameOrientation)
-                : []
+        // Track, gate, decide and record one processed frame.
+        func handle(_ frame: PendingFrame) async throws {
+            let pts = frame.pts
+            let yoloDets = frame.yoloDets
+            let heatDets = frame.heatIndex
+                .flatMap { heatPeaks.removeValue(forKey: $0) }
+                .map { heatmapOnlyDetections($0, beside: yoloDets, at: pts, orientation: frameOrientation) } ?? []
             let dets = yoloDets + heatDets
 
             // Off-court rejection: drop detections laterally beyond the net posts
@@ -770,7 +759,7 @@ final class VideoProcessor: @unchecked Sendable {
                     return requested
                 }
                 if urgent || nowSec - lastCheckpointTime >= 30 {
-                    writeCheckpoint(nowSec)
+                    writeCheckpoint(nowSec, frame.rawFrameIndex, frame.skippedFrames)
                     lastCheckpointTime = nowSec
                 }
             }
@@ -872,8 +861,8 @@ final class VideoProcessor: @unchecked Sendable {
             // Progress (~once per second). Use rawFrameIndex — frameCount only counts
             // stride-processed frames, which made the bar plateau at the skip rate.
             frameCount += 1
-            if rawFrameIndex % fps == 0 {
-                let p = min(1.0, max(0.0, Double(rawFrameIndex) / Double(max(totalFramesEstimate, 1))))
+            if frame.rawFrameIndex % fps == 0 {
+                let p = min(1.0, max(0.0, Double(frame.rawFrameIndex) / Double(max(totalFramesEstimate, 1))))
                 await MainActor.run { self.progress = p }
                 print(String(format: "[metadata] t=%.2fs det=%d proj=%@ inRally=%@ tracks=%d",
                              CMTimeGetSeconds(pts),
@@ -882,9 +871,55 @@ final class VideoProcessor: @unchecked Sendable {
                              isActive ? "Y" : "N",
                              tracker.tracks.count))
             }
+        }
+
+        while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
+              let pix = CMSampleBufferGetImageBuffer(sbuf) {
+
+            // Check for cancellation before processing each frame
+            try Task.checkCancellation()
+
+            let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
+            rawFrameIndex += 1
+            let heatFrame = heatmapFrame(pix, at: CMTimeGetSeconds(pts))
+            let heatIndex = heatFrame != nil ? heatWindows?.pushed : nil
+
+            // Single processing path: a dynamic stride skips frames (denser
+            // while tracking a ball, sparser when idle) so we never run
+            // detection on every frame. The tracker is a few frames behind
+            // the decoder while the multi-frame model's answers are awaited.
+            let recommendedStride = tracker.recommendedStride(currentTime: pts)
+            // The multi-frame model alone runs on exactly the frames it's fed
+            // (~30/s): a processed frame it hadn't seen would read as "no ball".
+            let shouldProcess = heatAlone
+                ? heatIndex != nil
+                : (rawFrameIndex == 1) || (rawFrameIndex % recommendedStride == 0)
+
+            if shouldProcess {
+                // Detect: YOLO now; the multi-frame model's balls YOLO missed
+                // (or, with config.heatmapOnly, all of them) when its window comes.
+                let yoloDets = heatAlone ? [] : detector.detect(in: pix, at: pts, orientation: frameOrientation)
+                pending.append(PendingFrame(pts: pts, rawFrameIndex: rawFrameIndex, skippedFrames: skippedFrames,
+                                            yoloDets: yoloDets, heatIndex: heatIndex))
+            } else {
+                skippedFrames += 1
+                // Keep progress advancing through skipped frames (~once per second)
+                if rawFrameIndex % fps == 0 {
+                    let p = min(1.0, Double(rawFrameIndex) / Double(max(totalFramesEstimate, 1)))
+                    await MainActor.run { self.progress = p }
+                }
+            }
+            if let heatFrame, let answers = heatWindows?.push(heatFrame), let windows = heatWindows {
+                keepHeatPeaks(answers, answeredThrough: windows.answered)
+            }
 
             // Clean up sample buffer to prevent memory accumulation for large videos
             CMSampleBufferInvalidate(sbuf)
+
+            while let next = pending.first, next.heatIndex.map({ $0 < (heatWindows?.answered ?? 0) }) ?? true {
+                pending.removeFirst()
+                try await handle(next)
+            }
         }
 
         // Check if reader finished successfully or encountered an error
@@ -892,6 +927,17 @@ final class VideoProcessor: @unchecked Sendable {
             eventLog.log(.processingFailed, detail: "AVAssetReader failed: \(reader.error?.localizedDescription ?? "unknown")")
             throw ProcessingError.assetReaderFailed(reader.error)
         }
+
+        // The video's last frames: the multi-frame model answers them from
+        // its last window.
+        if let answers = heatWindows?.finish(), let windows = heatWindows {
+            keepHeatPeaks(answers, answeredThrough: windows.answered)
+        }
+        for frame in pending {
+            try Task.checkCancellation()
+            try await handle(frame)
+        }
+        pending.removeAll()
 
         let built = segments.finalizeWithRaw(until: duration)
         var keep = built.map { $0.padded }

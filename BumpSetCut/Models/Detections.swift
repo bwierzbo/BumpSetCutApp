@@ -130,7 +130,7 @@ struct ProcessorConfig {
     var standardColorFrames: Bool = false
 
     /// A multi-frame (heatmap) ball model to run alongside YOLO; nil = off.
-    /// It sees the last 9 frames, so it finds the moving ball where YOLO's
+    /// It sees 9 frames at once, so it finds the moving ball where YOLO's
     /// single frame can't (blur, far court, low contrast) and never fires on
     /// a still one. Its peaks YOLO didn't have are added to the tracker's
     /// input. See HeatmapBallDetector. The app's default follows the debug
@@ -140,6 +140,11 @@ struct ProcessorConfig {
     /// With `heatmapModel` set: the multi-frame model alone finds the ball —
     /// YOLO doesn't run.
     var heatmapOnly: Bool = BallFinder.current == .multiFrameOnly
+
+    /// The multi-frame model runs once every this many frames it's fed, on
+    /// overlapping windows, keeping each window's middle frames (see
+    /// HeatmapWindows): 1 = a window centred on every frame.
+    var heatmapHop: Int = 5
 
     /// Letterbox frames into the model (`.scaleFit`) instead of stretching them
     /// (`.scaleFill`). Preserves aspect ratio so the ball stays round, matching

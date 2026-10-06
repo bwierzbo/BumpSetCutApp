@@ -162,10 +162,24 @@ final class HeatmapBallDetector {
         detect(in: frames, target: target)?.peaks ?? []
     }
 
+    /// Peaks on each of frames `targets` of `frames`, from one run of the
+    /// model (it marks every frame of the window at once). Empty if it fails.
+    func peaks(in frames: [Frame], targets: Range<Int>) -> [[Peak]] {
+        guard frames.indices.contains(targets.lowerBound), frames.indices.contains(targets.upperBound - 1),
+              let maps = run(frames) else { return targets.map { _ in [] } }
+        return targets.map { peaks(in: maps, frame: frames[$0], target: $0)?.peaks ?? [] }
+    }
+
     /// The peaks and the heatmap itself (model size, row-major, top-down,
     /// in the model's landscape orientation) for frame `target`.
     func detect(in frames: [Frame], target: Int) -> (peaks: [Peak], heat: [Float])? {
-        guard frames.count == seq, frames.indices.contains(target),
+        guard frames.indices.contains(target), let maps = run(frames) else { return nil }
+        return peaks(in: maps, frame: frames[target], target: target)
+    }
+
+    /// The model's output for one window: heatmaps then radius maps, [1, 2·seq, H, W].
+    private func run(_ frames: [Frame]) -> MLMultiArray? {
+        guard frames.count == seq,
               let clip = try? MLMultiArray(shape: [1, NSNumber(value: seq), NSNumber(value: height), NSNumber(value: width)],
                                            dataType: .float32)
         else { return nil }
@@ -176,12 +190,16 @@ final class HeatmapBallDetector {
                 (input + k * plane).update(from: src.baseAddress!, count: plane)
             }
         }
-        guard let out = try? model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["clip": clip])),
-              let maps = out.featureValue(for: "maps")?.multiArrayValue,
-              let heat = Self.channel(maps, target, plane: plane),
+        let out = try? model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["clip": clip]))
+        return out?.featureValue(for: "maps")?.multiArrayValue
+    }
+
+    private func peaks(in maps: MLMultiArray, frame: Frame, target: Int) -> (peaks: [Peak], heat: [Float])? {
+        let plane = width * height
+        guard let heat = Self.channel(maps, target, plane: plane),
               let radius = Self.channel(maps, seq + target, plane: plane) else { return nil }
         let peaks = Self.blobs(heat: heat, radius: radius, width: width, height: height,
-                               threshold: threshold, portrait: frames[target].portrait)
+                               threshold: threshold, portrait: frame.portrait)
         return (peaks, heat)
     }
 
@@ -248,5 +266,63 @@ final class HeatmapBallDetector {
             peaks.append(Peak(rect: rect, confidence: best.v))
         }
         return peaks
+    }
+}
+
+/// The multi-frame model over a stream of frames, a window every `hop`
+/// frames. Each run marks all `seq` frames of its window; the middle `hop`
+/// are kept, so every frame is answered from a window with frames on both
+/// sides of it (where the model sees the most motion) at 1/`hop` of the
+/// runs of one window per frame. Answers come `seq − 1 − margin` frames late
+/// at most — fine for a pipeline that isn't live.
+///
+///     window 0:  [0 1 2 3 4 5 6 7 8]          keeps 0–6 (the stream's start)
+///     window 1:            [5 6 … 13]          keeps 7–11
+///     window 2:                      [10 … 18] keeps 12–16
+struct HeatmapWindows {
+    let detector: HeatmapBallDetector
+    let hop: Int
+    /// The last `seq` frames pushed.
+    private var recent: [HeatmapBallDetector.Frame] = []
+    /// Frames pushed, and of those, answered.
+    private(set) var pushed = 0
+    private(set) var answered = 0
+
+    init(detector: HeatmapBallDetector, hop: Int = 5) {
+        self.detector = detector
+        self.hop = min(max(1, hop), detector.seq)
+    }
+
+    /// Frames kept either side of a window's middle `hop`.
+    private var margin: Int { (detector.seq - hop) / 2 }
+
+    /// Add the next frame. Returns the peaks of the frames this answered,
+    /// in order: frames `answered − result.count ..< answered`.
+    mutating func push(_ frame: HeatmapBallDetector.Frame) -> [[HeatmapBallDetector.Peak]] {
+        let seq = detector.seq
+        recent.append(frame)
+        if recent.count > seq { recent.removeFirst(recent.count - seq) }
+        pushed += 1
+        guard pushed >= seq, (pushed - seq) % hop == 0 else { return [] }
+        let start = pushed - seq
+        return answer(through: start + margin + hop, windowStart: start)
+    }
+
+    /// The stream ended: answer what's left from the last `seq` frames
+    /// (nothing found in a stream too short for one window).
+    mutating func finish() -> [[HeatmapBallDetector.Peak]] {
+        guard answered < pushed else { return [] }
+        guard pushed >= detector.seq else {
+            defer { answered = pushed }
+            return Array(repeating: [], count: pushed - answered)
+        }
+        return answer(through: pushed, windowStart: pushed - detector.seq)
+    }
+
+    private mutating func answer(through end: Int, windowStart start: Int) -> [[HeatmapBallDetector.Peak]] {
+        let end = min(end, pushed)
+        guard end > answered else { return [] }
+        defer { answered = end }
+        return detector.peaks(in: recent, targets: (answered - start)..<(end - start))
     }
 }

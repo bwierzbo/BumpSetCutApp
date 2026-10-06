@@ -141,7 +141,8 @@ enum HeatmapVideo {
         return upright.makeImage()
     }
 
-    private static func label(_ ctx: CGContext, _ text: String, at point: CGPoint, size: CGFloat = 18) {
+    /// White text on a dark plate; `point` is the text's bottom-left (CG, y up).
+    static func label(_ ctx: CGContext, _ text: String, at point: CGPoint, size: CGFloat = 18) {
         let font = CTFontCreateWithName("Helvetica-Bold" as CFString, size, nil)
         let attributed = NSAttributedString(string: text, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): font,

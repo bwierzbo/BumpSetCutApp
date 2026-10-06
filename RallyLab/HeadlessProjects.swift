@@ -21,6 +21,9 @@
 //    RallyLab --project v3 --compare-color <clip>…          (pipeline on raw frames vs standard-colour frames)
 //    RallyLab --project v3 --score-rallies [clip…] [--rotate] [--heat <multi-frame model> [--heat-only]]
 //             (rally cutting vs your rally times; default: every fully marked video, YOLO only)
+//             [--heat-hop n]   (multi-frame model runs every n frames; default 5)
+//    RallyLab --project v3 --render-pipeline <clip> <start s> <length s> [<start s> <length s>…] [--heat <model> [--heat-only]] [--rotate]
+//             (those stretches with the pipeline's overlay → ~/Movies/RallyLab/Renders)
 //    RallyLab --project v3 --diagnose-rallies <clip>… [--rotate] [--ball-model <name>]   (what the pipeline saw in each marked rally)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
@@ -125,7 +128,8 @@ enum HeadlessProjects {
                 if let key = value(after: "--heat", in: args) {
                     config.heatmapModel = heatModel(key, in: library)
                     config.heatmapOnly = args.contains("--heat-only")
-                    log("ball finder: \(config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame") (\(key))")
+                    if let hop = value(after: "--heat-hop", in: args).flatMap(Int.init) { config.heatmapHop = hop }
+                    log("ball finder: \(config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame") (\(key), window every \(config.heatmapHop) frames)")
                 } else {
                     log("ball finder: YOLO only")
                 }
@@ -136,6 +140,40 @@ enum HeadlessProjects {
                 }
                 if videos.isEmpty { log("❌ No fully marked videos (Track tab → Rally times → Whole video marked).") }
                 else { RallyCutScore.report(videos, log: log) }
+            }
+            if ok, let i = args.firstIndex(of: "--render-pipeline") {
+                let numbers = args.dropFirst(i + 2).prefix { Double($0) != nil }.compactMap(Double.init)
+                let stretches = stride(from: 0, to: numbers.count - 1, by: 2).map { (start: numbers[$0], length: numbers[$0 + 1]) }
+                guard args.indices.contains(i + 1), !stretches.isEmpty,
+                      let session = projects.sampler.sessions.first(where: { $0.name == args[i + 1] }) else {
+                    log("usage: --render-pipeline <clip> <start s> <length s> [<start s> <length s>…] [--heat <model> [--heat-only]] [--rotate]")
+                    exit(2)
+                }
+                var config = ProcessorConfig()
+                config.applyVideoRotation = args.contains("--rotate")
+                var finder = "YOLO"
+                if let key = value(after: "--heat", in: args) {
+                    config.heatmapModel = heatModel(key, in: library)
+                    config.heatmapOnly = args.contains("--heat-only")
+                    if let hop = value(after: "--heat-hop", in: args).flatMap(Int.init) { config.heatmapHop = hop }
+                    finder = config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame"
+                }
+                log("\(session.name): pipeline (\(finder))…")
+                if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) {
+                    let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
+                    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    for (start, length) in stretches {
+                        let name = "\(session.name)-\(Int(start))s-\(finder.replacingOccurrences(of: " ", with: "-")).mp4"
+                        switch await PipelineVideo.render(v, video: URL(fileURLWithPath: session.sourcePath), from: start, length: length,
+                                                          title: "\(session.name) · \(finder)", to: dir.appendingPathComponent(name)) {
+                        case .success(let url): log("✅ \(url.path)")
+                        case .failure(let f): log("❌ \(f.message)"); ok = false
+                        }
+                    }
+                } else {
+                    log("❌ No rally times or couldn't process.")
+                    ok = false
+                }
             }
             if ok, let i = args.firstIndex(of: "--compare-color") {
                 for clip in args[(i + 1)...] where !clip.hasPrefix("--") {
