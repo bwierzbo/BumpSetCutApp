@@ -120,6 +120,43 @@ final class VideoProcessor: @unchecked Sendable {
         let rejectionReason: String?
     }
 
+    /// Where a run's time goes, stage by stage, printed once at the end as
+    /// one "⏱ [timing]" line — how a model is judged on the iPhone, where
+    /// decoding and the Neural Engine behave nothing like on a Mac.
+    struct StageTiming {
+        var decode = 0.0, net = 0.0, grey = 0.0, multiFrame = 0.0, yolo = 0.0, rules = 0.0
+        var greyFrames = 0, windows = 0, yoloFrames = 0, handled = 0
+
+        /// Seconds `work` took, added to `stage`.
+        static func time<T>(_ stage: inout Double, _ work: () throws -> T) rethrows -> T {
+            let start = CFAbsoluteTimeGetCurrent()
+            defer { stage += CFAbsoluteTimeGetCurrent() - start }
+            return try work()
+        }
+
+        func line(video: Double, frames: Int, total: Double, model: String,
+                  thermal: (ProcessInfo.ThermalState, ProcessInfo.ThermalState)) -> String {
+            func ms(_ t: Double, _ n: Int) -> String { n > 0 ? String(format: "%.1f ms each", t / Double(n) * 1000) : "none" }
+            func name(_ s: ProcessInfo.ThermalState) -> String {
+                switch s {
+                case .nominal: return "nominal"
+                case .fair: return "fair"
+                case .serious: return "serious"
+                case .critical: return "critical"
+                @unknown default: return "unknown"
+                }
+            }
+            return String(format: "⏱ [timing] %@ · %.1f s of video (%d frames) in %.1f s = %.2f× real time", model, video, frames, total,
+                          total / max(video, 0.001))
+                + String(format: " · decode %.1f s · net %.1f s", decode, net)
+                + String(format: " · grey %.1f s (%@)", grey, ms(grey, greyFrames))
+                + String(format: " · multi-frame %.1f s (%d windows, %@)", multiFrame, windows, ms(multiFrame, windows))
+                + String(format: " · YOLO %.1f s (%d frames, %@)", yolo, yoloFrames, ms(yolo, yoloFrames))
+                + String(format: " · tracking+rules %.1f s (%d frames)", rules, handled)
+                + " · thermal \(name(thermal.0))→\(name(thermal.1))"
+        }
+    }
+
     struct FrameEvidence {
         let time: Double          // PTS in seconds
         let hasBall: Bool
@@ -435,6 +472,8 @@ final class VideoProcessor: @unchecked Sendable {
         lastVideoDurationSec = 0
 
         let startTime = Date()
+        var timing = StageTiming()
+        let thermalAtStart = ProcessInfo.processInfo.thermalState
         let eventLog = ProcessingEventLog()
         eventLog.log(.processingStarted, detail: "videoId=\(videoId)")
 
@@ -526,7 +565,9 @@ final class VideoProcessor: @unchecked Sendable {
             if let restoredNet = restored?.net {
                 detectedNet = restoredNet.detectedNet
             } else {
+                let netStart = CFAbsoluteTimeGetCurrent()
                 detectedNet = await sampleNetAcrossVideo(asset: asset, durationSec: lastVideoDurationSec)
+                timing.net = CFAbsoluteTimeGetCurrent() - netStart
             }
             gate.net = detectedNet
         }
@@ -873,7 +914,22 @@ final class VideoProcessor: @unchecked Sendable {
             }
         }
 
-        while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
+        // Run a processed frame through tracking and the rules, timed.
+        func handleTimed(_ frame: PendingFrame) async throws {
+            let start = CFAbsoluteTimeGetCurrent()
+            try await handle(frame)
+            timing.rules += CFAbsoluteTimeGetCurrent() - start
+            timing.handled += 1
+        }
+        // The multi-frame model's answers, kept for the frames waiting on them.
+        func keepTimed(_ answers: [[HeatmapBallDetector.Peak]]) {
+            guard let windows = heatWindows, !answers.isEmpty else { return }
+            timing.windows += 1
+            keepHeatPeaks(answers, answeredThrough: windows.answered)
+        }
+
+        while reader.status == .reading,
+              let sbuf = StageTiming.time(&timing.decode, { output.copyNextSampleBuffer() }),
               let pix = CMSampleBufferGetImageBuffer(sbuf) {
 
             // Check for cancellation before processing each frame
@@ -881,7 +937,8 @@ final class VideoProcessor: @unchecked Sendable {
 
             let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
             rawFrameIndex += 1
-            let heatFrame = heatmapFrame(pix, at: CMTimeGetSeconds(pts))
+            let heatFrame = heatDetector == nil ? nil : StageTiming.time(&timing.grey) { heatmapFrame(pix, at: CMTimeGetSeconds(pts)) }
+            if heatFrame != nil { timing.greyFrames += 1 }
             let heatIndex = heatFrame != nil ? heatWindows?.pushed : nil
 
             // Single processing path: a dynamic stride skips frames (denser
@@ -898,7 +955,10 @@ final class VideoProcessor: @unchecked Sendable {
             if shouldProcess {
                 // Detect: YOLO now; the multi-frame model's balls YOLO missed
                 // (or, with config.heatmapOnly, all of them) when its window comes.
-                let yoloDets = heatAlone ? [] : detector.detect(in: pix, at: pts, orientation: frameOrientation)
+                let yoloDets = heatAlone ? [] : StageTiming.time(&timing.yolo) {
+                    detector.detect(in: pix, at: pts, orientation: frameOrientation)
+                }
+                if !heatAlone { timing.yoloFrames += 1 }
                 pending.append(PendingFrame(pts: pts, rawFrameIndex: rawFrameIndex, skippedFrames: skippedFrames,
                                             yoloDets: yoloDets, heatIndex: heatIndex))
             } else {
@@ -909,8 +969,8 @@ final class VideoProcessor: @unchecked Sendable {
                     await MainActor.run { self.progress = p }
                 }
             }
-            if let heatFrame, let answers = heatWindows?.push(heatFrame), let windows = heatWindows {
-                keepHeatPeaks(answers, answeredThrough: windows.answered)
+            if let heatFrame, let answers = StageTiming.time(&timing.multiFrame, { heatWindows?.push(heatFrame) }) {
+                keepTimed(answers)
             }
 
             // Clean up sample buffer to prevent memory accumulation for large videos
@@ -918,7 +978,7 @@ final class VideoProcessor: @unchecked Sendable {
 
             while let next = pending.first, next.heatIndex.map({ $0 < (heatWindows?.answered ?? 0) }) ?? true {
                 pending.removeFirst()
-                try await handle(next)
+                try await handleTimed(next)
             }
         }
 
@@ -930,12 +990,12 @@ final class VideoProcessor: @unchecked Sendable {
 
         // The video's last frames: the multi-frame model answers them from
         // its last window.
-        if let answers = heatWindows?.finish(), let windows = heatWindows {
-            keepHeatPeaks(answers, answeredThrough: windows.answered)
+        if let answers = StageTiming.time(&timing.multiFrame, { heatWindows?.finish() }) {
+            keepTimed(answers)
         }
         for frame in pending {
             try Task.checkCancellation()
-            try await handle(frame)
+            try await handleTimed(frame)
         }
         pending.removeAll()
 
@@ -967,6 +1027,11 @@ final class VideoProcessor: @unchecked Sendable {
 
         // Log processing statistics
         let processedFrames = rawFrameIndex - skippedFrames
+        let finder = heatDetector == nil ? config.ballModel.rawValue
+            : "\(heatAlone ? "multi-frame only" : "\(config.ballModel.rawValue) + multi-frame") (\(heatModelURL?.deletingPathExtension().lastPathComponent ?? "?"))"
+        print(timing.line(video: lastVideoDurationSec - (restored?.resumeTime ?? 0), frames: rawFrameIndex - (restored?.counters.rawFrameIndex ?? 0),
+                          total: Date().timeIntervalSince(startTime), model: finder,
+                          thermal: (thermalAtStart, ProcessInfo.processInfo.thermalState)))
         let skipRate = rawFrameIndex > 0 ? (Double(skippedFrames) / Double(rawFrameIndex)) * 100 : 0
         print("⚡ Dynamic stride statistics:")
         print("   - Total frames: \(rawFrameIndex)")
