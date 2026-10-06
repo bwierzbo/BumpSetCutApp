@@ -125,10 +125,10 @@ struct IngestJob: Identifiable, Equatable {
     let kind: Kind
     /// Set for a project clip: the session is named by its Clip ID instead
     /// of the file name, goes to this split instead of the automatic one,
-    /// and is thinned to this many frames.
+    /// and is thinned to this many frames per rally (see thin).
     var sessionName: String? = nil
     var split: String? = nil
-    var targetFrames: Int? = nil
+    var framesPerRally: Int? = nil
     var state: State = .pending
     /// How far through the job is, 0–1, while running: finding rallies is
     /// the first half, extracting and pre-labeling frames the rest.
@@ -356,9 +356,9 @@ final class SamplerModel {
 
     /// Queue one project clip. The caller has already removed any earlier
     /// session with this name.
-    func enqueueClip(_ url: URL, sessionName: String, split: String?, targetFrames: Int?) {
+    func enqueueClip(_ url: URL, sessionName: String, split: String?, framesPerRally: Int?) {
         queue.append(IngestJob(url: url, kind: .video, sessionName: sessionName,
-                               split: split, targetFrames: targetFrames))
+                               split: split, framesPerRally: framesPerRally))
         Task { await processQueue() }
     }
 
@@ -412,8 +412,8 @@ final class SamplerModel {
         case .video: records = try await ingestVideo(job, name: name, split: split)
         case .folder: records = try await ingestFolder(job, name: name, split: split)
         }
-        if let target = job.targetFrames, target > 0, records.count > target {
-            let keep = Set(Self.thin(records, to: target))
+        if let perRally = job.framesPerRally, perRally > 0 {
+            let keep = Set(Self.thin(records, perRally: perRally))
             for (i, record) in records.enumerated() where !keep.contains(i) {
                 try? FileManager.default.removeItem(at: datasetRoot.appendingPathComponent(record.file))
             }
@@ -496,12 +496,11 @@ final class SamplerModel {
                       randomCount: random)
         }
         var plan = planFrames(random: settings.randomCount)
-        // Short on moments — no rallies found (the ball was never seen), or
-        // only a few — so fill up with frames from across the whole video.
-        // Twice the target, as near-identical frames are dropped and the
-        // rest is thinned to it.
-        if let target = job.targetFrames, target > 0, plan.count < 2 * target {
-            plan = planFrames(random: settings.randomCount + 2 * target - plan.count)
+        // No rallies found (the ball was never seen): frames from across the
+        // whole video instead, so it isn't empty — twice what's kept, as
+        // near-identical frames are dropped before thinning.
+        if job.framesPerRally != nil, rallies.isEmpty, plan.count < 2 * Self.framesWithoutRallies {
+            plan = planFrames(random: 2 * Self.framesWithoutRallies)
         }
         guard !plan.isEmpty else { throw IngestError.nothingToSample }
         setJob(job.id, .running("Extracting \(plan.count) frames (\(rallies.count) rallies)…"), fraction: Self.rallyShare)
@@ -642,31 +641,29 @@ final class SamplerModel {
         return records
     }
 
-    /// Which `target` of `records` to keep. Frames where the pipeline saw no
-    /// ball are the most valuable, so they get up to a third of the budget;
-    /// random frames (mostly negatives) up to a sixth; the rest is spread
-    /// evenly over time across the rally bursts so every rally is still
-    /// represented. Any share a category can't fill goes to the others.
-    nonisolated static func thin(_ records: [FrameRecord], to target: Int) -> [Int] {
-        guard records.count > target else { return Array(records.indices) }
+    /// Frames a video keeps when no rally was found in it.
+    nonisolated static let framesWithoutRallies = 10
+
+    /// Which of `records` to keep: `perRally` from each rally's burst — its
+    /// first and last frame (so the Track tab sees the rally's whole span),
+    /// then spread evenly between — and, beyond two per rally, the frames
+    /// the pipeline saw no ball in and random frames at half that rate each.
+    /// A video with no rally keeps `framesWithoutRallies` frames spread over it.
+    nonisolated static func thin(_ records: [FrameRecord], perRally: Int) -> [Int] {
+        /// `n` of `indices`, the first and last always among them.
         func spread(_ indices: [Int], _ n: Int) -> [Int] {
             guard n > 0, !indices.isEmpty else { return [] }
             guard indices.count > n else { return indices }
-            return (0..<n).map { indices[Int((Double($0) + 0.5) * Double(indices.count) / Double(n))] }
+            guard n > 1 else { return [indices[0]] }
+            return (0..<n).map { indices[Int((Double($0) * Double(indices.count - 1) / Double(n - 1)).rounded())] }
         }
-        let missedKey = FrameSample.Source.missed.key, randomKey = FrameSample.Source.random.key
-        let missed = records.indices.filter { records[$0].source == missedKey }
-        let random = records.indices.filter { records[$0].source == randomKey }
-        let rest = records.indices.filter { records[$0].source != missedKey && records[$0].source != randomKey }
-
-        var picked = spread(missed, min(missed.count, target / 3))
-        picked += spread(random, min(random.count, target / 6))
-        picked += spread(rest, target - picked.count)
-        // Rallies can run short (a clip with few of them): top up from what's left.
-        if picked.count < target {
-            let chosen = Set(picked)
-            picked += spread(records.indices.filter { !chosen.contains($0) }, target - picked.count)
-        }
+        let rallies = Dictionary(grouping: records.indices.filter { records[$0].source.hasPrefix("rally:") },
+                                 by: { records[$0].source })
+        guard !rallies.isEmpty else { return spread(Array(records.indices), framesWithoutRallies) }
+        var picked = rallies.values.flatMap { spread($0.sorted(), perRally) }
+        let extra = rallies.count * max(0, perRally - 2) / 2
+        picked += spread(records.indices.filter { records[$0].source == FrameSample.Source.missed.key }, extra)
+        picked += spread(records.indices.filter { records[$0].source == FrameSample.Source.random.key }, extra)
         return picked.sorted()
     }
 

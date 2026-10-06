@@ -6,8 +6,10 @@
 //  opening the app (and Claude can do it from a pasted link):
 //
 //    RallyLab --project v3 --get grs_onl_sun_land_onl_01 "https://youtube.com/…" \
-//             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00] [--frames 80]
-//             [--allow-duplicate]   (add a stretch of a video already used)
+//             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00] [--frames 4]
+//             [--allow-duplicate]   (add a stretch of a video already used; --frames is per rally)
+//    RallyLab --project v3 --repull-all                    (sample every video's cut again, e.g. after
+//                                                           changing frames per rally — nothing re-downloaded)
 //    RallyLab --project v3 --move ind_ele_bright_land_self_01_v2 bch_ele_sun_land_self_01
 //    RallyLab --project v3 --status
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
@@ -83,7 +85,9 @@ enum HeadlessProjects {
                 ok = await move(videoId: args[i + 1], to: args[i + 2], projects: projects)
             }
 
-            if args.contains("--status") || args.contains("--get") || args.contains("--move") {
+            if ok, args.contains("--repull-all") { ok = await repullAll(projects) }
+
+            if args.contains("--status") || args.contains("--get") || args.contains("--move") || args.contains("--repull-all") {
                 printStatus(projects)
             }
 
@@ -261,6 +265,23 @@ enum HeadlessProjects {
                 last = line
             }
         }
+    }
+
+    @MainActor
+    private static func repullAll(_ projects: ProjectsModel) async -> Bool {
+        let videos = (projects.project?.clips ?? []).flatMap { clip in
+            clip.videos.map { (clip.id, clip.videoId(of: $0)) }
+        }
+        for (clipId, videoId) in videos {
+            projects.repull(videoId, in: clipId)
+            log("▸ \(projects.status)")
+            while projects.sampler.isIngesting || !projects.sampler.queue.allSatisfy(\.isFinished) {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+            let frames = projects.session(named: videoId)?.frames.count ?? 0
+            log(frames > 0 ? "✅ \(videoId): \(frames) frames" : "❌ \(videoId): \(projects.sampler.status)")
+        }
+        return true
     }
 
     @MainActor

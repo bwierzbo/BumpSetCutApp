@@ -90,7 +90,7 @@ struct ClipSource: Codable, Equatable, Hashable {
     /// See PlannedClip.videoId(of:); nil is the clip's own ID (its first
     /// video, and every video from before clips held several).
     var videoId: String?
-    /// Frames wanted from this video; nil = the project's default.
+    /// Frames sampled per rally from this video; nil = the project's default.
     var frames: Int?
     /// Identifies the original video (see ProjectsModel.fingerprint), so a
     /// video reused on any card is recognised. nil for older videos; it's
@@ -101,9 +101,24 @@ struct ClipSource: Codable, Equatable, Hashable {
 struct Project: Codable, Equatable {
     var name: String
     var createdAt: Date
-    /// Frames wanted per video unless the video sets its own.
-    var targetFrames: Int
+    /// Frames sampled per rally unless a video sets its own — a video with
+    /// more rallies gives more frames.
+    var framesPerRally: Int
     var clips: [PlannedClip]
+}
+
+extension Project {
+    private enum CodingKeys: String, CodingKey { case name, createdAt, framesPerRally, clips }
+
+    /// Projects from before frames were counted per rally kept a per-video
+    /// count; they take the standard per-rally one.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        framesPerRally = try c.decodeIfPresent(Int.self, forKey: .framesPerRally) ?? StandardClipPlan.framesPerRally
+        clips = try c.decode([PlannedClip].self, forKey: .clips)
+    }
 }
 
 enum ClipProgress: Equatable {
@@ -278,7 +293,7 @@ final class ProjectsModel {
             status = "Couldn't create \(dir.path): \(error.localizedDescription)"
             return
         }
-        project = Project(name: clean, createdAt: Date(), targetFrames: StandardClipPlan.targetFrames,
+        project = Project(name: clean, createdAt: Date(), framesPerRally: StandardClipPlan.framesPerRally,
                           clips: StandardClipPlan.clips)
         projectDir = dir.standardizedFileURL
         save()
@@ -331,9 +346,9 @@ final class ProjectsModel {
         }
     }
 
-    func setTargetFrames(_ n: Int) {
+    func setFramesPerRally(_ n: Int) {
         guard project != nil else { return }
-        project?.targetFrames = max(0, n)
+        project?.framesPerRally = max(1, n)
         save()
     }
 
@@ -698,7 +713,7 @@ final class ProjectsModel {
 
     // MARK: - A clip's videos
 
-    /// Change how many frames a video should give. Takes effect on Re-pull.
+    /// Change how many frames per rally a video should give. Takes effect on Re-pull.
     func setFrames(_ frames: Int, forVideo videoId: String, in clipId: String) {
         guard let c = project?.clips.firstIndex(where: { $0.id == clipId }),
               let v = project?.clips[c].videos.firstIndex(where: { project?.clips[c].videoId(of: $0) == videoId })
@@ -707,15 +722,15 @@ final class ProjectsModel {
         save()
     }
 
-    /// Sample a video's cut again at its current frame count. Its frames,
+    /// Sample a video's cut again at its current frames per rally. Its frames,
     /// reviewed or not, are replaced; the footage isn't re-cut.
     func repull(_ videoId: String, in clipId: String) {
         guard let clip = project?.clips.first(where: { $0.id == clipId }),
               let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }) else { return }
         if let old = session(named: videoId) { sampler.deleteSession(old) }
         sampler.enqueueClip(URL(fileURLWithPath: video.clipFile), sessionName: DatasetStore.safeName(videoId),
-                            split: clip.split, targetFrames: video.frames ?? project?.targetFrames)
-        status = "\(videoId): re-pulling \(video.frames ?? project?.targetFrames ?? 0) frames…"
+                            split: clip.split, framesPerRally: video.frames ?? project?.framesPerRally)
+        status = "\(videoId): re-pulling \(video.frames ?? project?.framesPerRally ?? 0) frames per rally…"
     }
 
     /// Remove one video from a clip, with its cut footage and frames.
@@ -732,8 +747,8 @@ final class ProjectsModel {
     private(set) var moving: Set<String> = []
 
     /// Put a video on a different card. Its existing cut is copied across
-    /// (nothing is downloaded again) and sampled there at the same frame
-    /// count; it leaves this card only once that worked. Frames already
+    /// (nothing is downloaded again) and sampled there at the same frames
+    /// per rally; it leaves this card only once that worked. Frames already
     /// reviewed are re-pulled, so they need reviewing again.
     func moveVideo(_ videoId: String, from clipId: String, to targetId: String) {
         guard targetId != clipId, !moving.contains(videoId),
@@ -850,7 +865,7 @@ final class ProjectsModel {
                 if let old = session(named: videoId) { sampler.deleteSession(old) }
                 let split = project?.clips.first(where: { $0.id == clipId })?.split
                 sampler.enqueueClip(URL(fileURLWithPath: result.file), sessionName: DatasetStore.safeName(videoId),
-                                    split: split, targetFrames: frames ?? project?.targetFrames)
+                                    split: split, framesPerRally: frames ?? project?.framesPerRally)
                 status = "\(videoId): cut \(Int(result.duration.rounded()))s, sampling…"
                 finished?(true)
             }

@@ -107,13 +107,13 @@ struct ProjectsTabView: View {
 
                 Spacer()
 
-                if let target = projects.project?.targetFrames {
-                    Stepper(value: Binding(get: { target }, set: { projects.setTargetFrames($0) }),
-                            in: 10...400, step: 5) {
-                        Text("\(target) frames per video").font(.caption).monospacedDigit()
+                if let perRally = projects.project?.framesPerRally {
+                    Stepper(value: Binding(get: { perRally }, set: { projects.setFramesPerRally($0) }),
+                            in: 2...20) {
+                        Text("\(perRally) frames per rally").font(.caption).monospacedDigit()
                     }
                     .fixedSize()
-                    .help("The default for new videos: each is thinned to this many frames after sampling, misses kept first. Set a video's own count in its clip.")
+                    .help("The default for new videos: stills kept from each rally the Sampler finds. Two (its first and last frame) mark the rally for the Track tab, where tracking it labels every frame; more are stills to review. Set a video's own count in its clip.")
                 }
                 if let dir = projects.projectDir {
                     Button {
@@ -188,10 +188,10 @@ private struct ClipDetailPane: View {
     @State private var start = ""
     @State private var length = "5:00"
     @State private var license = ""
-    @State private var frames = StandardClipPlan.targetFrames
+    @State private var frames = StandardClipPlan.framesPerRally
     @State private var removing: String?
 
-    private var defaultFrames: Int { projects.project?.targetFrames ?? StandardClipPlan.targetFrames }
+    private var defaultFrames: Int { projects.project?.framesPerRally ?? StandardClipPlan.framesPerRally }
     private var ownFootage: Bool { clip.kind != .online }
 
     var body: some View {
@@ -331,18 +331,18 @@ private struct ClipDetailPane: View {
             HStack(spacing: 8) {
                 Stepper(value: Binding(get: { wanted },
                                        set: { projects.setFrames($0, forVideo: videoId, in: clip.id) }),
-                        in: 5...400, step: 5) {
-                    Text("\(wanted) frames").font(.caption).monospacedDigit()
+                        in: 2...20) {
+                    Text("\(wanted) per rally").font(.caption).monospacedDigit()
                 }
                 .fixedSize()
                 Spacer()
                 if let session, !busy { Button("Review") { review(session) }.controlSize(.small) }
-                if let session, session.frames.count != wanted, !busy {
-                    Button("Re-pull \(wanted)") { projects.repull(videoId, in: clip.id) }
+                if session != nil, !busy {
+                    Button("Re-pull") { projects.repull(videoId, in: clip.id) }
                         .controlSize(.small)
-                        .help(session.reviewedCount > 0
-                              ? "Samples this video again. Its \(session.reviewedCount) reviewed frames are replaced."
-                              : "Samples this video again at the new count.")
+                        .help((session?.reviewedCount ?? 0) > 0
+                              ? "Samples this video again at \(wanted) per rally. Its \(session?.reviewedCount ?? 0) reviewed frames are replaced."
+                              : "Samples this video again at \(wanted) per rally.")
                 }
             }
         }
@@ -385,8 +385,8 @@ private struct ClipDetailPane: View {
                 .textFieldStyle(.roundedBorder)
                 labeled("licence", TextField("CC-BY, or permission: who, how, when", text: $license)
                     .textFieldStyle(.roundedBorder))
-                Stepper(value: $frames, in: 5...400, step: 5) {
-                    Text("\(frames) frames from this video").font(.caption).monospacedDigit()
+                Stepper(value: $frames, in: 2...20) {
+                    Text("\(frames) frames per rally from this video").font(.caption).monospacedDigit()
                 }
                 .fixedSize()
                 if !usedBefore.isEmpty {

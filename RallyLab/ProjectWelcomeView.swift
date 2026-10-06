@@ -193,7 +193,7 @@ struct NewProjectSheet: View {
                 }
                 GridRow {
                     Text("Clip Plan:")
-                    Text("Standard, \(StandardClipPlan.clips.count) clips · \(StandardClipPlan.targetFrames) frames each")
+                    Text("Standard, \(StandardClipPlan.clips.count) clips · \(StandardClipPlan.framesPerRally) frames per rally")
                         .foregroundStyle(.secondary)
                 }
             }

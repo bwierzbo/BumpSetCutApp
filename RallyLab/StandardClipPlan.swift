@@ -29,8 +29,10 @@ enum StandardClipPlan {
         }
     }
 
-    /// Labeled frames wanted per clip.
-    static let targetFrames = 55
+    /// Frames sampled from each rally a video's rally detection finds. Two —
+    /// its first and last — mark the rally for the Track tab, where tracking
+    /// it labels every frame; more are stills to review one by one.
+    static let framesPerRally = 2
 
     private static let rows: [Row] = [
         .init(1, "ind_ele_bright_land_self_01", "Indoor", "End line, elevated (stands/tripod 2m+)", "Bright gym", "Landscape", "White/blue indoor", ""),
