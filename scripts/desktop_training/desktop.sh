@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Train multi-frame models on the desktop GPU from the Mac, over SSH.
 #
-#   scripts/desktop_training/desktop.sh train [package] [--size 512|1024] [--epochs N] [--name NAME]
+#   scripts/desktop_training/desktop.sh train [package] [--size 512|768|1024] [--from-scratch] [--epochs N] [--name NAME]
 #       send the package (default: the newest multi-frame export) and the
 #       current trainer, start training detached, return right away
 #   scripts/desktop_training/desktop.sh status        what's running, the last lines of the log, GPU use
@@ -35,10 +35,11 @@ newest_package() {
 }
 
 cmd_train() {
-    local package="" size=512 epochs=60 name=""
+    local package="" size=512 epochs=60 name="" scratch=""
     while (( $# )); do
         case $1 in
             --size) size=$2; shift 2 ;;
+            --from-scratch) scratch=--from-scratch; shift ;;
             --epochs) epochs=$2; shift 2 ;;
             --name) name=$2; shift 2 ;;
             *) package=$1; shift ;;
@@ -47,9 +48,9 @@ cmd_train() {
     [[ -n $package ]] || package=$(newest_package)
     [[ -f $package ]] || die "No multi-frame package zip (export one in RallyLab's Models tab)."
     local zip=${package:t} stem=${package:t:r}
-    [[ -n $name ]] || name="heat_${stem##*-multiframe-}_${size}"
+    [[ -n $name ]] || name="heat_${stem##*-multiframe-}_${size}${scratch:+_scratch}"
 
-    say "Package: $zip  →  run \"$name\" (${size}, ${epochs} epochs)"
+    say "Package: $zip  →  run \"$name\" (${size}, ${epochs} epochs${scratch:+, from scratch})"
     if remote "if (Test-Path '$REMOTE\\$zip') { 'yes' } else { 'no' }" | grep -q yes; then
         say "Already on the desktop."
     else
@@ -65,7 +66,7 @@ cmd_train() {
     # Started through WMI so it isn't tied to this SSH session: it keeps
     # training after we disconnect (and survives the Mac going to sleep).
     local log="$REMOTE\\$name.log"
-    remote "\$cmd = 'cmd /c cd /d $REMOTE && set PYTHONUNBUFFERED=1 && \"$PY\" train_heatmap_model.py $zip --size $size --epochs $epochs --name $name > \"$log\" 2>&1';
+    remote "\$cmd = 'cmd /c cd /d $REMOTE && set PYTHONUNBUFFERED=1 && \"$PY\" train_heatmap_model.py $zip --size $size --epochs $epochs --name $name $scratch > \"$log\" 2>&1';
             \$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = \$cmd; CurrentDirectory = '$REMOTE' };
             if (\$r.ReturnValue -ne 0) { throw \"start failed: \$(\$r.ReturnValue)\" }; 'started pid ' + \$r.ProcessId"
     say "Training on the desktop. Follow it with: $SCRIPT wait $name"

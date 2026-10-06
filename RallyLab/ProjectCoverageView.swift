@@ -159,7 +159,7 @@ struct Coverage {
                 row.trainRallies += done.count
             }
             if s.ralliesMarked ?? false { row.markedVideos += 1 }
-            row.trackedFrames += done.reduce(0) { $0 + $1.points.filter { $0.state != .unknown }.count }
+            row.trackedFrames += done.reduce(0) { $0 + $1.labeledFrames }
             if onMac { row.sampledUsable += sampled } else { row.sampledBlocked += sampled }
             rows[env] = row
             videos.append(Video(name: s.name, environment: env, split: s.split, onMac: onMac, done: done.count,
@@ -259,7 +259,7 @@ private struct Tile: View {
 }
 
 /// value / target with a bar; empty shows red, met shows a check.
-private struct Meter: View {
+struct Meter: View {
     let value: Int, target: Int
     let tint: Color
 

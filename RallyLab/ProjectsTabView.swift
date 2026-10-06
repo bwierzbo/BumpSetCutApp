@@ -14,11 +14,14 @@ import SwiftUI
 
 struct ProjectsTabView: View {
     @Bindable var projects: ProjectsModel
+    let library: ModelLibrary
     /// Opens a clip's frames in the Sampler tab.
     let review: (VideoSession) -> Void
+    /// Opens a video in the Track tab.
+    let track: (VideoSession) -> Void
     @AppStorage("RallyLab.projectPage") private var page: Page = .board
 
-    enum Page: String { case board, overview, coverage, activity }
+    enum Page: String { case board, overview, coverage, plan, activity }
 
     var body: some View {
         HSplitView {
@@ -30,6 +33,7 @@ struct ProjectsTabView: View {
                     case .board: ClipBoardView(projects: projects)
                     case .overview: ProjectOverviewView(projects: projects)
                     case .coverage: ProjectCoverageView(projects: projects)
+                    case .plan: ProjectPlanView(projects: projects, library: library, track: track)
                     case .activity:
                         ProjectActivityView(projects: projects, showCard: { id in
                             projects.selectedClipId = id
@@ -94,6 +98,7 @@ struct ProjectsTabView: View {
                     Label("Board", systemImage: "square.grid.2x2").tag(Page.board)
                     Label("Overview", systemImage: "chart.bar.xaxis").tag(Page.overview)
                     Label("Coverage", systemImage: "target").tag(Page.coverage)
+                    Label("Plan", systemImage: "point.topleft.down.to.point.bottomright.curvepath").tag(Page.plan)
                     Text(activeCount > 0 ? "Activity · \(activeCount)" : "Activity").tag(Page.activity)
                 }
                 .pickerStyle(.segmented)

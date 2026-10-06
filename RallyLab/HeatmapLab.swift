@@ -43,6 +43,23 @@ struct HeatModelEntry: Identifiable, Hashable {
     }
 }
 
+/// The parts of train_heatmap_model.py's metrics.json worth showing: the
+/// best epoch's F1 per slice ("tracked@4", "beach@4", …) at 4 px.
+struct RunScores: Decodable {
+    struct Slice: Decodable { let f1: Double; let recall: Double; let precision: Double }
+    let best: [String: Slice]?
+    let bestEpoch: Int?
+    let fromScratch: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case best
+        case bestEpoch = "best_epoch"
+        case fromScratch = "from_scratch"
+    }
+
+    func f1(_ slice: String) -> Double? { best?["\(slice)@4"]?.f1 }
+}
+
 @MainActor
 @Observable
 final class HeatmapLab {
@@ -157,7 +174,8 @@ final class HeatmapLab {
         get { UserDefaults.standard.string(forKey: "RallyLab.desktopRun") }
         set { UserDefaults.standard.set(newValue, forKey: "RallyLab.desktopRun") }
     }
-    private(set) var desktopBusy = false
+    /// Training on the desktop from here or from the Plan page; one at a time.
+    var desktopBusy = false
     private(set) var desktopLine = ""
 
     private static let desktopScript = converter.deletingLastPathComponent().appendingPathComponent("desktop.sh")
@@ -170,18 +188,25 @@ final class HeatmapLab {
             return
         }
         desktopBusy = true
-        desktopLine = "Sending \(package.lastPathComponent).zip…"
         Task {
             defer { desktopBusy = false }
-            let started = await streamDesktop(["train", package.path + ".zip", "--size", String(size)])
-            guard started.status == 0,
-                  let name = started.lines.lazy.compactMap({ Self.runName(in: $0) }).first else {
-                desktopLine = "Couldn't start: " + (started.lines.last ?? "no output")
-                return
-            }
+            guard let name = await startDesktopRun(package: package, size: size, fromScratch: false) else { return }
             desktopRun = name
-            await followDesktopRun(name)
+            if await followDesktopRun(name) { desktopRun = nil }
         }
+    }
+
+    /// Start training `package` (an exported multi-frame package folder) on
+    /// the desktop; the run's name, or nil if it couldn't start.
+    func startDesktopRun(package: URL, size: Int, fromScratch: Bool) async -> String? {
+        desktopLine = "Sending \(package.lastPathComponent).zip…"
+        let started = await streamDesktop(["train", package.path + ".zip", "--size", String(size)]
+                                          + (fromScratch ? ["--from-scratch"] : []))
+        guard started.status == 0, let name = started.lines.lazy.compactMap({ Self.runName(in: $0) }).first else {
+            desktopLine = "Couldn't start: " + (started.lines.last ?? "no output")
+            return nil
+        }
+        return name
     }
 
     /// Wait for the last run (if it's still going) and bring it back.
@@ -190,16 +215,18 @@ final class HeatmapLab {
         desktopBusy = true
         Task {
             defer { desktopBusy = false }
-            await followDesktopRun(name)
+            if await followDesktopRun(name) { desktopRun = nil }
         }
     }
 
-    private func followDesktopRun(_ name: String) async {
+    /// Wait for a desktop run to finish, bring it back, add it and score it.
+    /// False if it stopped or couldn't be brought back.
+    func followDesktopRun(_ name: String) async -> Bool {
         let waited = await streamDesktop(["wait", name])
-        guard waited.status == 0 else { desktopLine = "Training on the desktop stopped: " + (waited.lines.last ?? ""); return }
+        guard waited.status == 0 else { desktopLine = "Training on the desktop stopped: " + (waited.lines.last ?? ""); return false }
         desktopLine = "Bringing back \(name)…"
         let fetched = await streamDesktop(["fetch", name, "--no-score"])
-        guard fetched.status == 0 else { desktopLine = "Couldn't bring it back: " + (fetched.lines.last ?? ""); return }
+        guard fetched.status == 0 else { desktopLine = "Couldn't bring it back: " + (fetched.lines.last ?? ""); return false }
         let incoming = sampler.datasetRoot.appendingPathComponent("incoming/\(name)")
         desktopLine = "Converting and scoring \(name)…"
         isBusy = false
@@ -207,7 +234,14 @@ final class HeatmapLab {
         evaluate()
         while isBusy { try? await Task.sleep(nanoseconds: 300_000_000) }
         desktopLine = "\(name) is back and scored below."
-        desktopRun = nil
+        return true
+    }
+
+    /// What a brought-back run scored on its package's val windows
+    /// (the trainer's metrics.json), nil until it's back.
+    func runScores(_ name: String) -> RunScores? {
+        let url = sampler.datasetRoot.appendingPathComponent("incoming/\(name)/metrics.json")
+        return (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(RunScores.self, from: $0) }
     }
 
     /// Run desktop.sh, showing each line of its output as it comes.

@@ -55,7 +55,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SEQ = 9
-SIZES = {512: (512, 288), 1024: (1024, 576)}
+SIZES = {512: (512, 288), 768: (768, 432), 1024: (1024, 576)}
 BASE_WIDTH = 512        # scores are in pixels at this width, whatever the input size
 SIGMA = 3.0            # the author's heatmap sigma at 512×288 (scaled with the input)
 MOTION = 10            # mean grey-level change (0–255) around a ball over ±4 frames: in play
@@ -355,9 +355,10 @@ def main() -> None:
     p.add_argument("package", type=Path, help="Multi-frame package .zip or unzipped folder")
     p.add_argument("--epochs", type=int, default=60)
     p.add_argument("--size", type=int, choices=sorted(SIZES), default=512,
-                   help="Input width: 512 (512×288, the author's) or 1024 (1024×576 — far balls twice the pixels, ~4× the work)")
-    p.add_argument("--batch", type=int, default=None, help="Default 16 at 512, 4 at 1024")
-    p.add_argument("--lr", type=float, default=5e-4, help="Fine-tuning rate (the author's from-scratch rate is 1e-3)")
+                   help="Input width: 512 (512×288, the author's), 768 (768×432, ~2.25× the work) or 1024 (1024×576 — far balls twice the pixels, ~4× the work)")
+    p.add_argument("--batch", type=int, default=None, help="Default 16 at 512, 8 at 768, 4 at 1024")
+    p.add_argument("--lr", type=float, default=None,
+                   help="Default 5e-4 fine-tuning, 1e-3 from scratch (the author's from-scratch rate)")
     p.add_argument("--workers", type=int, default=6)
     p.add_argument("--name", default="heat_v4c")
     p.add_argument("--from-scratch", action="store_true", help="Don't start from the author's weights")
@@ -376,7 +377,8 @@ def main() -> None:
     from model.vballnet_v4c import VballNetV4c
 
     size = SIZES[args.size]
-    batch = args.batch or (16 if args.size == 512 else 4)
+    batch = args.batch or {512: 16, 768: 8}.get(args.size, 4)
+    lr = args.lr or (1e-3 if args.from_scratch else 5e-4)
     train_w, val_w = load_windows(root)
     say(f"{len(train_w)} train · {len(val_w)} val windows "
         f"({sum(1 for w in val_w if w['balls'])} val with a ball) from {root.name}")
@@ -398,13 +400,14 @@ def main() -> None:
     if run.exists():
         fail(f"{run} exists — pass a new --name (or delete it).")
     run.mkdir(parents=True)
-    metrics = {"package": root.name, "size": list(size), "baseline": None, "best": None, "best_epoch": None}
+    metrics = {"package": root.name, "size": list(size), "from_scratch": args.from_scratch,
+               "baseline": None, "best": None, "best_epoch": None}
 
     if not args.from_scratch:
         metrics["baseline"] = score(model, val_loader, val_w, device, size[0])
         show("The author's weights, untouched, on your val windows:", metrics["baseline"])
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     # torch.amp.GradScaler is torch ≥ 2.3; older builds have the cuda one.
     scaler = (torch.amp.GradScaler("cuda", enabled=device.type == "cuda") if hasattr(torch.amp, "GradScaler")

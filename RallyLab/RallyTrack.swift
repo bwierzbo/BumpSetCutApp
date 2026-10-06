@@ -79,6 +79,11 @@ struct TrackedRally: Codable, Identifiable, Equatable {
     var done: Bool
 }
 
+extension TrackedRally {
+    /// Frames with a decided label (the ball, or hidden): what training gets.
+    var labeledFrames: Int { points.filter { $0.state != .unknown }.count }
+}
+
 /// Picks the ball in play through a rally's frames.
 enum TrackSolver {
 

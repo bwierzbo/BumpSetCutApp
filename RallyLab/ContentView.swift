@@ -52,10 +52,13 @@ struct ContentView: View {
         TabView(selection: $tab) {
             Group {
                 if projects.project != nil {
-                    ProjectsTabView(projects: projects) { session in
+                    ProjectsTabView(projects: projects, library: library, review: { session in
                         sampler.openSession(session)
                         tab = .sampler
-                    }
+                    }, track: { session in
+                        tracker.open(sessionName: session.name)
+                        tab = .track
+                    })
                 } else {
                     ProjectWelcomeView(projects: projects) { tab = .pipeline }
                 }
