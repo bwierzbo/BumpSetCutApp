@@ -96,7 +96,7 @@ struct ProjectPlanView: View {
     /// The Labeler iPhone app: rally times marked there, videos recorded there.
     private var phoneBox: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Phone (Labeler app)", systemImage: "iphone").font(.headline)
+            Label("Phone (RallyLab on iPhone)", systemImage: "iphone").font(.headline)
             if phone.signedIn {
                 HStack(spacing: 10) {
                     Button("Sync with Phone") { Task { await phone.sync() } }

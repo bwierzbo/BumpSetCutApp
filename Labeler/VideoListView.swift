@@ -38,7 +38,7 @@ struct VideoListView: View {
                 }
             }
             .refreshable { await model.reload() }
-            .navigationTitle("Labeler")
+            .navigationTitle("RallyLab")
             .navigationDestination(for: LabelVideo.self) { RallyTimesView(model: model, video: $0) }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {

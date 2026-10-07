@@ -66,7 +66,7 @@ cat > $WORK/manifest.plist <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict><key>items</key><array><dict>
 <key>assets</key><array><dict><key>kind</key><string>software-package</string><key>url</key><string>$IPA</string></dict></array>
-<key>metadata</key><dict><key>bundle-identifier</key><string>app.BumpSetCut.Labeler</string><key>bundle-version</key><string>$BUILD</string><key>kind</key><string>software</string><key>title</key><string>Labeler</string></dict>
+<key>metadata</key><dict><key>bundle-identifier</key><string>app.BumpSetCut.RallyLab</string><key>bundle-version</key><string>$BUILD</string><key>kind</key><string>software</string><key>title</key><string>RallyLab</string></dict>
 </dict></array></dict></plist>
 EOF
 upload $WORK/manifest.plist latest/manifest.plist application/xml

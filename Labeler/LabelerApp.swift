@@ -2,7 +2,8 @@
 //  LabelerApp.swift
 //  Labeler
 //
-//  A small iPhone app for labeling BumpSetCut's training data away from the
+//  RallyLab on the iPhone (same bundle ID as the Mac app, one App Store
+//  Connect record): a small app for labeling BumpSetCut's training data away from the
 //  Mac: mark every rally's start and end in the videos of a RallyLab
 //  project, and upload videos recorded on the phone for RallyLab to pull in.
 //  Separate from BumpSetCut; installed from Xcode. Data lives in Supabase
@@ -87,7 +88,7 @@ struct SignInView: View {
                 }
                 .disabled(busy || email.isEmpty || password.isEmpty)
             }
-            .navigationTitle("Labeler")
+            .navigationTitle("RallyLab")
         }
     }
 }
