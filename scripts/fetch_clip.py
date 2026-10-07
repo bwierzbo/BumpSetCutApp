@@ -30,6 +30,7 @@ import argparse
 import csv
 import datetime as dt
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -67,12 +68,16 @@ def clock(seconds: float) -> str:
 
 
 def yt_dlp() -> list[str]:
+    """yt-dlp, signed in with a browser's cookies when RALLYLAB_COOKIES_FROM_BROWSER
+    names one (e.g. chrome): YouTube throttles anonymous downloads in bursts."""
+    browser = os.environ.get("RALLYLAB_COOKIES_FROM_BROWSER")
+    cookies = ["--cookies-from-browser", browser] if browser else []
     exe = shutil.which("yt-dlp")
     if exe:
-        return [exe]
+        return [exe] + cookies
     try:
         import yt_dlp  # noqa: F401
-        return [sys.executable, "-m", "yt_dlp"]
+        return [sys.executable, "-m", "yt_dlp"] + cookies
     except ImportError:
         fail("yt-dlp isn't installed. Run: python3 -m pip install --upgrade yt-dlp")
     return []
