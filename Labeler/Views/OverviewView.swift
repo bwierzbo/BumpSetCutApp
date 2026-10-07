@@ -84,7 +84,7 @@ struct VideoRow: View {
                 Text(video.name).font(.callout.monospaced()).lineLimit(1)
                 HStack(spacing: 6) {
                     Text("\(times.rallies.count) marked")
-                    Text("· \(tracks.filter(\.done).count)/\(TrainingPlan.maxRalliesPerVideo) tracked")
+                    Text("· \(tracks.filter(\.done).count) tracked (\(tracks.filter(\.done).reduce(0) { $0 + $1.labeledFrames })/\(TrainingPlan.enoughFramesPerVideo) frames)")
                     if !video.ralliesFound.isEmpty { Text("· \(video.ralliesFound.count) found") }
                     if video.status == .uploaded { Text("· waiting for the Mac") }
                 }

@@ -249,7 +249,7 @@ struct ProjectPlanView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Track next — one rally from each").font(.subheadline.weight(.semibold))
                     ForEach(progress.queue) { next in nextRow(next) }
-                    Text("Up to \(TrainingPlan.maxRalliesPerVideo) rallies per video; track a little before the serve and after the ball dies, and mark hidden frames. Mark every rally's time in videos you finish (Track → Rally times).")
+                    Text("About \(TrainingPlan.enoughFramesPerVideo) frames (~20 s of rally) per video, then move on; track a little before the serve and after the ball dies, and mark hidden frames.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(14)

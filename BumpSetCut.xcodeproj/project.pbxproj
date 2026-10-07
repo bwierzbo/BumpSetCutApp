@@ -48,10 +48,16 @@
 		LABE1E000000000000000004 /* Exceptions for "BumpSetCut" folder in "Labeler" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Core/Media/ThumbnailService.swift,
 				Core/ML/HeatmapBallDetector.swift,
 				Core/ML/YOLODetector.swift,
 				Core/ML/YOLORawDecode.swift,
 				Core/Networking/Secrets.swift,
+				Core/Utilities/DisplayFormatting.swift,
+				DesignSystem/Components/Inputs/BSCStraightenControl.swift,
+				DesignSystem/Tokens/DesignTokens.swift,
+				DesignSystem/Typography/BSCScaledFont.swift,
+				Features/RallyPlayback/Components/RallyTrimOverlay.swift,
 				Models/CameraSetup.swift,
 				Models/Detections.swift,
 				Resources/ML/ball_heat.mlpackage,

@@ -53,7 +53,7 @@ struct VideoDetailView: View {
                 Section("To track") {
                     ForEach(untracked) { r in
                         NavigationLink {
-                            TrackReviewView(model: model, video: video, span: r)
+                            TrackTaskView(model: model, video: video, span: r)
                         } label: {
                             Label("\(RallyTimesView.clock(r.start)) – \(RallyTimesView.clock(r.end))", systemImage: "scope")
                                 .font(.callout.monospacedDigit())

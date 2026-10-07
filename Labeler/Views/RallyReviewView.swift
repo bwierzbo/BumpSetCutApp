@@ -25,7 +25,9 @@ struct RallyReviewView: View {
     @State private var loadError: String?
     /// The found rally being asked about.
     @State private var current: [Double]?
-    @State private var adjusting: LabelRally?
+    /// The found rally being trimmed (BumpSetCut's trim bar).
+    @State private var trimming: LabelRally?
+    @State private var url: URL?
     @State private var skimming = false
     @State private var pendingStart: Double?
 
@@ -40,7 +42,7 @@ struct RallyReviewView: View {
                 .background(.black)
                 .overlay { if let loadError { Text(loadError).foregroundStyle(.white).padding() } }
             RallyTimeline(time: time, duration: duration, found: video.ralliesFound, marked: times.rallies,
-                          current: adjusting.map { [$0.start, $0.end] } ?? current, pending: pendingStart)
+                          current: current, pending: pendingStart)
                 .frame(height: 22).padding(.horizontal).padding(.top, 8)
             HStack {
                 Text(RallyTimesView.clock(time)).monospacedDigit()
@@ -49,7 +51,7 @@ struct RallyReviewView: View {
             }
             .font(.caption).padding(.horizontal)
             Spacer(minLength: 8)
-            if skimming { skim } else if let adjusting { adjust(adjusting) } else if let current { ask(current) } else { finished }
+            if skimming { skim } else if let current { ask(current) } else { finished }
             Spacer(minLength: 8)
         }
         .navigationTitle(video.name)
@@ -61,6 +63,15 @@ struct RallyReviewView: View {
             observer = nil
         }
         .sensoryFeedback(.success, trigger: times.rallies.count)
+        .fullScreenCover(item: $trimming) { rally in
+            if let url {
+                RallyTrimView(video: video, rally: rally, url: url, onConfirm: { trimmed in
+                    model.update(video) { $0.rallies.append(trimmed) }
+                    trimming = nil
+                    advance()
+                }, onCancel: { trimming = nil })
+            }
+        }
     }
 
     // MARK: - Steps
@@ -77,7 +88,10 @@ struct RallyReviewView: View {
                     advance()
                 } label: { Label("Not a rally", systemImage: "xmark").frame(maxWidth: .infinity) }
                     .buttonStyle(.bordered).tint(.red)
-                Button { adjusting = LabelRally(start: found[0], end: found[1]) } label: {
+                Button {
+                    player.pause()
+                    trimming = LabelRally(start: found[0], end: found[1])
+                } label: {
                     Label("Adjust", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -89,33 +103,6 @@ struct RallyReviewView: View {
             }
             .controlSize(.large)
             Button("Replay") { play(from: found[0] - 1) }.font(.callout)
-        }
-        .padding(.horizontal)
-    }
-
-    /// Move the start or end to where the video is, then confirm.
-    private func adjust(_ rally: LabelRally) -> some View {
-        VStack(spacing: 12) {
-            Text("Play or scrub to where the serve is hit, then where the ball is dead.").font(.callout).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            transport
-            HStack(spacing: 10) {
-                Button { adjusting?.start = min(time, rally.end - 0.2) } label: { Text("Start here").frame(maxWidth: .infinity) }
-                Button { adjusting?.end = max(time, rally.start + 0.2) } label: { Text("End here").frame(maxWidth: .infinity) }
-            }
-            .buttonStyle(.bordered)
-            HStack(spacing: 10) {
-                Button("Cancel") { adjusting = nil }.buttonStyle(.bordered)
-                Button {
-                    let r = rally
-                    model.update(video) { $0.rallies.append(r) }
-                    adjusting = nil
-                    advance()
-                } label: { Label("Confirm \(RallyTimesView.clock(rally.start)) – \(RallyTimesView.clock(rally.end))", systemImage: "checkmark")
-                    .frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent).tint(.green)
-            }
-            .controlSize(.large)
         }
         .padding(.horizontal)
     }
@@ -193,13 +180,15 @@ struct RallyReviewView: View {
     private func load() async {
         guard player.currentItem == nil else { return }
         do {
-            let item = AVPlayerItem(url: try await model.playbackURL(for: video))
+            let playback = try await model.playbackURL(for: video)
+            url = playback
+            let item = AVPlayerItem(url: playback)
             player.replaceCurrentItem(with: item)
             duration = (try? await item.asset.load(.duration).seconds) ?? video.duration
             observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { t in
                 time = t.seconds
                 // Loop the rally being asked about.
-                if let c = current, adjusting == nil, !skimming, t.seconds > c[1] + 1 { play(from: c[0] - 1) }
+                if let c = current, trimming == nil, !skimming, t.seconds > c[1] + 1 { play(from: c[0] - 1) }
             }
             advance()
         } catch {

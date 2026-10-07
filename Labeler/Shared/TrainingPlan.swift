@@ -61,6 +61,15 @@ enum TrainingPlan {
     static let valShare = 0.2
     /// More rallies than this from one video mostly repeat its court and camera.
     static let maxRalliesPerVideo = 5
+    /// A video has given enough at about this many labeled frames (~20 s of
+    /// rally, usually 3 rallies): the queue moves on to other videos.
+    static let enoughFramesPerVideo = 600
+
+    /// A video's rally times are marked through (for scoring rally cutting)
+    /// in about this many videos per surface per round.
+    static func rallyTimeVideosPerSurface(_ round: Round) -> Int {
+        (round.rallyTimeVideos + surfaces.count - 1) / surfaces.count
+    }
     /// Frames a tracked rally gives before any are tracked (about 6–7 s).
     static let defaultFramesPerRally = 200
 }
@@ -164,7 +173,8 @@ struct PlanProgress {
     private static func nextVideos(_ videos: [PlanVideo], surfaces: [String: Surface],
                                    round: TrainingPlan.Round, perRally: Int) -> [PlanVideo] {
         let candidates = videos.filter {
-            TrainingPlan.surfaces.contains($0.surface) && $0.available && $0.doneTracks < TrainingPlan.maxRalliesPerVideo
+            TrainingPlan.surfaces.contains($0.surface) && $0.available
+                && $0.doneTracks < TrainingPlan.maxRalliesPerVideo && $0.labeledFrames < TrainingPlan.enoughFramesPerVideo
         }
         var need = surfaces.mapValues { max(0, quota(round) - $0.frames) }
         var val = surfaces.mapValues(\.valFrames)

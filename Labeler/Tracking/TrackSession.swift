@@ -33,22 +33,37 @@ final class TrackSession {
     private(set) var frames: [Data] = []
     private var undoStack: [TrackedRally] = []
     private let model: LabelerModel
+    /// The rally itself — serve to dead ball — inside the tracked frames
+    /// (which run a little longer each side). Goes into the rally times.
+    var bounds: LabelRally
+    /// The found rally this started from, if any (for "not a rally").
+    let found: [Double]?
+    /// Your points kept across an extension (re-found on the new frames).
+    private var keptPoints: [TrackPoint] = []
+    /// Tracked frames run this far past the rally each side.
+    static let padding = 2.0
 
     /// Detections this sure or more are candidates (as on the Mac).
     static let candidateConfidence: Float = 0.15
     /// Frames are read about this often, whatever the video's rate.
     static let frameRate = 30.0
 
-    /// A new rally over `span` (padded a second each side), or an existing track.
-    init(model: LabelerModel, video: LabelVideo, span: LabelRally? = nil, track: LabelTrack? = nil) {
+    /// A new rally over `span` (tracked `padding` past it each side), or an
+    /// existing track (its rally from the rally times, if marked).
+    init(model: LabelerModel, video: LabelVideo, span: LabelRally? = nil, found: [Double]? = nil, track: LabelTrack? = nil) {
         self.model = model
         self.video = video
         if let track {
             rally = track.rally
+            bounds = model.rallyTimes(for: video).rallies.first { min($0.end, track.end) - max($0.start, track.start) > 0.3 }
+                ?? LabelRally(start: min(track.start + Self.padding, track.end), end: max(track.end - Self.padding, track.start))
+            self.found = nil
         } else {
             let s = span ?? LabelRally(start: 0, end: 1)
-            rally = TrackedRally(id: UUID(), start: max(0, s.start - 1), end: min(video.duration, s.end + 1),
+            rally = TrackedRally(id: UUID(), start: max(0, s.start - Self.padding), end: min(video.duration, s.end + Self.padding),
                                  points: [], candidates: [], done: false)
+            bounds = s
+            self.found = found
         }
     }
 
@@ -84,7 +99,10 @@ final class TrackSession {
             if rally.points.isEmpty {
                 rally.start = times.first!
                 rally.end = times.last!
-                rally.points = times.map { TrackPoint(time: $0, state: .unknown, origin: .auto, box: nil) }
+                rally.points = times.map { t in
+                    keptPoints.first { abs($0.time - t) < 0.002 } ?? TrackPoint(time: t, state: .unknown, origin: .auto, box: nil)
+                }
+                keptPoints = []
             }
             // An existing track's own frame times win (they're what was labeled).
             let wanted = rally.points.map(\.time)
@@ -222,6 +240,35 @@ final class TrackSession {
 
     func setDone(_ done: Bool) {
         change(resolve: false) { $0.done = done }
+        if done { model.markRally(bounds, in: video) }
+    }
+
+    /// The rally starts (the serve) or ends (the ball is dead) on this frame.
+    func setBound(start: Bool) {
+        guard let t = point?.time else { return }
+        if start { bounds.start = min(t, bounds.end - 0.2) } else { bounds.end = max(t, bounds.start + 0.2) }
+    }
+
+    /// More frames before or after (the rally runs past what was read):
+    /// your points stay, the rest is found again.
+    func extend(before: Double = 0, after: Double = 0) async {
+        keptPoints = rally.points.filter { $0.origin == .user }
+        rally.start = max(0, rally.start - before)
+        rally.end = min(video.duration, rally.end + after)
+        rally.points = []
+        rally.candidates = []
+        frames = []
+        undoStack = []
+        phase = .preparing("Reading more frames…", 0)
+        await prepare()
+        save()
+    }
+
+    /// Not a rally after all: forget it (and any track of it so far).
+    func discard() {
+        if let found { model.rejectFound(found, in: video) }
+        model.update(video) { $0.rallies.removeAll { abs($0.start - self.bounds.start) < 0.05 && abs($0.end - self.bounds.end) < 0.05 } }
+        if model.tracks(for: video).contains(where: { $0.id == rally.id }) { model.delete(LabelTrack(rally, videoId: video.id)) }
     }
 
     /// The rally's box size: the median of its visible boxes.

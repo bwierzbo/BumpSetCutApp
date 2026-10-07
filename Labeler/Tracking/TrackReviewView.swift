@@ -18,8 +18,8 @@ struct TrackReviewView: View {
     @State private var watching = false
     @Environment(\.dismiss) private var dismiss
 
-    init(model: LabelerModel, video: LabelVideo, span: LabelRally? = nil, track: LabelTrack? = nil) {
-        _session = State(initialValue: TrackSession(model: model, video: video, span: span, track: track))
+    init(model: LabelerModel, video: LabelVideo, span: LabelRally? = nil, found: [Double]? = nil, track: LabelTrack? = nil) {
+        _session = State(initialValue: TrackSession(model: model, video: video, span: span, found: found, track: track))
     }
 
     var body: some View {
@@ -37,9 +37,32 @@ struct TrackReviewView: View {
                 review
             }
         }
-        .navigationTitle("\(RallyTimesView.clock(session.rally.start)) · \(session.video.name)")
+        .navigationTitle("\(RallyTimesView.clock(session.bounds.start)) · \(session.video.name)")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if session.phase == .reviewing {
+                ToolbarItem(placement: .topBarTrailing) { rallyMenu }
+            }
+        }
         .task { if session.frames.isEmpty { await session.prepare() } }
+    }
+
+    /// The rally's own start and end, more frames, or not a rally at all.
+    private var rallyMenu: some View {
+        Menu {
+            Section("The rally (serve to dead ball): \(RallyTimesView.clock(session.bounds.start)) – \(RallyTimesView.clock(session.bounds.end))") {
+                Button { session.setBound(start: true) } label: { Label("Rally starts on this frame", systemImage: "arrow.right.to.line") }
+                Button { session.setBound(start: false) } label: { Label("Rally ends on this frame", systemImage: "arrow.left.to.line") }
+            }
+            Section("Frames") {
+                Button { Task { await session.extend(before: 2) } } label: { Label("2 s more before", systemImage: "backward") }
+                Button { Task { await session.extend(after: 2) } } label: { Label("2 s more after", systemImage: "forward") }
+            }
+            Button(role: .destructive) {
+                session.discard()
+                dismiss()
+            } label: { Label("Not a rally", systemImage: "xmark.circle") }
+        } label: { Image(systemName: "ellipsis.circle") }
     }
 
     private var review: some View {
@@ -50,6 +73,9 @@ struct TrackReviewView: View {
                 Text(left == 0 ? "Nothing left to check" : "\(left) to check")
                     .font(.headline).foregroundStyle(left == 0 ? .green : .primary)
                 Spacer()
+                let t = session.point?.time ?? 0
+                Text(t < session.bounds.start ? "before the serve" : t > session.bounds.end ? "after the rally" : "in the rally")
+                    .font(.caption).foregroundStyle(.secondary)
                 Text("frame \(session.index + 1)/\(session.rally.points.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
             .padding(.horizontal)
@@ -165,6 +191,12 @@ private struct FrameStrip: View {
                     let color: Color = p.state == .unknown ? .red : p.isUncertain ? .yellow
                         : p.state == .hidden ? .gray : (p.origin == .user ? .blue : .green)
                     ctx.fill(Path(CGRect(x: CGFloat(i) * w, y: 0, width: max(w - 0.5, 0.5), height: size.height)), with: .color(color.opacity(0.75)))
+                }
+                // The rally's own start and end.
+                for t in [session.bounds.start, session.bounds.end] {
+                    if let k = session.rally.points.firstIndex(where: { $0.time >= t - 0.001 }) {
+                        ctx.fill(Path(CGRect(x: CGFloat(k) * w - 1, y: -2, width: 2, height: size.height + 4)), with: .color(.white))
+                    }
                 }
                 ctx.stroke(Path(CGRect(x: CGFloat(session.index) * w - 1, y: 0, width: max(w, 2) + 2, height: size.height)),
                            with: .color(.primary), lineWidth: 2)

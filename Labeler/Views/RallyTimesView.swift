@@ -25,6 +25,9 @@ struct RallyTimesView: View {
     @State private var selected: LabelRally.ID?
     @State private var observer: Any?
     @State private var loadError: String?
+    /// The rally being trimmed (BumpSetCut's trim bar), and the clip it plays.
+    @State private var trimming: LabelRally?
+    @State private var url: URL?
 
     /// RallyLab reads frames 1/30 s apart; a frame step is one of those.
     private let frame = 1.0 / 30
@@ -45,6 +48,14 @@ struct RallyTimesView: View {
         .navigationTitle(video.name)
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .fullScreenCover(item: $trimming) { rally in
+            if let url {
+                RallyTrimView(video: video, rally: rally, url: url, onConfirm: { trimmed in
+                    move(rally.id) { $0.start = trimmed.start; $0.end = trimmed.end }
+                    trimming = nil
+                }, onCancel: { trimming = nil })
+            }
+        }
         .onDisappear {
             player.pause()
             if let observer { player.removeTimeObserver(observer) }
@@ -59,6 +70,7 @@ struct RallyTimesView: View {
         guard player.currentItem == nil else { return }
         do {
             let url = try await model.playbackURL(for: video)
+            self.url = url
             let item = AVPlayerItem(url: url)
             player.replaceCurrentItem(with: item)
             duration = (try? await item.asset.load(.duration).seconds) ?? video.duration
@@ -220,11 +232,9 @@ struct RallyTimesView: View {
             .tint(.primary)
             if selected == r.id {
                 HStack {
-                    Button("Start here") { move(r.id) { $0.start = min(time, $0.end - 0.2) } }
+                    Button { player.pause(); isPlaying = false; trimming = r } label: { Label("Trim", systemImage: "timeline.selection") }
                     Spacer()
                     Button("Play from start") { seek(r.start); player.playImmediately(atRate: rate); isPlaying = true }
-                    Spacer()
-                    Button("End here") { move(r.id) { $0.end = max(time, $0.start + 0.2) } }
                 }
                 .buttonStyle(.bordered).controlSize(.small)
             }

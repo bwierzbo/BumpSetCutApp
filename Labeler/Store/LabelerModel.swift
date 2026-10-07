@@ -111,12 +111,15 @@ final class LabelerModel {
         }
     }
 
-    /// Rallies to track: your marked ones (else the found ones) not tracked yet.
+    /// Rallies to track, in time order: your marked ones, then the found
+    /// ones you haven't marked or turned down — none already tracked.
     func untrackedRallies(in video: LabelVideo) -> [LabelRally] {
         let marked = rallyTimes(for: video).rallies
-        let pool = marked.isEmpty ? video.ralliesFound.map { LabelRally(start: $0[0], end: $0[1]) } : marked
+        let found = openFound(in: video).map { LabelRally(start: $0[0], end: $0[1]) }
         let tracked = tracks(for: video)
-        return pool.filter { r in !tracked.contains { min($0.end, r.end) - max($0.start, r.start) > 0.5 * (r.end - r.start) } }
+        return (marked + found)
+            .filter { r in !tracked.contains { min($0.end, r.end) - max($0.start, r.start) > 0.5 * (r.end - r.start) } }
+            .sorted { $0.start < $1.start }
     }
 
     // MARK: - Plan
@@ -160,23 +163,32 @@ final class LabelerModel {
         }
     }
 
-    /// What to do next, most useful first: for each video the plan wants a
-    /// rally from, finish its rally times first (quick, and they're what
-    /// gets tracked), then track one of its rallies. Then any video whose
-    /// rally times aren't finished.
+    /// What to do next, most useful first: a rally to track from each video
+    /// the plan wants frames from (one each, so they spread over many
+    /// videos; a video stops after ~20 s of tracked rally). Every few, a
+    /// video to mark all the way through, while a surface is short of those
+    /// for scoring rally cutting this round.
     var tasks: [LabelTask] {
-        var out: [LabelTask] = []
         let byName = Dictionary(videos.map { ($0.name, $0) }) { a, _ in a }
-        for p in progress.queue {
-            guard let v = byName[p.name] else { continue }
-            if !rallyTimes(for: v).complete {
-                out.append(.review(v))
-            } else if let r = untrackedRallies(in: v).first {
-                out.append(.track(v, r))
-            }
+        var track: [LabelTask] = progress.queue.compactMap { p in
+            guard let v = byName[p.name], let r = untrackedRallies(in: v).first else { return nil }
+            return .track(v, r)
         }
-        for v in videos.sorted(by: { $0.name < $1.name }) where !rallyTimes(for: v).complete && !out.contains(.review(v)) {
-            out.append(.review(v))
+        guard let round = currentRound else { return track }
+        // Videos to mark through: the surface's short, the one with most found rallies first.
+        var review: [LabelTask] = []
+        let wanted = TrainingPlan.rallyTimeVideosPerSurface(round)
+        for surface in LabelSurface.allCases {
+            let have = videos.filter { $0.surface == surface && rallyTimes(for: $0).complete }.count
+            let open = videos.filter { $0.surface == surface && !rallyTimes(for: $0).complete }
+                .sorted { $0.ralliesFound.count > $1.ralliesFound.count }
+            review += open.prefix(max(0, wanted - have)).map { .review($0) }
+        }
+        var out: [LabelTask] = []
+        while !track.isEmpty || !review.isEmpty {
+            out += track.prefix(3)
+            track.removeFirst(min(3, track.count))
+            if !review.isEmpty { out.append(review.removeFirst()) }
         }
         return out
     }
@@ -192,6 +204,15 @@ final class LabelerModel {
         outbox.times[video.id] = t
         if t.complete && !wasComplete { count { $0.videos += 1 } }
         queueFlush()
+    }
+
+    /// A tracked rally's own start and end go into the video's rally times
+    /// (replacing any marked rally it overlaps).
+    func markRally(_ rally: LabelRally, in video: LabelVideo) {
+        update(video) { t in
+            t.rallies.removeAll { min($0.end, rally.end) - max($0.start, rally.start) > 0.3 }
+            t.rallies.append(rally)
+        }
     }
 
     func rejectFound(_ found: [Double], in video: LabelVideo) {

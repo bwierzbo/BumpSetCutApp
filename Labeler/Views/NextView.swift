@@ -81,7 +81,7 @@ struct NextView: View {
                 return ("Check the rallies", open > 0 ? "\(open) found rallies to confirm, then skim for missed ones" : "Skim for missed rallies and finish",
                         "checklist")
             case .track(_, let r):
-                return ("Track a rally", "\(RallyTimesView.clock(r.start)) – \(RallyTimesView.clock(r.end)) · about \(Int((r.end - r.start + 2) * 30)) frames",
+                return ("Track a rally", "\(RallyTimesView.clock(r.start)) – \(RallyTimesView.clock(r.end)) · about \(Int((r.end - r.start + 2 * TrackSession.padding) * TrackSession.frameRate)) frames",
                         "scope")
             }
         }()
@@ -134,7 +134,7 @@ extension LabelerModel.LabelTask {
     func destination(_ model: LabelerModel) -> some View {
         switch self {
         case .review(let v): RallyReviewView(model: model, video: v)
-        case .track(let v, let r): TrackReviewView(model: model, video: v, span: r)
+        case .track(let v, let r): TrackTaskView(model: model, video: v, span: r)
         }
     }
 }
