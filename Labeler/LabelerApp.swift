@@ -2,12 +2,15 @@
 //  LabelerApp.swift
 //  Labeler
 //
-//  RallyLab on the iPhone (same bundle ID as the Mac app, one App Store
-//  Connect record): a small app for labeling BumpSetCut's training data away from the
-//  Mac: mark every rally's start and end in the videos of a RallyLab
-//  project, and upload videos recorded on the phone for RallyLab to pull in.
-//  Separate from BumpSetCut; installed from Xcode. Data lives in Supabase
-//  (labeling tables + the private "labeling" bucket), synced by RallyLab.
+//  RallyLab on the iPhone (same bundle ID as the Mac app; TestFlight via
+//  scripts/rallylab_ios_release.sh): label BumpSetCut's training data away
+//  from the Mac. Next hands you the most useful task from the training
+//  plan — confirm a video's found rallies, or track a rally's ball by
+//  checking only the frames the model is unsure of; Overview and Plan show
+//  the dataset and the rounds; Videos lists everything and uploads videos
+//  recorded on the phone. Works offline from the last sync. Data lives in
+//  Supabase (labeling tables + the private "labeling" bucket), synced by
+//  RallyLab on the Mac. Separate from BumpSetCut.
 //
 
 import SwiftUI
@@ -43,7 +46,7 @@ struct RootView: View {
                     Button("Sign Out") { Task { await model.signOut() } }
                 }
             case .ready:
-                VideoListView(model: model)
+                MainTabs(model: model)
             }
         }
         .alert("Something went wrong", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
@@ -51,6 +54,45 @@ struct RootView: View {
         } message: {
             Text(model.error ?? "")
         }
+    }
+}
+
+/// Next (the task queue) · Overview · Plan · Videos. Each tab has its own
+/// navigation; tasks and videos open their screens.
+struct MainTabs: View {
+    @Bindable var model: LabelerModel
+    @State private var nextPath = NavigationPath()
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        TabView {
+            Tab("Next", systemImage: "play.circle.fill") {
+                NavigationStack(path: $nextPath) {
+                    NextView(model: model, path: $nextPath).destinations(model)
+                }
+            }
+            Tab("Overview", systemImage: "chart.bar.xaxis") {
+                NavigationStack { OverviewView(model: model).destinations(model) }
+            }
+            Tab("Plan", systemImage: "point.topleft.down.to.point.bottomright.curvepath") {
+                NavigationStack { PlanView(model: model).destinations(model) }
+            }
+            Tab("Videos", systemImage: "film.stack") {
+                NavigationStack { VideoListView(model: model).destinations(model) }
+            }
+        }
+        // Back in the app: send what's waiting and pick up the Mac's changes.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await model.reload() } }
+        }
+    }
+}
+
+extension View {
+    /// Where tasks and videos lead.
+    func destinations(_ model: LabelerModel) -> some View {
+        navigationDestination(for: LabelerModel.LabelTask.self) { $0.destination(model) }
+            .navigationDestination(for: LabelVideo.self) { VideoDetailView(model: model, video: $0) }
     }
 }
 

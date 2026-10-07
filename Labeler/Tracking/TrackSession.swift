@@ -1,0 +1,250 @@
+//
+//  TrackSession.swift
+//  RallyLab (iPhone)
+//
+//  One rally being tracked on the phone, the same way the Mac's Track tab
+//  does it: the same frames (every frame ~1/30 s apart, read from the
+//  clip's own sample times), the same detectors (YOLO + the multi-frame
+//  model, merged by TrackFinder) and the same path solver (TrackSolver).
+//  You only look at the frames worth a look; every fix re-solves the rest.
+//
+
+import AVFoundation
+import CoreGraphics
+import Observation
+import UIKit
+
+@MainActor
+@Observable
+final class TrackSession {
+
+    enum Phase: Equatable {
+        case preparing(String, Double)
+        case reviewing
+        case failed(String)
+    }
+
+    let video: LabelVideo
+    private(set) var rally: TrackedRally
+    private(set) var phase = Phase.preparing("Getting the clip…", 0)
+    /// The frame on screen.
+    var index = 0
+    /// Each frame as JPEG, upright, in time order.
+    private(set) var frames: [Data] = []
+    private var undoStack: [TrackedRally] = []
+    private let model: LabelerModel
+
+    /// Detections this sure or more are candidates (as on the Mac).
+    static let candidateConfidence: Float = 0.15
+    /// Frames are read about this often, whatever the video's rate.
+    static let frameRate = 30.0
+
+    /// A new rally over `span` (padded a second each side), or an existing track.
+    init(model: LabelerModel, video: LabelVideo, span: LabelRally? = nil, track: LabelTrack? = nil) {
+        self.model = model
+        self.video = video
+        if let track {
+            rally = track.rally
+        } else {
+            let s = span ?? LabelRally(start: 0, end: 1)
+            rally = TrackedRally(id: UUID(), start: max(0, s.start - 1), end: min(video.duration, s.end + 1),
+                                 points: [], candidates: [], done: false)
+        }
+    }
+
+    // MARK: - Reading
+
+    var point: TrackPoint? { rally.points.indices.contains(index) ? rally.points[index] : nil }
+
+    /// Frames worth a look, in order.
+    var toCheck: [Int] { rally.points.indices.filter { rally.points[$0].isUncertain } }
+
+    var canUndo: Bool { !undoStack.isEmpty }
+
+    func image(_ i: Int) -> UIImage? { frames.indices.contains(i) ? UIImage(data: frames[i]) : nil }
+
+    /// Where the ball is (or was last seen) around frame `i`, Vision-normalised.
+    func focus(around i: Int) -> CGPoint? {
+        let order = [i] + (1...30).flatMap { [i - $0, i + $0] }
+        for k in order where rally.points.indices.contains(k) {
+            if let b = rally.points[k].box, rally.points[k].state == .visible { return CGPoint(x: b.x + b.w / 2, y: b.y + b.h / 2) }
+        }
+        return nil
+    }
+
+    // MARK: - Preparing
+
+    func prepare() async {
+        do {
+            let file = try await model.localClip(for: video)
+            let asset = AVURLAsset(url: file)
+            guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ClipEncoder.Failure.noVideo }
+            let times = try await Self.frameTimes(track, start: rally.start, end: rally.end)
+            guard !times.isEmpty else { throw ClipEncoder.Failure.cantRead }
+            if rally.points.isEmpty {
+                rally.start = times.first!
+                rally.end = times.last!
+                rally.points = times.map { TrackPoint(time: $0, state: .unknown, origin: .auto, box: nil) }
+            }
+            // An existing track's own frame times win (they're what was labeled).
+            let wanted = rally.points.map(\.time)
+            phase = .preparing("Finding the ball on \(wanted.count) frames…", 0)
+            let found = try await Self.detect(asset: asset, times: wanted) { done in
+                Task { @MainActor [weak self] in
+                    self?.phase = .preparing("Finding the ball on \(wanted.count) frames…", Double(done) / Double(wanted.count))
+                }
+            }
+            frames = found.frames
+            rally.candidates = found.candidates
+            rally.points = TrackSolver.solve(rally)
+            index = toCheck.first ?? 0
+            phase = .reviewing
+        } catch {
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// The clip's frames from `start` to `end`, one per 1/30 s (every other
+    /// frame of a 60 fps video), from its own sample times — stepping from the
+    /// last frame at or before `start` as the Mac's sample cursor does — so a
+    /// frame here is the same frame there. (iOS has no sample cursors: the
+    /// times come from reading the samples without decoding them.)
+    private static func frameTimes(_ track: AVAssetTrack, start: Double, end: Double) async throws -> [Double] {
+        let fps = Double(try await track.load(.nominalFrameRate))
+        let step = max(1, Int((fps / frameRate).rounded()))
+        guard let asset = track.asset else { throw ClipEncoder.Failure.cantRead }
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = CMTimeRange(start: CMTime(seconds: max(0, start - 1), preferredTimescale: 600),
+                                       end: CMTime(seconds: end + 0.1, preferredTimescale: 600))
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+        reader.add(output)
+        guard reader.startReading() else { throw ClipEncoder.Failure.cantRead }
+        var all: [Double] = []
+        while let sample = output.copyNextSampleBuffer() {
+            let t = CMSampleBufferGetPresentationTimeStamp(sample)
+            if t.isValid, CMSampleBufferGetNumSamples(sample) > 0 { all.append(t.seconds) }
+        }
+        all.sort()
+        guard let first = all.lastIndex(where: { $0 <= start + 0.0005 }) ?? all.indices.first else { return [] }
+        return stride(from: first, to: all.count, by: step).map { all[$0] }.filter { $0 <= end }
+    }
+
+    private struct Found: Sendable {
+        var frames: [Data]
+        var candidates: [[TrackCandidate]]
+    }
+
+    /// Every frame read once, in order: YOLO's candidates and the frame for
+    /// the multi-frame model, then the multi-frame model's peaks merged in.
+    private static func detect(asset: AVURLAsset, times: [Double],
+                               progress: @escaping @Sendable (Int) -> Void) async throws -> Found {
+        try await Task.detached(priority: .userInitiated) {
+            let yolo = YOLODetector(modelName: "ball_v2_small", computeUnits: .cpuAndNeuralEngine)
+            yolo.minConfidence = candidateConfidence
+            yolo.suppressesStaticObjects = false
+            let heat = Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")
+                .flatMap { HeatmapBallDetector(modelURL: $0, computeUnits: .cpuAndNeuralEngine) }
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            var frames = [Data](repeating: Data(), count: times.count)
+            var found = [[TrackCandidate]](repeating: [], count: times.count)
+            var grays = [HeatmapBallDetector.Frame?](repeating: nil, count: times.count)
+            var done = 0
+            func read(_ indices: [Int]) async throws {
+                let requests = indices.map { CMTime(seconds: times[$0], preferredTimescale: 600_000) }
+                for await result in generator.images(for: requests) {
+                    try Task.checkCancellation()
+                    guard let image = try? result.image,
+                          let i = indices.first(where: { abs(times[$0] - result.requestedTime.seconds) < 0.0005 }) else { continue }
+                    found[i] = yolo.detect(in: image, at: .zero).map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
+                    grays[i] = heat?.grayscale(image)
+                    frames[i] = UIImage(cgImage: image).jpegData(compressionQuality: 0.8) ?? Data()
+                    done += 1
+                    progress(done)
+                }
+            }
+            try await read(Array(times.indices))
+            // A few frames can fail an exact read; take the nearest decoded
+            // frame within a quarter of a frame instead.
+            let missed = times.indices.filter { frames[$0].isEmpty }
+            if !missed.isEmpty {
+                generator.requestedTimeToleranceBefore = CMTime(seconds: 0.25 / frameRate, preferredTimescale: 600_000)
+                generator.requestedTimeToleranceAfter = CMTime(seconds: 0.25 / frameRate, preferredTimescale: 600_000)
+                try await read(missed)
+            }
+            if let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found) }
+            return Found(frames: frames, candidates: found)
+        }.value
+    }
+
+    // MARK: - Fixing
+
+    /// The pick on this frame is right.
+    func confirm() {
+        guard let p = point, p.state != .unknown else { return }
+        change { $0.points[index].origin = .user }
+    }
+
+    /// The ball is here (Vision-normalised, upright frame).
+    func setBall(at location: CGPoint) {
+        let side = typicalBoxSide
+        let box = TrackCandidate(rect: CGRect(x: location.x - side.width / 2, y: location.y - side.height / 2,
+                                              width: side.width, height: side.height), confidence: 1)
+        change { r in
+            r.points[index].state = .visible
+            r.points[index].origin = .user
+            r.points[index].box = box
+        }
+    }
+
+    /// The ball can't be seen on this frame.
+    func markHidden() {
+        change { r in
+            r.points[index].state = .hidden
+            r.points[index].origin = .user
+            r.points[index].box = nil
+        }
+    }
+
+    func undo() {
+        guard let last = undoStack.popLast() else { return }
+        rally = last
+        save()
+    }
+
+    /// Go to the next frame worth a look after this one (wrapping round).
+    func nextToCheck() {
+        let list = toCheck
+        index = list.first { $0 > index } ?? list.first ?? index
+    }
+
+    func setDone(_ done: Bool) {
+        change(resolve: false) { $0.done = done }
+    }
+
+    /// The rally's box size: the median of its visible boxes.
+    private var typicalBoxSide: CGSize {
+        let boxes = rally.points.compactMap { $0.state == .visible ? $0.box : nil }
+        guard !boxes.isEmpty else { return CGSize(width: 0.02, height: 0.035) }
+        let w = boxes.map(\.w).sorted()[boxes.count / 2], h = boxes.map(\.h).sorted()[boxes.count / 2]
+        return CGSize(width: w, height: h)
+    }
+
+    private func change(resolve: Bool = true, _ edit: (inout TrackedRally) -> Void) {
+        guard rally.points.indices.contains(index) else { return }
+        undoStack.append(rally)
+        if undoStack.count > 50 { undoStack.removeFirst() }
+        edit(&rally)
+        if resolve {
+            rally.points = TrackSolver.solve(rally)
+            rally.done = false
+        }
+        save()
+    }
+
+    private func save() {
+        model.save(LabelTrack(rally, videoId: video.id))
+    }
+}

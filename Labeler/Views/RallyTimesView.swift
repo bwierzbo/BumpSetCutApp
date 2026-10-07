@@ -244,7 +244,7 @@ struct RallyTimesView: View {
 }
 
 /// An AVPlayer's picture, without system controls.
-private struct PlayerLayer: UIViewRepresentable {
+struct PlayerLayer: UIViewRepresentable {
     let player: AVPlayer
 
     func makeUIView(context: Context) -> PlayerView {

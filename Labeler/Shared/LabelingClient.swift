@@ -31,6 +31,15 @@ actor LabelingClient {
     }
 
     static let bucket = "labeling"
+    /// Clips are tens of megabytes: waits of minutes are normal on a slow
+    /// connection (the default 60 s timed out mid-upload).
+    private let transfers: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 600
+        config.timeoutIntervalForResource = 3 * 3600
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
+    }()
     private let base = URL(string: Secrets.supabaseURL)!
     private let apiKey = Secrets.supabaseAnonKey
     private var accessToken: String?
@@ -182,8 +191,14 @@ actor LabelingClient {
         request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
         let delegate = progress.map(UploadProgress.init)
-        let (data, response) = try await URLSession.shared.upload(for: request, fromFile: file, delegate: delegate)
-        try Self.check(data, response)
+        do {
+            let (data, response) = try await transfers.upload(for: request, fromFile: file, delegate: delegate)
+            try Self.check(data, response)
+        } catch let error as URLError where error.code == .timedOut || error.code == .networkConnectionLost {
+            // Once more: a dropped connection mid-upload is common on the go.
+            let (data, response) = try await transfers.upload(for: request, fromFile: file, delegate: delegate)
+            try Self.check(data, response)
+        }
     }
 
     /// A link to stream or download a clip, good for `seconds`.
@@ -202,7 +217,7 @@ actor LabelingClient {
 
     /// Download a clip to `destination` (replacing anything there).
     func download(_ path: String, to destination: URL) async throws {
-        let (temp, response) = try await URLSession.shared.download(from: try await signedURL(for: path, seconds: 3600))
+        let (temp, response) = try await transfers.download(from: try await signedURL(for: path, seconds: 3600))
         try Self.check(Data(), response)
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: temp, to: destination)
