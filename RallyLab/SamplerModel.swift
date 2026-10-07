@@ -502,6 +502,11 @@ final class SamplerModel {
         if job.framesPerRally != nil, rallies.isEmpty, plan.count < 2 * Self.framesWithoutRallies {
             plan = planFrames(random: 2 * Self.framesWithoutRallies)
         }
+        // Only the frames that will be kept are pulled from the video.
+        if let perRally = job.framesPerRally, perRally > 0 {
+            let keep = Self.keep(sources: plan.map(\.source.key), perRally: perRally)
+            plan = keep.map { plan[$0] }
+        }
         guard !plan.isEmpty else { throw IngestError.nothingToSample }
         setJob(job.id, .running("Extracting \(plan.count) frames (\(rallies.count) rallies)…"), fraction: Self.rallyShare)
 
@@ -650,6 +655,12 @@ final class SamplerModel {
     /// the pipeline saw no ball in and random frames at half that rate each.
     /// A video with no rally keeps `framesWithoutRallies` frames spread over it.
     nonisolated static func thin(_ records: [FrameRecord], perRally: Int) -> [Int] {
+        keep(sources: records.map(\.source), perRally: perRally)
+    }
+
+    /// thin's choice, from each frame's source key ("rally:3", "missed", …)
+    /// in time order — so a plan can be thinned before any frame is pulled.
+    nonisolated static func keep(sources: [String], perRally: Int) -> [Int] {
         /// `n` of `indices`, the first and last always among them.
         func spread(_ indices: [Int], _ n: Int) -> [Int] {
             guard n > 0, !indices.isEmpty else { return [] }
@@ -657,13 +668,13 @@ final class SamplerModel {
             guard n > 1 else { return [indices[0]] }
             return (0..<n).map { indices[Int((Double($0) * Double(indices.count - 1) / Double(n - 1)).rounded())] }
         }
-        let rallies = Dictionary(grouping: records.indices.filter { records[$0].source.hasPrefix("rally:") },
-                                 by: { records[$0].source })
-        guard !rallies.isEmpty else { return spread(Array(records.indices), framesWithoutRallies) }
+        let rallies = Dictionary(grouping: sources.indices.filter { sources[$0].hasPrefix("rally:") },
+                                 by: { sources[$0] })
+        guard !rallies.isEmpty else { return spread(Array(sources.indices), framesWithoutRallies) }
         var picked = rallies.values.flatMap { spread($0.sorted(), perRally) }
         let extra = rallies.count * max(0, perRally - 2) / 2
-        picked += spread(records.indices.filter { records[$0].source == FrameSample.Source.missed.key }, extra)
-        picked += spread(records.indices.filter { records[$0].source == FrameSample.Source.random.key }, extra)
+        picked += spread(sources.indices.filter { sources[$0] == FrameSample.Source.missed.key }, extra)
+        picked += spread(sources.indices.filter { sources[$0] == FrameSample.Source.random.key }, extra)
         return picked.sorted()
     }
 
