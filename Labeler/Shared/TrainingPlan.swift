@@ -66,8 +66,8 @@ enum TrainingPlan {
 }
 
 /// What a round trained, as kept in training_plan.json.
-struct TrainedRound: Codable, Identifiable {
-    struct RunState: Codable {
+struct TrainedRound: Codable, Identifiable, Hashable {
+    struct RunState: Codable, Hashable {
         let run: TrainingPlan.Run
         /// The desktop run's name once it's started.
         var name: String?

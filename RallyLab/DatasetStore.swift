@@ -91,6 +91,9 @@ struct VideoSession: Codable, Identifiable, Equatable {
     /// Every rally's start and end is marked (Track tab → Rally Times), so
     /// the video can score missed and false rallies.
     var ralliesMarked: Bool? = nil
+    /// Tracked rallies the phone had at the last sync: one gone from here
+    /// since was deleted here, so the sync deletes it there too.
+    var syncedTrackIds: [UUID]? = nil
 
     var reviewedCount: Int { frames.filter(\.reviewed).count }
     var boxCount: Int { frames.filter(\.keep).reduce(0) { $0 + $1.boxes.count } }

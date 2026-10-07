@@ -18,7 +18,7 @@
 import CoreGraphics
 import Foundation
 
-struct TrackCandidate: Codable, Equatable {
+struct TrackCandidate: Codable, Hashable {
     /// Vision-normalised (bottom-up) box in the upright frame.
     var x, y, w, h: Double
     var confidence: Double
@@ -31,7 +31,7 @@ struct TrackCandidate: Codable, Equatable {
     var rect: CGRect { CGRect(x: x, y: y, width: w, height: h) }
 }
 
-struct TrackPoint: Codable, Equatable {
+struct TrackPoint: Codable, Hashable {
     enum State: String, Codable {
         /// The ball is here (`box`).
         case visible
@@ -77,9 +77,28 @@ struct TrackedRally: Codable, Identifiable, Equatable {
     /// re-solve instantly without running the detector again.
     var candidates: [[TrackCandidate]]
     var done: Bool
+    /// When it last changed (on this Mac or the phone): the newer side wins a sync.
+    var updatedAt: Date? = nil
 }
 
 extension TrackedRally {
+    /// `tracks` with updatedAt set to now on every rally that's new or
+    /// changed since `before` (changes from a sync keep their own time).
+    static func stamped(_ tracks: [TrackedRally], since before: [TrackedRally]) -> [TrackedRally] {
+        let old = Dictionary(before.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let now = Date()
+        return tracks.map { t in
+            guard let o = old[t.id] else { return t.updatedAt == nil ? t.with(updatedAt: now) : t }
+            if t.updatedAt != o.updatedAt { return t }
+            return t.with(updatedAt: o.updatedAt) == o ? t : t.with(updatedAt: now)
+        }
+    }
+
+    func with(updatedAt: Date?) -> TrackedRally {
+        var t = self
+        t.updatedAt = updatedAt
+        return t
+    }
     /// Frames with a decided label (the ball, or hidden): what training gets.
     var labeledFrames: Int { points.filter { $0.state != .unknown }.count }
 }

@@ -1176,11 +1176,24 @@ final class SamplerModel {
     /// Sampler's copy of the session (which it saves on every review
     /// change) always has them.
     func setTracks(_ tracks: [TrackedRally], session name: String) {
+        let before = (currentSession?.name == name ? currentSession : sessions.first { $0.name == name })?.tracks ?? []
+        let tracks = TrackedRally.stamped(tracks, since: before)
         if var session = currentSession, session.name == name {
             session.tracks = tracks
             saveSession(session)
         } else if let s = sessions.firstIndex(where: { $0.name == name }) {
             sessions[s].tracks = tracks
+            do { try store.save(sessions[s]) } catch { status = "Couldn't save: \(error.localizedDescription)" }
+        }
+    }
+
+    /// What the phone had of this video's tracked rallies at the last sync.
+    func setSyncedTrackIds(_ ids: [UUID], session name: String) {
+        if var session = currentSession, session.name == name {
+            session.syncedTrackIds = ids
+            saveSession(session)
+        } else if let s = sessions.firstIndex(where: { $0.name == name }) {
+            sessions[s].syncedTrackIds = ids
             do { try store.save(sessions[s]) } catch { status = "Couldn't save: \(error.localizedDescription)" }
         }
     }

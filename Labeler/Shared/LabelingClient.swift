@@ -121,6 +121,28 @@ actor LabelingClient {
         return first
     }
 
+    func tracks() async throws -> [LabelTrack] {
+        try await get("label_tracks", query: "select=*")
+    }
+
+    /// Insert or update tracked rallies, by id.
+    func save(_ tracks: [LabelTrack]) async throws {
+        guard !tracks.isEmpty else { return }
+        let now = Date()
+        let rows = tracks.map { t -> LabelTrack in var t = t; t.updatedAt = t.updatedAt ?? now; return t }
+        let _: [LabelTrack] = try await upsert("label_tracks", rows, onConflict: "id")
+    }
+
+    func projectStates() async throws -> [LabelProjectState] {
+        try await get("label_project_state", query: "select=*")
+    }
+
+    func save(_ state: LabelProjectState) async throws {
+        var row = state
+        row.updatedAt = Date()
+        let _: [LabelProjectState] = try await upsert("label_project_state", [row], onConflict: "project")
+    }
+
     private func get<T: Decodable>(_ table: String, query: String) async throws -> T {
         var request = try await rest(table, query: query)
         request.httpMethod = "GET"
@@ -128,10 +150,14 @@ actor LabelingClient {
     }
 
     private func upsert<T: Codable>(_ table: String, _ row: T, onConflict: String) async throws -> [T] {
+        try await upsert(table, [row], onConflict: onConflict)
+    }
+
+    private func upsert<T: Codable>(_ table: String, _ rows: [T], onConflict: String) async throws -> [T] {
         var request = try await rest(table, query: "on_conflict=\(onConflict)")
         request.httpMethod = "POST"
         request.setValue("resolution=merge-duplicates,return=representation", forHTTPHeaderField: "Prefer")
-        request.httpBody = try Self.encoder.encode([row])
+        request.httpBody = try Self.encoder.encode(rows)
         return try Self.decoder.decode([T].self, from: try await send(request))
     }
 

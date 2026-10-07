@@ -6,6 +6,7 @@
 //  028_labeling.sql): a video to label, and the rally times marked in it.
 //
 
+import CoreGraphics
 import Foundation
 
 enum LabelSurface: String, Codable, CaseIterable, Identifiable {
@@ -94,5 +95,76 @@ struct LabelRallyTimes: Codable, Hashable {
     var rallies: [LabelRally]
     /// Every rally in the video is marked.
     var complete: Bool
+    var updatedAt: Date?
+}
+
+/// A rally tracked frame by frame, as label_tracks keeps it: the ball (or
+/// hidden) on every frame. The detector's candidates aren't synced — each
+/// side finds them again when it needs to re-solve.
+struct LabelTrack: Codable, Identifiable, Hashable {
+    var id: UUID
+    var videoId: UUID
+    var start: Double
+    var end: Double
+    var points: PackedPoints
+    var done: Bool
+    /// Deleted on the phone; the Mac removes its copy on the next sync.
+    var deleted: Bool
+    var updatedAt: Date?
+
+    /// Labeled frames (ball or hidden) — what training gets.
+    var labeledFrames: Int { points.points.filter { $0.state != .unknown }.count }
+
+    /// TrackPoints as compact arrays: [time, state, origin, x, y, w, h, confidence],
+    /// the box only when there is one.
+    struct PackedPoints: Codable, Hashable {
+        var points: [TrackPoint]
+
+        init(_ points: [TrackPoint]) { self.points = points }
+
+        private static let states: [TrackPoint.State] = [.unknown, .visible, .hidden]
+        private static let origins: [TrackPoint.Origin] = [.auto, .user, .filled]
+
+        init(from decoder: Decoder) throws {
+            let rows = try decoder.singleValueContainer().decode([[Double]].self)
+            points = rows.compactMap { r in
+                guard r.count >= 3 else { return nil }
+                let state = Self.states[min(max(Int(r[1]), 0), 2)]
+                let origin = Self.origins[min(max(Int(r[2]), 0), 2)]
+                let box = r.count >= 8
+                    ? TrackCandidate(rect: CGRect(x: r[3], y: r[4], width: r[5], height: r[6]), confidence: r[7]) : nil
+                return TrackPoint(time: r[0], state: state, origin: origin, box: box)
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.singleValueContainer()
+            try c.encode(points.map { p -> [Double] in
+                var row = [p.time, Double(Self.states.firstIndex(of: p.state) ?? 0), Double(Self.origins.firstIndex(of: p.origin) ?? 0)]
+                if let b = p.box { row += [b.x, b.y, b.w, b.h, b.confidence] }
+                return row
+            })
+        }
+    }
+}
+
+extension LabelTrack {
+    init(_ rally: TrackedRally, videoId: UUID) {
+        self.init(id: rally.id, videoId: videoId, start: rally.start, end: rally.end, points: PackedPoints(rally.points),
+                  done: rally.done, deleted: false, updatedAt: rally.updatedAt)
+    }
+
+    /// As the Track tab and TrackSolver work with it (no candidates yet).
+    var rally: TrackedRally {
+        TrackedRally(id: id, start: start, end: end, points: points.points, candidates: [], done: done, updatedAt: updatedAt)
+    }
+}
+
+/// A project's training plan as the Mac ran it, and each run's scores
+/// ({run name: {"tracked": F1, "indoor": F1, …}}), for the phone's Plan tab.
+struct LabelProjectState: Codable, Hashable {
+    var project: String
+    var plan: [TrainedRound]
+    var scores: [String: [String: Double]]
     var updatedAt: Date?
 }

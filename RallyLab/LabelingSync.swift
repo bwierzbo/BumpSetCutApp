@@ -11,6 +11,8 @@
 //     the pipeline found, and a small copy of its cut (720p, ~2 Mbit/s) is
 //     uploaded once.
 //  3. Rally times go both ways: whichever side changed them last wins.
+//  4. Tracked rallies go both ways the same way, deletions included.
+//  5. The training plan and its runs' scores go up for the phone's Plan tab.
 //
 //  Headless: RallyLab --project <name> --sync-phone (after signing in once
 //  in the app; the session is kept in the Keychain).
@@ -61,8 +63,10 @@ final class LabelingSync {
             let imported = try await importPhoneVideos(project: project)
             let (listed, uploaded) = try await publishVideos(project: project)
             let (pushed, pulled) = try await syncRallyTimes(project: project)
+            let (tracksSent, tracksReceived) = try await syncTracks(project: project)
+            try await publishPlan(project: project)
             status = "Synced: \(listed) videos listed (\(uploaded) uploaded), \(imported) phone videos pulled in, "
-                + "rally times \(pushed) sent · \(pulled) received."
+                + "rally times \(pushed) sent · \(pulled) received, tracked rallies \(tracksSent) sent · \(tracksReceived) received."
             return true
         } catch LabelingClient.Failure.notSignedIn {
             signedIn = false
@@ -250,6 +254,88 @@ final class LabelingSync {
             }
         }
         return (pushed, pulled)
+    }
+
+    // MARK: - 4. Tracked rallies, both ways
+
+    /// Per rally, the newer side wins. A rally only on the phone is new from
+    /// it — unless it was here at the last sync, then it was deleted here and
+    /// is marked deleted there. One the phone marked deleted goes here too.
+    private func syncTracks(project: String) async throws -> (sent: Int, received: Int) {
+        let videos = try await client.videos().filter { $0.project == project && $0.sessionName != nil }
+        let remote = Dictionary(grouping: try await client.tracks(), by: \.videoId)
+        var outgoing: [LabelTrack] = []
+        var received = 0
+        for video in videos {
+            guard let name = video.sessionName, let session = projects.session(named: name) else { continue }
+            var local = session.tracks ?? []
+            let synced = Set(session.syncedTrackIds ?? [])
+            let theirs = remote[video.id] ?? []
+            var changedHere = false
+            for r in theirs {
+                let i = local.firstIndex { $0.id == r.id }
+                if r.deleted {
+                    if let i { local.remove(at: i); changedHere = true; received += 1 }
+                    continue
+                }
+                guard let i else {
+                    if synced.contains(r.id) {
+                        var gone = r
+                        gone.deleted = true
+                        gone.updatedAt = Date()
+                        outgoing.append(gone)           // deleted here since the last sync
+                    } else {
+                        local.append(r.rally)          // new from the phone
+                        changedHere = true
+                        received += 1
+                    }
+                    continue
+                }
+                let mine = local[i]
+                guard !Self.sameTrack(mine, r) else { continue }
+                if (r.updatedAt ?? .distantPast) > (mine.updatedAt ?? .distantPast) {
+                    var taken = r.rally
+                    // Keep the detector's candidates when they still line up.
+                    if mine.candidates.count == taken.points.count { taken.candidates = mine.candidates }
+                    local[i] = taken
+                    changedHere = true
+                    received += 1
+                } else {
+                    outgoing.append(LabelTrack(mine, videoId: video.id))
+                }
+            }
+            for mine in local where !theirs.contains(where: { $0.id == mine.id }) {
+                outgoing.append(LabelTrack(mine, videoId: video.id))   // new here
+            }
+            local.sort { $0.start < $1.start }
+            if changedHere { projects.sampler.setTracks(local, session: name) }
+            projects.sampler.setSyncedTrackIds(local.map(\.id), session: name)
+        }
+        for batch in stride(from: 0, to: outgoing.count, by: 20).map({ Array(outgoing[$0..<min($0 + 20, outgoing.count)]) }) {
+            try await client.save(batch)
+        }
+        return (outgoing.count, received)
+    }
+
+    private static func sameTrack(_ a: TrackedRally, _ b: LabelTrack) -> Bool {
+        a.done == b.done && abs(a.start - b.start) < 0.001 && abs(a.end - b.end) < 0.001 && a.points == b.points.points
+    }
+
+    // MARK: - 5. The plan, for the phone's Plan tab
+
+    private func publishPlan(project: String) async throws {
+        let root = projects.sampler.datasetRoot
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let plan = (try? Data(contentsOf: root.appendingPathComponent("training_plan.json")))
+            .flatMap { try? decoder.decode([TrainedRound].self, from: $0) } ?? []
+        var scores: [String: [String: Double]] = [:]
+        for name in plan.flatMap({ $0.runs.compactMap(\.name) }) {
+            let url = root.appendingPathComponent("incoming/\(name)/metrics.json")
+            guard let s = (try? Data(contentsOf: url)).flatMap({ try? JSONDecoder().decode(RunScores.self, from: $0) }) else { continue }
+            scores[name] = Dictionary(uniqueKeysWithValues: ["tracked", "indoor", "grass", "beach"].compactMap { k in s.f1(k).map { (k, $0) } })
+        }
+        try await client.save(LabelProjectState(project: project, plan: plan, scores: scores, updatedAt: nil))
     }
 
     private func write(_ times: LabelRallyTimes, to labels: URL, session: String) {
