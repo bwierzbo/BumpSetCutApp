@@ -86,9 +86,12 @@ actor LabelingClient {
         Keychain.refreshToken = t.refreshToken
     }
 
-    /// A valid access token, refreshed when it's about to run out.
-    private func bearer() async throws -> String {
-        if let accessToken, Date() < expiresAt { return accessToken }
+    /// A valid access token, refreshed when it's about to run out — or
+    /// sooner, when the request needs it good for `lasting` seconds (an
+    /// upload of a clip can outlast an hour-long token, and storage checks
+    /// it when the upload finishes).
+    private func bearer(lasting: TimeInterval = 0) async throws -> String {
+        if let accessToken, Date().addingTimeInterval(lasting) < expiresAt { return accessToken }
         guard let refresh = Keychain.refreshToken else { throw Failure.notSignedIn }
         do {
             try await token(grant: "refresh_token", body: ["refresh_token": refresh])
@@ -187,7 +190,7 @@ actor LabelingClient {
         var request = URLRequest(url: base.appending(path: "storage/v1/object/\(Self.bucket)/\(path)"))
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(try await bearer())", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(try await bearer(lasting: 45 * 60))", forHTTPHeaderField: "Authorization")
         request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
         let delegate = progress.map(TransferProgress.init)

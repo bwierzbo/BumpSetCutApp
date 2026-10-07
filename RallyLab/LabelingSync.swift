@@ -61,11 +61,11 @@ final class LabelingSync {
         defer { isSyncing = false }
         do {
             let imported = try await importPhoneVideos(project: project)
-            let (listed, uploaded) = try await publishVideos(project: project)
+            let (listed, uploaded, failed) = try await publishVideos(project: project)
             let (pushed, pulled) = try await syncRallyTimes(project: project)
             let (tracksSent, tracksReceived) = try await syncTracks(project: project)
             try await publishPlan(project: project)
-            status = "Synced: \(listed) videos listed (\(uploaded) uploaded), \(imported) phone videos pulled in, "
+            status = "Synced: \(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), \(imported) phone videos pulled in, "
                 + "rally times \(pushed) sent · \(pulled) received, tracked rallies \(tracksSent) sent · \(tracksReceived) received."
             return true
         } catch LabelingClient.Failure.notSignedIn {
@@ -155,9 +155,10 @@ final class LabelingSync {
 
     // MARK: - 2. Project videos to the phone
 
-    private func publishVideos(project: String) async throws -> (listed: Int, uploaded: Int) {
+    private func publishVideos(project: String) async throws -> (listed: Int, uploaded: Int, failed: [String]) {
         let remote = try await client.videos().filter { $0.project == project }
         var listed = 0, uploaded = 0
+        var failed: [String] = []
         let sessions = projects.sampler.sessions.filter { FileManager.default.fileExists(atPath: $0.sourcePath) }
         for (i, session) in sessions.enumerated() {
             guard let surface = LabelSurface(rawValue: Coverage.environment(session.name)) else { continue }
@@ -178,16 +179,24 @@ final class LabelingSync {
             if video.clipPath == nil {
                 status = "Uploading \(session.name) for the phone (\(i + 1) of \(sessions.count))…"
                 let path = "rallylab/\(DatasetStore.safeName(project))/\(session.name).mp4"
-                try await uploadSmallCopy(of: source, to: path)
-                video.clipPath = path
-                uploaded += 1
+                do {
+                    try await uploadSmallCopy(of: source, to: path)
+                    video.clipPath = path
+                    uploaded += 1
+                } catch LabelingClient.Failure.notSignedIn {
+                    throw LabelingClient.Failure.notSignedIn
+                } catch {
+                    // One clip failing (a dropped connection) shouldn't stop the rest.
+                    failed.append(session.name)
+                    continue
+                }
             }
             if video != existing {
                 try await client.save(video)
             }
             listed += 1
         }
-        return (listed, uploaded)
+        return (listed, uploaded, failed)
     }
 
     private func clipVideo(named videoId: String) -> ClipSource? {
