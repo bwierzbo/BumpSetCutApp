@@ -191,13 +191,14 @@ final class LabelingSync {
     }
 
     /// The cut re-encoded small for the phone: upright, fitted in 1280×1280,
-    /// 30 fps, ~2 Mbit/s, no sound, streamable.
+    /// ~2 Mbit/s, no sound, streamable — every frame at its original time,
+    /// so a frame tracked on the phone is the same frame here.
     private func uploadSmallCopy(of source: URL, to path: String) async throws {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
         defer { try? FileManager.default.removeItem(at: out) }
         let run = await ToolEnvironment.run("ffmpeg", [
             "-y", "-loglevel", "error", "-i", source.path, "-an",
-            "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))',fps=30",
+            "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'", "-fps_mode", "passthrough",
             "-c:v", "libx264", "-preset", "veryfast", "-b:v", "2M", "-maxrate", "2500k", "-bufsize", "4M",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", out.path,
         ])
