@@ -264,25 +264,17 @@ actor LabelingClient {
     }()
 }
 
-/// Reports an upload's or a download's progress, 0–1.
-private final class TransferProgress: NSObject, URLSessionDownloadDelegate, Sendable {
+/// Reports an upload's or a download's progress, 0–1. Only watches: a
+/// download delegate that handled the finished file would make the async
+/// download API hand back a file that's already gone.
+private final class TransferProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     let report: @Sendable (Double) -> Void
+    private var observation: NSKeyValueObservation?
     init(_ report: @escaping @Sendable (Double) -> Void) { self.report = report }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
-                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
-        guard totalBytesExpectedToSend > 0 else { return }
-        report(Double(totalBytesSent) / Double(totalBytesExpectedToSend))
+    func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
+        observation = task.progress.observe(\.fractionCompleted) { [report] progress, _ in report(progress.fractionCompleted) }
     }
-
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
-                    totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard totalBytesExpectedToWrite > 0 else { return }
-        report(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
-    }
-
-    // The async download API moves the file itself.
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
 }
 
 /// The labeling session's refresh token, in the Keychain.
