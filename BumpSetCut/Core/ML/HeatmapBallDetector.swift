@@ -190,8 +190,12 @@ final class HeatmapBallDetector {
                 (input + k * plane).update(from: src.baseAddress!, count: plane)
             }
         }
-        let out = try? model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["clip": clip]))
-        return out?.featureValue(for: "maps")?.multiArrayValue
+        // The prediction's buffers are autoreleased: drain them per window, or
+        // a long run of windows piles up megabytes each until it ends.
+        return autoreleasepool {
+            let out = try? model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["clip": clip]))
+            return out?.featureValue(for: "maps")?.multiArrayValue
+        }
     }
 
     private func peaks(in maps: MLMultiArray, frame: Frame, target: Int) -> (peaks: [Peak], heat: [Float])? {
@@ -203,20 +207,39 @@ final class HeatmapBallDetector {
         return (peaks, heat)
     }
 
-    /// One [H, W] channel of a [1, C, H, W] output, as Floats.
+    /// One [H, W] channel of a [1, C, H, W] output, as Floats. Rows are
+    /// read through the array's strides — on the Neural Engine they're often
+    /// padded, so the plane isn't one contiguous run — a whole row at a time.
     private static func channel(_ maps: MLMultiArray, _ c: Int, plane: Int) -> [Float]? {
-        guard maps.shape.count == 4, c < maps.shape[1].intValue else { return nil }
-        let offset = c * maps.strides[1].intValue
-        switch maps.dataType {
-        case .float32:
-            let p = maps.dataPointer.bindMemory(to: Float.self, capacity: maps.count)
-            return Array(UnsafeBufferPointer(start: p + offset, count: plane))
-        case .float16:
-            let p = maps.dataPointer.bindMemory(to: Float16.self, capacity: maps.count)
-            return UnsafeBufferPointer(start: p + offset, count: plane).map(Float.init)
-        default:
-            return (0..<plane).map { maps[offset + $0].floatValue }
+        guard maps.shape.count == 4, c < maps.shape[1].intValue,
+              maps.strides[3].intValue == 1 else { return nil }
+        let h = maps.shape[2].intValue, w = maps.shape[3].intValue
+        guard h * w == plane else { return nil }
+        let base = c * maps.strides[1].intValue
+        let rowStride = maps.strides[2].intValue
+        var out = [Float](repeating: 0, count: plane)
+        out.withUnsafeMutableBufferPointer { dst in
+            maps.withUnsafeBytes { raw in
+                switch maps.dataType {
+                case .float32:
+                    let src = raw.bindMemory(to: Float.self).baseAddress!
+                    if rowStride == w {
+                        dst.baseAddress!.update(from: src + base, count: plane)
+                    } else {
+                        for y in 0..<h { (dst.baseAddress! + y * w).update(from: src + base + y * rowStride, count: w) }
+                    }
+                case .float16:
+                    let src = raw.bindMemory(to: Float16.self).baseAddress!
+                    for y in 0..<h {
+                        let row = src + base + y * rowStride, to = dst.baseAddress! + y * w
+                        for x in 0..<w { to[x] = Float(row[x]) }
+                    }
+                default:
+                    break
+                }
+            }
         }
+        return maps.dataType == .float32 || maps.dataType == .float16 ? out : nil
     }
 
     /// Centroids of the 8-connected blobs above `threshold` (2+ pixels), as

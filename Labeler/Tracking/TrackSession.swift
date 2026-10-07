@@ -160,6 +160,9 @@ final class TrackSession {
             let yolo = YOLODetector(modelName: "ball_v2_small", computeUnits: .cpuAndNeuralEngine)
             yolo.minConfidence = candidateConfidence
             yolo.suppressesStaticObjects = false
+            // Portrait frames letterboxed, as the pipeline does: stretched into
+            // the square input the ball goes oval and is mostly missed.
+            yolo.adaptiveLetterbox = true
             let heat = Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")
                 .flatMap { HeatmapBallDetector(modelURL: $0, computeUnits: .cpuAndNeuralEngine) }
             let generator = AVAssetImageGenerator(asset: asset)
@@ -176,9 +179,13 @@ final class TrackSession {
                     try Task.checkCancellation()
                     guard let image = try? result.image,
                           let i = indices.first(where: { abs(times[$0] - result.requestedTime.seconds) < 0.0005 }) else { continue }
-                    found[i] = yolo.detect(in: image, at: .zero).map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
-                    grays[i] = heat?.grayscale(image)
-                    frames[i] = UIImage(cgImage: image).jpegData(compressionQuality: 0.8) ?? Data()
+                    // Each frame's buffers drained before the next: hundreds of
+                    // frames otherwise pile up past what iOS allows an app.
+                    autoreleasepool {
+                        found[i] = yolo.detect(in: image, at: .zero).map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
+                        grays[i] = heat?.grayscale(image)
+                        frames[i] = UIImage(cgImage: image).jpegData(compressionQuality: 0.8) ?? Data()
+                    }
                     done += 1
                     progress(done)
                 }

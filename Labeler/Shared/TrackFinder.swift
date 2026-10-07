@@ -12,20 +12,29 @@ import Foundation
 
 enum TrackFinder {
 
-    /// The multi-frame model's peaks on every frame (a window of 9 centred on
-    /// it, edges repeated), merged with YOLO's candidates: one at the same
-    /// spot raises that candidate's confidence; one YOLO didn't have is added.
-    /// It sees motion, so it adds blurred and far balls and skips still ones.
+    /// The multi-frame model's peaks on every frame — run on overlapping
+    /// windows of the frames in order (HeatmapWindows, as the pipeline runs
+    /// it), each frame answered from a window with frames both sides —
+    /// merged with YOLO's candidates: one at the same spot raises that
+    /// candidate's confidence; one YOLO didn't have is added. It sees motion,
+    /// so it adds blurred and far balls and skips still ones. A frame that
+    /// couldn't be read stands in with the one before it.
     /// A multi-frame peak with no YOLO candidate at the spot counts this much.
     static let heatAloneWeight = 0.6
 
     static func addHeatmapCandidates(_ heat: HeatmapBallDetector, grays: [HeatmapBallDetector.Frame?],
-                                                         to found: inout [[TrackCandidate]]) {
-        let n = grays.count, half = heat.seq / 2
-        for i in 0..<n {
-            let window = (i - half...i + half).compactMap { grays[min(max(0, $0), n - 1)] }
-            guard window.count == heat.seq else { continue }
-            for peak in heat.peaks(in: window, target: half) {
+                                     to found: inout [[TrackCandidate]]) {
+        var windows = HeatmapWindows(detector: heat)
+        var answers: [[HeatmapBallDetector.Peak]] = []
+        var last: HeatmapBallDetector.Frame?
+        for gray in grays {
+            guard let frame = gray ?? last ?? grays.lazy.compactMap({ $0 }).first else { answers.append([]); continue }
+            last = frame
+            answers += windows.push(frame)
+        }
+        answers += windows.finish()
+        for (i, peaks) in answers.enumerated() where found.indices.contains(i) {
+            for peak in peaks {
                 let c = CGPoint(x: peak.rect.midX, y: peak.rect.midY)
                 let near = found[i].indices.first { k in
                     let r = found[i][k].rect
