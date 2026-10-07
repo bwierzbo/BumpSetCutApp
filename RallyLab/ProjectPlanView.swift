@@ -16,11 +16,15 @@ struct ProjectPlanView: View {
     /// Opens a video in the Track tab.
     let track: (VideoSession) -> Void
     @State private var plan: TrainingPlanModel
+    @State private var phone: LabelingSync
+    @State private var email = ""
+    @State private var password = ""
 
     init(projects: ProjectsModel, library: ModelLibrary, track: @escaping (VideoSession) -> Void) {
         self.projects = projects
         self.track = track
         _plan = State(initialValue: TrainingPlanModel(library: library))
+        _phone = State(initialValue: LabelingSync(projects: projects))
     }
 
     var body: some View {
@@ -29,6 +33,8 @@ struct ProjectPlanView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 intro(progress)
+                    .padding(.bottom, 12)
+                phoneBox
                     .padding(.bottom, 18)
                 ForEach(TrainingPlan.rounds, id: \.number) { round in
                     let record = plan.history.first { $0.round == round.number }
@@ -85,6 +91,40 @@ struct ProjectPlanView: View {
                 Text(plan.library.status).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(2)
             }
         }
+    }
+
+    /// The Labeler iPhone app: rally times marked there, videos recorded there.
+    private var phoneBox: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Phone (Labeler app)", systemImage: "iphone").font(.headline)
+            if phone.signedIn {
+                HStack(spacing: 10) {
+                    Button("Sync with Phone") { Task { await phone.sync() } }
+                        .disabled(phone.isSyncing)
+                    if phone.isSyncing { ProgressView().controlSize(.small) }
+                    Spacer()
+                    Button("Sign Out") { Task { await phone.signOut() } }.buttonStyle(.link)
+                }
+                Text("Sends every video here (a small copy, uploaded once) with the rallies found in it, swaps rally times both ways — the newer side wins — and pulls in videos recorded on the phone.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 8) {
+                    TextField("Email", text: $email).frame(width: 220)
+                    SecureField("Password", text: $password).frame(width: 160)
+                    Button("Sign In") { Task { await phone.signIn(email: email, password: password); password = "" } }
+                        .disabled(email.isEmpty || password.isEmpty)
+                }
+                .textFieldStyle(.roundedBorder)
+                Text("Your BumpSetCut account (it must be on the labelers list).").font(.caption).foregroundStyle(.secondary)
+            }
+            if !phone.status.isEmpty {
+                Text(phone.status).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.07)))
     }
 
     private func stat(_ value: String, _ label: String) -> some View {

@@ -8,6 +8,8 @@
 //    RallyLab --project v3 --get grs_onl_sun_land_onl_01 "https://youtube.com/…" \
 //             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00] [--frames 4]
 //             [--allow-duplicate]   (add a stretch of a video already used; --frames is per rally)
+//    RallyLab --project v3 --sync-phone                    (sync with the Labeler iPhone app — sign in once in the
+//                                                           app, or --phone-sign-in <email> with RALLYLAB_PASSWORD set)
 //    RallyLab --project v3 --repull-all                    (sample every video's cut again, e.g. after
 //                                                           changing frames per rally — nothing re-downloaded;
 //                                                           videos with tracked rallies or reviewed frames are kept)
@@ -87,6 +89,18 @@ enum HeadlessProjects {
             }
 
             if ok, args.contains("--repull-all") { ok = await repullAll(projects) }
+            if ok, let email = value(after: "--phone-sign-in", in: args) {
+                // The password comes from RALLYLAB_PASSWORD, not the command line.
+                let sync = LabelingSync(projects: projects)
+                await sync.signIn(email: email, password: ProcessInfo.processInfo.environment["RALLYLAB_PASSWORD"] ?? "")
+                log(sync.status)
+                ok = sync.signedIn
+            }
+            if ok, args.contains("--sync-phone") {
+                let sync = LabelingSync(projects: projects)
+                ok = await sync.sync()
+                log((ok ? "✅ " : "❌ ") + sync.status)
+            }
 
             if args.contains("--status") || args.contains("--get") || args.contains("--move") || args.contains("--repull-all") {
                 printStatus(projects)
