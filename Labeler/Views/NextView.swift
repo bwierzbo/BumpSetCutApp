@@ -38,6 +38,7 @@ struct NextView: View {
             .padding()
         }
         .refreshable { await model.reload() }
+        .onAppear { model.prefetch() }
         .navigationTitle("Next")
         .toolbar {
             if model.isOffline || !model.outbox.isEmpty {
@@ -94,7 +95,11 @@ struct NextView: View {
                 HStack(spacing: 6) {
                     Label(task.video.surface.rawValue, systemImage: task.video.surface.icon)
                     if task.video.split == "val" { Text("val").foregroundStyle(.purple) }
-                    if LocalStore.hasClip(task.video) { Label("on phone", systemImage: "arrow.down.circle.fill").foregroundStyle(.green) }
+                    if LocalStore.hasClip(task.video) {
+                        Label("on phone", systemImage: "arrow.down.circle.fill").foregroundStyle(.green)
+                    } else if let p = model.downloads[task.video.id] {
+                        Label("downloading \(Int(p * 100))%", systemImage: "arrow.down.circle").foregroundStyle(.secondary)
+                    }
                 }
                 .font(.caption2)
             }

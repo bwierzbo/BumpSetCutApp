@@ -92,12 +92,14 @@ struct RallyTrimView: View {
 }
 
 /// A track task: trim the rally to the serve and the dead ball, then track
-/// its ball (frames a little past it each side).
+/// its ball (frames a little past it each side). Trimming streams the clip
+/// right away; tracking needs it on the phone, so it downloads meanwhile.
 struct TrackTaskView: View {
     let model: LabelerModel
     let video: LabelVideo
     let span: LabelRally
     @Environment(\.dismiss) private var dismiss
+    @State private var playback: URL?
     @State private var clip: URL?
     @State private var trimmed: LabelRally?
     @State private var failure: String?
@@ -109,21 +111,35 @@ struct TrackTaskView: View {
 
     var body: some View {
         Group {
-            if let trimmed {
+            if let trimmed, clip != nil {
                 TrackReviewView(model: model, video: video, span: trimmed, found: found)
-            } else if let clip {
-                RallyTrimView(video: video, rally: span, url: clip, onConfirm: { trimmed = $0 }, onCancel: { dismiss() },
+            } else if trimmed != nil, let failure {
+                ContentUnavailableView("Couldn't get the clip", systemImage: "wifi.slash", description: Text(failure))
+            } else if trimmed != nil {
+                VStack(spacing: 14) {
+                    ProgressView(value: model.downloads[video.id] ?? 0)
+                    Text("Getting the clip for tracking… \(Int((model.downloads[video.id] ?? 0) * 100))%")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                .padding(40)
+            } else if let playback {
+                RallyTrimView(video: video, rally: span, url: playback, onConfirm: { trimmed = $0 }, onCancel: { dismiss() },
                               onNotARally: found.map { f in { model.rejectFound(f, in: video); dismiss() } })
                     .toolbar(.hidden, for: .navigationBar, .tabBar)
             } else if let failure {
                 ContentUnavailableView("Couldn't get the clip", systemImage: "wifi.slash", description: Text(failure))
             } else {
-                ProgressView("Getting the clip…")
+                ProgressView("Opening the video…")
             }
         }
         .task {
-            guard clip == nil else { return }
-            do { clip = try await model.localClip(for: video) } catch { failure = error.localizedDescription }
+            guard playback == nil else { return }
+            do {
+                playback = try await model.playbackURL(for: video)
+                clip = try await model.localClip(for: video)
+            } catch {
+                failure = error.localizedDescription
+            }
         }
     }
 }

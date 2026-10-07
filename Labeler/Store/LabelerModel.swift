@@ -283,17 +283,40 @@ final class LabelerModel {
 
     // MARK: - Clips
 
-    private(set) var downloading: Set<UUID> = []
+    /// Clips downloading, and how far along (0–1).
+    private(set) var downloads: [UUID: Double] = [:]
+    @ObservationIgnored private var inFlight: [UUID: Task<URL, Error>] = [:]
 
-    /// The clip on the phone, downloading it first if needed.
+    /// The clip on the phone, downloading it first if needed (one download
+    /// per clip, however many ask).
     func localClip(for video: LabelVideo) async throws -> URL {
         let file = LocalStore.clip(for: video)
         if FileManager.default.fileExists(atPath: file.path) { return file }
+        if let running = inFlight[video.id] { return try await running.value }
         guard let path = video.clipPath else { throw LabelingClient.Failure.unreadable }
-        downloading.insert(video.id)
-        defer { downloading.remove(video.id) }
-        try await client.download(path, to: file)
-        return file
+        let id = video.id
+        let partial = file.appendingPathExtension("part")
+        let task = Task<URL, Error> { [client] in
+            try await client.download(path, to: partial) { p in
+                Task { @MainActor [weak self] in if self?.downloads[id] != nil { self?.downloads[id] = p } }
+            }
+            try FileManager.default.moveItem(at: partial, to: file)
+            return file
+        }
+        inFlight[id] = task
+        downloads[id] = 0
+        defer { inFlight[id] = nil; downloads[id] = nil }
+        return try await task.value
+    }
+
+    /// Fetch the next few tasks' clips in the background, one at a time,
+    /// so tasks open with their clip already here.
+    func prefetch(next n: Int = 3) {
+        let wanted = tasks.prefix(n).map(\.video).filter { !LocalStore.hasClip($0) && inFlight[$0.id] == nil }
+        guard !wanted.isEmpty, !isOffline else { return }
+        Task {
+            for v in wanted { _ = try? await localClip(for: v) }
+        }
     }
 
     /// The clip to play: on the phone if it's there, else streamed.

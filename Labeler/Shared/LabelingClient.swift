@@ -190,7 +190,7 @@ actor LabelingClient {
         request.setValue("Bearer \(try await bearer())", forHTTPHeaderField: "Authorization")
         request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
-        let delegate = progress.map(UploadProgress.init)
+        let delegate = progress.map(TransferProgress.init)
         do {
             let (data, response) = try await transfers.upload(for: request, fromFile: file, delegate: delegate)
             try Self.check(data, response)
@@ -215,9 +215,11 @@ actor LabelingClient {
         return url
     }
 
-    /// Download a clip to `destination` (replacing anything there).
-    func download(_ path: String, to destination: URL) async throws {
-        let (temp, response) = try await transfers.download(from: try await signedURL(for: path, seconds: 3600))
+    /// Download a clip to `destination` (replacing anything there),
+    /// reporting progress 0–1.
+    func download(_ path: String, to destination: URL, progress: (@Sendable (Double) -> Void)? = nil) async throws {
+        let delegate = progress.map(TransferProgress.init)
+        let (temp, response) = try await transfers.download(from: try await signedURL(for: path, seconds: 3600), delegate: delegate)
         try Self.check(Data(), response)
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: temp, to: destination)
@@ -262,8 +264,8 @@ actor LabelingClient {
     }()
 }
 
-/// Reports an upload's progress, 0–1.
-private final class UploadProgress: NSObject, URLSessionTaskDelegate, Sendable {
+/// Reports an upload's or a download's progress, 0–1.
+private final class TransferProgress: NSObject, URLSessionDownloadDelegate, Sendable {
     let report: @Sendable (Double) -> Void
     init(_ report: @escaping @Sendable (Double) -> Void) { self.report = report }
 
@@ -272,6 +274,15 @@ private final class UploadProgress: NSObject, URLSessionTaskDelegate, Sendable {
         guard totalBytesExpectedToSend > 0 else { return }
         report(Double(totalBytesSent) / Double(totalBytesExpectedToSend))
     }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        report(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+    }
+
+    // The async download API moves the file itself.
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
 }
 
 /// The labeling session's refresh token, in the Keychain.
