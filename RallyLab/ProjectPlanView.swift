@@ -53,7 +53,11 @@ struct ProjectPlanView: View {
             .frame(maxWidth: 900, alignment: .leading)
         }
         .background(.background.secondary)
-        .onAppear { plan.reload() }
+        .onAppear {
+            // Videos imported in the background (RallyLab --get) since the project opened.
+            projects.sampler.reloadSessions()
+            plan.reload()
+        }
         .onChange(of: projects.projectDir) { plan.reload() }
     }
 

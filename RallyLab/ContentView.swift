@@ -56,7 +56,7 @@ struct ContentView: View {
                         sampler.openSession(session)
                         tab = .sampler
                     }, track: { session in
-                        tracker.open(sessionName: session.name)
+                        TrackTabView.show(session, in: tracker)
                         tab = .track
                     })
                 } else {

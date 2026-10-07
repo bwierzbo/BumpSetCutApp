@@ -22,10 +22,22 @@ struct TrackTabView: View {
     @Bindable var marker: RallyMarkModel
     let isActive: Bool
     /// Ball tracks (frame by frame) or rally times (whole video).
-    @AppStorage("RallyLab.trackMode") private var mode = Mode.ball
+    @AppStorage(TrackTabView.modeKey) private var mode = Mode.ball
     enum Mode: String { case ball, rallies }
     @State private var keyMonitor: Any?
-    @AppStorage("RallyLab.trackSession") private var savedSession = ""
+    @AppStorage(TrackTabView.sessionKey) private var savedSession = ""
+
+    static let modeKey = "RallyLab.trackMode"
+    static let sessionKey = "RallyLab.trackSession"
+
+    /// Open `session` in Ball tracks, as when picked in the video menu
+    /// (for coming here from elsewhere, e.g. the Plan page).
+    @MainActor
+    static func show(_ session: VideoSession, in tracker: TrackLabelModel) {
+        UserDefaults.standard.set(Mode.ball.rawValue, forKey: modeKey)
+        UserDefaults.standard.set(session.name, forKey: sessionKey)
+        tracker.open(sessionName: session.name)
+    }
 
     var body: some View {
         HSplitView {

@@ -9,7 +9,8 @@
 //             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00] [--frames 4]
 //             [--allow-duplicate]   (add a stretch of a video already used; --frames is per rally)
 //    RallyLab --project v3 --repull-all                    (sample every video's cut again, e.g. after
-//                                                           changing frames per rally — nothing re-downloaded)
+//                                                           changing frames per rally — nothing re-downloaded;
+//                                                           videos with tracked rallies or reviewed frames are kept)
 //    RallyLab --project v3 --move ind_ele_bright_land_self_01_v2 bch_ele_sun_land_self_01
 //    RallyLab --project v3 --status
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
@@ -273,6 +274,10 @@ enum HeadlessProjects {
             clip.videos.map { (clip.id, clip.videoId(of: $0)) }
         }
         for (clipId, videoId) in videos {
+            if let session = projects.session(named: videoId), !(session.tracks ?? []).isEmpty || session.reviewedCount > 0 {
+                log("▸ \(videoId): kept — it has tracked rallies or reviewed frames")
+                continue
+            }
             projects.repull(videoId, in: clipId)
             log("▸ \(projects.status)")
             while projects.sampler.isIngesting || !projects.sampler.queue.allSatisfy(\.isFinished) {
