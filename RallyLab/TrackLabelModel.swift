@@ -253,7 +253,7 @@ final class TrackLabelModel {
                         await MainActor.run { [weak self] in self?.trackingProgress = fraction }
                     }
                 }
-                if let heat { Self.addHeatmapCandidates(heat, grays: grays, to: &found) }
+                if let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found) }
                 return found
             }.value
             trackingProgress = nil
@@ -277,36 +277,6 @@ final class TrackLabelModel {
                 let db = (try? b.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
                 return da < db
             }
-    }
-
-    /// The multi-frame model's peaks on every frame (a window of 9 centred on
-    /// it, edges repeated), merged with YOLO's candidates: one at the same
-    /// spot raises that candidate's confidence; one YOLO didn't have is added.
-    /// It sees motion, so it adds blurred and far balls and skips still ones.
-    /// A multi-frame peak with no YOLO candidate at the spot counts this much.
-    nonisolated static let heatAloneWeight = 0.6
-
-    nonisolated static func addHeatmapCandidates(_ heat: HeatmapBallDetector, grays: [HeatmapBallDetector.Frame?],
-                                                         to found: inout [[TrackCandidate]]) {
-        let n = grays.count, half = heat.seq / 2
-        for i in 0..<n {
-            let window = (i - half...i + half).compactMap { grays[min(max(0, $0), n - 1)] }
-            guard window.count == heat.seq else { continue }
-            for peak in heat.peaks(in: window, target: half) {
-                let c = CGPoint(x: peak.rect.midX, y: peak.rect.midY)
-                let near = found[i].indices.first { k in
-                    let r = found[i][k].rect
-                    return hypot(r.midX - c.x, (r.midY - c.y) * 9 / 16) < max(r.width, 0.012)
-                }
-                if let k = near {
-                    found[i][k].confidence = 1 - (1 - found[i][k].confidence) * (1 - Double(peak.confidence))
-                } else {
-                    // On its own it's less sure: picked when it fits the path, not
-                    // over "hidden" (it can carry a ball on through an occlusion).
-                    found[i].append(TrackCandidate(rect: peak.rect, confidence: Double(peak.confidence) * heatAloneWeight))
-                }
-            }
-        }
     }
 
     /// Rallies tracked before frames were kept: read their frames out of the

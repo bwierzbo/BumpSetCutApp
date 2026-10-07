@@ -29,7 +29,7 @@ struct ProjectPlanView: View {
 
     var body: some View {
         let current = plan.currentRound
-        let progress = PlanProgress(sessions: projects.sampler.sessions, round: current)
+        let progress = PlanProgress(videos: projects.sampler.sessions.map(PlanVideo.init(session:)), round: current)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 intro(progress)
@@ -288,22 +288,24 @@ struct ProjectPlanView: View {
         }
     }
 
-    private func nextRow(_ next: PlanProgress.NextVideo) -> some View {
+    private func nextRow(_ next: PlanVideo) -> some View {
         let env = ClipBoardView.environments.first { $0.name == next.surface }
         return HStack(spacing: 10) {
             Image(systemName: env?.icon ?? "film").foregroundStyle(env?.tint ?? .secondary).frame(width: 18)
-            Text(next.session.name).font(.callout.monospaced()).lineLimit(1)
-            if next.session.split == "val" {
+            Text(next.name).font(.callout.monospaced()).lineLimit(1)
+            if next.split == "val" {
                 Text("val").font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .background(Color.purple.opacity(0.15), in: Capsule()).foregroundStyle(.purple)
             }
             Spacer()
-            Text("\(next.done)/\(TrainingPlan.maxRalliesPerVideo) tracked").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            Text(next.found > 0 ? "\(next.found) found" : "search by hand").font(.caption).foregroundStyle(.secondary)
-                .help(next.found > 0 ? "Rallies the Sampler found that aren't tracked yet — pick one in the Track tab"
+            Text("\(next.doneTracks)/\(TrainingPlan.maxRalliesPerVideo) tracked").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Text(next.openRallies > 0 ? "\(next.openRallies) found" : "search by hand").font(.caption).foregroundStyle(.secondary)
+                .help(next.openRallies > 0 ? "Rallies the Sampler found that aren't tracked yet — pick one in the Track tab"
                                      : "The Sampler found no rallies here — add one with New Rally in the Track tab")
-            Button("Track") { track(next.session) }
+            Button("Track") {
+                if let session = projects.session(named: next.name) { track(session) }
+            }
         }
     }
 }
