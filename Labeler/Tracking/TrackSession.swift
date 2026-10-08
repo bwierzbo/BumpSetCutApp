@@ -233,14 +233,29 @@ final class TrackSession {
         lookAgain(from: index)
     }
 
-    /// The ball is here (Vision-normalised, upright frame). It snaps to what
-    /// the detectors found at the spot — the ball's own box, so its real
-    /// size and centre — else it's placed at the size of the balls on the
-    /// frames around it while the detector looks on zoomed crops around the
-    /// tap (as the Mac's click does), and takes the box if it finds the
-    /// ball there. Then it looks again either side.
-    func setBall(at location: CGPoint) {
+    /// The ball is here (Vision-normalised, upright frame), then it looks
+    /// again either side.
+    ///
+    /// Nudging the ring — a drag (`exactly`), or a tap on or right by it —
+    /// puts it exactly there at its size: you're adjusting, nothing snaps.
+    /// A tap somewhere else says "the ball is over here": it snaps to what
+    /// the detectors found at the spot (the ball's own box, so its real size
+    /// and centre), else it's placed at the size of the balls on the frames
+    /// around it while the detector looks on zoomed crops around the tap (as
+    /// the Mac's click does), and takes the box if it finds the ball there.
+    func setBall(at location: CGPoint, exactly: Bool) {
         let i = index
+        let current = point.flatMap { $0.state == .visible ? $0.box : nil }
+        let nudge = current.map { c in
+            hypot(c.rect.midX - location.x, (c.rect.midY - location.y) * 9 / 16) < max(0.015, 1.5 * max(c.w, c.h * 9 / 16))
+        } ?? false
+        if exactly || nudge {
+            let side = current.map { CGSize(width: $0.w, height: $0.h) } ?? boxSide(near: i)
+            place(TrackCandidate(rect: CGRect(x: location.x - side.width / 2, y: location.y - side.height / 2,
+                                              width: side.width, height: side.height), confidence: 1), on: i)
+            lookAgain(from: i)
+            return
+        }
         if let found = Self.snap(location, to: rally.candidates.indices.contains(i) ? rally.candidates[i] : []) {
             place(TrackCandidate(rect: found.rect, confidence: 1), on: i)
             lookAgain(from: i)
