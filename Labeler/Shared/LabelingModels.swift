@@ -82,12 +82,12 @@ struct LabelVideo: Codable, Identifiable, Hashable {
 }
 
 /// A rally's start and end, seconds into the video.
+/// A rally's start and end. Two with the same times are the same rally.
 struct LabelRally: Codable, Hashable, Identifiable {
-    var id = UUID()
     var start: Double
     var end: Double
 
-    private enum CodingKeys: String, CodingKey { case start, end }
+    var id: String { "\(start)-\(end)" }
 }
 
 struct LabelRallyTimes: Codable, Hashable {

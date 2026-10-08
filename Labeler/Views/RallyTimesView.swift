@@ -52,6 +52,8 @@ struct RallyTimesView: View {
             if let url {
                 RallyTrimView(video: video, rally: rally, url: url, onConfirm: { trimmed in
                     move(rally.id) { $0.start = trimmed.start; $0.end = trimmed.end }
+                    // A rally's id is its times: keep the trimmed one selected.
+                    selected = trimmed.id
                     trimming = nil
                 }, onCancel: { trimming = nil })
             }
