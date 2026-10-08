@@ -128,9 +128,13 @@ final class LabelerModel {
     }
 
     /// The rally to track next in a video: one you started and left first,
-    /// so it's picked up where you stopped, then the untracked ones.
+    /// so it's picked up where you stopped — tracking begun, else trimmed —
+    /// then the untracked ones.
     func nextRally(in video: LabelVideo) -> LabelRally? {
-        tracks(for: video).first { !$0.done }?.rally.bounds ?? untrackedRallies(in: video).first
+        let untracked = untrackedRallies(in: video)
+        return tracks(for: video).first { !$0.done }?.rally.bounds
+            ?? untracked.first { LocalStore.trim(of: $0, in: video) != nil }
+            ?? untracked.first
     }
 
     // MARK: - Plan

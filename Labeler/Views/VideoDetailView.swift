@@ -61,8 +61,13 @@ struct VideoDetailView: View {
                         NavigationLink {
                             TrackTaskView(model: model, video: video, span: r)
                         } label: {
-                            Label("\(RallyTimesView.clock(r.start)) – \(RallyTimesView.clock(r.end))", systemImage: "scope")
-                                .font(.callout.monospacedDigit())
+                            let trim = LocalStore.trim(of: r, in: video)
+                            HStack {
+                                Label("\(RallyTimesView.clock((trim ?? r).start)) – \(RallyTimesView.clock((trim ?? r).end))", systemImage: "scope")
+                                    .font(.callout.monospacedDigit())
+                                Spacer()
+                                if trim != nil { Text("trimmed").font(.caption).foregroundStyle(.orange) }
+                            }
                         }
                     }
                 }

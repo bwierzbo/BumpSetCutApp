@@ -108,6 +108,23 @@ enum LocalStore {
         UserDefaults.standard.set(all, forKey: positionKey)
     }
 
+    private static let trimKey = "trimmedRallies"
+
+    /// How you trimmed a rally (by its video and untrimmed start), kept from
+    /// the moment you confirm the trim — the clip may still be downloading —
+    /// until tracking saves the rally itself.
+    static func trim(of rally: LabelRally, in video: LabelVideo) -> LabelRally? {
+        guard let r = UserDefaults.standard.dictionary(forKey: trimKey)?["\(video.id.uuidString)/\(key([rally.start]))"] as? [Double],
+              r.count == 2 else { return nil }
+        return LabelRally(start: r[0], end: r[1])
+    }
+
+    static func setTrim(_ trimmed: LabelRally, of rally: LabelRally, in video: LabelVideo) {
+        var all = UserDefaults.standard.dictionary(forKey: trimKey) ?? [:]
+        all["\(video.id.uuidString)/\(key([rally.start]))"] = [trimmed.start, trimmed.end]
+        UserDefaults.standard.set(all, forKey: trimKey)
+    }
+
     private static let positionKey = "trackingPosition"
 
     /// The time of the frame you were on in a rally being tracked.

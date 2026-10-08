@@ -120,6 +120,9 @@ final class TrackSession {
                     keptPoints.first { abs($0.time - t) < 0.002 } ?? TrackPoint(time: t, state: .unknown, origin: .auto, box: nil)
                 }
                 keptPoints = []
+                // Saved now, trimmed: leaving at any point from here comes back
+                // to this rally in tracking, never to trimming it again.
+                save()
             }
             // An existing track's own frame times win (they're what was labeled).
             let wanted = rally.points.map(\.time)

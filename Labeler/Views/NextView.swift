@@ -83,6 +83,9 @@ struct NextView: View {
                         "checklist")
             case .track(let v, let r):
                 if let t = model.unfinishedTrack(of: r, in: v) { return ("Finish tracking a rally", Self.progress(t), "scope") }
+                if let t = LocalStore.trim(of: r, in: v) {
+                    return ("Finish tracking a rally", "\(RallyTimesView.clock(t.start)) – \(RallyTimesView.clock(t.end)) · trimmed, tracking not started", "scope")
+                }
                 return ("Track a rally", "\(RallyTimesView.clock(r.start)) – \(RallyTimesView.clock(r.end)) · about \(Int((r.end - r.start + 2 * TrackedRally.margin) * TrackSession.frameRate)) frames",
                         "scope")
             }

@@ -94,7 +94,8 @@ struct RallyTrimView: View {
 /// A track task: trim the rally to the serve and the dead ball, then track
 /// its ball (frames a little past it each side). Trimming streams the clip
 /// right away; tracking needs it on the phone, so it downloads meanwhile.
-/// A rally you started tracking and left reopens in tracking, as you left it.
+/// A rally you started tracking and left reopens in tracking, as you left it;
+/// one you trimmed and left before tracking began skips the trim.
 struct TrackTaskView: View {
     let model: LabelerModel
     let video: LabelVideo
@@ -126,7 +127,10 @@ struct TrackTaskView: View {
                 }
                 .padding(40)
             } else if let playback {
-                RallyTrimView(video: video, rally: span, url: playback, onConfirm: { trimmed = $0 }, onCancel: { dismiss() },
+                RallyTrimView(video: video, rally: span, url: playback, onConfirm: { t in
+                    LocalStore.setTrim(t, of: span, in: video)
+                    trimmed = t
+                }, onCancel: { dismiss() },
                               onNotARally: found.map { f in { model.rejectFound(f, in: video); dismiss() } })
                     .toolbar(.hidden, for: .navigationBar, .tabBar)
             } else if let failure {
@@ -137,6 +141,8 @@ struct TrackTaskView: View {
         }
         .task {
             guard playback == nil, model.unfinishedTrack(of: span, in: video) == nil else { return }
+            // Trimmed before and left before tracking began: straight to tracking.
+            if trimmed == nil { trimmed = LocalStore.trim(of: span, in: video) }
             do {
                 playback = try await model.playbackURL(for: video)
                 clip = try await model.localClip(for: video)
