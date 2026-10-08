@@ -107,6 +107,12 @@ extension TrackedRally {
     }
     /// Frames with a decided label (the ball, or hidden): what training gets.
     var labeledFrames: Int { points.filter { $0.state != .unknown }.count }
+
+    /// The rally itself: the tracked frames less the margin either side.
+    var bounds: LabelRally {
+        let m = min(Self.margin, (end - start) / 4)
+        return LabelRally(start: start + m, end: end - m)
+    }
 }
 
 /// Picks the ball in play through a rally's frames.

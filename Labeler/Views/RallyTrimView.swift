@@ -94,6 +94,7 @@ struct RallyTrimView: View {
 /// A track task: trim the rally to the serve and the dead ball, then track
 /// its ball (frames a little past it each side). Trimming streams the clip
 /// right away; tracking needs it on the phone, so it downloads meanwhile.
+/// A rally you started tracking and left reopens in tracking, as you left it.
 struct TrackTaskView: View {
     let model: LabelerModel
     let video: LabelVideo
@@ -111,7 +112,9 @@ struct TrackTaskView: View {
 
     var body: some View {
         Group {
-            if let trimmed, clip != nil {
+            if let track = model.unfinishedTrack(of: span, in: video) {
+                TrackReviewView(model: model, video: video, track: track)
+            } else if let trimmed, clip != nil {
                 TrackReviewView(model: model, video: video, span: trimmed, found: found)
             } else if trimmed != nil, let failure {
                 ContentUnavailableView("Couldn't get the clip", systemImage: "wifi.slash", description: Text(failure))
@@ -133,7 +136,7 @@ struct TrackTaskView: View {
             }
         }
         .task {
-            guard playback == nil else { return }
+            guard playback == nil, model.unfinishedTrack(of: span, in: video) == nil else { return }
             do {
                 playback = try await model.playbackURL(for: video)
                 clip = try await model.localClip(for: video)

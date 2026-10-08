@@ -122,6 +122,17 @@ final class LabelerModel {
             .sorted { $0.start < $1.start }
     }
 
+    /// A track of `rally` you started and didn't finish.
+    func unfinishedTrack(of rally: LabelRally, in video: LabelVideo) -> LabelTrack? {
+        tracks(for: video).first { !$0.done && $0.rally.bounds == rally }
+    }
+
+    /// The rally to track next in a video: one you started and left first,
+    /// so it's picked up where you stopped, then the untracked ones.
+    func nextRally(in video: LabelVideo) -> LabelRally? {
+        tracks(for: video).first { !$0.done }?.rally.bounds ?? untrackedRallies(in: video).first
+    }
+
     // MARK: - Plan
 
     var project: String? { snapshot.videos.compactMap(\.project).first }
@@ -167,7 +178,7 @@ final class LabelerModel {
     var tasks: [LabelTask] {
         let byName = Dictionary(videos.map { ($0.name, $0) }) { a, _ in a }
         let queue = videos.map { v in
-            LabelQueue.Video(plan: planVideo(v), nextRally: untrackedRallies(in: v).first,
+            LabelQueue.Video(plan: planVideo(v), nextRally: nextRally(in: v),
                              found: v.ralliesFound.count, complete: rallyTimes(for: v).complete)
         }
         return LabelQueue.jobs(queue, round: currentRound).compactMap { job in

@@ -81,8 +81,8 @@ struct NextView: View {
                 let open = model.openFound(in: v).count
                 return ("Check the rallies", open > 0 ? "\(open) found rallies to confirm, then skim for missed ones" : "Skim for missed rallies and finish",
                         "checklist")
-            case .track(_, let r):
-                return ("Track a rally", "\(RallyTimesView.clock(r.start)) – \(RallyTimesView.clock(r.end)) · about \(Int((r.end - r.start + 2 * TrackedRally.margin) * TrackSession.frameRate)) frames",
+            case .track(let v, let r):
+                return (model.unfinishedTrack(of: r, in: v) == nil ? "Track a rally" : "Finish tracking a rally", "\(RallyTimesView.clock(r.start)) – \(RallyTimesView.clock(r.end)) · about \(Int((r.end - r.start + 2 * TrackedRally.margin) * TrackSession.frameRate)) frames",
                         "scope")
             }
         }()

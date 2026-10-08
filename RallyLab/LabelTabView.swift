@@ -118,14 +118,6 @@ extension LabelQueue.Video {
     }
 }
 
-extension TrackedRally {
-    /// The rally itself: the tracked frames less the margin either side.
-    var bounds: LabelRally {
-        let m = min(Self.margin, (end - start) / 4)
-        return LabelRally(start: start + m, end: end - m)
-    }
-}
-
 /// Next: the round, today, and what to do — the first task big.
 private struct LabelHomeView: View {
     let sampler: SamplerModel
