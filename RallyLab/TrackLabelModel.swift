@@ -70,6 +70,7 @@ final class TrackLabelModel {
     @ObservationIgnored private var trackTask: Task<Void, Never>?
     @ObservationIgnored private var playTask: Task<Void, Never>?
     @ObservationIgnored private let snapDetector = SnapDetector()
+    @ObservationIgnored private let lookAgainHeat = LookAgainHeat()
 
     /// Frames are read about this often, whatever the video's frame rate —
     /// the same spacing as the multi-frame package.
@@ -352,6 +353,7 @@ final class TrackLabelModel {
                 r.points = TrackSolver.solve(r)
             }
             report()
+            lookAgain(from: i)
         }
     }
 
@@ -373,6 +375,31 @@ final class TrackLabelModel {
             r.points[i].origin = .user
             r.points[i].box?.confidence = 1
             r.points = TrackSolver.solve(r)
+        }
+        lookAgain(from: i)
+    }
+
+    /// Search near the fix on frame `fix` for the ball the first pass missed
+    /// either side (TrackFinder.lookAgain), then re-solve with what's found.
+    private func lookAgain(from fix: Int) {
+        guard let snapshot = rally, let frames else { return }
+        let model = sampler.prelabelModel, holder = snapDetector, heatHolder = lookAgainHeat
+        // The newest trained multi-frame model, else the app's own.
+        let heatModel = newestHeatModel ?? Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")
+        Task {
+            let added = await Task.detached(priority: .userInitiated) { () -> [Int: [TrackCandidate]] in
+                guard let detector = holder.detector(for: model) else { return [:] }
+                return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heatHolder.detector(for: heatModel)) { i in
+                    frames.read(snapshot.points[i].time)
+                }
+            }.value
+            guard !added.isEmpty, let now = rallies.first(where: { $0.id == snapshot.id }),
+                  now.candidates.count == snapshot.candidates.count else { return }
+            update(snapshot.id) { r in
+                for (k, found) in added { r.candidates[k] += found }
+                r.points = TrackSolver.solve(r)
+            }
+            if selectedId == snapshot.id { report() }
         }
     }
 

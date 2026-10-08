@@ -56,29 +56,11 @@ enum BallSnapper {
 
     // MARK: - Detector on zoomed crops
 
-    private static let cropSides: [CGFloat] = [960, 640, 480]
-
     private static func detect(at click: CGPoint, in image: CGImage, detector: YOLODetector) -> (rect: CGRect, confidence: Float)? {
-        var best: (rect: CGRect, confidence: Float)?
-        for side in cropSides {
-            let s = min(side, CGFloat(min(image.width, image.height)))
-            let crop = CGRect(x: min(max(click.x - s / 2, 0), CGFloat(image.width) - s),
-                              y: min(max(click.y - s / 2, 0), CGFloat(image.height) - s),
-                              width: s, height: s).integral
-            guard let patch = image.cropping(to: crop) else { continue }
-            for det in detector.detect(in: patch, at: .zero) {
-                // Vision (bottom-left) in the crop → top-left pixels in the image.
-                let box = CGRect(x: crop.minX + det.bbox.minX * crop.width,
-                                 y: crop.minY + (1 - det.bbox.maxY) * crop.height,
-                                 width: det.bbox.width * crop.width, height: det.bbox.height * crop.height)
-                // It has to be the thing clicked, and not a crop-sized box
-                // (the ball is bigger than this crop — a larger one gets it).
-                guard box.insetBy(dx: -box.width * 0.5, dy: -box.height * 0.5).contains(click),
-                      box.width < crop.width * 0.8, box.height < crop.height * 0.8 else { continue }
-                if det.confidence > (best?.confidence ?? 0) { best = (box, det.confidence) }
-            }
-        }
-        return best
+        // It has to be the thing clicked.
+        TrackFinder.detections(around: click, in: image, detector: detector, sides: [960, 640, 480])
+            .filter { $0.rect.insetBy(dx: -$0.rect.width * 0.5, dy: -$0.rect.height * 0.5).contains(click) }
+            .max { $0.confidence < $1.confidence }
     }
 
     // MARK: - Segmentation

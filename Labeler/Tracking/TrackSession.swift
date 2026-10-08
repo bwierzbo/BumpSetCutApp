@@ -6,7 +6,8 @@
 //  does it: the same frames (every frame ~1/30 s apart, read from the
 //  clip's own sample times), the same detectors (YOLO + the multi-frame
 //  model, merged by TrackFinder) and the same path solver (TrackSolver).
-//  You only look at the frames worth a look; every fix re-solves the rest.
+//  You only look at the frames worth a look; every fix re-solves the rest,
+//  then looks again near it for a ball the first pass missed.
 //
 
 import AVFoundation
@@ -40,6 +41,10 @@ final class TrackSession {
     let found: [Double]?
     /// Your points kept across an extension (re-found on the new frames).
     private var keptPoints: [TrackPoint] = []
+    /// Searching near your last fix (TrackFinder.lookAgain).
+    private(set) var isLookingAgain = false
+    @ObservationIgnored private let lookAgainDetector = LookAgainDetector()
+    @ObservationIgnored private let lookAgainHeat = LookAgainHeat()
 
     /// Detections this sure or more are candidates (as on the Mac).
     static let candidateConfidence: Float = 0.15
@@ -208,6 +213,7 @@ final class TrackSession {
     func confirm() {
         guard let p = point, p.state != .unknown else { return }
         change { $0.points[index].origin = .user }
+        lookAgain(from: index)
     }
 
     /// The ball is here (Vision-normalised, upright frame).
@@ -219,6 +225,29 @@ final class TrackSession {
             r.points[index].state = .visible
             r.points[index].origin = .user
             r.points[index].box = box
+        }
+        lookAgain(from: index)
+    }
+
+    /// Search near the fix on frame `fix` for the ball the first pass missed
+    /// either side, then re-solve with what's found. In the background: you
+    /// can keep going, and a newer edit wins over a stale result.
+    private func lookAgain(from fix: Int) {
+        let snapshot = rally, frames = frames, holder = lookAgainDetector, heatHolder = lookAgainHeat
+        isLookingAgain = true
+        Task {
+            let added = await Task.detached(priority: .userInitiated) { () -> [Int: [TrackCandidate]] in
+                guard let detector = holder.detector else { return [:] }
+                let heat = heatHolder.detector(for: Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc"))
+                return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heat) { i in
+                    autoreleasepool { frames.indices.contains(i) ? UIImage(data: frames[i])?.cgImage : nil }
+                }
+            }.value
+            isLookingAgain = false
+            guard !added.isEmpty, rally.id == snapshot.id, rally.candidates.count == snapshot.candidates.count else { return }
+            for (k, found) in added { rally.candidates[k] += found }
+            rally.points = TrackSolver.solve(rally)
+            save()
         }
     }
 
@@ -298,5 +327,23 @@ final class TrackSession {
 
     private func save() {
         model.save(LabelTrack(rally, videoId: video.id))
+    }
+}
+
+/// The ball detector for looking again, loaded once, at a low threshold:
+/// it's only asked about the spot where the ball should be.
+private final class LookAgainDetector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var loaded: YOLODetector?
+
+    var detector: YOLODetector? {
+        lock.lock(); defer { lock.unlock() }
+        if let loaded { return loaded }
+        let yolo = YOLODetector(modelName: "ball_v2_small", computeUnits: .cpuAndNeuralEngine)
+        yolo.minConfidence = 0.05
+        yolo.suppressesStaticObjects = false
+        guard yolo.isLoaded else { return nil }
+        loaded = yolo
+        return yolo
     }
 }

@@ -73,6 +73,7 @@ struct TrackReviewView: View {
             HStack {
                 Text(left == 0 ? "Nothing left to check" : "\(left) to check")
                     .font(.headline).foregroundStyle(left == 0 ? .green : .primary)
+                if session.isLookingAgain { ProgressView().controlSize(.mini).help("Looking again near your fix") }
                 Spacer()
                 let t = session.point?.time ?? 0
                 Text(t < session.bounds.start ? "before the serve" : t > session.bounds.end ? "after the rally" : "in the rally")
