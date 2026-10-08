@@ -212,14 +212,18 @@ private struct FrameStrip: View {
 
 /// The frame, zoomed on the ball, with its path and the current pick.
 /// Tap to place the ball, drag the ring to move it, drag elsewhere to look
-/// around, pinch to zoom. A new frame centres on the ball again.
+/// around, pinch to zoom. The view stays put frame to frame (see `centre`).
 private struct ZoomedFrame: View {
     let session: TrackSession
     @Binding var zoom: CGFloat
     let watching: Bool
-    /// How far you've dragged the picture from centred on the ball.
-    @State private var pan: CGSize = .zero
-    @State private var panBase: CGSize?
+    /// Where the view is centred (top-down fraction of the frame): where
+    /// you last placed the ball or dragged to, kept frame to frame at your
+    /// zoom — the ball moves a little a frame, so it stays in view. Nil
+    /// (at first) centres on the ball. Moves to the ball when it's left the view.
+    @State private var centre: CGPoint?
+    @State private var panBase: CGPoint?
+    @State private var viewSize: CGSize = .zero
     @State private var pinchBase: CGFloat?
     /// Where the ring is being dragged to (view points).
     @State private var moving: CGPoint?
@@ -232,12 +236,9 @@ private struct ZoomedFrame: View {
                 // Fit the frame, then zoom about the ball.
                 let fit = min(size.width / imgSize.width, size.height / imgSize.height) * zoom
                 let shown = CGSize(width: imgSize.width * fit, height: imgSize.height * fit)
-                let focus = session.focus(around: session.index) ?? CGPoint(x: 0.5, y: 0.5)
-                // Vision (bottom-up) → top-down image fraction.
-                let fx = focus.x, fy = 1 - focus.y
-                let raw = CGPoint(x: size.width / 2 - fx * shown.width, y: size.height / 2 - fy * shown.height)
-                let origin = CGPoint(x: Self.clamp(raw.x + pan.width, size.width, shown.width),
-                                     y: Self.clamp(raw.y + pan.height, size.height, shown.height))
+                let c = centre ?? ballCentre ?? CGPoint(x: 0.5, y: 0.5)
+                let origin = CGPoint(x: Self.clamp(size.width / 2 - c.x * shown.width, size.width, shown.width),
+                                     y: Self.clamp(size.height / 2 - c.y * shown.height, size.height, shown.height))
                 let ball: (CGPoint, CGFloat)? = {
                     guard let cur = session.point, let b = cur.box, cur.state == .visible else { return nil }
                     return (CGPoint(x: origin.x + (b.x + b.w / 2) * shown.width, y: origin.y + (1 - b.y - b.h / 2) * shown.height),
@@ -282,18 +283,23 @@ private struct ZoomedFrame: View {
                                 moving = drag.location
                                 return
                             }
-                            panBase = CGSize(width: origin.x - raw.x, height: origin.y - raw.y)
+                            // From where the view really is (past an edge it stops).
+                            panBase = CGPoint(x: (size.width / 2 - origin.x) / shown.width, y: (size.height / 2 - origin.y) / shown.height)
                         }
                         if moving != nil {
                             moving = drag.location
                         } else if let base = panBase {
-                            pan = CGSize(width: base.width + drag.translation.width, height: base.height + drag.translation.height)
+                            centre = CGPoint(x: base.x - drag.translation.width / shown.width, y: base.y - drag.translation.height / shown.height)
                         }
                     }
                     .onEnded { _ in
                         if let moving { place(at: moving, origin: origin, shown: shown) }
-                        // Forget dragging past the edge, so dragging back moves at once.
-                        if panBase != nil { pan = CGSize(width: origin.x - raw.x, height: origin.y - raw.y) }
+                        if panBase != nil, let c = centre {
+                            // Forget dragging past the edge, so dragging back moves at once.
+                            let o = CGPoint(x: Self.clamp(size.width / 2 - c.x * shown.width, size.width, shown.width),
+                                            y: Self.clamp(size.height / 2 - c.y * shown.height, size.height, shown.height))
+                            centre = CGPoint(x: (size.width / 2 - o.x) / shown.width, y: (size.height / 2 - o.y) / shown.height)
+                        }
                         moving = nil
                         panBase = nil
                     })
@@ -308,8 +314,26 @@ private struct ZoomedFrame: View {
                 Color.black
             }
         }
-        .onChange(of: session.index) { pan = .zero }
-        .onChange(of: zoom) { if pinchBase == nil { pan = .zero } }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { viewSize = $0 }
+        .onChange(of: session.index) { followIfLost() }
+    }
+
+    /// The ball on this frame (or where it was last), top-down fraction.
+    private var ballCentre: CGPoint? {
+        session.focus(around: session.index).map { CGPoint(x: $0.x, y: 1 - $0.y) }
+    }
+
+    /// The new frame's ball is out of view (or near its edge): centre on it.
+    private func followIfLost() {
+        guard let c = centre, let ball = session.point.flatMap({ $0.state == .visible ? $0.box : nil }),
+              let image = session.image(session.index), viewSize.width > 0 else { return }
+        let fit = min(viewSize.width / image.size.width, viewSize.height / image.size.height) * zoom
+        let shown = CGSize(width: image.size.width * fit, height: image.size.height * fit)
+        let origin = CGPoint(x: Self.clamp(viewSize.width / 2 - c.x * shown.width, viewSize.width, shown.width),
+                             y: Self.clamp(viewSize.height / 2 - c.y * shown.height, viewSize.height, shown.height))
+        let p = CGPoint(x: origin.x + (ball.x + ball.w / 2) * shown.width, y: origin.y + (1 - ball.y - ball.h / 2) * shown.height)
+        let inner = CGRect(origin: .zero, size: viewSize).insetBy(dx: viewSize.width * 0.12, dy: viewSize.height * 0.12)
+        if !inner.contains(p) { centre = CGPoint(x: ball.x + ball.w / 2, y: 1 - ball.y - ball.h / 2) }
     }
 
     /// Keep the picture covering the view (centred when smaller).
@@ -317,10 +341,13 @@ private struct ZoomedFrame: View {
         content <= view ? (view - content) / 2 : min(0, max(view - content, v))
     }
 
+    /// The ball goes here, and the view centres on it (at your zoom) for
+    /// this frame and the ones after.
     private func place(at location: CGPoint, origin: CGPoint, shown: CGSize) {
         let x = (location.x - origin.x) / shown.width
         let y = (location.y - origin.y) / shown.height
         guard (0...1).contains(x), (0...1).contains(y) else { return }
         session.setBall(at: CGPoint(x: x, y: 1 - y))
+        withAnimation(.easeOut(duration: 0.2)) { centre = CGPoint(x: x, y: y) }
     }
 }
