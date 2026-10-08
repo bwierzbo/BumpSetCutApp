@@ -233,79 +233,20 @@ final class TrackSession {
         lookAgain(from: index)
     }
 
-    /// The ball is here (Vision-normalised, upright frame), then it looks
-    /// again either side.
-    ///
-    /// Nudging the ring — a drag (`exactly`), or a tap on or right by it —
-    /// puts it exactly there at its size: you're adjusting, nothing snaps.
-    /// A tap somewhere else says "the ball is over here": it snaps to what
-    /// the detectors found at the spot (the ball's own box, so its real size
-    /// and centre), else it's placed at the size of the balls on the frames
-    /// around it while the detector looks on zoomed crops around the tap (as
-    /// the Mac's click does), and takes the box if it finds the ball there.
-    func setBall(at location: CGPoint, exactly: Bool) {
+    /// The ball is here (Vision-normalised, upright frame): exactly where
+    /// you put it, at the ring's size if it had one, else the size of the
+    /// balls on the frames around it. Then it looks again either side.
+    func setBall(at location: CGPoint) {
         let i = index
-        let current = point.flatMap { $0.state == .visible ? $0.box : nil }
-        let nudge = current.map { c in
-            hypot(c.rect.midX - location.x, (c.rect.midY - location.y) * 9 / 16) < max(0.015, 1.5 * max(c.w, c.h * 9 / 16))
-        } ?? false
-        if exactly || nudge {
-            let side = current.map { CGSize(width: $0.w, height: $0.h) } ?? boxSide(near: i)
-            place(TrackCandidate(rect: CGRect(x: location.x - side.width / 2, y: location.y - side.height / 2,
-                                              width: side.width, height: side.height), confidence: 1), on: i)
-            lookAgain(from: i)
-            return
-        }
-        if let found = Self.snap(location, to: rally.candidates.indices.contains(i) ? rally.candidates[i] : []) {
-            place(TrackCandidate(rect: found.rect, confidence: 1), on: i)
-            lookAgain(from: i)
-            return
-        }
-        let side = boxSide(near: i)
-        let placed = TrackCandidate(rect: CGRect(x: location.x - side.width / 2, y: location.y - side.height / 2,
-                                                 width: side.width, height: side.height), confidence: 1)
-        place(placed, on: i)
-        guard frames.indices.contains(i) else { return lookAgain(from: i) }
-        let frame = frames[i], holder = lookAgainDetector, id = rally.id
-        isLookingAgain = true
-        Task {
-            let box = await Task.detached(priority: .userInitiated) { () -> CGRect? in
-                autoreleasepool {
-                    guard let detector = holder.detector, let image = UIImage(data: frame)?.cgImage else { return nil }
-                    let size = CGSize(width: image.width, height: image.height)
-                    let tap = CGPoint(x: location.x * size.width, y: (1 - location.y) * size.height)
-                    // It has to be the thing tapped; the surest wins.
-                    guard let hit = TrackFinder.detections(around: tap, in: image, detector: detector, sides: [960, 640, 480])
-                        .filter({ $0.rect.insetBy(dx: -$0.rect.width * 0.5, dy: -$0.rect.height * 0.5).contains(tap) })
-                        .max(by: { $0.confidence < $1.confidence }) else { return nil }
-                    return CGRect(x: hit.rect.minX / size.width, y: 1 - hit.rect.maxY / size.height,
-                                  width: hit.rect.width / size.width, height: hit.rect.height / size.height)
-                }
-            }.value
-            // Only if the tap still stands (not undone or changed meanwhile).
-            if let box, rally.id == id, rally.points.indices.contains(i), rally.points[i].box == placed {
-                rally.points[i].box = TrackCandidate(rect: box, confidence: 1)
-                rally.points = TrackSolver.solve(rally)
-                save()
-            }
-            lookAgain(from: i)
-        }
-    }
-
-    private func place(_ box: TrackCandidate, on i: Int) {
+        let side = point.flatMap { $0.state == .visible ? $0.box : nil }.map { CGSize(width: $0.w, height: $0.h) }
+            ?? boxSide(near: i)
         change { r in
             r.points[i].state = .visible
             r.points[i].origin = .user
-            r.points[i].box = box
+            r.points[i].box = TrackCandidate(rect: CGRect(x: location.x - side.width / 2, y: location.y - side.height / 2,
+                                                          width: side.width, height: side.height), confidence: 1)
         }
-    }
-
-    /// The found ball nearest a tap, if the tap is on or right by it.
-    private static func snap(_ tap: CGPoint, to candidates: [TrackCandidate]) -> TrackCandidate? {
-        func distance(_ c: TrackCandidate) -> Double { hypot(c.rect.midX - tap.x, (c.rect.midY - tap.y) * 9 / 16) }
-        return candidates
-            .filter { distance($0) < max(0.015, 1.5 * max($0.w, $0.h * 9 / 16)) }
-            .min { distance($0) < distance($1) }
+        lookAgain(from: i)
     }
 
     /// Search near the fix on frame `fix` for the ball the first pass missed

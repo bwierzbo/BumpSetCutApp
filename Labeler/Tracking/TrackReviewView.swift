@@ -272,7 +272,7 @@ private struct ZoomedFrame: View {
                 .contentShape(Rectangle())
                 .onTapGesture { location in
                     guard !watching else { return }
-                    place(at: location, origin: origin, shown: shown, exactly: false)
+                    place(at: location, origin: origin, shown: shown)
                 }
                 .gesture(DragGesture(minimumDistance: 6)
                     .onChanged { drag in
@@ -291,7 +291,7 @@ private struct ZoomedFrame: View {
                         }
                     }
                     .onEnded { _ in
-                        if let moving { place(at: moving, origin: origin, shown: shown, exactly: true) }
+                        if let moving { place(at: moving, origin: origin, shown: shown) }
                         // Forget dragging past the edge, so dragging back moves at once.
                         if panBase != nil { pan = CGSize(width: origin.x - raw.x, height: origin.y - raw.y) }
                         moving = nil
@@ -317,11 +317,10 @@ private struct ZoomedFrame: View {
         content <= view ? (view - content) / 2 : min(0, max(view - content, v))
     }
 
-    /// `exactly`: a drag puts the ring where you let go, no snapping.
-    private func place(at location: CGPoint, origin: CGPoint, shown: CGSize, exactly: Bool) {
+    private func place(at location: CGPoint, origin: CGPoint, shown: CGSize) {
         let x = (location.x - origin.x) / shown.width
         let y = (location.y - origin.y) / shown.height
         guard (0...1).contains(x), (0...1).contains(y) else { return }
-        session.setBall(at: CGPoint(x: x, y: 1 - y), exactly: exactly)
+        session.setBall(at: CGPoint(x: x, y: 1 - y))
     }
 }
