@@ -5,7 +5,8 @@
 //  Track a rally's ball by checking only the frames worth a look. Each one
 //  is shown zoomed on the ball (or where it was last), its path through the
 //  nearby frames drawn faintly. ✓ = right, tap the picture = the ball is
-//  there (or drag the ring onto it), Hidden = can't be seen. Pinch to zoom,
+//  there (drag the box to move it, its corner handle to size it), Hidden =
+//  can't be seen. Pinch to zoom,
 //  drag the picture to look around. Every fix re-solves the rest of the rally,
 //  so one tap often clears several frames. When nothing's left, watch it
 //  once and mark it done. The strip along the top jumps anywhere.
@@ -211,7 +212,8 @@ private struct FrameStrip: View {
 }
 
 /// The frame, zoomed on the ball, with its path and the current pick.
-/// Tap to place the ball, drag the ring to move it, drag elsewhere to look
+/// Tap to place the ball, drag the box to move it or its corner handle to
+/// size it, drag elsewhere to look
 /// around, pinch to zoom. The view stays put frame to frame (see `centre`).
 private struct ZoomedFrame: View {
     let session: TrackSession
@@ -225,8 +227,10 @@ private struct ZoomedFrame: View {
     @State private var panBase: CGPoint?
     @State private var viewSize: CGSize = .zero
     @State private var pinchBase: CGFloat?
-    /// Where the ring is being dragged to (view points).
+    /// Where the box is being dragged to (view points).
     @State private var moving: CGPoint?
+    /// The box's half-side while its corner handle is dragged (view points).
+    @State private var resizing: CGFloat?
 
     var body: some View {
         GeometryReader { geo in
@@ -239,11 +243,13 @@ private struct ZoomedFrame: View {
                 let c = centre ?? ballCentre ?? CGPoint(x: 0.5, y: 0.5)
                 let origin = CGPoint(x: Self.clamp(size.width / 2 - c.x * shown.width, size.width, shown.width),
                                      y: Self.clamp(size.height / 2 - c.y * shown.height, size.height, shown.height))
-                let ball: (CGPoint, CGFloat)? = {
+                // The box on screen, at its real size.
+                let box: CGRect? = {
                     guard let cur = session.point, let b = cur.box, cur.state == .visible else { return nil }
-                    return (CGPoint(x: origin.x + (b.x + b.w / 2) * shown.width, y: origin.y + (1 - b.y - b.h / 2) * shown.height),
-                            max(12, b.w * shown.width * 0.9))
+                    return CGRect(x: origin.x + b.x * shown.width, y: origin.y + (1 - b.y - b.h) * shown.height,
+                                  width: b.w * shown.width, height: b.h * shown.height)
                 }()
+                let handle = box.map(Self.handle(for:))
                 ZStack(alignment: .topLeading) {
                     Color.black
                     Image(uiImage: image).resizable().frame(width: shown.width, height: shown.height).offset(x: origin.x, y: origin.y)
@@ -259,13 +265,23 @@ private struct ZoomedFrame: View {
                             ctx.fill(Path(ellipseIn: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)),
                                      with: .color(.cyan.opacity(k < session.index ? 0.45 : 0.25)))
                         }
-                        if let moving {
-                            let r = ball?.1 ?? 14
-                            ctx.stroke(Path(ellipseIn: CGRect(x: moving.x - r, y: moving.y - r, width: 2 * r, height: 2 * r)),
-                                       with: .color(.blue), style: StrokeStyle(lineWidth: 3, dash: [6, 4]))
-                        } else if let cur = session.point, let (p, r) = ball {
-                            ctx.stroke(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)),
-                                       with: .color(cur.origin == .user ? .blue : cur.isUncertain ? .yellow : .green), lineWidth: 3)
+                        if let moving, let box {
+                            let r = CGRect(x: moving.x - box.width / 2, y: moving.y - box.height / 2, width: box.width, height: box.height)
+                            ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(.blue), style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                        } else if let half = resizing, let box {
+                            let r = CGRect(x: box.midX - half, y: box.midY - half, width: 2 * half, height: 2 * half)
+                            ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(.blue), style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                            let h = Self.handle(for: r)
+                            ctx.fill(Path(ellipseIn: CGRect(x: h.x - 8, y: h.y - 8, width: 16, height: 16)), with: .color(.white))
+                        } else if let cur = session.point, let box, let handle {
+                            let colour: Color = cur.origin == .user ? .blue : cur.isUncertain ? .yellow : .green
+                            // Just outside the box, so the ball's edge shows.
+                            ctx.stroke(Path(box.insetBy(dx: -1.5, dy: -1.5)), with: .color(colour), lineWidth: 2)
+                            if !watching {
+                                ctx.fill(Path(ellipseIn: CGRect(x: handle.x - 8, y: handle.y - 8, width: 16, height: 16)), with: .color(.white))
+                                ctx.stroke(Path(ellipseIn: CGRect(x: handle.x - 8, y: handle.y - 8, width: 16, height: 16)),
+                                           with: .color(colour), lineWidth: 2)
+                            }
                         }
                     }
                     .allowsHitTesting(false)
@@ -277,23 +293,34 @@ private struct ZoomedFrame: View {
                 }
                 .gesture(DragGesture(minimumDistance: 6)
                     .onChanged { drag in
-                        if moving == nil && panBase == nil {
-                            // Starting on the ring moves it; anywhere else looks around.
-                            if !watching, let (p, r) = ball, hypot(drag.startLocation.x - p.x, drag.startLocation.y - p.y) < r + 22 {
+                        if moving == nil && resizing == nil && panBase == nil {
+                            // The corner handle resizes, the box moves; anywhere else looks around.
+                            if !watching, let handle, let box, hypot(drag.startLocation.x - handle.x, drag.startLocation.y - handle.y) < 22 {
+                                resizing = max(box.width, box.height) / 2
+                            } else if !watching, let box, box.insetBy(dx: -22, dy: -22).contains(drag.startLocation) {
                                 moving = drag.location
                                 return
+                            } else {
+                                // From where the view really is (past an edge it stops).
+                                panBase = CGPoint(x: (size.width / 2 - origin.x) / shown.width, y: (size.height / 2 - origin.y) / shown.height)
                             }
-                            // From where the view really is (past an edge it stops).
-                            panBase = CGPoint(x: (size.width / 2 - origin.x) / shown.width, y: (size.height / 2 - origin.y) / shown.height)
                         }
                         if moving != nil {
                             moving = drag.location
+                        } else if resizing != nil, let box {
+                            // Square on screen (a ball is round), about the box's centre.
+                            resizing = max(2, max(abs(drag.location.x - box.midX), abs(drag.location.y - box.midY)) - Self.handleGap * 0.7)
                         } else if let base = panBase {
                             centre = CGPoint(x: base.x - drag.translation.width / shown.width, y: base.y - drag.translation.height / shown.height)
                         }
                     }
                     .onEnded { _ in
                         if let moving { place(at: moving, origin: origin, shown: shown) }
+                        if let half = resizing, let box {
+                            session.setBall(at: CGPoint(x: (box.midX - origin.x) / shown.width, y: 1 - (box.midY - origin.y) / shown.height),
+                                            size: CGSize(width: 2 * half / shown.width, height: 2 * half / shown.height))
+                        }
+                        resizing = nil
                         if panBase != nil, let c = centre {
                             // Forget dragging past the edge, so dragging back moves at once.
                             let o = CGPoint(x: Self.clamp(size.width / 2 - c.x * shown.width, size.width, shown.width),
@@ -334,6 +361,14 @@ private struct ZoomedFrame: View {
         let p = CGPoint(x: origin.x + (ball.x + ball.w / 2) * shown.width, y: origin.y + (1 - ball.y - ball.h / 2) * shown.height)
         let inner = CGRect(origin: .zero, size: viewSize).insetBy(dx: viewSize.width * 0.12, dy: viewSize.height * 0.12)
         if !inner.contains(p) { centre = CGPoint(x: ball.x + ball.w / 2, y: 1 - ball.y - ball.h / 2) }
+    }
+
+    /// The resize handle sits this far out from the box's corner, so even
+    /// a tiny box has room to grab it apart from the box itself.
+    static let handleGap: CGFloat = 14
+
+    private static func handle(for box: CGRect) -> CGPoint {
+        CGPoint(x: box.maxX + handleGap * 0.7, y: box.maxY + handleGap * 0.7)
     }
 
     /// Keep the picture covering the view (centred when smaller).

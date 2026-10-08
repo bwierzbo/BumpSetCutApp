@@ -237,11 +237,12 @@ final class TrackSession {
     }
 
     /// The ball is here (Vision-normalised, upright frame): exactly where
-    /// you put it, at the ring's size if it had one, else the size of the
-    /// balls on the frames around it. Then it looks again either side.
-    func setBall(at location: CGPoint) {
+    /// you put it, at `size` if you sized it, else the box's size if it had
+    /// one, else the size of the balls on the frames around it. Then it
+    /// looks again either side.
+    func setBall(at location: CGPoint, size: CGSize? = nil) {
         let i = index
-        let side = point.flatMap { $0.state == .visible ? $0.box : nil }.map { CGSize(width: $0.w, height: $0.h) }
+        let side = size ?? point.flatMap { $0.state == .visible ? $0.box : nil }.map { CGSize(width: $0.w, height: $0.h) }
             ?? boxSide(near: i)
         change { r in
             r.points[i].state = .visible
