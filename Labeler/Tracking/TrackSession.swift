@@ -218,7 +218,7 @@ final class TrackSession {
 
     /// The ball is here (Vision-normalised, upright frame).
     func setBall(at location: CGPoint) {
-        let side = typicalBoxSide
+        let side = boxSide(near: index)
         let box = TrackCandidate(rect: CGRect(x: location.x - side.width / 2, y: location.y - side.height / 2,
                                               width: side.width, height: side.height), confidence: 1)
         change { r in
@@ -306,7 +306,21 @@ final class TrackSession {
     }
 
     /// The rally's box size: the median of its visible boxes.
-    private var typicalBoxSide: CGSize {
+    /// The ball's size near frame `i`: the detector's boxes on the closest
+    /// frames either side (up to 3 each way, within 10 frames), averaged —
+    /// the ball grows and shrinks with its distance from the camera, but
+    /// barely in a third of a second. Else the rally's usual size.
+    private func boxSide(near i: Int) -> CGSize {
+        let detected = { (k: Int) -> TrackCandidate? in
+            let p = self.rally.points[k]
+            return p.state == .visible && p.origin == .auto ? p.box : nil
+        }
+        let before = stride(from: i - 1, through: max(0, i - 10), by: -1).compactMap(detected).prefix(3)
+        let after = (min(i + 1, rally.points.count)..<min(rally.points.count, i + 11)).compactMap(detected).prefix(3)
+        let near = Array(before) + Array(after)
+        if !near.isEmpty {
+            return CGSize(width: near.map(\.w).reduce(0, +) / Double(near.count), height: near.map(\.h).reduce(0, +) / Double(near.count))
+        }
         let boxes = rally.points.compactMap { $0.state == .visible ? $0.box : nil }
         guard !boxes.isEmpty else { return CGSize(width: 0.02, height: 0.035) }
         let w = boxes.map(\.w).sorted()[boxes.count / 2], h = boxes.map(\.h).sorted()[boxes.count / 2]
