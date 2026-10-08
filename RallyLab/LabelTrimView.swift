@@ -5,6 +5,7 @@
 //  Set a rally's start and end the way BumpSetCut trims a rally: the video
 //  over a filmstrip of a few seconds either side of it, with handles you
 //  drag to the serve and to the dead ball — the video follows the handle.
+//  Let go of a handle at the strip's edge and that side widens by 3 s.
 //  Space plays the selection, ↩ confirms it.
 //
 
@@ -30,11 +31,14 @@ struct LabelTrimView: View {
     @State private var stopAt: Any?
 
     /// The filmstrip covers this much either side of the rally.
+    /// Letting go of a handle at the strip's edge widens that side by this.
     static let reach = 3.0
+    @State private var reachBefore = LabelTrimView.reach
+    @State private var reachAfter = LabelTrimView.reach
 
     private var window: ClosedRange<Double> {
-        let d = duration > 0 ? duration : rally.end + Self.reach
-        return max(0, rally.start - Self.reach)...min(d, rally.end + Self.reach)
+        let d = duration > 0 ? duration : rally.end + reachAfter
+        return max(0, rally.start - reachBefore)...min(d, rally.end + reachAfter)
     }
 
     var body: some View {
@@ -44,7 +48,9 @@ struct LabelTrimView: View {
                 LabPlayerView(player: player, showsControls: false)
             }
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            TrimFilmstrip(asset: player.currentItem?.asset, window: window, start: $start, end: $end, time: time) { show($0) }
+            TrimFilmstrip(asset: player.currentItem?.asset, window: window, start: $start, end: $end, time: time,
+                           onScrub: { show($0) },
+                           onEdge: { isStart in if isStart { reachBefore += Self.reach } else { reachAfter += Self.reach } })
                 .frame(height: 64)
             HStack(spacing: 12) {
                 Button { playSelection() } label: { Label("Play", systemImage: "play.fill") }
@@ -133,6 +139,8 @@ private struct TrimFilmstrip: View {
     @Binding var end: Double
     let time: Double
     let onScrub: (Double) -> Void
+    /// A handle was let go at the strip's start (true) or end edge.
+    let onEdge: (Bool) -> Void
     @State private var thumbs: [CGImage] = []
     @State private var dragging: Bool?
 
@@ -179,7 +187,14 @@ private struct TrimFilmstrip: View {
                     if isStart { start = min(v, end - Self.minLength) } else { end = max(v, start + Self.minLength) }
                     onScrub(isStart ? start : end)
                 }
-                .onEnded { _ in dragging = nil })
+                .onEnded { _ in
+                    // Pushed to the edge: there's more video that way.
+                    if let isStart = dragging {
+                        let slack = 0.02 * (window.upperBound - window.lowerBound)
+                        if isStart ? start - window.lowerBound < slack : window.upperBound - end < slack { onEdge(isStart) }
+                    }
+                    dragging = nil
+                })
         }
         // Again once the clip's length is known (the window widens to it).
         .task(id: "\(asset != nil) \(window)") { await loadThumbs() }
