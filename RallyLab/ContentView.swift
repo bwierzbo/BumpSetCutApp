@@ -17,11 +17,11 @@ struct ContentView: View {
     let marker: RallyMarkModel
     @State private var showingImporter = false
     /// The tab you were on last time, so RallyLab reopens where you left off.
-    @AppStorage("RallyLab.tab") private var tab: Tab = .projects
+    @AppStorage("RallyLab.tab") private var tab: Tab = .label
     /// Set by "Continue without a project" on the welcome window.
     @State private var workingWithoutProject = false
 
-    enum Tab: String, Hashable { case projects, sampler, track, models, pipeline, net, compare, fsm }
+    enum Tab: String, Hashable { case label, projects, sampler, track, models, pipeline, net, compare, fsm }
 
     var body: some View {
         Group {
@@ -38,11 +38,11 @@ struct ContentView: View {
         .navigationTitle(projects.project.map { "RallyLab — \($0.name)" } ?? "RallyLab")
         .sheet(isPresented: $projects.isCreatingProject) { NewProjectSheet(projects: projects) }
         .onChange(of: projects.projectDir) { _, dir in
-            // A project was opened or created: land on its clip list, and
-            // point the Models tab at its dataset.
+            // A project was opened or created: land on what to label next,
+            // and point the Models tab at its dataset.
             if dir != nil {
                 workingWithoutProject = false
-                tab = .projects
+                tab = .label
             }
             library.reload()
         }
@@ -52,12 +52,18 @@ struct ContentView: View {
         TabView(selection: $tab) {
             Group {
                 if projects.project != nil {
-                    ProjectsTabView(projects: projects, library: library, review: { session in
-                        sampler.openSession(session)
+                    LabelTabView(projects: projects, library: library, tracker: tracker, marker: marker, isActive: tab == .label)
+                } else {
+                    ProjectWelcomeView(projects: projects) { tab = .pipeline }
+                }
+            }
+            .tabItem { Label("Label", systemImage: "scope") }
+            .tag(Tab.label)
+            Group {
+                if projects.project != nil {
+                    ProjectsTabView(projects: projects, review: { session in
+                        SamplerTabView.showStills(session, in: sampler)
                         tab = .sampler
-                    }, track: { session in
-                        TrackTabView.show(session, in: tracker)
-                        tab = .track
                     })
                 } else {
                     ProjectWelcomeView(projects: projects) { tab = .pipeline }
@@ -66,14 +72,14 @@ struct ContentView: View {
             .tabItem { Label("Project", systemImage: "tablecells") }
             .tag(Tab.projects)
             SamplerTabView(lab: model, sampler: sampler, isActive: tab == .sampler)
-                .tabItem { Label("Sampler", systemImage: "photo.stack") }
+                .tabItem { Label("Import", systemImage: "square.and.arrow.down") }
                 .tag(Tab.sampler)
             TrackTabView(tracker: tracker, marker: marker, isActive: tab == .track)
-                .tabItem { Label("Track", systemImage: "scope") }
+                .tabItem { Label("Track", systemImage: "slider.horizontal.below.rectangle") }
                 .tag(Tab.track)
             ModelsTabView(library: library) { sessionName, frame in
                 if let session = sampler.sessions.first(where: { $0.name == sessionName }) {
-                    sampler.openSession(session, frame: frame)
+                    SamplerTabView.showStills(session, frame: frame, in: sampler)
                     tab = .sampler
                 }
             }

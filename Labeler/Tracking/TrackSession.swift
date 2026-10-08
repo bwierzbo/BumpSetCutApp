@@ -40,18 +40,13 @@ final class TrackSession {
     let found: [Double]?
     /// Your points kept across an extension (re-found on the new frames).
     private var keptPoints: [TrackPoint] = []
-    /// Tracked frames run this far past the rally each side: just enough
-    /// that the multi-frame model's 9-frame window (4 frames each side of
-    /// the one it answers for) has real frames at the serve and the dead
-    /// ball. Any more is ball-in-hand labeling the rally cutting never uses.
-    static let padding = 0.3
 
     /// Detections this sure or more are candidates (as on the Mac).
     static let candidateConfidence: Float = 0.15
     /// Frames are read about this often, whatever the video's rate.
     static let frameRate = 30.0
 
-    /// A new rally over `span` (tracked `padding` past it each side), or an
+    /// A new rally over `span` (tracked `TrackedRally.margin` past it each side), or an
     /// existing track (its rally from the rally times, if marked).
     init(model: LabelerModel, video: LabelVideo, span: LabelRally? = nil, found: [Double]? = nil, track: LabelTrack? = nil) {
         self.model = model
@@ -59,11 +54,11 @@ final class TrackSession {
         if let track {
             rally = track.rally
             bounds = model.rallyTimes(for: video).rallies.first { min($0.end, track.end) - max($0.start, track.start) > 0.3 }
-                ?? LabelRally(start: min(track.start + Self.padding, track.end), end: max(track.end - Self.padding, track.start))
+                ?? LabelRally(start: min(track.start + TrackedRally.margin, track.end), end: max(track.end - TrackedRally.margin, track.start))
             self.found = nil
         } else {
             let s = span ?? LabelRally(start: 0, end: 1)
-            rally = TrackedRally(id: UUID(), start: max(0, s.start - Self.padding), end: min(video.duration, s.end + Self.padding),
+            rally = TrackedRally(id: UUID(), start: max(0, s.start - TrackedRally.margin), end: min(video.duration, s.end + TrackedRally.margin),
                                  points: [], candidates: [], done: false)
             bounds = s
             self.found = found

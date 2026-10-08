@@ -174,7 +174,8 @@ final class RallyMarkModel {
     }
 
     func seek(to t: Double, exact: Bool = true) {
-        let clamped = min(max(0, t), max(duration, 0))
+        // Before the length has loaded, don't hold seeks at 0.
+        let clamped = max(0, duration > 0 ? min(t, duration) : t)
         playhead = clamped
         seekTarget = clamped
         seekExact = exact
@@ -234,13 +235,34 @@ final class RallyMarkModel {
             status = "The end has to be after the start (\(TrackLabelModel.clock(start))) — move on, or Esc to cancel."
             return
         }
-        let mark = Mark(start: start, end: playhead)
-        // A guess-or-older rally this overlaps is the same rally, marked again: replace it.
+        pendingStart = nil
+        mark(start: start, end: playhead)
+    }
+
+    /// A rally from `start` to `end`, replacing any marked rally it overlaps
+    /// (the same rally, marked again).
+    func mark(start: Double, end: Double) {
+        let mark = Mark(start: start, end: end)
         rallies.removeAll { min($0.end, mark.end) - max($0.start, mark.start) > 0.5 * min($0.end - $0.start, mark.end - mark.start) }
         rallies.append(mark)
         selectedId = mark.id
-        pendingStart = nil
         save()
+    }
+
+    /// Mark a rally in any video — the open one in place, so its unsaved
+    /// view of the file doesn't later overwrite this.
+    func mark(start: Double, end: Double, session: VideoSession) {
+        if session.name == sessionName { return mark(start: start, end: end) }
+        let url = Self.labelsURL(for: URL(fileURLWithPath: session.sourcePath))
+        var marks = Self.load(url)
+        marks.removeAll { min($0.end, end) - max($0.start, start) > 0.5 * min($0.end - $0.start, end - start) }
+        marks.append(Mark(start: start, end: end))
+        Self.write(marks, to: url)
+    }
+
+    /// The rallies marked in a video.
+    static func marks(in session: VideoSession) -> [Mark] {
+        load(labelsURL(for: URL(fileURLWithPath: session.sourcePath)))
     }
 
     /// Esc: forget a start you didn't mean.
@@ -290,14 +312,23 @@ final class RallyMarkModel {
     private func save() {
         rallies.sort { $0.start < $1.start }
         guard let video else { return }
-        let labels = rallies.map { LabeledRally(startTime: $0.start, endTime: $0.end) }
+        if let error = Self.write(rallies, to: Self.labelsURL(for: video)) {
+            status = "Couldn't save: \(error.localizedDescription)"
+        } else {
+            status = "\(rallies.count) rallies marked · saved."
+        }
+    }
+
+    @discardableResult
+    private static func write(_ marks: [Mark], to url: URL) -> Error? {
+        let labels = marks.sorted { $0.start < $1.start }.map { LabeledRally(startTime: $0.start, endTime: $0.end) }
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted]
-            try encoder.encode(labels).write(to: Self.labelsURL(for: video), options: .atomic)
-            status = "\(rallies.count) rallies marked · saved."
+            try encoder.encode(labels).write(to: url, options: .atomic)
+            return nil
         } catch {
-            status = "Couldn't save: \(error.localizedDescription)"
+            return error
         }
     }
 }

@@ -1178,33 +1178,31 @@ final class SamplerModel {
     func setTracks(_ tracks: [TrackedRally], session name: String) {
         let before = (currentSession?.name == name ? currentSession : sessions.first { $0.name == name })?.tracks ?? []
         let tracks = TrackedRally.stamped(tracks, since: before)
-        if var session = currentSession, session.name == name {
-            session.tracks = tracks
-            saveSession(session)
-        } else if let s = sessions.firstIndex(where: { $0.name == name }) {
-            sessions[s].tracks = tracks
-            do { try store.save(sessions[s]) } catch { status = "Couldn't save: \(error.localizedDescription)" }
-        }
+        modify(session: name) { $0.tracks = tracks }
     }
 
     /// What the phone had of this video's tracked rallies at the last sync.
     func setSyncedTrackIds(_ ids: [UUID], session name: String) {
-        if var session = currentSession, session.name == name {
-            session.syncedTrackIds = ids
-            saveSession(session)
-        } else if let s = sessions.firstIndex(where: { $0.name == name }) {
-            sessions[s].syncedTrackIds = ids
-            do { try store.save(sessions[s]) } catch { status = "Couldn't save: \(error.localizedDescription)" }
-        }
+        modify(session: name) { $0.syncedTrackIds = ids }
     }
 
     /// Track tab → Rally Times: whether every rally in the video is marked.
     func setRalliesMarked(_ marked: Bool, session name: String) {
+        modify(session: name) { $0.ralliesMarked = marked }
+    }
+
+    /// Label → Not a rally: the found rally starting at `start` isn't one.
+    func addNotRally(start: Double, session name: String) {
+        modify(session: name) { $0.notRallies = ($0.notRallies ?? []) + [start] }
+    }
+
+    /// Change a session, open or not, and save it.
+    private func modify(session name: String, _ change: (inout VideoSession) -> Void) {
         if var session = currentSession, session.name == name {
-            session.ralliesMarked = marked
+            change(&session)
             saveSession(session)
         } else if let s = sessions.firstIndex(where: { $0.name == name }) {
-            sessions[s].ralliesMarked = marked
+            change(&sessions[s])
             do { try store.save(sessions[s]) } catch { status = "Couldn't save: \(error.localizedDescription)" }
         }
     }

@@ -65,6 +65,8 @@ final class TrackLabelModel {
     @ObservationIgnored private var cache: [Double: CGImage] = [:]
     @ObservationIgnored private var cacheOrder: [Double] = []
     @ObservationIgnored private var loadTask: Task<Void, Never>?
+    /// Reading the open video's track (frame times need it).
+    @ObservationIgnored private var openTask: Task<Void, Never>?
     @ObservationIgnored private var trackTask: Task<Void, Never>?
     @ObservationIgnored private var playTask: Task<Void, Never>?
     @ObservationIgnored private let snapDetector = SnapDetector()
@@ -108,7 +110,7 @@ final class TrackLabelModel {
         status = rallies.isEmpty && suggestions.isEmpty
             ? "No rallies found in this video yet — add one with New Rally."
             : "\(suggestions.count) rallies to track, \(rallies.filter(\.done).count) done."
-        Task {
+        openTask = Task {
             guard let track = try? await asset.loadTracks(withMediaType: .video).first else {
                 status = "Couldn't read \(session.sourcePath)."
                 return
@@ -118,6 +120,12 @@ final class TrackLabelModel {
             step = max(1, Int((fps / Self.frameRate).rounded()))
             if let first = rallies.first { select(first.id) }
         }
+    }
+
+    /// Open a video and wait until its rallies can be tracked.
+    func openAndWait(sessionName name: String) async {
+        open(sessionName: name)
+        await openTask?.value
     }
 
     /// The rally stretches the Sampler took burst frames from, as ranges

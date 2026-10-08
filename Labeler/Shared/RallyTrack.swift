@@ -68,6 +68,12 @@ struct TrackPoint: Codable, Hashable {
 }
 
 struct TrackedRally: Codable, Identifiable, Equatable {
+    /// A rally's frames run this far past it each side: just enough that the
+    /// multi-frame model's 9-frame window (4 frames each side of the one it
+    /// answers for) has real frames at the serve and the dead ball. Any more
+    /// is ball-in-hand labeling the rally cutting never uses.
+    static let margin = 0.3
+
     let id: UUID
     var start: Double
     var end: Double

@@ -2,12 +2,16 @@
 //  SamplerTabView.swift
 //  RallyLab
 //
-//  Ingest → review → train. Left: the dataset's videos and the ingest queue.
-//  Centre: the selected frame at review size with its boxes (drag on empty
-//  space to draw one, drag a box to move it, drag a corner to resize, Delete
-//  to remove) above a filmstrip. Right: sampling settings for new videos,
-//  the label policy, and the training hand-off. The whole tab is a drop
-//  target for videos and folders.
+//  Import: drop videos (or folders of frames) anywhere on the tab, or
+//  choose them; the pipeline finds their rallies and they show up in the
+//  Label tab to track. The whole tab is a drop target.
+//
+//  Behind "Review Stills" is the single-frame YOLO review. Left: the
+//  dataset's videos and the ingest queue. Centre: the selected frame at
+//  review size with its boxes (drag on empty space to draw one, drag a box
+//  to move it, drag a corner to resize, Delete to remove) above a
+//  filmstrip. Right: sampling settings for new videos, the label policy,
+//  and the training hand-off.
 //
 
 import AppKit
@@ -25,8 +29,87 @@ struct SamplerTabView: View {
     @State private var showShortcuts = false
     /// Full screen with only the review: no video list, no settings.
     @State private var isFocused = false
+    /// The stills review rather than the import page.
+    @AppStorage(SamplerTabView.stillsKey) private var showStills = false
+    @State private var showImportSettings = false
+
+    static let stillsKey = "RallyLab.samplerStills"
+
+    /// Open a video's frames in the stills review (from elsewhere, e.g. the
+    /// Project board or the Models tab).
+    @MainActor
+    static func showStills(_ session: VideoSession, frame: UUID? = nil, in sampler: SamplerModel) {
+        UserDefaults.standard.set(true, forKey: stillsKey)
+        sampler.openSession(session, frame: frame)
+    }
 
     var body: some View {
+        Group {
+            if showStills { stills } else { importPage }
+        }
+        .background(
+            SamplerDropView(
+                onDrop: { sampler.enqueue($0) },
+                onStatus: { sampler.note($0) }
+            )
+        )
+    }
+
+    // MARK: - Import
+
+    private var importPage: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                VStack(spacing: 14) {
+                    Image(systemName: "square.and.arrow.down.on.square").font(.system(size: 44, weight: .light))
+                        .foregroundStyle(Color.accentColor)
+                    Text("Drop videos to import").font(.title.bold())
+                    Text("From Photos or Finder. RallyLab finds the rallies in each, and they show up in the Label tab to track.")
+                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
+                    Button { chooseInputs() } label: { Label("Choose Videos…", systemImage: "plus") }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 44)
+                .background(RoundedRectangle(cornerRadius: 18).strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [7, 5]))
+                    .foregroundStyle(Color.accentColor.opacity(0.45)))
+                .background(Color.accentColor.opacity(0.05), in: RoundedRectangle(cornerRadius: 18))
+
+                if !sampler.queue.isEmpty {
+                    queueList
+                        .padding(16)
+                        .background(.background, in: RoundedRectangle(cornerRadius: 14))
+                }
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(sampler.sessions.count) videos").font(.headline)
+                        Text(sampler.datasetRoot.path).font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer()
+                    Button("Sampling…") { showImportSettings = true }
+                        .popover(isPresented: $showImportSettings) { controls.frame(width: 340, height: 520) }
+                    Button("Change Folder…") { chooseDatasetRoot() }
+                    Button { showStills = true } label: { Label("Review Stills", systemImage: "photo.stack") }
+                        .help("The single-frame YOLO review")
+                }
+                .padding(16)
+                .background(.background, in: RoundedRectangle(cornerRadius: 14))
+
+                Text(sampler.status).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(24)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+        }
+        .background(.background.secondary)
+    }
+
+    // MARK: - Stills
+
+    private var stills: some View {
         HSplitView {
             if !isFocused {
                 librarySidebar
@@ -39,12 +122,6 @@ struct SamplerTabView: View {
                     .frame(minWidth: 300, idealWidth: 320, maxWidth: 400)
             }
         }
-        .background(
-            SamplerDropView(
-                onDrop: { sampler.enqueue($0) },
-                onStatus: { sampler.note($0) }
-            )
-        )
         // Leaving full screen any other way (the green button, ⌃⌘F) ends focus too.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             isFocused = false
@@ -64,6 +141,8 @@ struct SamplerTabView: View {
 
     private var librarySidebar: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Button { showStills = false } label: { Label("Import", systemImage: "chevron.left") }
+                .buttonStyle(.borderless)
             HStack {
                 Text("Dataset").font(.headline)
                 Spacer()
@@ -402,7 +481,7 @@ struct SamplerTabView: View {
     /// list and the filmstrip would otherwise take the arrow keys — except
     /// while typing in a text field or in a sheet or panel.
     private func handleKey(_ event: NSEvent) -> Bool {
-        guard isActive, !sampler.samples.isEmpty,
+        guard isActive, showStills, !sampler.samples.isEmpty,
               let window = event.window, window.isKeyWindow, window.sheetParent == nil,
               !(window is NSPanel), window.attachedSheet == nil,
               !(window.firstResponder is NSText) else { return false }

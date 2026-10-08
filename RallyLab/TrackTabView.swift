@@ -30,15 +30,6 @@ struct TrackTabView: View {
     static let modeKey = "RallyLab.trackMode"
     static let sessionKey = "RallyLab.trackSession"
 
-    /// Open `session` in Ball tracks, as when picked in the video menu
-    /// (for coming here from elsewhere, e.g. the Plan page).
-    @MainActor
-    static func show(_ session: VideoSession, in tracker: TrackLabelModel) {
-        UserDefaults.standard.set(Mode.ball.rawValue, forKey: modeKey)
-        UserDefaults.standard.set(session.name, forKey: sessionKey)
-        tracker.open(sessionName: session.name)
-    }
-
     var body: some View {
         HSplitView {
             sidebar
@@ -304,7 +295,7 @@ private struct NewRallyForm: View {
     }
 }
 
-private struct TrackStateTag: View {
+struct TrackStateTag: View {
     let point: TrackPoint
 
     var body: some View {
@@ -327,7 +318,7 @@ private struct TrackStateTag: View {
 
 /// The frame with the ball's path: past positions fading behind, the next
 /// few ahead, and the current one ringed in its state's colour.
-private struct TrackFrameView: View {
+struct TrackFrameView: View {
     let image: CGImage
     let rally: TrackedRally
     let index: Int
@@ -469,7 +460,7 @@ private struct TrackFrameView: View {
 
 /// One cell per frame: green yours, teal sure, amber to check, grey hidden,
 /// red not found. Click to jump.
-private struct TrackStrip: View {
+struct TrackStrip: View {
     let points: [TrackPoint]
     let index: Int
     let onJump: (Int) -> Void

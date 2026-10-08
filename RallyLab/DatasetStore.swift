@@ -94,6 +94,8 @@ struct VideoSession: Codable, Identifiable, Equatable {
     /// Tracked rallies the phone had at the last sync: one gone from here
     /// since was deleted here, so the sync deletes it there too.
     var syncedTrackIds: [UUID]? = nil
+    /// Starts of found rallies you said aren't rallies (Label → Not a rally).
+    var notRallies: [Double]? = nil
 
     var reviewedCount: Int { frames.filter(\.reviewed).count }
     var boxCount: Int { frames.filter(\.keep).reduce(0) { $0 + $1.boxes.count } }
