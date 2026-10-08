@@ -70,6 +70,7 @@
 			membershipExceptions = (
 				Shared/LabelingClient.swift,
 				Shared/LabelingModels.swift,
+				Shared/LabelQueue.swift,
 				Shared/RallyTrack.swift,
 				Shared/TrackFinder.swift,
 				Shared/TrainingPlan.swift,

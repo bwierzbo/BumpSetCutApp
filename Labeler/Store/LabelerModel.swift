@@ -163,34 +163,20 @@ final class LabelerModel {
         }
     }
 
-    /// What to do next, most useful first: a rally to track from each video
-    /// the plan wants frames from (one each, so they spread over many
-    /// videos; a video stops after ~20 s of tracked rally). Every few, a
-    /// video to mark all the way through, while a surface is short of those
-    /// for scoring rally cutting this round.
+    /// What to do next (LabelQueue — the same rules as the Mac).
     var tasks: [LabelTask] {
         let byName = Dictionary(videos.map { ($0.name, $0) }) { a, _ in a }
-        var track: [LabelTask] = progress.queue.compactMap { p in
-            guard let v = byName[p.name], let r = untrackedRallies(in: v).first else { return nil }
-            return .track(v, r)
+        let queue = videos.map { v in
+            LabelQueue.Video(plan: planVideo(v), nextRally: untrackedRallies(in: v).first,
+                             found: v.ralliesFound.count, complete: rallyTimes(for: v).complete)
         }
-        guard let round = currentRound else { return track }
-        // Videos to mark through: the surface's short, the one with most found rallies first.
-        var review: [LabelTask] = []
-        let wanted = TrainingPlan.rallyTimeVideosPerSurface(round)
-        for surface in LabelSurface.allCases {
-            let have = videos.filter { $0.surface == surface && rallyTimes(for: $0).complete }.count
-            let open = videos.filter { $0.surface == surface && !rallyTimes(for: $0).complete }
-                .sorted { $0.ralliesFound.count > $1.ralliesFound.count }
-            review += open.prefix(max(0, wanted - have)).map { .review($0) }
+        return LabelQueue.jobs(queue, round: currentRound).compactMap { job in
+            guard let v = byName[job.video] else { return nil }
+            switch job {
+            case .track(_, let r): return .track(v, r)
+            case .review: return .review(v)
+            }
         }
-        var out: [LabelTask] = []
-        while !track.isEmpty || !review.isEmpty {
-            out += track.prefix(3)
-            track.removeFirst(min(3, track.count))
-            if !review.isEmpty { out.append(review.removeFirst()) }
-        }
-        return out
     }
 
     // MARK: - Editing

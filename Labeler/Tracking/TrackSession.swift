@@ -40,8 +40,11 @@ final class TrackSession {
     let found: [Double]?
     /// Your points kept across an extension (re-found on the new frames).
     private var keptPoints: [TrackPoint] = []
-    /// Tracked frames run this far past the rally each side.
-    static let padding = 2.0
+    /// Tracked frames run this far past the rally each side: just enough
+    /// that the multi-frame model's 9-frame window (4 frames each side of
+    /// the one it answers for) has real frames at the serve and the dead
+    /// ball. Any more is ball-in-hand labeling the rally cutting never uses.
+    static let padding = 0.3
 
     /// Detections this sure or more are candidates (as on the Mac).
     static let candidateConfidence: Float = 0.15
