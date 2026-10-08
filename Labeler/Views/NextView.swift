@@ -82,7 +82,8 @@ struct NextView: View {
                 return ("Check the rallies", open > 0 ? "\(open) found rallies to confirm, then skim for missed ones" : "Skim for missed rallies and finish",
                         "checklist")
             case .track(let v, let r):
-                return (model.unfinishedTrack(of: r, in: v) == nil ? "Track a rally" : "Finish tracking a rally", "\(RallyTimesView.clock(r.start)) – \(RallyTimesView.clock(r.end)) · about \(Int((r.end - r.start + 2 * TrackedRally.margin) * TrackSession.frameRate)) frames",
+                if let t = model.unfinishedTrack(of: r, in: v) { return ("Finish tracking a rally", Self.progress(t), "scope") }
+                return ("Track a rally", "\(RallyTimesView.clock(r.start)) – \(RallyTimesView.clock(r.end)) · about \(Int((r.end - r.start + 2 * TrackedRally.margin) * TrackSession.frameRate)) frames",
                         "scope")
             }
         }()
@@ -130,6 +131,16 @@ struct NextView: View {
         }
         .padding()
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+extension NextView {
+    /// Where a rally you left part way through stands.
+    static func progress(_ t: LabelTrack) -> String {
+        let n = t.points.points.count
+        let at = LocalStore.position(t.id).flatMap { p in t.points.points.firstIndex { abs($0.time - p) < 0.002 } }
+        let place = at.map { "back to frame \($0 + 1) of \(n)" } ?? "\(n) frames"
+        return "\(RallyTimesView.clock(t.start)) – \(RallyTimesView.clock(t.end)) · \(place) · \(t.toCheck == 0 ? "nothing" : "\(t.toCheck)") left to check"
     }
 }
 

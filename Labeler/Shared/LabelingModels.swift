@@ -154,6 +154,9 @@ extension LabelTrack {
                   done: rally.done, deleted: false, updatedAt: rally.updatedAt)
     }
 
+    /// Frames still worth a look (not yours, unsure, filled in or not found).
+    var toCheck: Int { points.points.filter(\.isUncertain).count }
+
     /// As the Track tab and TrackSolver work with it (no candidates yet).
     var rally: TrackedRally {
         TrackedRally(id: id, start: start, end: end, points: points.points, candidates: [], done: done, updatedAt: updatedAt)

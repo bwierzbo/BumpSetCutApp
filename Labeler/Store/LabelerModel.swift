@@ -231,6 +231,7 @@ final class LabelerModel {
         var t = track
         t.deleted = true
         save(t)
+        LocalStore.removeTracking(track.id)
     }
 
     private func count(_ change: (inout DayStats) -> Void) {

@@ -28,8 +28,12 @@ final class TrackSession {
     let video: LabelVideo
     private(set) var rally: TrackedRally
     private(set) var phase = Phase.preparing("Getting the clip…", 0)
-    /// The frame on screen.
-    var index = 0
+    /// The frame on screen (kept, so coming back opens it again).
+    var index = 0 {
+        didSet {
+            if rally.points.indices.contains(index) { LocalStore.setPosition(rally.points[index].time, for: rally.id) }
+        }
+    }
     /// Each frame as JPEG, upright, in time order.
     private(set) var frames: [Data] = []
     private var undoStack: [TrackedRally] = []
@@ -93,6 +97,16 @@ final class TrackSession {
     // MARK: - Preparing
 
     func prepare() async {
+        // Left part way through: its frames and candidates are on the phone.
+        if !rally.points.isEmpty, let kept = LocalStore.tracking(rally.id, times: rally.points.map(\.time)) {
+            frames = kept.frames
+            rally.candidates = kept.candidates
+            rally.points = TrackSolver.solve(rally)
+            let left = LocalStore.position(rally.id).flatMap { t in rally.points.firstIndex { abs($0.time - t) < 0.002 } }
+            index = left ?? toCheck.first ?? 0
+            phase = .reviewing
+            return
+        }
         do {
             let file = try await model.localClip(for: video)
             let asset = AVURLAsset(url: file)
@@ -118,8 +132,11 @@ final class TrackSession {
             frames = found.frames
             rally.candidates = found.candidates
             rally.points = TrackSolver.solve(rally)
-            index = toCheck.first ?? 0
+            let left = LocalStore.position(rally.id).flatMap { t in rally.points.firstIndex { abs($0.time - t) < 0.002 } }
+            index = left ?? toCheck.first ?? 0
             phase = .reviewing
+            let id = rally.id, candidates = rally.candidates
+            Task.detached(priority: .utility) { LocalStore.saveTracking(id, times: wanted, frames: found.frames, candidates: candidates) }
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -295,6 +312,8 @@ final class TrackSession {
             for (k, found) in added { rally.candidates[k] += found }
             rally.points = TrackSolver.solve(rally)
             save()
+            let id = rally.id, candidates = rally.candidates
+            Task.detached(priority: .utility) { LocalStore.saveCandidates(id, candidates) }
         }
     }
 
@@ -321,7 +340,10 @@ final class TrackSession {
 
     func setDone(_ done: Bool) {
         change(resolve: false) { $0.done = done }
-        if done { model.markRally(bounds, in: video) }
+        if done {
+            model.markRally(bounds, in: video)
+            LocalStore.removeTracking(rally.id)
+        }
     }
 
     /// The rally starts (the serve) or ends (the ball is dead) on this frame.
@@ -350,9 +372,9 @@ final class TrackSession {
         if let found { model.rejectFound(found, in: video) }
         model.update(video) { $0.rallies.removeAll { abs($0.start - self.bounds.start) < 0.05 && abs($0.end - self.bounds.end) < 0.05 } }
         if model.tracks(for: video).contains(where: { $0.id == rally.id }) { model.delete(LabelTrack(rally, videoId: video.id)) }
+        LocalStore.removeTracking(rally.id)
     }
 
-    /// The rally's box size: the median of its visible boxes.
     /// The ball's size near frame `i`: the detector's boxes on the closest
     /// frames either side (up to 3 each way, within 10 frames), averaged —
     /// the ball grows and shrinks with its distance from the camera, but

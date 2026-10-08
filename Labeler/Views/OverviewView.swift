@@ -85,6 +85,8 @@ struct VideoRow: View {
                 HStack(spacing: 6) {
                     Text("\(times.rallies.count) marked")
                     Text("· \(tracks.filter(\.done).count) tracked (\(tracks.filter(\.done).reduce(0) { $0 + $1.labeledFrames })/\(TrainingPlan.enoughFramesPerVideo) frames)")
+                    let open = tracks.filter { !$0.done }.count
+                    if open > 0 { Text("· \(open) in progress").foregroundStyle(.orange) }
                     if !video.ralliesFound.isEmpty { Text("· \(video.ralliesFound.count) found") }
                     if video.status == .uploaded { Text("· waiting for the Mac") }
                 }

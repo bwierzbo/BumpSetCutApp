@@ -4,8 +4,10 @@
 //
 //  What lets the phone work without signal: the last data loaded from
 //  Supabase (so the app opens offline), an outbox of edits not saved yet
-//  (sent when there's a connection), clips kept on the phone, and the
-//  found rallies you've said aren't rallies.
+//  (sent when there's a connection), clips kept on the phone, the found
+//  rallies you've said aren't rallies, and a rally being tracked — its
+//  frames, what the detectors found and the frame you were on — so leaving
+//  and coming back carries on where you were, without finding the ball again.
 //
 
 import Foundation
@@ -56,6 +58,67 @@ enum LocalStore {
 
     static func save<T: Encodable>(_ value: T, _ name: String) {
         if let data = try? encoder.encode(value) { try? data.write(to: support.appendingPathComponent(name), options: .atomic) }
+    }
+
+    // MARK: - A rally being tracked
+
+    /// A rally's frames (JPEG) at their times, as read for tracking.
+    private struct Frames: Codable {
+        var times: [Double]
+        var frames: [Data]
+    }
+
+    private static func work(_ id: UUID) -> URL {
+        let dir = support.appendingPathComponent("Tracking/\(id.uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    static func saveTracking(_ id: UUID, times: [Double], frames: [Data], candidates: [[TrackCandidate]]) {
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .binary
+        if let data = try? encoder.encode(Frames(times: times, frames: frames)) {
+            try? data.write(to: work(id).appendingPathComponent("frames.plist"), options: .atomic)
+        }
+        saveCandidates(id, candidates)
+    }
+
+    static func saveCandidates(_ id: UUID, _ candidates: [[TrackCandidate]]) {
+        if let data = try? JSONEncoder().encode(candidates) {
+            try? data.write(to: work(id).appendingPathComponent("candidates.json"), options: .atomic)
+        }
+    }
+
+    /// The frames and candidates kept for this rally, if they're for these
+    /// frame times.
+    static func tracking(_ id: UUID, times: [Double]) -> (frames: [Data], candidates: [[TrackCandidate]])? {
+        let dir = work(id)
+        guard let data = try? Data(contentsOf: dir.appendingPathComponent("frames.plist")),
+              let kept = try? PropertyListDecoder().decode(Frames.self, from: data), kept.times == times,
+              let c = try? Data(contentsOf: dir.appendingPathComponent("candidates.json")),
+              let candidates = try? JSONDecoder().decode([[TrackCandidate]].self, from: c),
+              candidates.count == times.count else { return nil }
+        return (kept.frames, candidates)
+    }
+
+    static func removeTracking(_ id: UUID) {
+        try? FileManager.default.removeItem(at: support.appendingPathComponent("Tracking/\(id.uuidString)"))
+        var all = UserDefaults.standard.dictionary(forKey: positionKey) ?? [:]
+        all[id.uuidString] = nil
+        UserDefaults.standard.set(all, forKey: positionKey)
+    }
+
+    private static let positionKey = "trackingPosition"
+
+    /// The time of the frame you were on in a rally being tracked.
+    static func position(_ id: UUID) -> Double? {
+        UserDefaults.standard.dictionary(forKey: positionKey)?[id.uuidString] as? Double
+    }
+
+    static func setPosition(_ time: Double, for id: UUID) {
+        var all = UserDefaults.standard.dictionary(forKey: positionKey) ?? [:]
+        all[id.uuidString] = time
+        UserDefaults.standard.set(all, forKey: positionKey)
     }
 
     // MARK: - Found rallies you've said aren't rallies

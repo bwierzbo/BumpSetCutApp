@@ -43,7 +43,13 @@ struct VideoDetailView: View {
                             Image(systemName: t.done ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle(t.done ? .green : .orange)
                             Text("\(RallyTimesView.clock(t.start)) – \(RallyTimesView.clock(t.end))").font(.callout.monospacedDigit())
                             Spacer()
-                            Text("\(t.labeledFrames) frames").font(.caption).foregroundStyle(.secondary)
+                            if t.done {
+                                Text("\(t.labeledFrames) frames").font(.caption).foregroundStyle(.secondary)
+                            } else {
+                                let n = max(t.points.points.count, 1)
+                                ProgressView(value: Double(n - t.toCheck) / Double(n)).frame(width: 60)
+                                Text("\(t.toCheck) to check").font(.caption).foregroundStyle(.orange)
+                            }
                         }
                     }
                 }
