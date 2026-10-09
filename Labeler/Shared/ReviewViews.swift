@@ -112,13 +112,15 @@ struct CropReviewView: View {
                     if let image = walk.image, let box = shownBox, let patch {
                         let k = CropCanvas.geometry(frameSize: patch.frameSize, box: box, view: CGSize(width: side, height: side)).k
                         CropCanvas(patch: patch, box: box, offset: offset, scale: scale, showsBox: ball != nil)
-                            .overlay(alignment: .bottom) {
+                            .overlay(alignment: .top) {
                                 if ball == nil {
-                                    Text("Marked hidden · tap to confirm, or No ball if it's there")
-                                        .font(.callout.weight(.semibold))
-                                        .padding(.horizontal, 12).padding(.vertical, 6)
-                                        .background(.ultraThinMaterial, in: Capsule())
-                                        .padding(10)
+                                    VStack(spacing: 2) {
+                                        Label("Hidden frame", systemImage: "eye.slash").font(.headline)
+                                        Text("Tap to confirm it can't be seen · No ball if it's there").font(.caption)
+                                    }
+                                    .padding(.horizontal, 14).padding(.vertical, 8)
+                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                                    .padding(10)
                                 }
                             }
                             .contentShape(Rectangle())

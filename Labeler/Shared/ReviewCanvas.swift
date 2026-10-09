@@ -48,7 +48,8 @@ struct CropCanvas: View {
     let box: CGRect
     let offset: CGSize
     let scale: CGFloat
-    /// Off for a frame without a ball (only the centre cross shows).
+    /// Off for a frame without a ball: a white dashed square shows where the
+    /// ball would be, instead of the box to adjust.
     var showsBox = true
     var tint: Color = .green
 
@@ -71,7 +72,11 @@ struct CropCanvas: View {
                     Canvas { ctx, size in
                         let side = AnnotationReview.ballSide(of: box, in: patch.frameSize) * scale * g.k
                         let r = CGRect(x: size.width / 2 - side / 2, y: size.height / 2 - side / 2, width: side, height: side)
-                        if showsBox { ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(tint), lineWidth: 2) }
+                        if showsBox {
+                            ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(tint), lineWidth: 2)
+                        } else {
+                            ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(.white.opacity(0.85)), style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
+                        }
                         // A small cross at the centre, for centring precisely.
                         var cross = Path()
                         cross.move(to: CGPoint(x: size.width / 2 - 5, y: size.height / 2)); cross.addLine(to: CGPoint(x: size.width / 2 + 5, y: size.height / 2))
