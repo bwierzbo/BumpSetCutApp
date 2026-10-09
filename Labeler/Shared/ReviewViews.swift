@@ -133,7 +133,7 @@ struct CropReviewView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             controls
-            ReviewProgress(walk: walk)
+            ReviewPassBar(walk: walk)
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
         .navigationTitle("Boxes")
@@ -291,7 +291,7 @@ struct WholeFrameReviewView: View {
                 }
                 .controlSize(.large)
             }
-            ReviewProgress(walk: walk)
+            ReviewPassBar(walk: walk)
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
         .navigationTitle("Whole frames")
@@ -331,7 +331,7 @@ struct WholeFrameReviewView: View {
 }
 
 /// How far through this pass: a bar along the bottom with the count.
-private struct ReviewProgress: View {
+private struct ReviewPassBar: View {
     let walk: ReviewWalk
 
     var body: some View {
