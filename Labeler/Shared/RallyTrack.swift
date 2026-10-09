@@ -122,6 +122,15 @@ enum TrackSolver {
     static let sureConfidence = 0.5
     /// Gaps up to this many frames between found frames are filled.
     static let maxFill = 8
+    /// A spot with a detection on at least this many frames of the rally —
+    /// and this share of them — is something still (a net post, a sign, a
+    /// light), not the ball in play: a ball doesn't sit within a ball's
+    /// width for half a second while a rally's on.
+    static let stillFrames = 15
+    static let stillShare = 0.2
+    /// …and its detections count this much of their confidence: the path
+    /// only takes one when nothing else fits, and it's flagged to check.
+    static let stillWeight = 0.2
 
     /// Re-solves `rally`'s non-user frames from its candidates, keeping
     /// every user point fixed, then fills short gaps.
@@ -134,12 +143,13 @@ enum TrackSolver {
         // jump costs with its size, "none" costs a flat amount so the path
         // takes a believable candidate when there is one.
         let noneCost = 0.55
+        let candidates = discountingStill(rally.candidates)
         func options(_ i: Int) -> [TrackCandidate?] {
             let p = rally.points[i]
             if p.origin == .user {
                 return p.state == .visible ? [p.box] : [nil]
             }
-            return rally.candidates[i].map { Optional($0) } + [nil]
+            return candidates[i].map { Optional($0) } + [nil]
         }
         func emission(_ c: TrackCandidate?, user: Bool) -> Double {
             if user { return 0 }
@@ -189,6 +199,30 @@ enum TrackSolver {
         }
         fillGaps(&points)
         return points
+    }
+
+    /// The candidates with those on a still spot (see `stillFrames`) down to
+    /// `stillWeight` of their confidence. Spots are grid cells a little
+    /// bigger than a ball; a candidate's frames count over its cell and the
+    /// ones around it, so a detection jittering on a cell edge still counts.
+    static func discountingStill(_ candidates: [[TrackCandidate]]) -> [[TrackCandidate]] {
+        let cellW = 0.012, cellH = 0.012 * 16 / 9
+        func cell(_ c: TrackCandidate) -> (Int, Int) { (Int((c.rect.midX / cellW).rounded(.down)), Int((c.rect.midY / cellH).rounded(.down))) }
+        struct Cell: Hashable { let x, y: Int }
+        var frames: [Cell: Set<Int>] = [:]
+        for (i, list) in candidates.enumerated() {
+            for c in list { let (x, y) = cell(c); frames[Cell(x: x, y: y), default: []].insert(i) }
+        }
+        let needed = max(stillFrames, Int(stillShare * Double(candidates.count)))
+        return candidates.map { list in
+            list.map { c in
+                let (x, y) = cell(c)
+                var seen = Set<Int>()
+                for dx in -1...1 { for dy in -1...1 { seen.formUnion(frames[Cell(x: x + dx, y: y + dy)] ?? []) } }
+                guard seen.count >= needed else { return c }
+                return TrackCandidate(rect: c.rect, confidence: c.confidence * stillWeight)
+            }
+        }
     }
 
     /// Unknown runs of up to `maxFill` frames with found frames on both
