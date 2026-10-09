@@ -55,25 +55,29 @@ struct CropCanvas: View {
             let g = Self.geometry(frameSize: patch.frameSize, box: box, view: geo.size)
             let c = CGPoint(x: g.centre.x + offset.width, y: g.centre.y + offset.height)
             let w = CGFloat(patch.image.width) * g.k, h = CGFloat(patch.image.height) * g.k
-            ZStack(alignment: .topLeading) {
-                Color.black
-                Image(decorative: patch.image, scale: 1)
-                    .resizable()
-                    .interpolation(.medium)
-                    .frame(width: w, height: h)
-                    .offset(x: geo.size.width / 2 + (patch.origin.x - c.x) * g.k, y: geo.size.height / 2 + (patch.origin.y - c.y) * g.k)
-                Canvas { ctx, size in
-                    let side = AnnotationReview.ballSide(of: box, in: patch.frameSize) * scale * g.k
-                    let r = CGRect(x: size.width / 2 - side / 2, y: size.height / 2 - side / 2, width: side, height: side)
-                    ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(tint), lineWidth: 2)
-                    // A small cross at the centre, for centring precisely.
-                    var cross = Path()
-                    cross.move(to: CGPoint(x: size.width / 2 - 5, y: size.height / 2)); cross.addLine(to: CGPoint(x: size.width / 2 + 5, y: size.height / 2))
-                    cross.move(to: CGPoint(x: size.width / 2, y: size.height / 2 - 5)); cross.addLine(to: CGPoint(x: size.width / 2, y: size.height / 2 + 5))
-                    ctx.stroke(cross, with: .color(tint.opacity(0.8)), lineWidth: 1)
+            // The view's own size; the picture (bigger, so a drag has room) and
+            // the box are laid over it rather than sizing it.
+            Color.black
+                .overlay(alignment: .topLeading) {
+                    Image(decorative: patch.image, scale: 1)
+                        .resizable()
+                        .interpolation(.medium)
+                        .frame(width: w, height: h)
+                        .offset(x: geo.size.width / 2 + (patch.origin.x - c.x) * g.k, y: geo.size.height / 2 + (patch.origin.y - c.y) * g.k)
                 }
-                .allowsHitTesting(false)
-            }
+                .overlay {
+                    Canvas { ctx, size in
+                        let side = AnnotationReview.ballSide(of: box, in: patch.frameSize) * scale * g.k
+                        let r = CGRect(x: size.width / 2 - side / 2, y: size.height / 2 - side / 2, width: side, height: side)
+                        ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(tint), lineWidth: 2)
+                        // A small cross at the centre, for centring precisely.
+                        var cross = Path()
+                        cross.move(to: CGPoint(x: size.width / 2 - 5, y: size.height / 2)); cross.addLine(to: CGPoint(x: size.width / 2 + 5, y: size.height / 2))
+                        cross.move(to: CGPoint(x: size.width / 2, y: size.height / 2 - 5)); cross.addLine(to: CGPoint(x: size.width / 2, y: size.height / 2 + 5))
+                        ctx.stroke(cross, with: .color(tint.opacity(0.8)), lineWidth: 1)
+                    }
+                    .allowsHitTesting(false)
+                }
         }
         .clipped()
     }
