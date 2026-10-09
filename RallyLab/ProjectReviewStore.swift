@@ -26,8 +26,8 @@ final class ProjectReviewStore: ReviewStore {
 
     var progress: (reviewed: Int, total: Int) { AnnotationReview.progress(rallies.map(\.rally)) }
 
-    func reviewItems(_ kind: AnnotationReview.Kind) -> [AnnotationReview.Item] {
-        AnnotationReview.items(rallies, kind: kind)
+    func reviewItems(_ kinds: Set<AnnotationReview.Kind>) -> [AnnotationReview.Item] {
+        AnnotationReview.items(rallies, kinds: kinds)
     }
 
     func rally(of item: AnnotationReview.Item) -> TrackedRally? {

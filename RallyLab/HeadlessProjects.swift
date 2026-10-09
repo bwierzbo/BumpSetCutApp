@@ -119,7 +119,7 @@ enum HeadlessProjects {
                     if pct >= last + 10 { last = pct; log("fitting… \(pct)%") }
                 }
                 let n = fitted.values.flatMap(\.values).reduce(0) { $0 + $1.count }
-                log("\(n) of \(store.reviewItems(.crop).count) unreviewed balls fitted\(args.contains("--apply") ? " — saved" : " (dry run; --apply saves)").")
+                log("\(n) of \(store.reviewItems([.crop]).count) unreviewed balls fitted\(args.contains("--apply") ? " — saved" : " (dry run; --apply saves)").")
                 if args.contains("--apply") {
                     // Take what changed on the phone meanwhile first (frames
                     // reviewed there are skipped), then send the result back.

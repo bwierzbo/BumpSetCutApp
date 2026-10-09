@@ -3,20 +3,20 @@
 //  RallyLab (macOS and iPhone)
 //
 //  Annotation review, the same screens on the Mac and the phone (see
-//  AnnotationReview). The Review tab
-//  shows how much is checked and opens the two passes:
-//   · Boxes — a crop around each box, the box fixed in the middle: drag the
-//     picture to put the ball's centre under it, pinch to size it, tap to
-//     approve and go on. No ball sends the frame to Whole frames.
-//   · Not sure (either pass) sets a frame aside for the Not sure pass: the
-//     whole frame with its box, to fix, approve or call hidden.
-//   · Whole frames — the full frame: tap the ball to place it and approve,
-//     or confirm it's hidden.
+//  AnnotationReview). The Review tab shows how much is checked and opens:
+//   · Review — every frame of finished rallies in order, as a crop: a ball's
+//     box fixed in the middle (drag the picture to put the ball's centre
+//     under it, pinch to size it, tap to approve and go on); a frame marked
+//     hidden shows where the ball last was (tap to confirm it's hidden).
+//     Find ball opens the whole frame, only when the ball isn't in the crop:
+//     tap it and approve, or call it hidden — then straight back.
+//   · Not sure — frames set aside, on the whole frame with their box.
 //  Back undoes the last decision.
 //
-//  Keys (the Mac, or a keyboard): Boxes — ↩/Space approve, arrows move the
-//  box a pixel (⇧ five), [ ] size it, X no ball, ⌫ back. Whole frames —
-//  click the ball, ↩ approve, H hidden, = − zoom, arrows pan, ⌫ back.
+//  On the Mac: two fingers on the trackpad move the picture, pinch zooms;
+//  ↩/Space approve (or confirm hidden) and go on, arrows move the box a
+//  pixel (⇧ five), [ ] size it, F find the ball, U not sure, ⌫ back. On the whole frame: click the ball, ↩ approve,
+//  H hidden, = − zoom, arrows pan, Esc back to the crop.
 //
 
 import SwiftUI
@@ -26,8 +26,8 @@ struct ReviewHomeView: View {
     let progress: (reviewed: Int, total: Int)
 
     var body: some View {
-        let crops = store.reviewItems(.crop).count, whole = store.reviewItems(.fullFrame).count
-        let unsure = store.reviewItems(.unsure).count
+        let frames = store.reviewItems([.crop, .fullFrame]).count
+        let unsure = store.reviewItems([.unsure]).count
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -40,14 +40,10 @@ struct ReviewHomeView: View {
                 .padding()
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
                 NavigationLink { CropReviewView(store: store) } label: {
-                    card("Boxes", "\(crops.formatted()) to check · drag to centre, pinch to size, tap to approve", "viewfinder", crops)
+                    card("Review", "\(frames.formatted()) frames to check · drag to centre, pinch to size, tap to approve", "viewfinder", frames)
                 }
-                .buttonStyle(.plain).disabled(crops == 0)
-                NavigationLink { WholeFrameReviewView(store: store) } label: {
-                    card("Whole frames", "\(whole.formatted()) to check · hidden frames and ones you said had no ball", "rectangle.dashed", whole)
-                }
-                .buttonStyle(.plain).disabled(whole == 0)
-                NavigationLink { WholeFrameReviewView(store: store, kind: .unsure) } label: {
+                .buttonStyle(.plain).disabled(frames == 0)
+                NavigationLink { UnsureReviewView(store: store) } label: {
                     card("Not sure", "\(unsure.formatted()) set aside · a closer look when you have time", "questionmark.circle", unsure)
                 }
                 .buttonStyle(.plain).disabled(unsure == 0)
@@ -73,7 +69,15 @@ struct ReviewHomeView: View {
     }
 }
 
-/// Boxes: one crop at a time.
+/// The frame being checked, for Find ball's whole-frame view.
+private struct Finding: Identifiable {
+    let id = UUID()
+    let image: CGImage
+    let rally: TrackedRally
+    let index: Int
+}
+
+/// Review: one crop at a time, every frame in order.
 struct CropReviewView: View {
     @State private var walk: ReviewWalk
     @State private var offset: CGSize = .zero
@@ -85,9 +89,24 @@ struct CropReviewView: View {
     @State private var pinched = false
     @State private var patch: CropPatch?
     @State private var approved = 0
+    @State private var finding: Finding?
+    /// The Mac's pinch: how much closer than the usual crop (kept frame to frame).
+    @State private var viewZoom: CGFloat = 1
 
     init(store: any ReviewStore) {
-        _walk = State(initialValue: ReviewWalk(store: store, kind: .crop))
+        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.crop, .fullFrame]))
+    }
+
+    /// The frame's ball, if it has one (else it's marked hidden or no ball).
+    private var ball: CGRect? { walk.point.flatMap { $0.state == .visible ? $0.box?.rect : nil } }
+
+    /// What the crop is centred on: the ball's box, or for a frame without
+    /// one, a ball-sized box where the ball was last seen.
+    private var shownBox: CGRect? {
+        if let ball { return ball }
+        guard let rally = walk.rally, let item = walk.item else { return nil }
+        let f = FrameCanvas.focus(rally, frame: item.index)
+        return AnnotationReview.placedBox(at: CGPoint(x: f.x, y: 1 - f.y), in: rally, frame: item.index)
     }
 
     var body: some View {
@@ -96,9 +115,19 @@ struct CropReviewView: View {
             GeometryReader { geo in
                 let side = min(geo.size.width, geo.size.height)
                 Group {
-                    if let image = walk.image, let box = walk.point?.box?.rect, let patch {
-                        let k = CropCanvas.geometry(frameSize: patch.frameSize, box: box, view: CGSize(width: side, height: side)).k
-                        CropCanvas(patch: patch, box: box, offset: offset, scale: scale)
+                    if let image = walk.image, let box = shownBox, let patch {
+                        let k = CropCanvas.geometry(frameSize: patch.frameSize, box: box, view: CGSize(width: side, height: side)).k * viewZoom
+                        CropCanvas(patch: patch, box: box, offset: offset, scale: scale, showsBox: ball != nil, zoom: viewZoom)
+                            .overlay(alignment: .bottom) {
+                                if ball == nil {
+                                    Text(walk.point?.state == .hidden ? "Marked hidden · tap to confirm, or Find ball"
+                                                                      : "No ball here · tap to call it hidden, or Find ball")
+                                        .font(.callout.weight(.semibold))
+                                        .padding(.horizontal, 12).padding(.vertical, 6)
+                                        .background(.ultraThinMaterial, in: Capsule())
+                                        .padding(10)
+                                }
+                            }
                             .contentShape(Rectangle())
                             // One gesture from the first touch: moving drags the picture
                             // at once; lifting without moving (and no pinch) approves.
@@ -116,20 +145,31 @@ struct CropReviewView: View {
                                     dragBase = nil
                                     moved = 0
                                     pinched = false
-                                    if tap { approve(box: box, image: image) }
+                                    if tap { approve(image: image) }
                                 })
                             .simultaneousGesture(MagnifyGesture()
                                 .onChanged { m in
+                                    pinched = true
+                                    #if os(macOS)
+                                    // The trackpad's pinch zooms the view; [ ] size the box.
+                                    let base = pinchBase ?? viewZoom
+                                    if pinchBase == nil { pinchBase = base }
+                                    viewZoom = min(max(base * m.magnification, 1), 4)
+                                    #else
                                     let base = pinchBase ?? scale
                                     if pinchBase == nil { pinchBase = base }
-                                    pinched = true
                                     scale = min(max(base * m.magnification, 0.3), 4)
+                                    #endif
                                 }
                                 .onEnded { _ in pinchBase = nil })
+                            .reviewScroll { dx, dy in
+                                // Two fingers move the picture, as a drag does.
+                                offset = CGSize(width: offset.width - dx / k, height: offset.height - dy / k)
+                            }
                     } else if let failure = walk.failure {
                         ContentUnavailableView("Can't show this frame", systemImage: "exclamationmark.triangle", description: Text(failure))
                     } else if walk.item == nil {
-                        ContentUnavailableView("All boxes checked", systemImage: "checkmark.seal.fill",
+                        ContentUnavailableView("All frames checked", systemImage: "checkmark.seal.fill",
                                                description: Text("\(approved) approved this time."))
                     } else {
                         ProgressView()
@@ -143,15 +183,26 @@ struct CropReviewView: View {
             ReviewPassBar(walk: walk)
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .navigationTitle("Boxes")
+        .navigationTitle("Review")
         .inlineTitle()
-        .reviewKeys { press in cropKey(press) }
+        .reviewKeys { press in finding == nil && cropKey(press) }
         .task { await walk.load() }
         // Cut out the part around the box once per frame.
         .onChange(of: walk.image.map(ObjectIdentifier.init), initial: true) {
-            patch = walk.image.flatMap { image in walk.point?.box.flatMap { CropPatch(frame: image, box: $0.rect) } }
+            patch = walk.image.flatMap { image in shownBox.flatMap { CropPatch(frame: image, box: $0) } }
         }
         .sensoryFeedback(.success, trigger: approved)
+        .sheet(item: $finding) { f in
+            NavigationStack {
+                FindBallView(image: f.image, rally: f.rally, index: f.index, box: nil,
+                             onBall: { box in decide { AnnotationReview.approve(&$0, box: box) } },
+                             onHidden: { decide(AnnotationReview.confirmHidden) })
+                    .navigationTitle("Find the ball")
+                    .inlineTitle()
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Back to crop") { finding = nil } } }
+            }
+            .frame(minWidth: 700, minHeight: 600)
+        }
     }
 
     private var header: some View {
@@ -167,7 +218,8 @@ struct CropReviewView: View {
 
     private var controls: some View {
         VStack(spacing: 8) {
-            Text("Drag to centre the ball · pinch to size the box · tap to approve")
+            Text(ball == nil ? "Tap to confirm · Find ball if you can see it on the whole frame"
+                             : "Drag to centre the ball · pinch to size the box · tap to approve")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Button { Task { reset(); await walk.back() } } label: {
@@ -178,10 +230,10 @@ struct CropReviewView: View {
                     Label("Not sure", systemImage: "questionmark").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).tint(.orange).disabled(walk.item == nil)
-                Button(role: .destructive) { Task { reset(); await walk.decide(AnnotationReview.noBall) } } label: {
-                    Label("No ball", systemImage: "xmark").frame(maxWidth: .infinity)
+                Button { find() } label: {
+                    Label("Find ball", systemImage: "arrow.up.left.and.arrow.down.right").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered).tint(.red).disabled(walk.item == nil)
+                .buttonStyle(.bordered).disabled(walk.image == nil)
             }
             .controlSize(.large)
         }
@@ -191,8 +243,8 @@ struct CropReviewView: View {
         let step: CGFloat = press.modifiers.contains(.shift) ? 5 : 1
         switch press.key {
         case .return, .space:
-            guard let image = walk.image, let box = walk.point?.box?.rect else { return false }
-            approve(box: box, image: image)
+            guard let image = walk.image else { return false }
+            approve(image: image)
         case .leftArrow: offset.width -= step
         case .rightArrow: offset.width += step
         case .upArrow: offset.height -= step
@@ -202,7 +254,7 @@ struct CropReviewView: View {
             switch press.characters.lowercased() {
             case "[", "-": scale = max(0.3, scale / 1.05)
             case "]", "=", "+": scale = min(4, scale * 1.05)
-            case "x": Task { reset(); await walk.decide(AnnotationReview.noBall) }
+            case "f": find()
             case "?", "/", "u": Task { reset(); await walk.decide(AnnotationReview.markUnsure) }
             default: return false
             }
@@ -210,12 +262,25 @@ struct CropReviewView: View {
         return true
     }
 
-    private func approve(box: CGRect, image: CGImage) {
+    /// Tap: the ball's box as adjusted, or for a frame without a ball, it's hidden.
+    private func approve(image: CGImage) {
+        guard let ball else { return decide(AnnotationReview.confirmHidden) }
         let size = CGSize(width: image.width, height: image.height)
-        let new = AnnotationReview.adjusted(box, offset: offset, scale: scale, in: size)
-        reset()
+        let new = AnnotationReview.adjusted(ball, offset: offset, scale: scale, in: size)
         approved += 1
-        Task { await walk.decide { AnnotationReview.approve(&$0, box: new) } }
+        decide { AnnotationReview.approve(&$0, box: new) }
+    }
+
+    private func find() {
+        guard let image = walk.image, let rally = walk.rally, let item = walk.item else { return }
+        finding = Finding(image: image, rally: rally, index: item.index)
+    }
+
+    /// Decide this frame (closing Find ball if it's open) and go on.
+    private func decide(_ change: @escaping (inout TrackPoint) -> Void) {
+        reset()
+        finding = nil
+        Task { await walk.decide(change) }
     }
 
     private func reset() {
@@ -224,136 +289,131 @@ struct CropReviewView: View {
     }
 }
 
-/// Whole frames: place the ball or confirm it's hidden.
-struct WholeFrameReviewView: View {
-    @State private var walk: ReviewWalk
+/// The whole frame, to find the ball: pinch to zoom, drag to look around,
+/// tap the ball to place it, then approve — or call it hidden. Starts
+/// zoomed in where the ball was last seen, with `box` if there is one.
+struct FindBallView: View {
+    let image: CGImage
+    let rally: TrackedRally
+    let index: Int
+    let onBall: (CGRect) -> Void
+    let onHidden: () -> Void
     @State private var zoom: CGFloat = 2.5
-    @State private var centre = CGPoint(x: 0.5, y: 0.5)
+    @State private var centre: CGPoint
     @State private var panBase: CGPoint?
     @State private var pinchBase: CGFloat?
     @State private var placed: CGRect?
 
-    /// `.fullFrame`, or `.unsure` for the frames set aside (shown with their box).
-    let kind: AnnotationReview.Kind
+    init(image: CGImage, rally: TrackedRally, index: Int, box: CGRect?,
+         onBall: @escaping (CGRect) -> Void, onHidden: @escaping () -> Void) {
+        self.image = image
+        self.rally = rally
+        self.index = index
+        self.onBall = onBall
+        self.onHidden = onHidden
+        _centre = State(initialValue: FrameCanvas.focus(rally, frame: index))
+        _placed = State(initialValue: box)
+    }
 
-    init(store: any ReviewStore, kind: AnnotationReview.Kind = .fullFrame) {
-        self.kind = kind
-        _walk = State(initialValue: ReviewWalk(store: store, kind: kind))
+    var body: some View {
+        VStack(spacing: 12) {
+            GeometryReader { geo in
+                FrameCanvas(image: image, zoom: zoom, centre: centre, box: placed)
+                    .contentShape(Rectangle())
+                    .onTapGesture { location in
+                        guard let p = FrameCanvas.framePoint(location, image: image, zoom: zoom, centre: centre, view: geo.size) else { return }
+                        placed = AnnotationReview.placedBox(at: p, in: rally, frame: index)
+                    }
+                    .gesture(DragGesture(minimumDistance: 3)
+                        .onChanged { d in
+                            let base = panBase ?? centre
+                            if panBase == nil { panBase = base }
+                            let shown = FrameCanvas.shown(image: image, zoom: zoom, view: geo.size)
+                            centre = CGPoint(x: base.x - d.translation.width / shown.width, y: base.y - d.translation.height / shown.height)
+                        }
+                        .onEnded { _ in panBase = nil })
+                    .simultaneousGesture(MagnifyGesture()
+                        .onChanged { m in
+                            let base = pinchBase ?? zoom
+                            if pinchBase == nil { pinchBase = base }
+                            zoom = min(max(base * m.magnification, 1), 8)
+                        }
+                        .onEnded { _ in pinchBase = nil })
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            Text(placed == nil ? "Tap the ball to place it, or call it hidden" : "Tap again to move it")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Button(action: onHidden) { Label("Hidden", systemImage: "eye.slash").frame(maxWidth: .infinity) }
+                    .buttonStyle(.bordered)
+                Button { if let placed { onBall(placed) } } label: { Label("Ball here", systemImage: "checkmark").frame(maxWidth: .infinity) }
+                    .buttonStyle(.borderedProminent).disabled(placed == nil)
+            }
+            .controlSize(.large)
+        }
+        .padding(8)
+        .reviewKeys { press in
+            let pan = 0.05 / zoom
+            switch press.key {
+            case .return:
+                guard let placed else { return false }
+                onBall(placed)
+            case .leftArrow: centre.x -= pan
+            case .rightArrow: centre.x += pan
+            case .upArrow: centre.y -= pan
+            case .downArrow: centre.y += pan
+            default:
+                switch press.characters.lowercased() {
+                case "h": onHidden()
+                case "=", "+": zoom = min(8, zoom * 1.25)
+                case "-": zoom = max(1, zoom / 1.25)
+                default: return false
+                }
+            }
+            return true
+        }
+    }
+}
+
+/// Not sure: the frames set aside, each on the whole frame with its box.
+struct UnsureReviewView: View {
+    @State private var walk: ReviewWalk
+
+    init(store: any ReviewStore) {
+        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.unsure]))
     }
 
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Text("\(walk.left.formatted()) left").font(.headline.monospacedDigit())
+                Button { Task { await walk.back() } } label: { Label("Back", systemImage: "arrow.uturn.backward") }
+                    .disabled(!walk.canGoBack)
                 Spacer()
-                if let p = walk.point {
-                    Text(kind == .unsure ? "set aside: not sure" : p.state == .hidden ? "marked hidden" : "said no ball here")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                Text("\(walk.left.formatted()) left").font(.headline.monospacedDigit())
             }
             .padding(.horizontal, 8)
-            GeometryReader { geo in
-                Group {
-                    if let image = walk.image {
-                        FrameCanvas(image: image, zoom: zoom, centre: centre, box: placed)
-                            .contentShape(Rectangle())
-                            .onTapGesture { location in
-                                guard let rally = walk.rally, let item = walk.item,
-                                      let p = FrameCanvas.framePoint(location, image: image, zoom: zoom, centre: centre, view: geo.size)
-                                else { return }
-                                placed = AnnotationReview.placedBox(at: p, in: rally, frame: item.index)
-                            }
-                            .gesture(DragGesture(minimumDistance: 3)
-                                .onChanged { d in
-                                    let base = panBase ?? centre
-                                    if panBase == nil { panBase = base }
-                                    let shown = FrameCanvas.shown(image: image, zoom: zoom, view: geo.size)
-                                    centre = CGPoint(x: base.x - d.translation.width / shown.width, y: base.y - d.translation.height / shown.height)
-                                }
-                                .onEnded { _ in panBase = nil })
-                            .simultaneousGesture(MagnifyGesture()
-                                .onChanged { m in
-                                    let base = pinchBase ?? zoom
-                                    if pinchBase == nil { pinchBase = base }
-                                    zoom = min(max(base * m.magnification, 1), 8)
-                                }
-                                .onEnded { _ in pinchBase = nil })
-                    } else if let failure = walk.failure {
-                        ContentUnavailableView("Can't show this frame", systemImage: "exclamationmark.triangle", description: Text(failure))
-                    } else if walk.item == nil {
-                        ContentUnavailableView("All whole frames checked", systemImage: "checkmark.seal.fill", description: Text(""))
-                    } else {
-                        ProgressView()
-                    }
+            Group {
+                if let image = walk.image, let rally = walk.rally, let item = walk.item {
+                    FindBallView(image: image, rally: rally, index: item.index,
+                                 box: walk.point.flatMap { $0.state == .visible ? $0.box?.rect : nil },
+                                 onBall: { box in Task { await walk.decide { AnnotationReview.approve(&$0, box: box) } } },
+                                 onHidden: { Task { await walk.decide(AnnotationReview.confirmHidden) } })
+                        .id(item)
+                } else if let failure = walk.failure {
+                    ContentUnavailableView("Can't show this frame", systemImage: "exclamationmark.triangle", description: Text(failure))
+                } else if walk.item == nil {
+                    ContentUnavailableView("Nothing set aside", systemImage: "checkmark.seal.fill", description: Text(""))
+                } else {
+                    ProgressView()
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            VStack(spacing: 8) {
-                Text(placed == nil ? "Tap the ball to place it, or confirm it can't be seen" : "Tap again to move it")
-                    .font(.caption).foregroundStyle(.secondary)
-                HStack(spacing: 10) {
-                    Button { Task { await go { await walk.back() } } } label: {
-                        Image(systemName: "arrow.uturn.backward").frame(maxWidth: 44)
-                    }
-                    .buttonStyle(.bordered).disabled(!walk.canGoBack)
-                    Button { Task { await go { await walk.decide(AnnotationReview.confirmHidden) } } } label: {
-                        Label("Hidden", systemImage: "eye.slash").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered).disabled(walk.item == nil)
-                    if kind != .unsure {
-                        Button { Task { await go { await walk.decide(AnnotationReview.markUnsure) } } } label: {
-                            Image(systemName: "questionmark").frame(maxWidth: 44)
-                        }
-                        .buttonStyle(.bordered).tint(.orange).disabled(walk.item == nil)
-                        .accessibilityLabel("Not sure")
-                    }
-                    Button {
-                        guard let placed else { return }
-                        Task { await go { await walk.decide { AnnotationReview.approve(&$0, box: placed) } } }
-                    } label: { Label("Ball here", systemImage: "checkmark").frame(maxWidth: .infinity) }
-                        .buttonStyle(.borderedProminent).disabled(placed == nil)
-                }
-                .controlSize(.large)
-            }
+            .frame(maxHeight: .infinity)
             ReviewPassBar(walk: walk)
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .navigationTitle(kind == .unsure ? "Not sure" : "Whole frames")
+        .navigationTitle("Not sure")
         .inlineTitle()
-        .reviewKeys { press in wholeKey(press) }
-        .task { await go { await walk.load() } }
-    }
-
-    private func wholeKey(_ press: KeyPress) -> Bool {
-        let pan = 0.05 / zoom
-        switch press.key {
-        case .return:
-            guard let placed else { return false }
-            Task { await go { await walk.decide { AnnotationReview.approve(&$0, box: placed) } } }
-        case .leftArrow: centre.x -= pan
-        case .rightArrow: centre.x += pan
-        case .upArrow: centre.y -= pan
-        case .downArrow: centre.y += pan
-        case .delete, .deleteForward: Task { await go { await walk.back() } }
-        default:
-            switch press.characters.lowercased() {
-            case "h": Task { await go { await walk.decide(AnnotationReview.confirmHidden) } }
-            case "?", "/", "u" where kind != .unsure: Task { await go { await walk.decide(AnnotationReview.markUnsure) } }
-            case "=", "+": zoom = min(8, zoom * 1.25)
-            case "-": zoom = max(1, zoom / 1.25)
-            default: return false
-            }
-        }
-        return true
-    }
-
-    /// Do `step`, then start the new frame centred where the ball was last seen.
-    private func go(_ step: () async -> Void) async {
-        placed = nil
-        await step()
-        if let rally = walk.rally, let item = walk.item { centre = FrameCanvas.focus(rally, frame: item.index) }
-        // A frame set aside comes with its box, to keep or move.
-        placed = walk.point.flatMap { $0.state == .visible ? $0.box?.rect : nil }
+        .task { await walk.load() }
     }
 }
 
@@ -393,6 +453,47 @@ private extension View {
     /// Key presses while the screen is showing (it takes the focus).
     func reviewKeys(_ handle: @escaping (KeyPress) -> Bool) -> some View {
         modifier(ReviewKeys(handle: handle))
+    }
+}
+
+#if os(macOS)
+import AppKit
+
+/// Two fingers on the trackpad (scroll) while the pointer is over the view:
+/// `handle` gets the movement in points, following the fingers.
+private struct ReviewScroll: ViewModifier {
+    let handle: (CGFloat, CGFloat) -> Void
+    @State private var hovering = false
+    @State private var monitor: Any?
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering = $0 }
+            .onAppear {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                    guard hovering else { return event }
+                    let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
+                    handle(event.scrollingDeltaX * scale, event.scrollingDeltaY * scale)
+                    return nil
+                }
+            }
+            .onDisappear {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
+    }
+}
+#endif
+
+private extension View {
+    /// The trackpad's two-finger scroll, on the Mac; nothing on the phone.
+    @ViewBuilder
+    func reviewScroll(_ handle: @escaping (CGFloat, CGFloat) -> Void) -> some View {
+        #if os(macOS)
+        modifier(ReviewScroll(handle: handle))
+        #else
+        self
+        #endif
     }
 }
 

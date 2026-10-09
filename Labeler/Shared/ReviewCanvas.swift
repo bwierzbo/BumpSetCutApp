@@ -48,11 +48,16 @@ struct CropCanvas: View {
     let box: CGRect
     let offset: CGSize
     let scale: CGFloat
+    /// Off for a frame without a ball (only the centre cross shows).
+    var showsBox = true
+    /// Closer than the crop's usual view (the Mac's pinch), 1 = as usual.
+    var zoom: CGFloat = 1
     var tint: Color = .green
 
     var body: some View {
         GeometryReader { geo in
-            let g = Self.geometry(frameSize: patch.frameSize, box: box, view: geo.size)
+            let fitted = Self.geometry(frameSize: patch.frameSize, box: box, view: geo.size)
+            let g = (k: fitted.k * zoom, centre: fitted.centre)
             let c = CGPoint(x: g.centre.x + offset.width, y: g.centre.y + offset.height)
             let w = CGFloat(patch.image.width) * g.k, h = CGFloat(patch.image.height) * g.k
             // The view's own size; the picture (bigger, so a drag has room) and
@@ -69,7 +74,7 @@ struct CropCanvas: View {
                     Canvas { ctx, size in
                         let side = AnnotationReview.ballSide(of: box, in: patch.frameSize) * scale * g.k
                         let r = CGRect(x: size.width / 2 - side / 2, y: size.height / 2 - side / 2, width: side, height: side)
-                        ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(tint), lineWidth: 2)
+                        if showsBox { ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(tint), lineWidth: 2) }
                         // A small cross at the centre, for centring precisely.
                         var cross = Path()
                         cross.move(to: CGPoint(x: size.width / 2 - 5, y: size.height / 2)); cross.addLine(to: CGPoint(x: size.width / 2 + 5, y: size.height / 2))

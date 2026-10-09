@@ -202,8 +202,8 @@ final class LabelerModel: ReviewStore {
         videos.flatMap { v in tracks(for: v).map { (v.id.uuidString, $0.rally) } }
     }
 
-    func reviewItems(_ kind: AnnotationReview.Kind) -> [AnnotationReview.Item] {
-        AnnotationReview.items(reviewRallies, kind: kind)
+    func reviewItems(_ kinds: Set<AnnotationReview.Kind>) -> [AnnotationReview.Item] {
+        AnnotationReview.items(reviewRallies, kinds: kinds)
     }
 
     var reviewProgress: (reviewed: Int, total: Int) { AnnotationReview.progress(reviewRallies.map(\.rally)) }

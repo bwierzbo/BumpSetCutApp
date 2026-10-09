@@ -47,11 +47,11 @@ enum AnnotationReview {
 
     /// The frames of finished rallies still needing `kind`, rally by rally,
     /// in frame order (neighbours look alike, so they go quickly).
-    static func items(_ rallies: [(video: String, rally: TrackedRally)], kind: Kind) -> [Item] {
+    static func items(_ rallies: [(video: String, rally: TrackedRally)], kinds: Set<Kind>) -> [Item] {
         rallies.filter { $0.rally.done }
             .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
             .flatMap { v in
-                v.rally.points.indices.filter { Self.kind(of: v.rally.points[$0]) == kind }
+                v.rally.points.indices.filter { Self.kind(of: v.rally.points[$0]).map(kinds.contains) ?? false }
                     .map { Item(video: v.video, track: v.rally.id, index: $0) }
             }
     }
@@ -70,15 +70,6 @@ enum AnnotationReview {
         point.origin = .user
         point.box = TrackCandidate(rect: box, confidence: 1)
         point.reviewed = true
-        point.unsure = false
-    }
-
-    /// The box isn't on the ball: off to the full-frame check.
-    static func noBall(_ point: inout TrackPoint) {
-        point.state = .unknown
-        point.origin = .user
-        point.box = nil
-        point.reviewed = false
         point.unsure = false
     }
 
@@ -203,7 +194,7 @@ final class ReviewFrames: @unchecked Sendable {
 /// rallies, or a Mac project's sessions.
 @MainActor
 protocol ReviewStore: AnyObject {
-    func reviewItems(_ kind: AnnotationReview.Kind) -> [AnnotationReview.Item]
+    func reviewItems(_ kinds: Set<AnnotationReview.Kind>) -> [AnnotationReview.Item]
     /// The rally an item is a frame of, as it is now.
     func rally(of item: AnnotationReview.Item) -> TrackedRally?
     /// Change the frame and save its rally; the frame as it was, for going back.
@@ -229,9 +220,9 @@ final class ReviewWalk {
     private var undo: [(item: AnnotationReview.Item, point: TrackPoint)] = []
     @ObservationIgnored private var frames: [String: ReviewFrames] = [:]
 
-    init(store: any ReviewStore, kind: AnnotationReview.Kind) {
+    init(store: any ReviewStore, kinds: Set<AnnotationReview.Kind>) {
         self.store = store
-        items = store.reviewItems(kind)
+        items = store.reviewItems(kinds)
     }
 
     var item: AnnotationReview.Item? { items.indices.contains(at) ? items[at] : nil }
