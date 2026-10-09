@@ -37,8 +37,9 @@ struct CropCanvas: View {
                              in: CGRect(x: origin.x + seen.minX * g.k, y: origin.y + seen.minY * g.k,
                                         width: seen.width * g.k, height: seen.height * g.k))
                 }
-                let w = box.width * CGFloat(image.width) * scale * g.k, h = box.height * CGFloat(image.height) * scale * g.k
-                let r = CGRect(x: size.width / 2 - w / 2, y: size.height / 2 - h / 2, width: w, height: h)
+                // The square it'll be saved as.
+                let side = AnnotationReview.ballSide(of: box, in: CGSize(width: image.width, height: image.height)) * scale * g.k
+                let r = CGRect(x: size.width / 2 - side / 2, y: size.height / 2 - side / 2, width: side, height: side)
                 ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(tint), lineWidth: 2)
                 // A small cross at the centre, for centring precisely.
                 var cross = Path()

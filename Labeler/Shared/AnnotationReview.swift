@@ -111,10 +111,19 @@ enum AnnotationReview {
         return min(max(side * cropBoxes, minCropPixels), min(size.width, size.height))
     }
 
+    /// The ball's size in image pixels for a box: a square the box's
+    /// shorter side across (a ball is round; a blurred ball's box runs
+    /// along the streak, and its width across is the ball).
+    static func ballSide(of box: CGRect, in size: CGSize) -> CGFloat {
+        min(box.width * size.width, box.height * size.height)
+    }
+
     /// The box after moving the picture by `offset` image pixels (the ball's
-    /// centre is that far from the box's) and sizing it by `scale`.
+    /// centre is that far from the box's) and sizing it by `scale`: always a
+    /// square in pixels, `ballSide` × `scale` across.
     static func adjusted(_ box: CGRect, offset: CGSize, scale: CGFloat, in size: CGSize) -> CGRect {
-        let w = box.width * scale, h = box.height * scale
+        let side = ballSide(of: box, in: size) * scale
+        let w = side / size.width, h = side / size.height
         let cx = box.midX + offset.width / size.width
         let cy = box.midY - offset.height / size.height   // pixels are top-down, Vision bottom-up
         return CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)
