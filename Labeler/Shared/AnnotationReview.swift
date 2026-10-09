@@ -5,9 +5,9 @@
 //  Annotation review: every labeled frame of a finished rally is checked
 //  once before it's used for training. A frame with a ball is shown as a
 //  crop around its box — the box fixed in the middle; you move the picture
-//  under it and size it, then approve. "No ball" sends it to the full-frame
-//  check, along with every frame marked hidden while tracking: the whole
-//  frame, to place the ball or confirm it can't be seen. "Not sure" sets a
+//  under it and size it, then approve; one marked hidden is confirmed on a
+//  crop where the ball was. "No ball" sets a frame aside for a later pass on
+//  the whole frame, to place the ball or call it hidden. "Not sure" sets a
 //  frame aside in its own pass for a later look.
 //
 //  Several people can review at once: a rally is claimed by whoever reviews
@@ -23,7 +23,16 @@ import Observation
 enum AnnotationReview {
 
     /// Which check a frame needs.
-    enum Kind { case crop, fullFrame, unsure }
+    enum Kind {
+        /// A ball with a box: checked on a crop.
+        case crop
+        /// Marked hidden while tracking: confirmed on a crop where the ball was.
+        case hidden
+        /// Said "no ball" on its crop: the ball's found on the whole frame later.
+        case noBall
+        /// Set aside as not sure.
+        case unsure
+    }
 
     /// One frame to review: a frame of a rally of a video (keyed however the
     /// app keys its videos — the phone by id, the Mac by session name).
@@ -40,8 +49,8 @@ enum AnnotationReview {
         if point.unsure { return .unsure }
         switch point.state {
         case .visible: return point.box == nil ? nil : .crop
-        case .hidden: return .fullFrame
-        case .unknown: return point.origin == .user ? .fullFrame : nil
+        case .hidden: return .hidden
+        case .unknown: return point.origin == .user ? .noBall : nil
         }
     }
 
@@ -70,6 +79,16 @@ enum AnnotationReview {
         point.origin = .user
         point.box = TrackCandidate(rect: box, confidence: 1)
         point.reviewed = true
+        point.unsure = false
+    }
+
+    /// The box isn't on the ball: for the whole-frame pass, to find it there
+    /// or call it hidden.
+    static func noBall(_ point: inout TrackPoint) {
+        point.state = .unknown
+        point.origin = .user
+        point.box = nil
+        point.reviewed = false
         point.unsure = false
     }
 

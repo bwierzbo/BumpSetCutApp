@@ -8,15 +8,15 @@
 //     box fixed in the middle (drag the picture to put the ball's centre
 //     under it, pinch to size it, tap to approve and go on); a frame marked
 //     hidden shows where the ball last was (tap to confirm it's hidden).
-//     Find ball opens the whole frame, only when the ball isn't in the crop:
-//     tap it and approve, or call it hidden — then straight back.
+//     No ball sets a frame aside for —
+//   · Find the ball — the whole frame: tap the ball and approve, or hidden.
 //   · Not sure — frames set aside, on the whole frame with their box.
 //  Back undoes the last decision.
 //
 //  On the Mac: two fingers on the trackpad move the picture, pinch sizes the
 //  box (as on the phone); ↩/Space approve (or confirm hidden) and go on, arrows move the box a
-//  pixel (⇧ five), [ ] size it, F find the ball, U not sure, ⌫ back. On the whole frame: click the ball, ↩ approve,
-//  H hidden, = − zoom, arrows pan, Esc back to the crop.
+//  pixel (⇧ five), [ ] size it, X no ball, U not sure, ⌫ back. On the
+//  whole frame: click the ball, ↩ approve, H hidden, = − zoom, arrows pan.
 //
 
 import SwiftUI
@@ -26,7 +26,8 @@ struct ReviewHomeView: View {
     let progress: (reviewed: Int, total: Int)
 
     var body: some View {
-        let frames = store.reviewItems([.crop, .fullFrame]).count
+        let frames = store.reviewItems([.crop, .hidden]).count
+        let noBall = store.reviewItems([.noBall]).count
         let unsure = store.reviewItems([.unsure]).count
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -43,7 +44,11 @@ struct ReviewHomeView: View {
                     card("Review", "\(frames.formatted()) frames to check · drag to centre, pinch to size, tap to approve", "viewfinder", frames)
                 }
                 .buttonStyle(.plain).disabled(frames == 0)
-                NavigationLink { UnsureReviewView(store: store) } label: {
+                NavigationLink { WholeFrameReviewView(store: store, kind: .noBall) } label: {
+                    card("Find the ball", "\(noBall.formatted()) said no ball · find it on the whole frame, or call it hidden", "scope", noBall)
+                }
+                .buttonStyle(.plain).disabled(noBall == 0)
+                NavigationLink { WholeFrameReviewView(store: store, kind: .unsure) } label: {
                     card("Not sure", "\(unsure.formatted()) set aside · a closer look when you have time", "questionmark.circle", unsure)
                 }
                 .buttonStyle(.plain).disabled(unsure == 0)
@@ -69,14 +74,6 @@ struct ReviewHomeView: View {
     }
 }
 
-/// The frame being checked, for Find ball's whole-frame view.
-private struct Finding: Identifiable {
-    let id = UUID()
-    let image: CGImage
-    let rally: TrackedRally
-    let index: Int
-}
-
 /// Review: one crop at a time, every frame in order.
 struct CropReviewView: View {
     @State private var walk: ReviewWalk
@@ -89,10 +86,9 @@ struct CropReviewView: View {
     @State private var pinched = false
     @State private var patch: CropPatch?
     @State private var approved = 0
-    @State private var finding: Finding?
 
     init(store: any ReviewStore) {
-        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.crop, .fullFrame]))
+        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.crop, .hidden]))
     }
 
     /// The frame's ball, if it has one (else it's marked hidden or no ball).
@@ -118,8 +114,7 @@ struct CropReviewView: View {
                         CropCanvas(patch: patch, box: box, offset: offset, scale: scale, showsBox: ball != nil)
                             .overlay(alignment: .bottom) {
                                 if ball == nil {
-                                    Text(walk.point?.state == .hidden ? "Marked hidden · tap to confirm, or Find ball"
-                                                                      : "No ball here · tap to call it hidden, or Find ball")
+                                    Text("Marked hidden · tap to confirm, or No ball if it's there")
                                         .font(.callout.weight(.semibold))
                                         .padding(.horizontal, 12).padding(.vertical, 6)
                                         .background(.ultraThinMaterial, in: Capsule())
@@ -179,24 +174,13 @@ struct CropReviewView: View {
         .padding(.horizontal, 8).padding(.bottom, 8)
         .navigationTitle("Review")
         .inlineTitle()
-        .reviewKeys { press in finding == nil && cropKey(press) }
+        .reviewKeys { press in cropKey(press) }
         .task { await walk.load() }
         // Cut out the part around the box once per frame.
         .onChange(of: walk.image.map(ObjectIdentifier.init), initial: true) {
             patch = walk.image.flatMap { image in shownBox.flatMap { CropPatch(frame: image, box: $0) } }
         }
         .sensoryFeedback(.success, trigger: approved)
-        .sheet(item: $finding) { f in
-            NavigationStack {
-                FindBallView(image: f.image, rally: f.rally, index: f.index, box: nil,
-                             onBall: { box in decide { AnnotationReview.approve(&$0, box: box) } },
-                             onHidden: { decide(AnnotationReview.confirmHidden) })
-                    .navigationTitle("Find the ball")
-                    .inlineTitle()
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Back to crop") { finding = nil } } }
-            }
-            .frame(minWidth: 700, minHeight: 600)
-        }
     }
 
     private var header: some View {
@@ -212,7 +196,7 @@ struct CropReviewView: View {
 
     private var controls: some View {
         VStack(spacing: 8) {
-            Text(ball == nil ? "Tap to confirm · Find ball if you can see it on the whole frame"
+            Text(ball == nil ? "Tap to confirm it's hidden · No ball if you can see it, to place it later"
                              : "Drag to centre the ball · pinch to size the box · tap to approve")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
@@ -224,10 +208,10 @@ struct CropReviewView: View {
                     Label("Not sure", systemImage: "questionmark").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).tint(.orange).disabled(walk.item == nil)
-                Button { find() } label: {
-                    Label("Find ball", systemImage: "arrow.up.left.and.arrow.down.right").frame(maxWidth: .infinity)
+                Button(role: .destructive) { decide(AnnotationReview.noBall) } label: {
+                    Label("No ball", systemImage: "xmark").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered).disabled(walk.image == nil)
+                .buttonStyle(.bordered).tint(.red).disabled(walk.item == nil)
             }
             .controlSize(.large)
         }
@@ -248,7 +232,7 @@ struct CropReviewView: View {
             switch press.characters.lowercased() {
             case "[", "-": scale = max(0.3, scale / 1.05)
             case "]", "=", "+": scale = min(4, scale * 1.05)
-            case "f": find()
+            case "x": decide(AnnotationReview.noBall)
             case "?", "/", "u": Task { reset(); await walk.decide(AnnotationReview.markUnsure) }
             default: return false
             }
@@ -265,15 +249,9 @@ struct CropReviewView: View {
         decide { AnnotationReview.approve(&$0, box: new) }
     }
 
-    private func find() {
-        guard let image = walk.image, let rally = walk.rally, let item = walk.item else { return }
-        finding = Finding(image: image, rally: rally, index: item.index)
-    }
-
-    /// Decide this frame (closing Find ball if it's open) and go on.
+    /// Decide this frame and go on.
     private func decide(_ change: @escaping (inout TrackPoint) -> Void) {
         reset()
-        finding = nil
         Task { await walk.decide(change) }
     }
 
@@ -369,12 +347,15 @@ struct FindBallView: View {
     }
 }
 
-/// Not sure: the frames set aside, each on the whole frame with its box.
-struct UnsureReviewView: View {
+/// A pass on the whole frame: frames said to have no ball (find it, or
+/// call it hidden), or frames set aside as not sure (with their box).
+struct WholeFrameReviewView: View {
     @State private var walk: ReviewWalk
+    let kind: AnnotationReview.Kind
 
-    init(store: any ReviewStore) {
-        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.unsure]))
+    init(store: any ReviewStore, kind: AnnotationReview.Kind) {
+        self.kind = kind
+        _walk = State(initialValue: ReviewWalk(store: store, kinds: [kind]))
     }
 
     var body: some View {
@@ -396,7 +377,7 @@ struct UnsureReviewView: View {
                 } else if let failure = walk.failure {
                     ContentUnavailableView("Can't show this frame", systemImage: "exclamationmark.triangle", description: Text(failure))
                 } else if walk.item == nil {
-                    ContentUnavailableView("Nothing set aside", systemImage: "checkmark.seal.fill", description: Text(""))
+                    ContentUnavailableView(kind == .unsure ? "Nothing set aside" : "Every ball found", systemImage: "checkmark.seal.fill", description: Text(""))
                 } else {
                     ProgressView()
                 }
@@ -405,7 +386,7 @@ struct UnsureReviewView: View {
             ReviewPassBar(walk: walk)
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .navigationTitle("Not sure")
+        .navigationTitle(kind == .unsure ? "Not sure" : "Find the ball")
         .inlineTitle()
         .task { await walk.load() }
     }
