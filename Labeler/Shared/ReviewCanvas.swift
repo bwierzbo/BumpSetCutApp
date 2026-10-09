@@ -50,14 +50,11 @@ struct CropCanvas: View {
     let scale: CGFloat
     /// Off for a frame without a ball (only the centre cross shows).
     var showsBox = true
-    /// Closer than the crop's usual view (the Mac's pinch), 1 = as usual.
-    var zoom: CGFloat = 1
     var tint: Color = .green
 
     var body: some View {
         GeometryReader { geo in
-            let fitted = Self.geometry(frameSize: patch.frameSize, box: box, view: geo.size)
-            let g = (k: fitted.k * zoom, centre: fitted.centre)
+            let g = Self.geometry(frameSize: patch.frameSize, box: box, view: geo.size)
             let c = CGPoint(x: g.centre.x + offset.width, y: g.centre.y + offset.height)
             let w = CGFloat(patch.image.width) * g.k, h = CGFloat(patch.image.height) * g.k
             // The view's own size; the picture (bigger, so a drag has room) and

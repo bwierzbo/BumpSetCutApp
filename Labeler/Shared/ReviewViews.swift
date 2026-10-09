@@ -13,8 +13,8 @@
 //   · Not sure — frames set aside, on the whole frame with their box.
 //  Back undoes the last decision.
 //
-//  On the Mac: two fingers on the trackpad move the picture, pinch zooms;
-//  ↩/Space approve (or confirm hidden) and go on, arrows move the box a
+//  On the Mac: two fingers on the trackpad move the picture, pinch sizes the
+//  box (as on the phone); ↩/Space approve (or confirm hidden) and go on, arrows move the box a
 //  pixel (⇧ five), [ ] size it, F find the ball, U not sure, ⌫ back. On the whole frame: click the ball, ↩ approve,
 //  H hidden, = − zoom, arrows pan, Esc back to the crop.
 //
@@ -90,8 +90,6 @@ struct CropReviewView: View {
     @State private var patch: CropPatch?
     @State private var approved = 0
     @State private var finding: Finding?
-    /// The Mac's pinch: how much closer than the usual crop (kept frame to frame).
-    @State private var viewZoom: CGFloat = 1
 
     init(store: any ReviewStore) {
         _walk = State(initialValue: ReviewWalk(store: store, kinds: [.crop, .fullFrame]))
@@ -116,8 +114,8 @@ struct CropReviewView: View {
                 let side = min(geo.size.width, geo.size.height)
                 Group {
                     if let image = walk.image, let box = shownBox, let patch {
-                        let k = CropCanvas.geometry(frameSize: patch.frameSize, box: box, view: CGSize(width: side, height: side)).k * viewZoom
-                        CropCanvas(patch: patch, box: box, offset: offset, scale: scale, showsBox: ball != nil, zoom: viewZoom)
+                        let k = CropCanvas.geometry(frameSize: patch.frameSize, box: box, view: CGSize(width: side, height: side)).k
+                        CropCanvas(patch: patch, box: box, offset: offset, scale: scale, showsBox: ball != nil)
                             .overlay(alignment: .bottom) {
                                 if ball == nil {
                                     Text(walk.point?.state == .hidden ? "Marked hidden · tap to confirm, or Find ball"
@@ -150,19 +148,12 @@ struct CropReviewView: View {
                             .simultaneousGesture(MagnifyGesture()
                                 .onChanged { m in
                                     pinched = true
-                                    #if os(macOS)
-                                    // The trackpad's pinch zooms the view; [ ] size the box.
-                                    let base = pinchBase ?? viewZoom
-                                    if pinchBase == nil { pinchBase = base }
-                                    viewZoom = min(max(base * m.magnification, 1), 4)
-                                    #else
                                     // Like zooming a photo: spreading the fingers brings the
                                     // picture closer, so the ball grows against the box — the
                                     // box shrinks to the ball.
                                     let base = pinchBase ?? scale
                                     if pinchBase == nil { pinchBase = base }
                                     scale = min(max(base / m.magnification, 0.3), 4)
-                                    #endif
                                 }
                                 .onEnded { _ in pinchBase = nil })
                             .reviewScroll { dx, dy in
