@@ -55,6 +55,29 @@ actor LabelingClient {
         try await token(grant: "password", body: ["email": email, "password": password])
     }
 
+    /// Email a password-reset code (the same as BumpSetCut's Forgot Password).
+    func sendPasswordReset(email: String) async throws {
+        _ = try await send(try authRequest("auth/v1/recover", method: "POST", body: ["email": email]))
+    }
+
+    /// Sign in with the emailed code and set a new password.
+    func resetPassword(email: String, code: String, newPassword: String) async throws {
+        try keep(try await send(try authRequest("auth/v1/verify", method: "POST",
+                                                body: ["type": "recovery", "email": email, "token": code])))
+        var request = try authRequest("auth/v1/user", method: "PUT", body: ["password": newPassword])
+        request.setValue("Bearer \(try await bearer())", forHTTPHeaderField: "Authorization")
+        _ = try await send(request)
+    }
+
+    private func authRequest(_ path: String, method: String, body: [String: String]) throws -> URLRequest {
+        var request = URLRequest(url: base.appending(path: path))
+        request.httpMethod = method
+        request.setValue(apiKey, forHTTPHeaderField: "apikey")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
     func signOut() {
         Keychain.refreshToken = nil
         accessToken = nil
@@ -74,7 +97,11 @@ actor LabelingClient {
         request.setValue(apiKey, forHTTPHeaderField: "apikey")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let data = try await send(request)
+        try keep(try await send(request))
+    }
+
+    /// Keep a session the auth server handed back.
+    private func keep(_ data: Data) throws {
         struct Token: Decodable {
             struct User: Decodable { let id: UUID }
             let accessToken: String, refreshToken: String, expiresIn: Double, user: User

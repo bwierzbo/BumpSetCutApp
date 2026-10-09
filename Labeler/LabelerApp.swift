@@ -112,6 +112,7 @@ struct SignInView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var busy = false
+    @State private var forgot = false
 
     var body: some View {
         NavigationStack {
@@ -140,8 +141,84 @@ struct SignInView: View {
                     }
                 }
                 .disabled(busy || email.isEmpty || password.isEmpty)
+                Button("Forgot password?") { forgot = true }
+                    .font(.callout)
             }
             .navigationTitle("RallyLab")
+            .sheet(isPresented: $forgot) { ForgotPasswordSheet(model: model, email: email) }
+        }
+    }
+}
+
+/// Reset a forgotten password: a code by email, then a new password.
+private struct ForgotPasswordSheet: View {
+    let model: LabelerModel
+    @State var email: String
+    @State private var code = ""
+    @State private var password = ""
+    @State private var sent = false
+    @State private var busy = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Email", text: $email)
+                        .textContentType(.username)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .disabled(sent)
+                } footer: {
+                    Text(sent ? "A code is on its way to \(email). It can take a minute; check spam too."
+                              : "We'll email you a code to set a new password.")
+                }
+                if sent {
+                    Section {
+                        TextField("Code from the email", text: $code)
+                            .textContentType(.oneTimeCode)
+                            .keyboardType(.numberPad)
+                        SecureField("New password (6+ characters)", text: $password)
+                            .textContentType(.newPassword)
+                    }
+                    Button {
+                        run { await model.resetPassword(email: email.trimmingCharacters(in: .whitespaces), code: code.trimmingCharacters(in: .whitespaces), newPassword: password) }
+                    } label: { busyLabel("Set Password & Sign In") }
+                        .disabled(busy || code.count < 6 || password.count < 6)
+                    Button("Send another code") { run(close: false) { await model.sendPasswordReset(email: email.trimmingCharacters(in: .whitespaces)) } }
+                        .font(.callout).disabled(busy)
+                } else {
+                    Button {
+                        run(close: false) {
+                            let ok = await model.sendPasswordReset(email: email.trimmingCharacters(in: .whitespaces))
+                            if ok { sent = true }
+                            return ok
+                        }
+                    } label: { busyLabel("Email Me a Code") }
+                        .disabled(busy || !email.contains("@"))
+                }
+            }
+            .navigationTitle("Forgot Password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+    }
+
+    private func busyLabel(_ title: String) -> some View {
+        HStack {
+            Text(title)
+            if busy { Spacer(); ProgressView() }
+        }
+    }
+
+    /// Do `step`; close the sheet when it worked and `close`.
+    private func run(close: Bool = true, _ step: @escaping () async -> Bool) {
+        busy = true
+        Task {
+            let ok = await step()
+            busy = false
+            if ok && close { dismiss() }
         }
     }
 }

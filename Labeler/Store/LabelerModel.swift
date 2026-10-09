@@ -50,6 +50,29 @@ final class LabelerModel: ReviewStore {
         }
     }
 
+    /// Forgot password: email a code.
+    func sendPasswordReset(email: String) async -> Bool {
+        do {
+            try await client.sendPasswordReset(email: email)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Forgot password: the emailed code and a new password; signs in.
+    func resetPassword(email: String, code: String, newPassword: String) async -> Bool {
+        do {
+            try await client.resetPassword(email: email, code: code, newPassword: newPassword)
+            await reload()
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
     func signOut() async {
         await client.signOut()
         snapshot = LabelSnapshot()
