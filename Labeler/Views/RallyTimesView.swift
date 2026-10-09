@@ -249,10 +249,7 @@ struct RallyTimesView: View {
         }
     }
 
-    static func clock(_ t: Double) -> String {
-        guard t.isFinite else { return "0:00.0" }
-        return String(format: "%d:%04.1f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60))
-    }
+    static func clock(_ t: Double) -> String { clockText(t) }
 }
 
 /// An AVPlayer's picture, without system controls.

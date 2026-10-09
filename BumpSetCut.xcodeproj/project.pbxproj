@@ -68,11 +68,14 @@
 		LABE1E000000000000000005 /* Exceptions for "Labeler" folder in "RallyLab" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Shared/AnnotationReview.swift,
 				Shared/LabelingClient.swift,
 				Shared/LabelingModels.swift,
 				Shared/LabelQueue.swift,
 				Shared/RallyTimesBar.swift,
 				Shared/RallyTrack.swift,
+				Shared/ReviewCanvas.swift,
+				Shared/ReviewViews.swift,
 				Shared/TrackFinder.swift,
 				Shared/TrainingPlan.swift,
 			);

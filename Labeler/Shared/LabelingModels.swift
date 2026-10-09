@@ -82,6 +82,12 @@ struct LabelVideo: Codable, Identifiable, Hashable {
 }
 
 /// A rally's start and end, seconds into the video.
+/// A time in a video as m:ss.s.
+func clockText(_ seconds: Double) -> String {
+    guard seconds.isFinite else { return "0:00.0" }
+    return String(format: "%d:%04.1f", Int(seconds) / 60, seconds.truncatingRemainder(dividingBy: 60))
+}
+
 /// A rally's start and end. Two with the same times are the same rally.
 struct LabelRally: Codable, Hashable, Identifiable {
     var start: Double
@@ -111,6 +117,9 @@ struct LabelTrack: Codable, Identifiable, Hashable {
     /// Deleted on the phone; the Mac removes its copy on the next sync.
     var deleted: Bool
     var updatedAt: Date?
+    /// The frames checked in annotation review, by index in `points` (the
+    /// packed rows don't carry it). Nil from an older build: left as it was.
+    var reviewed: [Int]?
 
     /// Labeled frames (ball or hidden) — what training gets.
     var labeledFrames: Int { points.points.filter { $0.state != .unknown }.count }
@@ -151,7 +160,8 @@ struct LabelTrack: Codable, Identifiable, Hashable {
 extension LabelTrack {
     init(_ rally: TrackedRally, videoId: UUID) {
         self.init(id: rally.id, videoId: videoId, start: rally.start, end: rally.end, points: PackedPoints(rally.points),
-                  done: rally.done, deleted: false, updatedAt: rally.updatedAt)
+                  done: rally.done, deleted: false, updatedAt: rally.updatedAt,
+                  reviewed: rally.points.indices.filter { rally.points[$0].reviewed })
     }
 
     /// Frames still worth a look (not yours, unsure, filled in or not found).
@@ -159,7 +169,9 @@ extension LabelTrack {
 
     /// As the Track tab and TrackSolver work with it (no candidates yet).
     var rally: TrackedRally {
-        TrackedRally(id: id, start: start, end: end, points: points.points, candidates: [], done: done, updatedAt: updatedAt)
+        var points = points.points
+        for i in reviewed ?? [] where points.indices.contains(i) { points[i].reviewed = true }
+        return TrackedRally(id: id, start: start, end: end, points: points, candidates: [], done: done, updatedAt: updatedAt)
     }
 }
 

@@ -129,10 +129,12 @@ enum MultiFramePackage {
             // Tracked rallies: a window on every `trackStride`-th labeled frame.
             var tracked: [(time: Double, times: [CMTime], labels: [TrackPoint?])] = []
             for rally in Self.doneTracks(session) {
-                let byKey = Dictionary(rally.points.map { (ClipFrames.key(CMTime(seconds: $0.time, preferredTimescale: 600_000)), $0) },
+                // Only frames checked in annotation review are labels; the rest
+                // are still frames the model sees around them.
+                let byKey = Dictionary(rally.points.filter(\.reviewed).map { (ClipFrames.key(CMTime(seconds: $0.time, preferredTimescale: 600_000)), $0) },
                                        uniquingKeysWith: { a, _ in a })
                 for point in rally.points.enumerated().filter({ $0.offset % Self.trackStride == 0 }).map(\.element)
-                where point.state != .unknown {
+                where point.state != .unknown && point.reviewed {
                     guard let times = clip.window(around: point.time, exact: true) else { counts.edges += 1; continue }
                     tracked.append((point.time, times, times.map { byKey[ClipFrames.key($0)] }))
                     for t in times { needed[ClipFrames.key(t)] = t }

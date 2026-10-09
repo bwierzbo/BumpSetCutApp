@@ -19,21 +19,26 @@ struct LabelTabView: View {
     let library: ModelLibrary
     let tracker: TrackLabelModel
     let marker: RallyMarkModel
+    let phone: LabelingSync
     let isActive: Bool
     @AppStorage("RallyLab.labelPage") private var page: Page = .next
     @State private var plan: TrainingPlanModel
+    @State private var review: ProjectReviewStore
     /// The task on screen, if any.
     @State private var active: LabelQueue.Job?
 
-    enum Page: String { case next, coverage, plan }
+    enum Page: String { case next, review, coverage, plan }
 
-    init(projects: ProjectsModel, library: ModelLibrary, tracker: TrackLabelModel, marker: RallyMarkModel, isActive: Bool) {
+    init(projects: ProjectsModel, library: ModelLibrary, tracker: TrackLabelModel, marker: RallyMarkModel, phone: LabelingSync,
+         isActive: Bool) {
         self.projects = projects
         self.library = library
         self.tracker = tracker
         self.marker = marker
+        self.phone = phone
         self.isActive = isActive
         _plan = State(initialValue: TrainingPlanModel(library: library))
+        _review = State(initialValue: ProjectReviewStore(sampler: projects.sampler, tracker: tracker))
     }
 
     private var sampler: SamplerModel { projects.sampler }
@@ -54,19 +59,22 @@ struct LabelTabView: View {
         VStack(spacing: 0) {
             Picker("", selection: $page) {
                 Text("Next").tag(Page.next)
+                Text("Review").tag(Page.review)
                 Text("Coverage").tag(Page.coverage)
                 Text("Plan").tag(Page.plan)
             }
-            .pickerStyle(.segmented).labelsHidden().frame(width: 300)
+            .pickerStyle(.segmented).labelsHidden().frame(width: 380)
             .padding(.vertical, 10)
             Divider()
             switch page {
             case .next:
                 LabelHomeView(sampler: sampler, round: plan.currentRound, jobs: jobs, isActive: isActive) { active = $0 }
+            case .review:
+                NavigationStack { ReviewHomeView(store: review, progress: review.progress) }
             case .coverage:
                 ProjectCoverageView(projects: projects)
             case .plan:
-                ProjectPlanView(projects: projects, library: library) { session in
+                ProjectPlanView(projects: projects, library: library, phone: phone) { session in
                     active = jobs.first { $0.video == session.name }
                         ?? LabelQueue.Video(session: session).nextRally.map { .track(session.name, $0) }
                 }

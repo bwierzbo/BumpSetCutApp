@@ -109,8 +109,9 @@ actor LabelingClient {
         try await get("label_videos", query: "select=*&order=surface,session_name,created_at")
     }
 
-    func rallyTimes() async throws -> [LabelRallyTimes] {
-        try await get("label_rally_times", query: "select=*")
+    /// Every video's rally times, or only those changed after `since`.
+    func rallyTimes(since: Date? = nil) async throws -> [LabelRallyTimes] {
+        try await get("label_rally_times", query: "select=*" + Self.changed(since))
     }
 
     /// Insert or update a video, by id (RallyLab reuses the id of a video
@@ -133,8 +134,17 @@ actor LabelingClient {
         return first
     }
 
-    func tracks() async throws -> [LabelTrack] {
-        try await get("label_tracks", query: "select=*")
+    /// Every tracked rally (deleted ones too), or only those changed after `since`.
+    func tracks(since: Date? = nil) async throws -> [LabelTrack] {
+        try await get("label_tracks", query: "select=*" + Self.changed(since))
+    }
+
+    /// A filter for rows changed after `since` (UTC, so the time has no "+").
+    private static func changed(_ since: Date?) -> String {
+        guard let since else { return "" }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return "&updated_at=gt.\(f.string(from: since))"
     }
 
     /// Insert or update tracked rallies, by id.

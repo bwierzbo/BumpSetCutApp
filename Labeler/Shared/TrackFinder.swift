@@ -207,6 +207,7 @@ final class LookAgainHeat: @unchecked Sendable {
     }
 }
 
-private extension Array {
+extension Array {
+    /// The element at `i`, if there is one.
     subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }

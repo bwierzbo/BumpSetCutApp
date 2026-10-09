@@ -123,6 +123,13 @@ final class TrackLabelModel {
         }
     }
 
+    /// The open video's rallies changed elsewhere (annotation review): take
+    /// them, so a later save here doesn't put back the old ones.
+    func reloadRallies(session name: String) {
+        guard name == sessionName, let session = sampler.sessions.first(where: { $0.name == name }) else { return }
+        rallies = session.tracks ?? []
+    }
+
     /// Open a video and wait until its rallies can be tracked.
     func openAndWait(sessionName name: String) async {
         open(sessionName: name)
@@ -409,6 +416,7 @@ final class TrackLabelModel {
         guard point?.origin == .user else { return }
         update { r in
             r.points[i].origin = .auto
+            r.points[i].reviewed = false
             r.points = TrackSolver.solve(r)
         }
         report()
@@ -587,9 +595,7 @@ final class TrackLabelModel {
         sampler.setTracks(rallies, session: sessionName)
     }
 
-    static func clock(_ seconds: Double) -> String {
-        String(format: "%d:%04.1f", Int(seconds) / 60, seconds.truncatingRemainder(dividingBy: 60))
-    }
+    static func clock(_ seconds: Double) -> String { clockText(seconds) }
 }
 
 /// A rally's frames as JPEGs in Caches, written while the detector reads

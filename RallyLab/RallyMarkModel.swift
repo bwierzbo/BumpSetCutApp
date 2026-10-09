@@ -127,6 +127,13 @@ final class RallyMarkModel {
             : "\(rallies.count) rallies marked."
     }
 
+    /// The open video's rally times changed elsewhere (a sync with the
+    /// phone): take them, so a later save here doesn't put back the old ones.
+    func reloadMarks(session name: String) {
+        guard name == sessionName, let video else { return }
+        rallies = Self.load(Self.labelsURL(for: video))
+    }
+
     func close() {
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
         timeObserver = nil

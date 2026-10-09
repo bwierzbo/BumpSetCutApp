@@ -13,7 +13,7 @@ import Observation
 
 @MainActor
 @Observable
-final class LabelerModel {
+final class LabelerModel: ReviewStore {
 
     enum Phase { case starting, signedOut, notLabeler, ready }
 
@@ -59,6 +59,7 @@ final class LabelerModel {
 
     /// Send what's waiting, then load everything again.
     func reload() async {
+        let started = Date()
         isLoading = true
         defer { isLoading = false }
         do {
@@ -70,6 +71,7 @@ final class LabelerModel {
             let loaded = try await LabelSnapshot(videos: v, times: t, tracks: k, states: s)
             guard try await client.isLabeler() else { phase = .notLabeler; return }
             snapshot = loaded
+            lastPull = started
             LocalStore.save(snapshot, "snapshot.json")
             isOffline = false
             phase = .ready
@@ -79,6 +81,38 @@ final class LabelerModel {
             // No connection: keep working from what's on the phone.
             isOffline = true
             if phase == .starting { phase = snapshot.videos.isEmpty ? .signedOut : .ready }
+        }
+    }
+
+    /// When changes were last pulled (see `pullChanges`).
+    @ObservationIgnored private var lastPull: Date?
+    /// Clocks differ a little between the Mac and the phone: look back this
+    /// far past the last pull (taking a row again is harmless).
+    private static let pullOverlap: TimeInterval = 120
+
+    /// Send what's waiting and take what the Mac changed since the last look:
+    /// rally times and tracked rallies only (new videos come with `reload`).
+    func pullChanges() async {
+        guard phase == .ready, let last = lastPull else { return await reload() }
+        let started = Date()
+        await flush()
+        do {
+            async let t = client.rallyTimes(since: last.addingTimeInterval(-Self.pullOverlap))
+            async let k = client.tracks(since: last.addingTimeInterval(-Self.pullOverlap))
+            let (times, tracks) = try await (t, k)
+            for r in times {
+                snapshot.times.removeAll { $0.videoId == r.videoId }
+                snapshot.times.append(r)
+            }
+            for r in tracks {
+                snapshot.tracks.removeAll { $0.id == r.id }
+                snapshot.tracks.append(r)
+            }
+            if !times.isEmpty || !tracks.isEmpty { LocalStore.save(snapshot, "snapshot.json") }
+            lastPull = started
+            isOffline = false
+        } catch {
+            isOffline = true
         }
     }
 
@@ -136,6 +170,41 @@ final class LabelerModel {
             ?? untracked.first { LocalStore.trim(of: $0, in: video) != nil }
             ?? untracked.first
     }
+
+    // MARK: - Annotation review
+
+    /// Every rally, keyed for review by its video's id.
+    var reviewRallies: [(video: String, rally: TrackedRally)] {
+        videos.flatMap { v in tracks(for: v).map { (v.id.uuidString, $0.rally) } }
+    }
+
+    func reviewItems(_ kind: AnnotationReview.Kind) -> [AnnotationReview.Item] {
+        AnnotationReview.items(reviewRallies, kind: kind)
+    }
+
+    var reviewProgress: (reviewed: Int, total: Int) { AnnotationReview.progress(reviewRallies.map(\.rally)) }
+
+    func video(of item: AnnotationReview.Item) -> LabelVideo? { UUID(uuidString: item.video).flatMap(video) }
+
+    func rally(of item: AnnotationReview.Item) -> TrackedRally? {
+        video(of: item).flatMap { v in tracks(for: v).first { $0.id == item.track } }?.rally
+    }
+
+    @discardableResult
+    func review(_ item: AnnotationReview.Item, _ change: (inout TrackPoint) -> Void) -> TrackPoint? {
+        guard let v = video(of: item), var rally = rally(of: item), rally.points.indices.contains(item.index) else { return nil }
+        let before = rally.points[item.index]
+        change(&rally.points[item.index])
+        save(LabelTrack(rally, videoId: v.id))
+        return before
+    }
+
+    func videoFile(of item: AnnotationReview.Item) async throws -> URL {
+        guard let v = video(of: item) else { throw LabelingClient.Failure.unreadable }
+        return try await localClip(for: v)
+    }
+
+    func videoName(of item: AnnotationReview.Item) -> String { video(of: item)?.name ?? "" }
 
     // MARK: - Plan
 

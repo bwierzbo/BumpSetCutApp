@@ -18,6 +18,7 @@
 //  in the app; the session is kept in the Keychain).
 //
 
+import AppKit
 import AVFoundation
 import Foundation
 import Observation
@@ -30,6 +31,13 @@ final class LabelingSync {
     private(set) var signedIn = false
     private(set) var isSyncing = false
     private(set) var status = ""
+    private(set) var lastSynced: Date?
+    /// A session's tracked rallies / rally times were changed by a sync:
+    /// whatever has that session open takes the new ones.
+    var onTracksChanged: ((String) -> Void)?
+    var onTimesChanged: ((String) -> Void)?
+    @ObservationIgnored private var auto: Task<Void, Never>?
+    @ObservationIgnored private var activation: Any?
 
     private let client = LabelingClient.shared
 
@@ -53,20 +61,57 @@ final class LabelingSync {
         signedIn = false
     }
 
-    /// Run the whole sync. False if it stopped on an error (status says why).
+    // MARK: - Automatic
+
+    /// Labels sync this often while RallyLab runs (and when it comes to the
+    /// front); videos — new ones to send, the phone's to pull in — every
+    /// `videoEvery` of those.
+    static let interval: UInt64 = 30
+    static let videoEvery = 10
+
+    /// Keep the project synced with the phone from now on, while signed in.
+    func startAutomatic() {
+        guard auto == nil else { return }
+        auto = Task { [weak self] in
+            var round = 0
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.signedIn, self.projects.project != nil {
+                    await self.sync(videos: round % Self.videoEvery == 0)
+                    round += 1
+                }
+                try? await Task.sleep(nanoseconds: Self.interval * 1_000_000_000)
+            }
+        }
+        activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                                                            queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.signedIn else { return }
+                Task { await self.sync(videos: false) }
+            }
+        }
+    }
+
+    /// Run the sync: labels both ways and the plan, and with `videos` the
+    /// videos too. False if it stopped on an error (status says why).
     @discardableResult
-    func sync() async -> Bool {
+    func sync(videos: Bool = true) async -> Bool {
         guard !isSyncing, let project = projects.project?.name else { return false }
         isSyncing = true
         defer { isSyncing = false }
         do {
-            let imported = try await importPhoneVideos(project: project)
-            let (listed, uploaded, failed) = try await publishVideos(project: project)
+            var parts: [String] = []
+            if videos {
+                let imported = try await importPhoneVideos(project: project)
+                let (listed, uploaded, failed) = try await publishVideos(project: project)
+                parts.append("\(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), \(imported) phone videos pulled in")
+            }
             let (pushed, pulled) = try await syncRallyTimes(project: project)
             let (tracksSent, tracksReceived) = try await syncTracks(project: project)
             try await publishPlan(project: project)
-            status = "Synced: \(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), \(imported) phone videos pulled in, "
-                + "rally times \(pushed) sent · \(pulled) received, tracked rallies \(tracksSent) sent · \(tracksReceived) received."
+            parts.append("rally times \(pushed) sent · \(pulled) received, tracked rallies \(tracksSent) sent · \(tracksReceived) received")
+            status = "Synced: " + parts.joined(separator: ", ") + "."
+            lastSynced = Date()
             return true
         } catch LabelingClient.Failure.notSignedIn {
             signedIn = false
@@ -317,7 +362,10 @@ final class LabelingSync {
                 outgoing.append(LabelTrack(mine, videoId: video.id))   // new here
             }
             local.sort { $0.start < $1.start }
-            if changedHere { projects.sampler.setTracks(local, session: name) }
+            if changedHere {
+                projects.sampler.setTracks(local, session: name)
+                onTracksChanged?(name)
+            }
             projects.sampler.setSyncedTrackIds(local.map(\.id), session: name)
         }
         for batch in stride(from: 0, to: outgoing.count, by: 20).map({ Array(outgoing[$0..<min($0 + 20, outgoing.count)]) }) {
@@ -348,6 +396,7 @@ final class LabelingSync {
     }
 
     private func write(_ times: LabelRallyTimes, to labels: URL, session: String) {
+        defer { onTimesChanged?(session) }
         let rallies = times.rallies.sorted { $0.start < $1.start }.map { LabeledRally(startTime: $0.start, endTime: $0.end) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted]

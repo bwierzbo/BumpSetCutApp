@@ -15,6 +15,7 @@ struct ContentView: View {
     @Bindable var library: ModelLibrary
     let tracker: TrackLabelModel
     let marker: RallyMarkModel
+    let phone: LabelingSync
     @State private var showingImporter = false
     /// The tab you were on last time, so RallyLab reopens where you left off.
     @AppStorage("RallyLab.tab") private var tab: Tab = .label
@@ -52,7 +53,7 @@ struct ContentView: View {
         TabView(selection: $tab) {
             Group {
                 if projects.project != nil {
-                    LabelTabView(projects: projects, library: library, tracker: tracker, marker: marker, isActive: tab == .label)
+                    LabelTabView(projects: projects, library: library, tracker: tracker, marker: marker, phone: phone, isActive: tab == .label)
                 } else {
                     ProjectWelcomeView(projects: projects) { tab = .pipeline }
                 }

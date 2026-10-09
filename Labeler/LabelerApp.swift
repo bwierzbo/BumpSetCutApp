@@ -57,7 +57,7 @@ struct RootView: View {
     }
 }
 
-/// Next (the task queue) · Overview · Plan · Videos. Each tab has its own
+/// Next (the task queue) · Review (annotation review) · Overview · Plan · Videos. Each tab has its own
 /// navigation; tasks and videos open their screens.
 struct MainTabs: View {
     @Bindable var model: LabelerModel
@@ -71,6 +71,10 @@ struct MainTabs: View {
                     NextView(model: model, path: $nextPath).destinations(model)
                 }
             }
+            Tab("Review", systemImage: "checkmark.rectangle.stack") {
+                NavigationStack { ReviewHomeView(store: model, progress: model.reviewProgress) }
+            }
+            .badge(model.reviewItems(.crop).count + model.reviewItems(.fullFrame).count)
             Tab("Overview", systemImage: "chart.bar.xaxis") {
                 NavigationStack { OverviewView(model: model).destinations(model) }
             }
@@ -81,9 +85,16 @@ struct MainTabs: View {
                 NavigationStack { VideoListView(model: model).destinations(model) }
             }
         }
-        // Back in the app: send what's waiting and pick up the Mac's changes.
+        // Back in the app: send what's waiting and pick up the Mac's changes;
+        // while it's open, take the Mac's changes every half minute.
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await model.reload() } }
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                if scenePhase == .active { await model.pullChanges() }
+            }
         }
     }
 }

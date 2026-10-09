@@ -249,6 +249,7 @@ final class TrackSession {
             r.points[i].origin = .user
             r.points[i].box = TrackCandidate(rect: CGRect(x: location.x - side.width / 2, y: location.y - side.height / 2,
                                                           width: side.width, height: side.height), confidence: 1)
+            r.points[i].reviewed = false
         }
         lookAgain(from: i)
     }
@@ -283,6 +284,7 @@ final class TrackSession {
             r.points[index].state = .hidden
             r.points[index].origin = .user
             r.points[index].box = nil
+            r.points[index].reviewed = false
         }
     }
 

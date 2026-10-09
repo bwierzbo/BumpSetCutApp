@@ -55,6 +55,10 @@ struct TrackPoint: Codable, Hashable {
     var origin: Origin
     /// Vision-normalised (bottom-up) box in the upright frame, when visible.
     var box: TrackCandidate?
+    /// Checked in annotation review (its box confirmed or tightened on a
+    /// crop, or "hidden" confirmed on the whole frame): only reviewed frames
+    /// are used for training. Changing the frame afterwards clears it.
+    var reviewed = false
 
     /// Worth a look before calling the rally done.
     var isUncertain: Bool {
@@ -64,6 +68,19 @@ struct TrackPoint: Codable, Hashable {
         case (.auto, .visible): return (box?.confidence ?? 0) < TrackSolver.sureConfidence
         case (.auto, .hidden): return false
         }
+    }
+}
+
+extension TrackPoint {
+    private enum CodingKeys: String, CodingKey { case time, state, origin, box, reviewed }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        time = try c.decode(Double.self, forKey: .time)
+        state = try c.decode(State.self, forKey: .state)
+        origin = try c.decode(Origin.self, forKey: .origin)
+        box = try c.decodeIfPresent(TrackCandidate.self, forKey: .box)
+        reviewed = try c.decodeIfPresent(Bool.self, forKey: .reviewed) ?? false
     }
 }
 

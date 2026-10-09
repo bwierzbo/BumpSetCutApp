@@ -16,15 +16,15 @@ struct ProjectPlanView: View {
     /// Opens a video in the Track tab.
     let track: (VideoSession) -> Void
     @State private var plan: TrainingPlanModel
-    @State private var phone: LabelingSync
+    let phone: LabelingSync
     @State private var email = ""
     @State private var password = ""
 
-    init(projects: ProjectsModel, library: ModelLibrary, track: @escaping (VideoSession) -> Void) {
+    init(projects: ProjectsModel, library: ModelLibrary, phone: LabelingSync, track: @escaping (VideoSession) -> Void) {
         self.projects = projects
+        self.phone = phone
         self.track = track
         _plan = State(initialValue: TrainingPlanModel(library: library))
-        _phone = State(initialValue: LabelingSync(projects: projects))
     }
 
     var body: some View {
@@ -99,13 +99,19 @@ struct ProjectPlanView: View {
             Label("Phone (RallyLab on iPhone)", systemImage: "iphone").font(.headline)
             if phone.signedIn {
                 HStack(spacing: 10) {
-                    Button("Sync with Phone") { Task { await phone.sync() } }
-                        .disabled(phone.isSyncing)
+                    Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.green)
+                    TimelineView(.periodic(from: .now, by: 10)) { _ in
+                        Text(phone.isSyncing ? "Syncing…"
+                             : phone.lastSynced.map { "Synced \($0.formatted(.relative(presentation: .named)))" } ?? "Syncing automatically")
+                            .font(.callout)
+                    }
                     if phone.isSyncing { ProgressView().controlSize(.small) }
                     Spacer()
+                    Button("Sync Now") { Task { await phone.sync() } }
+                        .disabled(phone.isSyncing)
                     Button("Sign Out") { Task { await phone.signOut() } }.buttonStyle(.link)
                 }
-                Text("Sends every video here (a small copy, uploaded once) with the rallies found in it, swaps rally times both ways — the newer side wins — and pulls in videos recorded on the phone.")
+                Text("Kept in sync automatically while RallyLab is open: tracked rallies, reviews and rally times every \(LabelingSync.interval) seconds and whenever RallyLab comes to the front (the newer side wins); videos — new ones sent as small copies, ones recorded on the phone pulled in — every few minutes.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             } else {
                 HStack(spacing: 8) {

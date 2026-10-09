@@ -17,6 +17,8 @@ struct RallyLabApp: App {
     @State private var library: ModelLibrary
     @State private var tracker: TrackLabelModel
     @State private var marker: RallyMarkModel
+    /// Keeps the open project synced with RallyLab on the iPhone.
+    @State private var phone: LabelingSync
 
     init() {
         // `RallyLab --export-training-data [path]` batch-exports classifier
@@ -31,15 +33,22 @@ struct RallyLabApp: App {
 
         let sampler = SamplerModel()
         _sampler = State(initialValue: sampler)
-        _projects = State(initialValue: ProjectsModel(sampler: sampler))
         _library = State(initialValue: ModelLibrary(sampler: sampler))
-        _tracker = State(initialValue: TrackLabelModel(sampler: sampler))
-        _marker = State(initialValue: RallyMarkModel(sampler: sampler))
+        let projects = ProjectsModel(sampler: sampler)
+        _projects = State(initialValue: projects)
+        let tracker = TrackLabelModel(sampler: sampler), marker = RallyMarkModel(sampler: sampler)
+        _tracker = State(initialValue: tracker)
+        _marker = State(initialValue: marker)
+        let phone = LabelingSync(projects: projects)
+        phone.onTracksChanged = { tracker.reloadRallies(session: $0) }
+        phone.onTimesChanged = { marker.reloadMarks(session: $0) }
+        phone.startAutomatic()
+        _phone = State(initialValue: phone)
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker)
+            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker, phone: phone)
         }
         .commands {
             CommandGroup(replacing: .newItem) {
