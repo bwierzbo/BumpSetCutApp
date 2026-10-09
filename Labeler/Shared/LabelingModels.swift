@@ -120,6 +120,8 @@ struct LabelTrack: Codable, Identifiable, Hashable {
     /// The frames checked in annotation review, by index in `points` (the
     /// packed rows don't carry it). Nil from an older build: left as it was.
     var reviewed: [Int]?
+    /// Frames marked "not sure" in review, by index; nil from an older build.
+    var unsure: [Int]?
 
     /// Labeled frames (ball or hidden) — what training gets.
     var labeledFrames: Int { points.points.filter { $0.state != .unknown }.count }
@@ -128,6 +130,13 @@ struct LabelTrack: Codable, Identifiable, Hashable {
     /// the box only when there is one.
     struct PackedPoints: Codable, Hashable {
         var points: [TrackPoint]
+
+        /// One point's row, as stored.
+        static func row(_ p: TrackPoint) -> [Double] {
+            var row = [p.time, Double(states.firstIndex(of: p.state) ?? 0), Double(origins.firstIndex(of: p.origin) ?? 0)]
+            if let b = p.box { row += [b.x, b.y, b.w, b.h, b.confidence] }
+            return row
+        }
 
         init(_ points: [TrackPoint]) { self.points = points }
 
@@ -148,11 +157,7 @@ struct LabelTrack: Codable, Identifiable, Hashable {
 
         func encode(to encoder: Encoder) throws {
             var c = encoder.singleValueContainer()
-            try c.encode(points.map { p -> [Double] in
-                var row = [p.time, Double(Self.states.firstIndex(of: p.state) ?? 0), Double(Self.origins.firstIndex(of: p.origin) ?? 0)]
-                if let b = p.box { row += [b.x, b.y, b.w, b.h, b.confidence] }
-                return row
-            })
+            try c.encode(points.map(Self.row))
         }
     }
 }
@@ -161,7 +166,8 @@ extension LabelTrack {
     init(_ rally: TrackedRally, videoId: UUID) {
         self.init(id: rally.id, videoId: videoId, start: rally.start, end: rally.end, points: PackedPoints(rally.points),
                   done: rally.done, deleted: false, updatedAt: rally.updatedAt,
-                  reviewed: rally.points.indices.filter { rally.points[$0].reviewed })
+                  reviewed: rally.points.indices.filter { rally.points[$0].reviewed },
+                  unsure: rally.points.indices.filter { rally.points[$0].unsure })
     }
 
     /// Frames still worth a look (not yours, unsure, filled in or not found).
@@ -171,6 +177,7 @@ extension LabelTrack {
     var rally: TrackedRally {
         var points = points.points
         for i in reviewed ?? [] where points.indices.contains(i) { points[i].reviewed = true }
+        for i in unsure ?? [] where points.indices.contains(i) { points[i].unsure = true }
         return TrackedRally(id: id, start: start, end: end, points: points, candidates: [], done: done, updatedAt: updatedAt)
     }
 }

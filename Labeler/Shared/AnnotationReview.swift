@@ -7,7 +7,12 @@
 //  crop around its box — the box fixed in the middle; you move the picture
 //  under it and size it, then approve. "No ball" sends it to the full-frame
 //  check, along with every frame marked hidden while tracking: the whole
-//  frame, to place the ball or confirm it can't be seen.
+//  frame, to place the ball or confirm it can't be seen. "Not sure" sets a
+//  frame aside in its own pass for a later look.
+//
+//  Several people can review at once: a rally is claimed by whoever reviews
+//  it (others pass it over while the claim is fresh), and each decision is
+//  saved as just that frame, so no one overwrites anyone.
 //
 
 import AVFoundation
@@ -18,7 +23,7 @@ import Observation
 enum AnnotationReview {
 
     /// Which check a frame needs.
-    enum Kind { case crop, fullFrame }
+    enum Kind { case crop, fullFrame, unsure }
 
     /// One frame to review: a frame of a rally of a video (keyed however the
     /// app keys its videos — the phone by id, the Mac by session name).
@@ -32,6 +37,7 @@ enum AnnotationReview {
     /// decide (not found, not yours) aren't labeled, so aren't reviewed.
     static func kind(of point: TrackPoint) -> Kind? {
         guard !point.reviewed else { return nil }
+        if point.unsure { return .unsure }
         switch point.state {
         case .visible: return point.box == nil ? nil : .crop
         case .hidden: return .fullFrame
@@ -64,6 +70,7 @@ enum AnnotationReview {
         point.origin = .user
         point.box = TrackCandidate(rect: box, confidence: 1)
         point.reviewed = true
+        point.unsure = false
     }
 
     /// The box isn't on the ball: off to the full-frame check.
@@ -72,6 +79,7 @@ enum AnnotationReview {
         point.origin = .user
         point.box = nil
         point.reviewed = false
+        point.unsure = false
     }
 
     /// The ball can't be seen on this frame: checked.
@@ -80,6 +88,13 @@ enum AnnotationReview {
         point.origin = .user
         point.box = nil
         point.reviewed = true
+        point.unsure = false
+    }
+
+    /// Not sure: set aside, as it is, for a later look.
+    static func markUnsure(_ point: inout TrackPoint) {
+        point.unsure = true
+        point.reviewed = false
     }
 
     /// A box for a ball placed on the full frame: the size of the balls on
@@ -197,6 +212,8 @@ protocol ReviewStore: AnyObject {
     /// The video to read the item's frame from (downloading it if need be).
     func videoFile(of item: AnnotationReview.Item) async throws -> URL
     func videoName(of item: AnnotationReview.Item) -> String
+    /// Claim a rally for review; false when someone else is reviewing it.
+    func claim(_ track: UUID) async -> Bool
 }
 
 /// Walks a fixed list of frames: loads each one's picture, reads ahead, and
@@ -225,11 +242,25 @@ final class ReviewWalk {
 
     /// Frames that couldn't be read in this walk, passed over.
     private(set) var unreadable = 0
+    /// Frames of rallies someone else is reviewing, passed over.
+    private(set) var othersFrames = 0
+    @ObservationIgnored private var claimed: Set<UUID> = []
+    @ObservationIgnored private var refused: Set<UUID> = []
 
     func load() async {
         image = nil
         failure = nil
         while let item, let point {
+            // Someone else is on this rally: their frames are theirs.
+            if !claimed.contains(item.track) && !refused.contains(item.track) {
+                if await store.claim(item.track) { claimed.insert(item.track) } else { refused.insert(item.track) }
+                guard item == self.item else { return }
+            }
+            if refused.contains(item.track) {
+                othersFrames += 1
+                at += 1
+                continue
+            }
             do {
                 let shown = item
                 // The video's current file: a newer copy replaces the old one

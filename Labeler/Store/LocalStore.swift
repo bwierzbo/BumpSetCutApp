@@ -24,9 +24,20 @@ struct LabelSnapshot: Codable {
 struct Outbox: Codable {
     var times: [UUID: LabelRallyTimes] = [:]
     var tracks: [UUID: LabelTrack] = [:]
+    /// Review decisions, sent frame by frame (see LabelingClient.reviewFrames).
+    var frames: [LabelingClient.FrameEdit] = []
 
-    var isEmpty: Bool { times.isEmpty && tracks.isEmpty }
-    var count: Int { times.count + tracks.count }
+    var isEmpty: Bool { times.isEmpty && tracks.isEmpty && frames.isEmpty }
+    var count: Int { times.count + tracks.count + frames.count }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        times = try c.decodeIfPresent([UUID: LabelRallyTimes].self, forKey: .times) ?? [:]
+        tracks = try c.decodeIfPresent([UUID: LabelTrack].self, forKey: .tracks) ?? [:]
+        frames = try c.decodeIfPresent([LabelingClient.FrameEdit].self, forKey: .frames) ?? []
+    }
 }
 
 enum LocalStore {

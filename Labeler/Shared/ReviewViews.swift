@@ -8,6 +8,8 @@
 //   · Boxes — a crop around each box, the box fixed in the middle: drag the
 //     picture to put the ball's centre under it, pinch to size it, tap to
 //     approve and go on. No ball sends the frame to Whole frames.
+//   · Not sure (either pass) sets a frame aside for the Not sure pass: the
+//     whole frame with its box, to fix, approve or call hidden.
 //   · Whole frames — the full frame: tap the ball to place it and approve,
 //     or confirm it's hidden.
 //  Back undoes the last decision.
@@ -25,6 +27,7 @@ struct ReviewHomeView: View {
 
     var body: some View {
         let crops = store.reviewItems(.crop).count, whole = store.reviewItems(.fullFrame).count
+        let unsure = store.reviewItems(.unsure).count
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -44,6 +47,10 @@ struct ReviewHomeView: View {
                     card("Whole frames", "\(whole.formatted()) to check · hidden frames and ones you said had no ball", "rectangle.dashed", whole)
                 }
                 .buttonStyle(.plain).disabled(whole == 0)
+                NavigationLink { WholeFrameReviewView(store: store, kind: .unsure) } label: {
+                    card("Not sure", "\(unsure.formatted()) set aside · a closer look when you have time", "questionmark.circle", unsure)
+                }
+                .buttonStyle(.plain).disabled(unsure == 0)
             }
             .padding()
         }
@@ -167,6 +174,10 @@ struct CropReviewView: View {
                     Label("Back", systemImage: "arrow.uturn.backward").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).disabled(!walk.canGoBack)
+                Button { Task { reset(); await walk.decide(AnnotationReview.markUnsure) } } label: {
+                    Label("Not sure", systemImage: "questionmark").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered).tint(.orange).disabled(walk.item == nil)
                 Button(role: .destructive) { Task { reset(); await walk.decide(AnnotationReview.noBall) } } label: {
                     Label("No ball", systemImage: "xmark").frame(maxWidth: .infinity)
                 }
@@ -192,6 +203,7 @@ struct CropReviewView: View {
             case "[", "-": scale = max(0.3, scale / 1.05)
             case "]", "=", "+": scale = min(4, scale * 1.05)
             case "x": Task { reset(); await walk.decide(AnnotationReview.noBall) }
+            case "?", "/", "u": Task { reset(); await walk.decide(AnnotationReview.markUnsure) }
             default: return false
             }
         }
@@ -221,8 +233,12 @@ struct WholeFrameReviewView: View {
     @State private var pinchBase: CGFloat?
     @State private var placed: CGRect?
 
-    init(store: any ReviewStore) {
-        _walk = State(initialValue: ReviewWalk(store: store, kind: .fullFrame))
+    /// `.fullFrame`, or `.unsure` for the frames set aside (shown with their box).
+    let kind: AnnotationReview.Kind
+
+    init(store: any ReviewStore, kind: AnnotationReview.Kind = .fullFrame) {
+        self.kind = kind
+        _walk = State(initialValue: ReviewWalk(store: store, kind: kind))
     }
 
     var body: some View {
@@ -231,7 +247,8 @@ struct WholeFrameReviewView: View {
                 Text("\(walk.left.formatted()) left").font(.headline.monospacedDigit())
                 Spacer()
                 if let p = walk.point {
-                    Text(p.state == .hidden ? "marked hidden" : "you said no ball here").font(.caption).foregroundStyle(.secondary)
+                    Text(kind == .unsure ? "set aside: not sure" : p.state == .hidden ? "marked hidden" : "said no ball here")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 8)
@@ -283,6 +300,13 @@ struct WholeFrameReviewView: View {
                         Label("Hidden", systemImage: "eye.slash").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered).disabled(walk.item == nil)
+                    if kind != .unsure {
+                        Button { Task { await go { await walk.decide(AnnotationReview.markUnsure) } } } label: {
+                            Image(systemName: "questionmark").frame(maxWidth: 44)
+                        }
+                        .buttonStyle(.bordered).tint(.orange).disabled(walk.item == nil)
+                        .accessibilityLabel("Not sure")
+                    }
                     Button {
                         guard let placed else { return }
                         Task { await go { await walk.decide { AnnotationReview.approve(&$0, box: placed) } } }
@@ -294,7 +318,7 @@ struct WholeFrameReviewView: View {
             ReviewPassBar(walk: walk)
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .navigationTitle("Whole frames")
+        .navigationTitle(kind == .unsure ? "Not sure" : "Whole frames")
         .inlineTitle()
         .reviewKeys { press in wholeKey(press) }
         .task { await go { await walk.load() } }
@@ -314,6 +338,7 @@ struct WholeFrameReviewView: View {
         default:
             switch press.characters.lowercased() {
             case "h": Task { await go { await walk.decide(AnnotationReview.confirmHidden) } }
+            case "?", "/", "u" where kind != .unsure: Task { await go { await walk.decide(AnnotationReview.markUnsure) } }
             case "=", "+": zoom = min(8, zoom * 1.25)
             case "-": zoom = max(1, zoom / 1.25)
             default: return false
@@ -327,6 +352,8 @@ struct WholeFrameReviewView: View {
         placed = nil
         await step()
         if let rally = walk.rally, let item = walk.item { centre = FrameCanvas.focus(rally, frame: item.index) }
+        // A frame set aside comes with its box, to keep or move.
+        placed = walk.point.flatMap { $0.state == .visible ? $0.box?.rect : nil }
     }
 }
 
@@ -341,7 +368,8 @@ private struct ReviewPassBar: View {
                 .tint(.green)
             HStack {
                 Text("\(done.formatted()) of \(walk.items.count.formatted()) done"
-                     + (walk.unreadable > 0 ? " · \(walk.unreadable) couldn't be read, left for later" : ""))
+                     + (walk.unreadable > 0 ? " · \(walk.unreadable) couldn't be read, left for later" : "")
+                     + (walk.othersFrames > 0 ? " · \(walk.othersFrames) someone else is reviewing" : ""))
                 Spacer()
                 Text("\(Int((Double(done) / Double(total) * 100).rounded()))%")
             }

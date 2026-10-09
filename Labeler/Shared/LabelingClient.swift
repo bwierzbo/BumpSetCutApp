@@ -214,6 +214,42 @@ actor LabelingClient {
         }
     }
 
+    // MARK: - Annotation review, several people at once
+
+    /// Claim a rally for review (see migration 033); false when someone
+    /// else holds a fresh claim.
+    func reviewClaim(_ track: UUID) async throws -> Bool {
+        try await rpc("review_claim", ["p_track": track.uuidString.lowercased()])
+    }
+
+    /// One review decision on a rally's frame, as the server applies it.
+    struct FrameEdit: Codable, Hashable {
+        var track: UUID
+        var index: Int
+        var point: TrackPoint
+        var reviewed: Bool { point.reviewed }
+        var unsure: Bool { point.unsure }
+    }
+
+    /// Save decisions on one rally's frames, frame by frame on the server.
+    func reviewFrames(_ track: UUID, _ edits: [FrameEdit]) async throws {
+        struct Edit: Encodable { let i: Int; let point: [Double]; let reviewed: Bool; let unsure: Bool }
+        struct Params: Encodable { let p_track: String; let p_edits: [Edit] }
+        let params = Params(p_track: track.uuidString.lowercased(),
+                            p_edits: edits.map { Edit(i: $0.index, point: LabelTrack.PackedPoints.row($0.point), reviewed: $0.reviewed, unsure: $0.unsure) })
+        var request = try await rest("rpc/review_frames", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(params)
+        _ = try await send(request)
+    }
+
+    private func rpc<T: Decodable>(_ name: String, _ params: [String: String]) async throws -> T {
+        var request = try await rest("rpc/\(name)", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(params)
+        return try Self.decoder.decode(T.self, from: try await send(request))
+    }
+
     /// Remove a clip from the bucket (one replaced by a newer copy).
     func remove(_ path: String) async throws {
         var request = URLRequest(url: base.appending(path: "storage/v1/object/\(Self.bucket)/\(path)"))

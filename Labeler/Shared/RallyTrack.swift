@@ -59,6 +59,8 @@ struct TrackPoint: Codable, Hashable {
     /// crop, or "hidden" confirmed on the whole frame): only reviewed frames
     /// are used for training. Changing the frame afterwards clears it.
     var reviewed = false
+    /// Someone in annotation review wasn't sure: kept aside for a later look.
+    var unsure = false
 
     /// Worth a look before calling the rally done.
     var isUncertain: Bool {
@@ -72,7 +74,7 @@ struct TrackPoint: Codable, Hashable {
 }
 
 extension TrackPoint {
-    private enum CodingKeys: String, CodingKey { case time, state, origin, box, reviewed }
+    private enum CodingKeys: String, CodingKey { case time, state, origin, box, reviewed, unsure }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -81,6 +83,7 @@ extension TrackPoint {
         origin = try c.decode(Origin.self, forKey: .origin)
         box = try c.decodeIfPresent(TrackCandidate.self, forKey: .box)
         reviewed = try c.decodeIfPresent(Bool.self, forKey: .reviewed) ?? false
+        unsure = try c.decodeIfPresent(Bool.self, forKey: .unsure) ?? false
     }
 }
 

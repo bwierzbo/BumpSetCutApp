@@ -191,13 +191,37 @@ final class LabelerModel: ReviewStore {
         video(of: item).flatMap { v in tracks(for: v).first { $0.id == item.track } }?.rally
     }
 
+    /// A review decision: changed here at once, and sent as just that frame
+    /// (another reviewer's frames of the rally are left alone).
     @discardableResult
     func review(_ item: AnnotationReview.Item, _ change: (inout TrackPoint) -> Void) -> TrackPoint? {
-        guard let v = video(of: item), var rally = rally(of: item), rally.points.indices.contains(item.index) else { return nil }
+        guard var rally = rally(of: item), rally.points.indices.contains(item.index) else { return nil }
         let before = rally.points[item.index]
         change(&rally.points[item.index])
-        save(LabelTrack(rally, videoId: v.id))
+        apply(LabelingClient.FrameEdit(track: item.track, index: item.index, point: rally.points[item.index]))
+        outbox.frames.append(LabelingClient.FrameEdit(track: item.track, index: item.index, point: rally.points[item.index]))
+        queueFlush()
         return before
+    }
+
+    /// A frame decision onto the rally as it's held here.
+    private func apply(_ edit: LabelingClient.FrameEdit) {
+        func change(_ t: inout LabelTrack) {
+            var rally = t.rally
+            guard rally.points.indices.contains(edit.index) else { return }
+            rally.points[edit.index] = edit.point
+            let updated = LabelTrack(rally, videoId: t.videoId)
+            t.points = updated.points
+            t.reviewed = updated.reviewed
+            t.unsure = updated.unsure
+        }
+        if let i = snapshot.tracks.firstIndex(where: { $0.id == edit.track }) { change(&snapshot.tracks[i]) }
+        if outbox.tracks[edit.track] != nil { change(&outbox.tracks[edit.track]!) }
+    }
+
+    func claim(_ track: UUID) async -> Bool {
+        // Offline: review on; the server refuses frames someone else claimed.
+        (try? await client.reviewClaim(track)) ?? true
     }
 
     func videoFile(of item: AnnotationReview.Item) async throws -> URL {
@@ -336,6 +360,20 @@ final class LabelerModel: ReviewStore {
                 snapshot.times.removeAll { $0.videoId == id }
                 snapshot.times.append(saved)
             } catch { isOffline = true; break }
+        }
+        // Review decisions, rally by rally.
+        let frames = outbox.frames
+        for (track, edits) in Dictionary(grouping: frames, by: \.track) {
+            do {
+                try await client.reviewFrames(track, edits)
+                outbox.frames.removeAll { edits.contains($0) }
+            } catch LabelingClient.Failure.server(let code, _) where code == 400 {
+                // Someone else is reviewing it: their decisions stand.
+                outbox.frames.removeAll { edits.contains($0) }
+            } catch {
+                isOffline = true
+                break
+            }
         }
         let tracks = Array(outbox.tracks.values)
         if !tracks.isEmpty {

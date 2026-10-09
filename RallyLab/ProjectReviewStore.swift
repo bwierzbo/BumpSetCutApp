@@ -53,6 +53,11 @@ final class ProjectReviewStore: ReviewStore {
 
     func videoName(of item: AnnotationReview.Item) -> String { item.video }
 
+    func claim(_ track: UUID) async -> Bool {
+        // Not signed in to the phone side: nobody else to clash with.
+        (try? await LabelingClient.shared.reviewClaim(track)) ?? true
+    }
+
     // MARK: - Fitting boxes before review
 
     /// Fit the boxes of rallies finished since the last time (here or on the
