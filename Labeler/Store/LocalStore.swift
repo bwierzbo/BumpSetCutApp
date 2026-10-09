@@ -46,7 +46,21 @@ enum LocalStore {
         return dir
     }
 
-    static func clip(for video: LabelVideo) -> URL { clips.appendingPathComponent("\(video.id.uuidString).mp4") }
+    /// Named for the copy it is (a re-encoded copy has a new path), so a
+    /// replaced copy is fetched again.
+    static func clip(for video: LabelVideo) -> URL {
+        let copy = video.clipPath.map { ($0 as NSString).lastPathComponent } ?? "clip.mp4"
+        return clips.appendingPathComponent("\(video.id.uuidString)-\(copy)")
+    }
+
+    /// Delete clips on the phone that aren't any of these videos' current copies.
+    static func pruneClips(keeping videos: [LabelVideo]) {
+        let keep = Set(videos.map { clip(for: $0).lastPathComponent })
+        let files = (try? FileManager.default.contentsOfDirectory(at: clips, includingPropertiesForKeys: nil)) ?? []
+        for file in files where !keep.contains(file.lastPathComponent) && !file.lastPathComponent.hasSuffix(".part") {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
 
     static func hasClip(_ video: LabelVideo) -> Bool { FileManager.default.fileExists(atPath: clip(for: video).path) }
 

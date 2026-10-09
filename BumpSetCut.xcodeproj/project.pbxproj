@@ -69,6 +69,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Shared/AnnotationReview.swift,
+				Shared/BoxFitter.swift,
 				Shared/LabelingClient.swift,
 				Shared/LabelingModels.swift,
 				Shared/LabelQueue.swift,

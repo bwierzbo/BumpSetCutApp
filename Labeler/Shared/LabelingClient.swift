@@ -214,6 +214,15 @@ actor LabelingClient {
         }
     }
 
+    /// Remove a clip from the bucket (one replaced by a newer copy).
+    func remove(_ path: String) async throws {
+        var request = URLRequest(url: base.appending(path: "storage/v1/object/\(Self.bucket)/\(path)"))
+        request.httpMethod = "DELETE"
+        request.setValue(apiKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(try await bearer())", forHTTPHeaderField: "Authorization")
+        _ = try await send(request)
+    }
+
     /// A link to stream or download a clip, good for `seconds`.
     func signedURL(for path: String, seconds: Int = 6 * 3600) async throws -> URL {
         var request = URLRequest(url: base.appending(path: "storage/v1/object/sign/\(Self.bucket)/\(path)"))

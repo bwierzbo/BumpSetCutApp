@@ -72,6 +72,7 @@ final class LabelerModel: ReviewStore {
             guard try await client.isLabeler() else { phase = .notLabeler; return }
             snapshot = loaded
             lastPull = started
+            LocalStore.pruneClips(keeping: loaded.videos)
             LocalStore.save(snapshot, "snapshot.json")
             isOffline = false
             phase = .ready

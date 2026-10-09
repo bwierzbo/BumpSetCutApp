@@ -221,11 +221,15 @@ final class LabelingSync {
             if video.duration <= 0 {
                 video.duration = (try? await AVURLAsset(url: source).load(.duration).seconds) ?? 0
             }
-            if video.clipPath == nil {
+            // A copy RallyLab made with an older encoding is made again (the
+            // new name tells the phone to fetch it); the old one is removed.
+            let path = "rallylab/\(DatasetStore.safeName(project))/\(session.name)-v\(Self.copyVersion).mp4"
+            let stale = video.clipPath.map { $0.hasPrefix("rallylab/") && $0 != path } ?? true
+            if stale {
                 status = "Uploading \(session.name) for the phone (\(i + 1) of \(sessions.count))…"
-                let path = "rallylab/\(DatasetStore.safeName(project))/\(session.name).mp4"
                 do {
                     try await uploadSmallCopy(of: source, to: path)
+                    if let old = video.clipPath { try? await client.remove(old) }
                     video.clipPath = path
                     uploaded += 1
                 } catch LabelingClient.Failure.notSignedIn {
@@ -251,13 +255,17 @@ final class LabelingSync {
     /// The cut re-encoded small for the phone: upright, fitted in 1280×1280,
     /// ~2 Mbit/s, no sound, streamable — every frame at its original time,
     /// so a frame tracked on the phone is the same frame here.
+    /// The phone copy's encoding: 2 = to a quality (x264 slow, CRF 20, at
+    /// most 5 Mbps) rather than 2 Mbps flat, which grainy footage fell apart at.
+    static let copyVersion = 2
+
     private func uploadSmallCopy(of source: URL, to path: String) async throws {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
         defer { try? FileManager.default.removeItem(at: out) }
         let run = await ToolEnvironment.run("ffmpeg", [
             "-y", "-loglevel", "error", "-i", source.path, "-an",
             "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'", "-fps_mode", "passthrough",
-            "-c:v", "libx264", "-preset", "veryfast", "-b:v", "2M", "-maxrate", "2500k", "-bufsize", "4M",
+            "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-maxrate", "5M", "-bufsize", "10M",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", out.path,
         ])
         guard run.status == 0 else { throw SyncError.encode(run.lines.last ?? "ffmpeg failed") }

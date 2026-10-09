@@ -25,7 +25,9 @@ enum ClipEncoder {
     }
 
     static let longSide: CGFloat = 1280
-    static let bitRate = 2_000_000
+    /// HEVC (the phone's hardware encoder) at 4 Mbps: grainy indoor footage
+    /// fell apart at 2 Mbps H.264, and this copy is what the Mac labels from.
+    static let bitRate = 4_000_000
     static let frameRate = 30.0
 
     /// Encode `length` seconds from `start` of `source` into `output`.
@@ -55,14 +57,13 @@ enum ClipEncoder {
         let writer = try AVAssetWriter(outputURL: output, fileType: .mp4)
         writer.shouldOptimizeForNetworkUse = true
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoCodecKey: AVVideoCodecType.hevc,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
             AVVideoScalingModeKey: AVVideoScalingModeResizeAspect,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: bitRate,
                 AVVideoMaxKeyFrameIntervalKey: Int(frameRate * 2),
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
             ],
         ])
         input.transform = transform

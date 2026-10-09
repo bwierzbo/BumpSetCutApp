@@ -86,7 +86,10 @@ enum MultiFramePackage {
         var labels: [[[Double]]?]? = nil
     }
 
-    static func export(sessions: [VideoSession], store: DatasetStore, name: String,
+    /// `unreviewed`: every labeled frame of a finished rally is a label, not
+    /// only the ones checked in annotation review — for a quick look at where
+    /// the footage gets, never for a training round.
+    static func export(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool = false,
                        progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (zip: URL, summary: Summary) {
         let fm = FileManager.default
         let reviewed = sessions.map { session in
@@ -101,7 +104,7 @@ enum MultiFramePackage {
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyyMMdd-HHmm"
         let now = Date()
-        let packageName = "\(DatasetStore.safeName(name))-multiframe-\(stamp.string(from: now))"
+        let packageName = "\(DatasetStore.safeName(name))\(unreviewed ? "-unreviewed" : "")-multiframe-\(stamp.string(from: now))"
         let exports = store.root.appendingPathComponent("exports", isDirectory: true)
         let dir = exports.appendingPathComponent(packageName, isDirectory: true)
         try? fm.removeItem(at: dir)
@@ -131,10 +134,10 @@ enum MultiFramePackage {
             for rally in Self.doneTracks(session) {
                 // Only frames checked in annotation review are labels; the rest
                 // are still frames the model sees around them.
-                let byKey = Dictionary(rally.points.filter(\.reviewed).map { (ClipFrames.key(CMTime(seconds: $0.time, preferredTimescale: 600_000)), $0) },
+                let byKey = Dictionary(rally.points.filter { $0.reviewed || unreviewed }.map { (ClipFrames.key(CMTime(seconds: $0.time, preferredTimescale: 600_000)), $0) },
                                        uniquingKeysWith: { a, _ in a })
                 for point in rally.points.enumerated().filter({ $0.offset % Self.trackStride == 0 }).map(\.element)
-                where point.state != .unknown && point.reviewed {
+                where point.state != .unknown && (point.reviewed || unreviewed) {
                     guard let times = clip.window(around: point.time, exact: true) else { counts.edges += 1; continue }
                     tracked.append((point.time, times, times.map { byKey[ClipFrames.key($0)] }))
                     for t in times { needed[ClipFrames.key(t)] = t }

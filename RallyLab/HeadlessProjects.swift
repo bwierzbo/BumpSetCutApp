@@ -18,7 +18,10 @@
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
 //    RallyLab --project v3 --package                       (training package zip)
-//    RallyLab --project v3 --package-multiframe            (multi-frame package zip)
+//    RallyLab --project v3 --package-multiframe [--unreviewed]   (multi-frame package zip; --unreviewed: every
+//             labeled frame, not only reviewed ones — a quick look, not a round)
+//    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
+//             phone's changes, saves, and sends them back)
 //    RallyLab --project v3 --add-heat <bring_back folder>  (convert + add a multi-frame model)
 //    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
 //    RallyLab --project v3 --render-heat <clip> <seconds>  (side-by-side video of a tracked rally)
@@ -107,8 +110,28 @@ enum HeadlessProjects {
             }
 
             let library = ModelLibrary(sampler: projects.sampler)
+            // Tighten unreviewed balls' boxes (BoxFitter); --apply saves them.
+            if ok, args.contains("--fit-boxes") {
+                let store = ProjectReviewStore(sampler: projects.sampler, tracker: TrackLabelModel(sampler: projects.sampler))
+                var last = 0
+                let fitted = await store.fittedBoxes { done, total in
+                    let pct = done * 100 / max(total, 1)
+                    if pct >= last + 10 { last = pct; log("fitting… \(pct)%") }
+                }
+                let n = fitted.values.flatMap(\.values).reduce(0) { $0 + $1.count }
+                log("\(n) of \(store.reviewItems(.crop).count) unreviewed balls fitted\(args.contains("--apply") ? " — saved" : " (dry run; --apply saves)").")
+                if args.contains("--apply") {
+                    // Take what changed on the phone meanwhile first (frames
+                    // reviewed there are skipped), then send the result back.
+                    let sync = LabelingSync(projects: projects)
+                    await sync.sync(videos: false)
+                    store.apply(fitted)
+                    ok = await sync.sync(videos: false)
+                    log((ok ? "✅ " : "❌ ") + sync.status)
+                }
+            }
             if ok, args.contains("--package") { ok = await package(library) }
-            if ok, args.contains("--package-multiframe") { ok = await packageMultiFrame(library) }
+            if ok, args.contains("--package-multiframe") { ok = await packageMultiFrame(library, unreviewed: args.contains("--unreviewed")) }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
                 log(library.status)
@@ -329,8 +352,8 @@ enum HeadlessProjects {
     }
 
     @MainActor
-    private static func packageMultiFrame(_ library: ModelLibrary) async -> Bool {
-        library.exportMultiFramePackage()
+    private static func packageMultiFrame(_ library: ModelLibrary, unreviewed: Bool) async -> Bool {
+        library.exportMultiFramePackage(unreviewed: unreviewed)
         while library.isBusy { try? await Task.sleep(nanoseconds: 200_000_000) }
         log(library.status)
         return library.lastMultiFramePackage != nil

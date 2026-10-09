@@ -7,6 +7,7 @@
 //  when a rally it has open changed.
 //
 
+import AVFoundation
 import Foundation
 
 @MainActor
@@ -51,4 +52,60 @@ final class ProjectReviewStore: ReviewStore {
     }
 
     func videoName(of item: AnnotationReview.Item) -> String { item.video }
+
+    // MARK: - Fitting boxes before review
+
+    /// Tightened boxes (see BoxFitter) for every unreviewed ball in the
+    /// project's finished rallies, by session, rally and frame — not saved.
+    func fittedBoxes(progress: @escaping (Int, Int) -> Void) async -> [String: [UUID: [Int: CGRect]]] {
+        let work = sampler.sessions.compactMap { s -> (VideoSession, [TrackedRally])? in
+            let rallies = (s.tracks ?? []).filter { r in r.done && r.points.contains { $0.state == .visible && !$0.reviewed } }
+            return rallies.isEmpty || !FileManager.default.fileExists(atPath: s.sourcePath) ? nil : (s, rallies)
+        }
+        let total = work.reduce(0) { $0 + $1.1.reduce(0) { $0 + $1.points.count } }
+        var done = 0
+        var out: [String: [UUID: [Int: CGRect]]] = [:]
+        for (session, rallies) in work {
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: URL(fileURLWithPath: session.sourcePath)))
+            generator.appliesPreferredTrackTransform = true
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            for rally in rallies {
+                // Frames in grey, read once each, kept while they're neighbours.
+                var grays: [Int: BoxFitter.Gray] = [:]
+                let reach = BoxFitter.backgroundOffsets.map(abs).max() ?? 6
+                var fitted: [Int: CGRect] = [:]
+                for (i, p) in rally.points.enumerated() {
+                    defer { done += 1; progress(done, total) }
+                    guard p.state == .visible, !p.reviewed, let box = p.box?.rect else { continue }
+                    for k in max(0, i - reach)...min(rally.points.count - 1, i + reach) where grays[k] == nil {
+                        let t = CMTime(seconds: rally.points[k].time + 0.0001, preferredTimescale: 600_000)
+                        if let image = try? await generator.image(at: t).image { grays[k] = BoxFitter.Gray(image) }
+                    }
+                    for k in grays.keys where k < i - reach { grays[k] = nil }
+                    guard let frame = grays[i] else { continue }
+                    let court = BoxFitter.backgroundOffsets.compactMap { grays[i + $0] }
+                    if let box = BoxFitter.fit(box, frame: frame, court: court) { fitted[i] = box }
+                }
+                if !fitted.isEmpty { out[session.name, default: [:]][rally.id] = fitted }
+            }
+        }
+        return out
+    }
+
+    /// Put fitted boxes in (each ball's box replaced; still to review).
+    func apply(_ fitted: [String: [UUID: [Int: CGRect]]]) {
+        for (name, byRally) in fitted {
+            guard var tracks = sampler.sessions.first(where: { $0.name == name })?.tracks else { continue }
+            for r in tracks.indices {
+                guard let boxes = byRally[tracks[r].id] else { continue }
+                for (i, rect) in boxes where tracks[r].points.indices.contains(i) && !tracks[r].points[i].reviewed {
+                    let confidence = tracks[r].points[i].box?.confidence ?? 1
+                    tracks[r].points[i].box = TrackCandidate(rect: rect, confidence: confidence)
+                }
+            }
+            sampler.setTracks(tracks, session: name)
+            tracker.reloadRallies(session: name)
+        }
+    }
 }

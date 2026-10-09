@@ -112,7 +112,8 @@ final class ModelLibrary {
         }
     }
 
-    func exportMultiFramePackage() {
+    /// `unreviewed`: see MultiFramePackage.export.
+    func exportMultiFramePackage(unreviewed: Bool = false) {
         guard !isBusy else { return }
         isBusy = true
         status = "Pulling the frames around each reviewed frame from its video…"
@@ -123,7 +124,7 @@ final class ModelLibrary {
             defer { isBusy = false }
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
-                    try await MultiFramePackage.export(sessions: sessions, store: store, name: name) { done, total in
+                    try await MultiFramePackage.export(sessions: sessions, store: store, name: name, unreviewed: unreviewed) { done, total in
                         Task { @MainActor in self.status = "Pulling neighbouring frames… \(done)/\(total)" }
                     }
                 }.value
