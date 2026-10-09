@@ -135,12 +135,15 @@ enum AnnotationReview {
 /// read ahead.
 final class ReviewFrames: @unchecked Sendable {
     private let generator: AVAssetImageGenerator
+    /// The file read (a newer copy of the video has another name).
+    let video: URL
     private let lock = NSLock()
     private var cache: [Int64: CGImage] = [:]
     private var order: [Int64] = []
     private static let keep = 40
 
     init(video: URL) {
+        self.video = video
         generator = AVAssetImageGenerator(asset: AVURLAsset(url: video))
         generator.appliesPreferredTrackTransform = true
         generator.requestedTimeToleranceBefore = .zero
@@ -154,8 +157,17 @@ final class ReviewFrames: @unchecked Sendable {
         if let hit = lock.withLock({ cache[key] }) { return hit }
         // Just after the frame starts: a time rounded a hair early returns
         // the frame before it.
-        guard let image = try? await generator.image(at: CMTime(seconds: time + 0.0001, preferredTimescale: 600_000)).image
-        else { return nil }
+        // An exact read can fail on a frame; the nearest within a quarter of
+        // a 30 fps frame is the same one.
+        var found = try? await generator.image(at: CMTime(seconds: time + 0.0001, preferredTimescale: 600_000)).image
+        if found == nil {
+            let near = AVAssetImageGenerator(asset: generator.asset)
+            near.appliesPreferredTrackTransform = true
+            near.requestedTimeToleranceBefore = CMTime(seconds: 0.25 / 30, preferredTimescale: 600_000)
+            near.requestedTimeToleranceAfter = CMTime(seconds: 0.25 / 30, preferredTimescale: 600_000)
+            found = try? await near.image(at: CMTime(seconds: time, preferredTimescale: 600_000)).image
+        }
+        guard let image = found else { return nil }
         lock.withLock {
             if cache[key] == nil { order.append(key) }
             cache[key] = image
@@ -211,29 +223,37 @@ final class ReviewWalk {
     var left: Int { max(0, items.count - at) }
     var canGoBack: Bool { !undo.isEmpty }
 
+    /// Frames that couldn't be read in this walk, passed over.
+    private(set) var unreadable = 0
+
     func load() async {
         image = nil
         failure = nil
-        guard let item, let point else { return }
-        do {
-            let reader: ReviewFrames
-            if let r = frames[item.video] {
-                reader = r
-            } else {
-                reader = ReviewFrames(video: try await store.videoFile(of: item))
-                frames[item.video] = reader
+        while let item, let point {
+            do {
+                let shown = item
+                // The video's current file: a newer copy replaces the old one
+                // (and the old file goes), so a reader on it is made again.
+                let file = try await store.videoFile(of: item)
+                if frames[item.video]?.video != file { frames[item.video] = ReviewFrames(video: file) }
+                guard let reader = frames[item.video] else { return }
+                let picture = await reader.image(at: point.time)
+                guard shown == self.item else { return }
+                if let picture {
+                    image = picture
+                    // The next few of the same video.
+                    let ahead = items[(at + 1)...].prefix(6).filter { $0.video == item.video }
+                        .compactMap { i in store.rally(of: i)?.points[safe: i.index]?.time }
+                    reader.prefetch(ahead)
+                    return
+                }
+                // Can't be read: pass over it (it stays to review) and go on.
+                unreadable += 1
+                at += 1
+            } catch {
+                failure = error.localizedDescription
+                return
             }
-            let shown = item
-            let picture = await reader.image(at: point.time)
-            guard shown == self.item else { return }
-            image = picture
-            if picture == nil { failure = "Couldn't read this frame." }
-            // The next few of the same video.
-            let ahead = items[(at + 1)...].prefix(6).filter { $0.video == item.video }
-                .compactMap { i in store.rally(of: i)?.points[safe: i.index]?.time }
-            reader.prefetch(ahead)
-        } catch {
-            failure = error.localizedDescription
         }
     }
 

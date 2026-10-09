@@ -340,7 +340,8 @@ private struct ReviewPassBar: View {
             ProgressView(value: Double(done), total: Double(total))
                 .tint(.green)
             HStack {
-                Text("\(done.formatted()) of \(walk.items.count.formatted()) done")
+                Text("\(done.formatted()) of \(walk.items.count.formatted()) done"
+                     + (walk.unreadable > 0 ? " · \(walk.unreadable) couldn't be read, left for later" : ""))
                 Spacer()
                 Text("\(Int((Double(done) / Double(total) * 100).rounded()))%")
             }
