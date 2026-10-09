@@ -133,6 +133,7 @@ struct CropReviewView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             controls
+            ReviewProgress(walk: walk)
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
         .navigationTitle("Boxes")
@@ -290,6 +291,7 @@ struct WholeFrameReviewView: View {
                 }
                 .controlSize(.large)
             }
+            ReviewProgress(walk: walk)
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
         .navigationTitle("Whole frames")
@@ -325,6 +327,26 @@ struct WholeFrameReviewView: View {
         placed = nil
         await step()
         if let rally = walk.rally, let item = walk.item { centre = FrameCanvas.focus(rally, frame: item.index) }
+    }
+}
+
+/// How far through this pass: a bar along the bottom with the count.
+private struct ReviewProgress: View {
+    let walk: ReviewWalk
+
+    var body: some View {
+        let total = max(walk.items.count, 1), done = min(walk.at, walk.items.count)
+        VStack(spacing: 4) {
+            ProgressView(value: Double(done), total: Double(total))
+                .tint(.green)
+            HStack {
+                Text("\(done.formatted()) of \(walk.items.count.formatted()) done")
+                Spacer()
+                Text("\(Int((Double(done) / Double(total) * 100).rounded()))%")
+            }
+            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 4)
     }
 }
 
