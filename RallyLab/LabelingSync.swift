@@ -36,6 +36,9 @@ final class LabelingSync {
     /// whatever has that session open takes the new ones.
     var onTracksChanged: ((String) -> Void)?
     var onTimesChanged: ((String) -> Void)?
+    /// After each automatic sync (e.g. fitting new rallies' boxes); true if
+    /// it changed something worth sending at once.
+    var afterSync: (() async -> Bool)?
     @ObservationIgnored private var auto: Task<Void, Never>?
     @ObservationIgnored private var activation: Any?
 
@@ -78,6 +81,7 @@ final class LabelingSync {
                 guard let self else { return }
                 if self.signedIn, self.projects.project != nil {
                     await self.sync(videos: round % Self.videoEvery == 0)
+                    if await self.afterSync?() == true { await self.sync(videos: false) }
                     round += 1
                 }
                 try? await Task.sleep(nanoseconds: Self.interval * 1_000_000_000)

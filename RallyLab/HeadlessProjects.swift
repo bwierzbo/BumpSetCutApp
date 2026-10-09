@@ -126,6 +126,9 @@ enum HeadlessProjects {
                     let sync = LabelingSync(projects: projects)
                     await sync.sync(videos: false)
                     store.apply(fitted)
+                    for s in projects.sampler.sessions {
+                        projects.sampler.markFitted((s.tracks ?? []).filter(\.done).map(\.id), session: s.name)
+                    }
                     ok = await sync.sync(videos: false)
                     log((ok ? "✅ " : "❌ ") + sync.status)
                 }

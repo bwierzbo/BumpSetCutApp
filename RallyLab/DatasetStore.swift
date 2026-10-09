@@ -96,6 +96,8 @@ struct VideoSession: Codable, Identifiable, Equatable {
     var syncedTrackIds: [UUID]? = nil
     /// Starts of found rallies you said aren't rallies (Label → Not a rally).
     var notRallies: [Double]? = nil
+    /// Finished rallies whose boxes have been fitted to the ball (BoxFitter).
+    var fittedTracks: [UUID]? = nil
 
     var reviewedCount: Int { frames.filter(\.reviewed).count }
     var boxCount: Int { frames.filter(\.keep).reduce(0) { $0 + $1.boxes.count } }

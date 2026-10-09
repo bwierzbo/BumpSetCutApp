@@ -1196,6 +1196,11 @@ final class SamplerModel {
         modify(session: name) { $0.notRallies = ($0.notRallies ?? []) + [start] }
     }
 
+    /// These finished rallies' boxes have been fitted (BoxFitter).
+    func markFitted(_ ids: [UUID], session name: String) {
+        modify(session: name) { $0.fittedTracks = Array(Set(($0.fittedTracks ?? []) + ids)) }
+    }
+
     /// Change a session, open or not, and save it.
     private func modify(session name: String, _ change: (inout VideoSession) -> Void) {
         if var session = currentSession, session.name == name {

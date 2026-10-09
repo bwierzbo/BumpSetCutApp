@@ -55,11 +55,27 @@ final class ProjectReviewStore: ReviewStore {
 
     // MARK: - Fitting boxes before review
 
+    /// Fit the boxes of rallies finished since the last time (here or on the
+    /// phone), save them, and remember they're done. True if any changed.
+    func fitNewRallies() async -> Bool {
+        // Taken first: a rally finished while fitting waits for next time.
+        let done = sampler.sessions.map { s in (s.name, (s.tracks ?? []).filter { $0.done && !(s.fittedTracks ?? []).contains($0.id) }.map(\.id)) }
+        guard done.contains(where: { !$0.1.isEmpty }) else { return false }
+        let fitted = await fittedBoxes(onlyNew: true) { _, _ in }
+        apply(fitted)
+        for (name, ids) in done where !ids.isEmpty { sampler.markFitted(ids, session: name) }
+        return !fitted.isEmpty
+    }
+
     /// Tightened boxes (see BoxFitter) for every unreviewed ball in the
-    /// project's finished rallies, by session, rally and frame — not saved.
-    func fittedBoxes(progress: @escaping (Int, Int) -> Void) async -> [String: [UUID: [Int: CGRect]]] {
+    /// project's finished rallies (`onlyNew`: rallies not fitted before), by
+    /// session, rally and frame — not saved.
+    func fittedBoxes(onlyNew: Bool = false, progress: @escaping (Int, Int) -> Void) async -> [String: [UUID: [Int: CGRect]]] {
         let work = sampler.sessions.compactMap { s -> (VideoSession, [TrackedRally])? in
-            let rallies = (s.tracks ?? []).filter { r in r.done && r.points.contains { $0.state == .visible && !$0.reviewed } }
+            let rallies = (s.tracks ?? []).filter { r in
+                r.done && r.points.contains { $0.state == .visible && !$0.reviewed }
+                    && !(onlyNew && (s.fittedTracks ?? []).contains(r.id))
+            }
             return rallies.isEmpty || !FileManager.default.fileExists(atPath: s.sourcePath) ? nil : (s, rallies)
         }
         let total = work.reduce(0) { $0 + $1.1.reduce(0) { $0 + $1.points.count } }
