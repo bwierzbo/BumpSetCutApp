@@ -156,9 +156,12 @@ struct CropReviewView: View {
                                     if pinchBase == nil { pinchBase = base }
                                     viewZoom = min(max(base * m.magnification, 1), 4)
                                     #else
+                                    // Like zooming a photo: spreading the fingers brings the
+                                    // picture closer, so the ball grows against the box — the
+                                    // box shrinks to the ball.
                                     let base = pinchBase ?? scale
                                     if pinchBase == nil { pinchBase = base }
-                                    scale = min(max(base * m.magnification, 0.3), 4)
+                                    scale = min(max(base / m.magnification, 0.3), 4)
                                     #endif
                                 }
                                 .onEnded { _ in pinchBase = nil })
