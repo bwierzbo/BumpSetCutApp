@@ -73,6 +73,10 @@ struct CropReviewView: View {
     @State private var dragBase: CGSize?
     @State private var scale: CGFloat = 1
     @State private var pinchBase: CGFloat?
+    /// This touch so far: how far it went, and whether it pinched.
+    @State private var moved: CGFloat = 0
+    @State private var pinched = false
+    @State private var patch: CropPatch?
     @State private var approved = 0
 
     init(store: any ReviewStore) {
@@ -85,23 +89,33 @@ struct CropReviewView: View {
             GeometryReader { geo in
                 let side = min(geo.size.width, geo.size.height)
                 Group {
-                    if let image = walk.image, let box = walk.point?.box?.rect {
-                        let k = CropCanvas.geometry(image: image, box: box, view: CGSize(width: side, height: side)).k
-                        CropCanvas(image: image, box: box, offset: offset, scale: scale)
+                    if let image = walk.image, let box = walk.point?.box?.rect, let patch {
+                        let k = CropCanvas.geometry(frameSize: patch.frameSize, box: box, view: CGSize(width: side, height: side)).k
+                        CropCanvas(patch: patch, box: box, offset: offset, scale: scale)
                             .contentShape(Rectangle())
-                            .onTapGesture { approve(box: box, image: image) }
-                            .gesture(DragGesture(minimumDistance: 3)
+                            // One gesture from the first touch: moving drags the picture
+                            // at once; lifting without moving (and no pinch) approves.
+                            .gesture(DragGesture(minimumDistance: 0)
                                 .onChanged { d in
                                     let base = dragBase ?? offset
                                     if dragBase == nil { dragBase = base }
+                                    moved = max(moved, hypot(d.translation.width, d.translation.height))
                                     // The picture follows the finger: the ball's centre moves the other way.
                                     offset = CGSize(width: base.width - d.translation.width / k, height: base.height - d.translation.height / k)
                                 }
-                                .onEnded { _ in dragBase = nil })
+                                .onEnded { _ in
+                                    let tap = moved < 6 && !pinched
+                                    if tap, let base = dragBase { offset = base }
+                                    dragBase = nil
+                                    moved = 0
+                                    pinched = false
+                                    if tap { approve(box: box, image: image) }
+                                })
                             .simultaneousGesture(MagnifyGesture()
                                 .onChanged { m in
                                     let base = pinchBase ?? scale
                                     if pinchBase == nil { pinchBase = base }
+                                    pinched = true
                                     scale = min(max(base * m.magnification, 0.3), 4)
                                 }
                                 .onEnded { _ in pinchBase = nil })
@@ -125,6 +139,10 @@ struct CropReviewView: View {
         .inlineTitle()
         .reviewKeys { press in cropKey(press) }
         .task { await walk.load() }
+        // Cut out the part around the box once per frame.
+        .onChange(of: walk.image.map(ObjectIdentifier.init), initial: true) {
+            patch = walk.image.flatMap { image in walk.point?.box.flatMap { CropPatch(frame: image, box: $0.rect) } }
+        }
         .sensoryFeedback(.success, trigger: approved)
     }
 
@@ -332,11 +350,17 @@ private struct ReviewKeys: ViewModifier {
     @FocusState private var focused: Bool
 
     func body(content: Content) -> some View {
+        #if os(macOS)
         content
             .focusable()
             .focusEffectDisabled()
             .focused($focused)
             .onAppear { focused = true }
             .onKeyPress(phases: .down) { handle($0) ? .handled : .ignored }
+        #else
+        // On the phone, touch only: taking the keyboard focus can get in the
+        // way of the picture's gestures.
+        content
+        #endif
     }
 }

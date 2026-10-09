@@ -10,11 +10,40 @@
 
 import SwiftUI
 
-/// A square crop of `image` around `box` — `AnnotationReview.cropSide`
-/// across — with the ball's centre `offset` image pixels from the box's,
-/// and the box `scale` times its size, fixed in the middle.
-struct CropCanvas: View {
+/// The part of a frame around a box that review can show while you drag,
+/// cut out and decoded once when the frame loads: dragging then only slides
+/// this picture, which the GPU does smoothly, instead of redrawing.
+struct CropPatch {
     let image: CGImage
+    /// Where it sits in the frame, image pixels (top-down).
+    let origin: CGPoint
+    let frameSize: CGSize
+
+    /// Reaches this many crop widths from the box: as far as a drag goes.
+    static let reach: CGFloat = 1.5
+
+    init?(frame: CGImage, box: CGRect) {
+        let size = CGSize(width: frame.width, height: frame.height)
+        let side = AnnotationReview.cropSide(for: box, in: size) * Self.reach * 2
+        let rect = CGRect(x: box.midX * size.width - side / 2, y: (1 - box.midY) * size.height - side / 2, width: side, height: side)
+            .integral.intersection(CGRect(origin: .zero, size: size))
+        guard !rect.isEmpty, let part = frame.cropping(to: rect),
+              let ctx = CGContext(data: nil, width: part.width, height: part.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        else { return nil }
+        ctx.draw(part, in: CGRect(x: 0, y: 0, width: part.width, height: part.height))
+        guard let decoded = ctx.makeImage() else { return nil }
+        image = decoded
+        origin = rect.origin
+        frameSize = size
+    }
+}
+
+/// A square crop around `box` — `AnnotationReview.cropSide` across — with
+/// the ball's centre `offset` image pixels from the box's, and the square the
+/// box will be saved as (`scale` times the ball's width) fixed in the middle.
+struct CropCanvas: View {
+    let patch: CropPatch
     /// Vision-normalised.
     let box: CGRect
     let offset: CGSize
@@ -23,39 +52,35 @@ struct CropCanvas: View {
 
     var body: some View {
         GeometryReader { geo in
-            let g = Self.geometry(image: image, box: box, view: geo.size)
-            Canvas { ctx, size in
-                let c = CGPoint(x: g.centre.x + offset.width, y: g.centre.y + offset.height)
-                let origin = CGPoint(x: size.width / 2 - c.x * g.k, y: size.height / 2 - c.y * g.k)
-                // Only the part on screen: the whole frame at this zoom is
-                // tens of thousands of points across.
-                let seen = CGRect(x: (0 - origin.x) / g.k, y: (0 - origin.y) / g.k, width: size.width / g.k, height: size.height / g.k)
-                    .insetBy(dx: -2, dy: -2).integral
-                    .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
-                if !seen.isEmpty, let part = image.cropping(to: seen) {
-                    ctx.draw(Image(decorative: part, scale: 1),
-                             in: CGRect(x: origin.x + seen.minX * g.k, y: origin.y + seen.minY * g.k,
-                                        width: seen.width * g.k, height: seen.height * g.k))
+            let g = Self.geometry(frameSize: patch.frameSize, box: box, view: geo.size)
+            let c = CGPoint(x: g.centre.x + offset.width, y: g.centre.y + offset.height)
+            let w = CGFloat(patch.image.width) * g.k, h = CGFloat(patch.image.height) * g.k
+            ZStack(alignment: .topLeading) {
+                Color.black
+                Image(decorative: patch.image, scale: 1)
+                    .resizable()
+                    .interpolation(.medium)
+                    .frame(width: w, height: h)
+                    .offset(x: geo.size.width / 2 + (patch.origin.x - c.x) * g.k, y: geo.size.height / 2 + (patch.origin.y - c.y) * g.k)
+                Canvas { ctx, size in
+                    let side = AnnotationReview.ballSide(of: box, in: patch.frameSize) * scale * g.k
+                    let r = CGRect(x: size.width / 2 - side / 2, y: size.height / 2 - side / 2, width: side, height: side)
+                    ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(tint), lineWidth: 2)
+                    // A small cross at the centre, for centring precisely.
+                    var cross = Path()
+                    cross.move(to: CGPoint(x: size.width / 2 - 5, y: size.height / 2)); cross.addLine(to: CGPoint(x: size.width / 2 + 5, y: size.height / 2))
+                    cross.move(to: CGPoint(x: size.width / 2, y: size.height / 2 - 5)); cross.addLine(to: CGPoint(x: size.width / 2, y: size.height / 2 + 5))
+                    ctx.stroke(cross, with: .color(tint.opacity(0.8)), lineWidth: 1)
                 }
-                // The square it'll be saved as.
-                let side = AnnotationReview.ballSide(of: box, in: CGSize(width: image.width, height: image.height)) * scale * g.k
-                let r = CGRect(x: size.width / 2 - side / 2, y: size.height / 2 - side / 2, width: side, height: side)
-                ctx.stroke(Path(r.insetBy(dx: -1, dy: -1)), with: .color(tint), lineWidth: 2)
-                // A small cross at the centre, for centring precisely.
-                var cross = Path()
-                cross.move(to: CGPoint(x: size.width / 2 - 5, y: size.height / 2)); cross.addLine(to: CGPoint(x: size.width / 2 + 5, y: size.height / 2))
-                cross.move(to: CGPoint(x: size.width / 2, y: size.height / 2 - 5)); cross.addLine(to: CGPoint(x: size.width / 2, y: size.height / 2 + 5))
-                ctx.stroke(cross, with: .color(tint.opacity(0.8)), lineWidth: 1)
+                .allowsHitTesting(false)
             }
-            .background(Color.black)
         }
         .clipped()
     }
 
     /// Screen points per image pixel for this crop in a view of `view`
     /// points, and the box's centre in image pixels (top-down).
-    static func geometry(image: CGImage, box: CGRect, view: CGSize) -> (k: CGFloat, centre: CGPoint) {
-        let size = CGSize(width: image.width, height: image.height)
+    static func geometry(frameSize size: CGSize, box: CGRect, view: CGSize) -> (k: CGFloat, centre: CGPoint) {
         let side = AnnotationReview.cropSide(for: box, in: size)
         return (min(view.width, view.height) / side, CGPoint(x: box.midX * size.width, y: (1 - box.midY) * size.height))
     }
