@@ -142,7 +142,12 @@ def load_author_weights(model) -> None:
     with torch.no_grad():
         for block in ("enc1", "enc1_1", "enc2", "enc3", "dec1", "dec2"):
             conv, bn = getattr(model, block)[0], getattr(model, block)[1]
-            conv.weight.copy_(init[f"{block}.0.weight"])
+            w = init[f"{block}.0.weight"]
+            if conv.weight.shape[1] == 3 * w.shape[1]:
+                # A colour model from grey weights: each frame's grey filter
+                # split over its R, G and B — the same response to a grey frame.
+                w = w.repeat_interleave(3, dim=1) / 3
+            conv.weight.copy_(w)
             bn.running_mean.zero_()
             bn.running_var.fill_(1 - bn.eps)
             bn.weight.fill_(1)
@@ -150,6 +155,31 @@ def load_author_weights(model) -> None:
         for name in ("out_conv", "radius_conv"):
             getattr(model, name).weight.copy_(init[f"{name}.weight"])
             getattr(model, name).bias.copy_(init[f"{name}.bias"])
+
+
+def color_model(base, size):
+    """V4c on colour frames: 9 frames × RGB in (27 channels, frame by frame),
+    and each channel's 8 differences between neighbouring frames (24) — the
+    grey model's 9 + 8, three times over. The rest of the network is the same."""
+    from model.vballnet_v4c import conv_bn_relu
+
+    class VballNetV4cColor(base):
+        def __init__(self):
+            super().__init__(height=size[1], width=size[0], in_dim=SEQ, out_dim=SEQ)
+            self.in_dim = SEQ * 3
+            self.enc1 = conv_bn_relu(SEQ * 3 + (SEQ - 1) * 3, 32)
+
+        def _features(self, frames):
+            x = torch.cat((frames, frames[:, 3:] - frames[:, :-3]), dim=1)
+            x1 = self.enc1_1(self.enc1(x))
+            x2 = self.enc2(self.pool1(x1))
+            x3 = self.enc3(self.pool2(x2))
+            if self.context is not None:
+                x3 = x3 + self.context(x3)
+            x = self.dec1(torch.cat((self.up1(x3), x2), dim=1))
+            return self.dec2(torch.cat((self.up2(x), x1), dim=1))
+
+    return VballNetV4cColor()
 
 
 # MARK: - Data
@@ -177,8 +207,8 @@ class Windows(torch.utils.data.Dataset):
     balls), so every input is landscape without squashing a portrait frame.
     """
 
-    def __init__(self, root: Path, windows: list[dict], train: bool, size: tuple[int, int]):
-        self.root, self.windows, self.train = root, windows, train
+    def __init__(self, root: Path, windows: list[dict], train: bool, size: tuple[int, int], color: bool = False):
+        self.root, self.windows, self.train, self.color = root, windows, train, color
         self.width, self.height = size
         self.sigma = SIGMA * self.width / BASE_WIDTH
         ys, xs = np.mgrid[0:self.height, 0:self.width]
@@ -192,6 +222,12 @@ class Windows(torch.utils.data.Dataset):
         if img is None:
             raise FileNotFoundError(self.root / path)
         return img
+
+    def rgb(self, path: str):
+        img = cv2.imread(str(self.root / path), cv2.IMREAD_COLOR)
+        if img is None:
+            raise FileNotFoundError(self.root / path)
+        return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
     def moving(self, w: dict) -> list[bool]:
         """Per target-frame ball: does it move over ±4 frames?"""
@@ -225,7 +261,7 @@ class Windows(torch.utils.data.Dataset):
         portrait = w["size"][1] > w["size"][0]
         frames = []
         for path in w["frames"][start:start + SEQ]:
-            img = self.gray(path)
+            img = self.rgb(path) if self.color else self.gray(path)
             if portrait:
                 img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
             frames.append(cv2.resize(img, (W, H), interpolation=cv2.INTER_AREA))
@@ -263,7 +299,18 @@ class Windows(torch.utils.data.Dataset):
                 clip = lift + (1 - lift) * clip ** random.uniform(0.6, 0.9)
             if random.random() < 0.3:
                 clip = np.clip(clip + np.random.normal(0, random.uniform(0.005, 0.03), clip.shape), 0, 1)
-            clip = np.ascontiguousarray(clip, dtype=np.float32)
+            if self.color:
+                # Balls come in every colour: shuffle the channels (yellow/blue
+                # becomes cyan/red, …) and vary the saturation, the same on all
+                # 9 frames, so the model can't lean on one ball's colours.
+                if random.random() < 0.5:
+                    clip = clip[..., np.random.permutation(3)]
+                grey = clip.mean(axis=-1, keepdims=True)
+                clip = np.clip(grey + random.uniform(0.4, 1.4) * (clip - grey), 0, 1)
+        if self.color:
+            # Frame by frame, R G B: (9, H, W, 3) → (27, H, W).
+            clip = clip.transpose(0, 3, 1, 2).reshape(SEQ * 3, H, W)
+        clip = np.ascontiguousarray(clip, dtype=np.float32)
 
         heat = np.zeros((SEQ, H, W), np.float32)
         weight = np.zeros((SEQ, H, W), np.float32)
@@ -362,6 +409,9 @@ def main() -> None:
     p.add_argument("--workers", type=int, default=6)
     p.add_argument("--name", default="heat_v4c")
     p.add_argument("--from-scratch", action="store_true", help="Don't start from the author's weights")
+    p.add_argument("--color", action="store_true",
+                   help="Colour frames (27 channels: 9 frames × RGB) instead of grey; channel shuffles and "
+                        "saturation changes in training so it can't learn one ball's colours")
     args = p.parse_args()
 
     try:
@@ -386,12 +436,14 @@ def main() -> None:
     say(f"{tracked} windows from tracked rallies"
         + ("" if tracked else " — none: is this an old package? Track rallies and re-export to use them."))
     loader = lambda ws, train: torch.utils.data.DataLoader(
-        Windows(root, ws, train, size), batch_size=batch, shuffle=train, num_workers=args.workers,
+        Windows(root, ws, train, size, color=args.color), batch_size=batch, shuffle=train, num_workers=args.workers,
         pin_memory=device.type == "cuda", drop_last=train, persistent_workers=args.workers > 0)
     train_loader, val_loader = loader(train_w, True), loader(val_w, False)
 
     say(f"Input {size[0]}×{size[1]}, batch {batch}.")
-    model = VballNetV4c(height=size[1], width=size[0], in_dim=SEQ, out_dim=SEQ)
+    channels = SEQ * 3 if args.color else SEQ
+    say("Colour frames (9 × RGB)." if args.color else "Grey frames.")
+    model = color_model(VballNetV4c, size) if args.color else VballNetV4c(height=size[1], width=size[0], in_dim=SEQ, out_dim=SEQ)
     if not args.from_scratch:
         load_author_weights(model)
     model.to(device)
@@ -400,7 +452,7 @@ def main() -> None:
     if run.exists():
         fail(f"{run} exists — pass a new --name (or delete it).")
     run.mkdir(parents=True)
-    metrics = {"package": root.name, "size": list(size), "from_scratch": args.from_scratch,
+    metrics = {"package": root.name, "size": list(size), "from_scratch": args.from_scratch, "color": args.color,
                "baseline": None, "best": None, "best_epoch": None}
 
     if not args.from_scratch:
@@ -467,7 +519,7 @@ def main() -> None:
     # The classic exporter, as the author's models are exported; newer torch defaults to dynamo.
     import inspect
     legacy = {"dynamo": False} if "dynamo" in inspect.signature(torch.onnx.export).parameters else {}
-    torch.onnx.export(model, (torch.zeros(1, SEQ, size[1], size[0]),), str(run / "best.onnx"), opset_version=17,
+    torch.onnx.export(model, (torch.zeros(1, channels, size[1], size[0]),), str(run / "best.onnx"), opset_version=17,
                       input_names=["clip"], output_names=["maps"], dynamic_axes={"clip": {0: "B"}, "maps": {0: "B"}},
                       do_constant_folding=True, **legacy)
     (run / "metrics.json").write_text(json.dumps(metrics, indent=2))
