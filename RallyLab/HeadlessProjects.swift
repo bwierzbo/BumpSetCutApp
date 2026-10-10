@@ -8,8 +8,12 @@
 //    RallyLab --project v3 --get grs_onl_sun_land_onl_01 "https://youtube.com/…" \
 //             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00] [--frames 4]
 //             [--allow-duplicate]   (add a stretch of a video already used; --frames is per rally)
-//    RallyLab --project v3 --sync-phone                    (sync with the Labeler iPhone app — sign in once in the
-//                                                           app, or --phone-sign-in <email> with RALLYLAB_PASSWORD set)
+//    RallyLab --project v3 --sync-phone [--labels-only]    (sync with the Labeler iPhone app — sign in once in the
+//                                                           app, or --phone-sign-in <email> with RALLYLAB_PASSWORD set;
+//                                                           --labels-only: rally times, tracks, reviews, plan — no videos)
+//    RallyLab --project v3 --train-round                   (the training plan's next round, as Plan's button: export,
+//                                                           train its runs on the desktop, bring each back; then the
+//                                                           phone gets the plan)
 //    RallyLab --project v3 --repull-all                    (sample every video's cut again, e.g. after
 //                                                           changing frames per rally — nothing re-downloaded;
 //                                                           videos with tracked rallies or reviewed frames are kept)
@@ -101,7 +105,7 @@ enum HeadlessProjects {
             }
             if ok, args.contains("--sync-phone") {
                 let sync = LabelingSync(projects: projects)
-                ok = await sync.sync()
+                ok = await sync.sync(videos: !args.contains("--labels-only"))
                 log((ok ? "✅ " : "❌ ") + sync.status)
             }
 
@@ -131,6 +135,25 @@ enum HeadlessProjects {
                     }
                     ok = await sync.sync(videos: false)
                     log((ok ? "✅ " : "❌ ") + sync.status)
+                }
+            }
+            if ok, args.contains("--train-round") {
+                let plan = TrainingPlanModel(library: library)
+                guard let round = plan.currentRound else { log("Every round is trained."); exit(0) }
+                let progress = PlanProgress(videos: projects.sampler.sessions.map(PlanVideo.init(session:)), round: round)
+                log("Round \(round.number): \(progress.frames) frames (\(progress.surfaces.map { "\($0.key) \($0.value.frames)" }.sorted().joined(separator: ", ")))")
+                plan.exportAndTrain(round, progress: progress)
+                var said = ""
+                while plan.isRunning || library.isBusy {
+                    let now = [plan.status, library.heatmaps.desktopLine].joined(separator: " · ")
+                    if now != said { log(now); said = now }
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                }
+                log(plan.status)
+                ok = plan.status.contains("is trained")
+                if ok {
+                    let sync = LabelingSync(projects: projects)
+                    await sync.sync(videos: false)
                 }
             }
             if ok, args.contains("--package") { ok = await package(library) }
