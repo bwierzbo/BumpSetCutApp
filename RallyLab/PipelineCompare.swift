@@ -33,10 +33,13 @@ enum PipelineCompare {
 
     @MainActor
     static func run(session: VideoSession, heatModel: URL, base: ProcessorConfig = ProcessorConfig()) async -> (Run, Run)? {
+        // YOLO against YOLO + multi-frame, whatever the app's default finder is.
         var withHeat = base
         withHeat.heatmapModel = heatModel
+        withHeat.heatmapOnly = false
         var off = base
         off.heatmapModel = nil
+        off.heatmapOnly = false
         return await run(session: session, a: off, b: withHeat)
     }
 

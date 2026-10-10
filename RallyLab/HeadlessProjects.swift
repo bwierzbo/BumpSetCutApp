@@ -199,6 +199,9 @@ enum HeadlessProjects {
                     if let hop = value(after: "--heat-hop", in: args).flatMap(Int.init) { config.heatmapHop = hop }
                     log("ball finder: \(config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame") (\(key), window every \(config.heatmapHop) frames)")
                 } else {
+                    // ProcessorConfig's default is the app's (multi-frame only); say YOLO outright.
+                    config.heatmapModel = nil
+                    config.heatmapOnly = false
                     log("ball finder: YOLO only")
                 }
                 var videos: [RallyCutScore.Video] = []
