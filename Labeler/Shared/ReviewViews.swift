@@ -86,6 +86,17 @@ struct CropReviewView: View {
     @State private var patch: CropPatch?
     @State private var approved = 0
 
+    /// How much of a pinch / a two-finger scroll goes into the box: the
+    /// Mac's trackpad gestures are damped for fine adjustments; a finger on
+    /// the phone moves 1:1.
+    #if os(macOS)
+    private static let pinchSensitivity: CGFloat = 0.35
+    private static let scrollSensitivity: CGFloat = 0.3
+    #else
+    private static let pinchSensitivity: CGFloat = 1
+    private static let scrollSensitivity: CGFloat = 1
+    #endif
+
     init(store: any ReviewStore) {
         _walk = State(initialValue: ReviewWalk(store: store, kinds: [.crop]))
     }
@@ -129,12 +140,14 @@ struct CropReviewView: View {
                                     // box shrinks to the ball.
                                     let base = pinchBase ?? scale
                                     if pinchBase == nil { pinchBase = base }
-                                    scale = min(max(base / m.magnification, 0.3), 4)
+                                    scale = min(max(base / pow(m.magnification, Self.pinchSensitivity), 0.3), 4)
                                 }
                                 .onEnded { _ in pinchBase = nil })
                             .reviewScroll { dx, dy in
-                                // Two fingers move the picture, as a drag does.
-                                offset = CGSize(width: offset.width - dx / k, height: offset.height - dy / k)
+                                // Two fingers move the picture, as a drag does — slower,
+                                // for fine centring.
+                                offset = CGSize(width: offset.width - dx * Self.scrollSensitivity / k,
+                                                height: offset.height - dy * Self.scrollSensitivity / k)
                             }
                     } else if let failure = walk.failure {
                         ContentUnavailableView("Can't show this frame", systemImage: "exclamationmark.triangle", description: Text(failure))
