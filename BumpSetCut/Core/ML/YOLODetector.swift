@@ -368,8 +368,11 @@ enum BallFinder: String, CaseIterable, Identifiable {
 
     static let defaultsKey = "debugBallFinder"
 
+    /// The multi-frame model alone by default — YOLO is leaving processing
+    /// (see the Ultralytics licensing decision); YOLO and hybrid stay in the
+    /// debug picker for comparison while their models ship.
     static var current: BallFinder {
-        UserDefaults.standard.string(forKey: defaultsKey).flatMap(BallFinder.init(rawValue:)) ?? .yolo
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(BallFinder.init(rawValue:)) ?? .multiFrameOnly
     }
 }
 

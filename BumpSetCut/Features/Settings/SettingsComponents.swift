@@ -134,7 +134,7 @@ struct BallModelPicker: View {
 /// YOLO alone, YOLO plus the bundled multi-frame model, or the multi-frame
 /// model alone (BallFinder), for comparing them on device.
 struct BallFinderPicker: View {
-    @AppStorage(BallFinder.defaultsKey) private var selection = BallFinder.yolo.rawValue
+    @AppStorage(BallFinder.defaultsKey) private var selection = BallFinder.current.rawValue
 
     var body: some View {
         DebugChoiceRow(title: "Ball Finder", icon: "scope",
