@@ -619,7 +619,10 @@ def main() -> None:
     loader = lambda ws, train, aug=False: torch.utils.data.DataLoader(
         Windows(root, ws, train, size, color=args.color, aug=aug, occluded=args.occluded), batch_size=batch,
         shuffle=train and sampler is None, sampler=sampler if train else None, num_workers=args.workers,
-        pin_memory=device.type == "cuda", drop_last=train, persistent_workers=args.workers > 0, worker_init_fn=seed_worker)
+        pin_memory=device.type == "cuda", drop_last=train, worker_init_fn=seed_worker,
+        # Only the train loader keeps its workers: each is a whole Python with
+        # torch, and three loaders' worth ran the desktop out of memory.
+        persistent_workers=train and args.workers > 0)
     train_loader, val_loader = loader(train_w, True, args.aug), loader(val_w, False)
     dead_loader = loader(dead_w, False) if dead_w else None
     # The train windows as val sees them (no augmentation, the target mid-window): for mining.
