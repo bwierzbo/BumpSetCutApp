@@ -305,6 +305,14 @@ final class ReviewWalk {
     }
 
     /// Undo the last decision and show that frame again.
+    /// The frame `offset` frames from this one in its rally, for a look
+    /// around it (nil past the rally's ends or if it can't be read).
+    func neighbourImage(_ offset: Int) async -> CGImage? {
+        guard let item, let rally, let point = rally.points[safe: item.index + offset],
+              let reader = frames[item.video] else { return nil }
+        return await reader.image(at: point.time)
+    }
+
     func back() async {
         guard let last = undo.popLast() else { return }
         store.review(last.item) { $0 = last.point }

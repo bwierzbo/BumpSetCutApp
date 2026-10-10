@@ -97,6 +97,9 @@ struct FrameCanvas: View {
     let zoom: CGFloat
     let centre: CGPoint
     let box: CGRect?
+    /// The ball on the frames either side (frame offset, box), drawn faintly
+    /// with their offsets, so the path shows where this frame's ball must be.
+    var neighbours: [(offset: Int, box: CGRect)] = []
 
     var body: some View {
         GeometryReader { geo in
@@ -104,6 +107,15 @@ struct FrameCanvas: View {
             let origin = Self.origin(shown: shown, centre: centre, view: geo.size)
             Canvas { ctx, _ in
                 ctx.draw(Image(decorative: image, scale: 1), in: CGRect(origin: origin, size: shown))
+                for n in neighbours {
+                    let r = CGRect(x: origin.x + n.box.minX * shown.width, y: origin.y + (1 - n.box.maxY) * shown.height,
+                                   width: n.box.width * shown.width, height: n.box.height * shown.height)
+                    let fade = 1 - 0.2 * Double(abs(n.offset) - 1)
+                    ctx.stroke(Path(r.insetBy(dx: -1.5, dy: -1.5)), with: .color(.orange.opacity(fade)),
+                               style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    ctx.draw(Text(n.offset > 0 ? "+\(n.offset)" : "\(n.offset)").font(.caption2.bold()).foregroundStyle(.orange.opacity(fade)),
+                             at: CGPoint(x: r.midX, y: r.minY - 8))
+                }
                 if let box {
                     let r = CGRect(x: origin.x + box.minX * shown.width, y: origin.y + (1 - box.maxY) * shown.height,
                                    width: box.width * shown.width, height: box.height * shown.height)

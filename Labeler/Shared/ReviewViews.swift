@@ -254,64 +254,103 @@ struct CropReviewView: View {
 }
 
 /// The whole frame, to find the ball: pinch to zoom, drag to look around,
-/// tap the ball to place it, then approve — or call it hidden. Starts
-/// zoomed in where the ball was last seen, with `box` if there is one.
+/// tap the ball to place it, then approve — or call it hidden. The ball's
+/// boxes on the frames either side are drawn faintly (with their offsets),
+/// and −2 −1 +1 +2 show those frames themselves for a moment. Starts at
+/// `zoom` (2.5 = zoomed in where the ball was last seen; 1 = the whole
+/// frame), with `box` if there is one.
 struct FindBallView: View {
     let image: CGImage
     let rally: TrackedRally
     let index: Int
+    /// Frame `offset` away, for a look; nil to leave out the look-around strip.
+    var neighbour: ((Int) async -> CGImage?)?
     let onBall: (CGRect) -> Void
     let onHidden: () -> Void
-    @State private var zoom: CGFloat = 2.5
+    @State private var zoom: CGFloat
     @State private var centre: CGPoint
     @State private var panBase: CGPoint?
     @State private var pinchBase: CGFloat?
     @State private var placed: CGRect?
+    /// Showing a neighbouring frame instead (offset and picture).
+    @State private var peek: (offset: Int, image: CGImage)?
 
-    init(image: CGImage, rally: TrackedRally, index: Int, box: CGRect?,
+    /// How many frames either side are drawn and can be looked at.
+    static let around = 2
+
+    init(image: CGImage, rally: TrackedRally, index: Int, box: CGRect?, zoom: CGFloat = 2.5,
+         neighbour: ((Int) async -> CGImage?)? = nil,
          onBall: @escaping (CGRect) -> Void, onHidden: @escaping () -> Void) {
         self.image = image
         self.rally = rally
         self.index = index
+        self.neighbour = neighbour
         self.onBall = onBall
         self.onHidden = onHidden
-        _centre = State(initialValue: FrameCanvas.focus(rally, frame: index))
+        _zoom = State(initialValue: zoom)
+        _centre = State(initialValue: zoom > 1 ? FrameCanvas.focus(rally, frame: index) : CGPoint(x: 0.5, y: 0.5))
         _placed = State(initialValue: box)
+    }
+
+    /// The ball's box on the frames either side.
+    private var neighbours: [(offset: Int, box: CGRect)] {
+        (-Self.around...Self.around).filter { $0 != 0 }.compactMap { d in
+            guard let p = rally.points[safe: index + d], p.state == .visible, let b = p.box else { return nil }
+            return (d, b.rect)
+        }
     }
 
     var body: some View {
         VStack(spacing: 12) {
             GeometryReader { geo in
-                FrameCanvas(image: image, zoom: zoom, centre: centre, box: placed)
-                    .contentShape(Rectangle())
-                    .onTapGesture { location in
-                        guard let p = FrameCanvas.framePoint(location, image: image, zoom: zoom, centre: centre, view: geo.size) else { return }
-                        placed = AnnotationReview.placedBox(at: p, in: rally, frame: index)
+                Group {
+                    if let peek {
+                        // A neighbouring frame, with its own ball.
+                        FrameCanvas(image: peek.image, zoom: zoom, centre: centre,
+                                    box: rally.points[safe: index + peek.offset].flatMap { $0.state == .visible ? $0.box?.rect : nil })
+                            .overlay(alignment: .top) {
+                                Text(peek.offset > 0 ? "\(peek.offset) frame\(peek.offset == 1 ? "" : "s") after" : "\(-peek.offset) frame\(peek.offset == -1 ? "" : "s") before")
+                                    .font(.callout.weight(.semibold))
+                                    .padding(.horizontal, 12).padding(.vertical, 6)
+                                    .background(.ultraThinMaterial, in: Capsule()).padding(8)
+                            }
+                    } else {
+                        FrameCanvas(image: image, zoom: zoom, centre: centre, box: placed, neighbours: neighbours)
                     }
-                    .gesture(DragGesture(minimumDistance: 3)
-                        .onChanged { d in
-                            let base = panBase ?? centre
-                            if panBase == nil { panBase = base }
-                            let shown = FrameCanvas.shown(image: image, zoom: zoom, view: geo.size)
-                            centre = CGPoint(x: base.x - d.translation.width / shown.width, y: base.y - d.translation.height / shown.height)
-                        }
-                        .onEnded { _ in panBase = nil })
-                    .simultaneousGesture(MagnifyGesture()
-                        .onChanged { m in
-                            let base = pinchBase ?? zoom
-                            if pinchBase == nil { pinchBase = base }
-                            zoom = min(max(base * m.magnification, 1), 8)
-                        }
-                        .onEnded { _ in pinchBase = nil })
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { location in
+                    guard peek == nil,
+                          let p = FrameCanvas.framePoint(location, image: image, zoom: zoom, centre: centre, view: geo.size) else { return }
+                    placed = AnnotationReview.placedBox(at: p, in: rally, frame: index)
+                }
+                .gesture(DragGesture(minimumDistance: 3)
+                    .onChanged { d in
+                        let base = panBase ?? centre
+                        if panBase == nil { panBase = base }
+                        let shown = FrameCanvas.shown(image: image, zoom: zoom, view: geo.size)
+                        centre = CGPoint(x: base.x - d.translation.width / shown.width, y: base.y - d.translation.height / shown.height)
+                    }
+                    .onEnded { _ in panBase = nil })
+                .simultaneousGesture(MagnifyGesture()
+                    .onChanged { m in
+                        let base = pinchBase ?? zoom
+                        if pinchBase == nil { pinchBase = base }
+                        zoom = min(max(base * m.magnification, 1), 8)
+                    }
+                    .onEnded { _ in pinchBase = nil })
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            Text(placed == nil ? "Tap the ball to place it, or call it hidden" : "Tap again to move it")
-                .font(.caption).foregroundStyle(.secondary)
+            if neighbour != nil { lookAround }
+            Text(peek != nil ? "Back to this frame to place the ball"
+                 : placed == nil ? "Tap the ball to place it, or call it hidden · orange: the ball on the frames either side"
+                 : "Tap again to move it")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             HStack(spacing: 10) {
                 Button(action: onHidden) { Label("Hidden", systemImage: "eye.slash").frame(maxWidth: .infinity) }
                     .buttonStyle(.bordered)
                 Button { if let placed { onBall(placed) } } label: { Label("Ball here", systemImage: "checkmark").frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent).disabled(placed == nil)
+                    .buttonStyle(.borderedProminent).disabled(placed == nil || peek != nil)
             }
             .controlSize(.large)
         }
@@ -320,7 +359,7 @@ struct FindBallView: View {
             let pan = 0.05 / zoom
             switch press.key {
             case .return:
-                guard let placed else { return false }
+                guard let placed, peek == nil else { return false }
                 onBall(placed)
             case .leftArrow: centre.x -= pan
             case .rightArrow: centre.x += pan
@@ -331,10 +370,39 @@ struct FindBallView: View {
                 case "h": onHidden()
                 case "=", "+": zoom = min(8, zoom * 1.25)
                 case "-": zoom = max(1, zoom / 1.25)
+                case ",": look(-1)
+                case ".": look(1)
                 default: return false
                 }
             }
             return true
+        }
+    }
+
+    /// −2 −1 · this frame · +1 +2.
+    private var lookAround: some View {
+        HStack(spacing: 6) {
+            ForEach(-Self.around...Self.around, id: \.self) { d in
+                Button {
+                    look(d)
+                } label: {
+                    Text(d == 0 ? "This frame" : d > 0 ? "+\(d)" : "\(d)")
+                        .font(.callout.monospacedDigit())
+                        .frame(maxWidth: d == 0 ? .infinity : 44)
+                }
+                .buttonStyle(.bordered)
+                .tint((peek?.offset ?? 0) == d ? .accentColor : .secondary)
+                .disabled(d != 0 && rally.points[safe: index + d] == nil)
+            }
+        }
+        .controlSize(.small)
+    }
+
+    /// Show the frame `offset` away (0: back to this one).
+    private func look(_ offset: Int) {
+        guard offset != 0, let neighbour else { peek = nil; return }
+        Task {
+            if let picture = await neighbour(offset) { peek = (offset, picture) }
         }
     }
 }
@@ -363,6 +431,9 @@ struct WholeFrameReviewView: View {
                 if let image = walk.image, let rally = walk.rally, let item = walk.item {
                     FindBallView(image: image, rally: rally, index: item.index,
                                  box: walk.point.flatMap { $0.state == .visible ? $0.box?.rect : nil },
+                                 // Not sure: the whole frame as it is, to see where the ball fits in.
+                                 zoom: kind == .unsure ? 1 : 2.5,
+                                 neighbour: { await walk.neighbourImage($0) },
                                  onBall: { box in Task { await walk.decide { AnnotationReview.approve(&$0, box: box) } } },
                                  onHidden: { Task { await walk.decide(AnnotationReview.confirmHidden) } })
                         .id(item)
