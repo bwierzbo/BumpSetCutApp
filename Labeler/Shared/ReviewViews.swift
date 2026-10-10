@@ -4,17 +4,16 @@
 //
 //  Annotation review, the same screens on the Mac and the phone (see
 //  AnnotationReview). The Review tab shows how much is checked and opens:
-//   · Review — every frame of finished rallies in order, as a crop: a ball's
-//     box fixed in the middle (drag the picture to put the ball's centre
-//     under it, pinch to size it, tap to approve and go on); a frame marked
-//     hidden shows where the ball last was (tap to confirm it's hidden).
-//     No ball sets a frame aside for —
+//   · Review — every ball's box in finished rallies, in order, as a crop:
+//     the box fixed in the middle (drag the picture to put the ball's centre
+//     under it, pinch to size it, tap to approve and go on). Hidden frames
+//     aren't shown: they count as checked. No ball sets a frame aside for —
 //   · Find the ball — the whole frame: tap the ball and approve, or hidden.
 //   · Not sure — frames set aside, on the whole frame with their box.
 //  Back undoes the last decision.
 //
 //  On the Mac: two fingers on the trackpad move the picture, pinch sizes the
-//  box (as on the phone); ↩/Space approve (or confirm hidden) and go on, arrows move the box a
+//  box (as on the phone); ↩/Space approve and go on, arrows move the box a
 //  pixel (⇧ five), [ ] size it, X no ball, U not sure, ⌫ back. On the
 //  whole frame: click the ball, ↩ approve, H hidden, = − zoom, arrows pan.
 //
@@ -26,7 +25,7 @@ struct ReviewHomeView: View {
     let progress: (reviewed: Int, total: Int)
 
     var body: some View {
-        let frames = store.reviewItems([.crop, .hidden]).count
+        let frames = store.reviewItems([.crop]).count
         let noBall = store.reviewItems([.noBall]).count
         let unsure = store.reviewItems([.unsure]).count
         ScrollView {
@@ -88,20 +87,11 @@ struct CropReviewView: View {
     @State private var approved = 0
 
     init(store: any ReviewStore) {
-        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.crop, .hidden]))
+        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.crop]))
     }
 
-    /// The frame's ball, if it has one (else it's marked hidden or no ball).
+    /// The frame's ball box.
     private var ball: CGRect? { walk.point.flatMap { $0.state == .visible ? $0.box?.rect : nil } }
-
-    /// What the crop is centred on: the ball's box, or for a frame without
-    /// one, a ball-sized box where the ball was last seen.
-    private var shownBox: CGRect? {
-        if let ball { return ball }
-        guard let rally = walk.rally, let item = walk.item else { return nil }
-        let f = FrameCanvas.focus(rally, frame: item.index)
-        return AnnotationReview.placedBox(at: CGPoint(x: f.x, y: 1 - f.y), in: rally, frame: item.index)
-    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -109,20 +99,9 @@ struct CropReviewView: View {
             GeometryReader { geo in
                 let side = min(geo.size.width, geo.size.height)
                 Group {
-                    if let image = walk.image, let box = shownBox, let patch {
+                    if let image = walk.image, let box = ball, let patch {
                         let k = CropCanvas.geometry(frameSize: patch.frameSize, box: box, view: CGSize(width: side, height: side)).k
-                        CropCanvas(patch: patch, box: box, offset: offset, scale: scale, showsBox: ball != nil)
-                            .overlay(alignment: .top) {
-                                if ball == nil {
-                                    VStack(spacing: 2) {
-                                        Label("Hidden frame", systemImage: "eye.slash").font(.headline)
-                                        Text("Tap to confirm it can't be seen · No ball if it's there").font(.caption)
-                                    }
-                                    .padding(.horizontal, 14).padding(.vertical, 8)
-                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                                    .padding(10)
-                                }
-                            }
+                        CropCanvas(patch: patch, box: box, offset: offset, scale: scale)
                             .contentShape(Rectangle())
                             // One gesture from the first touch: moving drags the picture
                             // at once; lifting without moving (and no pinch) approves.
@@ -140,7 +119,7 @@ struct CropReviewView: View {
                                     dragBase = nil
                                     moved = 0
                                     pinched = false
-                                    if tap { approve(image: image) }
+                                    if tap { approve(box, image: image) }
                                 })
                             .simultaneousGesture(MagnifyGesture()
                                 .onChanged { m in
@@ -180,7 +159,7 @@ struct CropReviewView: View {
         .task { await walk.load() }
         // Cut out the part around the box once per frame.
         .onChange(of: walk.image.map(ObjectIdentifier.init), initial: true) {
-            patch = walk.image.flatMap { image in shownBox.flatMap { CropPatch(frame: image, box: $0) } }
+            patch = walk.image.flatMap { image in ball.flatMap { CropPatch(frame: image, box: $0) } }
         }
         .sensoryFeedback(.success, trigger: approved)
     }
@@ -198,8 +177,7 @@ struct CropReviewView: View {
 
     private var controls: some View {
         VStack(spacing: 8) {
-            Text(ball == nil ? "Tap to confirm it's hidden · No ball if you can see it, to place it later"
-                             : "Drag to centre the ball · pinch to size the box · tap to approve")
+            Text("Drag to centre the ball · pinch to size the box · tap to approve")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Button { Task { reset(); await walk.back() } } label: {
@@ -223,8 +201,8 @@ struct CropReviewView: View {
         let step: CGFloat = press.modifiers.contains(.shift) ? 5 : 1
         switch press.key {
         case .return, .space:
-            guard let image = walk.image else { return false }
-            approve(image: image)
+            guard let image = walk.image, let ball else { return false }
+            approve(ball, image: image)
         case .leftArrow: offset.width -= step
         case .rightArrow: offset.width += step
         case .upArrow: offset.height -= step
@@ -242,9 +220,8 @@ struct CropReviewView: View {
         return true
     }
 
-    /// Tap: the ball's box as adjusted, or for a frame without a ball, it's hidden.
-    private func approve(image: CGImage) {
-        guard let ball else { return decide(AnnotationReview.confirmHidden) }
+    /// The ball's box, as adjusted.
+    private func approve(_ ball: CGRect, image: CGImage) {
         let size = CGSize(width: image.width, height: image.height)
         let new = AnnotationReview.adjusted(ball, offset: offset, scale: scale, in: size)
         approved += 1

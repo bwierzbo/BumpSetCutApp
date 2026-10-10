@@ -5,9 +5,9 @@
 //  Annotation review: every labeled frame of a finished rally is checked
 //  once before it's used for training. A frame with a ball is shown as a
 //  crop around its box — the box fixed in the middle; you move the picture
-//  under it and size it, then approve; one marked hidden is confirmed on a
-//  crop where the ball was. "No ball" sets a frame aside for a later pass on
-//  the whole frame, to place the ball or call it hidden. "Not sure" sets a
+//  under it and size it, then approve. Hidden frames aren't reviewed: they
+//  count as checked. "No ball" sets a frame aside for a later pass on the
+//  whole frame, to place the ball or call it hidden. "Not sure" sets a
 //  frame aside in its own pass for a later look.
 //
 //  Several people can review at once: a rally is claimed by whoever reviews
@@ -26,8 +26,6 @@ enum AnnotationReview {
     enum Kind {
         /// A ball with a box: checked on a crop.
         case crop
-        /// Marked hidden while tracking: confirmed on a crop where the ball was.
-        case hidden
         /// Said "no ball" on its crop: the ball's found on the whole frame later.
         case noBall
         /// Set aside as not sure.
@@ -45,11 +43,11 @@ enum AnnotationReview {
     /// What `point` still needs, if anything. Frames the solver couldn't
     /// decide (not found, not yours) aren't labeled, so aren't reviewed.
     static func kind(of point: TrackPoint) -> Kind? {
-        guard !point.reviewed else { return nil }
+        guard !point.isChecked else { return nil }
         if point.unsure { return .unsure }
         switch point.state {
         case .visible: return point.box == nil ? nil : .crop
-        case .hidden: return .hidden
+        case .hidden: return nil
         case .unknown: return point.origin == .user ? .noBall : nil
         }
     }
@@ -67,8 +65,8 @@ enum AnnotationReview {
 
     /// Reviewed of all labeled frames in finished rallies.
     static func progress(_ rallies: [TrackedRally]) -> (reviewed: Int, total: Int) {
-        let points = rallies.filter(\.done).flatMap(\.points).filter { $0.reviewed || kind(of: $0) != nil }
-        return (points.filter(\.reviewed).count, points.count)
+        let points = rallies.filter(\.done).flatMap(\.points).filter { $0.isChecked || kind(of: $0) != nil }
+        return (points.filter(\.isChecked).count, points.count)
     }
 
     // MARK: - Decisions

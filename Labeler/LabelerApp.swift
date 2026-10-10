@@ -74,7 +74,7 @@ struct MainTabs: View {
             Tab("Review", systemImage: "checkmark.rectangle.stack") {
                 NavigationStack { ReviewHomeView(store: model, progress: model.reviewProgress) }
             }
-            .badge(model.reviewItems([.crop, .hidden, .noBall]).count)
+            .badge(model.reviewItems([.crop, .noBall]).count)
             Tab("Overview", systemImage: "chart.bar.xaxis") {
                 NavigationStack { OverviewView(model: model).destinations(model) }
             }

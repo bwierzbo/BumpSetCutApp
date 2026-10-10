@@ -62,6 +62,10 @@ struct TrackPoint: Codable, Hashable {
     /// Someone in annotation review wasn't sure: kept aside for a later look.
     var unsure = false
 
+    /// Ready for training: reviewed, or hidden — review only tightens balls'
+    /// boxes, so a hidden frame counts as checked as it is.
+    var isChecked: Bool { reviewed || state == .hidden }
+
     /// Worth a look before calling the rally done.
     var isUncertain: Bool {
         switch (origin, state) {
