@@ -27,7 +27,7 @@
 //             --long-side: frames this big (default 1024; 512 is enough for 512 training, a quarter the disk))
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
-//    RallyLab --project v3 --pretrack [clip…] [--per-video 6] [--redo]   (self-training: the newest multi-frame model tracks
+//    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo]   (self-training: the newest multi-frame model tracks
 //             rallies in train videos on its own; sure frames become machine labels, the rest go to review;
 //             --redo: track the pre-tracked ones again, e.g. after a better model)
 //    RallyLab --project v3 --pretrack-check                (how right "sure" frames are, against val rallies people tracked)

@@ -27,8 +27,11 @@ import Foundation
 @MainActor
 enum PreTracker {
 
-    /// Pre-tracked rallies per video, at most.
-    static let perVideo = 6
+    /// Pre-tracked rallies per video, at most: ~3 × 76 train videos is ~70k
+    /// frames — a 512 package of a few GB, and about a third of the frames
+    /// for review (measured 2026-10-10). Raise it with --per-video once
+    /// that's reviewed or the disk has room.
+    static let perVideo = 3
     /// A rally the path finds the ball on less of than this isn't kept: most
     /// likely not a rally (a time-out the Sampler took for one), or footage
     /// the model can't follow yet — either way, not worth reviewing.
