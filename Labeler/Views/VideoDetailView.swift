@@ -40,10 +40,14 @@ struct VideoDetailView: View {
                         TrackReviewView(model: model, video: video, track: t)
                     } label: {
                         HStack {
-                            Image(systemName: t.done ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle(t.done ? .green : .orange)
+                            Image(systemName: t.isMachine ? "cpu" : t.done ? "checkmark.circle.fill" : "circle.dashed")
+                                .foregroundStyle(t.isMachine ? .teal : t.done ? .green : .orange)
                             Text("\(RallyTimesView.clock(t.start)) – \(RallyTimesView.clock(t.end))").font(.callout.monospacedDigit())
                             Spacer()
-                            if t.done {
+                            if t.isMachine {
+                                let review = AnnotationReview.items([(video.name, t.rally)], kinds: [.crop, .noBall, .unsure]).count
+                                Text("pre-tracked · \(review) to review").font(.caption).foregroundStyle(.teal)
+                            } else if t.done {
                                 Text("\(t.labeledFrames) frames").font(.caption).foregroundStyle(.secondary)
                             } else {
                                 let n = max(t.points.points.count, 1)

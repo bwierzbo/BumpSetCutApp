@@ -163,7 +163,7 @@ struct Coverage {
             if onMac { row.sampledUsable += sampled } else { row.sampledBlocked += sampled }
             rows[env] = row
             videos.append(Video(name: s.name, environment: env, split: s.split, onMac: onMac, done: done.count,
-                                unfinished: tracks.count - done.count, guessesLeft: onMac ? guesses : 0,
+                                unfinished: tracks.filter(\.isOpen).count, guessesLeft: onMac ? guesses : 0,
                                 rallyTimes: rallyTimes, sampled: sampled))
         }
         videos.sort { ($0.environment, $0.split, $0.name) < ($1.environment, $1.split, $1.name) }

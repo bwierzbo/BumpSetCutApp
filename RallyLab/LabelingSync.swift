@@ -327,9 +327,25 @@ final class LabelingSync {
     /// Per rally, the newer side wins. A rally only on the phone is new from
     /// it — unless it was here at the last sync, then it was deleted here and
     /// is marked deleted there. One the phone marked deleted goes here too.
+    ///
+    /// Only rallies whose time differs from this Mac's copy are fetched in
+    /// full: pre-tracked rallies make hundreds, and most don't change
+    /// between syncs.
     private func syncTracks(project: String) async throws -> (sent: Int, received: Int) {
         let videos = try await client.videos().filter { $0.project == project && $0.sessionName != nil }
-        let remote = Dictionary(grouping: try await client.tracks(), by: \.videoId)
+        let stamps = try await client.trackStamps()
+        var localTimes: [UUID: Date?] = [:]
+        for video in videos {
+            guard let name = video.sessionName, let session = projects.session(named: name) else { continue }
+            for t in session.tracks ?? [] { localTimes[t.id] = t.updatedAt }
+        }
+        let changed = stamps.filter { s in
+            guard let mine = localTimes[s.id] else { return !s.deleted }   // a tombstone of one gone here: nothing to do
+            guard let a = mine, let b = s.updatedAt else { return true }
+            return abs(a.timeIntervalSince(b)) > 0.002
+        }
+        let remote = Dictionary(grouping: try await client.tracks(ids: changed.map(\.id)), by: \.videoId)
+        let remoteIds = Dictionary(grouping: stamps, by: \.videoId).mapValues { Set($0.map(\.id)) }
         var outgoing: [LabelTrack] = []
         var received = 0
         for video in videos {
@@ -337,6 +353,7 @@ final class LabelingSync {
             var local = session.tracks ?? []
             let synced = Set(session.syncedTrackIds ?? [])
             let theirs = remote[video.id] ?? []
+            let known = remoteIds[video.id] ?? []
             var changedHere = false
             for r in theirs {
                 let i = local.firstIndex { $0.id == r.id }
@@ -370,7 +387,7 @@ final class LabelingSync {
                     outgoing.append(LabelTrack(mine, videoId: video.id))
                 }
             }
-            for mine in local where !theirs.contains(where: { $0.id == mine.id }) {
+            for mine in local where !known.contains(mine.id) {
                 outgoing.append(LabelTrack(mine, videoId: video.id))   // new here
             }
             local.sort { $0.start < $1.start }

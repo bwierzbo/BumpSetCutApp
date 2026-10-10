@@ -166,6 +166,30 @@ actor LabelingClient {
         try await get("label_tracks", query: "select=*" + Self.changed(since))
     }
 
+    /// Each tracked rally's id, video, whether it's deleted and when it last
+    /// changed — a few bytes a rally, to see which changed before fetching
+    /// their frames.
+    struct TrackStamp: Codable, Hashable {
+        let id: UUID
+        let videoId: UUID
+        let deleted: Bool
+        let updatedAt: Date?
+    }
+
+    func trackStamps() async throws -> [TrackStamp] {
+        try await get("label_tracks", query: "select=id,video_id,deleted,updated_at")
+    }
+
+    /// These tracked rallies in full, a batch at a time (the ids go in the URL).
+    func tracks(ids: [UUID]) async throws -> [LabelTrack] {
+        var out: [LabelTrack] = []
+        for start in stride(from: 0, to: ids.count, by: 100) {
+            let batch = ids[start..<min(start + 100, ids.count)].map { $0.uuidString.lowercased() }.joined(separator: ",")
+            out += try await get("label_tracks", query: "select=*&id=in.(\(batch))") as [LabelTrack]
+        }
+        return out
+    }
+
     /// A filter for rows changed after `since` (UTC, so the time has no "+").
     private static func changed(_ since: Date?) -> String {
         guard let since else { return "" }

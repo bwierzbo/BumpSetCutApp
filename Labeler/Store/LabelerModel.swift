@@ -182,7 +182,7 @@ final class LabelerModel: ReviewStore {
 
     /// A track of `rally` you started and didn't finish.
     func unfinishedTrack(of rally: LabelRally, in video: LabelVideo) -> LabelTrack? {
-        tracks(for: video).first { !$0.done && $0.rally.bounds == rally }
+        tracks(for: video).first { $0.isOpen && $0.rally.bounds == rally }
     }
 
     /// The rally to track next in a video: one you started and left first,
@@ -190,7 +190,7 @@ final class LabelerModel: ReviewStore {
     /// then the untracked ones.
     func nextRally(in video: LabelVideo) -> LabelRally? {
         let untracked = untrackedRallies(in: video)
-        return tracks(for: video).first { !$0.done }?.rally.bounds
+        return tracks(for: video).first(where: \.isOpen)?.rally.bounds
             ?? untracked.first { LocalStore.trim(of: $0, in: video) != nil }
             ?? untracked.first
     }

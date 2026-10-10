@@ -109,6 +109,10 @@ struct TrackedRally: Codable, Identifiable, Equatable {
     var done: Bool
     /// When it last changed (on this Mac or the phone): the newer side wins a sync.
     var updatedAt: Date? = nil
+    /// Pre-tracked: the model followed the ball on its own, no person
+    /// tracked it. Its sure frames train as machine labels (MachineLabels);
+    /// the rest go to annotation review. Nil from an older build: a person's.
+    var machine: Bool? = nil
 }
 
 extension TrackedRally {
@@ -129,6 +133,13 @@ extension TrackedRally {
         t.updatedAt = updatedAt
         return t
     }
+    var isMachine: Bool { machine ?? false }
+    /// Someone started tracking it and hasn't finished (a pre-tracked rally
+    /// isn't anyone's to finish).
+    var isOpen: Bool { !done && !isMachine }
+    /// Goes to annotation review and into the training package.
+    var isReady: Bool { done || isMachine }
+
     /// Frames with a decided label (the ball, or hidden): what training gets.
     var labeledFrames: Int { points.filter { $0.state != .unknown }.count }
 
@@ -313,6 +324,104 @@ enum TrackSolver {
             var a = m
             for row in 0..<3 { a[row][col] = r[row] }
             return det(a) / d
+        }
+    }
+}
+
+/// Which frames of a pre-tracked rally the model is sure enough of to train
+/// on without a person checking them (self-training): a confident pick, and
+/// the ball on a smooth arc with its neighbours — the frames either side all
+/// have the ball, and it sits where the curve through them says. A wrong
+/// pick (a head, a ball on the next court) jumps off that arc; a hit or a
+/// block bends it, so those frames go to review, where the hard ones should.
+/// Everything else in the rally that has a ball goes to review as usual,
+/// and so do short stretches where it lost the ball (`lost`): found there
+/// on the whole frame, or called hidden — the hardest frames, which it would
+/// otherwise never learn.
+///
+/// Checked against the val rallies people tracked (RallyLab --pretrack-check,
+/// 2026-10-10, round-1 model): every sure frame within 4 px of the person's
+/// ball at any of these cut-offs; 2 neighbours each way makes 59% of their
+/// balls sure, 3 makes 54%.
+enum MachineLabels {
+
+    /// The pick's confidence (YOLO and the multi-frame model merged).
+    static let minConfidence = 0.6
+    /// Neighbours each way that must have the ball.
+    static let reach = 2
+    /// Off the arc by at most this share of the frame's width (or a
+    /// quarter of the ball, if that's more).
+    static let maxOffArc = 0.006
+    /// A stretch of frames without the ball at most this long (~2/3 s), with
+    /// the ball both sides, is asked about; longer, it's out of the picture.
+    static let maxLost = 20
+
+    /// Indices of the frames that train as machine labels: none in a
+    /// person's rally, nor any already checked (those are people's).
+    static func trusted(_ rally: TrackedRally, minConfidence: Double = minConfidence, maxOffArc: Double = maxOffArc,
+                        reach: Int = reach) -> Set<Int> {
+        guard rally.isMachine else { return [] }
+        let usual = minConfidence == Self.minConfidence && maxOffArc == Self.maxOffArc && reach == Self.reach
+        if usual, let known = cache.get(rally) { return known.trusted }
+        let p = rally.points
+        var out = Set<Int>()
+        for i in p.indices where i >= reach && i + reach < p.count {
+            guard p[i].state == .visible, p[i].origin == .auto, !p[i].isChecked, let box = p[i].box,
+                  box.confidence >= minConfidence else { continue }
+            let around = (i - reach...i + reach).filter { $0 != i }
+            let boxes = around.compactMap { k in p[k].state == .visible && p[k].origin != .filled ? p[k].box.map { (p[k].time, $0.rect) } : nil }
+            guard boxes.count == around.count else { continue }
+            let fx = TrackSolver.fit(boxes.map { ($0.0, Double($0.1.midX)) })
+            let fy = TrackSolver.fit(boxes.map { ($0.0, Double($0.1.midY)) })
+            let off = hypot(fx(p[i].time) - box.rect.midX, (fy(p[i].time) - box.rect.midY) * 9 / 16)
+            if off <= max(maxOffArc, box.w / 4) { out.insert(i) }
+        }
+        if usual { cache.set(rally, (out, lostFrames(rally))) }
+        return out
+    }
+
+    /// Frames of a pre-tracked rally where it lost the ball for a moment
+    /// (see `maxLost`), not yet looked at: for the whole-frame pass.
+    static func lost(_ rally: TrackedRally) -> Set<Int> {
+        guard rally.isMachine else { return [] }
+        if let known = cache.get(rally) { return known.lost }
+        _ = trusted(rally)
+        return cache.get(rally)?.lost ?? []
+    }
+
+    private static func lostFrames(_ rally: TrackedRally) -> Set<Int> {
+        let p = rally.points
+        var out = Set<Int>()
+        var i = 0
+        while i < p.count {
+            guard p[i].state == .unknown else { i += 1; continue }
+            var j = i
+            while j < p.count, p[j].state == .unknown { j += 1 }
+            if i > 0, j < p.count, j - i <= maxLost {
+                out.formUnion((i..<j).filter { p[$0].origin == .auto && !p[$0].isChecked && !p[$0].unsure })
+            }
+            i = j
+        }
+        return out
+    }
+
+    /// Review lists every frame to check on each redraw: a rally's answer
+    /// is kept until its points change.
+    private static let cache = Cache()
+
+    private final class Cache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var byRally: [UUID: (points: [TrackPoint], trusted: Set<Int>, lost: Set<Int>)] = [:]
+
+        func get(_ rally: TrackedRally) -> (trusted: Set<Int>, lost: Set<Int>)? {
+            lock.lock(); defer { lock.unlock() }
+            guard let hit = byRally[rally.id], hit.points == rally.points else { return nil }
+            return (hit.trusted, hit.lost)
+        }
+
+        func set(_ rally: TrackedRally, _ value: (trusted: Set<Int>, lost: Set<Int>)) {
+            lock.lock(); defer { lock.unlock() }
+            byRally[rally.id] = (rally.points, value.trusted, value.lost)
         }
     }
 }

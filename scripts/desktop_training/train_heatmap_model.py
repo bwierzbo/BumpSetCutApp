@@ -42,8 +42,10 @@ hit nor miss; dead-time windows (no rally on) score how often it fires.
 Experiments (each off by default, to compare one at a time): --aug (phone
 footage: shake, zoom, covered ball, look-alikes, compression), --occluded
 (faint target on a hidden ball), --qfl (quality focal loss), --mine (hard
-example mining), --seed N (the same randomness, or a second seed to see
-the noise).
+example mining), --pseudo (self-training: also learn from pre-tracked
+rallies' sure frames, the model's own labels, at half weight — without it
+those frames are unlabeled), --seed N (the same randomness, or a second
+seed to see the noise).
 
 Needs: torch with CUDA (same .venv as train_ball_model.py), opencv-python, numpy, onnx.
 """
@@ -74,6 +76,7 @@ IN_PLAY, RESTING, OCCLUDED = 1, 0, 2   # a ball's kind
 OCCLUDED_PEAK = 0.5    # --occluded: an occluded ball's target, fainter (and twice as wide) than a seen one's
 OCCLUDED_TAU = 16      # px at 512: a peak this near an occluded ball is it (its place is a guess)
 MINE_FROM, MINE_EVERY, MINE_WEIGHT = 3, 3, 3.0  # --mine: from epoch 3, every 3, hard windows drawn 3× as often
+PSEUDO_WEIGHT = 0.5    # --pseudo: a frame labeled by the model (not a person) counts this much in the loss
 VBALLNET_COMMIT = "7d295c53fa733782a58dd85f772685044414f8d3"
 VBALLNET_ZIP = f"https://codeload.github.com/asigatchov/vball-net-pytorch/zip/{VBALLNET_COMMIT}"
 AUTHOR_WEIGHTS = ("https://github.com/asigatchov/fast-volleyball-tracking-inference/raw/master/models/"
@@ -202,9 +205,16 @@ def environment(clip: str) -> str:
     return {"ind": "indoor", "bch": "beach", "grs": "grass"}.get(clip[:3], "other")
 
 
-def load_windows(root: Path) -> tuple[list[dict], list[dict], list[dict]]:
-    """Train, val, and dead-time windows (never trained on: scored only)."""
+def load_windows(root: Path, pseudo: bool = False) -> tuple[list[dict], list[dict], list[dict]]:
+    """Train, val, and dead-time windows (never trained on: scored only).
+    Frames labeled by the model ("pseudo") stay labels only with `pseudo`,
+    and only in train — val is people's labels; a window left with no
+    label at all is dropped."""
     windows = [json.loads(line) for line in (root / "windows.jsonl").read_text().splitlines() if line.strip()]
+    for w in windows:
+        if "pseudo" in w and (not pseudo or w["split"] != "train"):
+            w["labels"] = [None if p else l for l, p in zip(w["labels"], w.pop("pseudo"))]
+    windows = [w for w in windows if "labels" not in w or any(l is not None for l in w["labels"])]
     dead = [w for w in windows if w.get("dead")]
     train = [w for w in windows if w["split"] == "train" and not w.get("dead")]
     val = [w for w in windows if w["split"] == "val" and not w.get("dead")]
@@ -338,6 +348,9 @@ class Windows(torch.utils.data.Dataset):
                                    cv2.IMREAD_UNCHANGED)
             frames.append(img)
         clip = np.stack(frames).astype(np.float32) / 255.0
+        # The model's own labels (--pseudo) count less than people's.
+        scale = np.array([PSEUDO_WEIGHT if p else 1.0 for p in (w.get("pseudo") or [False] * len(w["frames"]))[start:start + SEQ]],
+                         np.float32)
 
         def to_pixels(f, ball, kind):
             cx, cy, bw, bh = ball
@@ -355,6 +368,7 @@ class Windows(torch.utils.data.Dataset):
             if random.random() < 0.2:  # a ball's flight played backwards is still a ball's flight
                 clip = clip[::-1]
                 per_frame = per_frame[::-1]
+                scale = scale[::-1].copy()
                 index = SEQ - 1 - index
             gain, bias = random.uniform(0.7, 1.3), random.uniform(-0.1, 0.1)
             gamma = random.uniform(0.7, 1.4)
@@ -415,7 +429,7 @@ class Windows(torch.utils.data.Dataset):
         for k, (x, y, _, kind) in enumerate((per_frame[index] or [])[:8]):
             centres[k] = (x, y, kind)
         return (torch.from_numpy(clip), torch.from_numpy(heat), torch.from_numpy(weight), index,
-                torch.from_numpy(radius), torch.from_numpy(centres), i)
+                torch.from_numpy(radius), torch.from_numpy(centres), i, torch.from_numpy(scale))
 
 
 def cover(frame, x: float, y: float, rx: float, ry: float) -> None:
@@ -452,7 +466,7 @@ def predictions(model, loader, device):
     balls are (x, y, kind)."""
     model.eval()
     with torch.no_grad():
-        for clip, _, _, index, _, centres, ids in loader:
+        for clip, _, _, index, _, centres, ids, _ in loader:
             out = model(clip.to(device, non_blocking=True))
             heat = out[torch.arange(len(index)), index.to(device)].float().cpu().numpy()
             for b in range(len(index)):
@@ -577,6 +591,9 @@ def main() -> None:
     p.add_argument("--mine", action="store_true",
                    help="Hard example mining: every few epochs, find the train windows it gets wrong and draw "
                         "them more often")
+    p.add_argument("--pseudo", action="store_true",
+                   help="Self-training: learn from pre-tracked rallies' sure frames too (the model's own labels, "
+                        f"weighed {PSEUDO_WEIGHT:g}); without it they're unlabeled")
     p.add_argument("--seed", type=int, default=None, help="Fix the randomness (to compare runs fairly, or see the noise)")
     args = p.parse_args()
     if args.seed is not None:
@@ -599,20 +616,23 @@ def main() -> None:
     size = SIZES[args.size]
     batch = args.batch or {512: 16, 768: 8}.get(args.size, 4)
     lr = args.lr or (1e-3 if args.from_scratch else 5e-4)
-    train_w, val_w, dead_w = load_windows(root)
+    train_w, val_w, dead_w = load_windows(root, pseudo=args.pseudo)
     say(f"{len(train_w)} train · {len(val_w)} val windows "
         f"({sum(1 for w in val_w if w['balls'])} val with a ball) from {root.name}")
     tracked = sum(1 for w in train_w + val_w if "labels" in w)
     rallies = len({(w["clip"], w["split"]) for w in train_w + val_w if "labels" in w})
     say(f"{tracked} windows from tracked rallies in {rallies} videos"
         + ("" if tracked else " — none: is this an old package? Track rallies and re-export to use them."))
+    machine = sum(1 for w in train_w for p in w.get("pseudo") or [] if p)
+    say(f"{machine} machine-labeled frames in train windows (pre-tracked rallies' sure frames, weighed {PSEUDO_WEIGHT:g})"
+        if args.pseudo else "Machine labels (pre-tracked rallies) not used — --pseudo uses them.")
     occluded = sum(1 for w in train_w for b in w.get("occluded") or [] if b is not None)
     say(f"{occluded} occluded-ball frames in train windows" + ("" if occluded or not args.occluded else
         " — none: --occluded does nothing (re-export the package)"))
     say(f"{len(dead_w)} dead-time windows (scored, not trained on)" if dead_w else
         "No dead-time windows: mark every rally in a few videos (Track → Rally times → Whole video marked) to score "
         "how often it fires when no rally is on.")
-    say("Options: " + (", ".join(k for k in ("aug", "occluded", "qfl", "mine") if getattr(args, k)) or "none")
+    say("Options: " + (", ".join(k for k in ("aug", "occluded", "qfl", "mine", "pseudo") if getattr(args, k)) or "none")
         + (f", seed {args.seed}" if args.seed is not None else ""))
     sampler = torch.utils.data.WeightedRandomSampler(torch.ones(len(train_w), dtype=torch.double), len(train_w)) \
         if args.mine else None
@@ -641,7 +661,7 @@ def main() -> None:
         fail(f"{run} exists — pass a new --name (or delete it).")
     run.mkdir(parents=True)
     metrics = {"package": root.name, "size": list(size), "from_scratch": args.from_scratch, "color": args.color,
-               "aug": args.aug, "occluded": args.occluded, "qfl": args.qfl, "mine": args.mine, "seed": args.seed,
+               "aug": args.aug, "occluded": args.occluded, "qfl": args.qfl, "mine": args.mine, "pseudo": args.pseudo, "seed": args.seed,
                "baseline": None, "best": None, "best_epoch": None}
 
     if not args.from_scratch:
@@ -671,9 +691,9 @@ def main() -> None:
             hard = int((weights > 1).sum())
             say(f"   mining: {hard} of {len(train_w)} train windows are hard — drawn {MINE_WEIGHT:g}× as often")
         model.train()
-        for clip, heat, weight, _, radius, _, _ in train_loader:
+        for clip, heat, weight, _, radius, _, _, scale in train_loader:
             clip, heat = clip.to(device, non_blocking=True), heat.to(device, non_blocking=True)
-            weight, radius = weight.to(device, non_blocking=True), radius.to(device)
+            weight, radius, scale = weight.to(device, non_blocking=True), radius.to(device), scale.to(device)
             with torch.autocast(device_type=device.type, enabled=device.type == "cuda"):
                 out = model(clip)
             pred = out[:, :SEQ].float().clamp(1e-7, 1 - 1e-7)
@@ -688,7 +708,7 @@ def main() -> None:
             counted = weight.sum(dim=(2, 3))
             per_frame = (wbce * weight).sum(dim=(2, 3)) / counted.clamp(min=1)
             labeled = (counted > 0).float()
-            loss = (per_frame * labeled).sum() / labeled.sum().clamp(min=1)
+            loss = (per_frame * labeled * scale).sum() / labeled.sum().clamp(min=1)
             has_ball = radius[..., 1] > 0
             if has_ball.any():
                 peak = heat.flatten(2).argmax(2)

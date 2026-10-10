@@ -122,6 +122,12 @@ struct LabelTrack: Codable, Identifiable, Hashable {
     var reviewed: [Int]?
     /// Frames marked "not sure" in review, by index; nil from an older build.
     var unsure: [Int]?
+    /// Pre-tracked by the model (TrackedRally.machine); nil from an older build.
+    var machine: Bool?
+
+    var isMachine: Bool { machine ?? false }
+    /// Someone started tracking it and hasn't finished.
+    var isOpen: Bool { !done && !isMachine }
 
     /// Labeled frames (ball or hidden) — what training gets.
     var labeledFrames: Int { points.points.filter { $0.state != .unknown }.count }
@@ -167,7 +173,7 @@ extension LabelTrack {
         self.init(id: rally.id, videoId: videoId, start: rally.start, end: rally.end, points: PackedPoints(rally.points),
                   done: rally.done, deleted: false, updatedAt: rally.updatedAt,
                   reviewed: rally.points.indices.filter { rally.points[$0].reviewed },
-                  unsure: rally.points.indices.filter { rally.points[$0].unsure })
+                  unsure: rally.points.indices.filter { rally.points[$0].unsure }, machine: rally.machine)
     }
 
     /// Frames still worth a look (not yours, unsure, filled in or not found).
@@ -178,7 +184,8 @@ extension LabelTrack {
         var points = points.points
         for i in reviewed ?? [] where points.indices.contains(i) { points[i].reviewed = true }
         for i in unsure ?? [] where points.indices.contains(i) { points[i].unsure = true }
-        return TrackedRally(id: id, start: start, end: end, points: points, candidates: [], done: done, updatedAt: updatedAt)
+        return TrackedRally(id: id, start: start, end: end, points: points, candidates: [], done: done, updatedAt: updatedAt,
+                            machine: machine)
     }
 }
 

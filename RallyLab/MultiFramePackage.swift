@@ -26,6 +26,11 @@
 //  there: "occluded" gives where it must be, straight between them, so the
 //  trainer can tell it from a ball that's gone.
 //
+//  Pre-tracked rallies (PreTracker — the model's own, in train videos) go
+//  in the same way, with their sure frames (MachineLabels) as labels too:
+//  "pseudo" says which frames' labels are the model's, which the trainer
+//  uses with --pseudo (weighed less) and leaves unlabeled without it.
+//
 //  Videos with every rally marked also give dead-time windows ("dead": true,
 //  no labels), well away from any rally: where the app runs the model on
 //  the whole video but no rally is on, scored as how often it fires there.
@@ -35,6 +40,7 @@
 //     "target": span, "balls": [[cx, cy, w, h], …],      (fractions, top-down)
 //     "labels": [[[cx, cy, w, h], …] or null, …],      (tracked rallies only)
 //     "occluded": [[cx, cy, w, h] or null, …],         (tracked, when any is hidden between sightings)
+//     "pseudo": [true or false, …],                    (pre-tracked, when any frame's label is the model's)
 //     "dead": true}                                    (dead-time windows only)
 //
 
@@ -49,7 +55,10 @@ enum MultiFramePackage {
     static let span = 8
     /// Neighbours are about this far apart in time, whatever the clip's fps.
     static let frameRate = 30.0
-    /// Frames are scaled down to fit this on their long side.
+    /// Frames are scaled down to fit this on their long side — enough for
+    /// the trainer's --size 1024. A package only for 512 training can be
+    /// written at 512: a quarter of the disk (pre-tracked rallies make many
+    /// frames).
     static let longSide: CGFloat = 1024
     /// In a tracked rally, a window is centred on every this-many frames.
     static let trackStride = 2
@@ -69,6 +78,9 @@ enum MultiFramePackage {
         var trackedWindows: Int = 0
         /// Dead-time windows, from videos with every rally marked.
         var deadWindows: Int = 0
+        /// Pre-tracked rallies, and their sure frames labeled by the model.
+        var machineRallies: Int = 0
+        var machineFrames: Int = 0
         let balls: Int
         let noBallWindows: Int
         let frames: Int
@@ -102,17 +114,18 @@ enum MultiFramePackage {
         var labels: [[[Double]]?]? = nil
         var occluded: [[Double]?]? = nil
         var dead: Bool? = nil
+        var pseudo: [Bool]? = nil
     }
 
     /// `unreviewed`: every labeled frame of a finished rally is a label, not
     /// only the ones checked in annotation review — for a quick look at where
     /// the footage gets, never for a training round.
     static func export(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool = false,
-                       progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (zip: URL, summary: Summary) {
+                       longSide: CGFloat = longSide, progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (zip: URL, summary: Summary) {
         let fm = FileManager.default
         let reviewed = sessions.map { session in
             (session, session.frames.filter { $0.keep && $0.reviewed && $0.source != "file" })
-        }.filter { !$0.1.isEmpty || !Self.doneTracks($0.0).isEmpty || $0.0.ralliesMarked == true }
+        }.filter { !$0.1.isEmpty || !Self.readyTracks($0.0).isEmpty || $0.0.ralliesMarked == true }
         guard !reviewed.isEmpty else { throw PackageError.nothingReviewed }
         let usable = reviewed.filter { fm.fileExists(atPath: $0.0.sourcePath) }
         let missing = reviewed.filter { !fm.fileExists(atPath: $0.0.sourcePath) }
@@ -131,14 +144,14 @@ enum MultiFramePackage {
         let total = usable.reduce(0) { $0 + $1.1.count }
         var done = 0
         var lines: [String] = []
-        var counts = (train: 0, val: 0, balls: 0, empty: 0, frames: 0, edges: 0, tracked: 0, dead: 0)
+        var counts = (train: 0, val: 0, balls: 0, empty: 0, frames: 0, edges: 0, tracked: 0, dead: 0, machineRallies: 0, machineFrames: 0)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 
         for (session, frames) in usable {
             let clipDir = "frames/\(DatasetStore.safeName(session.name))"
             try fm.createDirectory(at: dir.appendingPathComponent(clipDir, isDirectory: true), withIntermediateDirectories: true)
-            let clip = try await ClipFrames(video: URL(fileURLWithPath: session.sourcePath))
+            let clip = try await ClipFrames(video: URL(fileURLWithPath: session.sourcePath), longSide: longSide)
 
             var needed: [Int64: CMTime] = [:]
             var windows: [(FrameRecord, [CMTime])] = []
@@ -148,19 +161,24 @@ enum MultiFramePackage {
                 for t in times { needed[ClipFrames.key(t)] = t }
             }
             // Tracked rallies: a window on every `trackStride`-th labeled frame.
-            var tracked: [(time: Double, times: [CMTime], labels: [TrackPoint?], occluded: [CGRect?])] = []
-            for rally in Self.doneTracks(session) {
-                // Only frames checked in annotation review are labels; the rest
-                // are still frames the model sees around them.
+            var tracked: [(time: Double, times: [CMTime], labels: [TrackPoint?], occluded: [CGRect?], pseudo: [Bool])] = []
+            for rally in Self.readyTracks(session) {
+                // Only frames checked in annotation review are labels — and a
+                // pre-tracked rally's sure ones, marked as the model's; the
+                // rest are still frames the model sees around them.
+                let sure = MachineLabels.trusted(rally)
+                let labeled = rally.points.indices.filter { rally.points[$0].isChecked || unreviewed || sure.contains($0) }
                 let key = { (p: TrackPoint) in ClipFrames.key(CMTime(seconds: p.time, preferredTimescale: 600_000)) }
-                let byKey = Dictionary(rally.points.filter { $0.isChecked || unreviewed }.map { (key($0), $0) },
-                                       uniquingKeysWith: { a, _ in a })
+                let byKey = Dictionary(labeled.map { (key(rally.points[$0]), rally.points[$0]) }, uniquingKeysWith: { a, _ in a })
+                let machine = Set(sure.map { key(rally.points[$0]) })
                 let occluded = Dictionary(Self.occluded(rally, unreviewed: unreviewed).map { (key($0.point), $0.box) },
                                           uniquingKeysWith: { a, _ in a })
-                for point in rally.points.enumerated().filter({ $0.offset % Self.trackStride == 0 }).map(\.element)
-                where point.state != .unknown && (point.isChecked || unreviewed) {
+                if rally.isMachine { counts.machineRallies += 1; counts.machineFrames += sure.count }
+                for i in labeled where i % Self.trackStride == 0 && rally.points[i].state != .unknown {
+                    let point = rally.points[i]
                     guard let times = clip.window(around: point.time, exact: true) else { counts.edges += 1; continue }
-                    tracked.append((point.time, times, times.map { byKey[ClipFrames.key($0)] }, times.map { occluded[ClipFrames.key($0)] }))
+                    tracked.append((point.time, times, times.map { byKey[ClipFrames.key($0)] }, times.map { occluded[ClipFrames.key($0)] },
+                                    times.map { machine.contains(ClipFrames.key($0)) }))
                     for t in times { needed[ClipFrames.key(t)] = t }
                 }
             }
@@ -192,7 +210,7 @@ enum MultiFramePackage {
                 // Vision boxes are bottom-up; the trainer reads top-down.
                 return [s.midX, 1 - s.midY, s.width, s.height].map { Double($0) }
             }
-            for (time, times, labels, occluded) in tracked {
+            for (time, times, labels, occluded, pseudo) in tracked {
                 let keys = times.map(ClipFrames.key)
                 guard keys.allSatisfy(written.contains) else { counts.edges += 1; continue }
                 let perFrame: [[[Double]]?] = labels.map { point in
@@ -208,6 +226,7 @@ enum MultiFramePackage {
                                     frames: keys.map { "\(clipDir)/\($0).jpg" }, target: span, balls: balls)
                 window.labels = perFrame
                 if occluded.contains(where: { $0 != nil }) { window.occluded = occluded.map { $0.map(stored) } }
+                if pseudo.contains(true) { window.pseudo = pseudo }
                 lines.append(String(decoding: try encoder.encode(window), as: UTF8.self))
                 if split == "val" { counts.val += 1 } else { counts.train += 1 }
                 counts.tracked += 1
@@ -248,6 +267,8 @@ enum MultiFramePackage {
                               framesAtEdges: counts.edges)
         summary.trackedWindows = counts.tracked
         summary.deadWindows = counts.dead
+        summary.machineRallies = counts.machineRallies
+        summary.machineFrames = counts.machineFrames
         try (lines.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("windows.jsonl"), atomically: true, encoding: .utf8)
         try readme(summary).write(to: dir.appendingPathComponent("README.txt"), atomically: true, encoding: .utf8)
         let summaryEncoder = JSONEncoder()
@@ -283,9 +304,10 @@ enum MultiFramePackage {
         return result
     }
 
-    /// Rallies tracked frame by frame and marked done.
-    static func doneTracks(_ session: VideoSession) -> [TrackedRally] {
-        (session.tracks ?? []).filter(\.done)
+    /// Rallies tracked frame by frame and marked done, and pre-tracked ones
+    /// in train videos (val is people's labels only).
+    static func readyTracks(_ session: VideoSession) -> [TrackedRally] {
+        (session.tracks ?? []).filter { $0.done || ($0.isMachine && session.split != "val") }
     }
 
     static func readme(_ s: Summary) -> String {
@@ -298,6 +320,8 @@ enum MultiFramePackage {
         frame, with every frame labeled; in the rest only the middle frame is.
         \(s.deadWindows) dead-time windows (no rally on, from videos with every rally marked) aren't
         trained on: they score how often the model fires when no rally is on.
+        \(s.machineRallies) rallies were pre-tracked by the model: \(s.machineFrames) of their frames are the
+        model's own labels ("pseudo"), used with --pseudo.
         \(s.missingVideos.isEmpty ? "" : "\(s.framesWithoutVideo) reviewed frames from \(s.missingVideos.count) clips aren't here: their videos weren't on the Mac.\n")
         Train it with scripts/desktop_training/train_heatmap_model.py — it reads windows.jsonl
         directly. See that script's header for the steps.
@@ -316,7 +340,7 @@ private struct ClipFrames {
     /// Video frames between neighbours in a window.
     private let step: Int
 
-    init(video: URL) async throws {
+    init(video: URL, longSide: CGFloat) async throws {
         let asset = AVURLAsset(url: video)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw CocoaError(.fileReadCorruptFile)
@@ -326,7 +350,7 @@ private struct ClipFrames {
         let fps = Double(try await track.load(.nominalFrameRate))
         step = max(1, Int((fps / MultiFramePackage.frameRate).rounded()))
         let natural = try await track.load(.naturalSize)
-        let scale = min(1, MultiFramePackage.longSide / max(natural.width, natural.height))
+        let scale = min(1, longSide / max(natural.width, natural.height))
         outputSize = CGSize(width: (natural.width * scale).rounded(), height: (natural.height * scale).rounded())
         rotation = await StoredRotation.of(video: video)
         generator = AVAssetImageGenerator(asset: asset)

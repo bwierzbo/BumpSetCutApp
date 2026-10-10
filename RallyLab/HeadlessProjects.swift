@@ -22,10 +22,15 @@
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
 //    RallyLab --project v3 --package                       (training package zip)
-//    RallyLab --project v3 --package-multiframe [--unreviewed]   (multi-frame package zip; --unreviewed: every
-//             labeled frame, not only reviewed ones — a quick look, not a round)
+//    RallyLab --project v3 --package-multiframe [--unreviewed] [--long-side 512]   (multi-frame package zip;
+//             --unreviewed: every labeled frame, not only reviewed ones — a quick look, not a round;
+//             --long-side: frames this big (default 1024; 512 is enough for 512 training, a quarter the disk))
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
+//    RallyLab --project v3 --pretrack [clip…] [--per-video 6] [--redo]   (self-training: the newest multi-frame model tracks
+//             rallies in train videos on its own; sure frames become machine labels, the rest go to review;
+//             --redo: track the pre-tracked ones again, e.g. after a better model)
+//    RallyLab --project v3 --pretrack-check                (how right "sure" frames are, against val rallies people tracked)
 //    RallyLab --project v3 --add-heat <bring_back folder>  (convert + add a multi-frame model)
 //    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
 //    RallyLab --project v3 --render-heat <clip> <seconds>  (side-by-side video of a tracked rally)
@@ -137,6 +142,25 @@ enum HeadlessProjects {
                     log((ok ? "✅ " : "❌ ") + sync.status)
                 }
             }
+            // Self-training: the model tracks rallies in train videos on its own.
+            if ok, args.contains("--pretrack") {
+                let perVideo = value(after: "--per-video", in: args).flatMap(Int.init) ?? PreTracker.perVideo
+                let only = Array(args.drop { $0 != "--pretrack" }.dropFirst().prefix { !$0.hasPrefix("--") })
+                let r = await PreTracker.run(sampler: projects.sampler, only: only, perVideo: perVideo, redo: args.contains("--redo"), log: log)
+                log("✅ \(r.rallies) rallies pre-tracked" + (r.redone > 0 ? ", \(r.redone) tracked again" : "")
+                    + ", \(r.dropped) dropped (ball found on under \(Int(PreTracker.minFound * 100))% of frames)")
+                log("   all pre-tracked rallies: \(r.frames) frames · \(r.sure) sure (machine labels) · \(r.toReview) to review")
+            }
+            if ok, args.contains("--pretrack-check") {
+                let checks = await PreTracker.check(sampler: projects.sampler, log: log)
+                if let c = checks.first { log("The path found a ball on \(c.found) checked frames; people saw \(c.people) balls.") }
+                log("reach  confidence  off arc   sure  right   precision  share of people's balls   (no ball where it was sure)")
+                for c in checks {
+                    log(String(format: "  %d      %.1f      %.3f  %6d %6d     %5.1f%%        %5.1f%%                 %d",
+                               c.reach, c.minConfidence, c.maxOffArc, c.sure, c.right, c.precision * 100, c.coverage * 100, c.wrongNoBall))
+                }
+                log("In use: reach \(MachineLabels.reach), confidence \(MachineLabels.minConfidence), off arc \(MachineLabels.maxOffArc).")
+            }
             if ok, args.contains("--train-round") {
                 let plan = TrainingPlanModel(library: library)
                 guard let round = plan.currentRound else { log("Every round is trained."); exit(0) }
@@ -157,7 +181,10 @@ enum HeadlessProjects {
                 }
             }
             if ok, args.contains("--package") { ok = await package(library) }
-            if ok, args.contains("--package-multiframe") { ok = await packageMultiFrame(library, unreviewed: args.contains("--unreviewed")) }
+            if ok, args.contains("--package-multiframe") { 
+                let side = value(after: "--long-side", in: args).flatMap(Double.init).map { CGFloat($0) } ?? MultiFramePackage.longSide
+                ok = await packageMultiFrame(library, unreviewed: args.contains("--unreviewed"), longSide: side)
+            }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
                 log(library.status)
@@ -381,8 +408,8 @@ enum HeadlessProjects {
     }
 
     @MainActor
-    private static func packageMultiFrame(_ library: ModelLibrary, unreviewed: Bool) async -> Bool {
-        library.exportMultiFramePackage(unreviewed: unreviewed)
+    private static func packageMultiFrame(_ library: ModelLibrary, unreviewed: Bool, longSide: CGFloat) async -> Bool {
+        library.exportMultiFramePackage(unreviewed: unreviewed, longSide: longSide)
         while library.isBusy { try? await Task.sleep(nanoseconds: 200_000_000) }
         log(library.status)
         return library.lastMultiFramePackage != nil

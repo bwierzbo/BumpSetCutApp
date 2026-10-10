@@ -111,16 +111,9 @@ extension LabelQueue.Video {
     @MainActor
     init(session s: VideoSession) {
         let tracks = s.tracks ?? []
-        let marked = RallyMarkModel.marks(in: s).map { LabelRally(start: $0.start, end: $0.end) }
-        let notRallies = s.notRallies ?? []
-        let found = TrackLabelModel.suggestions(from: s, excluding: [])
-            .filter { f in !notRallies.contains { abs($0 - f.start) < 0.05 } }
-            .map { LabelRally(start: $0.start, end: $0.end) }
-            .filter { f in !marked.contains { min($0.end, f.end) - max($0.start, f.start) > 0.3 } }
-        let unfinished = tracks.filter { !$0.done }.map(\.bounds)
-        let open = (marked + found)
-            .filter { r in !tracks.contains { min($0.end, r.end) - max($0.start, r.start) > 0.5 * (r.end - r.start) } }
-            .sorted { $0.start < $1.start }
+        let (marked, found) = TrackLabelModel.markedAndFound(s)
+        let unfinished = tracks.filter(\.isOpen).map(\.bounds)
+        let open = TrackLabelModel.untracked(marked + found, tracks: tracks)
         self.init(plan: PlanVideo(session: s), nextRally: (unfinished + open).first, found: found.count,
                   complete: s.ralliesMarked ?? false)
     }
@@ -203,7 +196,7 @@ private struct LabelHomeView: View {
                 return ("Check the rallies", found > 0 ? "\(found) found rallies to confirm, then skim for missed ones" : "Skim for missed rallies and finish",
                         "checklist")
             case .track(_, let r):
-                let resuming = session?.tracks?.contains { !$0.done && $0.bounds == r } ?? false
+                let resuming = session?.tracks?.contains { $0.isOpen && $0.bounds == r } ?? false
                 let frames = Int((r.end - r.start + 2 * TrackedRally.margin) * TrackLabelModel.frameRate)
                 return (resuming ? "Finish tracking a rally" : "Track a rally",
                         "\(TrackLabelModel.clock(r.start)) – \(TrackLabelModel.clock(r.end)) · about \(frames) frames", "scope")

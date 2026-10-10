@@ -2,7 +2,7 @@
 # Train multi-frame models on the desktop GPU from the Mac, over SSH.
 #
 #   scripts/desktop_training/desktop.sh train [package] [--size 512|768|1024] [--from-scratch] [--color] [--epochs N] [--name NAME]
-#                                              [--aug] [--occluded] [--qfl] [--mine] [--seed N]
+#                                              [--aug] [--occluded] [--qfl] [--mine] [--pseudo] [--seed N]
 #       send the package (default: the newest multi-frame export) and the
 #       current trainer, start training detached, return right away
 #   scripts/desktop_training/desktop.sh status        what's running, the last lines of the log, GPU use
@@ -42,7 +42,7 @@ cmd_train() {
             --size) size=$2; shift 2 ;;
             --from-scratch) scratch=--from-scratch; shift ;;
             --color) color=--color; shift ;;
-            --aug|--occluded|--qfl|--mine) opts+=($1); shift ;;
+            --aug|--occluded|--qfl|--mine|--pseudo) opts+=($1); shift ;;
             --seed) opts+=(--seed $2); shift 2 ;;
             --epochs) epochs=$2; shift 2 ;;
             --name) name=$2; shift 2 ;;

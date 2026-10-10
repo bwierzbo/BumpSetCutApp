@@ -122,12 +122,13 @@ struct TrackTabView: View {
     private func rallyRow(_ rally: TrackedRally) -> some View {
         let check = rally.points.filter(\.isUncertain).count
         return HStack(spacing: 8) {
-            Image(systemName: rally.done ? "checkmark.circle.fill" : "circle.dashed")
-                .foregroundStyle(rally.done ? ReviewStyle.yours : .secondary)
+            Image(systemName: rally.isMachine ? "cpu" : rally.done ? "checkmark.circle.fill" : "circle.dashed")
+                .foregroundStyle(rally.isMachine ? .teal : rally.done ? ReviewStyle.yours : .secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(TrackLabelModel.clock(rally.start)) – \(TrackLabelModel.clock(rally.end))")
                     .font(.callout.monospacedDigit())
-                Text(rally.candidates.isEmpty ? "\(rally.points.count) frames · not tracked yet"
+                Text(rally.isMachine ? "\(rally.points.count) frames · pre-tracked, \(MachineLabels.trusted(rally).count) sure"
+                     : rally.candidates.isEmpty ? "\(rally.points.count) frames · not tracked yet"
                      : "\(rally.points.count) frames · \(check) to check")
                     .font(.caption2).foregroundStyle(.secondary)
             }

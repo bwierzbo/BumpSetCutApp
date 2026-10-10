@@ -77,7 +77,7 @@ final class TrackLabelModel {
     static let frameRate = MultiFramePackage.frameRate
     static let maxZoom: CGFloat = 8
     private static let cacheSize = 90
-    nonisolated private static let candidateConfidence: Float = 0.15
+    nonisolated static let candidateConfidence: Float = 0.15
 
     init(sampler: SamplerModel) {
         self.sampler = sampler
@@ -148,6 +148,25 @@ final class TrackLabelModel {
             return overlapsTracked ? nil : s
         }
         .sorted { $0.start < $1.start }
+    }
+
+    /// Rallies marked in the video's rallylabels file, and those the Sampler
+    /// found (less ones you said aren't rallies, and ones a marked rally
+    /// covers).
+    static func markedAndFound(_ s: VideoSession) -> (marked: [LabelRally], found: [LabelRally]) {
+        let marked = RallyMarkModel.marks(in: s).map { LabelRally(start: $0.start, end: $0.end) }
+        let notRallies = s.notRallies ?? []
+        let found = suggestions(from: s, excluding: [])
+            .filter { f in !notRallies.contains { abs($0 - f.start) < 0.05 } }
+            .map { LabelRally(start: $0.start, end: $0.end) }
+            .filter { f in !marked.contains { min($0.end, f.end) - max($0.start, f.start) > 0.3 } }
+        return (marked, found)
+    }
+
+    /// Of `rallies`, those no tracked rally covers (most of), in time order.
+    static func untracked(_ rallies: [LabelRally], tracks: [TrackedRally]) -> [LabelRally] {
+        rallies.filter { r in !tracks.contains { min($0.end, r.end) - max($0.start, r.start) > 0.5 * (r.end - r.start) } }
+            .sorted { $0.start < $1.start }
     }
 
     // MARK: - Rallies
@@ -223,7 +242,7 @@ final class TrackLabelModel {
     func toggleDone() {
         update { $0.done.toggle() }
         if rally?.done == true {
-            let next = rallies.first { !$0.done }
+            let next = rallies.first(where: \.isOpen)
             status = next == nil && suggestions.isEmpty ? "Every rally in this video is done." : "Rally done."
         }
     }
@@ -244,33 +263,10 @@ final class TrackLabelModel {
             : "Finding the ball on every frame (YOLO + multi-frame)…"
         status = "Finding the ball on \(times.count) frames…"
         trackTask = Task {
-            let candidates = await Task.detached(priority: .userInitiated) { () -> [[TrackCandidate]]? in
-                let detector = SamplerModel.detector(model: model, confidence: Self.candidateConfidence)
-                let heat = heatModel.flatMap { HeatmapBallDetector(modelURL: $0) }
-                var grays = [HeatmapBallDetector.Frame?](repeating: nil, count: times.count)
-                let generator = AVAssetImageGenerator(asset: video)
-                generator.appliesPreferredTrackTransform = true
-                generator.requestedTimeToleranceBefore = .zero
-                generator.requestedTimeToleranceAfter = .zero
-                var found = [[TrackCandidate]](repeating: [], count: times.count)
-                var done = 0
-                for await result in generator.images(for: times.map(TrackFrameStore.request)) {
-                    if Task.isCancelled { return nil }
-                    done += 1
-                    guard let image = try? result.image,
-                          let i = times.firstIndex(where: { abs($0 - result.requestedTime.seconds) < 0.0005 }) else { continue }
-                    found[i] = detector.detect(in: image, at: result.requestedTime)
-                        .map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
-                    grays[i] = heat?.grayscale(image)
-                    // The same frame, kept for review: no seeking in the video later.
-                    if !frames.has(times[i]) { frames.write(image, time: times[i]) }
-                    if done % 10 == 0 {
-                        let fraction = Double(done) / Double(times.count)
-                        await MainActor.run { [weak self] in self?.trackingProgress = fraction }
-                    }
+            let candidates = await Task.detached(priority: .userInitiated) {
+                await Self.candidates(video: video, times: times, model: model, heatModel: heatModel, frames: frames) { fraction in
+                    await MainActor.run { [weak self] in self?.trackingProgress = fraction }
                 }
-                if let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found) }
-                return found
             }.value
             trackingProgress = nil
             guard let candidates, !Task.isCancelled, rallies.contains(where: { $0.id == id }) else { return }
@@ -284,8 +280,10 @@ final class TrackLabelModel {
     }
 
     /// The newest multi-frame model added in the Models tab, if any.
-    private var newestHeatModel: URL? {
-        let dir = sampler.datasetRoot.appendingPathComponent("models/heatmap", isDirectory: true)
+    private var newestHeatModel: URL? { Self.newestHeatModel(in: sampler.datasetRoot) }
+
+    static func newestHeatModel(in root: URL) -> URL? {
+        let dir = root.appendingPathComponent("models/heatmap", isDirectory: true)
         return ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey])) ?? [])
             .filter { $0.pathExtension == "mlpackage" }
             .max { a, b in
@@ -293,6 +291,38 @@ final class TrackLabelModel {
                 let db = (try? b.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
                 return da < db
             }
+    }
+
+    /// The ball's candidates on each frame at `times` (presentation times):
+    /// YOLO's boxes with the multi-frame model's peaks merged in
+    /// (TrackFinder). `frames`: keep each frame for review as it's read.
+    /// Nil if cancelled.
+    nonisolated static func candidates(video: AVURLAsset, times: [Double], model: URL?, heatModel: URL?,
+                                       frames: TrackFrameStore?,
+                                       progress: @escaping @Sendable (Double) async -> Void) async -> [[TrackCandidate]]? {
+        let detector = SamplerModel.detector(model: model, confidence: candidateConfidence)
+        let heat = heatModel.flatMap { HeatmapBallDetector(modelURL: $0) }
+        var grays = [HeatmapBallDetector.Frame?](repeating: nil, count: times.count)
+        let generator = AVAssetImageGenerator(asset: video)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        var found = [[TrackCandidate]](repeating: [], count: times.count)
+        var done = 0
+        for await result in generator.images(for: times.map(TrackFrameStore.request)) {
+            if Task.isCancelled { return nil }
+            done += 1
+            guard let image = try? result.image,
+                  let i = times.firstIndex(where: { abs($0 - result.requestedTime.seconds) < 0.0005 }) else { continue }
+            found[i] = detector.detect(in: image, at: result.requestedTime)
+                .map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
+            grays[i] = heat?.grayscale(image)
+            // The same frame, kept for review: no seeking in the video later.
+            if let frames, !frames.has(times[i]) { frames.write(image, time: times[i]) }
+            if done % 10 == 0 { await progress(Double(done) / Double(times.count)) }
+        }
+        if let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found) }
+        return found
     }
 
     /// Rallies tracked before frames were kept: read their frames out of the
@@ -571,8 +601,13 @@ final class TrackLabelModel {
     /// Presentation times from `start` to `end`, about 1/30 s apart, from
     /// the video's own frames.
     private func frameTimes(start: Double, end: Double) -> [Double]? {
-        guard let videoTrack, end > start,
-              let cursor = videoTrack.makeSampleCursor(presentationTimeStamp: TrackFrameStore.request(start))
+        videoTrack.flatMap { Self.frameTimes(track: $0, step: step, start: start, end: end) }
+    }
+
+    /// Presentation times from `start` to `end`, every `step`-th of
+    /// `track`'s frames.
+    nonisolated static func frameTimes(track videoTrack: AVAssetTrack, step: Int, start: Double, end: Double) -> [Double]? {
+        guard end > start, let cursor = videoTrack.makeSampleCursor(presentationTimeStamp: TrackFrameStore.request(start))
         else { return nil }
         var times: [Double] = []
         while cursor.presentationTimeStamp.seconds <= end {

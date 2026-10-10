@@ -29,7 +29,7 @@ struct LabelTrackTask: View {
 
     /// A track of this rally you didn't finish.
     private var unfinished: TrackedRally? {
-        session.tracks?.first { !$0.done && $0.bounds == rally }
+        session.tracks?.first { $0.isOpen && $0.bounds == rally }
     }
 
     /// The Sampler found this rally (rather than you marking it).

@@ -3,7 +3,9 @@
 //  RallyLab (macOS and iPhone)
 //
 //  Annotation review: every labeled frame of a finished rally is checked
-//  once before it's used for training. A frame with a ball is shown as a
+//  once before it's used for training — of a pre-tracked one, every frame
+//  the model isn't sure of, and short stretches where it lost the ball
+//  (MachineLabels). A frame with a ball is shown as a
 //  crop around its box — the box fixed in the middle; you move the picture
 //  under it and size it, then approve. Hidden frames aren't reviewed: they
 //  count as checked. "No ball" sets a frame aside for a later pass on the
@@ -52,21 +54,31 @@ enum AnnotationReview {
         }
     }
 
-    /// The frames of finished rallies still needing `kind`, rally by rally,
-    /// in frame order (neighbours look alike, so they go quickly).
+    /// The frames of finished (or pre-tracked) rallies still needing `kind`,
+    /// rally by rally, in frame order (neighbours look alike, so they go
+    /// quickly). A pre-tracked rally's sure frames (MachineLabels) aren't
+    /// asked about.
     static func items(_ rallies: [(video: String, rally: TrackedRally)], kinds: Set<Kind>) -> [Item] {
-        rallies.filter { $0.rally.done }
+        rallies.filter { $0.rally.isReady }
             .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
             .flatMap { v in
-                v.rally.points.indices.filter { Self.kind(of: v.rally.points[$0]).map(kinds.contains) ?? false }
+                let trusted = MachineLabels.trusted(v.rally)
+                let lost = kinds.contains(.noBall) ? MachineLabels.lost(v.rally) : []
+                return v.rally.points.indices
+                    .filter { lost.contains($0)
+                        || (!trusted.contains($0) && (Self.kind(of: v.rally.points[$0]).map(kinds.contains) ?? false)) }
                     .map { Item(video: v.video, track: v.rally.id, index: $0) }
             }
     }
 
-    /// Reviewed of all labeled frames in finished rallies.
+    /// Reviewed of all frames for people to check in finished (or
+    /// pre-tracked) rallies.
     static func progress(_ rallies: [TrackedRally]) -> (reviewed: Int, total: Int) {
-        let points = rallies.filter(\.done).flatMap(\.points).filter { $0.isChecked || kind(of: $0) != nil }
-        return (points.filter(\.isChecked).count, points.count)
+        let points = rallies.filter(\.isReady).flatMap { r in
+            let trusted = MachineLabels.trusted(r), lost = MachineLabels.lost(r)
+            return r.points.indices.filter { !trusted.contains($0) }.map { (r.points[$0], lost.contains($0)) }
+        }.filter { $0.0.isChecked || $0.1 || kind(of: $0.0) != nil }
+        return (points.filter(\.0.isChecked).count, points.count)
     }
 
     // MARK: - Decisions
