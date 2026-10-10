@@ -23,6 +23,9 @@ import SwiftUI
 struct ReviewHomeView: View {
     let store: any ReviewStore
     let progress: (reviewed: Int, total: Int)
+    /// Rallies with frames to review that someone else is on right now.
+    @State private var held: Set<UUID> = []
+    @State private var takingOver = false
 
     var body: some View {
         let frames = store.reviewItems([.crop]).count
@@ -39,6 +42,7 @@ struct ReviewHomeView: View {
                 }
                 .padding()
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
+                if !held.isEmpty { heldCard }
                 NavigationLink { CropReviewView(store: store) } label: {
                     card("Review", "\(frames.formatted()) frames to check · drag to centre, pinch to size, tap to approve", "viewfinder", frames)
                 }
@@ -55,6 +59,44 @@ struct ReviewHomeView: View {
             .padding()
         }
         .navigationTitle("Review")
+        // Who's on what changes as others review: look again now and then.
+        .task {
+            while !Task.isCancelled {
+                await refreshHeld()
+                try? await Task.sleep(for: .seconds(20))
+            }
+        }
+    }
+
+    /// Someone else is reviewing some rallies: their frames are skipped, or take them over.
+    private var heldCard: some View {
+        let frames = store.reviewItems([.crop, .noBall, .unsure]).filter { held.contains($0.track) }.count
+        return HStack(spacing: 12) {
+            Image(systemName: "person.2.fill").font(.title2).foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Someone else is reviewing \(held.count) rall\(held.count == 1 ? "y" : "ies")").font(.headline)
+                Text("\(frames.formatted()) frames you'll skip while they're on them; idle for 3 minutes, they come free.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                takingOver = true
+                Task {
+                    await store.takeOver(held)
+                    await refreshHeld()
+                    takingOver = false
+                }
+            } label: { takingOver ? AnyView(ProgressView()) : AnyView(Text("Take over")) }
+                .buttonStyle(.borderedProminent).tint(.orange).disabled(takingOver)
+        }
+        .padding()
+        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// Only rallies that still have frames for this person to review.
+    private func refreshHeld() async {
+        let mine = Set(store.reviewItems([.crop, .noBall, .unsure]).map(\.track))
+        held = await store.heldByOthers().intersection(mine)
     }
 
     private func card(_ title: String, _ detail: String, _ icon: String, _ count: Int) -> some View {

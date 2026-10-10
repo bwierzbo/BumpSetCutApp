@@ -224,6 +224,20 @@ protocol ReviewStore: AnyObject {
     func claim(_ track: UUID) async -> Bool
 }
 
+extension ReviewStore {
+    /// Rallies someone else is reviewing right now (claims lapse after 3
+    /// minutes without a decision). Empty when that can't be told.
+    func heldByOthers() async -> Set<UUID> {
+        Set((try? await LabelingClient.shared.reviewHeldByOthers()) ?? [])
+    }
+
+    /// Take these rallies over: they're yours to review, and whoever had them
+    /// has their decisions on them refused from now on.
+    func takeOver(_ tracks: Set<UUID>) async {
+        for t in tracks { try? await LabelingClient.shared.reviewTakeOver(t) }
+    }
+}
+
 /// Walks a fixed list of frames: loads each one's picture, reads ahead, and
 /// keeps what was decided for going back.
 @MainActor

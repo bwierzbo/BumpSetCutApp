@@ -249,6 +249,21 @@ actor LabelingClient {
         try await rpc("review_claim", ["p_track": track.uuidString.lowercased()])
     }
 
+    /// Take a rally over from whoever is reviewing it (migration 034).
+    func reviewTakeOver(_ track: UUID) async throws {
+        var request = try await rest("rpc/review_take_over", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(["p_track": track.uuidString.lowercased()])
+        _ = try await send(request)
+    }
+
+    /// Rallies someone else is reviewing right now.
+    func reviewHeldByOthers() async throws -> [UUID] {
+        struct Row: Decodable { let track: UUID }
+        let rows: [Row] = try await rpc("review_held_by_others", [:])
+        return rows.map(\.track)
+    }
+
     /// One review decision on a rally's frame, as the server applies it.
     struct FrameEdit: Codable, Hashable {
         var track: UUID
