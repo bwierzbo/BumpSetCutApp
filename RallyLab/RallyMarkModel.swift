@@ -142,11 +142,11 @@ final class RallyMarkModel {
         isPlaying = false
     }
 
-    static func labelsURL(for video: URL) -> URL {
+    nonisolated static func labelsURL(for video: URL) -> URL {
         video.deletingPathExtension().appendingPathExtension("rallylabels.json")
     }
 
-    private static func load(_ url: URL) -> [Mark] {
+    nonisolated static func load(_ url: URL) -> [Mark] {
         guard let data = try? Data(contentsOf: url),
               let labels = try? JSONDecoder().decode([LabeledRally].self, from: data) else { return [] }
         return labels.map { Mark(start: $0.startTime, end: $0.endTime) }.sorted { $0.start < $1.start }

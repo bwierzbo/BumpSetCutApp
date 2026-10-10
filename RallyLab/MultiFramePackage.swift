@@ -21,12 +21,21 @@
 //
 //  Rallies you've tracked and marked done in the Track tab go in too,
 //  densely: a window centred on every other frame, with a label for every
-//  frame in it ("labels": [] = no ball, null = not labeled).
+//  frame in it ("labels": [] = no ball, null = not labeled). A ball hidden
+//  for a moment between two sightings (behind a player, the net) is still
+//  there: "occluded" gives where it must be, straight between them, so the
+//  trainer can tell it from a ball that's gone.
+//
+//  Videos with every rally marked also give dead-time windows ("dead": true,
+//  no labels), well away from any rally: where the app runs the model on
+//  the whole video but no rally is on, scored as how often it fires there.
 //
 //  windows.jsonl, one line per window:
 //    {"clip", "split", "time", "size": [w, h], "frames": [2·span+1 paths],
 //     "target": span, "balls": [[cx, cy, w, h], …],      (fractions, top-down)
-//     "labels": [[[cx, cy, w, h], …] or null, …]}       (tracked rallies only)
+//     "labels": [[[cx, cy, w, h], …] or null, …],      (tracked rallies only)
+//     "occluded": [[cx, cy, w, h] or null, …],         (tracked, when any is hidden between sightings)
+//     "dead": true}                                    (dead-time windows only)
 //
 
 import AVFoundation
@@ -44,6 +53,11 @@ enum MultiFramePackage {
     static let longSide: CGFloat = 1024
     /// In a tracked rally, a window is centred on every this-many frames.
     static let trackStride = 2
+    /// A hidden ball is placed between sightings this close together (s).
+    static let occludedGap = 0.6
+    /// Dead-time windows: this often, at least `deadMargin` from any rally.
+    static let deadStep = 3.0
+    static let deadMargin = 1.5
 
     struct Summary: Codable {
         let name: String
@@ -53,6 +67,8 @@ enum MultiFramePackage {
         let valWindows: Int
         /// Of those, windows from tracked rallies (every frame labeled).
         var trackedWindows: Int = 0
+        /// Dead-time windows, from videos with every rally marked.
+        var deadWindows: Int = 0
         let balls: Int
         let noBallWindows: Int
         let frames: Int
@@ -84,6 +100,8 @@ enum MultiFramePackage {
         let target: Int
         let balls: [[Double]]
         var labels: [[[Double]]?]? = nil
+        var occluded: [[Double]?]? = nil
+        var dead: Bool? = nil
     }
 
     /// `unreviewed`: every labeled frame of a finished rally is a label, not
@@ -94,7 +112,7 @@ enum MultiFramePackage {
         let fm = FileManager.default
         let reviewed = sessions.map { session in
             (session, session.frames.filter { $0.keep && $0.reviewed && $0.source != "file" })
-        }.filter { !$0.1.isEmpty || !Self.doneTracks($0.0).isEmpty }
+        }.filter { !$0.1.isEmpty || !Self.doneTracks($0.0).isEmpty || $0.0.ralliesMarked == true }
         guard !reviewed.isEmpty else { throw PackageError.nothingReviewed }
         let usable = reviewed.filter { fm.fileExists(atPath: $0.0.sourcePath) }
         let missing = reviewed.filter { !fm.fileExists(atPath: $0.0.sourcePath) }
@@ -113,7 +131,7 @@ enum MultiFramePackage {
         let total = usable.reduce(0) { $0 + $1.1.count }
         var done = 0
         var lines: [String] = []
-        var counts = (train: 0, val: 0, balls: 0, empty: 0, frames: 0, edges: 0, tracked: 0)
+        var counts = (train: 0, val: 0, balls: 0, empty: 0, frames: 0, edges: 0, tracked: 0, dead: 0)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 
@@ -130,16 +148,30 @@ enum MultiFramePackage {
                 for t in times { needed[ClipFrames.key(t)] = t }
             }
             // Tracked rallies: a window on every `trackStride`-th labeled frame.
-            var tracked: [(time: Double, times: [CMTime], labels: [TrackPoint?])] = []
+            var tracked: [(time: Double, times: [CMTime], labels: [TrackPoint?], occluded: [CGRect?])] = []
             for rally in Self.doneTracks(session) {
                 // Only frames checked in annotation review are labels; the rest
                 // are still frames the model sees around them.
-                let byKey = Dictionary(rally.points.filter { $0.isChecked || unreviewed }.map { (ClipFrames.key(CMTime(seconds: $0.time, preferredTimescale: 600_000)), $0) },
+                let key = { (p: TrackPoint) in ClipFrames.key(CMTime(seconds: p.time, preferredTimescale: 600_000)) }
+                let byKey = Dictionary(rally.points.filter { $0.isChecked || unreviewed }.map { (key($0), $0) },
                                        uniquingKeysWith: { a, _ in a })
+                let occluded = Dictionary(Self.occluded(rally, unreviewed: unreviewed).map { (key($0.point), $0.box) },
+                                          uniquingKeysWith: { a, _ in a })
                 for point in rally.points.enumerated().filter({ $0.offset % Self.trackStride == 0 }).map(\.element)
                 where point.state != .unknown && (point.isChecked || unreviewed) {
                     guard let times = clip.window(around: point.time, exact: true) else { counts.edges += 1; continue }
-                    tracked.append((point.time, times, times.map { byKey[ClipFrames.key($0)] }))
+                    tracked.append((point.time, times, times.map { byKey[ClipFrames.key($0)] }, times.map { occluded[ClipFrames.key($0)] }))
+                    for t in times { needed[ClipFrames.key(t)] = t }
+                }
+            }
+            // Dead time: only where every rally is marked, so "no rally" is known.
+            var dead: [(time: Double, times: [CMTime])] = []
+            if session.ralliesMarked == true {
+                let marks = RallyMarkModel.load(RallyMarkModel.labelsURL(for: URL(fileURLWithPath: session.sourcePath)))
+                for t in stride(from: Self.deadMargin, to: clip.duration - Self.deadMargin, by: Self.deadStep)
+                where !marks.contains(where: { t > $0.start - Self.deadMargin && t < $0.end + Self.deadMargin }) {
+                    guard let times = clip.window(around: t) else { continue }
+                    dead.append((t, times))
                     for t in times { needed[ClipFrames.key(t)] = t }
                 }
             }
@@ -160,7 +192,7 @@ enum MultiFramePackage {
                 // Vision boxes are bottom-up; the trainer reads top-down.
                 return [s.midX, 1 - s.midY, s.width, s.height].map { Double($0) }
             }
-            for (time, times, labels) in tracked {
+            for (time, times, labels, occluded) in tracked {
                 let keys = times.map(ClipFrames.key)
                 guard keys.allSatisfy(written.contains) else { counts.edges += 1; continue }
                 let perFrame: [[[Double]]?] = labels.map { point in
@@ -175,11 +207,22 @@ enum MultiFramePackage {
                                     size: [Int(clip.outputSize.width), Int(clip.outputSize.height)],
                                     frames: keys.map { "\(clipDir)/\($0).jpg" }, target: span, balls: balls)
                 window.labels = perFrame
+                if occluded.contains(where: { $0 != nil }) { window.occluded = occluded.map { $0.map(stored) } }
                 lines.append(String(decoding: try encoder.encode(window), as: UTF8.self))
                 if split == "val" { counts.val += 1 } else { counts.train += 1 }
                 counts.tracked += 1
                 counts.balls += balls.count
                 if balls.isEmpty { counts.empty += 1 }
+            }
+            for (time, times) in dead {
+                let keys = times.map(ClipFrames.key)
+                guard keys.allSatisfy(written.contains) else { continue }
+                var window = Window(clip: session.name, split: split, time: time,
+                                    size: [Int(clip.outputSize.width), Int(clip.outputSize.height)],
+                                    frames: keys.map { "\(clipDir)/\($0).jpg" }, target: span, balls: [])
+                window.dead = true
+                lines.append(String(decoding: try encoder.encode(window), as: UTF8.self))
+                counts.dead += 1
             }
             for (frame, times) in windows {
                 defer { done += 1; progress(done, total) }
@@ -204,6 +247,7 @@ enum MultiFramePackage {
                               framesWithoutVideo: missing.reduce(0) { $0 + $1.1.count },
                               framesAtEdges: counts.edges)
         summary.trackedWindows = counts.tracked
+        summary.deadWindows = counts.dead
         try (lines.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("windows.jsonl"), atomically: true, encoding: .utf8)
         try readme(summary).write(to: dir.appendingPathComponent("README.txt"), atomically: true, encoding: .utf8)
         let summaryEncoder = JSONEncoder()
@@ -215,6 +259,28 @@ enum MultiFramePackage {
         try? fm.removeItem(at: zip)
         guard try TrainingPackage.zipFolder(dir, to: zip) else { throw PackageError.zipFailed }
         return (zip, summary)
+    }
+
+    /// Hidden frames of `rally` between two sightings at most `occludedGap`
+    /// apart, with where the ball must be: straight between them (upright,
+    /// Vision-normalised), when that's in the picture.
+    static func occluded(_ rally: TrackedRally, unreviewed: Bool) -> [(point: TrackPoint, box: CGRect)] {
+        let seen = rally.points.filter { $0.state == .visible && $0.box != nil && ($0.isChecked || unreviewed) }
+        guard seen.count >= 2 else { return [] }
+        var result: [(TrackPoint, CGRect)] = []
+        var i = 0
+        for point in rally.points where point.state == .hidden && (point.isChecked || unreviewed) {
+            while i + 1 < seen.count && seen[i + 1].time < point.time { i += 1 }
+            guard i + 1 < seen.count, seen[i].time < point.time, let a = seen[i].box?.rect, let b = seen[i + 1].box?.rect,
+                  seen[i + 1].time - seen[i].time <= Self.occludedGap else { continue }
+            let f = (point.time - seen[i].time) / (seen[i + 1].time - seen[i].time)
+            let lerp = { (x: CGFloat, y: CGFloat) in x + (y - x) * f }
+            let w = lerp(a.width, b.width), h = lerp(a.height, b.height)
+            let box = CGRect(x: lerp(a.midX, b.midX) - w / 2, y: lerp(a.midY, b.midY) - h / 2, width: w, height: h)
+            guard (0...1).contains(box.midX), (0...1).contains(box.midY) else { continue }
+            result.append((point, box))
+        }
+        return result
     }
 
     /// Rallies tracked frame by frame and marked done.
@@ -230,6 +296,8 @@ enum MultiFramePackage {
         frame with the \(span) frames before and after it (about 1/\(Int(frameRate)) s apart), \(s.balls) balls,
         \(s.noBallWindows) windows with no ball. \(s.trackedWindows) of the windows are from rallies tracked frame by
         frame, with every frame labeled; in the rest only the middle frame is.
+        \(s.deadWindows) dead-time windows (no rally on, from videos with every rally marked) aren't
+        trained on: they score how often the model fires when no rally is on.
         \(s.missingVideos.isEmpty ? "" : "\(s.framesWithoutVideo) reviewed frames from \(s.missingVideos.count) clips aren't here: their videos weren't on the Mac.\n")
         Train it with scripts/desktop_training/train_heatmap_model.py — it reads windows.jsonl
         directly. See that script's header for the steps.
@@ -243,6 +311,7 @@ private struct ClipFrames {
     let generator: AVAssetImageGenerator
     let rotation: StoredRotation?
     let outputSize: CGSize
+    let duration: Double
     private let track: AVAssetTrack
     /// Video frames between neighbours in a window.
     private let step: Int
@@ -253,6 +322,7 @@ private struct ClipFrames {
             throw CocoaError(.fileReadCorruptFile)
         }
         self.track = track
+        duration = try await asset.load(.duration).seconds
         let fps = Double(try await track.load(.nominalFrameRate))
         step = max(1, Int((fps / MultiFramePackage.frameRate).rounded()))
         let natural = try await track.load(.naturalSize)

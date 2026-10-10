@@ -2,6 +2,7 @@
 # Train multi-frame models on the desktop GPU from the Mac, over SSH.
 #
 #   scripts/desktop_training/desktop.sh train [package] [--size 512|768|1024] [--from-scratch] [--color] [--epochs N] [--name NAME]
+#                                              [--aug] [--occluded] [--qfl] [--mine] [--seed N]
 #       send the package (default: the newest multi-frame export) and the
 #       current trainer, start training detached, return right away
 #   scripts/desktop_training/desktop.sh status        what's running, the last lines of the log, GPU use
@@ -35,12 +36,14 @@ newest_package() {
 }
 
 cmd_train() {
-    local package="" size=512 epochs=60 name="" scratch="" color=""
+    local package="" size=512 epochs=60 name="" scratch="" color="" opts=()
     while (( $# )); do
         case $1 in
             --size) size=$2; shift 2 ;;
             --from-scratch) scratch=--from-scratch; shift ;;
             --color) color=--color; shift ;;
+            --aug|--occluded|--qfl|--mine) opts+=($1); shift ;;
+            --seed) opts+=(--seed $2); shift 2 ;;
             --epochs) epochs=$2; shift 2 ;;
             --name) name=$2; shift 2 ;;
             *) package=$1; shift ;;
@@ -67,7 +70,7 @@ cmd_train() {
     # Started through WMI so it isn't tied to this SSH session: it keeps
     # training after we disconnect (and survives the Mac going to sleep).
     local log="$REMOTE\\$name.log"
-    remote "\$cmd = 'cmd /c cd /d $REMOTE && set PYTHONUNBUFFERED=1 && \"$PY\" train_heatmap_model.py $zip --size $size --epochs $epochs --name $name $scratch $color > \"$log\" 2>&1';
+    remote "\$cmd = 'cmd /c cd /d $REMOTE && set PYTHONUNBUFFERED=1 && \"$PY\" train_heatmap_model.py $zip --size $size --epochs $epochs --name $name $scratch $color ${opts[*]} > \"$log\" 2>&1';
             \$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = \$cmd; CurrentDirectory = '$REMOTE' };
             if (\$r.ReturnValue -ne 0) { throw \"start failed: \$(\$r.ReturnValue)\" }; 'started pid ' + \$r.ProcessId"
     say "Training on the desktop. Follow it with: $SCRIPT wait $name"
