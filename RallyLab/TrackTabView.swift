@@ -27,6 +27,9 @@ struct TrackTabView: View {
     @State private var keyMonitor: Any?
     @AppStorage(TrackTabView.sessionKey) private var savedSession = ""
     @State private var videoFilter = ""
+    /// The search box only holds the keyboard while you type in it — the
+    /// shortcuts (Enter, Space, arrows) stand down while a text field has it.
+    @FocusState private var searchFocused: Bool
     /// The pipeline tuner's videos, listed first so they're easy to find for marking.
     @State private var tuningVideos: [String] = []
 
@@ -41,10 +44,13 @@ struct TrackTabView: View {
                 if mode == .ball { stage } else { RallyMarkView(marker: marker) }
             }
             .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
+            .simultaneousGesture(TapGesture().onEnded { searchFocused = false })
         }
         .onAppear {
             if tracker.sessionName == nil, !savedSession.isEmpty { tracker.open(sessionName: savedSession) }
             if mode == .rallies, !savedSession.isEmpty { marker.open(sessionName: savedSession) }
+            // macOS hands the first text field the keyboard when the tab opens.
+            Task { searchFocused = false }
             tuningVideos = PipelineTuner.ValidationSet.load(from: tracker.sampler.datasetRoot).map { $0.tune + $0.holdout } ?? []
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { handleKey($0) ? nil : $0 }
         }
@@ -72,9 +78,13 @@ struct TrackTabView: View {
             .pickerStyle(.segmented).labelsHidden()
             TextField("Find a video", text: $videoFilter)
                 .textFieldStyle(.roundedBorder)
+                .focused($searchFocused)
+                .onSubmit { searchFocused = false }
+                .onExitCommand { searchFocused = false }
             Picker("Video", selection: Binding(
                 get: { tracker.sessionName ?? "" },
                 set: { name in
+                    searchFocused = false
                     savedSession = name
                     tracker.open(sessionName: name)
                     if mode == .rallies { marker.open(sessionName: name) }
