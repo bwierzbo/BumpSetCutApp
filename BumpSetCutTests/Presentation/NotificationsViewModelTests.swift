@@ -127,7 +127,7 @@ private final class MockNotificationsClient: APIClient, @unchecked Sendable {
         throw APIError.serverError(statusCode: 501, message: "not used")
     }
 
-    func submitFlywheelContribution(_ contribution: FlywheelContribution, frameURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws {
+    func submitFlywheelContribution(_ contribution: FlywheelContribution, clipURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws {
         throw APIError.serverError(statusCode: 501, message: "not used")
     }
 }

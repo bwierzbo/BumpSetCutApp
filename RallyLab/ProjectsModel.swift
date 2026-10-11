@@ -32,6 +32,9 @@ struct PlannedClip: Identifiable, Equatable, Hashable {
     var split: String?
     /// The clip's videos, oldest first; each is its own dataset session.
     var videos: [ClipSource] = []
+    /// Footage pulled from testers: the flywheel contribution it came from,
+    /// or "posted:<user>:<day>" for rallies posted to the feed.
+    var pulledFrom: String? = nil
 
     /// A video's ID: its dataset session and its cut file's name.
     func videoId(of video: ClipSource) -> String { video.videoId ?? id }
@@ -39,7 +42,7 @@ struct PlannedClip: Identifiable, Equatable, Hashable {
 
 extension PlannedClip: Codable {
     private enum CodingKeys: String, CodingKey {
-        case id, number, environment, camera, lighting, orientation, ball, notes, split, videos
+        case id, number, environment, camera, lighting, orientation, ball, notes, split, videos, pulledFrom
         /// Projects saved when a clip held one video.
         case source
     }
@@ -57,6 +60,7 @@ extension PlannedClip: Codable {
         split = try c.decodeIfPresent(String.self, forKey: .split)
         videos = try c.decodeIfPresent([ClipSource].self, forKey: .videos)
             ?? c.decodeIfPresent(ClipSource.self, forKey: .source).map { [$0] } ?? []
+        pulledFrom = try c.decodeIfPresent(String.self, forKey: .pulledFrom)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -71,6 +75,7 @@ extension PlannedClip: Codable {
         try c.encode(notes, forKey: .notes)
         try c.encodeIfPresent(split, forKey: .split)
         try c.encode(videos, forKey: .videos)
+        try c.encodeIfPresent(pulledFrom, forKey: .pulledFrom)
     }
 }
 
@@ -376,6 +381,22 @@ final class ProjectsModel {
 
     // MARK: - Progress
 
+    /// Wait for a video `addVideo` started to be cut and sampled: true once
+    /// it's in the dataset.
+    func waitForSampling(_ videoId: String) async -> Bool {
+        while true {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            switch progress(ofVideo: videoId) {
+            case .pulled: return true
+            case .failed: return false
+            case .busy: continue
+            case .notStarted:
+                if sampler.isIngesting || !sampler.queue.allSatisfy(\.isFinished) { continue }
+                return false
+            }
+        }
+    }
+
     func session(named videoId: String) -> VideoSession? {
         sampler.sessions.first { $0.name == DatasetStore.safeName(videoId) }
     }
@@ -664,11 +685,8 @@ final class ProjectsModel {
         guard let project else { return }
         let videos = urls.filter { Self.videoExtensions.contains($0.pathExtension.lowercased()) }
         guard !videos.isEmpty else { status = "Drop videos (.mov, .mp4 or .m4v)."; return }
-        let prefix = Self.envPrefix[environment] ?? "ind"
-        let stem = "\(prefix)_extra_self_"
-        var next = project.clips.compactMap { clip in
-            clip.id.hasPrefix(stem) ? Int(clip.id.dropFirst(stem.count)) : nil
-        }.max() ?? 0
+        let stem = "\(Self.envPrefix[environment] ?? "ind")_extra_self_"
+        var next = lastExtra(stem, in: project)
         var added: [(PlannedClip, URL)] = []
         for video in videos {
             next += 1
@@ -684,6 +702,29 @@ final class ProjectsModel {
             cutMiddle(of: video, into: clip.id)
         }
         status = "Added \(added.count) extra \(environment.lowercased()) video\(added.count == 1 ? "" : "s")."
+    }
+
+    /// A new extra card for footage a tester sent (`pulledFrom` says which),
+    /// training only: the val clips stay the fixed benchmark. Returns its id.
+    func addTesterCard(environment: String, notes: String, pulledFrom: String) -> String? {
+        guard let project else { return nil }
+        let stem = "\(Self.envPrefix[environment] ?? "ind")_extra_tester_"
+        let next = lastExtra(stem, in: project) + 1
+        var clip = PlannedClip(id: stem + String(format: "%02d", next), number: 2000 + next,
+                               environment: environment, camera: Self.extraCamera,
+                               lighting: "", orientation: "", ball: "", notes: notes)
+        clip.split = "train"
+        clip.pulledFrom = pulledFrom
+        self.project?.clips.append(clip)
+        save()
+        return clip.id
+    }
+
+    /// The highest number on an extra card named `stem` + number (0 if none).
+    private func lastExtra(_ stem: String, in project: Project) -> Int {
+        project.clips.compactMap { clip in
+            clip.id.hasPrefix(stem) ? Int(clip.id.dropFirst(stem.count)) : nil
+        }.max() ?? 0
     }
 
     /// Remove an extra clip with its footage and frames. Planned clips stay.

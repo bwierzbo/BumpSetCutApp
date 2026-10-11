@@ -2,10 +2,11 @@
 //  FlywheelContribution.swift
 //  BumpSetCut
 //
-//  Data-flywheel model types. A "contribution" is one rally where the detector
-//  struggled (or the user corrected it), packaged as a short clip plus the
-//  detector's per-frame evidence so the frames can be relabeled and fed back
-//  into training. See FlywheelCaptureService for staging/upload.
+//  Data-flywheel model types. A "contribution" is one processed video's
+//  rallies, uploaded once as clips of the original footage plus the detector's
+//  per-frame evidence, so they can be labeled and fed back into training. Flags
+//  (a rally the user removed, trimmed or reported) ride along as events. See
+//  FlywheelCaptureService for staging/upload.
 //
 
 import Foundation
@@ -16,7 +17,10 @@ import CoreGraphics
 enum FlywheelConsent {
     /// Bump when the consent copy materially changes so we can tell which
     /// version a user agreed to. Stored alongside the opt-in date.
-    static let currentVersion = "1.0"
+    static let currentVersion = "2.0"
+    /// Recorded for testers, who share footage by default rather than through
+    /// the consent sheet (see `AppSettings.applyTesterFlywheelDefault`).
+    static let testerDefault = "tester-2.0"
 }
 
 // MARK: - Trigger
@@ -24,7 +28,7 @@ enum FlywheelConsent {
 /// Why a contribution was captured. Mirrors the `trigger_type` check on the
 /// `flywheel_contributions` table.
 enum FlywheelTrigger: String, Codable {
-    case lowScore = "low_score"        // passive: borderline-confidence rally
+    case processed = "processed"       // passive: every rally of a processed video
     case userRemoved = "user_removed"  // user swiped a rally away in review
     case userTrimmed = "user_trimmed"  // user corrected the rally's start/end
     case reported = "reported"         // explicit "report a mistake"
@@ -33,9 +37,9 @@ enum FlywheelTrigger: String, Codable {
 
 // MARK: - Flag Event
 
-/// One time the user (or passive capture) flagged a rally in a video. Whole-video
-/// frames are uploaded once per video; each additional flag just appends one of
-/// these and bumps the server-side count.
+/// One time the user (or passive capture) flagged a rally in a video. A video's
+/// clips are uploaded once; each additional flag just appends one of these and
+/// bumps the server-side count.
 struct FlywheelFlagEvent: Codable {
     let rallyIndex: Int
     let trigger: String
@@ -98,10 +102,24 @@ extension StoredFrameEvidence {
     }
 }
 
+// MARK: - Clip
+
+/// Where a clip sits in the original video, seconds.
+struct FlywheelClipWindow: Codable, Equatable {
+    let start: Double
+    let end: Double
+}
+
+/// One stretch of the original video, staged as an .mp4 next to the index.
+struct FlywheelClip: Codable, Equatable {
+    let fileName: String
+    let window: FlywheelClipWindow
+}
+
 // MARK: - Staged Contribution (local disk record)
 
 /// A contribution staged on disk under `ProcessedMetadata/Flywheel/`, awaiting
-/// upload. The clip lives next to it as `clipFileName`.
+/// upload, with its clips next to it.
 struct FlywheelContribution: Codable, Identifiable {
     let id: UUID
     let videoId: UUID
@@ -110,9 +128,9 @@ struct FlywheelContribution: Codable, Identifiable {
     let endTime: Double
     let trigger: FlywheelTrigger
     let userReason: String?
-    /// Local staged JPEG frame files (full-res annotation stills), in order.
-    /// Empty for "repeat" flags on a video whose frames were already uploaded.
-    let frameFileNames: [String]
+    /// The video's rallies (each padded a little), in order. Empty for
+    /// "repeat" flags on a video whose clips were already uploaded.
+    let clips: [FlywheelClip]
     /// Every flag accumulated for this video while staged (sent together on drain).
     var flagEvents: [FlywheelFlagEvent]
     let evidence: [StoredFrameEvidence]
@@ -135,7 +153,8 @@ struct FlywheelFlagRPCParams: Encodable {
     let pRallyIndex: Int
     let pTrigger: String
     let pReason: String?
-    let pFrameUrls: [String]
+    let pClipUrls: [String]
+    let pClipWindows: [FlywheelClipWindow]
     let pEvidence: [StoredFrameEvidence]
     let pRallyConfidence: Double
     let pRallyQuality: Double
@@ -145,12 +164,13 @@ struct FlywheelFlagRPCParams: Encodable {
     let pConsentVersion: String
     let pEvents: [FlywheelFlagEvent]
 
-    init(contribution: FlywheelContribution, frameUrls: [String]) {
+    init(contribution: FlywheelContribution, clipUrls: [String]) {
         self.pLocalVideoId = contribution.videoId
         self.pRallyIndex = contribution.rallyIndex
         self.pTrigger = contribution.trigger.rawValue
         self.pReason = contribution.userReason
-        self.pFrameUrls = frameUrls
+        self.pClipUrls = clipUrls
+        self.pClipWindows = contribution.clips.map(\.window)
         self.pEvidence = contribution.evidence
         self.pRallyConfidence = contribution.rallyConfidence
         self.pRallyQuality = contribution.rallyQuality

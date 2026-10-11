@@ -2,10 +2,11 @@
 //  FlywheelCaptureService.swift
 //  BumpSetCut
 //
-//  Data flywheel: when the user opts in, stage clips of rallies the detector
-//  struggled with (passively) or that the user corrected, then drain them to the
-//  private `training-data` bucket for relabeling. Staged on disk, drained
-//  when the network comes back.
+//  Data flywheel: when the user opts in (testers are in by default), stage
+//  every rally of each processed video as a clip of the original footage, and
+//  the rallies the user corrected or reported as flags on it, then drain them
+//  to the private `training-data` bucket, where RallyLab pulls them into
+//  training. Staged on disk, drained on Wi-Fi.
 //
 
 import Foundation
@@ -28,30 +29,27 @@ final class FlywheelCaptureService {
     private(set) var isDraining = false
     /// Progress (0–1) of the current upload drain, for the upload pill.
     private(set) var uploadProgress: Double = 0
-    /// Total frames being uploaded in the current drain, for the pill's label.
-    private(set) var uploadFrameTotal: Int = 0
+    /// Total clips being uploaded in the current drain, for the pill's label.
+    private(set) var uploadClipTotal: Int = 0
     /// Rallies the user has explicitly reported, as "videoId#rallyIndex" keys.
     /// Drives the "reported" indicator and survives app restarts.
     private(set) var reportedRallies: Set<String> = []
 
     // MARK: - Tuning
 
-    /// Rallies whose model confidence is at or below this are "borderline" — the
-    /// hard examples worth relabeling. (RallySegment.confidence is the average
-    /// physics confidence over the segment, 0–1.)
-    private let passiveConfidenceThreshold = 0.5
-    /// Cap passive captures per video so one process doesn't flood the queue.
-    private let maxPassivePerVideo = 2
-    /// Hard ceiling on staged contributions awaiting upload.
-    private let maxPendingContributions = 50
-    /// Pad the evidence window slightly past the segment edges.
-    private let evidenceMarginSec = 0.25
-    /// Full-resolution stills, native resolution: a dense set across the flagged
-    /// rally (the hard examples) plus a random set across the whole video (scene
-    /// diversity so the model generalizes to the rest of the footage).
-    private let rallyFrameCount = 25
-    private let randomFrameCount = 25
-    private let frameJpegQuality: CGFloat = 0.9
+    /// Hard ceiling on staged videos awaiting upload (each is up to a few
+    /// hundred MB of clips).
+    private let maxPendingContributions = 10
+    /// Each rally's clip starts and ends this far past it: the serve toss and
+    /// the ball's last bounce, which the rally times cut close.
+    private let clipPaddingSec = 2.0
+    /// A video with no rallies found sends this many stretches of this long,
+    /// spread across it: the rallies the detector missed are in there.
+    private let missedSampleCount = 3
+    private let missedSampleSec = 15.0
+    /// 1080p HEVC: the training package scales frames to 1024 px anyway, and
+    /// a 4K original would be four times the upload.
+    private let clipPreset = AVAssetExportPresetHEVC1920x1080
 
     // MARK: - Storage
 
@@ -66,12 +64,12 @@ final class FlywheelCaptureService {
     private let metadataStore = MetadataStore.shared
 
     private var staged: [FlywheelContribution] = []
-    /// Videos whose whole-video frames are already on the server — later flags on
-    /// these only send an event (no frame re-upload).
-    private var framesUploadedVideos: Set<UUID> = []
-    /// Videos whose frames are being extracted right now. Flags arriving
+    /// Videos whose clips are already on the server — later flags on these
+    /// only send an event (no re-upload).
+    private var uploadedVideos: Set<UUID> = []
+    /// Videos whose clips are being exported right now. Flags arriving
     /// meanwhile wait in `eventsAwaitingStage` instead of starting a second
-    /// extraction for the same video.
+    /// export for the same video.
     private var stagingVideoIds: Set<UUID> = []
     private var eventsAwaitingStage: [UUID: [FlywheelFlagEvent]] = [:]
 
@@ -111,17 +109,16 @@ final class FlywheelCaptureService {
         self.decoder.dateDecodingStrategy = .iso8601
 
         try? fileManager.createDirectory(at: base, withIntermediateDirectories: true)
-        // Staged frames are full-resolution JPEGs waiting to upload — never
-        // worth an iCloud backup.
+        // Staged clips are waiting to upload — never worth an iCloud backup.
         StorageManager.excludeFromBackup(base)
 
         self.lifetimeContributedCount = UserDefaults.standard.integer(forKey: lifetimeKey)
         let indexLoaded = loadIndex()
-        framesUploadedVideos = loadJSON(Set<UUID>.self, from: uploadedVideosURL) ?? []
+        uploadedVideos = loadJSON(Set<UUID>.self, from: uploadedVideosURL) ?? []
         reportedRallies = loadJSON(Set<String>.self, from: reportedURL) ?? []
-        // Only trust the index to say which frames are orphaned if it loaded.
+        // Only trust the index to say which files are orphaned if it loaded.
         if indexLoaded {
-            sweepUnreferencedFrames()
+            sweepUnreferencedFiles()
         }
     }
 
@@ -147,30 +144,21 @@ final class FlywheelCaptureService {
 
     // MARK: - Passive capture (processing time)
 
-    /// Stage the borderline-confidence rallies from a freshly processed video.
-    /// No-op unless the user has opted in.
+    /// Stage every rally of a freshly processed video. No-op unless the user
+    /// has opted in.
     func stagePassiveContributions(videoId: UUID, metadata: ProcessingMetadata, originalURL: URL) async {
-        guard AppSettings.shared.enableDataFlywheel else { return }
+        guard AppSettings.shared.enableDataFlywheel, let first = metadata.rallySegments.first else { return }
         guard staged.count < maxPendingContributions else { return }
 
-        let evidence = metadataStore.loadFrameEvidence(for: videoId)
-
-        let borderline = metadata.rallySegments.enumerated()
-            .filter { $0.element.confidence <= passiveConfidenceThreshold }
-            .sorted { $0.element.confidence < $1.element.confidence }
-            .prefix(maxPassivePerVideo)
-
-        for (index, segment) in borderline {
-            await stage(videoId: videoId, rallyIndex: index, segment: segment,
-                        trigger: .lowScore, reason: nil, originalURL: originalURL, evidence: evidence)
-        }
+        await stage(videoId: videoId, rallyIndex: 0, segment: first, trigger: .processed, reason: nil,
+                    originalURL: originalURL,
+                    windows: Self.rallyWindows(metadata.rallySegments, padding: clipPaddingSec))
         triggerDrain()
     }
 
-    /// Stage a whole-video frame contribution for a video where the detector found
-    /// NO rallies — a hard negative worth relabeling. Frames are sampled across the
-    /// entire video (there's no rally window), evidence is the full per-frame signal
-    /// saved by the coordinator. No-op unless the user has opted in.
+    /// Stage a video where the detector found NO rallies: a few stretches
+    /// spread across it, where the rallies it missed are. No-op unless the
+    /// user has opted in.
     func stageNoRallyContribution(videoId: UUID, originalURL: URL) async {
         guard AppSettings.shared.enableDataFlywheel else { return }
         guard staged.count < maxPendingContributions else { return }
@@ -184,29 +172,28 @@ final class FlywheelCaptureService {
         }
         guard durationSec > 0 else { return }
 
-        let evidence = metadataStore.loadFrameEvidence(for: videoId)
-        // A whole-video "segment" makes extractFrames sample evenly + randomly across
-        // the entire video — exactly the grouping we want when there's no rally window.
         let wholeVideo = RallySegment(startTimeSeconds: 0, endTimeSeconds: durationSec,
                                       confidence: 0, quality: 0, detectionCount: 0,
                                       averageTrajectoryLength: 0)
-        await stage(videoId: videoId, rallyIndex: 0, segment: wholeVideo,
-                    trigger: .noRallies, reason: nil, originalURL: originalURL, evidence: evidence)
+        await stage(videoId: videoId, rallyIndex: 0, segment: wholeVideo, trigger: .noRallies, reason: nil,
+                    originalURL: originalURL, windows: Self.samples(of: durationSec, count: missedSampleCount,
+                                                                     length: missedSampleSec))
         triggerDrain()
     }
 
     // MARK: - Correction capture (review time)
 
-    /// Stage a contribution for a rally the user corrected or reported.
-    /// No-op unless the user has opted in.
+    /// Stage a flag for a rally the user corrected or reported — with the
+    /// video's clips, unless they're staged or uploaded already. No-op unless
+    /// the user has opted in.
     func stageCorrection(videoId: UUID, rallyIndex: Int, segment: RallySegment,
                          trigger: FlywheelTrigger, reason: String? = nil, originalURL: URL) async {
         guard AppSettings.shared.enableDataFlywheel else { return }
         guard staged.count < maxPendingContributions else { return }
 
-        let evidence = metadataStore.loadFrameEvidence(for: videoId)
-        await stage(videoId: videoId, rallyIndex: rallyIndex, segment: segment,
-                    trigger: trigger, reason: reason, originalURL: originalURL, evidence: evidence)
+        let segments = (try? metadataStore.loadMetadata(for: videoId).rallySegments) ?? [segment]
+        await stage(videoId: videoId, rallyIndex: rallyIndex, segment: segment, trigger: trigger, reason: reason,
+                    originalURL: originalURL, windows: Self.rallyWindows(segments, padding: clipPaddingSec))
         triggerDrain()
     }
 
@@ -218,45 +205,46 @@ final class FlywheelCaptureService {
         guard AppSettings.shared.enableDataFlywheel, !isDraining, !staged.isEmpty else { return }
         isDraining = true
         uploadProgress = 0
-        defer { isDraining = false; uploadProgress = 0; uploadFrameTotal = 0 }
+        defer { isDraining = false; uploadProgress = 0; uploadClipTotal = 0 }
 
-        // Resolve each contribution's on-disk frames once, so we know the total
-        // frame count up front (for the pill) and can report overall progress.
-        let jobs: [(contribution: FlywheelContribution, frameURLs: [URL])] = staged.map { c in
-            let urls = c.frameFileNames
-                .map { stagingDirectory.appendingPathComponent($0) }
+        // Resolve each contribution's on-disk clips once, so we know the total
+        // up front (for the pill) and can report overall progress.
+        let jobs: [(contribution: FlywheelContribution, clipURLs: [URL])] = staged.map { c in
+            let urls = c.clips
+                .map { stagingDirectory.appendingPathComponent($0.fileName) }
                 .filter { fileManager.fileExists(atPath: $0.path) }
             return (c, urls)
         }
-        let totalFrames = jobs.reduce(0) { $0 + $1.frameURLs.count }
-        uploadFrameTotal = totalFrames
-        print("📤 Flywheel: uploading \(jobs.count) contribution(s), \(totalFrames) frame(s)…")
+        let totalClips = jobs.reduce(0) { $0 + $1.clipURLs.count }
+        uploadClipTotal = totalClips
+        print("📤 Flywheel: uploading \(jobs.count) contribution(s), \(totalClips) clip(s)…")
 
         var remaining: [FlywheelContribution] = []
         var resent: [FlywheelContribution] = []
         var uploaded = 0
-        var framesDone = 0
+        var clipsDone = 0
 
         for job in jobs {
             let contribution = job.contribution
-            let frameURLs = job.frameURLs
-            // Event-only repeats legitimately have no frames; only drop when frames
+            let clipURLs = job.clipURLs
+            // Event-only repeats legitimately have no clips; only drop when clips
             // were expected but their files vanished.
-            if !contribution.frameFileNames.isEmpty && frameURLs.isEmpty {
+            if !contribution.clips.isEmpty && clipURLs.count != contribution.clips.count {
+                clipURLs.forEach { try? fileManager.removeItem(at: $0) }
                 continue
             }
-            let thisCount = frameURLs.count
-            let doneBefore = framesDone
+            let thisCount = clipURLs.count
+            let doneBefore = clipsDone
             do {
-                try await client.submitFlywheelContribution(contribution, frameURLs: frameURLs, progress: { [weak self] p in
+                try await client.submitFlywheelContribution(contribution, clipURLs: clipURLs, progress: { [weak self] p in
                     Task { @MainActor in
-                        guard let self, totalFrames > 0 else { return }
-                        self.uploadProgress = (Double(doneBefore) + p * Double(thisCount)) / Double(totalFrames)
+                        guard let self, totalClips > 0 else { return }
+                        self.uploadProgress = (Double(doneBefore) + p * Double(thisCount)) / Double(totalClips)
                     }
                 })
-                frameURLs.forEach { try? fileManager.removeItem(at: $0) }
-                if !contribution.frameFileNames.isEmpty {
-                    framesUploadedVideos.insert(contribution.videoId)
+                clipURLs.forEach { try? fileManager.removeItem(at: $0) }
+                if !contribution.clips.isEmpty {
+                    uploadedVideos.insert(contribution.videoId)
                     persistUploadedVideos()
                 }
                 // Flags appended to this contribution while it was uploading
@@ -267,13 +255,13 @@ final class FlywheelCaptureService {
                                                   events: Array(current.flagEvents.dropFirst(contribution.flagEvents.count))))
                 }
                 uploaded += 1
-                framesDone += thisCount
-                uploadProgress = totalFrames > 0 ? Double(framesDone) / Double(totalFrames) : 0
-                print("✅ Flywheel: sent \(contribution.trigger.rawValue) data for video \(contribution.videoId.uuidString.prefix(8)) — \(thisCount) frame(s)")
+                clipsDone += thisCount
+                uploadProgress = totalClips > 0 ? Double(clipsDone) / Double(totalClips) : 0
+                print("✅ Flywheel: sent \(contribution.trigger.rawValue) data for video \(contribution.videoId.uuidString.prefix(8)) — \(thisCount) clip(s)")
             } catch {
                 // Keep failed items for the next attempt (offline / unauthenticated).
                 remaining.append(contribution)
-                framesDone += thisCount
+                clipsDone += thisCount
                 print("⚠️ Flywheel: upload failed (will retry): \(error.localizedDescription)")
             }
         }
@@ -308,10 +296,10 @@ final class FlywheelCaptureService {
     /// recorded for them.
     func discardContributions(for videoIds: Set<UUID>) {
         discard(staged.filter { videoIds.contains($0.videoId) })
-        // An extraction in flight for one of them drops its frames on return.
+        // An export in flight for one of them drops its clips on return.
         stagingVideoIds.subtract(videoIds)
         eventsAwaitingStage = eventsAwaitingStage.filter { !videoIds.contains($0.key) }
-        framesUploadedVideos.subtract(videoIds)
+        uploadedVideos.subtract(videoIds)
         persistUploadedVideos()
         let reportPrefixes = videoIds.map { "\($0.uuidString)#" }
         reportedRallies = reportedRallies.filter { key in !reportPrefixes.contains { key.hasPrefix($0) } }
@@ -322,8 +310,8 @@ final class FlywheelCaptureService {
         guard !contributions.isEmpty else { return }
         let ids = Set(contributions.map(\.id))
         for contribution in contributions {
-            for name in contribution.frameFileNames {
-                try? fileManager.removeItem(at: stagingDirectory.appendingPathComponent(name))
+            for clip in contribution.clips {
+                try? fileManager.removeItem(at: stagingDirectory.appendingPathComponent(clip.fileName))
             }
         }
         staged.removeAll { ids.contains($0.id) }
@@ -348,53 +336,57 @@ final class FlywheelCaptureService {
     // MARK: - Private
 
     private func triggerDrain() {
-        Task { await drain(using: SupabaseAPIClient.shared) }
+        Task { await drainOnWiFi() }
+    }
+
+    /// Drain now if the phone is on Wi-Fi (or wired): clips are tens of MB
+    /// each, too much for a cellular plan.
+    func drainOnWiFi() async {
+        guard NetworkMonitor.shared.isConnected, NetworkMonitor.shared.connectionType != .cellular else { return }
+        await drain(using: SupabaseAPIClient.shared)
     }
 
     private func stage(videoId: UUID, rallyIndex: Int, segment: RallySegment,
                        trigger: FlywheelTrigger, reason: String?, originalURL: URL,
-                       evidence: [StoredFrameEvidence]) async {
-        guard segment.endTime > segment.startTime else { return }
+                       windows: [FlywheelClipWindow]) async {
+        guard segment.endTime > segment.startTime, !windows.isEmpty else { return }
 
         let event = FlywheelFlagEvent(rallyIndex: rallyIndex, trigger: trigger.rawValue, reason: reason, at: Date())
 
-        // Already staged for this video → just record the extra flag (frames are
-        // whole-video, so one set covers every rally). No re-extraction.
+        // Already staged for this video → just record the extra flag (the
+        // clips cover every rally). No re-export.
         if let idx = staged.firstIndex(where: { $0.videoId == videoId }) {
             staged[idx].flagEvents.append(event)
             persistIndex()
             return
         }
 
-        // Frames for this video are being extracted by an earlier flag right
-        // now — ride along with it instead of extracting a duplicate set.
+        // Clips for this video are being exported by an earlier flag right
+        // now — ride along with it instead of exporting a duplicate set.
         guard stagingVideoIds.insert(videoId).inserted else {
             eventsAwaitingStage[videoId, default: []].append(event)
             return
         }
 
         let id = UUID()
-        let sliced = evidence.filter {
-            $0.time >= segment.startTime - evidenceMarginSec &&
-            $0.time <= segment.endTime + evidenceMarginSec
+        let evidence = metadataStore.loadFrameEvidence(for: videoId).filter { e in
+            windows.contains { e.time >= $0.start && e.time <= $0.end }
         }
 
-        // Frames already on the server → stage an event-only repeat (no frames).
-        let eventOnly = framesUploadedVideos.contains(videoId)
-        let frameNames = eventOnly
-            ? []
-            : await extractFrames(from: originalURL, segment: segment, contributionId: id)
+        // Clips already on the server → stage an event-only repeat (no clips).
+        let eventOnly = uploadedVideos.contains(videoId)
+        let clips = eventOnly ? [] : await exportClips(from: originalURL, windows: windows, contributionId: id)
 
         // Removed from `stagingVideoIds` by discardContributions → the video
-        // was deleted while we extracted.
+        // was deleted while we exported.
         guard stagingVideoIds.remove(videoId) != nil else {
-            for name in frameNames {
-                try? fileManager.removeItem(at: stagingDirectory.appendingPathComponent(name))
+            for clip in clips {
+                try? fileManager.removeItem(at: stagingDirectory.appendingPathComponent(clip.fileName))
             }
             return
         }
         let queuedEvents = eventsAwaitingStage.removeValue(forKey: videoId) ?? []
-        guard eventOnly || !frameNames.isEmpty else { return }
+        guard eventOnly || !clips.isEmpty else { return }
 
         let contribution = FlywheelContribution(
             id: id,
@@ -404,9 +396,9 @@ final class FlywheelCaptureService {
             endTime: segment.endTime,
             trigger: trigger,
             userReason: reason,
-            frameFileNames: frameNames,
+            clips: clips,
             flagEvents: [event] + queuedEvents,
-            evidence: sliced,
+            evidence: evidence,
             rallyConfidence: segment.confidence,
             rallyQuality: segment.quality,
             appVersion: Self.appVersion,
@@ -421,75 +413,68 @@ final class FlywheelCaptureService {
         persistIndex()
     }
 
-    // MARK: - Frame extraction
+    // MARK: - Clips
 
-    /// Full-resolution JPEG stills: `rallyFrameCount` densely across the flagged
-    /// rally window, plus `randomFrameCount` at random across the whole video.
-    /// Files are named `{id}_rally_NN.jpg` / `{id}_random_NN.jpg` so the rally
-    /// (hard-example) frames stay distinguishable for annotation. Returns the
-    /// staged file names (empty on failure).
-    private func extractFrames(from originalURL: URL, segment: RallySegment, contributionId: UUID) async -> [String] {
-        let asset = AVURLAsset(url: originalURL)
-        let durationSec: Double
-        do {
-            durationSec = CMTimeGetSeconds(try await asset.load(.duration))
-        } catch {
-            print("Flywheel: couldn't load video duration: \(error)")
-            return []
-        }
-        guard durationSec > 0 else { return [] }
-
-        // Dense across the rally + random across the whole video.
-        let rallyStart = max(0, segment.startTime)
-        let rallyEnd = min(durationSec, segment.endTime)
-        let rallyTimes = evenTimes(from: rallyStart, to: rallyEnd, count: rallyFrameCount)
-        let randomTimes = (0..<randomFrameCount).map { _ in Double.random(in: 0..<durationSec) }
-        let plan: [(time: Double, label: String, index: Int)] =
-            rallyTimes.enumerated().map { ($0.element, "rally", $0.offset) } +
-            randomTimes.enumerated().map { ($0.element, "random", $0.offset) }
-
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true          // correct orientation
-        generator.requestedTimeToleranceBefore = .zero           // exact frames
-        generator.requestedTimeToleranceAfter = .zero
-        // No maximumSize → native full resolution (1080p / 2K / 4K as source).
-
-        var names: [String] = []
-        for item in plan {
-            let cmTime = CMTime(seconds: item.time, preferredTimescale: 600)
-            do {
-                let cgImage: CGImage
-                if #available(iOS 16.0, *) {
-                    cgImage = try await generator.image(at: cmTime).image
-                } else {
-                    cgImage = try generator.copyCGImage(at: cmTime, actualTime: nil)
-                }
-                #if canImport(UIKit)
-                guard let data = UIImage(cgImage: cgImage).jpegData(compressionQuality: frameJpegQuality) else { continue }
-                #else
-                continue
-                #endif
-                let name = "\(contributionId.uuidString)_\(item.label)_\(String(format: "%02d", item.index)).jpg"
-                try data.write(to: stagingDirectory.appendingPathComponent(name), options: .atomic)
-                names.append(name)
-            } catch {
-                print("Flywheel: frame extract failed at \(String(format: "%.2f", item.time))s: \(error)")
+    /// Each rally padded by `padding` either side, overlapping ones merged.
+    nonisolated static func rallyWindows(_ segments: [RallySegment], padding: Double) -> [FlywheelClipWindow] {
+        var windows: [FlywheelClipWindow] = []
+        for segment in segments.sorted(by: { $0.startTime < $1.startTime }) where segment.endTime > segment.startTime {
+            let start = max(0, segment.startTime - padding), end = segment.endTime + padding
+            if let last = windows.last, start <= last.end {
+                windows[windows.count - 1] = FlywheelClipWindow(start: last.start, end: max(last.end, end))
+            } else {
+                windows.append(FlywheelClipWindow(start: start, end: end))
             }
         }
-        return names
+        return windows
     }
 
-    /// `count` evenly-spaced timestamps across [a, b].
-    private func evenTimes(from a: Double, to b: Double, count n: Int) -> [Double] {
-        guard n > 0 else { return [] }
-        guard b > a else { return [a] }
-        if n == 1 { return [(a + b) / 2] }
-        let step = (b - a) / Double(n - 1)
-        return (0..<n).map { a + Double($0) * step }
+    /// `count` stretches of `length` seconds spread evenly across a video
+    /// `duration` long (the whole video when it's shorter than them all).
+    nonisolated static func samples(of duration: Double, count: Int, length: Double) -> [FlywheelClipWindow] {
+        guard duration > 0, count > 0 else { return [] }
+        guard duration > Double(count) * length else { return [FlywheelClipWindow(start: 0, end: duration)] }
+        let gap = (duration - Double(count) * length) / Double(count + 1)
+        return (0..<count).map { i in
+            let start = gap * Double(i + 1) + length * Double(i)
+            return FlywheelClipWindow(start: start, end: start + length)
+        }
     }
 
-    /// A frameless copy of `contribution` carrying only `events` — sent when
-    /// flags arrive after its frames already went up.
+    /// Each window of the original as a 1080p .mp4 in the staging folder,
+    /// named `{id}_clip_NN.mp4`. Windows that fail to export are left out
+    /// (empty on failure).
+    private func exportClips(from originalURL: URL, windows: [FlywheelClipWindow], contributionId: UUID) async -> [FlywheelClip] {
+        let asset = AVURLAsset(url: originalURL)
+        guard let duration = try? await asset.load(.duration), duration.seconds > 0 else {
+            print("Flywheel: couldn't load video duration")
+            return []
+        }
+        var clips: [FlywheelClip] = []
+        for (i, window) in windows.enumerated() {
+            let end = min(window.end, duration.seconds)
+            guard end > window.start else { continue }
+            // 1080p HEVC; a phone that can't encode HEVC keeps the original.
+            guard let session = AVAssetExportSession(asset: asset, presetName: clipPreset)
+                    ?? AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else { continue }
+            session.timeRange = CMTimeRange(start: CMTime(seconds: window.start, preferredTimescale: 600),
+                                            end: CMTime(seconds: end, preferredTimescale: 600))
+            let name = "\(contributionId.uuidString)_clip_\(String(format: "%02d", i)).mp4"
+            let url = stagingDirectory.appendingPathComponent(name)
+            try? fileManager.removeItem(at: url)
+            do {
+                try await session.export(to: url, as: .mp4)
+                clips.append(FlywheelClip(fileName: name, window: FlywheelClipWindow(start: window.start, end: end)))
+            } catch {
+                try? fileManager.removeItem(at: url)
+                print("Flywheel: clip export failed at \(String(format: "%.1f", window.start))s: \(error)")
+            }
+        }
+        return clips
+    }
+
+    /// A clipless copy of `contribution` carrying only `events` — sent when
+    /// flags arrive after its clips already went up.
     private func eventOnlyRepeat(of contribution: FlywheelContribution, events: [FlywheelFlagEvent]) -> FlywheelContribution {
         FlywheelContribution(
             id: UUID(),
@@ -499,7 +484,7 @@ final class FlywheelCaptureService {
             endTime: contribution.endTime,
             trigger: contribution.trigger,
             userReason: contribution.userReason,
-            frameFileNames: [],
+            clips: [],
             flagEvents: events,
             evidence: contribution.evidence,
             rallyConfidence: contribution.rallyConfidence,
@@ -512,12 +497,13 @@ final class FlywheelCaptureService {
         )
     }
 
-    /// Delete staged JPEGs no contribution references — left behind when the
-    /// app died between extracting frames and recording the contribution.
-    private func sweepUnreferencedFrames() {
-        let referenced = Set(staged.flatMap(\.frameFileNames))
+    /// Delete staged clips no contribution references — left behind when the
+    /// app died between exporting and recording the contribution — and the
+    /// stills earlier versions staged.
+    private func sweepUnreferencedFiles() {
+        let referenced = Set(staged.flatMap { $0.clips.map(\.fileName) })
         guard let names = try? fileManager.contentsOfDirectory(atPath: stagingDirectory.path) else { return }
-        for name in names where name.hasSuffix(".jpg") && !referenced.contains(name) {
+        for name in names where (name.hasSuffix(".mp4") || name.hasSuffix(".jpg")) && !referenced.contains(name) {
             try? fileManager.removeItem(at: stagingDirectory.appendingPathComponent(name))
         }
     }
@@ -537,7 +523,7 @@ final class FlywheelCaptureService {
     }
 
     private func persistUploadedVideos() {
-        persist(framesUploadedVideos, to: uploadedVideosURL, what: "uploaded videos")
+        persist(uploadedVideos, to: uploadedVideosURL, what: "uploaded videos")
     }
 
     private func persistReported() {

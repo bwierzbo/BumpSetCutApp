@@ -318,12 +318,12 @@ struct MainTabView: View {
     }
 
     /// Flywheel upload pill — mirrors the processing pill's style. Shown while
-    /// frames are draining to the server so the user knows not to quit mid-upload.
+    /// clips are draining to the server so the user knows not to quit mid-upload.
     private var flywheelUploadPill: some View {
         BSCStatusPill(
             title: "Uploading rally data…",
-            subtitle: flywheelService.uploadFrameTotal > 0
-                ? "\(flywheelService.uploadFrameTotal) frames · keep the app open"
+            subtitle: flywheelService.uploadClipTotal > 0
+                ? "\(flywheelService.uploadClipTotal) clips · keep the app open"
                 : "keep the app open"
         ) {
             BSCProgressRing(progress: flywheelService.uploadProgress) {

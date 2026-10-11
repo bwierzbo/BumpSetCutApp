@@ -117,12 +117,9 @@ import AVFoundation
                         PersistenceMonitor.shared.retryPending()
                     }
                 }
-                .onChange(of: networkMonitor.isConnected) { _, isConnected in
-                    if isConnected {
-                        Task {
-                            await FlywheelCaptureService.shared.drain(using: SupabaseAPIClient.shared)
-                        }
-                    }
+                // Training clips go up on Wi-Fi only.
+                .onChange(of: networkMonitor.connectionType) { _, _ in
+                    Task { await FlywheelCaptureService.shared.drainOnWiFi() }
                 }
                 .fullScreenCover(isPresented: Binding(
                     get: { authService.authState == .needsUsername },

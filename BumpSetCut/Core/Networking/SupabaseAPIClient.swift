@@ -119,29 +119,25 @@ final class SupabaseAPIClient: APIClient, MessageMediaClient, @unchecked Sendabl
 
     // MARK: - Data Flywheel
 
-    nonisolated func submitFlywheelContribution(_ contribution: FlywheelContribution, frameURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws {
+    nonisolated func submitFlywheelContribution(_ contribution: FlywheelContribution, clipURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws {
         let userId = try await currentUserId()
-        // Upload each full-res still into the private bucket under the user's
-        // folder: {userId}/{contributionId}/fNNN.jpg (the leading folder satisfies
-        // the RLS owner check). Empty for a repeat flag whose frames already exist.
+        // Stream each clip into the private bucket under the user's folder:
+        // {userId}/{contributionId}/clip_NN.mp4 (the leading folder satisfies
+        // the RLS owner check). Empty for a repeat flag whose clips exist.
         var objectPaths: [String] = []
-        let total = max(frameURLs.count, 1)
-        for (i, url) in frameURLs.enumerated() {
-            let data = try Data(contentsOf: url)
-            // Keep the meaningful basename (rally_NN / random_NN), drop the local
-            // contributionId prefix.
+        let total = Double(max(clipURLs.count, 1))
+        for (i, url) in clipURLs.enumerated() {
+            // Drop the local contributionId prefix from the name.
             let baseName = url.lastPathComponent
                 .replacingOccurrences(of: "\(contribution.id.uuidString)_", with: "")
             let path = "\(userId)/\(contribution.id.uuidString)/\(baseName)"
-            try await supabase.storage.from("training-data").upload(
-                path, data: data, options: .init(contentType: "image/jpeg", upsert: true)
-            )
-            objectPaths.append(path)
-            progress(Double(i + 1) / Double(total))
+            objectPaths.append(try await streamUpload(fileURL: url, bucket: "training-data", objectPath: path) { p in
+                progress((Double(i) + p) / total)
+            })
         }
-        // Insert-or-increment: first flag for a video records frames + columns;
-        // later flags just bump flag_count and append events server-side.
-        let params = FlywheelFlagRPCParams(contribution: contribution, frameUrls: objectPaths)
+        // Insert-or-increment: first flag for a video records the clips and
+        // columns; later flags just bump flag_count and append events.
+        let params = FlywheelFlagRPCParams(contribution: contribution, clipUrls: objectPaths)
         try await supabase.rpc("record_flywheel_flag", params: params).execute()
     }
 

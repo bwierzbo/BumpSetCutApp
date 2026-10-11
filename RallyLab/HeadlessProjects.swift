@@ -17,6 +17,10 @@
 //    RallyLab --project v3 --repull-all                    (sample every video's cut again, e.g. after
 //                                                           changing frames per rally — nothing re-downloaded;
 //                                                           videos with tracked rallies or reviewed frames are kept)
+//    RallyLab --project v3 --pull-tester-footage [--posted <username>…]   (what testers' phones sent for training —
+//             every rally of each processed video — as extra train cards, surface guessed; labelers' own
+//             footage left out; --posted also pulls rallies those people posted, a card per person per day.
+//             Signed in as for --sync-phone. Then --pretrack labels them)
 //    RallyLab --project v3 --move ind_ele_bright_land_self_01_v2 bch_ele_sun_land_self_01
 //    RallyLab --project v3 --status
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
@@ -113,8 +117,16 @@ enum HeadlessProjects {
                 ok = await sync.sync(videos: !args.contains("--labels-only"))
                 log((ok ? "✅ " : "❌ ") + sync.status)
             }
+            if ok, args.contains("--pull-tester-footage") {
+                let posted = args.firstIndex(of: "--posted").map { i in args[(i + 1)...].prefix { !$0.hasPrefix("--") } } ?? []
+                let report = await TesterFootage.pull(projects: projects, posted: Array(posted), log: log)
+                log("\(report.failed == 0 ? "✅" : "⚠️") \(report.added) tester clips added, \(report.skipped) skipped "
+                    + "(already in the project or unreadable), \(report.failed) failed")
+                ok = report.failed == 0
+            }
 
-            if args.contains("--status") || args.contains("--get") || args.contains("--move") || args.contains("--repull-all") {
+            if args.contains("--status") || args.contains("--get") || args.contains("--move") || args.contains("--repull-all")
+                || args.contains("--pull-tester-footage") {
                 printStatus(projects)
             }
 

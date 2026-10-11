@@ -153,7 +153,7 @@ final class LabelingSync {
                     status = "Couldn't add \(title): \(projects.status)"
                     continue
                 }
-                guard await waitForSampling(added) else {
+                guard await projects.waitForSampling(added) else {
                     status = "\(title) didn't sample: \(projects.status)"
                     continue
                 }
@@ -186,20 +186,6 @@ final class LabelingSync {
         let clips = projects.project?.clips.filter { $0.environment == video.surface.rawValue } ?? []
         let camera = clips.filter { Self.camera(of: $0.id) == video.camera }
         return (camera.first { $0.lighting == video.lighting } ?? camera.first ?? clips.first)?.id
-    }
-
-    private func waitForSampling(_ videoId: String) async -> Bool {
-        while true {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            switch projects.progress(ofVideo: videoId) {
-            case .pulled: return true
-            case .failed: return false
-            case .busy: continue
-            case .notStarted:
-                if projects.sampler.isIngesting || !projects.sampler.queue.allSatisfy(\.isFinished) { continue }
-                return false
-            }
-        }
     }
 
     // MARK: - 2. Project videos to the phone

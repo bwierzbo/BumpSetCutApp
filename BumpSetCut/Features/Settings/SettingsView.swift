@@ -490,7 +490,7 @@ private extension SettingsView {
             VStack(spacing: BSCSpacing.md) {
                 BSCSettingsToggle(
                     title: "Contribute Training Clips",
-                    subtitle: "Share clips of rallies the model struggled with so detection can improve",
+                    subtitle: "Share clips of your rallies (on Wi-Fi) so detection can improve",
                     icon: "brain.head.profile",
                     isOn: toggle
                 )

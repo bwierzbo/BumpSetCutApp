@@ -48,6 +48,7 @@ final class SubscriptionService {
             let tester: Bool = try await client.request(.amITester)
             isTester = tester
             UserDefaults.standard.set(tester, forKey: cacheKey)
+            if tester { AppSettings.shared.applyTesterFlywheelDefault() }
         } catch {
             print("💎 Tester check failed, keeping cached answer: \(error.localizedDescription)")
         }

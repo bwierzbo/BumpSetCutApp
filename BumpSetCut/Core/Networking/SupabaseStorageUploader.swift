@@ -6,11 +6,17 @@ import Supabase
 extension SupabaseAPIClient {
 
     /// Stream a file to a Supabase Storage bucket via chunked multipart (never
-    /// loads the video into memory). Returns the bucket-relative object path
-    /// (`{userId}/{uuid}.mp4`).
-    nonisolated func streamUpload(fileURL: URL, bucket: String, progress: @escaping @Sendable (Double) -> Void) async throws -> String {
-        let userId = try await currentUserId()
-        let fileName = "\(userId)/\(UUID().uuidString).mp4"
+    /// loads the video into memory). Returns the bucket-relative object path:
+    /// `objectPath` (overwritten if it exists; the bucket needs an UPDATE
+    /// policy), else `{userId}/{uuid}.mp4`.
+    nonisolated func streamUpload(fileURL: URL, bucket: String, objectPath: String? = nil,
+                                  progress: @escaping @Sendable (Double) -> Void) async throws -> String {
+        let fileName: String
+        if let objectPath {
+            fileName = objectPath
+        } else {
+            fileName = "\(try await currentUserId())/\(UUID().uuidString).mp4"
+        }
 
         // Get auth token for the storage API request
         let session = try await supabase.auth.session
@@ -41,7 +47,9 @@ extension SupabaseAPIClient {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
-        request.setValue("false", forHTTPHeaderField: "x-upsert")
+        // A named path is sent again when a retry repeats an upload that
+        // already landed; a generated one is new every time.
+        request.setValue(objectPath == nil ? "false" : "true", forHTTPHeaderField: "x-upsert")
 
         // Upload from file (streams from disk, no memory pressure)
         let delegate = UploadProgressDelegate(onProgress: progress)

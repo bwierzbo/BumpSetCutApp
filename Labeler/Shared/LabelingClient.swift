@@ -265,6 +265,56 @@ actor LabelingClient {
         }
     }
 
+    // MARK: - Footage from testers (migration 036)
+
+    /// A video a tester's phone sent for training: its rallies as clips in
+    /// the `training-data` bucket.
+    struct TesterFootage: Decodable {
+        struct Window: Decodable { let start: Double; let end: Double }
+        let id: String
+        let userId: String
+        let username: String?
+        let clipUrls: [String]
+        let clipWindows: [Window]
+        let consentVersion: String?
+        let deviceModel: String?
+        let createdAt: Date
+    }
+
+    /// What testers have sent, leaving out labelers' own footage.
+    func testerFootage() async throws -> [TesterFootage] {
+        try await rpc("tester_footage", [:])
+    }
+
+    /// A rally someone posted to the feed (public).
+    struct PostedClip: Decodable {
+        struct Author: Decodable { let username: String }
+        let id: String
+        let createdAt: Date
+        let muxPlaybackId: String?
+        let videoUrls: [String]?
+        let locationName: String?
+        let profiles: Author
+        /// Its videos: one per carousel page, or the single older one.
+        var urls: [URL] { (videoUrls ?? muxPlaybackId.map { [$0] } ?? []).compactMap(URL.init(string:)) }
+    }
+
+    /// The rallies these people posted, oldest first.
+    func postedClips(by usernames: [String]) async throws -> [PostedClip] {
+        let names = usernames.map { "\"\($0)\"" }.joined(separator: ",")
+        let query = "select=id,created_at,mux_playback_id,video_urls,location_name,profiles!inner(username)"
+            + "&profiles.username=in.(\(names))&order=created_at"
+        return try await get("highlights", query: query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query)
+    }
+
+    /// Download a public file (a posted rally) to `destination`.
+    func downloadPublic(_ url: URL, to destination: URL) async throws {
+        let (temp, response) = try await transfers.download(from: url)
+        try Self.check(Data(), response)
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: temp, to: destination)
+    }
+
     // MARK: - Annotation review, several people at once
 
     /// Claim a rally for review (see migration 033); false when someone
@@ -326,8 +376,8 @@ actor LabelingClient {
     }
 
     /// A link to stream or download a clip, good for `seconds`.
-    func signedURL(for path: String, seconds: Int = 6 * 3600) async throws -> URL {
-        var request = URLRequest(url: base.appending(path: "storage/v1/object/sign/\(Self.bucket)/\(path)"))
+    func signedURL(for path: String, in bucket: String = LabelingClient.bucket, seconds: Int = 6 * 3600) async throws -> URL {
+        var request = URLRequest(url: base.appending(path: "storage/v1/object/sign/\(bucket)/\(path)"))
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(try await bearer())", forHTTPHeaderField: "Authorization")
@@ -339,11 +389,13 @@ actor LabelingClient {
         return url
     }
 
-    /// Download a clip to `destination` (replacing anything there),
-    /// reporting progress 0–1.
-    func download(_ path: String, to destination: URL, progress: (@Sendable (Double) -> Void)? = nil) async throws {
+    /// Download a clip (from the labeling bucket unless another is named)
+    /// to `destination`, replacing anything there, reporting progress 0–1.
+    func download(_ path: String, from bucket: String = LabelingClient.bucket, to destination: URL,
+                  progress: (@Sendable (Double) -> Void)? = nil) async throws {
         let delegate = progress.map(TransferProgress.init)
-        let (temp, response) = try await transfers.download(from: try await signedURL(for: path, seconds: 3600), delegate: delegate)
+        let (temp, response) = try await transfers.download(from: try await signedURL(for: path, in: bucket, seconds: 3600),
+                                                            delegate: delegate)
         try Self.check(Data(), response)
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: temp, to: destination)

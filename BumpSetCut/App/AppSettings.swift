@@ -57,9 +57,10 @@ enum AppTheme: String, CaseIterable, Identifiable {
 
     // MARK: - Data Flywheel
 
-    /// Opt in to contribute clips of rallies the detector struggled with (plus
-    /// the detector's per-frame evidence) so the model can be retrained. Off by
-    /// default; only flipped true after the consent sheet is accepted.
+    /// Contribute clips of every processed rally (plus the detector's
+    /// per-frame evidence) so the model can be retrained. Off by default;
+    /// flipped true when the consent sheet is accepted, or once for testers
+    /// (`applyTesterFlywheelDefault`).
     var enableDataFlywheel: Bool {
         didSet {
             UserDefaults.standard.set(enableDataFlywheel, forKey: "enableDataFlywheel")
@@ -78,6 +79,19 @@ enum AppTheme: String, CaseIterable, Identifiable {
         didSet {
             UserDefaults.standard.set(flywheelOptInDate, forKey: "flywheelOptInDate")
         }
+    }
+
+    /// Testers share their footage by default (they agreed to as testers), with
+    /// the Settings toggle to stop. Applied once per install, so turning it off
+    /// sticks.
+    func applyTesterFlywheelDefault() {
+        let key = "flywheelTesterDefaultApplied"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        guard !enableDataFlywheel else { return }
+        flywheelConsentVersion = FlywheelConsent.testerDefault
+        flywheelOptInDate = Date()
+        enableDataFlywheel = true
     }
 
     // MARK: - Onboarding State
@@ -143,8 +157,12 @@ enum AppTheme: String, CaseIterable, Identifiable {
         #endif
 
         // Data flywheel (opt-in, default off)
+        let consent = UserDefaults.standard.string(forKey: "flywheelConsentVersion") ?? ""
+        // Agreed to an earlier consent (stills of hard rallies, not clips of
+        // every rally): off until they agree to what's sent now.
         self.enableDataFlywheel = UserDefaults.standard.bool(forKey: "enableDataFlywheel")
-        self.flywheelConsentVersion = UserDefaults.standard.string(forKey: "flywheelConsentVersion") ?? ""
+            && [FlywheelConsent.currentVersion, FlywheelConsent.testerDefault].contains(consent)
+        self.flywheelConsentVersion = consent
         self.flywheelOptInDate = UserDefaults.standard.object(forKey: "flywheelOptInDate") as? Date
 
         // Onboarding state

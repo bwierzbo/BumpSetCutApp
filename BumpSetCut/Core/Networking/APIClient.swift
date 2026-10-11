@@ -7,11 +7,10 @@ protocol APIClient: Sendable {
     func upload(fileURL: URL, to endpoint: APIEndpoint, progress: @escaping @Sendable (Double) -> Void) async throws -> URL
 
     // MARK: Data Flywheel
-    /// Upload a contribution's full-res frame stills to the private `training-data`
-    /// bucket and insert the matching `flywheel_contributions` row. The user id is
+    /// Upload a contribution's clips to the private `training-data` bucket and insert the matching `flywheel_contributions` row. The user id is
     /// resolved inside the client (from the auth session), so callers stay
     /// auth-agnostic.
-    func submitFlywheelContribution(_ contribution: FlywheelContribution, frameURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws
+    func submitFlywheelContribution(_ contribution: FlywheelContribution, clipURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws
 }
 
 // MARK: - Stub API Client
@@ -31,8 +30,8 @@ final class StubAPIClient: APIClient, @unchecked Sendable {
         throw APIError.serverError(statusCode: 501, message: "Stub: not implemented")
     }
 
-    nonisolated func submitFlywheelContribution(_ contribution: FlywheelContribution, frameURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws {
-        print("StubAPIClient: submitFlywheelContribution rally \(contribution.rallyIndex) frames \(frameURLs.count)")
+    nonisolated func submitFlywheelContribution(_ contribution: FlywheelContribution, clipURLs: [URL], progress: @escaping @Sendable (Double) -> Void) async throws {
+        print("StubAPIClient: submitFlywheelContribution rally \(contribution.rallyIndex) clips \(clipURLs.count)")
         throw APIError.serverError(statusCode: 501, message: "Stub: not implemented")
     }
 }
