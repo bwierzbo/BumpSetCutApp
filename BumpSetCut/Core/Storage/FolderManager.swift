@@ -203,8 +203,11 @@ class FolderManager {
 
     /// Remove a favorited rally clip. The source video's review selections are
     /// un-starred first, so the rally player doesn't still show it as a favorite.
+    /// A clip outlives its source video; once the source is deleted there's
+    /// nothing to un-star (and saving would leave a stray sidecar behind).
     func removeFavorite(_ video: VideoMetadata) async throws {
-        if let sourceVideoId = video.sourceVideoId, let rallyIndex = video.sourceRallyIndex {
+        if let sourceVideoId = video.sourceVideoId, let rallyIndex = video.sourceRallyIndex,
+           mediaStore.getAllVideos().contains(where: { $0.id == sourceVideoId }) {
             var selections = metadataStore.loadReviewSelections(for: sourceVideoId)
             selections.favorited.remove(rallyIndex)
             try metadataStore.saveReviewSelections(selections, for: sourceVideoId)
