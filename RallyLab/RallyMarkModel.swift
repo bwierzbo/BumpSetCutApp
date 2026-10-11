@@ -89,6 +89,10 @@ final class RallyMarkModel {
         set {
             guard let sessionName else { return }
             sampler.setRalliesMarked(newValue, session: sessionName)
+            // Re-save the rally times too: the phone sync keeps whichever side
+            // changed last by this file's date, and would otherwise put the
+            // phone's older "not finished" back.
+            save()
             status = newValue ? "Whole video marked — it counts in rally scoring." : "Marked as not finished."
         }
     }
