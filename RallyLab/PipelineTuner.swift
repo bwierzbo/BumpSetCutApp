@@ -103,6 +103,11 @@ enum PipelineTuner {
     struct ValidationSet: Codable {
         var tune: [String]
         var holdout: [String]
+
+        static func load(from datasetRoot: URL) -> ValidationSet? {
+            (try? Data(contentsOf: datasetRoot.appendingPathComponent("pipeline_tuning/validation.json")))
+                .flatMap { try? JSONDecoder().decode(ValidationSet.self, from: $0) }
+        }
     }
 
     struct Video {
@@ -271,8 +276,7 @@ enum PipelineTuner {
         let dir = sampler.datasetRoot.appendingPathComponent("pipeline_tuning", isDirectory: true)
         let cache = dir.appendingPathComponent("evidence", isDirectory: true)
         try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
-        guard let data = try? Data(contentsOf: dir.appendingPathComponent("validation.json")),
-              let set = try? JSONDecoder().decode(ValidationSet.self, from: data) else {
+        guard let set = ValidationSet.load(from: sampler.datasetRoot) else {
             log("❌ No \(dir.lastPathComponent)/validation.json (lists the tune and holdout videos).")
             return false
         }

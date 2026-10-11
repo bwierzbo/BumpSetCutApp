@@ -26,6 +26,9 @@ struct TrackTabView: View {
     enum Mode: String { case ball, rallies }
     @State private var keyMonitor: Any?
     @AppStorage(TrackTabView.sessionKey) private var savedSession = ""
+    @State private var videoFilter = ""
+    /// The pipeline tuner's videos, listed first so they're easy to find for marking.
+    @State private var tuningVideos: [String] = []
 
     static let modeKey = "RallyLab.trackMode"
     static let sessionKey = "RallyLab.trackSession"
@@ -42,6 +45,7 @@ struct TrackTabView: View {
         .onAppear {
             if tracker.sessionName == nil, !savedSession.isEmpty { tracker.open(sessionName: savedSession) }
             if mode == .rallies, !savedSession.isEmpty { marker.open(sessionName: savedSession) }
+            tuningVideos = PipelineTuner.ValidationSet.load(from: tracker.sampler.datasetRoot).map { $0.tune + $0.holdout } ?? []
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { handleKey($0) ? nil : $0 }
         }
         .onDisappear {
@@ -66,6 +70,8 @@ struct TrackTabView: View {
                 Text("Rally times").tag(Mode.rallies)
             }
             .pickerStyle(.segmented).labelsHidden()
+            TextField("Find a video", text: $videoFilter)
+                .textFieldStyle(.roundedBorder)
             Picker("Video", selection: Binding(
                 get: { tracker.sessionName ?? "" },
                 set: { name in
@@ -75,8 +81,17 @@ struct TrackTabView: View {
                 }
             )) {
                 Text("Choose a video…").tag("")
-                ForEach(tracker.trackableSessions) { s in
-                    Text(s.name).tag(s.name)
+                let videos = tracker.trackableSessions
+                    .filter { videoFilter.isEmpty || $0.name.localizedCaseInsensitiveContains(videoFilter) || $0.name == tracker.sessionName }
+                    .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                let tuning = tuningVideos.compactMap { name in videos.first { $0.name == name } }
+                if !tuning.isEmpty {
+                    Section("Pipeline tuning — mark every rally") {
+                        ForEach(tuning) { videoRow($0) }
+                    }
+                }
+                Section(tuning.isEmpty ? "" : "All videos") {
+                    ForEach(videos.filter { !tuningVideos.contains($0.name) }) { videoRow($0) }
                 }
             }
             .labelsHidden()
@@ -234,6 +249,11 @@ struct TrackTabView: View {
             .frame(width: 90)
         }
         .controlSize(.small)
+    }
+
+    /// ✓ once every rally in the video is marked.
+    private func videoRow(_ session: VideoSession) -> some View {
+        Text(session.ralliesMarked == true ? "✓ \(session.name)" : session.name).tag(session.name)
     }
 
     // MARK: - Keys
