@@ -31,6 +31,11 @@ struct SocialFeedView: View {
     @Environment(AuthenticationService.self) private var authService
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isLandscape: Bool { verticalSizeClass == .compact }
+    /// Landscape is full screen: the tab bar stays away, and the feed's
+    /// controls show for a moment after rotating or a tap, and while paused.
+    @State private var landscapeChromeShown = true
+    @State private var chromeHideTask: Task<Void, Never>?
+    private var chromeHidden: Bool { isLandscape && !landscapeChromeShown }
 
     var body: some View {
         ZStack {
@@ -57,6 +62,9 @@ struct SocialFeedView: View {
                 feedTabPicker
                 Spacer()
             }
+            .opacity(chromeHidden ? 0 : 1)
+            .allowsHitTesting(!chromeHidden)
+            .accessibilityHidden(chromeHidden)
 
             // Pagination footer: spinner while fetching the next page, retry row on failure
             if !viewModel.highlights.isEmpty, viewModel.isLoadingMore || viewModel.loadMoreFailed {
@@ -91,8 +99,16 @@ struct SocialFeedView: View {
             }
         }
         // The comments input bar reaches the screen bottom; hide the floating
-        // tab bar while the panel is open so it doesn't cover the input.
-        .toolbarVisibility(selectedHighlightForComments == nil ? .automatic : .hidden, for: .tabBar)
+        // tab bar while the panel is open so it doesn't cover the input. In
+        // landscape it would cover the video (and the page dots).
+        .toolbarVisibility(selectedHighlightForComments == nil && !isLandscape ? .automatic : .hidden, for: .tabBar)
+        .onChange(of: isLandscape) { _, landscape in
+            if landscape { showChrome(autoHide: true) }
+        }
+        .onAppear {
+            if isLandscape { showChrome(autoHide: true) }
+        }
+        .onDisappear { chromeHideTask?.cancel() }
         .sheet(item: $selectedProfileId) { profile in
             ProfileSheet(userId: profile.id)
         }
@@ -170,8 +186,25 @@ struct SocialFeedView: View {
                 : nil,
             // Landscape pages are full-bleed (see feedContent), so chrome needs
             // the bottom inset back; portrait cards end above the tab bar.
-            extendsUnderBottomSafeArea: isLandscape
+            extendsUnderBottomSafeArea: isLandscape,
+            chromeHidden: chromeHidden,
+            onPlaybackToggled: { paused in
+                if isLandscape { showChrome(autoHide: !paused) }
+            }
         )
+    }
+
+    /// Show the landscape controls; with `autoHide`, they go again after a
+    /// few seconds (playing), else they stay (paused).
+    private func showChrome(autoHide: Bool) {
+        chromeHideTask?.cancel()
+        withAnimation(.bscQuick) { landscapeChromeShown = true }
+        guard autoHide else { return }
+        chromeHideTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            withAnimation(.bscStandard) { landscapeChromeShown = false }
+        }
     }
 
     // MARK: - Loading Skeleton

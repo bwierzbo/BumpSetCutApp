@@ -24,6 +24,11 @@ struct HighlightCardView: View {
     /// (profile/search full-bleed contexts). False in the main feed, where the
     /// card ends above the tab bar so bottom chrome hugs the card's edge.
     var extendsUnderBottomSafeArea: Bool = true
+    /// Hide the author, caption and action buttons (the feed's full-screen
+    /// landscape); the video, page dots and gestures stay.
+    var chromeHidden: Bool = false
+    /// A tap paused (true) or resumed (false) the video.
+    var onPlaybackToggled: ((_ paused: Bool) -> Void)?
 
     @State private var playerPool = LoopingPlayerPool<Int>(automaticallyWaitsToMinimizeStalling: false)
     @State private var showDeleteConfirmation = false
@@ -33,9 +38,9 @@ struct HighlightCardView: View {
     @State private var currentVideoPage = 0
     @State private var isPaused = false
     @State private var zoomScale: CGFloat = 1.0
-    @State private var lastZoomScale: CGFloat = 1.0
+    /// Where the pinch started, so the zoom grows from under the fingers.
+    @State private var zoomAnchor: UnitPoint = .center
     @State private var zoomOffset: CGSize = .zero
-    @State private var lastZoomOffset: CGSize = .zero
     /// Pages whose player has rendered a first frame — until then (or when a
     /// remote stream is buffering) a spinner shows over the thumbnail.
     @State private var readyPages: Set<Int> = []
@@ -72,23 +77,9 @@ struct HighlightCardView: View {
                 // Video content (single or carousel) with zoom + tap gestures
                 // Tap gestures are on the same view as the TabView so they don't block swipes
                 videoContent(size: geo.size)
-                    .scaleEffect(zoomScale)
+                    .scaleEffect(zoomScale, anchor: zoomAnchor)
                     .offset(zoomOffset)
-                    .simultaneousGesture(pinchOnlyGesture)
-                    .modifier(ConditionalDragModifier(isEnabled: zoomScale > 1.0, onDrag: { translation in
-                        zoomOffset = CGSize(
-                            width: lastZoomOffset.width + translation.width,
-                            height: lastZoomOffset.height + translation.height
-                        )
-                    }, onEnd: {
-                        lastZoomOffset = zoomOffset
-                        if zoomScale <= 1.05 {
-                            withAnimation(.bscStandard) {
-                                zoomOffset = .zero
-                            }
-                            lastZoomOffset = .zero
-                        }
-                    }))
+                    .gesture(pinchGesture(size: geo.size))
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
                         UIImpactFeedbackGenerator.light()
@@ -163,9 +154,13 @@ struct HighlightCardView: View {
                 )
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
+                .opacity(chromeHidden ? 0 : 1)
 
                 // Overlay controls
                 overlayControls(safeArea: deviceSafeArea)
+                    .opacity(chromeHidden ? 0 : 1)
+                    .allowsHitTesting(!chromeHidden)
+                    .accessibilityHidden(chromeHidden)
             }
             // Full-screen video is a dark context regardless of system appearance.
             .environment(\.colorScheme, .dark)
@@ -453,35 +448,38 @@ struct HighlightCardView: View {
         } else {
             player.play()
         }
+        onPlaybackToggled?(isPaused)
     }
 
     // MARK: - Pinch to Zoom
 
-    /// Pinch gesture: uses simultaneousGesture so it doesn't block TabView swipes.
-    /// Instagram-style transient zoom — always snaps back on release, so it can
-    /// never be left stuck zoomed/panned (tester bug).
-    private var pinchOnlyGesture: some Gesture {
-        MagnifyGesture()
-            .onChanged { value in
-                let newScale = lastZoomScale * value.magnification
-                zoomScale = min(max(newScale, 1.0), 4.0)
-            }
-            .onEnded { _ in
+    /// Instagram-style transient zoom: grows from under the fingers, follows
+    /// them while they move, and always snaps back on release, so it can never
+    /// be left stuck zoomed/panned (tester bug).
+    private func pinchGesture(size: CGSize) -> FeedPinchGesture {
+        FeedPinchGesture(
+            onBegan: { location in
+                zoomAnchor = UnitPoint(x: size.width > 0 ? location.x / size.width : 0.5,
+                                       y: size.height > 0 ? location.y / size.height : 0.5)
+            },
+            onChanged: { scale, translation in
+                zoomScale = min(max(scale, 1.0), 4.0)
+                zoomOffset = translation
+            },
+            onEnded: {
                 withAnimation(.bscStandard) {
                     zoomScale = 1.0
                     zoomOffset = .zero
                 }
-                lastZoomScale = 1.0
-                lastZoomOffset = .zero
             }
+        )
     }
 
     /// Hard reset (no animation) when the card leaves the screen or is recycled.
     private func resetZoom() {
         zoomScale = 1.0
-        lastZoomScale = 1.0
+        zoomAnchor = .center
         zoomOffset = .zero
-        lastZoomOffset = .zero
     }
 
     @ViewBuilder
@@ -620,11 +618,7 @@ struct HighlightCardView: View {
 
     private func onPageChanged() {
         isPaused = false
-        // Reset zoom on page switch
-        zoomScale = 1.0
-        lastZoomScale = 1.0
-        zoomOffset = .zero
-        lastZoomOffset = .zero
+        resetZoom()
         updatePlayerPool(activePage: currentVideoPage)
     }
 
@@ -635,23 +629,95 @@ struct HighlightCardView: View {
 
 }
 
-// MARK: - Conditional Drag Modifier
+// MARK: - Feed Pinch
 
-/// Only attaches a DragGesture when enabled, so it doesn't block other gestures (like TabView swipe) when disabled.
-private struct ConditionalDragModifier: ViewModifier {
-    let isEnabled: Bool
-    let onDrag: (CGSize) -> Void
-    let onEnd: () -> Void
+/// Pinch for a card inside the feed's scroll views. SwiftUI's MagnifyGesture
+/// lost those touches to the pager's and carousel's pans, so zoom never
+/// started (tester bug, portrait and landscape); UIKit's pinch recognizes
+/// alongside them and, while it lasts, switches their scrolling off so the
+/// page doesn't move under the fingers.
+private struct FeedPinchGesture: UIGestureRecognizerRepresentable {
+    /// Where the fingers came down, in the card's coordinates.
+    let onBegan: (CGPoint) -> Void
+    /// Scale since the start (1 = none) and how far the fingers moved.
+    let onChanged: (CGFloat, CGSize) -> Void
+    let onEnded: () -> Void
 
-    func body(content: Content) -> some View {
-        if isEnabled {
-            content.gesture(
-                DragGesture()
-                    .onChanged { value in onDrag(value.translation) }
-                    .onEnded { _ in onEnd() }
-            )
-        } else {
-            content
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPinchGestureRecognizer {
+        let pinch = UIPinchGestureRecognizer()
+        pinch.delegate = context.coordinator
+        return pinch
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPinchGestureRecognizer, context: Context) {
+        let location = context.converter.localLocation
+        switch recognizer.state {
+        case .began:
+            context.coordinator.start = location
+            context.coordinator.holdScrolling(around: recognizer)
+            onBegan(location)
+            onChanged(recognizer.scale, .zero)
+        case .changed:
+            // Lifting one finger moves the centroid; only follow two.
+            guard recognizer.numberOfTouches >= 2 else { return }
+            let start = context.coordinator.start
+            onChanged(recognizer.scale, CGSize(width: location.x - start.x, height: location.y - start.y))
+        case .ended, .cancelled, .failed:
+            context.coordinator.releaseScrolling()
+            onEnded()
+        default:
+            break
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var start: CGPoint = .zero
+        /// The scroll views' pans seen alongside this pinch.
+        private var scrollPans: [WeakRecognizer] = []
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            if other is UIPanGestureRecognizer, other.view is UIScrollView,
+               !scrollPans.contains(where: { $0.recognizer === other }) {
+                scrollPans.append(WeakRecognizer(recognizer: other))
+            }
+            return true
+        }
+
+        /// Pans switched off for this pinch.
+        private var held: [WeakRecognizer] = []
+
+        /// Switch off scrolling for the pinch: the pans seen alongside it and
+        /// those of the scroll views it sits in (the feed's pager). Switching
+        /// a recognizer off also cancels a scroll in progress.
+        func holdScrolling(around pinch: UIGestureRecognizer) {
+            var pans = scrollPans.compactMap(\.recognizer)
+            var view = pinch.view?.superview
+            while let v = view {
+                if let scroll = v as? UIScrollView { pans.append(scroll.panGestureRecognizer) }
+                view = v.superview
+            }
+            for pan in pans where pan.isEnabled {
+                pan.isEnabled = false
+                held.append(WeakRecognizer(recognizer: pan))
+            }
+        }
+
+        /// A card recycled mid-pinch must not leave the feed unscrollable.
+        isolated deinit {
+            releaseScrolling()
+        }
+
+        func releaseScrolling() {
+            held.compactMap(\.recognizer).forEach { $0.isEnabled = true }
+            held.removeAll()
+            scrollPans.removeAll { $0.recognizer == nil }
+        }
+
+        private struct WeakRecognizer {
+            weak var recognizer: UIGestureRecognizer?
         }
     }
 }
