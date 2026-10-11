@@ -61,9 +61,11 @@ import Foundation
 
 enum HeadlessProjects {
 
-    static func runIfRequested() {
+    /// True when a run was started: the app then mustn't sync on its own.
+    @discardableResult
+    static func runIfRequested() -> Bool {
         let args = CommandLine.arguments
-        guard let name = value(after: "--project", in: args) else { return }
+        guard let name = value(after: "--project", in: args) else { return false }
 
         Task { @MainActor in
             let projects = ProjectsModel(sampler: SamplerModel())
@@ -322,6 +324,7 @@ enum HeadlessProjects {
             }
             exit(ok ? 0 : 1)
         }
+        return true
     }
 
     @MainActor

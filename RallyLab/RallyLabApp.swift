@@ -26,10 +26,13 @@ struct RallyLabApp: App {
         HeadlessTrainingExport.runIfRequested()
         // `RallyLab --sample <videos or frame folders…>` runs the Sampler
         // tab's ingest queue into the dataset and exits.
-        HeadlessSampler.runIfRequested()
         // `RallyLab --project <name> [--get <id> <link|file>] [--status]`
         // runs the Projects tab: pull a clip into a project and exit.
-        HeadlessProjects.runIfRequested()
+        // Either way the app below still starts, with its own copy of the
+        // sessions loaded now: its phone sync re-saves them every 30 s, so it
+        // stays off or it wipes what the run writes.
+        let sampling = HeadlessSampler.runIfRequested()
+        let headless = HeadlessProjects.runIfRequested() || sampling
 
         let sampler = SamplerModel()
         _sampler = State(initialValue: sampler)
@@ -46,7 +49,7 @@ struct RallyLabApp: App {
         // ball before it's reviewed.
         let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker)
         phone.afterSync = { await fitter.fitNewRallies() }
-        phone.startAutomatic()
+        if !headless { phone.startAutomatic() }
         _phone = State(initialValue: phone)
     }
 

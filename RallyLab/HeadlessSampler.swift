@@ -15,9 +15,11 @@ import Foundation
 
 enum HeadlessSampler {
 
-    static func runIfRequested() {
+    /// True when a run was started: the app then mustn't sync on its own.
+    @discardableResult
+    static func runIfRequested() -> Bool {
         let args = CommandLine.arguments
-        guard let start = args.firstIndex(of: "--sample") else { return }
+        guard let start = args.firstIndex(of: "--sample") else { return false }
 
         var inputs: [URL] = []
         var i = start + 1
@@ -64,6 +66,7 @@ enum HeadlessSampler {
             log("Dataset now: \(s.videos) videos (\(s.valVideos) val), \(s.frames) frames, \(s.reviewed) reviewed, \(s.boxes) boxes")
             exit(ok ? 0 : 1)
         }
+        return true
     }
 
     private static func value(after flag: String, in args: [String]) -> String? {
