@@ -6,15 +6,17 @@
 //  AnnotationReview). The Review tab shows how much is checked and opens:
 //   · Review — every ball's box in finished rallies, in order, as a crop:
 //     the box fixed in the middle (drag the picture to put the ball's centre
-//     under it, pinch to size it, tap to approve and go on). Hidden frames
-//     aren't shown: they count as checked. No ball sets a frame aside for —
+//     under it, pinch to size it, tap to approve and go on). Hidden: the
+//     ball's covered here (its place is worked out from the frames either
+//     side, so don't guess a box). Hidden frames aren't shown: they count as
+//     checked. No ball sets a frame aside for —
 //   · Find the ball — the whole frame: tap the ball and approve, or hidden.
 //   · Not sure — frames set aside, on the whole frame with their box.
 //  Back undoes the last decision.
 //
 //  On the Mac: two fingers on the trackpad move the picture, pinch sizes the
 //  box (as on the phone); ↩/Space approve and go on, arrows move the box a
-//  pixel (⇧ five), [ ] size it, X no ball, U not sure, ⌫ back. On the
+//  pixel (⇧ five), [ ] size it, H hidden, X no ball, U not sure, ⌫ back. On the
 //  whole frame: click the ball, ↩ approve, H hidden, = − zoom, arrows pan.
 //
 
@@ -232,7 +234,7 @@ struct CropReviewView: View {
 
     private var controls: some View {
         VStack(spacing: 8) {
-            Text("Drag to centre the ball · pinch to size the box · tap to approve")
+            Text("Drag to centre the ball · pinch to size the box · tap to approve · covered: Hidden")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Button { Task { reset(); await walk.back() } } label: {
@@ -243,11 +245,16 @@ struct CropReviewView: View {
                     Label("Not sure", systemImage: "questionmark").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).tint(.orange).disabled(walk.item == nil)
+                Button { decide(AnnotationReview.confirmHidden) } label: {
+                    Label("Hidden", systemImage: "eye.slash").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered).tint(.indigo).disabled(walk.item == nil)
                 Button(role: .destructive) { decide(AnnotationReview.noBall) } label: {
                     Label("No ball", systemImage: "xmark").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).tint(.red).disabled(walk.item == nil)
             }
+            .labelStyle(StackedLabel())
             .controlSize(.large)
         }
     }
@@ -268,6 +275,7 @@ struct CropReviewView: View {
             case "[", "-": scale = max(0.3, scale / 1.05)
             case "]", "=", "+": scale = min(4, scale * 1.05)
             case "x": decide(AnnotationReview.noBall)
+            case "h": decide(AnnotationReview.confirmHidden)
             case "?", "/", "u": Task { reset(); await walk.decide(AnnotationReview.markUnsure) }
             default: return false
             }
@@ -498,6 +506,16 @@ struct WholeFrameReviewView: View {
 }
 
 /// How far through this pass: a bar along the bottom with the count.
+/// Icon over title: four choices fit across a phone.
+private struct StackedLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(spacing: 2) {
+            configuration.icon
+            configuration.title.font(.caption).lineLimit(1)
+        }
+    }
+}
+
 private struct ReviewPassBar: View {
     let walk: ReviewWalk
 

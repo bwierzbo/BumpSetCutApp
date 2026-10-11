@@ -7,8 +7,8 @@
 //  the model isn't sure of, and short stretches where it lost the ball
 //  (MachineLabels). A frame with a ball is shown as a
 //  crop around its box — the box fixed in the middle; you move the picture
-//  under it and size it, then approve. Hidden frames aren't reviewed: they
-//  count as checked. "No ball" sets a frame aside for a later pass on the
+//  under it and size it, then approve — or call it hidden (covered here).
+//  Hidden frames aren't reviewed: they count as checked. "No ball" sets a frame aside for a later pass on the
 //  whole frame, to place the ball or call it hidden. "Not sure" sets a
 //  frame aside in its own pass for a later look.
 //
