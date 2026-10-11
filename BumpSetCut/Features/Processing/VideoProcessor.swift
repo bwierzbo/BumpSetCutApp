@@ -223,6 +223,8 @@ final class VideoProcessor: @unchecked Sendable {
     /// windows of the frames it's fed.
     @ObservationIgnored private var heatDetector: HeatmapBallDetector?
     @ObservationIgnored private var heatModelURL: URL?
+    /// The loaded multi-frame model's own threshold, for when the config doesn't override it.
+    @ObservationIgnored private var heatModelThreshold: Float?
     @ObservationIgnored private var heatWindows: HeatmapWindows?
     @ObservationIgnored private var heatLastTime: Double?
 
@@ -230,13 +232,16 @@ final class VideoProcessor: @unchecked Sendable {
     private func prepareHeatmap() {
         defer { heatWindows = heatDetector.map { HeatmapWindows(detector: $0, hop: config.heatmapHop) } }
         heatLastTime = nil
-        guard config.heatmapModel != heatModelURL else { return }
-        heatModelURL = config.heatmapModel
-        #if os(iOS)
-        heatDetector = config.heatmapModel.flatMap { HeatmapBallDetector(modelURL: $0, computeUnits: .cpuAndNeuralEngine) }
-        #else
-        heatDetector = config.heatmapModel.flatMap { HeatmapBallDetector(modelURL: $0) }
-        #endif
+        if config.heatmapModel != heatModelURL {
+            heatModelURL = config.heatmapModel
+            #if os(iOS)
+            heatDetector = config.heatmapModel.flatMap { HeatmapBallDetector(modelURL: $0, computeUnits: .cpuAndNeuralEngine) }
+            #else
+            heatDetector = config.heatmapModel.flatMap { HeatmapBallDetector(modelURL: $0) }
+            #endif
+            heatModelThreshold = heatDetector?.threshold
+        }
+        if let own = heatModelThreshold { heatDetector?.threshold = config.heatmapThreshold.map(Float.init) ?? own }
     }
 
     /// The frame as the multi-frame model takes it, if it takes this one:

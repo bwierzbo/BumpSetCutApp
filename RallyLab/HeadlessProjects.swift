@@ -34,6 +34,8 @@
 //    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo]   (self-training: the newest multi-frame model tracks
 //             rallies in train videos on its own; sure frames become machine labels, the rest go to review;
 //             --redo: track the pre-tracked ones again, e.g. after a better model)
+//    RallyLab --project v3 --tune-pipeline [--replay-only] [--rounds 2]   (search the pipeline's settings for the cuts
+//             closest to the marked rallies of pipeline_tuning/validation.json's videos; reports, applies nothing)
 //    RallyLab --project v3 --pretrack-check                (how right "sure" frames are, against val rallies people tracked)
 //    RallyLab --project v3 --add-heat <bring_back folder>  (convert + add a multi-frame model)
 //    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
@@ -164,6 +166,10 @@ enum HeadlessProjects {
                 log("✅ \(r.rallies) rallies pre-tracked" + (r.redone > 0 ? ", \(r.redone) tracked again" : "")
                     + ", \(r.dropped) dropped (ball found on under \(Int(PreTracker.minFound * 100))% of frames)")
                 log("   all pre-tracked rallies: \(r.frames) frames · \(r.sure) sure (machine labels) · \(r.toReview) to review")
+            }
+            if ok, args.contains("--tune-pipeline") {
+                ok = await PipelineTuner.run(sampler: projects.sampler, replayOnly: args.contains("--replay-only"),
+                                             rounds: value(after: "--rounds", in: args).flatMap(Int.init) ?? 2, log: log)
             }
             if ok, args.contains("--pretrack-check") {
                 let checks = await PreTracker.check(sampler: projects.sampler, log: log)
@@ -529,7 +535,7 @@ enum HeadlessProjects {
     }
 }
 
-private extension ProcessorConfig {
+extension ProcessorConfig {
     /// This config with the camera position the session's clip ID names.
     func withCamera(of session: VideoSession) -> ProcessorConfig {
         var config = self

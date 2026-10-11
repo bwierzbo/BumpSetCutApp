@@ -146,6 +146,11 @@ struct ProcessorConfig {
     /// HeatmapWindows): 1 = a window centred on every frame.
     var heatmapHop: Int = 5
 
+    /// How sure the multi-frame model must be of a spot to call it the ball;
+    /// nil = the model's own (set when it was trained). RallyLab's pipeline
+    /// tuner searches it.
+    var heatmapThreshold: Double?
+
     /// Letterbox frames into the model (`.scaleFit`) instead of stretching them
     /// (`.scaleFill`). Preserves aspect ratio so the ball stays round, matching
     /// YOLO training preprocessing — can recover confidence on non-square / 0.5x
