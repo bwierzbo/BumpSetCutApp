@@ -77,6 +77,8 @@ final class RallyMarkModel {
     @ObservationIgnored private var seeking = false
     /// Settles a scrub on the exact frame once scrolling stops.
     @ObservationIgnored private var settleTask: Task<Void, Never>?
+    /// Swaps in the quick-scrub copy (ScrubProxy) once it's ready.
+    @ObservationIgnored private var proxyTask: Task<Void, Never>?
 
     init(sampler: SamplerModel) {
         self.sampler = sampler
@@ -117,6 +119,14 @@ final class RallyMarkModel {
         Task {
             duration = (try? await AVURLAsset(url: url).load(.duration).seconds) ?? 0
         }
+        let root = sampler.datasetRoot
+        proxyTask = Task { [weak self] in
+            guard let proxy = await ScrubProxy.ready(for: url, in: root), !Task.isCancelled,
+                  let self, self.video == url, let player = self.player else { return }
+            player.replaceCurrentItem(with: AVPlayerItem(url: proxy))
+            self.seek(to: self.playhead)
+            if self.isPlaying { player.rate = self.rate }
+        }
         resetZoom()
         rallies = Self.load(Self.labelsURL(for: url))
         guesses = Self.guesses(for: session)
@@ -135,6 +145,8 @@ final class RallyMarkModel {
     }
 
     func close() {
+        proxyTask?.cancel()
+        proxyTask = nil
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
         timeObserver = nil
         player?.pause()
