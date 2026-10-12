@@ -246,8 +246,11 @@ final class LabelingSync {
     /// ~2 Mbit/s, no sound, streamable — every frame at its original time,
     /// so a frame tracked on the phone is the same frame here.
     /// The phone copy's encoding: 2 = to a quality (x264 slow, CRF 20, at
-    /// most 5 Mbps) rather than 2 Mbps flat, which grainy footage fell apart at.
-    static let copyVersion = 2
+    /// most 5 Mbps) rather than 2 Mbps flat, which grainy footage fell apart at;
+    /// 3 = frame times kept exactly (the encoder's own time base snapped
+    /// variable-rate phone footage to a fixed grid, so the phone showed the
+    /// frame next to the one asked for, and frames sharing a time decoded grey).
+    static let copyVersion = 3
 
     private func uploadSmallCopy(of source: URL, to path: String) async throws {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
@@ -255,7 +258,7 @@ final class LabelingSync {
         let run = await ToolEnvironment.run("ffmpeg", [
             "-y", "-loglevel", "error", "-i", source.path, "-an",
             "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'", "-fps_mode", "passthrough",
-            "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-maxrate", "5M", "-bufsize", "10M",
+            "-enc_time_base", "demux", "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-maxrate", "5M", "-bufsize", "10M",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", out.path,
         ])
         guard run.status == 0 else { throw SyncError.encode(run.lines.last ?? "ffmpeg failed") }
