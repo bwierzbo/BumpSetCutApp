@@ -99,7 +99,9 @@ final class LabelingSync {
     /// Run the sync: labels both ways and the plan, and with `videos` the
     /// videos too. False if it stopped on an error (status says why).
     @discardableResult
-    func sync(videos: Bool = true) async -> Bool {
+    /// `remaking`: videos (session names) whose copy made with an older
+    /// encoding is made again — otherwise only videos without one get one.
+    func sync(videos: Bool = true, remaking: @escaping (String) -> Bool = { _ in false }) async -> Bool {
         guard !isSyncing, let project = projects.project?.name else { return false }
         isSyncing = true
         defer { isSyncing = false }
@@ -107,7 +109,7 @@ final class LabelingSync {
             var parts: [String] = []
             if videos {
                 let imported = try await importPhoneVideos(project: project)
-                let (listed, uploaded, failed) = try await publishVideos(project: project)
+                let (listed, uploaded, failed) = try await publishVideos(project: project, remaking: remaking)
                 parts.append("\(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), \(imported) phone videos pulled in")
             }
             let (pushed, pulled) = try await syncRallyTimes(project: project)
@@ -190,7 +192,7 @@ final class LabelingSync {
 
     // MARK: - 2. Project videos to the phone
 
-    private func publishVideos(project: String) async throws -> (listed: Int, uploaded: Int, failed: [String]) {
+    private func publishVideos(project: String, remaking: (String) -> Bool) async throws -> (listed: Int, uploaded: Int, failed: [String]) {
         let remote = try await client.videos().filter { $0.project == project }
         var listed = 0, uploaded = 0
         var failed: [String] = []
@@ -212,10 +214,10 @@ final class LabelingSync {
                 video.duration = (try? await AVURLAsset(url: source).load(.duration).seconds) ?? 0
             }
             // A copy RallyLab made with an older encoding is made again when
-            // `remakesOlderCopies` (the new name tells the phone to fetch it);
-            // the old one is removed.
+            // asked (the new name tells the phone to fetch it); the old one is
+            // removed. Remaking them all takes hours, so it isn't automatic.
             let path = "rallylab/\(DatasetStore.safeName(project))/\(session.name)-v\(Self.copyVersion).mp4"
-            let stale = video.clipPath.map { Self.remakesOlderCopies && $0.hasPrefix("rallylab/") && $0 != path } ?? true
+            let stale = video.clipPath.map { remaking(session.name) && $0.hasPrefix("rallylab/") && $0 != path } ?? true
             if stale {
                 status = "Uploading \(session.name) for the phone (\(i + 1) of \(sessions.count))…"
                 do {
@@ -252,10 +254,6 @@ final class LabelingSync {
     /// variable-rate phone footage to a fixed grid, so the phone showed the
     /// frame next to the one asked for, and frames sharing a time decoded grey).
     static let copyVersion = 3
-    /// Off for now (2026-10-12): the 107 copies take hours to remake, and
-    /// that waits until the model is good enough to pre-track with again.
-    /// Until then only videos without a copy get one.
-    static let remakesOlderCopies = false
 
     private func uploadSmallCopy(of source: URL, to path: String) async throws {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")

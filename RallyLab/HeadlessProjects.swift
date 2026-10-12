@@ -10,7 +10,9 @@
 //             [--allow-duplicate]   (add a stretch of a video already used; --frames is per rally)
 //    RallyLab --project v3 --sync-phone [--labels-only]    (sync with the Labeler iPhone app — sign in once in the
 //                                                           app, or --phone-sign-in <email> with RALLYLAB_PASSWORD set;
-//                                                           --labels-only: rally times, tracks, reviews, plan — no videos)
+//                                                           --labels-only: rally times, tracks, reviews, plan — no videos;
+//                                                           --remake-copies [names…]: those videos' older phone copies
+//                                                           made again, no names every video's)
 //    RallyLab --project v3 --train-round                   (the training plan's next round, as Plan's button: export,
 //                                                           train its runs on the desktop, bring each back; then the
 //                                                           phone gets the plan)
@@ -118,7 +120,11 @@ enum HeadlessProjects {
             }
             if ok, args.contains("--sync-phone") {
                 let sync = LabelingSync(projects: projects)
-                ok = await sync.sync(videos: !args.contains("--labels-only"))
+                // --remake-copies [names…]: those videos' older phone copies
+                // made again (no names: every video's).
+                let remake = args.firstIndex(of: "--remake-copies").map { i in Set(args[(i + 1)...].prefix { !$0.hasPrefix("--") }) }
+                ok = await sync.sync(videos: !args.contains("--labels-only"),
+                                     remaking: { name in remake.map { $0.isEmpty || $0.contains(name) } ?? false })
                 log((ok ? "✅ " : "❌ ") + sync.status)
             }
             if ok, args.contains("--pull-tester-footage") {
