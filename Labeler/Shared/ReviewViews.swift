@@ -6,8 +6,9 @@
 //  AnnotationReview). The Review tab shows how much is checked and opens:
 //   · Rally or not — each rally the model pre-tracked plays (looping, 2× by
 //     default): Rally sends its frames to review, Not a rally drops it from
-//     review and training. Its frames wait until it's answered. On the Mac:
-//     R rally, N not a rally, Space play/pause, ⌫ back.
+//     review and training. Its frames wait until it's answered; Skip leaves
+//     it for later. On the Mac: R rally, N not a rally, S skip, Space
+//     play/pause, ⌫ back.
 //   · Review — every ball's box in finished rallies, in order, as a crop:
 //     the box fixed in the middle (drag the picture to put the ball's centre
 //     under it, pinch to size it, tap to approve and go on). Hidden: the
@@ -539,6 +540,8 @@ struct RallyCheckView: View {
                 Button { back() } label: { Label("Back", systemImage: "arrow.uturn.backward") }
                     .disabled(undo.isEmpty)
                 Spacer()
+                // Can't tell (a clip that won't play right): leave it for later.
+                Button("Skip") { at += 1 }.disabled(check == nil)
                 Button { fast.toggle(); player.rate = fast ? 2 : 1 } label: { Text(fast ? "2×" : "1×").monospacedDigit() }
                     .buttonStyle(.bordered)
                 Text("\(max(0, checks.count - at).formatted()) left").font(.headline.monospacedDigit())
@@ -581,6 +584,7 @@ struct RallyCheckView: View {
             switch press.characters.lowercased() {
             case "r": answer(true)
             case "n": answer(false)
+            case "s": if check != nil { at += 1 }
             case " ": player.togglePlay()
             case "\u{7F}", "\u{8}": back()
             default: return false
