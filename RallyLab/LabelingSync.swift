@@ -211,10 +211,11 @@ final class LabelingSync {
             if video.duration <= 0 {
                 video.duration = (try? await AVURLAsset(url: source).load(.duration).seconds) ?? 0
             }
-            // A copy RallyLab made with an older encoding is made again (the
-            // new name tells the phone to fetch it); the old one is removed.
+            // A copy RallyLab made with an older encoding is made again when
+            // `remakesOlderCopies` (the new name tells the phone to fetch it);
+            // the old one is removed.
             let path = "rallylab/\(DatasetStore.safeName(project))/\(session.name)-v\(Self.copyVersion).mp4"
-            let stale = video.clipPath.map { $0.hasPrefix("rallylab/") && $0 != path } ?? true
+            let stale = video.clipPath.map { Self.remakesOlderCopies && $0.hasPrefix("rallylab/") && $0 != path } ?? true
             if stale {
                 status = "Uploading \(session.name) for the phone (\(i + 1) of \(sessions.count))…"
                 do {
@@ -251,6 +252,10 @@ final class LabelingSync {
     /// variable-rate phone footage to a fixed grid, so the phone showed the
     /// frame next to the one asked for, and frames sharing a time decoded grey).
     static let copyVersion = 3
+    /// Off for now (2026-10-12): the 107 copies take hours to remake, and
+    /// that waits until the model is good enough to pre-track with again.
+    /// Until then only videos without a copy get one.
+    static let remakesOlderCopies = false
 
     private func uploadSmallCopy(of source: URL, to path: String) async throws {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
