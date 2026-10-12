@@ -22,6 +22,9 @@ final class LabelerModel: ReviewStore {
     private(set) var outbox = Outbox()
     private(set) var isLoading = false
     private(set) var isOffline = false
+    /// Why the last load or send failed, while it keeps failing (the app
+    /// carries on with what's on the phone, which can fall far behind).
+    private(set) var syncProblem: String?
     private(set) var today = DayStats.today
     var error: String?
 
@@ -95,6 +98,7 @@ final class LabelerModel: ReviewStore {
             guard try await client.isLabeler() else { phase = .notLabeler; return }
             snapshot = loaded
             lastPull = started
+            syncProblem = nil
             LocalStore.pruneClips(keeping: loaded.videos)
             LocalStore.save(snapshot, "snapshot.json")
             isOffline = false
@@ -104,8 +108,15 @@ final class LabelerModel: ReviewStore {
         } catch {
             // No connection: keep working from what's on the phone.
             isOffline = true
+            syncProblem = Self.describe("Couldn't load from the server", error)
             if phase == .starting { phase = snapshot.videos.isEmpty ? .signedOut : .ready }
         }
+    }
+
+    /// A failure as text for the screen; a decoding failure names where.
+    private static func describe(_ what: String, _ error: Error) -> String {
+        let why = error is DecodingError ? String(describing: error) : error.localizedDescription
+        return "\(what): \(why.prefix(300))"
     }
 
     /// When changes were last pulled (see `pullChanges`).
@@ -434,7 +445,10 @@ final class LabelerModel: ReviewStore {
                     snapshot.tracks.append(t)
                 }
                 isOffline = false
-            } catch { isOffline = true }
+            } catch {
+                isOffline = true
+                syncProblem = Self.describe("Couldn't send \(tracks.count) tracked rall\(tracks.count == 1 ? "y" : "ies")", error)
+            }
         }
         LocalStore.save(outbox, "outbox.json")
         LocalStore.save(snapshot, "snapshot.json")

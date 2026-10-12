@@ -57,6 +57,25 @@ struct RootView: View {
     }
 }
 
+/// Loading or sending keeps failing: say why, with a retry, instead of
+/// quietly showing what the phone last had.
+struct SyncProblemBanner: View {
+    let model: LabelerModel
+
+    var body: some View {
+        if let problem = model.syncProblem {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text(problem).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
+                Button("Retry") { Task { await model.reload() } }.font(.caption.bold())
+            }
+            .padding(10)
+            .background(.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal)
+        }
+    }
+}
+
 /// Next (the task queue) · Review (annotation review) · Overview · Plan · Videos. Each tab has its own
 /// navigation; tasks and videos open their screens.
 struct MainTabs: View {
@@ -70,9 +89,11 @@ struct MainTabs: View {
                 NavigationStack(path: $nextPath) {
                     NextView(model: model, path: $nextPath).destinations(model)
                 }
+                .safeAreaInset(edge: .top) { SyncProblemBanner(model: model) }
             }
             Tab("Review", systemImage: "checkmark.rectangle.stack") {
                 NavigationStack { ReviewHomeView(store: model, progress: model.reviewProgress) }
+                    .safeAreaInset(edge: .top) { SyncProblemBanner(model: model) }
             }
             .badge(model.rallyChecks().count + model.reviewItems([.crop, .noBall]).count)
             Tab("Overview", systemImage: "chart.bar.xaxis") {
