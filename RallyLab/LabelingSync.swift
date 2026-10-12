@@ -337,6 +337,10 @@ final class LabelingSync {
         let remoteIds = Dictionary(grouping: stamps, by: \.videoId).mapValues { Set($0.map(\.id)) }
         var outgoing: [LabelTrack] = []
         var received = 0
+        // Sent rallies are stamped with the time they're sent, not when they
+        // changed here: the phone takes only rows stamped after its last look,
+        // so a rally changed here while syncing was off would never reach it.
+        let now = Date()
         for video in videos {
             guard let name = video.sessionName, let session = projects.session(named: name) else { continue }
             var local = session.tracks ?? []
@@ -373,11 +377,15 @@ final class LabelingSync {
                     changedHere = true
                     received += 1
                 } else {
-                    outgoing.append(LabelTrack(mine, videoId: video.id))
+                    local[i] = mine.with(updatedAt: now)
+                    outgoing.append(LabelTrack(local[i], videoId: video.id))
+                    changedHere = true
                 }
             }
-            for mine in local where !known.contains(mine.id) {
-                outgoing.append(LabelTrack(mine, videoId: video.id))   // new here
+            for i in local.indices where !known.contains(local[i].id) {
+                local[i] = local[i].with(updatedAt: now)
+                outgoing.append(LabelTrack(local[i], videoId: video.id))   // new here
+                changedHere = true
             }
             local.sort { $0.start < $1.start }
             if changedHere {
