@@ -66,7 +66,7 @@ enum PreTracker {
             var changed = false
 
             if redo {
-                for i in tracks.indices where tracks[i].isMachine {
+                for i in tracks.indices where tracks[i].isMachine && tracks[i].isRally != false {
                     let times = tracks[i].points.map(\.time)
                     guard let found = await TrackLabelModel.candidates(video: video, times: times, model: yolo, heatModel: heat,
                                                                        frames: nil, progress: { _ in }) else { return report }
@@ -79,16 +79,20 @@ enum PreTracker {
 
             let rallies = TrackLabelModel.markedAndFound(session)
             let open = TrackLabelModel.untracked(rallies.marked + rallies.found, tracks: tracks)
-            let wanted = max(0, perVideo - tracks.filter(\.isMachine).count)
+            // One said not to be a rally stays (so its time isn't picked
+            // again) but doesn't count toward the video's pre-tracked rallies.
+            let wanted = max(0, perVideo - tracks.filter { $0.isMachine && $0.isRally != false }.count)
             var added = 0
             for span in spread(open, count: wanted) {
                 guard let times = TrackLabelModel.frameTimes(track: track, step: step, start: max(0, span.start - TrackedRally.margin),
                                                              end: span.end + TrackedRally.margin), times.count > 2 * MachineLabels.reach,
                       let found = await TrackLabelModel.candidates(video: video, times: times, model: yolo, heatModel: heat,
                                                                    frames: nil, progress: { _ in }) else { continue }
+                // Cut from rally times a person marked: a rally, no need to ask.
                 var rally = TrackedRally(id: UUID(), start: times.first!, end: times.last!,
                                          points: times.map { TrackPoint(time: $0, state: .unknown, origin: .auto, box: nil) },
-                                         candidates: found, done: false, machine: true)
+                                         candidates: found, done: false, machine: true,
+                                         isRally: rallies.marked.contains(span) ? true : nil)
                 rally.points = TrackSolver.solve(rally)
                 let seen = Double(rally.points.filter { $0.state == .visible }.count) / Double(rally.points.count)
                 guard seen >= minFound else { report.dropped += 1; continue }
@@ -102,7 +106,7 @@ enum PreTracker {
             }
             report.videos += 1
             report.rallies += added
-            let machine = tracks.filter(\.isMachine)
+            let machine = tracks.filter { $0.isMachine && $0.isRally != false }
             let frames = machine.reduce(0) { $0 + $1.points.count }
             let sure = machine.reduce(0) { $0 + MachineLabels.trusted($1).count }
             let review = AnnotationReview.items(machine.map { (session.name, $0) }, kinds: [.crop, .noBall, .unsure]).count

@@ -124,6 +124,9 @@ struct LabelTrack: Codable, Identifiable, Hashable {
     var unsure: [Int]?
     /// Pre-tracked by the model (TrackedRally.machine); nil from an older build.
     var machine: Bool?
+    /// A pre-tracked rally's check (TrackedRally.isRally); nil from an older
+    /// build or not looked at.
+    var isRally: Bool?
 
     var isMachine: Bool { machine ?? false }
     /// Someone started tracking it and hasn't finished.
@@ -173,7 +176,8 @@ extension LabelTrack {
         self.init(id: rally.id, videoId: videoId, start: rally.start, end: rally.end, points: PackedPoints(rally.points),
                   done: rally.done, deleted: false, updatedAt: rally.updatedAt,
                   reviewed: rally.points.indices.filter { rally.points[$0].reviewed },
-                  unsure: rally.points.indices.filter { rally.points[$0].unsure }, machine: rally.machine)
+                  unsure: rally.points.indices.filter { rally.points[$0].unsure }, machine: rally.machine,
+                  isRally: rally.isRally)
     }
 
     /// Frames still worth a look (not yours, unsure, filled in or not found).
@@ -185,7 +189,7 @@ extension LabelTrack {
         for i in reviewed ?? [] where points.indices.contains(i) { points[i].reviewed = true }
         for i in unsure ?? [] where points.indices.contains(i) { points[i].unsure = true }
         return TrackedRally(id: id, start: start, end: end, points: points, candidates: [], done: done, updatedAt: updatedAt,
-                            machine: machine)
+                            machine: machine, isRally: isRally)
     }
 }
 

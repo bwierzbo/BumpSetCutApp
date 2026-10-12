@@ -113,6 +113,9 @@ struct TrackedRally: Codable, Identifiable, Equatable {
     /// tracked it. Its sure frames train as machine labels (MachineLabels);
     /// the rest go to annotation review. Nil from an older build: a person's.
     var machine: Bool? = nil
+    /// A pre-tracked rally's check: true a rally, false not one (left out of
+    /// review and training, and not pre-tracked again); nil not looked at.
+    var isRally: Bool? = nil
 }
 
 extension TrackedRally {
@@ -137,8 +140,14 @@ extension TrackedRally {
     /// Someone started tracking it and hasn't finished (a pre-tracked rally
     /// isn't anyone's to finish).
     var isOpen: Bool { !done && !isMachine }
-    /// Goes to annotation review and into the training package.
-    var isReady: Bool { done || isMachine }
+    /// Goes into the training package: a person's finished rally, or a
+    /// pre-tracked one nobody has said isn't a rally.
+    var isReady: Bool { done || (isMachine && isRally != false) }
+    /// Its frames are reviewed: a person's finished rally, or a pre-tracked
+    /// one checked to be a rally (no time spent on frames of a non-rally).
+    var isForReview: Bool { done || (isMachine && isRally == true) }
+    /// A pre-tracked rally nobody has said is or isn't a rally yet.
+    var awaitsRallyCheck: Bool { isMachine && isRally == nil }
 
     /// Frames with a decided label (the ball, or hidden): what training gets.
     var labeledFrames: Int { points.filter { $0.state != .unknown }.count }
@@ -360,7 +369,7 @@ enum MachineLabels {
     /// person's rally, nor any already checked (those are people's).
     static func trusted(_ rally: TrackedRally, minConfidence: Double = minConfidence, maxOffArc: Double = maxOffArc,
                         reach: Int = reach) -> Set<Int> {
-        guard rally.isMachine else { return [] }
+        guard rally.isMachine, rally.isRally != false else { return [] }
         let usual = minConfidence == Self.minConfidence && maxOffArc == Self.maxOffArc && reach == Self.reach
         if usual, let known = cache.get(rally) { return known.trusted }
         let p = rally.points
@@ -383,7 +392,7 @@ enum MachineLabels {
     /// Frames of a pre-tracked rally where it lost the ball for a moment
     /// (see `maxLost`), not yet looked at: for the whole-frame pass.
     static func lost(_ rally: TrackedRally) -> Set<Int> {
-        guard rally.isMachine else { return [] }
+        guard rally.isMachine, rally.isRally != false else { return [] }
         if let known = cache.get(rally) { return known.lost }
         _ = trusted(rally)
         return cache.get(rally)?.lost ?? []

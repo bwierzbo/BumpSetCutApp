@@ -42,6 +42,21 @@ enum AnnotationReview {
         let index: Int
     }
 
+    /// A pre-tracked rally to check is a rally, before its frames are reviewed.
+    struct RallyCheck: Hashable {
+        let video: String
+        let track: UUID
+        let start: Double
+        let end: Double
+    }
+
+    /// The pre-tracked rallies still to check, video by video in time order.
+    static func rallyChecks(_ rallies: [(video: String, rally: TrackedRally)]) -> [RallyCheck] {
+        rallies.filter { $0.rally.awaitsRallyCheck }
+            .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
+            .map { RallyCheck(video: $0.video, track: $0.rally.id, start: $0.rally.start, end: $0.rally.end) }
+    }
+
     /// What `point` still needs, if anything. Frames the solver couldn't
     /// decide (not found, not yours) aren't labeled, so aren't reviewed.
     static func kind(of point: TrackPoint) -> Kind? {
@@ -59,7 +74,7 @@ enum AnnotationReview {
     /// quickly). A pre-tracked rally's sure frames (MachineLabels) aren't
     /// asked about.
     static func items(_ rallies: [(video: String, rally: TrackedRally)], kinds: Set<Kind>) -> [Item] {
-        rallies.filter { $0.rally.isReady }
+        rallies.filter { $0.rally.isForReview }
             .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
             .flatMap { v in
                 let trusted = MachineLabels.trusted(v.rally)
@@ -74,7 +89,7 @@ enum AnnotationReview {
     /// Reviewed of all frames for people to check in finished (or
     /// pre-tracked) rallies.
     static func progress(_ rallies: [TrackedRally]) -> (reviewed: Int, total: Int) {
-        let points = rallies.filter(\.isReady).flatMap { r in
+        let points = rallies.filter(\.isForReview).flatMap { r in
             let trusted = MachineLabels.trusted(r), lost = MachineLabels.lost(r)
             return r.points.indices.filter { !trusted.contains($0) }.map { (r.points[$0], lost.contains($0)) }
         }.filter { $0.0.isChecked || $0.1 || kind(of: $0.0) != nil }
@@ -229,11 +244,17 @@ protocol ReviewStore: AnyObject {
     /// Change the frame and save its rally; the frame as it was, for going back.
     @discardableResult
     func review(_ item: AnnotationReview.Item, _ change: (inout TrackPoint) -> Void) -> TrackPoint?
-    /// The video to read the item's frame from (downloading it if need be).
-    func videoFile(of item: AnnotationReview.Item) async throws -> URL
-    func videoName(of item: AnnotationReview.Item) -> String
+    /// A video's file (keyed as items key it), downloading it if need be.
+    func videoFile(video: String) async throws -> URL
+    func videoName(video: String) -> String
+    /// Where to play a video from: the file, or streamed if it isn't here.
+    func playbackURL(video: String) async throws -> URL
     /// Claim a rally for review; false when someone else is reviewing it.
     func claim(_ track: UUID) async -> Bool
+    /// Pre-tracked rallies nobody has said are or aren't rallies yet.
+    func rallyChecks() -> [AnnotationReview.RallyCheck]
+    /// Say whether a pre-tracked rally is a rally (nil takes it back).
+    func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck)
 }
 
 extension ReviewStore {
@@ -299,7 +320,7 @@ final class ReviewWalk {
                 let shown = item
                 // The video's current file: a newer copy replaces the old one
                 // (and the old file goes), so a reader on it is made again.
-                let file = try await store.videoFile(of: item)
+                let file = try await store.videoFile(video: item.video)
                 if frames[item.video]?.video != file { frames[item.video] = ReviewFrames(video: file) }
                 guard let reader = frames[item.video] else { return }
                 let picture = await reader.image(at: point.time)

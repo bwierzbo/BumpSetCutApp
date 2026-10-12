@@ -406,7 +406,7 @@ final class LabelingSync {
     }
 
     private static func sameTrack(_ a: TrackedRally, _ b: LabelTrack) -> Bool {
-        a.done == b.done && abs(a.start - b.start) < 0.001 && abs(a.end - b.end) < 0.001 && a.points == b.points.points
+        a.done == b.done && a.isRally == b.isRally && abs(a.start - b.start) < 0.001 && abs(a.end - b.end) < 0.001 && a.points == b.points.points
     }
 
     // MARK: - 5. The plan, for the phone's Plan tab

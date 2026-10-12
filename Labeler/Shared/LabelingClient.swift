@@ -359,6 +359,20 @@ actor LabelingClient {
         _ = try await send(request)
     }
 
+    /// Whether a pre-tracked rally is a rally (migration 038); nil takes it back.
+    struct RallyVerdict: Codable, Hashable {
+        let track: UUID
+        let isRally: Bool?
+    }
+
+    func reviewRally(_ verdict: RallyVerdict) async throws {
+        struct Params: Encodable { let p_track: String; let p_is_rally: Bool? }
+        var request = try await rest("rpc/review_rally", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_track: verdict.track.uuidString.lowercased(), p_is_rally: verdict.isRally))
+        _ = try await send(request)
+    }
+
     private func rpc<T: Decodable>(_ name: String, _ params: [String: String]) async throws -> T {
         var request = try await rest("rpc/\(name)", query: "")
         request.httpMethod = "POST"

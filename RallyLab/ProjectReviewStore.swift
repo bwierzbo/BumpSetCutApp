@@ -45,13 +45,25 @@ final class ProjectReviewStore: ReviewStore {
         return before
     }
 
-    func videoFile(of item: AnnotationReview.Item) async throws -> URL {
-        guard let path = sampler.sessions.first(where: { $0.name == item.video })?.sourcePath,
+    func videoFile(video: String) async throws -> URL {
+        guard let path = sampler.sessions.first(where: { $0.name == video })?.sourcePath,
               FileManager.default.fileExists(atPath: path) else { throw CocoaError(.fileNoSuchFile) }
         return URL(fileURLWithPath: path)
     }
 
-    func videoName(of item: AnnotationReview.Item) -> String { item.video }
+    func videoName(video: String) -> String { video }
+
+    func playbackURL(video: String) async throws -> URL { try await videoFile(video: video) }
+
+    func rallyChecks() -> [AnnotationReview.RallyCheck] { AnnotationReview.rallyChecks(rallies) }
+
+    func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck) {
+        guard var tracks = sampler.sessions.first(where: { $0.name == check.video })?.tracks,
+              let r = tracks.firstIndex(where: { $0.id == check.track }) else { return }
+        tracks[r].isRally = isRally
+        sampler.setTracks(tracks, session: check.video)
+        tracker.reloadRallies(session: check.video)
+    }
 
     func claim(_ track: UUID) async -> Bool {
         // Not signed in to the phone side: nobody else to clash with.

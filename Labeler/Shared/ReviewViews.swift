@@ -4,6 +4,10 @@
 //
 //  Annotation review, the same screens on the Mac and the phone (see
 //  AnnotationReview). The Review tab shows how much is checked and opens:
+//   · Rally or not — each rally the model pre-tracked plays (looping, 2× by
+//     default): Rally sends its frames to review, Not a rally drops it from
+//     review and training. Its frames wait until it's answered. On the Mac:
+//     R rally, N not a rally, Space play/pause, ⌫ back.
 //   · Review — every ball's box in finished rallies, in order, as a crop:
 //     the box fixed in the middle (drag the picture to put the ball's centre
 //     under it, pinch to size it, tap to approve and go on). Hidden: the
@@ -20,6 +24,7 @@
 //  whole frame: click the ball, ↩ approve, H hidden, = − zoom, arrows pan.
 //
 
+import AVKit
 import SwiftUI
 
 struct ReviewHomeView: View {
@@ -33,6 +38,7 @@ struct ReviewHomeView: View {
         let frames = store.reviewItems([.crop]).count
         let noBall = store.reviewItems([.noBall]).count
         let unsure = store.reviewItems([.unsure]).count
+        let checks = store.rallyChecks().count
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -45,6 +51,11 @@ struct ReviewHomeView: View {
                 .padding()
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
                 if !held.isEmpty { heldCard }
+                NavigationLink { RallyCheckView(store: store) } label: {
+                    card("Rally or not", "\(checks.formatted()) rallies the model picked · is each a real rally? Their frames come to review once it is",
+                         "play.rectangle.on.rectangle", checks)
+                }
+                .buttonStyle(.plain).disabled(checks == 0)
                 NavigationLink { CropReviewView(store: store) } label: {
                     card("Review", "\(frames.formatted()) frames to check · drag to centre, pinch to size, tap to approve", "viewfinder", frames)
                 }
@@ -226,7 +237,7 @@ struct CropReviewView: View {
             Text("\(walk.left.formatted()) left").font(.headline.monospacedDigit())
             Spacer()
             if let item = walk.item, let p = walk.point {
-                Text("\(walk.store.videoName(of: item)) · \(clockText(p.time))").font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                Text("\(walk.store.videoName(video: item.video)) · \(clockText(p.time))").font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .padding(.horizontal, 8)
@@ -502,6 +513,153 @@ struct WholeFrameReviewView: View {
         .navigationTitle(kind == .unsure ? "Not sure" : "Find the ball")
         .inlineTitle()
         .task { await walk.load() }
+    }
+}
+
+/// Rally or not: each pre-tracked rally plays on a loop until it's answered.
+struct RallyCheckView: View {
+    let store: any ReviewStore
+    @State private var checks: [AnnotationReview.RallyCheck]
+    @State private var at = 0
+    @State private var undo: [AnnotationReview.RallyCheck] = []
+    @State private var player = RallyLoopPlayer()
+    @State private var fast = true
+    @State private var failure: String?
+
+    init(store: any ReviewStore) {
+        self.store = store
+        _checks = State(initialValue: store.rallyChecks())
+    }
+
+    private var check: AnnotationReview.RallyCheck? { checks.indices.contains(at) ? checks[at] : nil }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Button { back() } label: { Label("Back", systemImage: "arrow.uturn.backward") }
+                    .disabled(undo.isEmpty)
+                Spacer()
+                Button { fast.toggle(); player.rate = fast ? 2 : 1 } label: { Text(fast ? "2×" : "1×").monospacedDigit() }
+                    .buttonStyle(.bordered)
+                Text("\(max(0, checks.count - at).formatted()) left").font(.headline.monospacedDigit())
+            }
+            .padding(.horizontal, 8)
+            Group {
+                if let check {
+                    VStack(spacing: 6) {
+                        VideoPlayer(player: player.player)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        Text("\(store.videoName(video: check.video)) · \(clock(check.start))–\(clock(check.end))")
+                            .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                } else {
+                    ContentUnavailableView("Every rally checked", systemImage: "checkmark.seal.fill",
+                                           description: Text("The real ones' frames are in Review."))
+                }
+            }
+            .frame(maxHeight: .infinity)
+            if let failure { Text(failure).font(.caption).foregroundStyle(.red) }
+            HStack(spacing: 12) {
+                Button(role: .destructive) { answer(false) } label: {
+                    Label("Not a rally", systemImage: "xmark").frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                Button { answer(true) } label: {
+                    Label("Rally", systemImage: "checkmark").frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent).tint(.green)
+            }
+            .disabled(check == nil)
+            .padding(.horizontal, 8)
+            ProgressView(value: Double(min(at, checks.count)), total: Double(max(checks.count, 1))).tint(.green)
+                .padding(.horizontal, 12)
+        }
+        .padding(.bottom, 8)
+        .navigationTitle("Rally or not")
+        .inlineTitle()
+        .reviewKeys { press in
+            switch press.characters.lowercased() {
+            case "r": answer(true)
+            case "n": answer(false)
+            case " ": player.togglePlay()
+            case "\u{7F}", "\u{8}": back()
+            default: return false
+            }
+            return true
+        }
+        .task(id: check) { await play() }
+        .onDisappear { player.stop() }
+    }
+
+    private func play() async {
+        guard let check else { player.stop(); return }
+        failure = nil
+        do {
+            let url = try await store.playbackURL(video: check.video)
+            guard check == self.check else { return }
+            player.loop(url, from: check.start, to: check.end, rate: fast ? 2 : 1)
+        } catch {
+            failure = "Couldn't load the video: \(error.localizedDescription)"
+        }
+    }
+
+    private func answer(_ isRally: Bool) {
+        guard let check else { return }
+        store.setIsRally(isRally, check)
+        undo.append(check)
+        at += 1
+    }
+
+    private func back() {
+        guard let last = undo.popLast() else { return }
+        store.setIsRally(nil, last)
+        at = checks.firstIndex(of: last) ?? max(0, at - 1)
+    }
+
+    private func clock(_ t: Double) -> String { String(format: "%d:%02d", Int(t) / 60, Int(t) % 60) }
+}
+
+/// One player that loops a stretch of a video, reusing the item when the
+/// next stretch is in the same video.
+@MainActor
+@Observable
+final class RallyLoopPlayer {
+    let player = AVPlayer()
+    var rate: Float = 2 { didSet { if player.rate > 0 { player.rate = rate } } }
+    @ObservationIgnored private var url: URL?
+    @ObservationIgnored private var start = CMTime.zero
+    @ObservationIgnored private var boundary: Any?
+
+    func loop(_ url: URL, from start: Double, to end: Double, rate: Float) {
+        if url != self.url {
+            player.replaceCurrentItem(with: AVPlayerItem(url: url))
+            self.url = url
+        }
+        if let boundary { player.removeTimeObserver(boundary) }
+        self.start = CMTime(seconds: start, preferredTimescale: 600)
+        boundary = player.addBoundaryTimeObserver(forTimes: [NSValue(time: CMTime(seconds: end, preferredTimescale: 600))],
+                                                  queue: .main) { [weak self] in
+            MainActor.assumeIsolated { self?.restart() }
+        }
+        self.rate = rate
+        restart()
+    }
+
+    private func restart() {
+        player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
+        player.rate = rate
+    }
+
+    func togglePlay() {
+        if player.rate > 0 { player.pause() } else { player.rate = rate }
+    }
+
+    func stop() {
+        player.pause()
+        if let boundary { player.removeTimeObserver(boundary) }
+        boundary = nil
+        player.replaceCurrentItem(with: nil)
+        url = nil
     }
 }
 

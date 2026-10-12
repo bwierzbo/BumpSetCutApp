@@ -247,12 +247,28 @@ final class LabelerModel: ReviewStore {
         (try? await client.reviewClaim(track)) ?? true
     }
 
-    func videoFile(of item: AnnotationReview.Item) async throws -> URL {
-        guard let v = video(of: item) else { throw LabelingClient.Failure.unreadable }
+    func videoFile(video key: String) async throws -> URL {
+        guard let v = UUID(uuidString: key).flatMap(video) else { throw LabelingClient.Failure.unreadable }
         return try await localClip(for: v)
     }
 
-    func videoName(of item: AnnotationReview.Item) -> String { video(of: item)?.name ?? "" }
+    func videoName(video key: String) -> String { UUID(uuidString: key).flatMap(video)?.name ?? "" }
+
+    func playbackURL(video key: String) async throws -> URL {
+        guard let v = UUID(uuidString: key).flatMap(video) else { throw LabelingClient.Failure.unreadable }
+        return try await playbackURL(for: v)
+    }
+
+    func rallyChecks() -> [AnnotationReview.RallyCheck] { AnnotationReview.rallyChecks(reviewRallies) }
+
+    /// Changed here at once, and sent as just that answer (the rally's frames
+    /// are left as the server has them).
+    func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck) {
+        if let i = snapshot.tracks.firstIndex(where: { $0.id == check.track }) { snapshot.tracks[i].isRally = isRally }
+        if outbox.tracks[check.track] != nil { outbox.tracks[check.track]!.isRally = isRally }
+        outbox.rallies.append(LabelingClient.RallyVerdict(track: check.track, isRally: isRally))
+        queueFlush()
+    }
 
     // MARK: - Plan
 
@@ -383,6 +399,16 @@ final class LabelerModel: ReviewStore {
                 snapshot.times.removeAll { $0.videoId == id }
                 snapshot.times.append(saved)
             } catch { isOffline = true; break }
+        }
+        // Rally checks, in the order they were made (a taken-back one last).
+        for verdict in outbox.rallies {
+            do {
+                try await client.reviewRally(verdict)
+                if let i = outbox.rallies.firstIndex(of: verdict) { outbox.rallies.remove(at: i) }
+            } catch {
+                isOffline = true
+                break
+            }
         }
         // Review decisions, rally by rally.
         let frames = outbox.frames
