@@ -36,6 +36,8 @@ enum PipelineTuner {
     static let deadTimeCost = 0.25
     /// A detection step is kept only when it beats the best by this much.
     static let minGain = 0.003
+    /// A rally setting goes back to today's value when the result loses less than this without it.
+    static let pruneTolerance = 0.001
 
     // MARK: - Settings
 
@@ -233,7 +235,22 @@ enum PipelineTuner {
         let parents = ranked.prefix(10).map(\.0)
         let children = (0..<refine).map { nudge(parents[$0 % parents.count]) }
         ranked += await evaluate(children)
-        return ranked.max { $0.1.value < $1.1.value }!
+        // Put back every knob the result doesn't need: random search moves
+        // knobs that make no difference here, and each needless change is a
+        // guess about footage the set doesn't have.
+        let top = ranked.max { $0.1.value < $1.1.value }!
+        var (best, bestScore) = top
+        var reverted = true
+        while reverted {
+            reverted = false
+            for k in rallyKnobs where abs(k.get(best) - k.get(start)) > 1e-9 {
+                var s = best
+                k.set(&s, k.get(start))
+                let candidate = score(passes, s)
+                if candidate.value > top.1.value - pruneTolerance { (best, bestScore, reverted) = (s, candidate, true) }
+            }
+        }
+        return (best, bestScore)
     }
 
     // MARK: - Passes (cached)
