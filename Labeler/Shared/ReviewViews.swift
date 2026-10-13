@@ -27,7 +27,7 @@
 //  On the Mac: two fingers on the trackpad move the picture, pinch sizes the
 //  box (as on the phone); ↩/Space approve and go on, arrows move the box a
 //  pixel (⇧ five), [ ] size it, H hidden, X no ball, U not sure, ⌫ back. On the
-//  whole frame: click the ball, ↩ approve, H hidden, = − zoom, arrows pan.
+//  whole frame: click the ball, ↩/Space approve and go on, H hidden, = − zoom, arrows pan.
 //
 
 import AVKit
@@ -567,7 +567,7 @@ struct FindBallView: View {
         .reviewKeys { press in
             let pan = 0.05 / zoom
             switch press.key {
-            case .return:
+            case .return, .space:
                 guard let placed, peek == nil else { return false }
                 onBall(placed)
             case .leftArrow: centre.x -= pan
