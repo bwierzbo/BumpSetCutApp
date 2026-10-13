@@ -35,7 +35,7 @@ import SwiftUI
 
 struct ReviewHomeView: View {
     let store: any ReviewStore
-    let progress: (reviewed: Int, total: Int)
+    let progress: AnnotationReview.Progress
     /// Rallies with frames to review that someone else is on right now.
     @State private var held: Set<UUID> = []
     @State private var takingOver = false
@@ -52,7 +52,10 @@ struct ReviewHomeView: View {
                     Text("\(progress.reviewed.formatted()) of \(progress.total.formatted()) frames reviewed")
                         .font(.headline.monospacedDigit())
                     ProgressView(value: Double(progress.reviewed), total: Double(max(progress.total, 1)))
-                    Text("Only reviewed frames of finished rallies are used for training.")
+                    Text("\(progress.ralliesDone.formatted()) of \(progress.rallies.formatted()) rallies complete")
+                        .font(.subheadline.weight(.semibold).monospacedDigit()).padding(.top, 4)
+                    ProgressView(value: Double(progress.ralliesDone), total: Double(max(progress.rallies, 1))).tint(.green)
+                    Text("Complete: every frame checked, the hard ones too. Only reviewed frames are used for training.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding()

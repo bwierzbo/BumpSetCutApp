@@ -24,7 +24,7 @@ final class ProjectReviewStore: ReviewStore {
         sampler.sessions.flatMap { s in (s.tracks ?? []).map { (s.name, $0) } }
     }
 
-    var progress: (reviewed: Int, total: Int) { AnnotationReview.progress(rallies.map(\.rally)) }
+    var progress: AnnotationReview.Progress { AnnotationReview.progress(rallies.map(\.rally)) }
 
     func reviewItems(_ kinds: Set<AnnotationReview.Kind>) -> [AnnotationReview.Item] {
         AnnotationReview.items(rallies, kinds: kinds)

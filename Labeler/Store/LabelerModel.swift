@@ -217,7 +217,7 @@ final class LabelerModel: ReviewStore {
         AnnotationReview.items(reviewRallies, kinds: kinds)
     }
 
-    var reviewProgress: (reviewed: Int, total: Int) { AnnotationReview.progress(reviewRallies.map(\.rally)) }
+    var reviewProgress: AnnotationReview.Progress { AnnotationReview.progress(reviewRallies.map(\.rally)) }
 
     func video(of item: AnnotationReview.Item) -> LabelVideo? { UUID(uuidString: item.video).flatMap(video) }
 

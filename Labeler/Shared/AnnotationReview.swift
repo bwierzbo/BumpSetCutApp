@@ -95,14 +95,24 @@ enum AnnotationReview {
     }
 
     /// Reviewed of all frames for people to check in finished (or
-    /// pre-tracked) rallies.
-    static func progress(_ rallies: [TrackedRally]) -> (reviewed: Int, total: Int) {
-        let points = rallies.filter(\.isForReview).flatMap { r in
+    /// pre-tracked) rallies, and how many of those rallies have every frame
+    /// checked (sure frames included): complete, nothing left to review.
+    static func progress(_ rallies: [TrackedRally]) -> Progress {
+        var out = Progress(reviewed: 0, total: 0, ralliesDone: 0, rallies: 0)
+        for r in rallies where r.isForReview {
             let trusted = MachineLabels.trusted(r), lost = MachineLabels.lost(r)
-            return r.points.indices.filter { !trusted.contains($0) }.map { (r.points[$0], lost.contains($0)) }
-        }.filter { $0.0.isChecked || $0.1 || kind(of: $0.0) != nil }
-        return (points.filter(\.0.isChecked).count, points.count)
+            let points = r.points.indices.filter { !trusted.contains($0) }.map { (r.points[$0], lost.contains($0)) }
+                .filter { $0.0.isChecked || $0.1 || kind(of: $0.0) != nil }
+            let reviewed = points.filter(\.0.isChecked).count
+            out.reviewed += reviewed
+            out.total += points.count
+            out.rallies += 1
+            if trusted.isEmpty && reviewed == points.count { out.ralliesDone += 1 }
+        }
+        return out
     }
+
+    typealias Progress = (reviewed: Int, total: Int, ralliesDone: Int, rallies: Int)
 
     // MARK: - Decisions
 
