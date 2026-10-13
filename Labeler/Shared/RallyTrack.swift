@@ -366,7 +366,8 @@ enum MachineLabels {
     static let maxLost = 20
 
     /// Indices of the frames that train as machine labels: none in a
-    /// person's rally, nor any already checked (those are people's).
+    /// person's rally, nor any already checked (those are people's) or
+    /// picked out as wrong (set aside as not sure).
     static func trusted(_ rally: TrackedRally, minConfidence: Double = minConfidence, maxOffArc: Double = maxOffArc,
                         reach: Int = reach) -> Set<Int> {
         guard rally.isMachine, rally.isRally != false else { return [] }
@@ -375,7 +376,7 @@ enum MachineLabels {
         let p = rally.points
         var out = Set<Int>()
         for i in p.indices where i >= reach && i + reach < p.count {
-            guard p[i].state == .visible, p[i].origin == .auto, !p[i].isChecked, let box = p[i].box,
+            guard p[i].state == .visible, p[i].origin == .auto, !p[i].isChecked, !p[i].unsure, let box = p[i].box,
                   box.confidence >= minConfidence else { continue }
             let around = (i - reach...i + reach).filter { $0 != i }
             let boxes = around.compactMap { k in p[k].state == .visible && p[k].origin != .filled ? p[k].box.map { (p[k].time, $0.rect) } : nil }

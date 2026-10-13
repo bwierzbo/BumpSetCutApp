@@ -8,6 +8,8 @@
 //  (MachineLabels). A frame with a ball is shown as a
 //  crop around its box — the box fixed in the middle; you move the picture
 //  under it and size it, then approve — or call it hidden (covered here).
+//  The frames the model is sure of (MachineLabels) are checked apart, a
+//  page of crops at a time: pick out any that are wrong, approve the rest.
 //  Hidden frames aren't reviewed: they count as checked. "No ball" sets a frame aside for a later pass on the
 //  whole frame, to place the ball or call it hidden. "Not sure" sets a
 //  frame aside in its own pass for a later look.
@@ -32,6 +34,9 @@ enum AnnotationReview {
         case noBall
         /// Set aside as not sure.
         case unsure
+        /// A pre-tracked rally's sure frame (MachineLabels): checked a page
+        /// at a time; one picked out as wrong is set aside as not sure.
+        case sure
     }
 
     /// One frame to review: a frame of a rally of a video (keyed however the
@@ -71,8 +76,8 @@ enum AnnotationReview {
 
     /// The frames of finished (or pre-tracked) rallies still needing `kind`,
     /// rally by rally, in frame order (neighbours look alike, so they go
-    /// quickly). A pre-tracked rally's sure frames (MachineLabels) aren't
-    /// asked about.
+    /// quickly). A pre-tracked rally's sure frames (MachineLabels) are only
+    /// in `.sure`.
     static func items(_ rallies: [(video: String, rally: TrackedRally)], kinds: Set<Kind>) -> [Item] {
         rallies.filter { $0.rally.isForReview }
             .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
@@ -80,8 +85,11 @@ enum AnnotationReview {
                 let trusted = MachineLabels.trusted(v.rally)
                 let lost = kinds.contains(.noBall) ? MachineLabels.lost(v.rally) : []
                 return v.rally.points.indices
-                    .filter { lost.contains($0)
-                        || (!trusted.contains($0) && (Self.kind(of: v.rally.points[$0]).map(kinds.contains) ?? false)) }
+                    .filter { i in
+                        if lost.contains(i) { return true }
+                        if trusted.contains(i) { return kinds.contains(.sure) }
+                        return Self.kind(of: v.rally.points[i]).map(kinds.contains) ?? false
+                    }
                     .map { Item(video: v.video, track: v.rally.id, index: $0) }
             }
     }
@@ -271,8 +279,8 @@ extension ReviewStore {
     }
 }
 
-/// Walks a fixed list of frames: loads each one's picture, reads ahead, and
-/// keeps what was decided for going back.
+/// Walks a fixed list of frames, one at a time or a page at a time (`pageSize`):
+/// loads the pictures, reads ahead, and keeps what was decided for going back.
 @MainActor
 @Observable
 final class ReviewWalk {
@@ -281,14 +289,22 @@ final class ReviewWalk {
     private(set) var at = 0
     private(set) var image: CGImage?
     private(set) var failure: String?
-    /// Frames decided in this walk, in order, for going back.
-    private var decided: [AnnotationReview.Item] = []
+    /// Frames shown together and decided at once (nil: one at a time).
+    let pageSize: Int?
+    /// This page's frames that can be shown, with their pictures.
+    private(set) var page: [(item: AnnotationReview.Item, image: CGImage)] = []
+    /// Where the walk goes on from after this page.
+    @ObservationIgnored private var pageEnd = 0
+    /// Frames decided in this walk, a decision (one frame, or a page) at a
+    /// time, in order, for going back.
+    private var decided: [[AnnotationReview.Item]] = []
     /// Each decided frame as it was before this walk first decided it.
     private var original: [AnnotationReview.Item: TrackPoint] = [:]
     @ObservationIgnored private var frames: [String: ReviewFrames] = [:]
 
-    init(store: any ReviewStore, kinds: Set<AnnotationReview.Kind>) {
+    init(store: any ReviewStore, kinds: Set<AnnotationReview.Kind>, pageSize: Int? = nil) {
         self.store = store
+        self.pageSize = pageSize
         items = store.reviewItems(kinds)
     }
 
@@ -308,34 +324,25 @@ final class ReviewWalk {
     @ObservationIgnored private var refused: Set<UUID> = []
 
     func load() async {
+        if let pageSize { return await loadPage(pageSize) }
         image = nil
         failure = nil
         while let item, let point {
+            let mine = await isMine(item.track)
+            guard item == self.item else { return }
             // Someone else is on this rally: their frames are theirs.
-            if !claimed.contains(item.track) && !refused.contains(item.track) {
-                if await store.claim(item.track) { claimed.insert(item.track) } else { refused.insert(item.track) }
-                guard item == self.item else { return }
-            }
-            if refused.contains(item.track) {
+            if !mine {
                 othersFrames += 1
                 at += 1
                 continue
             }
             do {
                 let shown = item
-                // The video's current file: a newer copy replaces the old one
-                // (and the old file goes), so a reader on it is made again.
-                let file = try await store.videoFile(video: item.video)
-                if frames[item.video]?.video != file { frames[item.video] = ReviewFrames(video: file) }
-                guard let reader = frames[item.video] else { return }
-                let picture = await reader.image(at: point.time)
+                let picture = try await picture(of: item, at: point.time)
                 guard shown == self.item else { return }
                 if let picture {
                     image = picture
-                    // The next few of the same video.
-                    let ahead = items[(at + 1)...].prefix(6).filter { $0.video == item.video }
-                        .compactMap { i in store.rally(of: i)?.points[safe: i.index]?.time }
-                    reader.prefetch(ahead)
+                    prefetch(after: at)
                     return
                 }
                 // Can't be read: pass over it (it stays to review) and go on.
@@ -348,12 +355,75 @@ final class ReviewWalk {
         }
     }
 
+    /// The next `size` frames from here that can be shown, passing over
+    /// those of rallies someone else is on and those that can't be read.
+    private func loadPage(_ size: Int) async {
+        page = []
+        failure = nil
+        var next = at, shown: [(item: AnnotationReview.Item, image: CGImage)] = []
+        while shown.count < size, items.indices.contains(next) {
+            let item = items[next]
+            next += 1
+            guard let point = store.rally(of: item)?.points[safe: item.index] else { continue }
+            guard await isMine(item.track) else { othersFrames += 1; continue }
+            do {
+                if let picture = try await picture(of: item, at: point.time) { shown.append((item, picture)) } else { unreadable += 1 }
+            } catch {
+                failure = error.localizedDescription
+                return
+            }
+        }
+        pageEnd = next
+        page = shown
+        prefetch(after: next - 1, count: size)
+    }
+
+    /// Whether a rally's frames are this person's to review: claimed for
+    /// them, or someone else is on it.
+    private func isMine(_ track: UUID) async -> Bool {
+        if !claimed.contains(track) && !refused.contains(track) {
+            if await store.claim(track) { claimed.insert(track) } else { refused.insert(track) }
+        }
+        return claimed.contains(track)
+    }
+
+    /// A frame's picture (nil if it can't be read).
+    private func picture(of item: AnnotationReview.Item, at time: Double) async throws -> CGImage? {
+        // The video's current file: a newer copy replaces the old one (and
+        // the old file goes), so a reader on it is made again.
+        let file = try await store.videoFile(video: item.video)
+        if frames[item.video]?.video != file { frames[item.video] = ReviewFrames(video: file) }
+        return await frames[item.video]?.image(at: time)
+    }
+
+    /// Read ahead the next few frames after `index` of the same video.
+    private func prefetch(after index: Int, count: Int = 6) {
+        guard let item = items[safe: index], let reader = frames[item.video] else { return }
+        let ahead = items[(index + 1)...].prefix(count).filter { $0.video == item.video }
+            .compactMap { i in store.rally(of: i)?.points[safe: i.index]?.time }
+        reader.prefetch(ahead)
+    }
+
     /// Decide this frame and go on.
     func decide(_ change: (inout TrackPoint) -> Void) async {
         guard let item, let before = store.review(item, change) else { return }
-        decided.append(item)
+        decided.append([item])
         if original[item] == nil { original[item] = before }
         at += 1
+        await load()
+    }
+
+    /// Decide every frame of this page (`change` per frame) and go on to the next.
+    func decidePage(_ change: (AnnotationReview.Item, inout TrackPoint) -> Void) async {
+        guard !page.isEmpty else { return }
+        var done: [AnnotationReview.Item] = []
+        for (item, _) in page {
+            guard let before = store.review(item, { change(item, &$0) }) else { continue }
+            done.append(item)
+            if original[item] == nil { original[item] = before }
+        }
+        decided.append(done)
+        at = pageEnd
         await load()
     }
 
@@ -365,11 +435,18 @@ final class ReviewWalk {
         return await reader.image(at: point.time)
     }
 
-    /// Show the last frame decided again, with your answer on it: answering
-    /// it again replaces that answer, and moving on keeps it.
+    /// Leave this frame as it is, for later, and go on.
+    func skip() async {
+        guard item != nil else { return }
+        at += 1
+        await load()
+    }
+
+    /// Show the last frame (or page) decided again, with your answers on it:
+    /// answering again replaces them, and moving on keeps them.
     func back() async {
-        guard let last = decided.popLast() else { return }
-        at = items.firstIndex(of: last) ?? max(0, at - 1)
+        guard let last = decided.popLast(), let first = last.first else { return }
+        at = items.firstIndex(of: first) ?? max(0, at - 1)
         await load()
     }
 }

@@ -12,12 +12,17 @@
 //   · Review — every ball's box in finished rallies, in order, as a crop:
 //     the box fixed in the middle (drag the picture to put the ball's centre
 //     under it, pinch to size it, tap to approve and go on). Hidden: the
-//     ball's covered here (its place is worked out from the frames either
-//     side, so don't guess a box). Hidden frames aren't shown: they count as
-//     checked. No ball sets a frame aside for —
+//     ball can't be seen here — covered, or off screen (its place is worked
+//     out from the frames either side, so don't guess a box). Hidden frames
+//     aren't shown: they count as checked. Wrong spot (the box is on
+//     something else) sets a frame aside for —
 //   · Find the ball — the whole frame: tap the ball and approve, or hidden.
 //   · Not sure — frames set aside, on the whole frame with their box.
-//  Back undoes the last decision.
+//   Both whole-frame passes: Skip leaves a frame for later.
+//   · Sure frames — the frames the model is sure of, a page of crops at a
+//     time: tap any whose box isn't on the ball (they go to Not sure), then
+//     approve the page. On the Mac: click to pick out, ↩/Space approve, ⌫ back.
+//  Back shows the last decision again, to change it.
 //
 //  On the Mac: two fingers on the trackpad move the picture, pinch sizes the
 //  box (as on the phone); ↩/Space approve and go on, arrows move the box a
@@ -39,6 +44,7 @@ struct ReviewHomeView: View {
         let frames = store.reviewItems([.crop]).count
         let noBall = store.reviewItems([.noBall]).count
         let unsure = store.reviewItems([.unsure]).count
+        let sure = store.reviewItems([.sure]).count
         let checks = store.rallyChecks().count
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -62,13 +68,18 @@ struct ReviewHomeView: View {
                 }
                 .buttonStyle(.plain).disabled(frames == 0)
                 NavigationLink { WholeFrameReviewView(store: store, kind: .noBall) } label: {
-                    card("Find the ball", "\(noBall.formatted()) said no ball · find it on the whole frame, or call it hidden", "scope", noBall)
+                    card("Find the ball", "\(noBall.formatted()) whose box was on the wrong spot · find the ball on the whole frame, or call it hidden", "scope", noBall)
                 }
                 .buttonStyle(.plain).disabled(noBall == 0)
                 NavigationLink { WholeFrameReviewView(store: store, kind: .unsure) } label: {
                     card("Not sure", "\(unsure.formatted()) set aside · a closer look when you have time", "questionmark.circle", unsure)
                 }
                 .buttonStyle(.plain).disabled(unsure == 0)
+                NavigationLink { SureReviewView(store: store) } label: {
+                    card("Sure frames", "\(sure.formatted()) the model is sure of · tap any that are wrong, approve the rest a page at a time",
+                         "square.grid.3x3", sure)
+                }
+                .buttonStyle(.plain).disabled(sure == 0)
             }
             .padding()
         }
@@ -84,7 +95,7 @@ struct ReviewHomeView: View {
 
     /// Someone else is reviewing some rallies: their frames are skipped, or take them over.
     private var heldCard: some View {
-        let frames = store.reviewItems([.crop, .noBall, .unsure]).filter { held.contains($0.track) }.count
+        let frames = store.reviewItems([.crop, .noBall, .unsure, .sure]).filter { held.contains($0.track) }.count
         return HStack(spacing: 12) {
             Image(systemName: "person.2.fill").font(.title2).foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
@@ -109,7 +120,7 @@ struct ReviewHomeView: View {
 
     /// Only rallies that still have frames for this person to review.
     private func refreshHeld() async {
-        let mine = Set(store.reviewItems([.crop, .noBall, .unsure]).map(\.track))
+        let mine = Set(store.reviewItems([.crop, .noBall, .unsure, .sure]).map(\.track))
         held = await store.heldByOthers().intersection(mine)
     }
 
@@ -249,7 +260,7 @@ struct CropReviewView: View {
 
     private var controls: some View {
         VStack(spacing: 8) {
-            Text("Drag to centre the ball · pinch to size the box · tap to approve · covered: Hidden")
+            Text("Drag to centre the ball · pinch to size · tap to approve · covered or off screen: Hidden · box on something else: Wrong spot")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Button { Task { reset(); await walk.back() } } label: {
@@ -265,7 +276,7 @@ struct CropReviewView: View {
                 }
                 .buttonStyle(.bordered).tint(.indigo).disabled(walk.item == nil)
                 Button(role: .destructive) { decide(AnnotationReview.noBall) } label: {
-                    Label("No ball", systemImage: "xmark").frame(maxWidth: .infinity)
+                    Label("Wrong spot", systemImage: "xmark").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).tint(.red).disabled(walk.item == nil)
             }
@@ -315,6 +326,135 @@ struct CropReviewView: View {
     private func reset() {
         offset = .zero
         scale = 1
+    }
+}
+
+/// Sure frames: a page of crops at a time, each box as the model put it.
+/// Tap any that isn't on the ball (set aside as not sure, for a look on the
+/// whole frame); approve approves the rest.
+struct SureReviewView: View {
+    @State private var walk: ReviewWalk
+    /// This page's crops, cut out once when it loads.
+    @State private var patches: [AnnotationReview.Item: CropPatch] = [:]
+    /// Picked out as wrong on this page.
+    @State private var wrong: Set<AnnotationReview.Item> = []
+    @State private var approved = 0
+
+    #if os(macOS)
+    private static let columns = 4
+    #else
+    private static let columns = 3
+    #endif
+
+    init(store: any ReviewStore) {
+        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.sure], pageSize: Self.columns * 4))
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("\(walk.left.formatted()) left").font(.headline.monospacedDigit())
+                Spacer()
+                if let first = walk.page.first, let p = walk.store.rally(of: first.item)?.points[safe: first.item.index] {
+                    Text("\(walk.store.videoName(video: first.item.video)) · \(clockText(p.time))")
+                        .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 8)
+            Group {
+                if !walk.page.isEmpty {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: Self.columns), spacing: 6) {
+                        ForEach(walk.page, id: \.item) { cell($0.item) }
+                    }
+                } else if let failure = walk.failure {
+                    ContentUnavailableView("Can't show these frames", systemImage: "exclamationmark.triangle", description: Text(failure))
+                } else if walk.item == nil {
+                    ContentUnavailableView("All sure frames checked", systemImage: "checkmark.seal.fill",
+                                           description: Text("\(approved) approved this time."))
+                } else {
+                    ProgressView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Text("Tap any box that isn't on the ball · it goes to Not sure").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Button { Task { await walk.back() } } label: {
+                    Label("Back", systemImage: "arrow.uturn.backward").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered).disabled(!walk.canGoBack)
+                Button { approvePage() } label: {
+                    Label(wrong.isEmpty ? "Approve all" : "Approve \(walk.page.count - wrong.count) · \(wrong.count) wrong",
+                          systemImage: "checkmark").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent).tint(.green).disabled(walk.page.isEmpty)
+            }
+            .controlSize(.large)
+            ReviewPassBar(walk: walk)
+        }
+        .padding(.horizontal, 8).padding(.bottom, 8)
+        .navigationTitle("Sure frames")
+        .inlineTitle()
+        .reviewKeys { press in
+            switch press.key {
+            case .return, .space: approvePage()
+            case .delete, .deleteForward: Task { await walk.back() }
+            default: return false
+            }
+            return true
+        }
+        .task { await walk.load() }
+        // A new page: cut out its crops; frames gone back to show what was said of them.
+        .onChange(of: walk.page.map(\.item), initial: true) {
+            patches = Dictionary(uniqueKeysWithValues: walk.page.compactMap { f in
+                box(f.item).flatMap { CropPatch(frame: f.image, box: $0) }.map { (f.item, $0) }
+            })
+            wrong = Set(walk.page.map(\.item).filter { walk.store.rally(of: $0)?.points[safe: $0.index]?.unsure == true })
+        }
+        .sensoryFeedback(.success, trigger: approved)
+    }
+
+    private func box(_ item: AnnotationReview.Item) -> CGRect? {
+        walk.store.rally(of: item)?.points[safe: item.index].flatMap { $0.state == .visible ? $0.box?.rect : nil }
+    }
+
+    @ViewBuilder
+    private func cell(_ item: AnnotationReview.Item) -> some View {
+        let isWrong = wrong.contains(item)
+        Group {
+            if let patch = patches[item], let box = box(item) {
+                CropCanvas(patch: patch, box: box, offset: .zero, scale: 1, tint: isWrong ? .red : .green)
+            } else {
+                Color.black
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .overlay(alignment: .topTrailing) {
+            if isWrong {
+                Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.white, .red).padding(4)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isWrong ? Color.red : .clear, lineWidth: 3))
+        .contentShape(Rectangle())
+        .onTapGesture { if isWrong { wrong.remove(item) } else { wrong.insert(item) } }
+    }
+
+    /// The page's boxes approved as they are (squared like a crop approved
+    /// untouched); the ones picked out set aside as not sure.
+    private func approvePage() {
+        guard !walk.page.isEmpty else { return }
+        let sizes = Dictionary(uniqueKeysWithValues: walk.page.map { ($0.item, CGSize(width: $0.image.width, height: $0.image.height)) })
+        let wrong = wrong
+        approved += walk.page.count - wrong.count
+        Task {
+            await walk.decidePage { item, point in
+                if wrong.contains(item) {
+                    AnnotationReview.markUnsure(&point)
+                } else if point.state == .visible, let box = point.box?.rect, let size = sizes[item] {
+                    AnnotationReview.approve(&point, box: AnnotationReview.adjusted(box, offset: .zero, scale: 1, in: size))
+                }
+            }
+        }
     }
 }
 
@@ -488,6 +628,8 @@ struct WholeFrameReviewView: View {
             HStack {
                 Button { Task { await walk.back() } } label: { Label("Back", systemImage: "arrow.uturn.backward") }
                     .disabled(!walk.canGoBack)
+                Button { Task { await walk.skip() } } label: { Label("Skip", systemImage: "forward") }
+                    .disabled(walk.item == nil)
                 Spacer()
                 Text("\(walk.left.formatted()) left").font(.headline.monospacedDigit())
             }
