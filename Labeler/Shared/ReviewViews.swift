@@ -697,6 +697,7 @@ struct RallyCheckView: View {
                 if let check {
                     VStack(spacing: 6) {
                         VideoPlayer(player: player.player)
+                            .overlay { if player.waiting { ProgressView().controlSize(.large).tint(.white) } }
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         Text("\(store.videoName(video: check.video)) · \(clock(check.start))–\(clock(check.end))")
                             .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
@@ -747,10 +748,15 @@ struct RallyCheckView: View {
         do {
             let url = try await store.playbackURL(video: check.video)
             guard check == self.check else { return }
-            player.loop(url, from: check.start, to: check.end, rate: fast ? 2 : 1)
+            player.loop(url, video: check.video, from: check.start, to: check.end, rate: fast ? 2 : 1)
         } catch {
             failure = "Couldn't load the video: \(error.localizedDescription)"
+            return
         }
+        // Bring this video, then the next one, onto the device while you
+        // watch: their other rallies then play from the file, not a stream.
+        let next = checks[at...].first { $0.video != check.video }?.video
+        for video in [check.video, next].compactMap({ $0 }) where !Task.isCancelled { _ = try? await store.videoFile(video: video) }
     }
 
     private func answer(_ isRally: Bool) {
@@ -770,20 +776,32 @@ struct RallyCheckView: View {
 }
 
 /// One player that loops a stretch of a video, reusing the item when the
-/// next stretch is in the same video.
+/// next stretch is in the same video (a streamed video's link is new each
+/// time it's asked for, so it's known by the video; a file by its path).
 @MainActor
 @Observable
 final class RallyLoopPlayer {
     let player = AVPlayer()
     var rate: Float = 2 { didSet { if player.rate > 0 { player.rate = rate } } }
-    @ObservationIgnored private var url: URL?
+    /// Waiting for the video to load or buffer.
+    private(set) var waiting = false
+    @ObservationIgnored private var source: String?
     @ObservationIgnored private var start = CMTime.zero
     @ObservationIgnored private var boundary: Any?
+    @ObservationIgnored private var status: NSKeyValueObservation?
 
-    func loop(_ url: URL, from start: Double, to end: Double, rate: Float) {
-        if url != self.url {
+    init() {
+        status = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
+            let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            Task { @MainActor in self?.waiting = waiting }
+        }
+    }
+
+    func loop(_ url: URL, video: String, from start: Double, to end: Double, rate: Float) {
+        let source = url.isFileURL ? url.path : video
+        if source != self.source {
             player.replaceCurrentItem(with: AVPlayerItem(url: url))
-            self.url = url
+            self.source = source
         }
         if let boundary { player.removeTimeObserver(boundary) }
         self.start = CMTime(seconds: start, preferredTimescale: 600)
@@ -795,9 +813,13 @@ final class RallyLoopPlayer {
         restart()
     }
 
+    /// Back to the start and play: from the keyframe up to half a second
+    /// before it, which a stream seeks to far quicker than an exact frame.
     private func restart() {
-        player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
-        player.rate = rate
+        player.seek(to: start, toleranceBefore: CMTime(seconds: 0.5, preferredTimescale: 600), toleranceAfter: .zero) { [weak self] done in
+            guard done else { return }
+            Task { @MainActor in guard let self else { return }; self.player.rate = self.rate }
+        }
     }
 
     func togglePlay() {
@@ -809,7 +831,7 @@ final class RallyLoopPlayer {
         if let boundary { player.removeTimeObserver(boundary) }
         boundary = nil
         player.replaceCurrentItem(with: nil)
-        url = nil
+        source = nil
     }
 }
 
