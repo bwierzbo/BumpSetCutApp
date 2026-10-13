@@ -281,7 +281,10 @@ final class ReviewWalk {
     private(set) var at = 0
     private(set) var image: CGImage?
     private(set) var failure: String?
-    private var undo: [(item: AnnotationReview.Item, point: TrackPoint)] = []
+    /// Frames decided in this walk, in order, for going back.
+    private var decided: [AnnotationReview.Item] = []
+    /// Each decided frame as it was before this walk first decided it.
+    private var original: [AnnotationReview.Item: TrackPoint] = [:]
     @ObservationIgnored private var frames: [String: ReviewFrames] = [:]
 
     init(store: any ReviewStore, kinds: Set<AnnotationReview.Kind>) {
@@ -293,7 +296,9 @@ final class ReviewWalk {
     var point: TrackPoint? { item.flatMap { i in store.rally(of: i)?.points[safe: i.index] } }
     var rally: TrackedRally? { item.flatMap { store.rally(of: $0) } }
     var left: Int { max(0, items.count - at) }
-    var canGoBack: Bool { !undo.isEmpty }
+    var canGoBack: Bool { !decided.isEmpty }
+    /// This frame as it was before this walk decided it (nil if it hasn't).
+    var originalPoint: TrackPoint? { item.flatMap { original[$0] } }
 
     /// Frames that couldn't be read in this walk, passed over.
     private(set) var unreadable = 0
@@ -346,12 +351,12 @@ final class ReviewWalk {
     /// Decide this frame and go on.
     func decide(_ change: (inout TrackPoint) -> Void) async {
         guard let item, let before = store.review(item, change) else { return }
-        undo.append((item, before))
+        decided.append(item)
+        if original[item] == nil { original[item] = before }
         at += 1
         await load()
     }
 
-    /// Undo the last decision and show that frame again.
     /// The frame `offset` frames from this one in its rally, for a look
     /// around it (nil past the rally's ends or if it can't be read).
     func neighbourImage(_ offset: Int) async -> CGImage? {
@@ -360,10 +365,11 @@ final class ReviewWalk {
         return await reader.image(at: point.time)
     }
 
+    /// Show the last frame decided again, with your answer on it: answering
+    /// it again replaces that answer, and moving on keeps it.
     func back() async {
-        guard let last = undo.popLast() else { return }
-        store.review(last.item) { $0 = last.point }
-        at = items.firstIndex(of: last.item) ?? max(0, at - 1)
+        guard let last = decided.popLast() else { return }
+        at = items.firstIndex(of: last) ?? max(0, at - 1)
         await load()
     }
 }

@@ -157,8 +157,11 @@ struct CropReviewView: View {
         _walk = State(initialValue: ReviewWalk(store: store, kinds: [.crop]))
     }
 
-    /// The frame's ball box.
-    private var ball: CGRect? { walk.point.flatMap { $0.state == .visible ? $0.box?.rect : nil } }
+    /// The frame's ball box: your box on a frame gone back to, or the one it
+    /// had if you called it hidden or no ball.
+    private var ball: CGRect? {
+        [walk.point, walk.originalPoint].lazy.compactMap { $0.flatMap { $0.state == .visible ? $0.box?.rect : nil } }.first
+    }
 
     var body: some View {
         VStack(spacing: 12) {
