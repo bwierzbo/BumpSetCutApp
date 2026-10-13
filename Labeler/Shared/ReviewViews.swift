@@ -16,6 +16,11 @@
 //     out from the frames either side, so don't guess a box). Hidden frames
 //     aren't shown: they count as checked. Wrong spot (the box is on
 //     something else) sets a frame aside for —
+//   · Over the top — where the model lost the ball with the ball high up
+//     either side: the frames before and after, and the top of the picture
+//     through the gap on a loop. Hidden marks the whole gap; Ball shows
+//     leaves its frames for Find the ball. On the Mac: H/↩/Space hidden,
+//     S ball shows, ⌫ back.
 //   · Find the ball — the whole frame: tap the ball and approve, or hidden.
 //   · Not sure — frames set aside, on the whole frame with their box.
 //   Both whole-frame passes: Skip leaves a frame for later.
@@ -46,6 +51,7 @@ struct ReviewHomeView: View {
         let noBall = store.reviewItems([.noBall]).count
         let unsure = store.reviewItems([.unsure]).count
         let sure = store.reviewItems([.sure]).count
+        let gaps = store.offTopGaps()
         let checks = store.rallyChecks().count
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -71,6 +77,11 @@ struct ReviewHomeView: View {
                     card("Review", "\(frames.formatted()) frames to check · drag to centre, pinch to size, tap to approve", "viewfinder", frames)
                 }
                 .buttonStyle(.plain).disabled(frames == 0)
+                NavigationLink { OffTopReviewView(store: store) } label: {
+                    card("Over the top", "\(gaps.count.formatted()) gaps (\(gaps.reduce(0) { $0 + $1.frames.count }.formatted()) frames) where the ball likely went above the picture · check each, hidden all at once",
+                         "arrow.up.to.line", gaps.count)
+                }
+                .buttonStyle(.plain).disabled(gaps.isEmpty)
                 NavigationLink { WholeFrameReviewView(store: store, kind: .noBall) } label: {
                     card("Find the ball", "\(noBall.formatted()) whose box was on the wrong spot · find the ball on the whole frame, or call it hidden", "scope", noBall)
                 }
@@ -686,6 +697,189 @@ struct WholeFrameReviewView: View {
         .navigationTitle(kind == .unsure ? "Not sure" : "Find the ball")
         .inlineTitle()
         .task { await walk.load() }
+    }
+}
+
+/// Over the top: one gap at a time — the frames either side with the ball,
+/// and the top of the picture through the gap on a loop. Hidden marks every
+/// frame of it; Ball shows leaves them for Find the ball.
+struct OffTopReviewView: View {
+    let store: any ReviewStore
+    @State private var gaps: [AnnotationReview.Gap]
+    @State private var at = 0
+    /// Gaps called hidden, with their frames as they were, for going back.
+    @State private var done: [(gap: AnnotationReview.Gap, before: [Int: TrackPoint])] = []
+    /// This gap: the frames either side, and the top of the picture through it.
+    @State private var shown: (gap: AnnotationReview.Gap, before: CGImage, after: CGImage, band: [CGImage])?
+    @State private var frame = 0
+    @State private var failure: String?
+    @State private var readers: [String: ReviewFrames] = [:]
+    @State private var claimed: Set<UUID> = []
+    @State private var refused: Set<UUID> = []
+
+    init(store: any ReviewStore) {
+        self.store = store
+        _gaps = State(initialValue: store.offTopGaps())
+    }
+
+    private var gap: AnnotationReview.Gap? { gaps.indices.contains(at) ? gaps[at] : nil }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Button { back() } label: { Label("Back", systemImage: "arrow.uturn.backward") }.disabled(done.isEmpty)
+                Spacer()
+                Text("\(max(0, gaps.count - at).formatted()) left").font(.headline.monospacedDigit())
+            }
+            .padding(.horizontal, 8)
+            Group {
+                if let shown, shown.gap == gap, let rally = store.rally(of: item(shown.gap, shown.gap.frames.lowerBound)) {
+                    VStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            end("Before", shown.before, rally.points[safe: shown.gap.frames.lowerBound - 1])
+                            end("After", shown.after, rally.points[safe: shown.gap.frames.upperBound + 1])
+                        }
+                        Image(decorative: shown.band[min(frame, shown.band.count - 1)], scale: 1)
+                            .resizable().scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .frame(maxHeight: .infinity)
+                        Text("Top of the picture through the gap · frame \(min(frame, shown.band.count - 1) + 1) of \(shown.band.count) · \(store.videoName(video: shown.gap.video)) \(clockText(rally.points[shown.gap.frames.lowerBound].time))")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.center)
+                    }
+                } else if let failure {
+                    ContentUnavailableView("Can't show this gap", systemImage: "exclamationmark.triangle", description: Text(failure))
+                } else if gap == nil {
+                    ContentUnavailableView("Every gap checked", systemImage: "checkmark.seal.fill",
+                                           description: Text("The ones where the ball shows are in Find the ball."))
+                } else {
+                    ProgressView()
+                }
+            }
+            .frame(maxHeight: .infinity)
+            Text("If the ball never shows in the loop, it's out of sight the whole time: Hidden.")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            HStack(spacing: 12) {
+                Button { skip() } label: {
+                    Label("Ball shows", systemImage: "eye").frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                Button { hide() } label: {
+                    Label("Hidden · \(gap?.frames.count ?? 0) frames", systemImage: "eye.slash").frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent).tint(.indigo)
+            }
+            .disabled(gap == nil || shown?.gap != gap)
+            .padding(.horizontal, 8)
+            ProgressView(value: Double(min(at, gaps.count)), total: Double(max(gaps.count, 1))).tint(.green).padding(.horizontal, 12)
+        }
+        .padding(.bottom, 8)
+        .navigationTitle("Over the top")
+        .inlineTitle()
+        .reviewKeys { press in
+            switch press.key {
+            case .return, .space: hide()
+            case .delete, .deleteForward: back()
+            default:
+                switch press.characters.lowercased() {
+                case "h": hide()
+                case "s": skip()
+                default: return false
+                }
+            }
+            return true
+        }
+        .task(id: gap) { await load() }
+        // The gap's frames on a loop, about 8 a second.
+        .task(id: shown?.gap) {
+            frame = 0
+            while !Task.isCancelled, let count = shown?.band.count, count > 0 {
+                try? await Task.sleep(for: .milliseconds(120))
+                frame = (frame + 1) % count
+            }
+        }
+    }
+
+    private func end(_ title: String, _ image: CGImage, _ point: TrackPoint?) -> some View {
+        FrameCanvas(image: image, zoom: 1, centre: CGPoint(x: 0.5, y: 0.5), box: point?.box?.rect)
+            .aspectRatio(CGFloat(image.width) / CGFloat(image.height), contentMode: .fit)
+            .overlay(alignment: .topLeading) {
+                Text(title).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(.ultraThinMaterial, in: Capsule()).padding(4)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func item(_ gap: AnnotationReview.Gap, _ index: Int) -> AnnotationReview.Item {
+        AnnotationReview.Item(video: gap.video, track: gap.track, index: index)
+    }
+
+    /// Read this gap's frames (passing over gaps of rallies someone else is on).
+    private func load() async {
+        failure = nil
+        while let gap {
+            if !claimed.contains(gap.track) && !refused.contains(gap.track) {
+                if await store.claim(gap.track) { claimed.insert(gap.track) } else { refused.insert(gap.track) }
+            }
+            guard gap == self.gap else { return }
+            if refused.contains(gap.track) { at += 1; continue }
+            guard let rally = store.rally(of: item(gap, gap.frames.lowerBound)),
+                  let a = rally.points[safe: gap.frames.lowerBound - 1], let b = rally.points[safe: gap.frames.upperBound + 1],
+                  let boxA = a.box?.rect, let boxB = b.box?.rect else { at += 1; continue }
+            do {
+                let file = try await store.videoFile(video: gap.video)
+                if readers[gap.video]?.video != file { readers[gap.video] = ReviewFrames(video: file) }
+                guard let reader = readers[gap.video] else { return }
+                var images: [CGImage] = []
+                for i in (gap.frames.lowerBound - 1)...(gap.frames.upperBound + 1) {
+                    guard let p = rally.points[safe: i], let image = await reader.image(at: p.time) else { continue }
+                    images.append(image)
+                }
+                guard gap == self.gap else { return }
+                guard images.count >= 3, let first = images.first, let last = images.last else { at += 1; continue }
+                let band = images.dropFirst().dropLast().compactMap { Self.band($0, boxA, boxB) }
+                guard !band.isEmpty else { at += 1; continue }
+                shown = (gap, first, last, band)
+                return
+            } catch {
+                failure = error.localizedDescription
+                return
+            }
+        }
+        shown = nil
+    }
+
+    /// The top of the picture around where the ball left and came back: the
+    /// full width between them and a bit more, down to just below the lower
+    /// of the two balls.
+    static func band(_ image: CGImage, _ a: CGRect, _ b: CGRect) -> CGImage? {
+        let w = CGFloat(image.width), h = CGFloat(image.height)
+        let span = abs(a.midX - b.midX)
+        let width = min(1, max(0.45, span + 0.3))
+        let x = min(max((a.midX + b.midX) / 2 - width / 2, 0), 1 - width)
+        let bottom = min(1, 1 - min(a.midY, b.midY) + 0.12)   // top-down
+        return image.cropping(to: CGRect(x: x * w, y: 0, width: width * w, height: max(bottom, 0.25) * h).integral)
+    }
+
+    private func hide() {
+        guard let gap, shown?.gap == gap else { return }
+        var before: [Int: TrackPoint] = [:]
+        for i in gap.frames {
+            if let old = store.review(item(gap, i), AnnotationReview.confirmHidden) { before[i] = old }
+        }
+        done.append((gap, before))
+        at += 1
+    }
+
+    private func skip() {
+        guard gap != nil else { return }
+        at += 1
+    }
+
+    /// Put the last gap called hidden back as it was, and show it again.
+    private func back() {
+        guard let last = done.popLast() else { return }
+        for (i, old) in last.before { store.review(item(last.gap, i)) { $0 = old } }
+        at = gaps.firstIndex(of: last.gap) ?? max(0, at - 1)
     }
 }
 

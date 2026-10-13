@@ -272,6 +272,8 @@ final class LabelerModel: ReviewStore {
 
     func rallyChecks() -> [AnnotationReview.RallyCheck] { AnnotationReview.rallyChecks(reviewRallies) }
 
+    func offTopGaps() -> [AnnotationReview.Gap] { AnnotationReview.offTop(reviewRallies) }
+
     /// Changed here at once, and sent as just that answer (the rally's frames
     /// are left as the server has them).
     func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck) {

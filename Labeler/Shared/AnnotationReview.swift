@@ -10,6 +10,9 @@
 //  under it and size it, then approve — or call it hidden (covered here).
 //  The frames the model is sure of (MachineLabels) are checked apart, a
 //  page of crops at a time: pick out any that are wrong, approve the rest.
+//  Where it lost the ball with the ball high up at either end, the ball
+//  most likely went over the top of the picture: each such gap is checked
+//  at once, and called hidden as a whole.
 //  Hidden frames aren't reviewed: they count as checked. "No ball" sets a frame aside for a later pass on the
 //  whole frame, to place the ball or call it hidden. "Not sure" sets a
 //  frame aside in its own pass for a later look.
@@ -60,6 +63,37 @@ enum AnnotationReview {
         rallies.filter { $0.rally.awaitsRallyCheck }
             .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
             .map { RallyCheck(video: $0.video, track: $0.rally.id, start: $0.rally.start, end: $0.rally.end) }
+    }
+
+    /// A stretch where a pre-tracked rally lost the ball (MachineLabels.lost)
+    /// with the ball high in the picture just before or just after it: most
+    /// likely gone over the top, out of sight for the whole stretch.
+    struct Gap: Hashable {
+        let video: String
+        let track: UUID
+        let frames: ClosedRange<Int>
+    }
+
+    /// High up: the ball's centre in the top quarter of the picture.
+    static let highUp = 0.75
+
+    /// The gaps to check as over the top, video by video in time order.
+    static func offTop(_ rallies: [(video: String, rally: TrackedRally)]) -> [Gap] {
+        rallies.filter { $0.rally.isForReview }
+            .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
+            .flatMap { v -> [Gap] in
+                let p = v.rally.points
+                var runs: [ClosedRange<Int>] = []
+                for i in MachineLabels.lost(v.rally).sorted() {
+                    if let last = runs.last, last.upperBound == i - 1 { runs[runs.count - 1] = last.lowerBound...i } else { runs.append(i...i) }
+                }
+                return runs.compactMap { run in
+                    guard let before = p[safe: run.lowerBound - 1], before.state == .visible, let a = before.box,
+                          let after = p[safe: run.upperBound + 1], after.state == .visible, let b = after.box,
+                          max(a.rect.midY, b.rect.midY) >= highUp else { return nil }
+                    return Gap(video: v.video, track: v.rally.id, frames: run)
+                }
+            }
     }
 
     /// What `point` still needs, if anything. Frames the solver couldn't
@@ -271,6 +305,8 @@ protocol ReviewStore: AnyObject {
     func claim(_ track: UUID) async -> Bool
     /// Pre-tracked rallies nobody has said are or aren't rallies yet.
     func rallyChecks() -> [AnnotationReview.RallyCheck]
+    /// Where the ball most likely went over the top, to check (AnnotationReview.offTop).
+    func offTopGaps() -> [AnnotationReview.Gap]
     /// Say whether a pre-tracked rally is a rally (nil takes it back).
     func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck)
 }

@@ -57,6 +57,8 @@ final class ProjectReviewStore: ReviewStore {
 
     func rallyChecks() -> [AnnotationReview.RallyCheck] { AnnotationReview.rallyChecks(rallies) }
 
+    func offTopGaps() -> [AnnotationReview.Gap] { AnnotationReview.offTop(rallies) }
+
     func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck) {
         guard var tracks = sampler.sessions.first(where: { $0.name == check.video })?.tracks,
               let r = tracks.firstIndex(where: { $0.id == check.track }) else { return }
