@@ -340,6 +340,7 @@ struct SureReviewView: View {
     @State private var wrong: Set<AnnotationReview.Item> = []
     @State private var approved = 0
 
+    /// 4 × 4 on the Mac; 3 × 3 on the phone, big enough to judge a far ball.
     #if os(macOS)
     private static let columns = 4
     #else
@@ -347,7 +348,7 @@ struct SureReviewView: View {
     #endif
 
     init(store: any ReviewStore) {
-        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.sure], pageSize: Self.columns * 4))
+        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.sure], pageSize: Self.columns * Self.columns))
     }
 
     var body: some View {
