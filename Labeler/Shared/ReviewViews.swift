@@ -27,7 +27,8 @@
 //  On the Mac: two fingers on the trackpad move the picture, pinch sizes the
 //  box (as on the phone); ↩/Space approve and go on, arrows move the box a
 //  pixel (⇧ five), [ ] size it, H hidden, X no ball, U not sure, ⌫ back. On the
-//  whole frame: click the ball, ↩/Space approve and go on, H hidden, = − zoom, arrows pan.
+//  whole frame: click the ball, [ ] size the box, ↩/Space approve and go on, H hidden, = − zoom,
+//  arrows pan.
 //
 
 import AVKit
@@ -531,7 +532,13 @@ struct FindBallView: View {
                 .onTapGesture { location in
                     guard peek == nil,
                           let p = FrameCanvas.framePoint(location, image: image, zoom: zoom, centre: centre, view: geo.size) else { return }
-                    placed = AnnotationReview.placedBox(at: p, in: rally, frame: index)
+                    // Moving a box keeps its size (as you sized it); a first one
+                    // takes the ball's size on the frames around.
+                    if let box = placed {
+                        placed = CGRect(x: p.x - box.width / 2, y: p.y - box.height / 2, width: box.width, height: box.height)
+                    } else {
+                        placed = AnnotationReview.placedBox(at: p, in: rally, frame: index)
+                    }
                 }
                 .gesture(DragGesture(minimumDistance: 3)
                     .onChanged { d in
@@ -553,11 +560,17 @@ struct FindBallView: View {
             if neighbour != nil { lookAround }
             Text(peek != nil ? "Back to this frame to place the ball"
                  : placed == nil ? "Tap the ball to place it, or call it hidden · orange: the ball on the frames either side"
-                 : "Tap again to move it")
+                 : "Tap again to move it · − + size the box")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             HStack(spacing: 10) {
                 Button(action: onHidden) { Label("Hidden", systemImage: "eye.slash").frame(maxWidth: .infinity) }
                     .buttonStyle(.bordered)
+                Button { size(by: 1 / 1.1) } label: { Image(systemName: "minus.magnifyingglass") }
+                    .buttonStyle(.bordered).disabled(placed == nil || peek != nil)
+                    .accessibilityLabel("Smaller box")
+                Button { size(by: 1.1) } label: { Image(systemName: "plus.magnifyingglass") }
+                    .buttonStyle(.bordered).disabled(placed == nil || peek != nil)
+                    .accessibilityLabel("Bigger box")
                 Button { if let placed { onBall(placed) } } label: { Label("Ball here", systemImage: "checkmark").frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent).disabled(placed == nil || peek != nil)
             }
@@ -577,6 +590,8 @@ struct FindBallView: View {
             default:
                 switch press.characters.lowercased() {
                 case "h": onHidden()
+                case "[": size(by: 1 / 1.05)
+                case "]": size(by: 1.05)
                 case "=", "+": zoom = min(8, zoom * 1.25)
                 case "-": zoom = max(1, zoom / 1.25)
                 case ",": look(-1)
@@ -605,6 +620,14 @@ struct FindBallView: View {
             }
         }
         .controlSize(.small)
+    }
+
+    /// The placed box `k` times as big, about its centre (a far ball is a
+    /// few pixels; never under a thousandth of the frame).
+    private func size(by k: CGFloat) {
+        guard let box = placed, peek == nil else { return }
+        let w = max(box.width * k, 0.001), h = max(box.height * k, 0.001)
+        placed = CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h)
     }
 
     /// Show the frame `offset` away (0: back to this one).
