@@ -19,6 +19,9 @@ struct FinalCheckView: View {
     /// The rallies to check, fixed when the pass opens.
     @State private var rallies: [AnnotationReview.RallyCheck]?
     @State private var at = 0
+    /// The rally shown and its stretches, set together (a sync can change
+    /// the rally underneath; what's shown stays as it was cut).
+    @State private var rally: TrackedRally?
     @State private var stretches: [ClosedRange<Int>] = []
     @State private var frame: CGImage?
     @State private var crops: [ClosedRange<Int>: CropPatch] = [:]
@@ -33,7 +36,6 @@ struct FinalCheckView: View {
     private static let colours: [Color] = [.green, .yellow, .cyan, .pink, .orange, .purple, .mint, .red, .blue]
 
     private var check: AnnotationReview.RallyCheck? { rallies.flatMap { $0.indices.contains(at) ? $0[at] : nil } }
-    private var rally: TrackedRally? { check.flatMap { store.rally(of: item($0, 0)) } }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -80,7 +82,7 @@ struct FinalCheckView: View {
         .task {
             let signed = (try? await LabelingClient.shared.rallyFinals()) ?? []
             rallies = store.finishedRallies().filter { !signed.contains($0.track) }
-            await load()
+            await show()
         }
     }
 
@@ -191,14 +193,17 @@ struct FinalCheckView: View {
         return wrong.flatMap { boxed($0, rally) }.sorted()
     }
 
-    /// This rally's stretches, the frame in the middle of the rally, and a crop per stretch.
-    private func load() async {
+    /// The rally at `at` with its stretches (at once), then the frame in
+    /// the middle of the rally and a crop per stretch.
+    private func show() async {
         frame = nil
         crops = [:]
         wrong = []
         failure = nil
-        guard let check, let rally else { stretches = []; return }
-        stretches = AnnotationReview.stretches(rally)
+        rally = check.flatMap { store.rally(of: item($0, 0)) }
+        stretches = rally.map { AnnotationReview.stretches($0) } ?? []
+        guard let check, let rally, !rally.points.isEmpty else { return }
+        let stretches = stretches
         do {
             let file = try await store.videoFile(video: check.video)
             if readers[check.video]?.video != file { readers[check.video] = ReviewFrames(video: file) }
@@ -234,7 +239,7 @@ struct FinalCheckView: View {
 
     private func next() {
         at += 1
-        Task { await load() }
+        Task { await show() }
     }
 
     /// The last rally again, as it was.
@@ -247,6 +252,6 @@ struct FinalCheckView: View {
             for (i, was) in last.before { store.review(item(last.check, i)) { $0 = was } }
         }
         at = rallies?.firstIndex(of: last.check) ?? max(0, at - 1)
-        Task { await load() }
+        Task { await show() }
     }
 }
