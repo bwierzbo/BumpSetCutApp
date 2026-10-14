@@ -96,6 +96,8 @@ final class RallyLabModel {
 
     private(set) var activeProcessor: VideoProcessor?
     var isProcessing: Bool { activeProcessor != nil }
+    /// A debug video is being made (exportDebugVideo).
+    private(set) var exportingDebugVideo = false
     private(set) var status = "Open a video to begin."
 
     // MARK: - Overlay
@@ -1003,6 +1005,54 @@ final class RallyLabModel {
             status = "Pipeline finished but saw no ball in \(evidence.count) frames — is the CoreML model in the RallyLab bundle?"
         } else {
             status = "Pipeline done: \(rawPredictions.count) predicted rallies, ball seen in \(ballFrames)/\(evidence.count) frames."
+        }
+    }
+
+    /// The whole video with what BumpSetCut's own pipeline saw drawn over it
+    /// (PipelineVideo): the app's settings — ProcessorConfig's defaults and
+    /// its camera rules, not this panel's — so it's what a user's phone does.
+    /// Balls found, the tracked ball's trail, the ballistics gate, the rallies
+    /// it cut, and yours if marked. Saved to Movies/RallyLab/Renders and shown
+    /// in Finder.
+    func exportDebugVideo() async {
+        guard let url = videoURL, !isProcessing, !exportingDebugVideo else { return }
+        exportingDebugVideo = true
+        defer { exportingDebugVideo = false; activeProcessor = nil }
+        var config = ProcessorConfig()
+        config.applyCamera(cameraSetup)
+        let processor = VideoProcessor()
+        processor.config = config
+        processor.collectFrameEvidence = true
+        activeProcessor = processor
+        status = "Debug video: running the app's pipeline…"
+        var segments: [RallySegment] = []
+        do {
+            segments = try await processor.processVideo(url, videoId: UUID()).rallySegments
+        } catch ProcessingError.noRalliesDetected {
+            // No rallies is still worth seeing: the evidence is all there.
+        } catch is CancellationError {
+            status = "Debug video cancelled."
+            return
+        } catch {
+            status = "Debug video failed: \(error.localizedDescription)"
+            return
+        }
+        activeProcessor = nil
+        let name = url.deletingPathExtension().lastPathComponent
+        let run = RallyCutScore.Video(name: name, truth: labels.map { Interval(start: $0.start, end: $0.end) },
+                                      evidence: processor.frameEvidence, duration: processor.lastVideoDurationSec,
+                                      clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) })
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        status = "Debug video: drawing \(segments.count) rall\(segments.count == 1 ? "y" : "ies") over the video…"
+        switch await PipelineVideo.render(run, video: url, from: 0, length: run.duration + 1,
+                                          title: "\(name) · BumpSetCut pipeline (\(BallFinder.current.title))",
+                                          to: dir.appendingPathComponent("\(name)-debug.mp4")) {
+        case .success(let out):
+            status = "Debug video saved: \(out.lastPathComponent)"
+            NSWorkspace.shared.activateFileViewerSelecting([out])
+        case .failure(let f):
+            status = "Debug video failed: \(f.message)"
         }
     }
 

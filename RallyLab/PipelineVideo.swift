@@ -7,7 +7,10 @@
 //  off-court grey) with its confidence, the tracked ball's trail (red, green
 //  while the ballistics gate accepts it as a projectile), the net, the gate's
 //  readout, and whether the frame is in a clip the pipeline cut and in a
-//  rally you marked. Real time, at the source frame rate.
+//  rally you marked (when you have). Real time, at the source frame rate.
+//
+//  Pipeline tab → Export Debug Video…: a whole video through the app's
+//  own pipeline (RallyLabModel.exportDebugVideo).
 //
 //  Headless: RallyLab --project <name> --render-pipeline <clip> <start s> <length s>
 //            [--heat <multi-frame model> [--heat-only]] [--rotate]
@@ -163,6 +166,6 @@ enum PipelineVideo {
             HeatmapVideo.label(ctx, text + (on ? "" : " — no"), at: CGPoint(x: 14, y: y + 4), size: 14)
         }
         bar(inClip, "Pipeline clip", y: 30, CGColor(red: 0.1, green: 0.65, blue: 0.25, alpha: 0.85))
-        bar(inRally, "Your marked rally", y: 2, CGColor(red: 0.15, green: 0.4, blue: 0.9, alpha: 0.85))
+        if !v.truth.isEmpty { bar(inRally, "Your marked rally", y: 2, CGColor(red: 0.15, green: 0.4, blue: 0.9, alpha: 0.85)) }
     }
 }

@@ -41,6 +41,12 @@ struct InspectorPane: View {
                     }
                     .disabled(model.videoURL == nil || model.isProcessing)
                 }
+                Button("Export Debug Video…") {
+                    Task { await model.exportDebugVideo() }
+                }
+                .disabled(model.videoURL == nil || model.isProcessing || model.exportingDebugVideo)
+                .help("Run BumpSetCut's own pipeline (the app's settings, not this panel's) and save the whole video with "
+                      + "its detections, ball trail, gate and rallies drawn on — to Movies/RallyLab/Renders.")
 
                 if let processor = model.activeProcessor {
                     ProgressView(value: processor.progress)
