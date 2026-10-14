@@ -83,6 +83,8 @@ struct MainTabs: View {
     @Bindable var model: LabelerModel
     @State private var nextPath = NavigationPath()
     @Environment(\.scenePhase) private var scenePhase
+    /// Someone else's save comes down at once (the 30-second look stays as a backstop).
+    @State private var live: LabelingLive?
 
     var body: some View {
         TabView {
@@ -107,10 +109,19 @@ struct MainTabs: View {
                 NavigationStack { VideoListView(model: model).destinations(model) }
             }
         }
-        // Back in the app: send what's waiting and pick up the Mac's changes;
-        // while it's open, take the Mac's changes every half minute.
+        // Back in the app: send what's waiting and pick up the Mac's changes,
+        // and listen live while it's open; every half minute as a backstop.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await model.reload() } }
+            if phase == .active {
+                live?.start()
+                Task { await model.reload() }
+            } else {
+                live?.stop()
+            }
+        }
+        .onAppear {
+            if live == nil { live = LabelingLive { await model.pullChanges() } }
+            live?.start()
         }
         .task {
             while !Task.isCancelled {

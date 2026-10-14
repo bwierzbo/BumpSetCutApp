@@ -72,6 +72,7 @@
 				Shared/BoxFitter.swift,
 				Shared/FinalCheckView.swift,
 				Shared/LabelingClient.swift,
+				Shared/LabelingLive.swift,
 				Shared/LabelingModels.swift,
 				Shared/LabelQueue.swift,
 				Shared/RallyTimesBar.swift,

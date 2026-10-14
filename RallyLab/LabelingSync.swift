@@ -11,7 +11,14 @@
 //     the pipeline found, and a small copy of its cut (720p, ~2 Mbit/s) is
 //     uploaded once.
 //  3. Rally times go both ways: whichever side changed them last wins.
-//  4. Tracked rallies go both ways the same way, deletions included.
+//  4. Review decisions made here go frame by frame (queued, kept on disk
+//     until sent), like the phone's — so several people reviewing at once
+//     never overwrite each other's frames. Tracked rallies otherwise go
+//     both ways whole, whichever side changed them last, deletions included;
+//     a rally with frame decisions sent takes the server's copy (which has
+//     them, and everyone else's).
+//  Live: someone else's save syncs here at once (LabelingLive), and a
+//  decision here goes up within a couple of seconds; every 30 s as a backstop.
 //  5. The training plan and its runs' scores go up for the phone's Plan tab.
 //
 //  Headless: RallyLab --project <name> --sync-phone (after signing in once
@@ -41,6 +48,13 @@ final class LabelingSync {
     var afterSync: (() async -> Bool)?
     @ObservationIgnored private var auto: Task<Void, Never>?
     @ObservationIgnored private var activation: Any?
+    @ObservationIgnored private var live: LabelingLive?
+    @ObservationIgnored private var soon: Task<Void, Never>?
+    /// A sync was asked for while one ran: run again after it.
+    @ObservationIgnored private var again = false
+    /// Review decisions made here not yet sent, frame by frame, and Rally-or-not answers.
+    private(set) var pendingFrames: [LabelingClient.FrameEdit] = Pending.load([LabelingClient.FrameEdit].self, "frames") ?? []
+    private(set) var pendingRallies: [LabelingClient.RallyVerdict] = Pending.load([LabelingClient.RallyVerdict].self, "rallies") ?? []
 
     private let client = LabelingClient.shared
 
@@ -64,6 +78,54 @@ final class LabelingSync {
         signedIn = false
     }
 
+    // MARK: - Review decisions made here
+
+    /// A review decision on a frame: sent on its own within a couple of seconds.
+    func queue(_ edit: LabelingClient.FrameEdit) {
+        pendingFrames.append(edit)
+        Pending.save(pendingFrames, "frames")
+        syncSoon()
+    }
+
+    func queue(_ verdict: LabelingClient.RallyVerdict) {
+        pendingRallies.append(verdict)
+        Pending.save(pendingRallies, "rallies")
+        syncSoon()
+    }
+
+    /// Sync in a moment (several asks in a row make one sync).
+    func syncSoon() {
+        soon?.cancel()
+        soon = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled, let self, self.signedIn else { return }
+            await self.sync(videos: false)
+        }
+    }
+
+    /// Send what's waiting: Rally-or-not answers, then frame decisions rally
+    /// by rally. The rallies whose frames went (or were refused because
+    /// someone else is reviewing them — theirs stand).
+    private func sendPending() async throws -> Set<UUID> {
+        for verdict in pendingRallies {
+            try await client.reviewRally(verdict)
+            pendingRallies.removeFirst()
+            Pending.save(pendingRallies, "rallies")
+        }
+        var sent: Set<UUID> = []
+        for (track, edits) in Dictionary(grouping: pendingFrames, by: \.track) {
+            do {
+                try await client.reviewFrames(track, edits)
+            } catch LabelingClient.Failure.server(let code, _) where code == 400 {
+                // Someone else is reviewing it: their decisions stand.
+            }
+            pendingFrames.removeAll { edits.contains($0) }
+            Pending.save(pendingFrames, "frames")
+            sent.insert(track)
+        }
+        return sent
+    }
+
     // MARK: - Automatic
 
     /// Labels sync this often while RallyLab runs (and when it comes to the
@@ -75,6 +137,11 @@ final class LabelingSync {
     /// Keep the project synced with the phone from now on, while signed in.
     func startAutomatic() {
         guard auto == nil else { return }
+        live = LabelingLive { [weak self] in
+            guard let self, self.signedIn else { return }
+            await self.sync(videos: false)
+        }
+        live?.start()
         auto = Task { [weak self] in
             var round = 0
             while !Task.isCancelled {
@@ -102,10 +169,18 @@ final class LabelingSync {
     /// `remaking`: videos (session names) whose copy made with an older
     /// encoding is made again — otherwise only videos without one get one.
     func sync(videos: Bool = true, remaking: @escaping (String) -> Bool = { _ in false }) async -> Bool {
-        guard !isSyncing, let project = projects.project?.name else { return false }
+        guard !isSyncing else { again = true; return false }
+        guard let project = projects.project?.name else { return false }
         isSyncing = true
-        defer { isSyncing = false }
+        defer {
+            isSyncing = false
+            if again {
+                again = false
+                syncSoon()
+            }
+        }
         do {
+            let framesSent = try await sendPending()
             var parts: [String] = []
             if videos {
                 let imported = try await importPhoneVideos(project: project)
@@ -113,7 +188,7 @@ final class LabelingSync {
                 parts.append("\(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), \(imported) phone videos pulled in")
             }
             let (pushed, pulled) = try await syncRallyTimes(project: project)
-            let (tracksSent, tracksReceived) = try await syncTracks(project: project)
+            let (tracksSent, tracksReceived) = try await syncTracks(project: project, framesSent: framesSent)
             try await publishPlan(project: project)
             parts.append("rally times \(pushed) sent · \(pulled) received, tracked rallies \(tracksSent) sent · \(tracksReceived) received")
             status = "Synced: " + parts.joined(separator: ", ") + "."
@@ -323,7 +398,7 @@ final class LabelingSync {
     /// Only rallies whose time differs from this Mac's copy are fetched in
     /// full: pre-tracked rallies make hundreds, and most don't change
     /// between syncs.
-    private func syncTracks(project: String) async throws -> (sent: Int, received: Int) {
+    private func syncTracks(project: String, framesSent: Set<UUID>) async throws -> (sent: Int, received: Int) {
         let videos = try await client.videos().filter { $0.project == project && $0.sessionName != nil }
         let stamps = try await client.trackStamps()
         var localTimes: [UUID: Date?] = [:]
@@ -332,6 +407,7 @@ final class LabelingSync {
             for t in session.tracks ?? [] { localTimes[t.id] = t.updatedAt }
         }
         let changed = stamps.filter { s in
+            if framesSent.contains(s.id) { return true }
             guard let mine = localTimes[s.id] else { return !s.deleted }   // a tombstone of one gone here: nothing to do
             guard let a = mine, let b = s.updatedAt else { return true }
             return abs(a.timeIntervalSince(b)) > 0.002
@@ -372,10 +448,14 @@ final class LabelingSync {
                 }
                 let mine = local[i]
                 guard !Self.sameTrack(mine, r) else { continue }
-                if (r.updatedAt ?? .distantPast) > (mine.updatedAt ?? .distantPast) {
+                // Its frame decisions went up on their own: the server's copy
+                // has them and everyone else's, so take it rather than send ours whole.
+                if framesSent.contains(r.id) || (r.updatedAt ?? .distantPast) > (mine.updatedAt ?? .distantPast) {
                     var taken = r.rally
                     // Keep the detector's candidates when they still line up.
                     if mine.candidates.count == taken.points.count { taken.candidates = mine.candidates }
+                    // Decisions not sent yet (offline) stay on top.
+                    for e in pendingFrames where e.track == r.id && taken.points.indices.contains(e.index) { taken.points[e.index] = e.point }
                     local[i] = taken
                     changedHere = true
                     received += 1
@@ -453,5 +533,22 @@ final class LabelingSync {
     /// The rally stretches the Sampler found in a video.
     static func ralliesFound(in session: VideoSession) -> [[Double]] {
         TrackLabelModel.suggestions(from: session, excluding: []).map { [$0.start, $0.end] }
+    }
+}
+
+/// Review decisions waiting to go up, kept on disk so a quit doesn't lose them.
+private enum Pending {
+    private static func file(_ name: String) -> URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "RallyLab")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appending(path: "pending-\(name).json")
+    }
+
+    static func load<T: Decodable>(_ type: T.Type, _ name: String) -> T? {
+        (try? Data(contentsOf: file(name))).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
+    }
+
+    static func save<T: Encodable>(_ value: T, _ name: String) {
+        try? JSONEncoder().encode(value).write(to: file(name), options: .atomic)
     }
 }

@@ -46,7 +46,7 @@ struct RallyLabApp: App {
         phone.onTimesChanged = { marker.reloadMarks(session: $0) }
         // A rally finished here or on the phone gets its boxes fitted to the
         // ball before it's reviewed.
-        let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker)
+        let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker, sync: phone)
         phone.afterSync = { await fitter.fitNewRallies() }
         phone.startAutomatic()
         _phone = State(initialValue: phone)

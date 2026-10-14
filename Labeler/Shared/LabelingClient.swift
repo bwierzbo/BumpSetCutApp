@@ -160,6 +160,9 @@ actor LabelingClient {
         Keychain.refreshToken = t.refreshToken
     }
 
+    /// A valid access token, for the live connection (LabelingLive).
+    func liveToken() async throws -> String { try await bearer(lasting: 300) }
+
     /// A valid access token, refreshed when it's about to run out — or
     /// sooner, when the request needs it good for `lasting` seconds (an
     /// upload of a clip can outlast an hour-long token, and storage checks

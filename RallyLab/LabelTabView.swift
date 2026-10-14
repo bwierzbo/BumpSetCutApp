@@ -38,7 +38,7 @@ struct LabelTabView: View {
         self.phone = phone
         self.isActive = isActive
         _plan = State(initialValue: TrainingPlanModel(library: library))
-        _review = State(initialValue: ProjectReviewStore(sampler: projects.sampler, tracker: tracker))
+        _review = State(initialValue: ProjectReviewStore(sampler: projects.sampler, tracker: tracker, sync: phone))
     }
 
     private var sampler: SamplerModel { projects.sampler }

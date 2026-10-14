@@ -14,10 +14,13 @@ import Foundation
 final class ProjectReviewStore: ReviewStore {
     let sampler: SamplerModel
     let tracker: TrackLabelModel
+    /// Sends each decision up on its own (nil headless: saved here only).
+    let sync: LabelingSync?
 
-    init(sampler: SamplerModel, tracker: TrackLabelModel) {
+    init(sampler: SamplerModel, tracker: TrackLabelModel, sync: LabelingSync? = nil) {
         self.sampler = sampler
         self.tracker = tracker
+        self.sync = sync
     }
 
     private var rallies: [(video: String, rally: TrackedRally)] {
@@ -47,6 +50,7 @@ final class ProjectReviewStore: ReviewStore {
         change(&tracks[r].points[item.index])
         sampler.setTracks(tracks, session: item.video)
         tracker.reloadRallies(session: item.video)
+        sync?.queue(LabelingClient.FrameEdit(track: item.track, index: item.index, point: tracks[r].points[item.index]))
         return before
     }
 
@@ -72,6 +76,7 @@ final class ProjectReviewStore: ReviewStore {
         tracks[r].isRally = isRally
         sampler.setTracks(tracks, session: check.video)
         tracker.reloadRallies(session: check.video)
+        sync?.queue(LabelingClient.RallyVerdict(track: check.track, isRally: isRally))
     }
 
     func claim(_ track: UUID) async -> Bool {
