@@ -66,16 +66,19 @@ enum AnnotationReview {
     }
 
     /// A stretch where a pre-tracked rally lost the ball (MachineLabels.lost)
-    /// with the ball high in the picture just before or just after it: most
-    /// likely gone over the top, out of sight for the whole stretch.
+    /// and its arc went over the top of the picture: high up on both sides,
+    /// and the curve through the balls either side above the top edge
+    /// during the stretch.
     struct Gap: Hashable {
         let video: String
         let track: UUID
         let frames: ClosedRange<Int>
     }
 
-    /// High up: the ball's centre in the top quarter of the picture.
-    static let highUp = 0.75
+    /// High up: the ball's centre in the top 40% of the picture, both sides.
+    static let highUp = 0.6
+    /// Balls each side of a gap the arc is fitted through.
+    static let arcReach = 4
 
     /// The gaps to check as over the top, video by video in time order.
     static func offTop(_ rallies: [(video: String, rally: TrackedRally)]) -> [Gap] {
@@ -90,7 +93,13 @@ enum AnnotationReview {
                 return runs.compactMap { run in
                     guard let before = p[safe: run.lowerBound - 1], before.state == .visible, let a = before.box,
                           let after = p[safe: run.upperBound + 1], after.state == .visible, let b = after.box,
-                          max(a.rect.midY, b.rect.midY) >= highUp else { return nil }
+                          min(a.rect.midY, b.rect.midY) >= highUp else { return nil }
+                    let around = (run.lowerBound - arcReach..<run.lowerBound).map { $0 } + (run.upperBound + 1...run.upperBound + arcReach).map { $0 }
+                    let balls = around.compactMap { k in
+                        p[safe: k].flatMap { $0.state == .visible ? $0.box.map { b in (p[k].time, Double(b.rect.midY)) } : nil }
+                    }
+                    let arc = TrackSolver.fit(balls)
+                    guard run.contains(where: { arc(p[$0].time) > 1 }) else { return nil }
                     return Gap(video: v.video, track: v.rally.id, frames: run)
                 }
             }
