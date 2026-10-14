@@ -250,7 +250,13 @@ actor LabelingClient {
         guard !tracks.isEmpty else { return }
         let now = Date()
         let rows = tracks.map { t -> LabelTrack in var t = t; t.updatedAt = t.updatedAt ?? now; return t }
-        let _: [LabelTrack] = try await upsert("label_tracks", rows, onConflict: "id")
+        // A nil field is left out (the server keeps what it has), and a batch
+        // whose rows don't all have the same fields is refused ("All object
+        // keys must match"): send rows with the same fields together.
+        let groups = Dictionary(grouping: rows) { [$0.reviewed != nil, $0.unsure != nil, $0.machine != nil, $0.isRally != nil] }
+        for group in groups.values {
+            let _: [LabelTrack] = try await upsert("label_tracks", group, onConflict: "id")
+        }
     }
 
     func projectStates() async throws -> [LabelProjectState] {
