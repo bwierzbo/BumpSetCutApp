@@ -30,6 +30,8 @@
 //     time (3 × 3): tap any whose box isn't on the ball (they go to Not
 //     sure), then approve the page. On the Mac: click to pick out, ↩/Space
 //     approve, ⌫ back.
+//   · RallyCoin — a joke: coins for labeling, a leaderboard, and a shop of
+//     fake things to spend them on.
 //   · Labelers (leads only) — each other labeler's frames labeled and how
 //     many were checked right or wrong; their labels to check, a page at a
 //     time like Sure frames (hidden ones as the whole frame). Wrong ones go
@@ -54,6 +56,8 @@ struct ReviewHomeView: View {
     @State private var takingOver = false
     /// Other labelers' frames waiting to be checked (leads only; nil for everyone else).
     @State private var toCheck: Int?
+    /// RallyCoin: the board, you included.
+    @State private var coins: [LabelingClient.CoinHolder] = []
 
     var body: some View {
         let frames = store.reviewItems([.crop]).count
@@ -76,6 +80,10 @@ struct ReviewHomeView: View {
                 }
                 .padding()
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
+                if let mine = coins.firstIndex(where: \.me) {
+                    NavigationLink { RallyCoinView() } label: { coinCard(coins[mine], rank: mine + 1) }
+                        .buttonStyle(.plain)
+                }
                 if !held.isEmpty { heldCard }
                 if let toCheck {
                     NavigationLink { LabelersView(store: store) } label: {
@@ -119,6 +127,7 @@ struct ReviewHomeView: View {
         .task {
             while !Task.isCancelled {
                 await refreshHeld()
+                if let board = try? await LabelingClient.shared.coinBoard() { coins = board }
                 if let others = try? await LabelingClient.shared.labelerSummary() {
                     toCheck = others.isEmpty ? nil : others.reduce(0) { $0 + $1.waiting }
                 }
@@ -156,6 +165,22 @@ struct ReviewHomeView: View {
     private func refreshHeld() async {
         let mine = Set(store.reviewItems([.crop, .noBall, .unsure, .sure]).map(\.track))
         held = await store.heldByOthers().intersection(mine)
+    }
+
+    private func coinCard(_ me: LabelingClient.CoinHolder, rank: Int) -> some View {
+        HStack(spacing: 14) {
+            Text("🪙").font(.largeTitle)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(me.coins.formatted()) RallyCoin").font(.title3.bold().monospacedDigit())
+                Text("#\(rank) of \(coins.count) · 1 a frame · spend it in the shop · no cash value")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+        }
+        .padding(18)
+        .background(Color.yellow.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
+        .contentShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func card(_ title: String, _ detail: String, _ icon: String, _ count: Int) -> some View {
@@ -584,6 +609,98 @@ struct LabelersView: View {
             failure = nil
         } catch {
             failure = error.localizedDescription
+        }
+    }
+}
+
+/// RallyCoin, a joke: the leaderboard and a shop of things nobody will
+/// ever receive. 1 coin a frame labeled, +1 when it's checked right, −3
+/// when it's checked wrong.
+struct RallyCoinView: View {
+    @State private var board: [LabelingClient.CoinHolder] = []
+    @State private var items: [LabelingClient.ShopItem] = []
+    @State private var bought: LabelingClient.ShopItem?
+    @State private var failure: String?
+    @State private var buying: String?
+
+    private var mine: Int { board.first(where: \.me)?.coins ?? 0 }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(Array(board.enumerated()), id: \.element) { rank, holder in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(rank < 3 ? ["🥇", "🥈", "🥉"][rank] : "\(rank + 1).").frame(width: 30, alignment: .leading)
+                            Text(holder.name).fontWeight(holder.me ? .bold : .regular)
+                            Spacer()
+                            Text("\(holder.coins.formatted()) 🪙").font(.body.monospacedDigit())
+                        }
+                        if !holder.owns.isEmpty {
+                            Text("Owns " + holder.owns.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).padding(.leading, 30)
+                        }
+                    }
+                }
+            } header: {
+                Text("Leaderboard")
+            } footer: {
+                Text("1 coin a frame labeled · +1 when Ben checks it right · −3 when it's wrong. No cash value. Not financial advice.")
+            }
+            Section("Shop · you have \(mine.formatted()) 🪙") {
+                if let failure { Text(failure).foregroundStyle(.red) }
+                ForEach(items) { item in
+                    HStack(spacing: 12) {
+                        Text(item.emoji).font(.title)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.name).font(.headline)
+                            Text(item.blurb).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button {
+                            buy(item)
+                        } label: {
+                            if buying == item.id { ProgressView() } else { Text("\(item.price.formatted()) 🪙").monospacedDigit() }
+                        }
+                        .buttonStyle(.borderedProminent).tint(.yellow).foregroundStyle(.black)
+                        .disabled(item.price > mine || buying != nil)
+                    }
+                }
+            }
+        }
+        .navigationTitle("RallyCoin")
+        .task { await load() }
+        .refreshable { await load() }
+        .alert("Purchased!", isPresented: Binding(get: { bought != nil }, set: { if !$0 { bought = nil } })) {
+            Button("Can't wait") { bought = nil }
+        } message: {
+            Text("\(bought?.emoji ?? "") \(bought?.name ?? "") is on its way. Estimated delivery: never.")
+        }
+        .sensoryFeedback(.success, trigger: bought)
+    }
+
+    private func load() async {
+        do {
+            async let b = LabelingClient.shared.coinBoard()
+            async let i = LabelingClient.shared.shopItems()
+            (board, items) = try await (b, i)
+            failure = nil
+        } catch {
+            failure = error.localizedDescription
+        }
+    }
+
+    private func buy(_ item: LabelingClient.ShopItem) {
+        buying = item.id
+        Task {
+            do {
+                _ = try await LabelingClient.shared.buy(item.id)
+                bought = item
+                failure = nil
+                await load()
+            } catch {
+                failure = error.localizedDescription
+            }
+            buying = nil
         }
     }
 }

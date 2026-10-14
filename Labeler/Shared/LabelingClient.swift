@@ -459,6 +459,32 @@ actor LabelingClient {
         _ = try await send(request)
     }
 
+    // MARK: - RallyCoin (migrations 040–041; a joke)
+
+    /// A labeler on the board: coins left, frames labeled, what they bought.
+    struct CoinHolder: Decodable, Hashable {
+        let name: String
+        let coins: Int
+        let frames: Int
+        let me: Bool
+        let owns: [String]
+    }
+
+    struct ShopItem: Decodable, Hashable, Identifiable {
+        let id: String
+        let name: String
+        let emoji: String
+        let blurb: String
+        let price: Int
+    }
+
+    func coinBoard() async throws -> [CoinHolder] { try await rpc("rallycoin_board", [:]) }
+
+    func shopItems() async throws -> [ShopItem] { try await get("rallycoin_items", query: "select=*&order=price") }
+
+    /// Buy one; what's left after. The server refuses when it's too dear.
+    func buy(_ item: String) async throws -> Int { try await rpc("rallycoin_buy", ["p_item": item]) }
+
     private func rpc<T: Decodable>(_ name: String, _ params: [String: String]) async throws -> T {
         var request = try await rest("rpc/\(name)", query: "")
         request.httpMethod = "POST"
