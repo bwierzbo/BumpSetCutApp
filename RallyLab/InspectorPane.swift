@@ -34,12 +34,12 @@ struct InspectorPane: View {
                     Button("Run Pipeline") {
                         Task { await model.runPipeline() }
                     }
-                    .disabled(model.videoURL == nil || model.isProcessing)
+                    .disabled(model.videoURL == nil || model.isProcessing || model.exportingDebugVideo)
 
                     Button("Seed Labels from Predictions") {
                         Task { await model.seedFromPredictions() }
                     }
-                    .disabled(model.videoURL == nil || model.isProcessing)
+                    .disabled(model.videoURL == nil || model.isProcessing || model.exportingDebugVideo)
                 }
                 Button("Export Debug Video…") {
                     Task { await model.exportDebugVideo() }

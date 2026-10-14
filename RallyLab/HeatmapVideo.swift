@@ -59,7 +59,7 @@ enum HeatmapVideo {
         let n = images.count, half = heat.seq / 2
         var trail: [[CGPoint]] = []
         for i in 0..<n {
-            let window = (i - half...i + half).map { grays[min(max(0, $0), n - 1)] }
+            let window = (i - half..<i - half + heat.seq).map { grays[min(max(0, $0), n - 1)] }
             guard let found = heat.detect(in: window, target: half) else { continue }
             let peaks = found.peaks
             let heatmap = overlay(found.heat, width: heat.width, height: heat.height, portrait: window[half].portrait)
@@ -95,11 +95,11 @@ enum HeatmapVideo {
                     }
                 }
                 ctx.setStrokeColor(CGColor(red: 0, green: 1, blue: 1, alpha: 1))
-                for p in trail[i] {
+                for p in trail.last ?? [] {
                     ctx.strokeEllipse(in: CGRect(x: right.minX + p.x * right.width - 14, y: p.y * right.height - 14, width: 28, height: 28))
                 }
                 label(ctx, "YOLO (single frame), app threshold", at: CGPoint(x: 10, y: CGFloat(halfHeight) - 28))
-                label(ctx, "Multi-frame model (9 frames)", at: CGPoint(x: CGFloat(halfWidth) + 10, y: CGFloat(halfHeight) - 28))
+                label(ctx, "Multi-frame model (\(heat.seq) frames)", at: CGPoint(x: CGFloat(halfWidth) + 10, y: CGFloat(halfHeight) - 28))
                 label(ctx, title, at: CGPoint(x: CGFloat(halfWidth) + 10, y: 10), size: 14)
             }
             CVPixelBufferUnlockBaseAddress(buffer, [])

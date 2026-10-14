@@ -80,7 +80,7 @@ enum PipelineVideo {
                                    space: CGColorSpaceCreateDeviceRGB(),
                                    bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) {
                 ctx.draw(frame, in: CGRect(origin: .zero, size: size))
-                draw(now, trail: evidence[max(0, e - 120)...min(e, evidence.count - 1)].filter { t - $0.time <= trailSeconds },
+                draw(now, trail: evidence.isEmpty ? [] : evidence[max(0, e - 120)...min(e, evidence.count - 1)].filter { t - $0.time <= trailSeconds },
                      at: t, video: v, title: title, turn: turn, in: ctx, size: size)
             }
             CVPixelBufferUnlockBaseAddress(buffer, [])

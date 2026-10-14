@@ -972,7 +972,7 @@ final class RallyLabModel {
     /// per-frame evidence for replays.
     func runPipeline() async {
         guard let url = videoURL else { return }
-        guard !isProcessing else { return }
+        guard !isProcessing, !exportingDebugVideo else { return }
 
         let processor = VideoProcessor()
         processor.config = currentConfig()
@@ -1017,13 +1017,18 @@ final class RallyLabModel {
     func exportDebugVideo() async {
         guard let url = videoURL, !isProcessing, !exportingDebugVideo else { return }
         exportingDebugVideo = true
-        defer { exportingDebugVideo = false; activeProcessor = nil }
+        // The marked rallies of the video exported, not whatever's open when it finishes.
+        let truth = labels.map { Interval(start: $0.start, end: $0.end) }
         var config = ProcessorConfig()
         config.applyCamera(cameraSetup)
         let processor = VideoProcessor()
         processor.config = config
         processor.collectFrameEvidence = true
         activeProcessor = processor
+        defer {
+            exportingDebugVideo = false
+            if activeProcessor === processor { activeProcessor = nil }
+        }
         status = "Debug video: running the app's pipeline…"
         var segments: [RallySegment] = []
         do {
@@ -1039,7 +1044,7 @@ final class RallyLabModel {
         }
         activeProcessor = nil
         let name = url.deletingPathExtension().lastPathComponent
-        let run = RallyCutScore.Video(name: name, truth: labels.map { Interval(start: $0.start, end: $0.end) },
+        let run = RallyCutScore.Video(name: name, truth: truth,
                                       evidence: processor.frameEvidence, duration: processor.lastVideoDurationSec,
                                       clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) })
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
@@ -1059,6 +1064,7 @@ final class RallyLabModel {
     /// Loads the pipeline's raw predictions as the ground-truth list so you
     /// correct boundaries instead of labeling from scratch.
     func seedFromPredictions() async {
+        guard !exportingDebugVideo else { return }
         if evidence.isEmpty {
             await runPipeline()
         }

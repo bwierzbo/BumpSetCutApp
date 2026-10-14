@@ -66,7 +66,7 @@ struct ReviewHomeView: View {
     var body: some View {
         // Frames of rallies someone else is on are passed over when opened: not counted.
         let frames = count([.crop]), noBall = count([.noBall]), unsure = count([.unsure]), sure = count([.sure])
-        let gaps = store.offTopGaps()
+        let gaps = store.offTopGaps().filter { !held.contains($0.track) }
         let checks = store.rallyChecks().count
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -150,6 +150,7 @@ struct ReviewHomeView: View {
     /// Someone else is reviewing some rallies: their frames are skipped, or take them over.
     private var heldCard: some View {
         let frames = store.reviewItems([.crop, .noBall, .unsure, .sure]).filter { held.contains($0.track) }.count
+            + store.offTopGaps().filter { held.contains($0.track) }.reduce(0) { $0 + $1.frames.count }
         return HStack(spacing: 12) {
             Image(systemName: "person.2.fill").font(.title2).foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
@@ -178,7 +179,7 @@ struct ReviewHomeView: View {
 
     /// Only rallies that still have frames for this person to review.
     private func refreshHeld() async {
-        let mine = Set(store.reviewItems([.crop, .noBall, .unsure, .sure]).map(\.track))
+        let mine = Set(store.reviewItems([.crop, .noBall, .unsure, .sure]).map(\.track) + store.offTopGaps().map(\.track))
         held = await store.heldByOthers().intersection(mine)
     }
 

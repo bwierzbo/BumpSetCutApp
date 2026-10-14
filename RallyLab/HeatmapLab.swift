@@ -362,6 +362,7 @@ enum HeatEvaluation {
 
         for (n, w) in windows.enumerated() {
             defer { if n % 10 == 0 { progress(n, windows.count) } }
+            guard w.frames.count >= heat.seq else { continue }
             let start = min(max(0, w.target - heat.seq / 2), w.frames.count - heat.seq)
             let frames = w.frames[start..<start + heat.seq].compactMap(frame)
             guard frames.count == heat.seq,

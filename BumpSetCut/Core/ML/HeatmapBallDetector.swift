@@ -66,8 +66,14 @@ final class HeatmapBallDetector {
         }
         let meta = model.modelDescription.metadata[.creatorDefinedKey] as? [String: String]
         // The input holds seq frames × channels planes (heatmap_to_coreml.py).
-        channels = meta?["channels"].flatMap(Int.init) ?? 1
-        seq = input.shape[1].intValue / channels
+        let channels = meta?["channels"].flatMap(Int.init) ?? 1
+        let planes = input.shape[1].intValue
+        guard [1, 3].contains(channels), planes >= channels, planes % channels == 0 else {
+            print("❌ \(url.lastPathComponent): \(planes) input planes don't fit \(channels)-channel frames")
+            return nil
+        }
+        self.channels = channels
+        seq = planes / channels
         height = input.shape[2].intValue
         width = input.shape[3].intValue
         threshold = meta?["threshold"].flatMap(Float.init) ?? 0.5
