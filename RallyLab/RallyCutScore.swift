@@ -26,6 +26,8 @@ enum RallyCutScore {
         let evidence: [VideoProcessor.FrameEvidence]
         let duration: Double
         let clips: [Interval]
+        /// Each clip's serve, for the debug video.
+        var serves: [ServeDetector.Serve] = []
     }
 
     struct Tally {
@@ -81,7 +83,7 @@ enum RallyCutScore {
         }
         return Video(name: session.name, truth: labels.map { Interval(start: $0.startTime, end: $0.endTime) },
                      evidence: processor.frameEvidence, duration: processor.lastVideoDurationSec,
-                     clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) })
+                     clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) }, serves: processor.serves)
     }
 
     /// What the pipeline saw inside each marked rally: frames with a ball

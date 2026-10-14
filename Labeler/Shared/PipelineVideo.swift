@@ -7,7 +7,9 @@
 //  off-court grey) with its confidence, the tracked ball's trail (red, green
 //  while the ballistics gate accepts it as a projectile), the net, the gate's
 //  readout, and whether the frame is in a clip the pipeline cut and in a
-//  rally you marked (when you have). Real time, at the source frame rate.
+//  rally you marked (when you have). Each rally's serve (ServeDetector) is
+//  drawn in orange from the toss to its first change of trajectory — the
+//  pass or the miss. Real time, at the source frame rate.
 //
 //  Mac: Pipeline tab → Export Debug Video… (RallyLabModel.exportDebugVideo).
 //  iPhone: Process tab → Export Debug Video (PipelineRunView). Both run a
@@ -29,12 +31,16 @@ enum PipelineVideo {
     static let width = 1280
     /// Seconds of trail behind the ball.
     static let trailSeconds = 1.0
+    /// The serve stays drawn this long after its first change of trajectory.
+    static let serveHold = 0.5
 
     struct Failure: Error { let message: String }
 
     /// `clips`: the rallies the pipeline cut; `truth`: the ones you marked
-    /// (no bar when empty). `progress` gets the fraction drawn, every 1%.
+    /// (no bar when empty); `serves`: the rallies' serves. `progress` gets the
+    /// fraction drawn, every 1%.
     static func render(evidence: [VideoProcessor.FrameEvidence], clips: [Interval], truth: [Interval] = [],
+                       serves: [ServeDetector.Serve] = [],
                        video: URL, from start: Double, length: Double, title: String, to output: URL,
                        progress: @escaping (Double) -> Void = { _ in }) async -> Swift.Result<URL, Failure> {
         func fail(_ m: String) -> Swift.Result<URL, Failure> { .failure(Failure(message: m)) }
@@ -93,7 +99,8 @@ enum PipelineVideo {
                                    bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) {
                 ctx.draw(frame, in: CGRect(origin: .zero, size: size))
                 draw(now, trail: evidence.isEmpty ? [] : evidence[max(0, e - 120)...min(e, evidence.count - 1)].filter { t - $0.time <= trailSeconds },
-                     at: t, clips: clips, truth: truth, title: title, turn: turn, in: ctx, size: size)
+                     at: t, clips: clips, truth: truth, serve: serves.first { t >= $0.start && t <= $0.end + serveHold },
+                     title: title, turn: turn, in: ctx, size: size)
             }
             CVPixelBufferUnlockBaseAddress(buffer, [])
             while !input.isReadyForMoreMediaData { try? await Task.sleep(nanoseconds: 2_000_000) }
@@ -129,7 +136,7 @@ enum PipelineVideo {
     }
 
     private static func draw(_ now: VideoProcessor.FrameEvidence?, trail: [VideoProcessor.FrameEvidence], at t: Double,
-                             clips: [Interval], truth: [Interval], title: String, turn: CGImagePropertyOrientation,
+                             clips: [Interval], truth: [Interval], serve: ServeDetector.Serve?, title: String, turn: CGImagePropertyOrientation,
                              in ctx: CGContext, size: CGSize) {
         // Vision-normalised (origin bottom-left), turned upright → output
         // pixels; CG is y-up too.
@@ -159,6 +166,20 @@ enum PipelineVideo {
             ctx.strokeLineSegments(between: [a.0, b.0])
         }
 
+        // The serve: its ball's path so far, orange, and the ball now.
+        if let serve {
+            let seen = serve.path.filter { $0.t <= t + 0.0005 }.map { px($0.point) }
+            ctx.setStrokeColor(CGColor(red: 1, green: 0.55, blue: 0, alpha: 0.95))
+            ctx.setLineWidth(5)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            if seen.count > 1 { ctx.addLines(between: seen); ctx.strokePath() }
+            if let ball = seen.last, t <= serve.end + 0.0005 {
+                ctx.setLineWidth(4)
+                ctx.strokeEllipse(in: CGRect(x: ball.x - 18, y: ball.y - 18, width: 36, height: 36))
+            }
+        }
+
         for d in now?.detections ?? [] {
             let r = px(d.bbox).insetBy(dx: -6, dy: -6)
             let color = d.isOffCourt ? CGColor(gray: 0.6, alpha: 0.8)
@@ -182,6 +203,11 @@ enum PipelineVideo {
             if let r2 = now.rSquared { gate += String(format: " · r² %.2f", r2) }
             if let why = now.rejectionReason { gate += " · \(why)" }
             lines.append(gate)
+        }
+        if let serve {
+            let phase = t > serve.end ? "first trajectory change (pass or miss)"
+                : t < serve.contact ? "toss" : serve.approaching ? "in flight, toward the camera" : "in flight, away from the camera"
+            lines.append("SERVE · \(phase)")
         }
         for (k, line) in lines.enumerated() {
             label(ctx, line, at: CGPoint(x: 14, y: size.height - 32 - CGFloat(k) * 30), size: k == 0 ? 15 : 17)

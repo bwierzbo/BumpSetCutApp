@@ -286,6 +286,18 @@ enum PipelineTuner {
         return pass
     }
 
+    /// The named videos with every rally marked, with their marks.
+    @MainActor
+    static func videos(_ names: [String], sampler: SamplerModel, log: (String) -> Void) -> [Video] {
+        names.compactMap { name in
+            guard let session = sampler.sessions.first(where: { $0.name == name }) else { log("  ⚠️ \(name): not in the project"); return nil }
+            guard session.ralliesMarked == true,
+                  let labels = try? JSONDecoder().decode([LabeledRally].self, from: Data(contentsOf: RallyMarkModel.labelsURL(for: URL(fileURLWithPath: session.sourcePath))))
+            else { log("  · \(name): not every rally marked yet — left out"); return nil }
+            return Video(session: session, truth: labels.map { Interval(start: $0.startTime, end: $0.endTime) })
+        }
+    }
+
     // MARK: - Run
 
     @MainActor
@@ -297,16 +309,7 @@ enum PipelineTuner {
             log("❌ No \(dir.lastPathComponent)/validation.json (lists the tune and holdout videos).")
             return false
         }
-        func videos(_ names: [String]) -> [Video] {
-            names.compactMap { name in
-                guard let session = sampler.sessions.first(where: { $0.name == name }) else { log("  ⚠️ \(name): not in the project"); return nil }
-                guard session.ralliesMarked == true,
-                      let labels = try? JSONDecoder().decode([LabeledRally].self, from: Data(contentsOf: RallyMarkModel.labelsURL(for: URL(fileURLWithPath: session.sourcePath))))
-                else { log("  · \(name): not every rally marked yet — left out"); return nil }
-                return Video(session: session, truth: labels.map { Interval(start: $0.startTime, end: $0.endTime) })
-            }
-        }
-        let tune = videos(set.tune), holdout = videos(set.holdout)
+        let tune = videos(set.tune, sampler: sampler, log: log), holdout = videos(set.holdout, sampler: sampler, log: log)
         log("Tune: \(tune.count) of \(set.tune.count) videos · holdout: \(holdout.count) of \(set.holdout.count)")
         guard tune.count >= 2 else { log("❌ Mark every rally in at least 2 tune videos first."); return false }
 

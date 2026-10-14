@@ -38,6 +38,8 @@
 //             --redo: track the pre-tracked ones again, e.g. after a better model)
 //    RallyLab --project v3 --tune-pipeline [--replay-only] [--rounds 2]   (search the pipeline's settings for the cuts
 //             closest to the marked rallies of pipeline_tuning/validation.json's videos; reports, applies nothing)
+//    RallyLab --project v3 --serve-report [--verbose]    (the serve found in each marked rally of the validation
+//             videos, how far from the mark, and what starting clips at the serve would score)
 //    RallyLab --project v3 --pretrack-check                (how right "sure" frames are, against val rallies people tracked)
 //    RallyLab --project v3 --add-heat <bring_back folder>  (convert + add a multi-frame model)
 //    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
@@ -177,6 +179,9 @@ enum HeadlessProjects {
                 ok = await PipelineTuner.run(sampler: projects.sampler, replayOnly: args.contains("--replay-only"),
                                              rounds: value(after: "--rounds", in: args).flatMap(Int.init) ?? 2, log: log)
             }
+            if ok, args.contains("--serve-report") {
+                ok = await ServeReport.run(sampler: projects.sampler, verbose: args.contains("--verbose"), log: log)
+            }
             if ok, args.contains("--pretrack-check") {
                 let checks = await PreTracker.check(sampler: projects.sampler, log: log)
                 if let c = checks.first { log("The path found a ball on \(c.found) checked frames; people saw \(c.people) balls.") }
@@ -288,7 +293,7 @@ enum HeadlessProjects {
                     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     for (start, length) in stretches {
                         let name = "\(session.name)-\(Int(start))s-\(finder.replacingOccurrences(of: " ", with: "-")).mp4"
-                        switch await PipelineVideo.render(evidence: v.evidence, clips: v.clips, truth: v.truth,
+                        switch await PipelineVideo.render(evidence: v.evidence, clips: v.clips, truth: v.truth, serves: v.serves,
                                                           video: URL(fileURLWithPath: session.sourcePath), from: start, length: length,
                                                           title: "\(session.name) · \(finder)", to: dir.appendingPathComponent(name)) {
                         case .success(let url): log("✅ \(url.path)")

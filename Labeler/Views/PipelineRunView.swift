@@ -60,6 +60,7 @@ struct PipelineRunView: View {
                         Button("Cancel", role: .destructive) { run.cancel() }
                     case .processed(let result), .rendered(let result, _):
                         LabeledContent("Rallies", value: "\(result.segments.count)")
+                        LabeledContent("Serves found", value: "\(result.serves.count)")
                         ForEach(Array(result.segments.enumerated()), id: \.offset) { n, s in
                             Text("\(n + 1). \(clockText(s.startTime))–\(clockText(s.endTime))")
                                 .font(.callout.monospacedDigit())
@@ -80,7 +81,7 @@ struct PipelineRunView: View {
                             Label("Export Debug Video", systemImage: "ladybug")
                         }
                     } footer: {
-                        Text("The whole video with what the pipeline saw drawn on: balls found (cyan multi-frame, yellow YOLO, grey off-court) with confidence, the ball's trail (green while it's in flight), the net, the gate's readout, and a bar while it's in a rally.")
+                        Text("The whole video with what the pipeline saw drawn on: balls found (cyan multi-frame, yellow YOLO, grey off-court) with confidence, the ball's trail (green while it's in flight), the net, the gate's readout, a bar while it's in a rally, and each serve in orange from the toss to the pass or miss.")
                     }
                 }
 
@@ -106,6 +107,7 @@ final class PipelineRun {
     struct Result {
         let evidence: [VideoProcessor.FrameEvidence]
         let segments: [RallySegment]
+        let serves: [ServeDetector.Serve]
         let duration: Double
     }
 
@@ -187,7 +189,7 @@ final class PipelineRun {
                 return
             }
             guard !Task.isCancelled else { phase = .idle; return }
-            phase = .processed(Result(evidence: processor.frameEvidence, segments: segments,
+            phase = .processed(Result(evidence: processor.frameEvidence, segments: segments, serves: processor.serves,
                                       duration: processor.lastVideoDurationSec > 0 ? processor.lastVideoDurationSec : duration))
         }
     }
@@ -202,7 +204,7 @@ final class PipelineRun {
         work = Task {
             defer { UIApplication.shared.isIdleTimerDisabled = false }
             let outcome = await PipelineVideo.render(
-                evidence: result.evidence, clips: result.segments.map { Interval(start: $0.startTime, end: $0.endTime) },
+                evidence: result.evidence, clips: result.segments.map { Interval(start: $0.startTime, end: $0.endTime) }, serves: result.serves,
                 video: source, from: 0, length: result.duration + 1,
                 title: "\(name) · BumpSetCut pipeline (\(BallFinder.current.title))", to: output) { fraction in
                     Task { @MainActor [weak self] in

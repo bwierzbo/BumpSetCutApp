@@ -192,6 +192,9 @@ final class VideoProcessor: @unchecked Sendable {
     /// only evaluation tools (RallyLab) opt in.
     @ObservationIgnored var collectFrameEvidence = false
     @ObservationIgnored private(set) var frameEvidence: [FrameEvidence] = []
+    /// Each kept rally's serve (ServeDetector), found from the evidence —
+    /// so only when it's collected. For the debug video; not used to cut.
+    @ObservationIgnored private(set) var serves: [ServeDetector.Serve] = []
     @ObservationIgnored private(set) var lastVideoDurationSec: Double = 0
 
     /// Set when background time is about to run out: the frame loop writes a
@@ -474,6 +477,7 @@ final class VideoProcessor: @unchecked Sendable {
         }
 
         frameEvidence.removeAll()
+        serves.removeAll()
         lastVideoDurationSec = 0
 
         let startTime = Date()
@@ -1005,7 +1009,7 @@ final class VideoProcessor: @unchecked Sendable {
         pending.removeAll()
 
         let built = segments.finalizeWithRaw(until: duration)
-        var keep = built.map { $0.padded }
+        var kept = built
 
         // Above-net rule: drop a multi-contact rally that never sends the ball above
         // this net's top edge (a background/other-court rally). Single arcs exempt.
@@ -1014,18 +1018,23 @@ final class VideoProcessor: @unchecked Sendable {
         // single-trajectory exemption (RallyLab tunes this rule on raw boundaries).
         if config.enableAboveNetRequirement, let net = detectedNet {
             let netTopY = net.box.maxY - config.aboveNetMarginY
-            let before = keep.count
-            keep = built.filter { seg in
+            let before = kept.count
+            kept = built.filter { seg in
                 let s = CMTimeGetSeconds(seg.raw.start)
                 let e = CMTimeGetSeconds(CMTimeRangeGetEnd(seg.raw))
                 let ys = ballHeights.filter { $0.t >= s && $0.t <= e }.map { $0.y }
                 return NetClearanceRule.rallyClearsNetTop(ySamples: ys, netTopY: netTopY,
                                               arcProminence: config.aboveNetArcProminence)
-            }.map { $0.padded }
-            if keep.count != before {
-                eventLog.log(.segmentFinalized,
-                             detail: "aboveNetRule dropped \(before - keep.count) multi-contact rally(s) that never cleared the net top")
             }
+            if kept.count != before {
+                eventLog.log(.segmentFinalized,
+                             detail: "aboveNetRule dropped \(before - kept.count) multi-contact rally(s) that never cleared the net top")
+            }
+        }
+        let keep = kept.map { $0.padded }
+        if collectFrameEvidence {
+            let frames = ServeDetector.Frame.from(frameEvidence)
+            serves = kept.compactMap { ServeDetector().serve(in: frames, rallyStart: CMTimeGetSeconds($0.raw.start)) }
         }
 
         eventLog.log(.segmentFinalized, detail: "keepRanges=\(keep.count), videoDuration=\(String(format: "%.2f", CMTimeGetSeconds(duration)))s")
