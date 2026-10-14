@@ -452,7 +452,7 @@ struct TrackFrameView: View {
     /// Zoom by `factor`, keeping the image point under `anchor` fixed.
     private func zoom(by factor: CGFloat, anchor: CGPoint, view: CGRect) {
         let old = tracker.zoom
-        let new = min(max(old * factor, 1), TrackLabelModel.maxZoom)
+        let new = max(old * factor, 1)
         guard new != old else { return }
         let target = CGPoint(x: (anchor.x - view.minX) / view.width, y: (anchor.y - view.minY) / view.height)
         let offsetX = (anchor.x - canvasSize.width / 2) / (view.width / old * new)

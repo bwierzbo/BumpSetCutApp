@@ -45,10 +45,9 @@ final class RallyMarkModel {
     /// kept mid-view.
     private(set) var zoom: CGFloat = 1
     var zoomCenter = CGPoint(x: 0.5, y: 0.5)
-    static let maxZoom: CGFloat = 8
 
     func setZoom(_ value: CGFloat) {
-        zoom = min(max(value, 1), Self.maxZoom)
+        zoom = max(value, 1)
         pan(to: zoomCenter)
     }
 

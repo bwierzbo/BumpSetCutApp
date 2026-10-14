@@ -75,7 +75,6 @@ final class TrackLabelModel {
     /// Frames are read about this often, whatever the video's frame rate —
     /// the same spacing as the multi-frame package.
     static let frameRate = MultiFramePackage.frameRate
-    static let maxZoom: CGFloat = 8
     private static let cacheSize = 90
     nonisolated static let candidateConfidence: Float = 0.15
 
@@ -469,7 +468,7 @@ final class TrackLabelModel {
     // MARK: - Zoom
 
     func setZoom(_ value: CGFloat, around point: CGPoint? = nil) {
-        zoom = min(max(value, 1), Self.maxZoom)
+        zoom = max(value, 1)
         if let point { zoomCenter = point }
         clampZoomCenter()
     }

@@ -135,7 +135,7 @@ struct ReviewCanvas: View {
     /// Zoom by `factor`, keeping the image point under `anchor` fixed.
     private func zoom(by factor: CGFloat, anchor: CGPoint?, view: CGRect) {
         let old = sampler.zoom
-        let new = min(max(old * factor, 1), SamplerModel.maxZoom)
+        let new = max(old * factor, 1)
         guard new != old else { return }
         guard let anchor else { sampler.setZoom(new); return }
         let target = imagePoint(anchor, in: view)

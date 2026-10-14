@@ -334,7 +334,7 @@ private struct ZoomedFrame: View {
                     .onChanged { value in
                         let base = pinchBase ?? zoom
                         if pinchBase == nil { pinchBase = base }
-                        zoom = min(max(1, base * value.magnification), 8)
+                        zoom = max(1, base * value.magnification)
                     }
                     .onEnded { _ in pinchBase = nil })
             } else {

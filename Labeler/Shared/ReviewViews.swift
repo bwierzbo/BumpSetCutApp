@@ -855,7 +855,7 @@ struct FindBallView: View {
                     .onChanged { m in
                         let base = pinchBase ?? zoom
                         if pinchBase == nil { pinchBase = base }
-                        zoom = min(max(base * m.magnification, 1), 8)
+                        zoom = max(base * m.magnification, 1)
                     }
                     .onEnded { _ in pinchBase = nil })
                 .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -898,7 +898,7 @@ struct FindBallView: View {
                 case "h": onHidden()
                 case "[": size(by: 1 / 1.05)
                 case "]": size(by: 1.05)
-                case "=", "+": zoom = min(8, zoom * 1.25)
+                case "=", "+": zoom *= 1.25
                 case "-": zoom = max(1, zoom / 1.25)
                 case ",": look(-1)
                 case ".": look(1)

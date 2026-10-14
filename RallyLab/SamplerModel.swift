@@ -226,7 +226,6 @@ final class SamplerModel {
     /// since a burst's ball stays in about the same place.
     var zoom: CGFloat = 1
     var zoomCenter = CGPoint(x: 0.5, y: 0.5)
-    static let maxZoom: CGFloat = 12
 
     /// A short loop of the video around the selected frame, for telling a
     /// blurred ball from a head or a light. Nil when not showing.
@@ -1228,7 +1227,7 @@ final class SamplerModel {
     // MARK: - Zoom
 
     func setZoom(_ value: CGFloat, around point: CGPoint? = nil) {
-        zoom = min(max(value, 1), Self.maxZoom)
+        zoom = max(value, 1)
         if let point { zoomCenter = point }
         clampZoomCenter()
     }
