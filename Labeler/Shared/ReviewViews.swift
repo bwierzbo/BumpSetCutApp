@@ -425,7 +425,7 @@ struct SureReviewView: View {
             }
             .padding(.horizontal, 8)
             GeometryReader { geo in
-                let side = (min(geo.size.width, geo.size.height) - 12) / CGFloat(Self.columns)
+                let side = max(1, (min(geo.size.width, geo.size.height) - 12) / CGFloat(Self.columns))
                 Group {
                     if !walk.page.isEmpty {
                         LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: 6), count: Self.columns), spacing: 6) {

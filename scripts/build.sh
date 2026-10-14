@@ -96,8 +96,12 @@ relaunch_rallylab() {
     echo "❌ RallyLab.app not found in DerivedData"
     return 1
   fi
-  pkill -x RallyLab 2>/dev/null
-  sleep 1
+  # Quit it the normal way (it may be mid-review); kill only if it won't go.
+  if pgrep -x RallyLab >/dev/null; then
+    osascript -e 'quit app "RallyLab"' 2>/dev/null
+    for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -x RallyLab >/dev/null || break; sleep 0.5; done
+    pkill -x RallyLab 2>/dev/null && sleep 1
+  fi
   open "$app" && echo "✅ RallyLab relaunched"
 }
 
