@@ -143,6 +143,13 @@ struct FrameCanvas: View {
                        y: clamp(view.height / 2 - centre.y * shown.height, view.height, shown.height))
     }
 
+    /// `centre` moved no further than the picture's edges reach, so moving
+    /// back after going past one moves at once.
+    static func clampedCentre(_ centre: CGPoint, shown: CGSize, view: CGSize) -> CGPoint {
+        let o = origin(shown: shown, centre: centre, view: view)
+        return CGPoint(x: (view.width / 2 - o.x) / shown.width, y: (view.height / 2 - o.y) / shown.height)
+    }
+
     /// A point in the view as a Vision-normalised point in the frame, if
     /// it's on the picture.
     static func framePoint(_ p: CGPoint, image: CGImage, zoom: CGFloat, centre: CGPoint, view: CGSize) -> CGPoint? {

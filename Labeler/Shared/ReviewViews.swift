@@ -855,7 +855,10 @@ struct FindBallView: View {
                         let shown = FrameCanvas.shown(image: image, zoom: zoom, view: geo.size)
                         centre = CGPoint(x: base.x - d.translation.width / shown.width, y: base.y - d.translation.height / shown.height)
                     }
-                    .onEnded { _ in panBase = nil })
+                    .onEnded { _ in
+                        panBase = nil
+                        centre = FrameCanvas.clampedCentre(centre, shown: FrameCanvas.shown(image: image, zoom: zoom, view: geo.size), view: geo.size)
+                    })
                 .simultaneousGesture(MagnifyGesture()
                     .onChanged { m in
                         let base = pinchBase ?? zoom
@@ -863,6 +866,12 @@ struct FindBallView: View {
                         zoom = max(base * m.magnification, 1)
                     }
                     .onEnded { _ in pinchBase = nil })
+                .reviewScroll { dx, dy in
+                    // Two fingers move the picture, as a drag does.
+                    let shown = FrameCanvas.shown(image: image, zoom: zoom, view: geo.size)
+                    centre = FrameCanvas.clampedCentre(CGPoint(x: centre.x - dx / shown.width, y: centre.y - dy / shown.height),
+                                                       shown: shown, view: geo.size)
+                }
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             if neighbour != nil { lookAround }
