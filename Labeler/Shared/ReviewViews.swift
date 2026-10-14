@@ -757,7 +757,8 @@ private struct LabelerCheckView: View {
 /// boxes on the frames either side are drawn faintly (with their offsets),
 /// and −2 −1 +1 +2 show those frames themselves for a moment. Starts at
 /// `zoom` (2.5 = zoomed in where the ball was last seen; 1 = the whole
-/// frame), with `box` if there is one.
+/// frame), with `box` if there is one; looking at `centre` if given (the
+/// last frame's view, for the next frame of a rally), else at the box.
 struct FindBallView: View {
     let image: CGImage
     let rally: TrackedRally
@@ -768,6 +769,8 @@ struct FindBallView: View {
     let onHidden: () -> Void
     /// The zoom as you change it, to keep for the next frame.
     let onZoom: (CGFloat) -> Void
+    /// Where the view is centred as you move it, likewise.
+    let onCentre: (CGPoint) -> Void
     @State private var zoom: CGFloat
     @State private var centre: CGPoint
     @State private var panBase: CGPoint?
@@ -782,8 +785,9 @@ struct FindBallView: View {
     static let around = 2
 
     init(image: CGImage, rally: TrackedRally, index: Int, box: CGRect?, guess: CGRect? = nil, zoom: CGFloat = 2.5,
-         neighbour: ((Int) async -> CGImage?)? = nil,
-         onBall: @escaping (CGRect) -> Void, onHidden: @escaping () -> Void, onZoom: @escaping (CGFloat) -> Void = { _ in }) {
+         centre: CGPoint? = nil, neighbour: ((Int) async -> CGImage?)? = nil,
+         onBall: @escaping (CGRect) -> Void, onHidden: @escaping () -> Void,
+         onZoom: @escaping (CGFloat) -> Void = { _ in }, onCentre: @escaping (CGPoint) -> Void = { _ in }) {
         self.image = image
         self.rally = rally
         self.index = index
@@ -791,10 +795,11 @@ struct FindBallView: View {
         self.onBall = onBall
         self.onHidden = onHidden
         self.onZoom = onZoom
+        self.onCentre = onCentre
         _zoom = State(initialValue: zoom)
         let start = box ?? guess
         _centre = State(initialValue: zoom <= 1 ? CGPoint(x: 0.5, y: 0.5)
-                        : start.map { CGPoint(x: $0.midX, y: 1 - $0.midY) } ?? FrameCanvas.focus(rally, frame: index))
+                        : centre ?? start.map { CGPoint(x: $0.midX, y: 1 - $0.midY) } ?? FrameCanvas.focus(rally, frame: index))
         _placed = State(initialValue: start)
         _guessed = State(initialValue: box == nil && guess != nil)
     }
@@ -877,6 +882,7 @@ struct FindBallView: View {
         }
         .padding(8)
         .onChange(of: zoom) { onZoom(zoom) }
+        .onChange(of: centre, initial: true) { onCentre(centre) }
         .reviewKeys { press in
             let pan = 0.05 / zoom
             switch press.key {
@@ -947,6 +953,13 @@ struct WholeFrameReviewView: View {
     let kind: AnnotationReview.Kind
     /// The zoom you left each rally at: its next frame opens at it.
     @State private var zoomByRally: [UUID: CGFloat] = [:]
+    /// The frame last shown and where its view was centred: a frame just
+    /// after it in the same rally opens looking at the same place (the ball
+    /// has barely moved), not jumping to its box; a jump goes to the box.
+    @State private var lastView: (item: AnnotationReview.Item, centre: CGPoint)?
+
+    /// How far ahead the next frame may be and still count as following on.
+    private static let followFrames = 3
 
     init(store: any ReviewStore, kind: AnnotationReview.Kind) {
         self.kind = kind
@@ -973,10 +986,14 @@ struct WholeFrameReviewView: View {
                                  // Not sure: the whole frame as it is, to see where the ball fits
                                  // in; then as you left this rally.
                                  zoom: zoomByRally[item.track] ?? (kind == .unsure ? 1 : 2.5),
+                                 centre: lastView.flatMap { last in
+                                     last.item.track == item.track && (1...Self.followFrames).contains(item.index - last.item.index) ? last.centre : nil
+                                 },
                                  neighbour: { await walk.neighbourImage($0) },
                                  onBall: { box in Task { await walk.decide { AnnotationReview.approve(&$0, box: box) } } },
                                  onHidden: { Task { await walk.decide(AnnotationReview.confirmHidden) } },
-                                 onZoom: { zoomByRally[item.track] = $0 })
+                                 onZoom: { zoomByRally[item.track] = $0 },
+                                 onCentre: { lastView = (item, $0) })
                         .id(item)
                 } else if let failure = walk.failure {
                     ContentUnavailableView("Can't show this frame", systemImage: "exclamationmark.triangle", description: Text(failure))
