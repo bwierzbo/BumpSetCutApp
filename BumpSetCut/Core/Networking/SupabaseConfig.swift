@@ -26,9 +26,18 @@ enum SupabaseConfig {
     static var jsonDecoder: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        decoder.dateDecodingStrategy = .iso8601
+        // Postgres timestamps carry microseconds ("…04:10:02.891959+00:00"),
+        // which plain .iso8601 rejects before iOS 26.
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let text = try container.decode(String.self)
+            if let date = (try? Date(text, strategy: fractionalISO8601)) ?? (try? Date(text, strategy: .iso8601)) { return date }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Expected an ISO8601 date, got \(text)")
+        }
         return decoder
     }
+
+    private static let fractionalISO8601 = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
     // MARK: - Shared Client
 

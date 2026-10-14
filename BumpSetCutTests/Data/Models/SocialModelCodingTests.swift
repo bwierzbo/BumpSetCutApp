@@ -62,6 +62,20 @@ final class SocialModelCodingTests: XCTestCase {
         XCTAssertEqual(profile.privacyLevel, .followersOnly)
     }
 
+    /// Postgres sends timestamps with microseconds and a "+00:00" offset.
+    /// Plain `.iso8601` rejects the fraction before iOS 26, which broke
+    /// sign-in on iOS 18 ("isn't in the correct format").
+    func testDecodesPostgresTimestampsWithFractionalSeconds() throws {
+        let profile = try decode(UserProfile.self, from: """
+        {"id": "u1", "username": "alice", "created_at": "2026-10-14T04:10:02.891959+00:00", "details": null}
+        """)
+        XCTAssertEqual(profile.createdAt.timeIntervalSince1970, 1_791_951_002.891959, accuracy: 0.001)
+        let whole = try decode(UserProfile.self, from: """
+        {"id": "u1", "username": "alice", "created_at": "2026-10-14T04:10:02+00:00"}
+        """)
+        XCTAssertEqual(whole.createdAt.timeIntervalSince1970, 1_791_951_002, accuracy: 0.001)
+    }
+
     // MARK: - PlayerInfo (embedded profile_details)
 
     func testUserProfileDecodesEmbeddedPlayerDetails() throws {
