@@ -489,6 +489,8 @@ struct FindBallView: View {
     var neighbour: ((Int) async -> CGImage?)?
     let onBall: (CGRect) -> Void
     let onHidden: () -> Void
+    /// The zoom as you change it, to keep for the next frame.
+    let onZoom: (CGFloat) -> Void
     @State private var zoom: CGFloat
     @State private var centre: CGPoint
     @State private var panBase: CGPoint?
@@ -504,13 +506,14 @@ struct FindBallView: View {
 
     init(image: CGImage, rally: TrackedRally, index: Int, box: CGRect?, guess: CGRect? = nil, zoom: CGFloat = 2.5,
          neighbour: ((Int) async -> CGImage?)? = nil,
-         onBall: @escaping (CGRect) -> Void, onHidden: @escaping () -> Void) {
+         onBall: @escaping (CGRect) -> Void, onHidden: @escaping () -> Void, onZoom: @escaping (CGFloat) -> Void = { _ in }) {
         self.image = image
         self.rally = rally
         self.index = index
         self.neighbour = neighbour
         self.onBall = onBall
         self.onHidden = onHidden
+        self.onZoom = onZoom
         _zoom = State(initialValue: zoom)
         let start = box ?? guess
         _centre = State(initialValue: zoom <= 1 ? CGPoint(x: 0.5, y: 0.5)
@@ -596,6 +599,7 @@ struct FindBallView: View {
             .controlSize(.large)
         }
         .padding(8)
+        .onChange(of: zoom) { onZoom(zoom) }
         .reviewKeys { press in
             let pan = 0.05 / zoom
             switch press.key {
@@ -664,6 +668,8 @@ struct FindBallView: View {
 struct WholeFrameReviewView: View {
     @State private var walk: ReviewWalk
     let kind: AnnotationReview.Kind
+    /// The zoom you left each rally at: its next frame opens at it.
+    @State private var zoomByRally: [UUID: CGFloat] = [:]
 
     init(store: any ReviewStore, kind: AnnotationReview.Kind) {
         self.kind = kind
@@ -687,11 +693,13 @@ struct WholeFrameReviewView: View {
                                  box: walk.point.flatMap { $0.state == .visible ? $0.box?.rect : nil },
                                  // No box yet: start from where the ball's path says it is.
                                  guess: kind == .noBall ? AnnotationReview.guessedBox(in: rally, frame: item.index) : nil,
-                                 // Not sure: the whole frame as it is, to see where the ball fits in.
-                                 zoom: kind == .unsure ? 1 : 2.5,
+                                 // Not sure: the whole frame as it is, to see where the ball fits
+                                 // in; then as you left this rally.
+                                 zoom: zoomByRally[item.track] ?? (kind == .unsure ? 1 : 2.5),
                                  neighbour: { await walk.neighbourImage($0) },
                                  onBall: { box in Task { await walk.decide { AnnotationReview.approve(&$0, box: box) } } },
-                                 onHidden: { Task { await walk.decide(AnnotationReview.confirmHidden) } })
+                                 onHidden: { Task { await walk.decide(AnnotationReview.confirmHidden) } },
+                                 onZoom: { zoomByRally[item.track] = $0 })
                         .id(item)
                 } else if let failure = walk.failure {
                     ContentUnavailableView("Can't show this frame", systemImage: "exclamationmark.triangle", description: Text(failure))
