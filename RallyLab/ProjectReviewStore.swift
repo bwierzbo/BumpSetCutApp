@@ -62,6 +62,8 @@ final class ProjectReviewStore: ReviewStore {
 
     func rallyChecks() -> [AnnotationReview.RallyCheck] { AnnotationReview.rallyChecks(rallies) }
 
+    func finishedRallies() -> [AnnotationReview.RallyCheck] { AnnotationReview.finished(rallies) }
+
     func offTopGaps() -> [AnnotationReview.Gap] { AnnotationReview.offTop(rallies) }
 
     func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck) {

@@ -145,14 +145,52 @@ enum AnnotationReview {
     static func progress(_ rallies: [TrackedRally]) -> Progress {
         var out = Progress(reviewed: 0, total: 0, ralliesDone: 0, rallies: 0)
         for r in rallies where r.isForReview {
-            let trusted = MachineLabels.trusted(r), lost = MachineLabels.lost(r)
-            let points = r.points.indices.filter { !trusted.contains($0) }.map { (r.points[$0], lost.contains($0)) }
-                .filter { $0.0.isChecked || $0.1 || kind(of: $0.0) != nil }
-            let reviewed = points.filter(\.0.isChecked).count
-            out.reviewed += reviewed
-            out.total += points.count
+            let c = checked(r)
+            out.reviewed += c.reviewed
+            out.total += c.total
             out.rallies += 1
-            if trusted.isEmpty && reviewed == points.count { out.ralliesDone += 1 }
+            if c.complete { out.ralliesDone += 1 }
+        }
+        return out
+    }
+
+    /// A rally's frames for people to check, how many are checked, and
+    /// whether it's complete: every one checked, the model's sure ones too.
+    private static func checked(_ r: TrackedRally) -> (reviewed: Int, total: Int, complete: Bool) {
+        let trusted = MachineLabels.trusted(r), lost = MachineLabels.lost(r)
+        let points = r.points.indices.filter { !trusted.contains($0) }.map { (r.points[$0], lost.contains($0)) }
+            .filter { $0.0.isChecked || $0.1 || kind(of: $0.0) != nil }
+        let reviewed = points.filter(\.0.isChecked).count
+        return (reviewed, points.count, trusted.isEmpty && reviewed == points.count)
+    }
+
+    // MARK: - Final check
+
+    /// Complete rallies, video by video in time order, for the final check.
+    static func finished(_ rallies: [(video: String, rally: TrackedRally)]) -> [RallyCheck] {
+        rallies.filter { $0.rally.isForReview && checked($0.rally).complete }
+            .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
+            .map { RallyCheck(video: $0.video, track: $0.rally.id, start: $0.rally.start, end: $0.rally.end) }
+    }
+
+    /// How far the ball may move between boxed frames `gap` frames apart, as
+    /// a share of the picture's height: a hard hit crosses about a tenth of
+    /// it a frame. Further than this is a jump to another ball.
+    static func reach(gap: Int) -> Double { 0.12 * Double(gap) + 0.06 }
+
+    /// A rally's ball path cut where it jumps further than a ball can go:
+    /// each stretch, first to last boxed frame. Two balls (another court, a
+    /// spare) labeled in turn show as several stretches.
+    static func stretches(_ rally: TrackedRally, aspect: Double = 16.0 / 9.0) -> [ClosedRange<Int>] {
+        let boxed = rally.points.indices.filter { rally.points[$0].state == .visible && rally.points[$0].box != nil }
+        var out: [ClosedRange<Int>] = []
+        for i in boxed {
+            if let last = out.last, let a = rally.points[last.upperBound].box?.rect, let b = rally.points[i].box?.rect,
+               hypot((b.midX - a.midX) * aspect, b.midY - a.midY) <= reach(gap: i - last.upperBound) {
+                out[out.count - 1] = last.lowerBound...i
+            } else {
+                out.append(i...i)
+            }
         }
         return out
     }
@@ -345,6 +383,8 @@ protocol ReviewStore: AnyObject {
     func claim(_ track: UUID) async -> Bool
     /// Pre-tracked rallies nobody has said are or aren't rallies yet.
     func rallyChecks() -> [AnnotationReview.RallyCheck]
+    /// Complete rallies, for the final check of their whole path.
+    func finishedRallies() -> [AnnotationReview.RallyCheck]
     /// Where the ball most likely went over the top, to check (AnnotationReview.offTop).
     func offTopGaps() -> [AnnotationReview.Gap]
     /// Say whether a pre-tracked rally is a rally (nil takes it back).

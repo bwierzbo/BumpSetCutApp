@@ -465,6 +465,24 @@ actor LabelingClient {
         _ = try await send(request)
     }
 
+    // MARK: - Final check of finished rallies (migration 044; leads only)
+
+    /// Rallies signed off whose frames haven't been relabeled since.
+    func rallyFinals() async throws -> Set<UUID> {
+        struct Row: Decodable { let track: UUID }
+        let rows: [Row] = try await rpc("rally_finals", [:])
+        return Set(rows.map(\.track))
+    }
+
+    /// Sign a rally off, or take that back.
+    func rallyFinal(_ track: UUID, ok: Bool) async throws {
+        struct Params: Encodable { let p_track: String; let p_ok: Bool }
+        var request = try await rest("rpc/rally_final", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_track: track.uuidString.lowercased(), p_ok: ok))
+        _ = try await send(request)
+    }
+
     // MARK: - RallyCoin (migrations 040–041; a joke)
 
     /// A labeler on the board: coins left, frames labeled, what they bought.

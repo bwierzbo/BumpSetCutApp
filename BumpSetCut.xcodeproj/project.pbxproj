@@ -70,6 +70,7 @@
 			membershipExceptions = (
 				Shared/AnnotationReview.swift,
 				Shared/BoxFitter.swift,
+				Shared/FinalCheckView.swift,
 				Shared/LabelingClient.swift,
 				Shared/LabelingModels.swift,
 				Shared/LabelQueue.swift,

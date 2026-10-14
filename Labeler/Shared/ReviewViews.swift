@@ -32,6 +32,8 @@
 //     approve, ⌫ back.
 //   · RallyCoin — a joke: coins for labeling, a leaderboard, and a shop of
 //     fake things to spend them on.
+//   · Final check (leads only) — each complete rally's whole ball path, to
+//     catch labels that jump between balls or courts (FinalCheckView).
 //   · Labelers (leads only) — each other labeler's frames labeled and how
 //     many were checked right or wrong; their labels to check, a page at a
 //     time like Sure frames (hidden ones as the whole frame). Wrong ones go
@@ -58,6 +60,8 @@ struct ReviewHomeView: View {
     @State private var toCheck: Int?
     /// RallyCoin: the board, you included.
     @State private var coins: [LabelingClient.CoinHolder] = []
+    /// Rallies signed off in the final check (leads only; nil for everyone else).
+    @State private var finals: Set<UUID>?
 
     var body: some View {
         let frames = store.reviewItems([.crop]).count
@@ -85,6 +89,14 @@ struct ReviewHomeView: View {
                         .buttonStyle(.plain)
                 }
                 if !held.isEmpty { heldCard }
+                if let finals {
+                    let finished = store.finishedRallies().filter { !finals.contains($0.track) }.count
+                    NavigationLink { FinalCheckView(store: store) } label: {
+                        card("Final check", "\(finished.formatted()) finished rallies to sign off · see the whole ball path, catch labels that jump to another ball or court",
+                             "point.topleft.down.to.point.bottomright.curvepath", finished)
+                    }
+                    .buttonStyle(.plain).disabled(finished == 0)
+                }
                 if let toCheck {
                     NavigationLink { LabelersView(store: store) } label: {
                         card("Labelers", "\(toCheck.formatted()) frames others labeled to check · how each is doing, and their labels a page at a time",
@@ -128,6 +140,7 @@ struct ReviewHomeView: View {
             while !Task.isCancelled {
                 await refreshHeld()
                 if let board = try? await LabelingClient.shared.coinBoard() { coins = board }
+                finals = try? await LabelingClient.shared.rallyFinals()
                 if let others = try? await LabelingClient.shared.labelerSummary() {
                     toCheck = others.isEmpty ? nil : others.reduce(0) { $0 + $1.waiting }
                 }
@@ -1471,7 +1484,7 @@ private struct ReviewPassBar: View {
     }
 }
 
-private extension View {
+extension View {
     /// Inline navigation title where there is one (the phone).
     @ViewBuilder
     func inlineTitle() -> some View {
