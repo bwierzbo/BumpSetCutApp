@@ -2,13 +2,14 @@
 //  LabelingClient.swift
 //  Labeler (also compiled into RallyLab)
 //
-//  Supabase over plain REST for labeling: sign in with email and password
-//  (the refresh token is kept in the Keychain), read and write the labeling
+//  Supabase over plain REST for labeling: sign in with email and password,
+//  Apple or Google (the refresh token is kept in the Keychain), read and write the labeling
 //  tables, and move clips in and out of the private "labeling" bucket.
 //  Plain URLSession, so RallyLab and the Labeler app share it without the
 //  Supabase package. Only labelers (public.labelers) get anything back.
 //
 
+import CryptoKit
 import Foundation
 import Security
 
@@ -45,6 +46,8 @@ actor LabelingClient {
     private var accessToken: String?
     private var expiresAt = Date.distantPast
     private(set) var userId: UUID?
+    /// The signed-in account's email (an Apple relay address for a hidden one).
+    private(set) var email: String?
 
     // MARK: - Auth
 
@@ -53,6 +56,48 @@ actor LabelingClient {
 
     func signIn(email: String, password: String) async throws {
         try await token(grant: "password", body: ["email": email, "password": password])
+    }
+
+    /// Sign in with Apple: the ID token Apple handed the app, and the raw
+    /// nonce whose SHA-256 went into the request (see `nonce()`).
+    func signInWithApple(idToken: String, nonce: String) async throws {
+        try await token(grant: "id_token", body: ["provider": "apple", "id_token": idToken, "nonce": nonce])
+    }
+
+    /// Where a provider's web sign-in returns to (allowed in Supabase's redirect list).
+    static let callbackScheme = "rallylab"
+
+    /// A provider's web sign-in (Google), PKCE: the page to open, and the
+    /// verifier that goes back with the code it returns.
+    nonisolated func webSignIn(_ provider: String) -> (url: URL, verifier: String) {
+        let verifier = Self.nonce().raw
+        let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        let url = base.appending(path: "auth/v1/authorize").appending(queryItems: [
+            .init(name: "provider", value: provider),
+            .init(name: "redirect_to", value: "\(Self.callbackScheme)://auth-callback"),
+            .init(name: "code_challenge", value: challenge),
+            .init(name: "code_challenge_method", value: "s256"),
+        ])
+        return (url, verifier)
+    }
+
+    /// Finish a web sign-in with the URL it came back on.
+    func finishWebSignIn(callback: URL, verifier: String) async throws {
+        let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        guard let code = items.first(where: { $0.name == "code" })?.value else {
+            throw Failure.server(400, items.first { $0.name == "error_description" }?.value ?? "Sign-in didn't finish.")
+        }
+        try await token(grant: "pkce", body: ["auth_code": code, "code_verifier": verifier])
+    }
+
+    /// A random one-time value, and its SHA-256 in hex (what Apple's request carries).
+    nonisolated static func nonce() -> (raw: String, hashed: String) {
+        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var bytes = [UInt8](repeating: 0, count: 64)
+        precondition(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess)
+        let raw = String(bytes.map { charset[Int($0) % charset.count] })
+        return (raw, SHA256.hash(data: Data(raw.utf8)).map { String(format: "%02x", $0) }.joined())
     }
 
     /// Email a password-reset code (the same as BumpSetCut's Forgot Password).
@@ -82,6 +127,7 @@ actor LabelingClient {
         Keychain.refreshToken = nil
         accessToken = nil
         userId = nil
+        email = nil
     }
 
     /// Whether this account may label (it's in public.labelers).
@@ -103,13 +149,14 @@ actor LabelingClient {
     /// Keep a session the auth server handed back.
     private func keep(_ data: Data) throws {
         struct Token: Decodable {
-            struct User: Decodable { let id: UUID }
+            struct User: Decodable { let id: UUID; let email: String? }
             let accessToken: String, refreshToken: String, expiresIn: Double, user: User
         }
         let t = try Self.decoder.decode(Token.self, from: data)
         accessToken = t.accessToken
         expiresAt = Date().addingTimeInterval(t.expiresIn - 60)
         userId = t.user.id
+        email = t.user.email
         Keychain.refreshToken = t.refreshToken
     }
 

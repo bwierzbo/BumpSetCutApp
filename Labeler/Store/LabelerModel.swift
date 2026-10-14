@@ -8,8 +8,10 @@
 //  clips kept on the phone; and the next tasks, from the training plan.
 //
 
+import AuthenticationServices
 import Foundation
 import Observation
+import SwiftUI
 
 @MainActor
 @Observable
@@ -27,6 +29,8 @@ final class LabelerModel: ReviewStore {
     private(set) var syncProblem: String?
     private(set) var today = DayStats.today
     var error: String?
+    /// The signed-in account, shown when it isn't a labeler yet (so its owner can say which one to add).
+    private(set) var account: String?
 
     private let client = LabelingClient.shared
     @ObservationIgnored private var flushTask: Task<Void, Never>?
@@ -48,6 +52,37 @@ final class LabelerModel: ReviewStore {
         do {
             try await client.signIn(email: email, password: password)
             await reload()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Sign in with Apple. `nonce` is the raw value whose hash went into the request.
+    func signInWithApple(_ result: Result<ASAuthorization, Error>, nonce: String) async {
+        do {
+            let authorization = try result.get()
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let data = credential.identityToken, let idToken = String(data: data, encoding: .utf8) else {
+                self.error = "Apple didn't return a sign-in. Try again."
+                return
+            }
+            try await client.signInWithApple(idToken: idToken, nonce: nonce)
+            await reload()
+        } catch let e as ASAuthorizationError where e.code == .canceled {
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Sign in with Google in a browser sheet.
+    func signInWithGoogle(_ web: WebAuthenticationSession) async {
+        let (url, verifier) = client.webSignIn("google")
+        do {
+            let callback = try await web.authenticate(using: url, callbackURLScheme: LabelingClient.callbackScheme,
+                                                      preferredBrowserSession: .ephemeral)
+            try await client.finishWebSignIn(callback: callback, verifier: verifier)
+            await reload()
+        } catch let e as ASWebAuthenticationSessionError where e.code == .canceledLogin {
         } catch {
             self.error = error.localizedDescription
         }
@@ -95,6 +130,7 @@ final class LabelerModel: ReviewStore {
             async let k = client.tracks()
             async let s = client.projectStates()
             let loaded = try await LabelSnapshot(videos: v, times: t, tracks: k, states: s)
+            account = await client.email
             guard try await client.isLabeler() else { phase = .notLabeler; return }
             snapshot = loaded
             lastPull = started

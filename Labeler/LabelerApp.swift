@@ -13,6 +13,7 @@
 //  RallyLab on the Mac. Separate from BumpSetCut.
 //
 
+import AuthenticationServices
 import SwiftUI
 
 @main
@@ -41,7 +42,7 @@ struct RootView: View {
                 ContentUnavailableView {
                     Label("Not a labeler", systemImage: "lock")
                 } description: {
-                    Text("This account isn't on the labelers list. Add it in Supabase (public.labelers).")
+                    Text("\(model.account ?? "This account") isn't on the labelers list yet. Send that to Ben to be added.")
                 } actions: {
                     Button("Sign Out") { Task { await model.signOut() } }
                 }
@@ -134,10 +135,42 @@ struct SignInView: View {
     @State private var password = ""
     @State private var busy = false
     @State private var forgot = false
+    @State private var appleNonce = ""
+    @Environment(\.webAuthenticationSession) private var web
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    SignInWithAppleButton(.continue) { request in
+                        let nonce = LabelingClient.nonce()
+                        appleNonce = nonce.raw
+                        request.requestedScopes = [.email]
+                        request.nonce = nonce.hashed
+                    } onCompletion: { result in
+                        Task { await model.signInWithApple(result, nonce: appleNonce) }
+                    }
+                    .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                    .frame(height: 44)
+                    .listRowInsets(EdgeInsets())
+                    Button {
+                        Task { await model.signInWithGoogle(web) }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image("GoogleLogo").resizable().scaledToFit().frame(width: 18, height: 18)
+                            Text("Continue with Google").fontWeight(.semibold)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .foregroundStyle(colorScheme == .dark ? Color(white: 0.89) : Color(white: 0.12))
+                        .background(colorScheme == .dark ? Color(white: 0.07) : .white)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowInsets(EdgeInsets())
+                } footer: {
+                    Text("Use the same sign-in as your BumpSetCut account.")
+                }
                 Section {
                     TextField("Email", text: $email)
                         .textContentType(.username)
@@ -147,7 +180,7 @@ struct SignInView: View {
                     SecureField("Password", text: $password)
                         .textContentType(.password)
                 } footer: {
-                    Text("Your BumpSetCut account. Only accounts on the labelers list see anything.")
+                    Text("Or your BumpSetCut email and password. Only accounts on the labelers list see anything.")
                 }
                 Button {
                     busy = true
