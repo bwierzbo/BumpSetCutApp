@@ -779,13 +779,16 @@ struct FindBallView: View {
     @State private var placed: CGRect?
     /// `placed` is a guess from the ball's path, not yet moved or sized.
     @State private var guessed: Bool
+    /// `placed` has a size to keep when moved: yours, or sized here with − +.
+    /// Otherwise a tap sizes it like your boxes nearby (placedBox).
+    @State private var sized: Bool
     /// Showing a neighbouring frame instead (offset and picture).
     @State private var peek: (offset: Int, image: CGImage)?
 
     /// How many frames either side are drawn and can be looked at.
     static let around = 2
 
-    init(image: CGImage, rally: TrackedRally, index: Int, box: CGRect?, guess: CGRect? = nil, zoom: CGFloat = 2.5,
+    init(image: CGImage, rally: TrackedRally, index: Int, box: CGRect?, boxIsYours: Bool = false, guess: CGRect? = nil, zoom: CGFloat = 2.5,
          centre: CGPoint? = nil, neighbour: ((Int) async -> CGImage?)? = nil,
          onBall: @escaping (CGRect) -> Void, onHidden: @escaping () -> Void,
          onZoom: @escaping (CGFloat) -> Void = { _ in }, onCentre: @escaping (CGPoint) -> Void = { _ in }) {
@@ -803,6 +806,7 @@ struct FindBallView: View {
                         : centre ?? start.map { CGPoint(x: $0.midX, y: 1 - $0.midY) } ?? FrameCanvas.focus(rally, frame: index))
         _placed = State(initialValue: start)
         _guessed = State(initialValue: box == nil && guess != nil)
+        _sized = State(initialValue: box != nil && boxIsYours)
     }
 
     /// The ball's box on the frames either side.
@@ -835,10 +839,10 @@ struct FindBallView: View {
                 .onTapGesture { location in
                     guard peek == nil,
                           let p = FrameCanvas.framePoint(location, image: image, zoom: zoom, centre: centre, view: geo.size) else { return }
-                    // Moving a box keeps its size (as you sized it); a first one
-                    // takes the ball's size on the frames around.
+                    // Moving a box you sized keeps its size; otherwise it takes
+                    // the size of your boxes nearby (not a wrong guess's).
                     guessed = false
-                    if let box = placed {
+                    if let box = placed, sized {
                         placed = CGRect(x: p.x - box.width / 2, y: p.y - box.height / 2, width: box.width, height: box.height)
                     } else {
                         placed = AnnotationReview.placedBox(at: p, in: rally, frame: index)
@@ -934,6 +938,7 @@ struct FindBallView: View {
     private func size(by k: CGFloat) {
         guard let box = placed, peek == nil else { return }
         guessed = false
+        sized = true
         let w = max(box.width * k, 0.001), h = max(box.height * k, 0.001)
         placed = CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h)
     }
@@ -981,7 +986,13 @@ struct WholeFrameReviewView: View {
             Group {
                 if let image = walk.image, let rally = walk.rally, let item = walk.item {
                     FindBallView(image: image, rally: rally, index: item.index,
-                                 box: walk.point.flatMap { $0.state == .visible ? $0.box?.rect : nil },
+                                 // A box someone else placed (the model, a guess) where it is, but
+                                 // sized like your boxes nearby; yours as you made it.
+                                 box: walk.point.flatMap { p in
+                                     guard p.state == .visible, let b = p.box?.rect else { return nil }
+                                     return p.origin == .user ? b : AnnotationReview.placedBox(at: CGPoint(x: b.midX, y: b.midY), in: rally, frame: item.index)
+                                 },
+                                 boxIsYours: walk.point?.origin == .user,
                                  // No box yet: start from where the ball's path says it is.
                                  guess: kind == .noBall ? AnnotationReview.guessedBox(in: rally, frame: item.index) : nil,
                                  // Not sure: the whole frame as it is, to see where the ball fits

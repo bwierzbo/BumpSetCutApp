@@ -233,17 +233,20 @@ enum AnnotationReview {
         point.reviewed = false
     }
 
-    /// A box for a ball placed on the full frame: the size of the box you
-    /// placed or sized on one of the last 3 frames (carried on as you go),
-    /// else of the balls on the frames around it (up to 3 each way within
-    /// 15), else of the rally.
+    /// A box for a ball placed on the full frame, sized like the boxes you
+    /// placed or fixed nearest it (the closest two within 15 frames either
+    /// way, so each one you place carries on), else the balls on the frames
+    /// around it (up to 3 each way within 15), else the rally's.
     static func placedBox(at centre: CGPoint, in rally: TrackedRally, frame i: Int) -> CGRect {
-        let yours = stride(from: i - 1, through: max(0, i - 3), by: -1).lazy.compactMap { k -> TrackCandidate? in
-            let p = rally.points[k]
-            return p.state == .visible && p.origin == .user ? p.box : nil
-        }.first
-        if let yours {
-            return CGRect(x: centre.x - yours.w / 2, y: centre.y - yours.h / 2, width: yours.w, height: yours.h)
+        let yours = (1...15).lazy.flatMap { d in [i - d, i + d] }
+            .compactMap { k -> TrackCandidate? in
+                guard let p = rally.points[safe: k], p.state == .visible, p.origin == .user else { return nil }
+                return p.box
+            }
+            .prefix(2)
+        if !yours.isEmpty {
+            let w = yours.map(\.w).reduce(0, +) / Double(yours.count), h = yours.map(\.h).reduce(0, +) / Double(yours.count)
+            return CGRect(x: centre.x - w / 2, y: centre.y - h / 2, width: w, height: h)
         }
         let visible = { (k: Int) -> TrackCandidate? in
             let p = rally.points[k]
