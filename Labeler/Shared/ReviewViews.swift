@@ -17,11 +17,11 @@
 //     aren't shown: they count as checked. Wrong spot (the box is on
 //     something else) sets a frame aside for —
 //   · Over the top — where the model lost the ball with the ball high up
-//     either side: the frames before and after, and the top of the picture
-//     through the gap on a loop, and every frame of it in a strip: tap the
-//     ones where the ball shows. Hidden marks the rest; the tapped ones stay
-//     for Find the ball (Ball shows leaves the whole gap). On the Mac:
-//     H/↩/Space hidden, S ball shows, ⌫ back.
+//     either side: the frames before and after, then the top of the
+//     picture on each frame of the gap, one at a time. Where the ball
+//     shows, tap it to box it; Done hides the frames without a box. Skip
+//     leaves the gap for Find the ball. On the Mac: ← → frames, click the
+//     ball, [ ] size, X remove the box, ↩/Space done, S skip, ⌫ back.
 //   · Find the ball — the whole frame: tap the ball and approve, or hidden.
 //   · Not sure — frames set aside, on the whole frame with their box.
 //   Both whole-frame passes: Skip leaves a frame for later.
@@ -79,7 +79,7 @@ struct ReviewHomeView: View {
                 }
                 .buttonStyle(.plain).disabled(frames == 0)
                 NavigationLink { OffTopReviewView(store: store) } label: {
-                    card("Over the top", "\(gaps.count.formatted()) gaps (\(gaps.reduce(0) { $0 + $1.frames.count }.formatted()) frames) where the ball likely went above the picture · check each, hidden all at once",
+                    card("Over the top", "\(gaps.count.formatted()) gaps (\(gaps.reduce(0) { $0 + $1.frames.count }.formatted()) frames) where the ball likely went above the picture · box it where it shows, hide the rest at once",
                          "arrow.up.to.line", gaps.count)
                 }
                 .buttonStyle(.plain).disabled(gaps.isEmpty)
@@ -702,20 +702,22 @@ struct WholeFrameReviewView: View {
 }
 
 /// Over the top: one gap at a time — the frames either side with the ball,
-/// and the top of the picture through the gap on a loop and in a strip, where
-/// the frames the ball shows in are tapped. Hidden marks the others; the
-/// tapped ones (or all, with Ball shows) stay for Find the ball.
+/// then the top of the picture on each frame of the gap, stepped through one
+/// by one (a strip shows them all). Where the ball shows, tap it to box it
+/// there (− + size it); Done marks every frame without a box hidden.
 struct OffTopReviewView: View {
     let store: any ReviewStore
     @State private var gaps: [AnnotationReview.Gap]
     @State private var at = 0
-    /// Gaps called hidden, with their frames as they were, for going back.
+    /// Gaps done, with their frames as they were, for going back.
     @State private var done: [(gap: AnnotationReview.Gap, before: [Int: TrackPoint])] = []
-    /// This gap: the frames either side, and the top of the picture through it.
-    @State private var shown: (gap: AnnotationReview.Gap, before: CGImage, after: CGImage, band: [CGImage])?
+    /// This gap: the frames either side, the top of the picture on each of
+    /// its frames, and where that strip sits in the frame (Vision-normalised).
+    @State private var shown: (gap: AnnotationReview.Gap, before: CGImage, after: CGImage, band: [CGImage], area: CGRect)?
+    /// The frame of the gap showing (offset into it).
     @State private var frame = 0
-    /// Frames of this gap (offsets into it) tapped as the ball showing.
-    @State private var showing: Set<Int> = []
+    /// Balls boxed on this gap's frames, by offset (Vision-normalised).
+    @State private var boxes: [Int: CGRect] = [:]
     @State private var failure: String?
     @State private var readers: [String: ReviewFrames] = [:]
     @State private var claimed: Set<UUID> = []
@@ -727,11 +729,13 @@ struct OffTopReviewView: View {
     }
 
     private var gap: AnnotationReview.Gap? { gaps.indices.contains(at) ? gaps[at] : nil }
+    private var ready: Bool { gap != nil && shown?.gap == gap }
 
     var body: some View {
         VStack(spacing: 10) {
             HStack {
                 Button { back() } label: { Label("Back", systemImage: "arrow.uturn.backward") }.disabled(done.isEmpty)
+                Button { skip() } label: { Label("Skip", systemImage: "forward") }.disabled(gap == nil)
                 Spacer()
                 Text("\(max(0, gaps.count - at).formatted()) left").font(.headline.monospacedDigit())
             }
@@ -743,42 +747,40 @@ struct OffTopReviewView: View {
                             end("Before", shown.before, rally.points[safe: shown.gap.frames.lowerBound - 1])
                             end("After", shown.after, rally.points[safe: shown.gap.frames.upperBound + 1])
                         }
-                        Image(decorative: shown.band[min(frame, shown.band.count - 1)], scale: 1)
-                            .resizable().scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .overlay(alignment: .topTrailing) {
-                                if showing.contains(min(frame, shown.band.count - 1)) {
-                                    Image(systemName: "eye.fill").foregroundStyle(.white, .orange).padding(6)
-                                }
-                            }
-                            .frame(maxHeight: .infinity)
+                        band(shown.band[frame], area: shown.area, rally: rally)
+                        HStack(spacing: 12) {
+                            Button { step(-1) } label: { Image(systemName: "chevron.left").frame(width: 36, height: 28) }
+                                .buttonStyle(.bordered).disabled(frame == 0)
+                            Text("Frame \(frame + 1) of \(shown.band.count)").font(.callout.monospacedDigit())
+                            Button { step(1) } label: { Image(systemName: "chevron.right").frame(width: 36, height: 28) }
+                                .buttonStyle(.bordered).disabled(frame == shown.band.count - 1)
+                            Spacer()
+                            Button { size(by: 1 / 1.1) } label: { Image(systemName: "minus.magnifyingglass") }
+                                .buttonStyle(.bordered).disabled(boxes[frame] == nil).accessibilityLabel("Smaller box")
+                            Button { size(by: 1.1) } label: { Image(systemName: "plus.magnifyingglass") }
+                                .buttonStyle(.bordered).disabled(boxes[frame] == nil).accessibilityLabel("Bigger box")
+                            Button { boxes[frame] = nil } label: { Image(systemName: "xmark") }
+                                .buttonStyle(.bordered).disabled(boxes[frame] == nil).accessibilityLabel("No ball on this frame")
+                        }
+                        .padding(.horizontal, 8)
                         strip(shown.band)
-                        Text("Top of the picture through the gap · frame \(min(frame, shown.band.count - 1) + 1) of \(shown.band.count) · \(store.videoName(video: shown.gap.video)) \(clockText(rally.points[shown.gap.frames.lowerBound].time))")
-                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.center)
                     }
                 } else if let failure {
                     ContentUnavailableView("Can't show this gap", systemImage: "exclamationmark.triangle", description: Text(failure))
                 } else if gap == nil {
                     ContentUnavailableView("Every gap checked", systemImage: "checkmark.seal.fill",
-                                           description: Text("The ones where the ball shows are in Find the ball."))
+                                           description: Text("Skipped ones are still in Find the ball."))
                 } else {
                     ProgressView()
                 }
             }
             .frame(maxHeight: .infinity)
-            Text("Tap the frames the ball shows in; Hidden marks the rest. Never shows: just Hidden.")
+            Text("Step through; where the ball shows, tap it. Done: the frames without a box are hidden.")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            HStack(spacing: 12) {
-                Button { skip() } label: {
-                    Label("Ball shows", systemImage: "eye").frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.bordered)
-                Button { hide() } label: {
-                    Label("Hidden · \(max(0, (gap?.frames.count ?? 0) - showing.count)) frames", systemImage: "eye.slash").frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.borderedProminent).tint(.indigo)
+            Button { finish() } label: {
+                Label(doneTitle, systemImage: "checkmark").frame(maxWidth: .infinity, minHeight: 44)
             }
-            .disabled(gap == nil || shown?.gap != gap || showing.count == shown?.band.count)
+            .buttonStyle(.borderedProminent).tint(.indigo).disabled(!ready)
             .padding(.horizontal, 8)
             ProgressView(value: Double(min(at, gaps.count)), total: Double(max(gaps.count, 1))).tint(.green).padding(.horizontal, 12)
         }
@@ -787,52 +789,91 @@ struct OffTopReviewView: View {
         .inlineTitle()
         .reviewKeys { press in
             switch press.key {
-            case .return, .space: hide()
+            case .leftArrow: step(-1)
+            case .rightArrow: step(1)
+            case .return, .space: finish()
             case .delete, .deleteForward: back()
             default:
                 switch press.characters.lowercased() {
-                case "h": hide()
+                case "[": size(by: 1 / 1.05)
+                case "]": size(by: 1.05)
+                case "x": boxes[frame] = nil
                 case "s": skip()
                 default: return false
                 }
             }
             return true
         }
-        .task(id: gap) { showing = []; await load() }
-        // The gap's frames on a loop, about 8 a second.
-        .task(id: shown?.gap) {
+        .task(id: gap) {
             frame = 0
-            while !Task.isCancelled, let count = shown?.band.count, count > 0 {
-                try? await Task.sleep(for: .milliseconds(120))
-                frame = (frame + 1) % count
-            }
+            boxes = [:]
+            await load()
         }
     }
 
-    /// Every frame of the gap, in order: tap one the ball shows in.
-    private func strip(_ band: [CGImage]) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(band.indices, id: \.self) { k in
-                    let on = showing.contains(k)
-                    Image(decorative: band[k], scale: 1)
-                        .resizable().scaledToFit()
-                        .frame(height: 54)
-                        .overlay(alignment: .bottomLeading) {
-                            Text("\(k + 1)").font(.caption2.bold().monospacedDigit()).foregroundStyle(.white)
-                                .padding(.horizontal, 4).background(.black.opacity(0.5), in: Capsule()).padding(2)
-                        }
-                        .overlay(alignment: .topTrailing) {
-                            if on { Image(systemName: "eye.fill").font(.caption).foregroundStyle(.white, .orange).padding(2) }
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                        .overlay(RoundedRectangle(cornerRadius: 4)
-                            .stroke(on ? Color.orange : k == min(frame, band.count - 1) ? Color.secondary : .clear, lineWidth: 2))
-                        .contentShape(Rectangle())
-                        .onTapGesture { if on { showing.remove(k) } else { showing.insert(k) } }
+    private var doneTitle: String {
+        let n = gap?.frames.count ?? 0
+        return boxes.isEmpty ? "Done · all \(n) hidden" : "Done · \(boxes.count) ball\(boxes.count == 1 ? "" : "s"), \(n - boxes.count) hidden"
+    }
+
+    /// The top of the picture on this frame of the gap: tap the ball to box it.
+    private func band(_ image: CGImage, area: CGRect, rally: TrackedRally) -> some View {
+        GeometryReader { geo in
+            let scale = min(geo.size.width / CGFloat(image.width), geo.size.height / CGFloat(image.height))
+            let size = CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
+            let origin = CGPoint(x: (geo.size.width - size.width) / 2, y: (geo.size.height - size.height) / 2)
+            Canvas { ctx, _ in
+                ctx.draw(Image(decorative: image, scale: 1), in: CGRect(origin: origin, size: size))
+                if let box = boxes[frame] {
+                    // Vision (bottom-up, whole frame) → this strip, top-down.
+                    let r = CGRect(x: origin.x + (box.minX - area.minX) / area.width * size.width,
+                                   y: origin.y + (area.maxY - box.maxY) / area.height * size.height,
+                                   width: box.width / area.width * size.width, height: box.height / area.height * size.height)
+                    ctx.stroke(Path(r.insetBy(dx: -1.5, dy: -1.5)), with: .color(.green), lineWidth: 2)
                 }
             }
-            .padding(.horizontal, 8)
+            .contentShape(Rectangle())
+            .onTapGesture { p in
+                let x = (p.x - origin.x) / size.width, y = (p.y - origin.y) / size.height
+                guard (0...1).contains(x), (0...1).contains(y), let gap else { return }
+                let centre = CGPoint(x: area.minX + x * area.width, y: area.maxY - y * area.height)
+                if let box = boxes[frame] {
+                    boxes[frame] = CGRect(x: centre.x - box.width / 2, y: centre.y - box.height / 2, width: box.width, height: box.height)
+                } else {
+                    boxes[frame] = AnnotationReview.placedBox(at: centre, in: rally, frame: gap.frames.lowerBound + frame)
+                }
+            }
+        }
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Every frame of the gap: the one showing outlined, boxed ones marked; tap to go to one.
+    private func strip(_ band: [CGImage]) -> some View {
+        ScrollViewReader { scroller in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(band.indices, id: \.self) { k in
+                        Image(decorative: band[k], scale: 1)
+                            .resizable().scaledToFit()
+                            .frame(height: 48)
+                            .overlay(alignment: .bottomLeading) {
+                                Text("\(k + 1)").font(.caption2.bold().monospacedDigit()).foregroundStyle(.white)
+                                    .padding(.horizontal, 4).background(.black.opacity(0.5), in: Capsule()).padding(2)
+                            }
+                            .overlay(alignment: .topTrailing) {
+                                if boxes[k] != nil { Image(systemName: "circle.fill").font(.caption2).foregroundStyle(.green).padding(3) }
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(k == frame ? Color.accentColor : .clear, lineWidth: 2))
+                            .contentShape(Rectangle())
+                            .onTapGesture { frame = k }
+                            .id(k)
+                    }
+                }
+                .padding(.horizontal, 8)
+            }
+            .onChange(of: frame) { scroller.scrollTo(frame, anchor: .center) }
         }
     }
 
@@ -850,6 +891,18 @@ struct OffTopReviewView: View {
         AnnotationReview.Item(video: gap.video, track: gap.track, index: index)
     }
 
+    private func step(_ d: Int) {
+        guard let count = shown?.band.count else { return }
+        frame = min(max(frame + d, 0), count - 1)
+    }
+
+    /// The box on this frame `k` times as big, about its centre.
+    private func size(by k: CGFloat) {
+        guard let box = boxes[frame] else { return }
+        let w = max(box.width * k, 0.001), h = max(box.height * k, 0.001)
+        boxes[frame] = CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h)
+    }
+
     /// Read this gap's frames (passing over gaps of rallies someone else is on).
     private func load() async {
         failure = nil
@@ -860,8 +913,8 @@ struct OffTopReviewView: View {
             guard gap == self.gap else { return }
             if refused.contains(gap.track) { at += 1; continue }
             guard let rally = store.rally(of: item(gap, gap.frames.lowerBound)),
-                  let a = rally.points[safe: gap.frames.lowerBound - 1], let b = rally.points[safe: gap.frames.upperBound + 1],
-                  let boxA = a.box?.rect, let boxB = b.box?.rect else { at += 1; continue }
+                  let boxA = rally.points[safe: gap.frames.lowerBound - 1]?.box?.rect,
+                  let boxB = rally.points[safe: gap.frames.upperBound + 1]?.box?.rect else { at += 1; continue }
             do {
                 let file = try await store.videoFile(video: gap.video)
                 if readers[gap.video]?.video != file { readers[gap.video] = ReviewFrames(video: file) }
@@ -874,9 +927,10 @@ struct OffTopReviewView: View {
                 }
                 guard gap == self.gap else { return }
                 guard images.count == gap.frames.count + 2, let first = images.first, let last = images.last else { at += 1; continue }
-                let band = images.dropFirst().dropLast().compactMap { Self.band($0, boxA, boxB) }
+                let area = Self.area(boxA, boxB)
+                let band = images.dropFirst().dropLast().compactMap { Self.crop($0, to: area) }
                 guard band.count == gap.frames.count else { at += 1; continue }
-                shown = (gap, first, last, band)
+                shown = (gap, first, last, band, area)
                 return
             } catch {
                 failure = error.localizedDescription
@@ -886,23 +940,35 @@ struct OffTopReviewView: View {
         shown = nil
     }
 
-    /// The top of the picture around where the ball left and came back: the
-    /// full width between them and a bit more, down to just below the lower
-    /// of the two balls.
-    static func band(_ image: CGImage, _ a: CGRect, _ b: CGRect) -> CGImage? {
-        let w = CGFloat(image.width), h = CGFloat(image.height)
-        let span = abs(a.midX - b.midX)
-        let width = min(1, max(0.45, span + 0.3))
+    /// The top of the picture around where the ball left and came back
+    /// (Vision-normalised): the width between them and a bit more, from the
+    /// top down to just below the lower of the two balls.
+    static func area(_ a: CGRect, _ b: CGRect) -> CGRect {
+        let width = min(1, max(0.45, abs(a.midX - b.midX) + 0.3))
         let x = min(max((a.midX + b.midX) / 2 - width / 2, 0), 1 - width)
-        let bottom = min(1, 1 - min(a.midY, b.midY) + 0.12)   // top-down
-        return image.cropping(to: CGRect(x: x * w, y: 0, width: width * w, height: max(bottom, 0.25) * h).integral)
+        let height = min(1, max(0.25, 1 - min(a.midY, b.midY) + 0.12))
+        return CGRect(x: x, y: 1 - height, width: width, height: height)
     }
 
-    private func hide() {
-        guard let gap, shown?.gap == gap else { return }
+    static func crop(_ image: CGImage, to area: CGRect) -> CGImage? {
+        let w = CGFloat(image.width), h = CGFloat(image.height)
+        return image.cropping(to: CGRect(x: area.minX * w, y: (1 - area.maxY) * h, width: area.width * w, height: area.height * h).integral)
+    }
+
+    /// The boxed frames get their ball (checked, as a box approved in
+    /// review); the rest are hidden.
+    private func finish() {
+        guard let gap, ready, let size = shown.map({ CGSize(width: $0.before.width, height: $0.before.height) }) else { return }
         var before: [Int: TrackPoint] = [:]
-        for (k, i) in gap.frames.enumerated() where !showing.contains(k) {
-            if let old = store.review(item(gap, i), AnnotationReview.confirmHidden) { before[i] = old }
+        for (k, i) in gap.frames.enumerated() {
+            let old: TrackPoint?
+            if let box = boxes[k] {
+                let square = AnnotationReview.adjusted(box, offset: .zero, scale: 1, in: size)
+                old = store.review(item(gap, i)) { AnnotationReview.approve(&$0, box: square) }
+            } else {
+                old = store.review(item(gap, i), AnnotationReview.confirmHidden)
+            }
+            if let old { before[i] = old }
         }
         done.append((gap, before))
         at += 1
@@ -913,7 +979,7 @@ struct OffTopReviewView: View {
         at += 1
     }
 
-    /// Put the last gap called hidden back as it was, and show it again.
+    /// Put the last gap done back as it was, and show it again.
     private func back() {
         guard let last = done.popLast() else { return }
         for (i, old) in last.before { store.review(item(last.gap, i)) { $0 = old } }
