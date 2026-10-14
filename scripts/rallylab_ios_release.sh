@@ -1,15 +1,18 @@
 #!/bin/zsh
 # Build RallyLab for iPhone (the Labeler target) and upload it to TestFlight.
 #
-#   scripts/rallylab_ios_release.sh
+#   scripts/rallylab_ios_release.sh [--notify]
 #
 # Archives with a timestamp build number, signs and uploads with the App
 # Store Connect API key (Xcode creates the distribution certificate and
 # profile itself). App Store Connect app "BumpSetCut RallyLab"
 # (app.BumpSetCut.RallyLab, id 6820196175); its internal group "Me" gets
 # every build, so it lands in TestFlight once Apple has processed it —
-# no App Review for internal testers.
+# no App Review for internal testers. Testers aren't emailed about the
+# build unless you pass --notify (or later: testflight_notify.py notify).
 set -euo pipefail
+NOTIFY=0
+[[ ${1:-} == --notify ]] && NOTIFY=1
 
 ROOT=${0:A:h:h}
 KEY_ID=64N92V67FL
@@ -39,4 +42,8 @@ cat > $WORK/export.plist <<EOF
 EOF
 print "▸ Uploading to App Store Connect…"
 xcodebuild -exportArchive -archivePath $WORK/RallyLab.xcarchive -exportPath $WORK/export -exportOptionsPlist $WORK/export.plist "${AUTH[@]}" -quiet
+if (( ! NOTIFY )); then
+    ~/.venvs/asc/bin/python -W ignore $ROOT/scripts/testflight_notify.py quiet 6820196175 $BUILD \
+        || print "⚠️  Couldn't turn this build's tester notification off — they may get an email."
+fi
 print "✅ Build $BUILD uploaded — it appears in TestFlight once Apple has processed it (usually 5–20 minutes)."
