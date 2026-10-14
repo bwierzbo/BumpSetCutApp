@@ -14,8 +14,9 @@
 //     under it, pinch to size it, tap to approve and go on). Hidden: the
 //     ball can't be seen here — covered, or off screen (its place is worked
 //     out from the frames either side, so don't guess a box). Hidden frames
-//     aren't shown: they count as checked. Wrong spot (the box is on
-//     something else) sets a frame aside for —
+//     aren't shown: they count as checked. Not sure (the box is on
+//     something else, or you can't tell) sets a frame aside for Not sure.
+//   Then, for frames the model lost the ball on —
 //   · Over the top — where the model lost the ball with the ball high up
 //     either side: the frames before and after, then the top of the
 //     picture on each frame of the gap, one at a time. Where the ball
@@ -37,7 +38,7 @@
 //
 //  On the Mac: two fingers on the trackpad move the picture, pinch sizes the
 //  box (as on the phone); ↩/Space approve and go on, arrows move the box a
-//  pixel (⇧ five), [ ] size it, H hidden, X no ball, U not sure, ⌫ back. On the
+//  pixel (⇧ five), [ ] size it, H hidden, U not sure, ⌫ back. On the
 //  whole frame: click the ball, [ ] size the box, ↩/Space approve and go on, H hidden, = − zoom,
 //  arrows pan.
 //
@@ -98,7 +99,7 @@ struct ReviewHomeView: View {
                 }
                 .buttonStyle(.plain).disabled(gaps.isEmpty)
                 NavigationLink { WholeFrameReviewView(store: store, kind: .noBall) } label: {
-                    card("Find the ball", "\(noBall.formatted()) whose box was on the wrong spot · find the ball on the whole frame, or call it hidden", "scope", noBall)
+                    card("Find the ball", "\(noBall.formatted()) where the ball was lost · find it on the whole frame, or call it hidden", "scope", noBall)
                 }
                 .buttonStyle(.plain).disabled(noBall == 0)
                 NavigationLink { WholeFrameReviewView(store: store, kind: .unsure) } label: {
@@ -202,7 +203,7 @@ struct CropReviewView: View {
     }
 
     /// The frame's ball box: your box on a frame gone back to, or the one it
-    /// had if you called it hidden or no ball.
+    /// had if you called it hidden.
     private var ball: CGRect? {
         [walk.point, walk.originalPoint].lazy.compactMap { $0.flatMap { $0.state == .visible ? $0.box?.rect : nil } }.first
     }
@@ -293,25 +294,21 @@ struct CropReviewView: View {
 
     private var controls: some View {
         VStack(spacing: 8) {
-            Text("Drag to centre the ball · pinch to size · tap to approve · covered or off screen: Hidden · box on something else: Wrong spot")
+            Text("Drag to centre the ball · pinch to size · tap to approve · covered or off screen: Hidden · box on something else: Not sure")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Button { Task { reset(); await walk.back() } } label: {
                     Label("Back", systemImage: "arrow.uturn.backward").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).disabled(!walk.canGoBack)
-                Button { Task { reset(); await walk.decide(AnnotationReview.markUnsure) } } label: {
-                    Label("Not sure", systemImage: "questionmark").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered).tint(.orange).disabled(walk.item == nil)
                 Button { decide(AnnotationReview.confirmHidden) } label: {
                     Label("Hidden", systemImage: "eye.slash").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).tint(.indigo).disabled(walk.item == nil)
-                Button(role: .destructive) { decide(AnnotationReview.noBall) } label: {
-                    Label("Wrong spot", systemImage: "xmark").frame(maxWidth: .infinity)
+                Button { decide(AnnotationReview.markUnsure) } label: {
+                    Label("Not sure", systemImage: "questionmark").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered).tint(.red).disabled(walk.item == nil)
+                .buttonStyle(.bordered).tint(.orange).disabled(walk.item == nil)
             }
             .labelStyle(StackedLabel())
             .controlSize(.large)
@@ -333,9 +330,8 @@ struct CropReviewView: View {
             switch press.characters.lowercased() {
             case "[", "-": scale = max(0.3, scale / 1.05)
             case "]", "=", "+": scale = min(4, scale * 1.05)
-            case "x": decide(AnnotationReview.noBall)
             case "h": decide(AnnotationReview.confirmHidden)
-            case "?", "/", "u": Task { reset(); await walk.decide(AnnotationReview.markUnsure) }
+            case "?", "/", "u": decide(AnnotationReview.markUnsure)
             default: return false
             }
         }

@@ -13,9 +13,11 @@
 //  Where it lost the ball with the ball high up at either end, the ball
 //  most likely went over the top of the picture: each such gap is checked
 //  at once, and called hidden as a whole.
-//  Hidden frames aren't reviewed: they count as checked. "No ball" sets a frame aside for a later pass on the
-//  whole frame, to place the ball or call it hidden. "Not sure" sets a
-//  frame aside in its own pass for a later look.
+//  Hidden frames aren't reviewed: they count as checked. "Not sure" (the
+//  box is on something else, or you can't tell) sets a frame aside in its
+//  own pass, on the whole frame. Frames the model lost the ball on (and
+//  older "no ball" calls) get a pass on the whole frame, to place the ball
+//  or call it hidden.
 //
 //  Several people can review at once: a rally is claimed by whoever reviews
 //  it (others pass it over while the claim is fresh), and each decision is
@@ -33,7 +35,7 @@ enum AnnotationReview {
     enum Kind {
         /// A ball with a box: checked on a crop.
         case crop
-        /// Said "no ball" on its crop: the ball's found on the whole frame later.
+        /// Lost by the model (or said "no ball" on its crop, in older builds): the ball is found on the whole frame.
         case noBall
         /// Set aside as not sure.
         case unsure
@@ -165,16 +167,6 @@ enum AnnotationReview {
         point.origin = .user
         point.box = TrackCandidate(rect: box, confidence: 1)
         point.reviewed = true
-        point.unsure = false
-    }
-
-    /// The box isn't on the ball: for the whole-frame pass, to find it there
-    /// or call it hidden.
-    static func noBall(_ point: inout TrackPoint) {
-        point.state = .unknown
-        point.origin = .user
-        point.box = nil
-        point.reviewed = false
         point.unsure = false
     }
 
