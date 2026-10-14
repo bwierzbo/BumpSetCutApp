@@ -56,6 +56,7 @@ import argparse
 import csv
 import io
 import json
+import os
 import math
 import random
 import shutil
@@ -595,6 +596,9 @@ def main() -> None:
                    help="Self-training: learn from pre-tracked rallies' sure frames too (the model's own labels, "
                         f"weighed {PSEUDO_WEIGHT:g}); without it they're unlabeled")
     p.add_argument("--seed", type=int, default=None, help="Fix the randomness (to compare runs fairly, or see the noise)")
+    p.add_argument("--resume", action="store_true",
+                   help="If the run exists, go on from its last finished epoch (last.pt) — after the GPU driver "
+                        "dropped out mid-run, say. Without a run of that name it starts one.")
     args = p.parse_args()
     if args.seed is not None:
         random.seed(args.seed)
@@ -657,14 +661,15 @@ def main() -> None:
     model.to(device)
 
     run = HERE / "runs" / "heatmap" / args.name
-    if run.exists():
-        fail(f"{run} exists — pass a new --name (or delete it).")
-    run.mkdir(parents=True)
+    resume = args.resume and (run / "last.pt").exists()
+    if run.exists() and not resume:
+        fail(f"{run} exists — pass a new --name (or delete it), or --resume to go on with it.")
+    run.mkdir(parents=True, exist_ok=True)
     metrics = {"package": root.name, "size": list(size), "from_scratch": args.from_scratch, "color": args.color,
                "aug": args.aug, "occluded": args.occluded, "qfl": args.qfl, "mine": args.mine, "pseudo": args.pseudo, "seed": args.seed,
                "baseline": None, "best": None, "best_epoch": None}
 
-    if not args.from_scratch:
+    if not args.from_scratch and not resume:
         metrics["baseline"] = score(model, val_loader, val_w, device, size[0], dead_loader)
         show("The author's weights, untouched, on your val windows:", metrics["baseline"])
 
@@ -677,9 +682,29 @@ def main() -> None:
     log = [["epoch", "loss", "recall4", "precision4", "f1_4", "f1_4_low", "f1_4_high", "recall8", "f1_8",
             "resting_recall4", "occluded_recall4", "dead_fire_rate", "hard_windows", "seconds"]]
     hard = 0
-    for epoch in range(1, args.epochs + 1):
+    start = 1
+    if resume:
+        saved = torch.load(run / "last.pt", map_location=device)
+        model.load_state_dict(saved["state_dict"])
+        start = saved["epoch"] + 1
+        if "optimizer" in saved:
+            optimizer.load_state_dict(saved["optimizer"])
+            scheduler.load_state_dict(saved["scheduler"])
+            scaler.load_state_dict(saved["scaler"])
+        else:   # an older last.pt: the learning rate where it was; Adam's moments start again
+            for _ in range(start - 1):
+                scheduler.step()
+        with open(run / "log.csv", newline="") as f:
+            log = [log[0]] + [r for r in list(csv.reader(f))[1:] if int(r[0]) < start]
+        best_f1 = saved.get("best_f1", max((float(r[4]) for r in log[1:]), default=-1.0))
+        metrics["baseline"] = saved.get("baseline")
+        if "best_m" in saved:
+            metrics["best"], metrics["best_epoch"] = saved["best_m"], saved["best_epoch"]
+        say(f"Resuming {args.name} at epoch {start}/{args.epochs} (best so far F1 {best_f1:.3f}).")
+    for epoch in range(start, args.epochs + 1):
         started, total, batches = time.time(), 0.0, 0
-        if args.mine and epoch >= MINE_FROM and (epoch - MINE_FROM) % MINE_EVERY == 0:
+        # Mining's hard windows aren't saved: a resumed run finds them again first.
+        if args.mine and epoch >= MINE_FROM and ((epoch - MINE_FROM) % MINE_EVERY == 0 or (resume and epoch == start)):
             # A window is hard when its target frame's ball in play is missed
             # or something else fires.
             weights = torch.ones(len(train_w), dtype=torch.double)
@@ -736,15 +761,23 @@ def main() -> None:
             + (f"  · occluded {a4['occluded_recall']:.1%}" if a4["occluded_hit"] + a4["occluded_missed"] else "")
             + (f"  · no rally: fires {m['dead']['windows_with_a_fire']:.1%}" if "dead" in m else "")
             + f"  {time.time() - started:.0f}s")
-        torch.save({"state_dict": model.state_dict(), "epoch": epoch}, run / "last.pt")
         if judged["f1"] > best_f1:
             best_f1 = judged["f1"]
             metrics["best"], metrics["best_epoch"] = m, epoch
             torch.save({"state_dict": model.state_dict(), "epoch": epoch}, run / "best.pt")
         with open(run / "log.csv", "w", newline="") as f:
             csv.writer(f).writerows(log)
+        # Everything to go on from here (--resume), written last so a crash mid-save leaves the previous one.
+        torch.save({"state_dict": model.state_dict(), "epoch": epoch, "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(), "scaler": scaler.state_dict(), "best_f1": best_f1,
+                    "best_m": metrics["best"], "best_epoch": metrics["best_epoch"], "baseline": metrics["baseline"]},
+                   run / "last.tmp")
+        os.replace(run / "last.tmp", run / "last.pt")
 
-    model.load_state_dict(torch.load(run / "best.pt", map_location=device)["state_dict"])
+    best = torch.load(run / "best.pt", map_location=device)
+    model.load_state_dict(best["state_dict"])
+    if metrics["best"] is None:   # resumed from an older last.pt, and nothing beat the best before it
+        metrics["best"], metrics["best_epoch"] = score(model, val_loader, val_w, device, size[0], dead_loader), best["epoch"]
     show(f"Best (epoch {metrics['best_epoch']}):", metrics["best"])
     model.cpu().eval()
     # The classic exporter, as the author's models are exported; newer torch defaults to dynamo.
