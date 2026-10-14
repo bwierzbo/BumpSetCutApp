@@ -627,7 +627,7 @@ struct LabelersView: View {
 }
 
 /// RallyCoin, a joke: the leaderboard and a shop of things nobody will
-/// ever receive. 1 coin a frame labeled, +1 when it's checked right, −50
+/// ever receive. 1 coin a frame labeled, +1 when it's checked right, −1
 /// when it's checked wrong.
 struct RallyCoinView: View {
     @State private var board: [LabelingClient.CoinHolder] = []
@@ -657,7 +657,7 @@ struct RallyCoinView: View {
             } header: {
                 Text("Leaderboard")
             } footer: {
-                Text("1 coin a frame labeled · +1 when Ben checks it right · −50 when it goes to his Not sure for being wrong. No cash value. Not financial advice.")
+                Text("1 coin a frame labeled · +1 when Ben checks it right · −1 when it goes to his Not sure for being wrong. No cash value. Not financial advice.")
             }
             Section("Shop · you have \(mine.formatted()) 🪙") {
                 if let failure { Text(failure).foregroundStyle(.red) }
