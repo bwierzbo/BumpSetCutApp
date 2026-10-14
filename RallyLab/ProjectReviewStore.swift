@@ -34,6 +34,11 @@ final class ProjectReviewStore: ReviewStore {
         sampler.sessions.first { $0.name == item.video }?.tracks?.first { $0.id == item.track }
     }
 
+    func reviewItem(track: UUID, index: Int) -> AnnotationReview.Item? {
+        sampler.sessions.first { $0.tracks?.contains { $0.id == track } == true }
+            .map { AnnotationReview.Item(video: $0.name, track: track, index: index) }
+    }
+
     @discardableResult
     func review(_ item: AnnotationReview.Item, _ change: (inout TrackPoint) -> Void) -> TrackPoint? {
         guard var tracks = sampler.sessions.first(where: { $0.name == item.video })?.tracks,

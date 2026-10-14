@@ -26,8 +26,13 @@
 //   · Not sure — frames set aside, on the whole frame with their box.
 //   Both whole-frame passes: Skip leaves a frame for later.
 //   · Sure frames — the frames the model is sure of, a page of crops at a
-//     time: tap any whose box isn't on the ball (they go to Not sure), then
-//     approve the page. On the Mac: click to pick out, ↩/Space approve, ⌫ back.
+//     time (3 × 3): tap any whose box isn't on the ball (they go to Not
+//     sure), then approve the page. On the Mac: click to pick out, ↩/Space
+//     approve, ⌫ back.
+//   · Labelers (leads only) — each other labeler's frames labeled and how
+//     many were checked right or wrong; their labels to check, a page at a
+//     time like Sure frames (hidden ones as the whole frame). Wrong ones go
+//     to your Not sure.
 //  Back shows the last decision again, to change it.
 //
 //  On the Mac: two fingers on the trackpad move the picture, pinch sizes the
@@ -46,6 +51,8 @@ struct ReviewHomeView: View {
     /// Rallies with frames to review that someone else is on right now.
     @State private var held: Set<UUID> = []
     @State private var takingOver = false
+    /// Other labelers' frames waiting to be checked (leads only; nil for everyone else).
+    @State private var toCheck: Int?
 
     var body: some View {
         let frames = store.reviewItems([.crop]).count
@@ -69,6 +76,13 @@ struct ReviewHomeView: View {
                 .padding()
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
                 if !held.isEmpty { heldCard }
+                if let toCheck {
+                    NavigationLink { LabelersView(store: store) } label: {
+                        card("Labelers", "\(toCheck.formatted()) frames others labeled to check · how each is doing, and their labels a page at a time",
+                             "person.3", toCheck)
+                    }
+                    .buttonStyle(.plain)
+                }
                 NavigationLink { RallyCheckView(store: store) } label: {
                     card("Rally or not", "\(checks.formatted()) rallies the model picked · is each a real rally? Their frames come to review once it is",
                          "play.rectangle.on.rectangle", checks)
@@ -104,6 +118,9 @@ struct ReviewHomeView: View {
         .task {
             while !Task.isCancelled {
                 await refreshHeld()
+                if let others = try? await LabelingClient.shared.labelerSummary() {
+                    toCheck = others.isEmpty ? nil : others.reduce(0) { $0 + $1.waiting }
+                }
                 try? await Task.sleep(for: .seconds(20))
             }
         }
@@ -350,21 +367,29 @@ struct CropReviewView: View {
 /// whole frame); approve approves the rest.
 struct SureReviewView: View {
     @State private var walk: ReviewWalk
+    /// Checking this labeler's frames instead of the model's sure frames.
+    private let labeler: LabelingClient.LabelerSummary?
     /// This page's crops, cut out once when it loads.
     @State private var patches: [AnnotationReview.Item: CropPatch] = [:]
     /// Picked out as wrong on this page.
     @State private var wrong: Set<AnnotationReview.Item> = []
     @State private var approved = 0
+    /// A labeler's pages checked, in order, for taking the checks back.
+    @State private var checked: [[AnnotationReview.Item]] = []
+    @State private var verdictFailure: String?
 
-    /// 4 × 4 on the Mac; 3 × 3 on the phone, big enough to judge a far ball.
-    #if os(macOS)
-    private static let columns = 4
-    #else
+    /// 3 × 3, big enough to judge a far ball, and the whole grid fits the window.
     private static let columns = 3
-    #endif
 
     init(store: any ReviewStore) {
+        labeler = nil
         _walk = State(initialValue: ReviewWalk(store: store, kinds: [.sure], pageSize: Self.columns * Self.columns))
+    }
+
+    /// A labeler's frames waiting to be checked.
+    init(store: any ReviewStore, labeler: LabelingClient.LabelerSummary, items: [AnnotationReview.Item]) {
+        self.labeler = labeler
+        _walk = State(initialValue: ReviewWalk(store: store, items: items, pageSize: Self.columns * Self.columns))
     }
 
     var body: some View {
@@ -378,24 +403,32 @@ struct SureReviewView: View {
                 }
             }
             .padding(.horizontal, 8)
-            Group {
-                if !walk.page.isEmpty {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: Self.columns), spacing: 6) {
-                        ForEach(walk.page, id: \.item) { cell($0.item) }
+            GeometryReader { geo in
+                let side = (min(geo.size.width, geo.size.height) - 12) / CGFloat(Self.columns)
+                Group {
+                    if !walk.page.isEmpty {
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: 6), count: Self.columns), spacing: 6) {
+                            ForEach(walk.page, id: \.item) { cell($0.item, image: $0.image).frame(width: side, height: side) }
+                        }
+                    } else if let failure = walk.failure {
+                        ContentUnavailableView("Can't show these frames", systemImage: "exclamationmark.triangle", description: Text(failure))
+                    } else if walk.item == nil {
+                        ContentUnavailableView(labeler.map { "All of \($0.name)'s frames checked" } ?? "All sure frames checked",
+                                               systemImage: "checkmark.seal.fill", description: Text("\(approved) approved this time."))
+                    } else {
+                        ProgressView()
                     }
-                } else if let failure = walk.failure {
-                    ContentUnavailableView("Can't show these frames", systemImage: "exclamationmark.triangle", description: Text(failure))
-                } else if walk.item == nil {
-                    ContentUnavailableView("All sure frames checked", systemImage: "checkmark.seal.fill",
-                                           description: Text("\(approved) approved this time."))
-                } else {
-                    ProgressView()
                 }
+                .frame(width: geo.size.width, height: geo.size.height)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Text("Tap any box that isn't on the ball · it goes to Not sure").font(.caption).foregroundStyle(.secondary)
+            if let verdictFailure {
+                Text(verdictFailure).font(.caption).foregroundStyle(.red)
+            }
+            Text(labeler == nil ? "Tap any box that isn't on the ball · it goes to Not sure"
+                                : "Tap any label that's wrong · it goes to your Not sure")
+                .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
-                Button { Task { await walk.back() } } label: {
+                Button { goBack() } label: {
                     Label("Back", systemImage: "arrow.uturn.backward").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).disabled(!walk.canGoBack)
@@ -409,12 +442,12 @@ struct SureReviewView: View {
             ReviewPassBar(walk: walk)
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .navigationTitle("Sure frames")
+        .navigationTitle(labeler?.name ?? "Sure frames")
         .inlineTitle()
         .reviewKeys { press in
             switch press.key {
             case .return, .space: approvePage()
-            case .delete, .deleteForward: Task { await walk.back() }
+            case .delete, .deleteForward: goBack()
             default: return false
             }
             return true
@@ -435,16 +468,22 @@ struct SureReviewView: View {
     }
 
     @ViewBuilder
-    private func cell(_ item: AnnotationReview.Item) -> some View {
+    private func cell(_ item: AnnotationReview.Item, image: CGImage) -> some View {
         let isWrong = wrong.contains(item)
         Group {
             if let patch = patches[item], let box = box(item) {
                 CropCanvas(patch: patch, box: box, offset: .zero, scale: 1, tint: isWrong ? .red : .green)
             } else {
-                Color.black
+                // Called hidden (no box): the whole frame, to judge that.
+                Color.black.overlay {
+                    Image(decorative: image, scale: 1).resizable().scaledToFit()
+                }
+                .overlay(alignment: .bottomLeading) {
+                    Text("Hidden").font(.caption.bold()).padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.orange, in: Capsule()).foregroundStyle(.white).padding(4)
+                }
             }
         }
-        .aspectRatio(1, contentMode: .fit)
         .overlay(alignment: .topTrailing) {
             if isWrong {
                 Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.white, .red).padding(4)
@@ -456,20 +495,130 @@ struct SureReviewView: View {
         .onTapGesture { if isWrong { wrong.remove(item) } else { wrong.insert(item) } }
     }
 
-    /// The page's boxes approved as they are (squared like a crop approved
-    /// untouched); the ones picked out set aside as not sure.
+    /// Sure frames: the page's boxes approved as they are (squared like a
+    /// crop approved untouched). A labeler's: their labels kept as they
+    /// are, checked right. The ones picked out set aside as not sure.
     private func approvePage() {
         guard !walk.page.isEmpty else { return }
         let sizes = Dictionary(uniqueKeysWithValues: walk.page.map { ($0.item, CGSize(width: $0.image.width, height: $0.image.height)) })
-        let wrong = wrong
-        approved += walk.page.count - wrong.count
+        let wrong = wrong, items = walk.page.map(\.item)
+        approved += items.count - wrong.count
+        if let labeler {
+            checked.append(items)
+            send(items.map { LabelingClient.LabelVerdict(track: $0.track, i: $0.index, labeler: labeler.labeler, ok: !wrong.contains($0)) })
+        }
         Task {
             await walk.decidePage { item, point in
                 if wrong.contains(item) {
                     AnnotationReview.markUnsure(&point)
-                } else if point.state == .visible, let box = point.box?.rect, let size = sizes[item] {
+                } else if labeler == nil, point.state == .visible, let box = point.box?.rect, let size = sizes[item] {
                     AnnotationReview.approve(&point, box: AnnotationReview.adjusted(box, offset: .zero, scale: 1, in: size))
                 }
+            }
+        }
+    }
+
+    /// The last page again; a labeler's checks of it taken back.
+    private func goBack() {
+        guard walk.canGoBack else { return }
+        if let labeler, let last = checked.popLast() {
+            send(last.map { LabelingClient.LabelVerdict(track: $0.track, i: $0.index, labeler: labeler.labeler, ok: nil) })
+        }
+        Task { await walk.back() }
+    }
+
+    private func send(_ verdicts: [LabelingClient.LabelVerdict]) {
+        Task {
+            do {
+                try await LabelingClient.shared.labelVerdicts(verdicts)
+                verdictFailure = nil
+            } catch {
+                verdictFailure = "Checks not saved: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+/// Other labelers (leads only): how many frames each has labeled, how many
+/// of those were checked right or wrong, and their frames waiting to be
+/// checked, a page at a time.
+struct LabelersView: View {
+    let store: any ReviewStore
+    @State private var labelers: [LabelingClient.LabelerSummary] = []
+    @State private var failure: String?
+
+    var body: some View {
+        List {
+            if let failure { Text(failure).foregroundStyle(.red) }
+            ForEach(labelers) { l in
+                NavigationLink { LabelerCheckView(store: store, labeler: l) } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(l.name).font(.headline)
+                            Spacer()
+                            if l.waiting > 0 {
+                                Text("\(l.waiting.formatted()) to check").font(.subheadline.monospacedDigit()).foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        Text(detail(l)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .disabled(l.waiting == 0)
+            }
+        }
+        .navigationTitle("Labelers")
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func detail(_ l: LabelingClient.LabelerSummary) -> String {
+        var parts = ["\(l.labeled.formatted()) labeled"]
+        let checked = l.approved + l.wrong
+        if checked > 0 {
+            parts.append("\(l.approved.formatted()) right · \(l.wrong.formatted()) wrong (\(Int((Double(l.approved) / Double(checked) * 100).rounded()))%)")
+        }
+        if let last = l.lastAt { parts.append("last \(last.formatted(.relative(presentation: .named)))") }
+        return parts.joined(separator: " · ")
+    }
+
+    private func load() async {
+        do {
+            labelers = try await LabelingClient.shared.labelerSummary()
+            failure = nil
+        } catch {
+            failure = error.localizedDescription
+        }
+    }
+}
+
+/// A labeler's frames waiting to be checked, loaded, then the grid.
+private struct LabelerCheckView: View {
+    let store: any ReviewStore
+    let labeler: LabelingClient.LabelerSummary
+    @State private var items: [AnnotationReview.Item]?
+    @State private var failure: String?
+
+    var body: some View {
+        Group {
+            if let items {
+                SureReviewView(store: store, labeler: labeler, items: items)
+            } else if let failure {
+                ContentUnavailableView("Can't load \(labeler.name)'s frames", systemImage: "exclamationmark.triangle", description: Text(failure))
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            do {
+                // Only frames still labeled here (a later change may have undone one).
+                items = try await LabelingClient.shared.labelerFrames(labeler.labeler).compactMap { f in
+                    store.reviewItem(track: f.track, index: f.index).flatMap { item in
+                        store.rally(of: item)?.points[safe: item.index]?.reviewed == true ? item : nil
+                    }
+                }
+            } catch {
+                failure = error.localizedDescription
             }
         }
     }

@@ -339,6 +339,8 @@ protocol ReviewStore: AnyObject {
     func reviewItems(_ kinds: Set<AnnotationReview.Kind>) -> [AnnotationReview.Item]
     /// The rally an item is a frame of, as it is now.
     func rally(of item: AnnotationReview.Item) -> TrackedRally?
+    /// A rally's frame as an item (nil when the rally isn't here).
+    func reviewItem(track: UUID, index: Int) -> AnnotationReview.Item?
     /// Change the frame and save its rally; the frame as it was, for going back.
     @discardableResult
     func review(_ item: AnnotationReview.Item, _ change: (inout TrackPoint) -> Void) -> TrackPoint?
@@ -394,10 +396,14 @@ final class ReviewWalk {
     private var original: [AnnotationReview.Item: TrackPoint] = [:]
     @ObservationIgnored private var frames: [String: ReviewFrames] = [:]
 
-    init(store: any ReviewStore, kinds: Set<AnnotationReview.Kind>, pageSize: Int? = nil) {
+    convenience init(store: any ReviewStore, kinds: Set<AnnotationReview.Kind>, pageSize: Int? = nil) {
+        self.init(store: store, items: store.reviewItems(kinds), pageSize: pageSize)
+    }
+
+    init(store: any ReviewStore, items: [AnnotationReview.Item], pageSize: Int? = nil) {
         self.store = store
         self.pageSize = pageSize
-        items = store.reviewItems(kinds)
+        self.items = items
     }
 
     var item: AnnotationReview.Item? { items.indices.contains(at) ? items[at] : nil }

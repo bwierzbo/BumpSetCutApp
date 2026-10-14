@@ -420,6 +420,45 @@ actor LabelingClient {
         _ = try await send(request)
     }
 
+    // MARK: - Checking other labelers (migration 039; leads only)
+
+    /// Another labeler's frames so far: labeled, checked right or wrong, waiting to be checked.
+    struct LabelerSummary: Decodable, Hashable, Identifiable {
+        let labeler: UUID
+        let name: String
+        let labeled: Int, approved: Int, wrong: Int, waiting: Int
+        let lastAt: Date?
+        var id: UUID { labeler }
+    }
+
+    /// Everyone else's frames; empty for someone who isn't a lead.
+    func labelerSummary() async throws -> [LabelerSummary] {
+        try await rpc("labeler_summary", [:])
+    }
+
+    /// A labeler's frames waiting to be checked, rally by rally in frame order.
+    func labelerFrames(_ labeler: UUID) async throws -> [(track: UUID, index: Int)] {
+        struct Row: Decodable { let track: UUID; let i: Int }
+        let rows: [Row] = try await rpc("labeler_frames", ["p_labeler": labeler.uuidString.lowercased()])
+        return rows.map { ($0.track, $0.i) }
+    }
+
+    /// A lead's check of a labeler's frame: right, wrong, or nil to take it back.
+    struct LabelVerdict: Encodable {
+        let track: UUID
+        let i: Int
+        let labeler: UUID
+        let ok: Bool?
+    }
+
+    func labelVerdicts(_ verdicts: [LabelVerdict]) async throws {
+        struct Params: Encodable { let p_verdicts: [LabelVerdict] }
+        var request = try await rest("rpc/label_verdicts", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_verdicts: verdicts))
+        _ = try await send(request)
+    }
+
     private func rpc<T: Decodable>(_ name: String, _ params: [String: String]) async throws -> T {
         var request = try await rest("rpc/\(name)", query: "")
         request.httpMethod = "POST"

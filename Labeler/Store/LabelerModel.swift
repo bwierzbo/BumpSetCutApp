@@ -261,6 +261,10 @@ final class LabelerModel: ReviewStore {
         video(of: item).flatMap { v in tracks(for: v).first { $0.id == item.track } }?.rally
     }
 
+    func reviewItem(track: UUID, index: Int) -> AnnotationReview.Item? {
+        snapshot.tracks.first { $0.id == track }.map { AnnotationReview.Item(video: $0.videoId.uuidString, track: track, index: index) }
+    }
+
     /// A review decision: changed here at once, and sent as just that frame
     /// (another reviewer's frames of the rally are left alone).
     @discardableResult
