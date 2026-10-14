@@ -97,6 +97,7 @@ struct FrameCanvas: View {
     let zoom: CGFloat
     let centre: CGPoint
     let box: CGRect?
+    var boxColor: Color = .blue
     /// The ball on the frames either side (frame offset, box), drawn faintly
     /// with their offsets, so the path shows where this frame's ball must be.
     var neighbours: [(offset: Int, box: CGRect)] = []
@@ -119,7 +120,7 @@ struct FrameCanvas: View {
                 if let box {
                     let r = CGRect(x: origin.x + box.minX * shown.width, y: origin.y + (1 - box.maxY) * shown.height,
                                    width: box.width * shown.width, height: box.height * shown.height)
-                    ctx.stroke(Path(r.insetBy(dx: -1.5, dy: -1.5)), with: .color(.blue), lineWidth: 2)
+                    ctx.stroke(Path(r.insetBy(dx: -1.5, dy: -1.5)), with: .color(boxColor), lineWidth: 2)
                 }
             }
             .background(Color.black)

@@ -209,6 +209,34 @@ enum AnnotationReview {
         return CGRect(x: centre.x - w / 2, y: centre.y - h / 2, width: w, height: h)
     }
 
+    /// Where the ball most likely is on frame `i`, for Find the ball to start
+    /// from: the curve through the balls around it — up to 3 each side within
+    /// 15 frames, or with balls on one side only, the nearest 4 within 6
+    /// (yours count, so each frame you place carries the next one) — moved
+    /// onto a detector candidate within two balls of it, where there are
+    /// candidates (the Mac). Nil with fewer than two balls to go on, or
+    /// outside the picture.
+    static func guessedBox(in rally: TrackedRally, frame i: Int) -> CGRect? {
+        let p = rally.points
+        func ball(_ k: Int) -> (k: Int, t: Double, box: CGRect)? {
+            p[k].state == .visible ? p[k].box.map { (k, p[k].time, $0.rect) } : nil
+        }
+        let before = stride(from: i - 1, through: max(0, i - 15), by: -1).compactMap(ball).prefix(3)
+        let after = (min(i + 1, p.count)..<min(p.count, i + 16)).compactMap(ball).prefix(3)
+        let balls = !before.isEmpty && !after.isEmpty ? Array(before + after)
+            : Array((before + after).filter { abs($0.k - i) <= 6 }.prefix(4))
+        guard balls.count >= 2, let t = p[safe: i]?.time else { return nil }
+        let fx = TrackSolver.fit(balls.map { ($0.t, Double($0.box.midX)) })
+        let fy = TrackSolver.fit(balls.map { ($0.t, Double($0.box.midY)) })
+        var centre = CGPoint(x: fx(t), y: fy(t))
+        guard (0...1).contains(centre.x), (0...1).contains(centre.y) else { return nil }
+        let width = balls.map(\.box.width).reduce(0, +) / CGFloat(balls.count)
+        let near = (rally.candidates[safe: i] ?? []).map { CGPoint(x: $0.rect.midX, y: $0.rect.midY) }
+            .min { hypot($0.x - centre.x, ($0.y - centre.y) * 9 / 16) < hypot($1.x - centre.x, ($1.y - centre.y) * 9 / 16) }
+        if let near, hypot(near.x - centre.x, (near.y - centre.y) * 9 / 16) <= max(width * 2, 0.01) { centre = near }
+        return placedBox(at: centre, in: rally, frame: i)
+    }
+
     // MARK: - The crop
 
     /// The crop shows this many box widths across.

@@ -494,13 +494,15 @@ struct FindBallView: View {
     @State private var panBase: CGPoint?
     @State private var pinchBase: CGFloat?
     @State private var placed: CGRect?
+    /// `placed` is a guess from the ball's path, not yet moved or sized.
+    @State private var guessed: Bool
     /// Showing a neighbouring frame instead (offset and picture).
     @State private var peek: (offset: Int, image: CGImage)?
 
     /// How many frames either side are drawn and can be looked at.
     static let around = 2
 
-    init(image: CGImage, rally: TrackedRally, index: Int, box: CGRect?, zoom: CGFloat = 2.5,
+    init(image: CGImage, rally: TrackedRally, index: Int, box: CGRect?, guess: CGRect? = nil, zoom: CGFloat = 2.5,
          neighbour: ((Int) async -> CGImage?)? = nil,
          onBall: @escaping (CGRect) -> Void, onHidden: @escaping () -> Void) {
         self.image = image
@@ -510,8 +512,11 @@ struct FindBallView: View {
         self.onBall = onBall
         self.onHidden = onHidden
         _zoom = State(initialValue: zoom)
-        _centre = State(initialValue: zoom > 1 ? FrameCanvas.focus(rally, frame: index) : CGPoint(x: 0.5, y: 0.5))
-        _placed = State(initialValue: box)
+        let start = box ?? guess
+        _centre = State(initialValue: zoom <= 1 ? CGPoint(x: 0.5, y: 0.5)
+                        : start.map { CGPoint(x: $0.midX, y: 1 - $0.midY) } ?? FrameCanvas.focus(rally, frame: index))
+        _placed = State(initialValue: start)
+        _guessed = State(initialValue: box == nil && guess != nil)
     }
 
     /// The ball's box on the frames either side.
@@ -537,7 +542,7 @@ struct FindBallView: View {
                                     .background(.ultraThinMaterial, in: Capsule()).padding(8)
                             }
                     } else {
-                        FrameCanvas(image: image, zoom: zoom, centre: centre, box: placed, neighbours: neighbours)
+                        FrameCanvas(image: image, zoom: zoom, centre: centre, box: placed, boxColor: guessed ? .yellow : .blue, neighbours: neighbours)
                     }
                 }
                 .contentShape(Rectangle())
@@ -546,6 +551,7 @@ struct FindBallView: View {
                           let p = FrameCanvas.framePoint(location, image: image, zoom: zoom, centre: centre, view: geo.size) else { return }
                     // Moving a box keeps its size (as you sized it); a first one
                     // takes the ball's size on the frames around.
+                    guessed = false
                     if let box = placed {
                         placed = CGRect(x: p.x - box.width / 2, y: p.y - box.height / 2, width: box.width, height: box.height)
                     } else {
@@ -572,6 +578,7 @@ struct FindBallView: View {
             if neighbour != nil { lookAround }
             Text(peek != nil ? "Back to this frame to place the ball"
                  : placed == nil ? "Tap the ball to place it, or call it hidden · orange: the ball on the frames either side"
+                 : guessed ? "Yellow: a guess from the ball's path · right: Ball here · wrong: tap the ball, or Hidden"
                  : "Tap again to move it · − + size the box")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             HStack(spacing: 10) {
@@ -638,6 +645,7 @@ struct FindBallView: View {
     /// few pixels; never under a thousandth of the frame).
     private func size(by k: CGFloat) {
         guard let box = placed, peek == nil else { return }
+        guessed = false
         let w = max(box.width * k, 0.001), h = max(box.height * k, 0.001)
         placed = CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h)
     }
@@ -677,6 +685,8 @@ struct WholeFrameReviewView: View {
                 if let image = walk.image, let rally = walk.rally, let item = walk.item {
                     FindBallView(image: image, rally: rally, index: item.index,
                                  box: walk.point.flatMap { $0.state == .visible ? $0.box?.rect : nil },
+                                 // No box yet: start from where the ball's path says it is.
+                                 guess: kind == .noBall ? AnnotationReview.guessedBox(in: rally, frame: item.index) : nil,
                                  // Not sure: the whole frame as it is, to see where the ball fits in.
                                  zoom: kind == .unsure ? 1 : 2.5,
                                  neighbour: { await walk.neighbourImage($0) },
