@@ -117,9 +117,11 @@ struct UploadView: View {
     }
 }
 
-/// A video from Photos, copied to a temporary file.
-private struct PickedMovie: Transferable {
+/// A video from Photos, copied to a temporary file. Also Process (PipelineRunView).
+struct PickedMovie: Transferable {
     let url: URL
+    /// Its name in Photos, without the extension.
+    let name: String
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(contentType: .movie) { SentTransferredFile($0.url) } importing: { received in
@@ -127,7 +129,7 @@ private struct PickedMovie: Transferable {
                 .appendingPathComponent(UUID().uuidString)
                 .appendingPathExtension(received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension)
             try FileManager.default.copyItem(at: received.file, to: copy)
-            return PickedMovie(url: copy)
+            return PickedMovie(url: copy, name: received.file.deletingPathExtension().lastPathComponent)
         }
     }
 }

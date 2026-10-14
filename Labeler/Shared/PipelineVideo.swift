@@ -1,6 +1,6 @@
 //
 //  PipelineVideo.swift
-//  RallyLab
+//  RallyLab (macOS and iPhone)
 //
 //  A stretch of a video with what the pipeline saw drawn over it, from the
 //  evidence a run recorded: every ball found (YOLO yellow, multi-frame cyan,
@@ -9,8 +9,9 @@
 //  readout, and whether the frame is in a clip the pipeline cut and in a
 //  rally you marked (when you have). Real time, at the source frame rate.
 //
-//  Pipeline tab → Export Debug Video…: a whole video through the app's
-//  own pipeline (RallyLabModel.exportDebugVideo).
+//  Mac: Pipeline tab → Export Debug Video… (RallyLabModel.exportDebugVideo).
+//  iPhone: Process tab → Export Debug Video (PipelineRunView). Both run a
+//  whole video through the app's own pipeline first.
 //
 //  Headless: RallyLab --project <name> --render-pipeline <clip> <start s> <length s>
 //            [--heat <multi-frame model> [--heat-only]] [--rotate]
@@ -19,6 +20,7 @@
 import AVFoundation
 import CoreGraphics
 import CoreImage
+import CoreText
 import Foundation
 
 enum PipelineVideo {
@@ -28,9 +30,14 @@ enum PipelineVideo {
     /// Seconds of trail behind the ball.
     static let trailSeconds = 1.0
 
-    static func render(_ v: RallyCutScore.Video, video: URL, from start: Double, length: Double,
-                       title: String, to output: URL) async -> Swift.Result<URL, HeatmapVideo.Failure> {
-        func fail(_ m: String) -> Swift.Result<URL, HeatmapVideo.Failure> { .failure(HeatmapVideo.Failure(message: m)) }
+    struct Failure: Error { let message: String }
+
+    /// `clips`: the rallies the pipeline cut; `truth`: the ones you marked
+    /// (no bar when empty). `progress` gets the fraction drawn, every 1%.
+    static func render(evidence: [VideoProcessor.FrameEvidence], clips: [Interval], truth: [Interval] = [],
+                       video: URL, from start: Double, length: Double, title: String, to output: URL,
+                       progress: @escaping (Double) -> Void = { _ in }) async -> Swift.Result<URL, Failure> {
+        func fail(_ m: String) -> Swift.Result<URL, Failure> { .failure(Failure(message: m)) }
         let asset = AVURLAsset(url: video)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let natural = try? await track.load(.naturalSize),
@@ -44,7 +51,7 @@ enum PipelineVideo {
         reader.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),
                                        duration: CMTime(seconds: length, preferredTimescale: 600))
         let orientation = VideoFrameGeometry.orientation(for: transform)
-        let turn: CGImagePropertyOrientation = (v.evidence.first?.upright ?? false) ? .up : orientation
+        let turn: CGImagePropertyOrientation = (evidence.first?.upright ?? false) ? .up : orientation
         let stored = CGSize(width: abs(natural.width), height: abs(natural.height))
         let sideways = [.left, .right, .leftMirrored, .rightMirrored].contains(orientation)
         let drawn = sideways ? CGSize(width: stored.height, height: stored.width) : stored
@@ -62,9 +69,14 @@ enum PipelineVideo {
         writer.startSession(atSourceTime: .zero)
         defer { reader.cancelReading() }
 
-        let evidence = v.evidence
+        var reported = 0.0
         var e = 0   // evidence[e] is the newest processed frame at or before this one
         while let sbuf = out.copyNextSampleBuffer() {
+            if Task.isCancelled {
+                writer.cancelWriting()
+                try? FileManager.default.removeItem(at: output)
+                return fail("Cancelled.")
+            }
             guard let pix = CMSampleBufferGetImageBuffer(sbuf) else { continue }
             let t = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sbuf))
             while e + 1 < evidence.count, evidence[e + 1].time <= t + 0.0005 { e += 1 }
@@ -81,16 +93,32 @@ enum PipelineVideo {
                                    bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) {
                 ctx.draw(frame, in: CGRect(origin: .zero, size: size))
                 draw(now, trail: evidence.isEmpty ? [] : evidence[max(0, e - 120)...min(e, evidence.count - 1)].filter { t - $0.time <= trailSeconds },
-                     at: t, video: v, title: title, turn: turn, in: ctx, size: size)
+                     at: t, clips: clips, truth: truth, title: title, turn: turn, in: ctx, size: size)
             }
             CVPixelBufferUnlockBaseAddress(buffer, [])
             while !input.isReadyForMoreMediaData { try? await Task.sleep(nanoseconds: 2_000_000) }
             adaptor.append(buffer, withPresentationTime: CMTime(seconds: t - start, preferredTimescale: 600))
+            let done = min(1, max(0, (t - start) / max(length, 0.001)))
+            if done - reported >= 0.01 { reported = done; progress(done) }
         }
         input.markAsFinished()
         await writer.finishWriting()
         return writer.status == .completed ? .success(output)
             : fail("Writing the video failed: \(writer.error?.localizedDescription ?? "unknown")")
+    }
+
+    /// White text on a dark plate; `point` is the text's bottom-left (CG, y up).
+    static func label(_ ctx: CGContext, _ text: String, at point: CGPoint, size: CGFloat = 18) {
+        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, size, nil)
+        let attributed = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(red: 1, green: 1, blue: 1, alpha: 1)])
+        let line = CTLineCreateWithAttributedString(attributed)
+        let bounds = CTLineGetBoundsWithOptions(line, [])
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.6))
+        ctx.fill(CGRect(x: point.x - 6, y: point.y - 6, width: bounds.width + 12, height: bounds.height + 12))
+        ctx.textPosition = CGPoint(x: point.x, y: point.y + 2)
+        CTLineDraw(line, ctx)
     }
 
     private static let ciContext = CIContext(options: [.cacheIntermediates: false])
@@ -101,7 +129,7 @@ enum PipelineVideo {
     }
 
     private static func draw(_ now: VideoProcessor.FrameEvidence?, trail: [VideoProcessor.FrameEvidence], at t: Double,
-                             video v: RallyCutScore.Video, title: String, turn: CGImagePropertyOrientation,
+                             clips: [Interval], truth: [Interval], title: String, turn: CGImagePropertyOrientation,
                              in ctx: CGContext, size: CGSize) {
         // Vision-normalised (origin bottom-left), turned upright → output
         // pixels; CG is y-up too.
@@ -139,12 +167,12 @@ enum PipelineVideo {
             ctx.setStrokeColor(color)
             ctx.setLineWidth(3)
             if d.fromHeatmap { ctx.strokeEllipse(in: r) } else { ctx.stroke(r) }
-            HeatmapVideo.label(ctx, String(format: "%.2f", d.confidence), at: CGPoint(x: r.maxX + 4, y: r.maxY - 6), size: 13)
+            label(ctx, String(format: "%.2f", d.confidence), at: CGPoint(x: r.maxX + 4, y: r.maxY - 6), size: 13)
         }
 
         // HUD, top-left down.
-        let inClip = v.clips.contains { t >= $0.start && t <= $0.end }
-        let inRally = v.truth.contains { t >= $0.start && t <= $0.end }
+        let inClip = clips.contains { t >= $0.start && t <= $0.end }
+        let inRally = truth.contains { t >= $0.start && t <= $0.end }
         var lines = [title, String(format: "%d:%05.2f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60))]
         if let now {
             let yolo = now.detections.filter { !$0.fromHeatmap }.count
@@ -156,16 +184,16 @@ enum PipelineVideo {
             lines.append(gate)
         }
         for (k, line) in lines.enumerated() {
-            HeatmapVideo.label(ctx, line, at: CGPoint(x: 14, y: size.height - 32 - CGFloat(k) * 30), size: k == 0 ? 15 : 17)
+            label(ctx, line, at: CGPoint(x: 14, y: size.height - 32 - CGFloat(k) * 30), size: k == 0 ? 15 : 17)
         }
 
         // State bars along the bottom: the pipeline's clip, your marked rally.
         func bar(_ on: Bool, _ text: String, y: CGFloat, _ color: CGColor) {
             ctx.setFillColor(on ? color : CGColor(gray: 0.15, alpha: 0.75))
             ctx.fill(CGRect(x: 0, y: y, width: size.width, height: 26))
-            HeatmapVideo.label(ctx, text + (on ? "" : " — no"), at: CGPoint(x: 14, y: y + 4), size: 14)
+            label(ctx, text + (on ? "" : " — no"), at: CGPoint(x: 14, y: y + 4), size: 14)
         }
         bar(inClip, "Pipeline clip", y: 30, CGColor(red: 0.1, green: 0.65, blue: 0.25, alpha: 0.85))
-        if !v.truth.isEmpty { bar(inRally, "Your marked rally", y: 2, CGColor(red: 0.15, green: 0.4, blue: 0.9, alpha: 0.85)) }
+        if !truth.isEmpty { bar(inRally, "Your marked rally", y: 2, CGColor(red: 0.15, green: 0.4, blue: 0.9, alpha: 0.85)) }
     }
 }

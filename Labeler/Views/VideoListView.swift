@@ -2,8 +2,9 @@
 //  VideoListView.swift
 //  RallyLab (iPhone)
 //
-//  Every video by surface, unfinished first, to pick one yourself; and
-//  uploading a video recorded on this phone.
+//  Every video by surface, unfinished first, to pick one yourself;
+//  uploading a video recorded on this phone; and Process, which runs one
+//  through BumpSetCut's pipeline for a debug video (PipelineRunView).
 //
 
 import SwiftUI
@@ -11,6 +12,7 @@ import SwiftUI
 struct VideoListView: View {
     @Bindable var model: LabelerModel
     @State private var uploading = false
+    @State private var processing = false
 
     var body: some View {
         List {
@@ -40,6 +42,9 @@ struct VideoListView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button { uploading = true } label: { Label("Upload", systemImage: "square.and.arrow.up") }
             }
+            ToolbarItem(placement: .primaryAction) {
+                Button { processing = true } label: { Label("Process", systemImage: "wand.and.rays") }
+            }
             ToolbarItem(placement: .topBarLeading) {
                 Menu {
                     Button("Sign Out", role: .destructive) { Task { await model.signOut() } }
@@ -47,6 +52,7 @@ struct VideoListView: View {
             }
         }
         .sheet(isPresented: $uploading) { UploadView(model: model) }
+        .fullScreenCover(isPresented: $processing) { PipelineRunView() }
     }
 
     /// Unfinished first, then by name.

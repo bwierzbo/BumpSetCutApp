@@ -288,7 +288,8 @@ enum HeadlessProjects {
                     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     for (start, length) in stretches {
                         let name = "\(session.name)-\(Int(start))s-\(finder.replacingOccurrences(of: " ", with: "-")).mp4"
-                        switch await PipelineVideo.render(v, video: URL(fileURLWithPath: session.sourcePath), from: start, length: length,
+                        switch await PipelineVideo.render(evidence: v.evidence, clips: v.clips, truth: v.truth,
+                                                          video: URL(fileURLWithPath: session.sourcePath), from: start, length: length,
                                                           title: "\(session.name) · \(finder)", to: dir.appendingPathComponent(name)) {
                         case .success(let url): log("✅ \(url.path)")
                         case .failure(let f): log("❌ \(f.message)"); ok = false

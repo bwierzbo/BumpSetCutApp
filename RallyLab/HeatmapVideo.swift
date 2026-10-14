@@ -98,9 +98,9 @@ enum HeatmapVideo {
                 for p in trail.last ?? [] {
                     ctx.strokeEllipse(in: CGRect(x: right.minX + p.x * right.width - 14, y: p.y * right.height - 14, width: 28, height: 28))
                 }
-                label(ctx, "YOLO (single frame), app threshold", at: CGPoint(x: 10, y: CGFloat(halfHeight) - 28))
-                label(ctx, "Multi-frame model (\(heat.seq) frames)", at: CGPoint(x: CGFloat(halfWidth) + 10, y: CGFloat(halfHeight) - 28))
-                label(ctx, title, at: CGPoint(x: CGFloat(halfWidth) + 10, y: 10), size: 14)
+                PipelineVideo.label(ctx, "YOLO (single frame), app threshold", at: CGPoint(x: 10, y: CGFloat(halfHeight) - 28))
+                PipelineVideo.label(ctx, "Multi-frame model (\(heat.seq) frames)", at: CGPoint(x: CGFloat(halfWidth) + 10, y: CGFloat(halfHeight) - 28))
+                PipelineVideo.label(ctx, title, at: CGPoint(x: CGFloat(halfWidth) + 10, y: 10), size: 14)
             }
             CVPixelBufferUnlockBaseAddress(buffer, [])
             while !input.isReadyForMoreMediaData { try? await Task.sleep(nanoseconds: 2_000_000) }
@@ -139,19 +139,5 @@ enum HeatmapVideo {
         upright.rotate(by: .pi / 2)
         upright.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         return upright.makeImage()
-    }
-
-    /// White text on a dark plate; `point` is the text's bottom-left (CG, y up).
-    static func label(_ ctx: CGContext, _ text: String, at point: CGPoint, size: CGFloat = 18) {
-        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, size, nil)
-        let attributed = NSAttributedString(string: text, attributes: [
-            NSAttributedString.Key(kCTFontAttributeName as String): font,
-            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(red: 1, green: 1, blue: 1, alpha: 1)])
-        let line = CTLineCreateWithAttributedString(attributed)
-        let bounds = CTLineGetBoundsWithOptions(line, [])
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.6))
-        ctx.fill(CGRect(x: point.x - 6, y: point.y - 6, width: bounds.width + 12, height: bounds.height + 12))
-        ctx.textPosition = CGPoint(x: point.x, y: point.y + 2)
-        CTLineDraw(line, ctx)
     }
 }

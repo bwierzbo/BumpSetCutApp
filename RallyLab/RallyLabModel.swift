@@ -1044,13 +1044,11 @@ final class RallyLabModel {
         }
         activeProcessor = nil
         let name = url.deletingPathExtension().lastPathComponent
-        let run = RallyCutScore.Video(name: name, truth: truth,
-                                      evidence: processor.frameEvidence, duration: processor.lastVideoDurationSec,
-                                      clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) })
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         status = "Debug video: drawing \(segments.count) rall\(segments.count == 1 ? "y" : "ies") over the video…"
-        switch await PipelineVideo.render(run, video: url, from: 0, length: run.duration + 1,
+        switch await PipelineVideo.render(evidence: processor.frameEvidence, clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) },
+                                          truth: truth, video: url, from: 0, length: processor.lastVideoDurationSec + 1,
                                           title: "\(name) · BumpSetCut pipeline (\(BallFinder.current.title))",
                                           to: dir.appendingPathComponent("\(name)-debug.mp4")) {
         case .success(let out):
