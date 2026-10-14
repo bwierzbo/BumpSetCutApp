@@ -7,7 +7,9 @@
 //  go (AnnotationReview.stretches) — two courts' balls labeled in turn show
 //  as stretches in different places. Each stretch has its colour on the
 //  path and a crop of its middle frame. Tap the stretches on the wrong ball:
-//  their frames go to Not sure. Otherwise sign the rally off. A signed-off
+//  their boxes are cleared and they go to Find the ball, in order, where
+//  each starts from a guess along the right ball's path (the frames either
+//  side, then each one you place). Otherwise sign the rally off. A signed-off
 //  rally comes back if any of its frames is labeled again. On the Mac:
 //  1–9 pick a stretch, ↩/Space done, S skip, ⌫ back.
 //
@@ -46,7 +48,7 @@ struct FinalCheckView: View {
                         VStack(spacing: 10) {
                             path(rally, on: frame)
                             Text(stretches.count > 1
-                                 ? "The path breaks into \(stretches.count) stretches · tap any on the wrong ball"
+                                 ? "The path breaks into \(stretches.count) stretches · tap any on the wrong ball (they go to Find the ball)"
                                  : "One unbroken path · sign it off if it's all the same ball")
                                 .font(.caption).foregroundStyle(.secondary)
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 8)], spacing: 8) {
@@ -105,7 +107,7 @@ struct FinalCheckView: View {
             Button { next() } label: { Label("Skip", systemImage: "forward").frame(maxWidth: .infinity) }
                 .buttonStyle(.bordered).disabled(check == nil)
             Button { finish() } label: {
-                Label(wrong.isEmpty ? "Sign off" : "\(wrongFrames.count) frames to Not sure", systemImage: wrong.isEmpty ? "checkmark.seal" : "questionmark")
+                Label(wrong.isEmpty ? "Sign off" : "\(wrongFrames.count) frames to Find the ball", systemImage: wrong.isEmpty ? "checkmark.seal" : "scope")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent).tint(wrong.isEmpty ? .green : .orange).disabled(frame == nil)
@@ -222,12 +224,12 @@ struct FinalCheckView: View {
         }
     }
 
-    /// The picked-out stretches to Not sure; with none, sign the rally off.
+    /// The picked-out stretches' boxes cleared, to Find the ball; with none, sign the rally off.
     private func finish() {
         guard let check, frame != nil else { return }
         var before: [Int: TrackPoint] = [:]
         for i in wrongFrames {
-            if let was = store.review(item(check, i), AnnotationReview.markUnsure) { before[i] = was }
+            if let was = store.review(item(check, i), AnnotationReview.findAgain) { before[i] = was }
         }
         if before.isEmpty {
             signedOff += 1

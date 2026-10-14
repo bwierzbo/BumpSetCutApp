@@ -217,6 +217,16 @@ enum AnnotationReview {
         point.unsure = false
     }
 
+    /// The box is on another ball (another court's, a spare): cleared, for
+    /// Find the ball, where the guess comes from the right ball either side.
+    static func findAgain(_ point: inout TrackPoint) {
+        point.state = .unknown
+        point.origin = .user
+        point.box = nil
+        point.reviewed = false
+        point.unsure = false
+    }
+
     /// Not sure: set aside, as it is, for a later look.
     static func markUnsure(_ point: inout TrackPoint) {
         point.unsure = true

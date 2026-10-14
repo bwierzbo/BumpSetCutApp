@@ -119,7 +119,7 @@ struct ReviewHomeView: View {
                 }
                 .buttonStyle(.plain).disabled(gaps.isEmpty)
                 NavigationLink { WholeFrameReviewView(store: store, kind: .noBall) } label: {
-                    card("Find the ball", "\(noBall.formatted()) where the ball was lost · find it on the whole frame, or call it hidden", "scope", noBall)
+                    card("Find the ball", "\(noBall.formatted()) where the ball was lost or the label was on another ball · find it on the whole frame, or call it hidden", "scope", noBall)
                 }
                 .buttonStyle(.plain).disabled(noBall == 0)
                 NavigationLink { WholeFrameReviewView(store: store, kind: .unsure) } label: {
