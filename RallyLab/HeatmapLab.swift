@@ -353,7 +353,7 @@ enum HeatEvaluation {
         func frame(_ path: String) -> HeatmapBallDetector.Frame? {
             if let f = cache[path] { return f }
             guard let image = SamplerImageTools.loadImage(package.appendingPathComponent(path), maxPixelSize: 4096),
-                  let f = heat.grayscale(image) else { return nil }
+                  let f = heat.frame(image) else { return nil }
             cache[path] = f
             cacheOrder.append(path)
             if cacheOrder.count > 40 { cache[cacheOrder.removeFirst()] = nil }

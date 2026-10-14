@@ -7,7 +7,8 @@ Models tab calls it when you add a bring_back folder.
     python heatmap_to_coreml.py <bring_back folder or best.pt> <out.mlpackage>
 
 Input "clip": [1, 9, H, W] float, 9 consecutive grayscale frames scaled to
-0–1, oldest first (portrait frames turned a quarter turn clockwise first).
+0–1, oldest first (portrait frames turned a quarter turn clockwise first);
+for a --color run [1, 27, H, W], frame by frame R G B (metadata channels=3).
 Output "maps": [1, 18, H, W] — 9 heatmaps (sigmoid, 0–1) then 9 radius maps
 (fraction of frame width). FP16, as Apple's Neural Engine runs it.
 
@@ -47,15 +48,18 @@ def main() -> None:
 
     t.vballnet_source()
     from model.vballnet_v4c import VballNetV4c
-    model = VballNetV4c(height=height, width=width, in_dim=t.SEQ, out_dim=t.SEQ)
+    color = bool(metrics.get("color"))
+    channels = 3 if color else 1
+    model = (t.color_model(VballNetV4c, (width, height)) if color
+             else VballNetV4c(height=height, width=width, in_dim=t.SEQ, out_dim=t.SEQ))
     model.load_state_dict(torch.load(checkpoint, map_location="cpu")["state_dict"])
     model.eval()
 
-    example = torch.rand(1, t.SEQ, height, width)
+    example = torch.rand(1, t.SEQ * channels, height, width)
     traced = torch.jit.trace(model, example)
     mlmodel = ct.convert(
         traced,
-        inputs=[ct.TensorType(name="clip", shape=(1, t.SEQ, height, width), dtype=np.float32)],
+        inputs=[ct.TensorType(name="clip", shape=(1, t.SEQ * channels, height, width), dtype=np.float32)],
         outputs=[ct.TensorType(name="maps", dtype=np.float32)],
         convert_to="mlprogram",
         compute_precision=ct.precision.FLOAT16,
@@ -64,10 +68,11 @@ def main() -> None:
     best = metrics.get("best") or {}
     tracked = best.get("tracked@4") or best.get("all@4") or {}
     mlmodel.author = "RallyLab — VballNetV4c (MIT, Alexander Sigatchov), fine-tuned"
-    mlmodel.short_description = f"Multi-frame volleyball heatmap, {t.SEQ} grayscale frames at {width}x{height}"
+    mlmodel.short_description = f"Multi-frame volleyball heatmap, {t.SEQ} {'colour' if color else 'grayscale'} frames at {width}x{height}"
     mlmodel.user_defined_metadata.update({
         "kind": "heatmap",
         "seq": str(t.SEQ),
+        "channels": str(channels),
         "width": str(width),
         "height": str(height),
         "threshold": "0.5",

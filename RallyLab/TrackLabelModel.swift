@@ -316,7 +316,7 @@ final class TrackLabelModel {
                   let i = times.firstIndex(where: { abs($0 - result.requestedTime.seconds) < 0.0005 }) else { continue }
             found[i] = detector.detect(in: image, at: result.requestedTime)
                 .map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
-            grays[i] = heat?.grayscale(image)
+            grays[i] = heat?.frame(image)
             // The same frame, kept for review: no seeking in the video later.
             if let frames, !frames.has(times[i]) { frames.write(image, time: times[i]) }
             if done % 10 == 0 { await progress(Double(done) / Double(times.count)) }

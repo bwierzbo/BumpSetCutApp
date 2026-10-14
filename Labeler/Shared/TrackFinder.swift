@@ -96,7 +96,7 @@ enum TrackFinder {
         let span = max(0, fix - lookAgainSteps - 4)..<min(points.count, fix + lookAgainSteps + 5)
         var faint: [Int: [TrackCandidate]] = [:]
         if let heat {
-            let grays = span.map { k in image(k).flatMap { heat.grayscale($0) } }
+            let grays = span.map { k in image(k).flatMap { heat.frame($0) } }
             for (n, peaks) in heatPeaks(heat, grays: grays).enumerated() {
                 faint[span.lowerBound + n] = peaks.map { TrackCandidate(rect: $0.rect, confidence: Double($0.confidence)) }
             }

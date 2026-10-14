@@ -35,7 +35,7 @@ enum HeatmapVideo {
         var images: [CGImage] = []
         var grays: [HeatmapBallDetector.Frame] = []
         for await result in generator.images(for: times.map(TrackFrameStore.request)) {
-            guard let image = try? result.image, let gray = heat.grayscale(image) else { continue }
+            guard let image = try? result.image, let gray = heat.frame(image) else { continue }
             images.append(image)
             grays.append(gray)
         }

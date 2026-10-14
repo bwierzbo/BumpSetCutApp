@@ -3,12 +3,13 @@
 //  BumpSetCut
 //
 //  The multi-frame ball detector: a heatmap model (VballNetV4c, trained in
-//  RallyLab) that sees 9 consecutive grayscale frames and marks where the
+//  RallyLab) that sees 9 consecutive frames (grey, or colour for a model
+//  trained with --color) and marks where the
 //  ball is in each — by its motion as well as its look, so it finds blurred
 //  and far balls a single frame can't, and ignores balls sitting still.
 //  Complements YOLODetector, which sees one frame at a time.
 //
-//  Feed it frames in order with `grayscale(_:)`; ask for the peaks on one
+//  Feed it frames in order with `frame(_:)`; ask for the peaks on one
 //  frame of a 9-frame window. Portrait frames are turned a quarter turn
 //  clockwise to landscape, as in training; peaks come back Vision-normalised
 //  (origin bottom-left) in the frame as given.
@@ -25,7 +26,8 @@ final class HeatmapBallDetector {
 
     /// One frame, prepared once and reused by every window it's in.
     struct Frame {
-        /// Model-size grayscale, 0–1, row-major (already turned if portrait).
+        /// Model-size, 0–1, row-major (already turned if portrait): one
+        /// grey plane, or R, G and B planes for a colour model.
         let pixels: [Float]
         let portrait: Bool
     }
@@ -38,6 +40,8 @@ final class HeatmapBallDetector {
     }
 
     let seq: Int
+    /// Planes per frame: 1 grey, 3 colour (R G B).
+    let channels: Int
     let width: Int
     let height: Int
     var threshold: Float
@@ -60,20 +64,26 @@ final class HeatmapBallDetector {
             print("❌ \(url.lastPathComponent) has no [1, seq, H, W] \"clip\" input — not a heatmap model")
             return nil
         }
-        seq = input.shape[1].intValue
+        let meta = model.modelDescription.metadata[.creatorDefinedKey] as? [String: String]
+        // The input holds seq frames × channels planes (heatmap_to_coreml.py).
+        channels = meta?["channels"].flatMap(Int.init) ?? 1
+        seq = input.shape[1].intValue / channels
         height = input.shape[2].intValue
         width = input.shape[3].intValue
-        let meta = model.modelDescription.metadata[.creatorDefinedKey] as? [String: String]
         threshold = meta?["threshold"].flatMap(Float.init) ?? 0.5
     }
 
     /// The frame as the model sees it: turned to landscape if portrait,
-    /// stretched to the model size, grayscale 0–1.
-    func grayscale(_ image: CGImage) -> Frame? {
+    /// stretched to the model size, 0–1 (grey, or R G B planes).
+    func frame(_ image: CGImage) -> Frame? {
         let portrait = image.height > image.width
-        var bytes = [UInt8](repeating: 0, count: width * height)
-        guard let ctx = CGContext(data: &bytes, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
-                                  space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        let colour = channels == 3
+        var bytes = [UInt8](repeating: 0, count: width * height * (colour ? 4 : 1))
+        guard let ctx = colour
+                ? CGContext(data: &bytes, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+                : CGContext(data: &bytes, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
         else { return nil }
         ctx.interpolationQuality = .medium
         if portrait {
@@ -86,19 +96,26 @@ final class HeatmapBallDetector {
         } else {
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         }
-        return Frame(pixels: bytes.map { Float($0) / 255 }, portrait: portrait)
+        guard colour else { return Frame(pixels: bytes.map { Float($0) / 255 }, portrait: portrait) }
+        // RGBX → R, G, B planes.
+        let plane = width * height
+        var pixels = [Float](repeating: 0, count: 3 * plane)
+        for i in 0..<plane {
+            for c in 0..<3 { pixels[c * plane + i] = Float(bytes[i * 4 + c]) / 255 }
+        }
+        return Frame(pixels: pixels, portrait: portrait)
     }
 
     /// The same, straight from a decoded video frame (as stored, like the
     /// processing pipeline reads it). BGRA frames go through vImage on the
     /// frame's own memory — scale, turn portrait, grey (OpenCV's weights, as
-    /// in training) — a few times faster than drawing a CGImage; anything
-    /// else goes through VideoToolbox.
-    func grayscale(_ pixelBuffer: CVPixelBuffer) -> Frame? {
+    /// in training) or split into R G B — a few times faster than drawing a
+    /// CGImage; anything else goes through VideoToolbox.
+    func frame(_ pixelBuffer: CVPixelBuffer) -> Frame? {
         guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA else {
             var image: CGImage?
             VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &image)
-            return image.flatMap(grayscale)
+            return image.flatMap(frame)
         }
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
@@ -132,6 +149,7 @@ final class HeatmapBallDetector {
             }
             guard turned else { return nil }
         }
+        if channels == 3 { return Self.planes(bgra: &landscape, width: width, height: height, portrait: portrait) }
         // BGRA → grey with cv2.COLOR_BGR2GRAY's weights (0.114 B + 0.587 G
         // + 0.299 R), then to 0–1 floats.
         var grey = [UInt8](repeating: 0, count: width * height)
@@ -154,6 +172,40 @@ final class HeatmapBallDetector {
             }
         }
         guard converted else { return nil }
+        return Frame(pixels: pixels, portrait: portrait)
+    }
+
+    /// Model-size BGRA → R, G, B float planes, 0–1.
+    private static func planes(bgra: inout [UInt8], width: Int, height: Int, portrait: Bool) -> Frame? {
+        let plane = width * height
+        var b = [UInt8](repeating: 0, count: plane), g = b, r = b, a = b
+        let split: Bool = bgra.withUnsafeMutableBytes { src in
+            b.withUnsafeMutableBytes { bp in g.withUnsafeMutableBytes { gp in
+                r.withUnsafeMutableBytes { rp in a.withUnsafeMutableBytes { ap in
+                    func buffer(_ p: UnsafeMutableRawBufferPointer, _ rowBytes: Int) -> vImage_Buffer {
+                        vImage_Buffer(data: p.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: rowBytes)
+                    }
+                    var input = buffer(src, width * 4)
+                    var (ob, og, or, oa) = (buffer(bp, width), buffer(gp, width), buffer(rp, width), buffer(ap, width))
+                    return vImageConvert_ARGB8888toPlanar8(&input, &ob, &og, &or, &oa, vImage_Flags(kvImageNoFlags)) == kvImageNoError
+                } }
+            } }
+        }
+        guard split else { return nil }
+        var pixels = [Float](repeating: 0, count: 3 * plane)
+        for (c, source) in [r, g, b].enumerated() {   // R, G, B planes, as in training
+            var source = source
+            let converted: Bool = source.withUnsafeMutableBytes { planar in
+                pixels.withUnsafeMutableBytes { floats in
+                    var p = vImage_Buffer(data: planar.baseAddress, height: vImagePixelCount(height),
+                                          width: vImagePixelCount(width), rowBytes: width)
+                    var f = vImage_Buffer(data: floats.baseAddress! + c * plane * MemoryLayout<Float>.size, height: vImagePixelCount(height),
+                                          width: vImagePixelCount(width), rowBytes: width * MemoryLayout<Float>.size)
+                    return vImageConvert_Planar8toPlanarF(&p, &f, 1, 0, vImage_Flags(kvImageNoFlags)) == kvImageNoError
+                }
+            }
+            guard converted else { return nil }
+        }
         return Frame(pixels: pixels, portrait: portrait)
     }
 
@@ -180,14 +232,16 @@ final class HeatmapBallDetector {
     /// The model's output for one window: heatmaps then radius maps, [1, 2·seq, H, W].
     private func run(_ frames: [Frame]) -> MLMultiArray? {
         guard frames.count == seq,
-              let clip = try? MLMultiArray(shape: [1, NSNumber(value: seq), NSNumber(value: height), NSNumber(value: width)],
+              let clip = try? MLMultiArray(shape: [1, NSNumber(value: seq * channels), NSNumber(value: height), NSNumber(value: width)],
                                            dataType: .float32)
         else { return nil }
-        let plane = width * height
-        let input = clip.dataPointer.bindMemory(to: Float.self, capacity: seq * plane)
+        // Frame by frame, each frame's planes in turn (as in training).
+        let size = channels * width * height
+        let input = clip.dataPointer.bindMemory(to: Float.self, capacity: seq * size)
         for (k, frame) in frames.enumerated() {
+            guard frame.pixels.count == size else { return nil }
             frame.pixels.withUnsafeBufferPointer { src in
-                (input + k * plane).update(from: src.baseAddress!, count: plane)
+                (input + k * size).update(from: src.baseAddress!, count: size)
             }
         }
         // The prediction's buffers are autoreleased: drain them per window, or

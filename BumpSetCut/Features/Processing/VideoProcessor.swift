@@ -250,7 +250,7 @@ final class VideoProcessor: @unchecked Sendable {
     private func heatmapFrame(_ pix: CVPixelBuffer, at seconds: Double) -> HeatmapBallDetector.Frame? {
         guard let heat = heatDetector else { return nil }
         if let last = heatLastTime, seconds - last < 1.0 / 30 - 0.004 { return nil }
-        guard let frame = heat.grayscale(pix) else { return nil }
+        guard let frame = heat.frame(pix) else { return nil }
         heatLastTime = seconds
         return frame
     }

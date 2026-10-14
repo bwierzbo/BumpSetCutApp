@@ -64,10 +64,8 @@ struct ReviewHomeView: View {
     @State private var finals: Set<UUID>?
 
     var body: some View {
-        let frames = store.reviewItems([.crop]).count
-        let noBall = store.reviewItems([.noBall]).count
-        let unsure = store.reviewItems([.unsure]).count
-        let sure = store.reviewItems([.sure]).count
+        // Frames of rallies someone else is on are passed over when opened: not counted.
+        let frames = count([.crop]), noBall = count([.noBall]), unsure = count([.unsure]), sure = count([.sure])
         let gaps = store.offTopGaps()
         let checks = store.rallyChecks().count
         ScrollView {
@@ -172,6 +170,10 @@ struct ReviewHomeView: View {
         }
         .padding()
         .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func count(_ kinds: Set<AnnotationReview.Kind>) -> Int {
+        store.reviewItems(kinds).count { !held.contains($0.track) }
     }
 
     /// Only rallies that still have frames for this person to review.
