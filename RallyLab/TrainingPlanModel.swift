@@ -15,11 +15,12 @@ extension PlanVideo {
     @MainActor
     init(session s: VideoSession) {
         let tracks = s.tracks ?? []
-        let trains = tracks.filter { TrainingPlan.trains(done: $0.done, ready: $0.isReady, split: s.split) }
+        let ready = tracks.filter(\.isReady)
         self.init(name: s.name, surface: Coverage.environment(s.name), split: s.split,
                   available: FileManager.default.fileExists(atPath: s.sourcePath),
-                  rallies: trains.count, labeledFrames: trains.reduce(0) { $0 + $1.labeledFrames },
-                  checkedFrames: trains.reduce(0) { $0 + $1.checkedFrames },
+                  rallies: ready.count,
+                  labeledFrames: ready.reduce(0) { $0 + TrainingPlan.labels(labeled: $1.labeledFrames, checked: $1.checkedFrames, split: s.split) },
+                  checkedFrames: ready.reduce(0) { $0 + $1.checkedFrames },
                   openRallies: TrackLabelModel.suggestions(from: s, excluding: tracks).count,
                   ralliesMarked: s.ralliesMarked ?? false)
     }

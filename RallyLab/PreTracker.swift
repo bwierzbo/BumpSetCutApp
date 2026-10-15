@@ -8,8 +8,10 @@
 //  it — YOLO and the newest multi-frame model propose, TrackSolver picks
 //  the path — and saved as pre-tracked rallies. Their sure frames
 //  (MachineLabels) train as machine labels; the rest go to annotation
-//  review, on the phone or here. Val videos are left alone: val stays
-//  people's labels, so the score stays honest.
+//  review, on the phone or here. Val videos only with `val`: there the
+//  model's tracks are a head start for people, nothing more — every frame
+//  is reviewed (sure ones included) and only checked frames are labels
+//  (MultiFramePackage), so the score stays people's labels.
 //
 //  Run it again after training a better model with `redo`: the rallies
 //  already pre-tracked are tracked again, around the frames people have
@@ -41,8 +43,9 @@ enum PreTracker {
         var videos = 0, rallies = 0, redone = 0, dropped = 0, frames = 0, sure = 0, toReview = 0
     }
 
-    /// `only`: these videos (session names); empty, every train video.
-    static func run(sampler: SamplerModel, only: [String] = [], perVideo: Int = perVideo, redo: Bool,
+    /// `only`: these videos (session names); empty, every train video (`val`:
+    /// every val video instead).
+    static func run(sampler: SamplerModel, only: [String] = [], perVideo: Int = perVideo, redo: Bool, val: Bool = false,
                     log: (String) -> Void) async -> Report {
         var report = Report()
         guard let heat = TrackLabelModel.newestHeatModel(in: sampler.datasetRoot) else {
@@ -52,7 +55,7 @@ enum PreTracker {
         log("Multi-frame model: \(heat.deletingPathExtension().lastPathComponent)")
         let yolo = sampler.prelabelModel
         let sessions = sampler.sessions.filter {
-            $0.split != "val" && FileManager.default.fileExists(atPath: $0.sourcePath) && (only.isEmpty || only.contains($0.name))
+            ($0.split == "val") == val && FileManager.default.fileExists(atPath: $0.sourcePath) && (only.isEmpty || only.contains($0.name))
         }
         for (n, session) in sessions.enumerated() {
             let video = AVURLAsset(url: URL(fileURLWithPath: session.sourcePath))

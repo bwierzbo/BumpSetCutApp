@@ -33,9 +33,10 @@
 //             --long-side: frames this big (default 1024; 512 is enough for 512 training, a quarter the disk))
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
-//    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo]   (self-training: the newest multi-frame model tracks
+//    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo] [--val]   (self-training: the newest multi-frame model tracks
 //             rallies in train videos on its own; sure frames become machine labels, the rest go to review;
-//             --redo: track the pre-tracked ones again, e.g. after a better model)
+//             --redo: track the pre-tracked ones again, e.g. after a better model; --val: val videos instead, a head
+//             start for the test set — every frame goes to review and only checked frames score)
 //    RallyLab --project v3 --tune-pipeline [--replay-only] [--rounds 2]   (search the pipeline's settings for the cuts
 //             closest to the marked rallies of pipeline_tuning/validation.json's videos; reports, applies nothing)
 //    RallyLab --project v3 --serve-report [--verbose]    (the serve found in each marked rally of the validation
@@ -170,7 +171,8 @@ enum HeadlessProjects {
             if ok, args.contains("--pretrack") {
                 let perVideo = value(after: "--per-video", in: args).flatMap(Int.init) ?? PreTracker.perVideo
                 let only = Array(args.drop { $0 != "--pretrack" }.dropFirst().prefix { !$0.hasPrefix("--") })
-                let r = await PreTracker.run(sampler: projects.sampler, only: only, perVideo: perVideo, redo: args.contains("--redo"), log: log)
+                let r = await PreTracker.run(sampler: projects.sampler, only: only, perVideo: perVideo, redo: args.contains("--redo"),
+                                             val: args.contains("--val"), log: log)
                 log("✅ \(r.rallies) rallies pre-tracked" + (r.redone > 0 ? ", \(r.redone) tracked again" : "")
                     + ", \(r.dropped) dropped (ball found on under \(Int(PreTracker.minFound * 100))% of frames)")
                 log("   all pre-tracked rallies: \(r.frames) frames · \(r.sure) sure (machine labels) · \(r.toReview) to review")

@@ -60,10 +60,19 @@ enum AnnotationReview {
         let end: Double
     }
 
+    /// Video by video in the order the store lists them (val first: the
+    /// test set), each video's rallies in time order.
+    private static func order(of rallies: [(video: String, rally: TrackedRally)])
+        -> ((video: String, rally: TrackedRally), (video: String, rally: TrackedRally)) -> Bool {
+        var rank: [String: Int] = [:]
+        for r in rallies where rank[r.video] == nil { rank[r.video] = rank.count }
+        return { (rank[$0.video] ?? 0, $0.rally.start) < (rank[$1.video] ?? 0, $1.rally.start) }
+    }
+
     /// The pre-tracked rallies still to check, video by video in time order.
     static func rallyChecks(_ rallies: [(video: String, rally: TrackedRally)]) -> [RallyCheck] {
         rallies.filter { $0.rally.awaitsRallyCheck }
-            .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
+            .sorted(by: order(of: rallies))
             .map { RallyCheck(video: $0.video, track: $0.rally.id, start: $0.rally.start, end: $0.rally.end) }
     }
 
@@ -85,7 +94,7 @@ enum AnnotationReview {
     /// The gaps to check as over the top, video by video in time order.
     static func offTop(_ rallies: [(video: String, rally: TrackedRally)]) -> [Gap] {
         rallies.filter { $0.rally.isForReview }
-            .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
+            .sorted(by: order(of: rallies))
             .flatMap { v -> [Gap] in
                 let p = v.rally.points
                 var runs: [ClosedRange<Int>] = []
@@ -125,7 +134,7 @@ enum AnnotationReview {
     /// in `.sure`.
     static func items(_ rallies: [(video: String, rally: TrackedRally)], kinds: Set<Kind>) -> [Item] {
         rallies.filter { $0.rally.isForReview }
-            .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
+            .sorted(by: order(of: rallies))
             .flatMap { v in
                 let trusted = MachineLabels.trusted(v.rally)
                 let lost = kinds.contains(.noBall) ? MachineLabels.lost(v.rally) : []
@@ -169,7 +178,7 @@ enum AnnotationReview {
     /// Complete rallies, video by video in time order, for the final check.
     static func finished(_ rallies: [(video: String, rally: TrackedRally)]) -> [RallyCheck] {
         rallies.filter { $0.rally.isForReview && checked($0.rally).complete }
-            .sorted { ($0.video, $0.rally.start) < ($1.video, $1.rally.start) }
+            .sorted(by: order(of: rallies))
             .map { RallyCheck(video: $0.video, track: $0.rally.id, start: $0.rally.start, end: $0.rally.end) }
     }
 

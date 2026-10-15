@@ -23,8 +23,10 @@ final class ProjectReviewStore: ReviewStore {
         self.sync = sync
     }
 
+    /// Val videos first: their rallies are the test set.
     private var rallies: [(video: String, rally: TrackedRally)] {
-        sampler.sessions.flatMap { s in (s.tracks ?? []).map { (s.name, $0) } }
+        sampler.sessions.sorted { ($0.split == "val" ? 0 : 1, $0.name) < ($1.split == "val" ? 0 : 1, $1.name) }
+            .flatMap { s in (s.tracks ?? []).map { (s.name, $0) } }
     }
 
     var progress: AnnotationReview.Progress { AnnotationReview.progress(rallies.map(\.rally)) }

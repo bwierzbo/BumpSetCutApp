@@ -166,12 +166,15 @@ enum MultiFramePackage {
                 // Only frames checked in annotation review are labels — and a
                 // pre-tracked rally's sure ones, marked as the model's; the
                 // rest are still frames the model sees around them.
-                let sure = MachineLabels.trusted(rally)
-                let labeled = rally.points.indices.filter { rally.points[$0].isChecked || unreviewed || sure.contains($0) }
+                // In a val video only what a person checked: the score is
+                // people's labels, never the model's own.
+                let val = session.split == "val"
+                let sure = val ? [] : MachineLabels.trusted(rally)
+                let labeled = rally.points.indices.filter { rally.points[$0].isChecked || (!val && unreviewed) || sure.contains($0) }
                 let key = { (p: TrackPoint) in ClipFrames.key(CMTime(seconds: p.time, preferredTimescale: 600_000)) }
                 let byKey = Dictionary(labeled.map { (key(rally.points[$0]), rally.points[$0]) }, uniquingKeysWith: { a, _ in a })
                 let machine = Set(sure.map { key(rally.points[$0]) })
-                let occluded = Dictionary(Self.occluded(rally, unreviewed: unreviewed).map { (key($0.point), $0.box) },
+                let occluded = Dictionary(Self.occluded(rally, unreviewed: unreviewed && !val).map { (key($0.point), $0.box) },
                                           uniquingKeysWith: { a, _ in a })
                 if rally.isMachine { counts.machineRallies += 1; counts.machineFrames += sure.count }
                 for i in labeled where i % Self.trackStride == 0 && rally.points[i].state != .unknown {
@@ -305,9 +308,10 @@ enum MultiFramePackage {
     }
 
     /// Rallies tracked frame by frame and marked done, and pre-tracked ones
-    /// in train videos not said to be no rally (val is people's labels only).
+    /// not said to be no rally (in val, only their frames a person checked
+    /// are labels).
     static func readyTracks(_ session: VideoSession) -> [TrackedRally] {
-        (session.tracks ?? []).filter { TrainingPlan.trains(done: $0.done, ready: $0.isReady, split: session.split) }
+        (session.tracks ?? []).filter(\.isReady)
     }
 
     static func readme(_ s: Summary) -> String {

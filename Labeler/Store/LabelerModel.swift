@@ -245,8 +245,10 @@ final class LabelerModel: ReviewStore {
     // MARK: - Annotation review
 
     /// Every rally, keyed for review by its video's id.
+    /// Val videos first: their rallies are the test set.
     var reviewRallies: [(video: String, rally: TrackedRally)] {
-        videos.flatMap { v in tracks(for: v).map { (v.id.uuidString, $0.rally) } }
+        videos.sorted { ($0.split == "val" ? 0 : 1, $0.name) < ($1.split == "val" ? 0 : 1, $1.name) }
+            .flatMap { v in tracks(for: v).map { (v.id.uuidString, $0.rally) } }
     }
 
     func reviewItems(_ kinds: Set<AnnotationReview.Kind>) -> [AnnotationReview.Item] {
@@ -338,10 +340,11 @@ final class LabelerModel: ReviewStore {
     }
 
     func planVideo(_ v: LabelVideo) -> PlanVideo {
-        let trains = tracks(for: v).filter { TrainingPlan.trains(done: $0.done, ready: $0.isReady, split: v.split) }
+        let ready = tracks(for: v).filter(\.isReady).map(\.rally)
         return PlanVideo(name: v.name, surface: v.surface.rawValue, split: v.split, available: v.clipPath != nil,
-                         rallies: trains.count, labeledFrames: trains.reduce(0) { $0 + $1.labeledFrames },
-                         checkedFrames: trains.reduce(0) { $0 + $1.rally.checkedFrames },
+                         rallies: ready.count,
+                         labeledFrames: ready.reduce(0) { $0 + TrainingPlan.labels(labeled: $1.labeledFrames, checked: $1.checkedFrames, split: v.split) },
+                         checkedFrames: ready.reduce(0) { $0 + $1.checkedFrames },
                          openRallies: untrackedRallies(in: v).count, ralliesMarked: rallyTimes(for: v).complete)
     }
 

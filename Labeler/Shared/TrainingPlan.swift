@@ -8,8 +8,9 @@
 //  Rounds 1–2 fine-tuned VballNet's weights; from round 3 every model is
 //  trained from scratch, grey against colour and 512 against 768 and 1024.
 //  A round's frames are what training gets: every labeled frame of a
-//  rally you finished, or of one the model pre-tracked in a train video
-//  that nobody said isn't a rally (val is people's rallies only). What
+//  rally you finished, or of one the model pre-tracked that nobody said
+//  isn't a rally — in a val video, only the frames a person checked, so
+//  the score is people's labels only. What
 //  each round trained (package, desktop runs, the frames it had) is kept in
 //  the dataset's training_plan.json, so the timeline survives restarts and
 //  training carries on where it stopped.
@@ -102,11 +103,11 @@ enum TrainingPlan {
     /// Frames a tracked rally gives before any are tracked (about 6–7 s).
     static let defaultFramesPerRally = 200
 
-    /// The rally trains (MultiFramePackage.readyTracks): a person's finished
-    /// rally, or one pre-tracked by the model (`ready`) in a train video —
-    /// val is people's rallies only.
-    static func trains(done: Bool, ready: Bool, split: String) -> Bool {
-        done || (ready && split != "val")
+    /// Of a rally's labeled frames, the ones that are labels: in a val video
+    /// only those a person checked (the score is people's labels only, never
+    /// the model's own), in a train video all of them.
+    static func labels(labeled: Int, checked: Int, split: String) -> Int {
+        split == "val" ? checked : labeled
     }
 }
 
@@ -177,9 +178,9 @@ struct PlanVideo: Identifiable, Hashable {
     let split: String
     /// Its footage can be tracked here (on the Mac: the video is on disk).
     let available: Bool
-    /// Rallies that train (TrainingPlan.trains): finished, or pre-tracked in a train video.
+    /// Rallies in the package (TrackedRally.isReady): finished, or pre-tracked and not said not to be one.
     let rallies: Int
-    /// Labeled frames (ball or hidden) of those rallies: what training gets.
+    /// Their frames that are labels (TrainingPlan.labels): what training, or in val the score, gets.
     let labeledFrames: Int
     /// Of those, the frames checked in review (or marked hidden) by a person.
     let checkedFrames: Int

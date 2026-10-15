@@ -7,7 +7,7 @@
 //  every rally's time marked, sampled frames usable (their video is on the
 //  Mac) or blocked, and every video's state — so the next hour of labeling
 //  goes where it counts. Rallies and frames are what training gets
-//  (TrainingPlan.trains); targets follow the plan's next rounds: 60 train
+//  (TrackedRally.isReady, TrainingPlan.labels); targets follow the plan's next rounds: 60 train
 //  and 10 val rallies per surface, val from 4+ videos each.
 //
 
@@ -157,7 +157,7 @@ struct Coverage {
             let env = Self.environment(s.name)
             let onMac = FileManager.default.fileExists(atPath: s.sourcePath)
             let tracks = s.tracks ?? []
-            let done = tracks.filter { TrainingPlan.trains(done: $0.done, ready: $0.isReady, split: s.split) }
+            let done = tracks.filter(\.isReady)
             let sampled = s.frames.filter { $0.keep && $0.reviewed }.count
             let guesses = TrackLabelModel.suggestions(from: s, excluding: tracks).count
             let labels = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: s.sourcePath))
@@ -170,7 +170,7 @@ struct Coverage {
                 row.trainRallies += done.count
             }
             if s.ralliesMarked ?? false { row.markedVideos += 1 }
-            row.trackedFrames += done.reduce(0) { $0 + $1.labeledFrames }
+            row.trackedFrames += done.reduce(0) { $0 + TrainingPlan.labels(labeled: $1.labeledFrames, checked: $1.checkedFrames, split: s.split) }
             if onMac { row.sampledUsable += sampled } else { row.sampledBlocked += sampled }
             rows[env] = row
             videos.append(Video(name: s.name, environment: env, split: s.split, onMac: onMac, done: done.count,
