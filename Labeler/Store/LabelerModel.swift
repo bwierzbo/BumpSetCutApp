@@ -10,7 +10,6 @@
 
 import AuthenticationServices
 import Foundation
-import Network
 import Observation
 import SwiftUI
 
@@ -25,10 +24,6 @@ final class LabelerModel: ReviewStore {
     private(set) var outbox = Outbox()
     private(set) var isLoading = false
     private(set) var isOffline = false
-    /// On cellular (or another network iOS calls expensive): clips stream,
-    /// and aren't downloaded ahead of being asked for.
-    private(set) var onCellular = false
-    @ObservationIgnored private let paths = NWPathMonitor()
     /// Why the last load or send failed, while it keeps failing (the app
     /// carries on with what's on the phone, which can fall far behind).
     private(set) var syncProblem: String?
@@ -43,11 +38,6 @@ final class LabelerModel: ReviewStore {
     init() {
         snapshot = LocalStore.load(LabelSnapshot.self, "snapshot.json") ?? LabelSnapshot()
         outbox = LocalStore.load(Outbox.self, "outbox.json") ?? Outbox()
-        paths.pathUpdateHandler = { [weak self] path in
-            let expensive = path.isExpensive || path.isConstrained
-            Task { @MainActor in self?.onCellular = expensive }
-        }
-        paths.start(queue: DispatchQueue(label: "labeler.network"))
     }
 
     // MARK: - Session
@@ -318,8 +308,8 @@ final class LabelerModel: ReviewStore {
     func videoName(video key: String) -> String { UUID(uuidString: key).flatMap(video)?.name ?? "" }
 
     func fetchAhead(video key: String) async {
-        guard !onCellular, let v = UUID(uuidString: key).flatMap(video) else { return }
-        _ = try? await localClip(for: v)
+        guard let v = UUID(uuidString: key).flatMap(video) else { return }
+        await fetchAhead(v)
     }
 
     func playbackURL(video key: String) async throws -> URL {
@@ -558,9 +548,32 @@ final class LabelerModel: ReviewStore {
     /// so tasks open with their clip already here.
     func prefetch(next n: Int = 3) {
         let wanted = tasks.prefix(n).map(\.video).filter { !LocalStore.hasClip($0) && inFlight[$0.id] == nil }
-        guard !wanted.isEmpty, !isOffline, !onCellular else { return }
+        guard !wanted.isEmpty, !isOffline else { return }
         Task {
-            for v in wanted { _ = try? await localClip(for: v) }
+            for v in wanted { await fetchAhead(v) }
+        }
+    }
+
+    /// Clips to bring here ahead of need, downloaded one at a time in the
+    /// order asked (two at once over cellular starve whatever is streaming).
+    @ObservationIgnored private var aheadQueue: [LabelVideo] = []
+    @ObservationIgnored private var aheadWorker: Task<Void, Never>?
+
+    /// Queue `v`'s clip and wait for it (and the ones queued before it).
+    func fetchAhead(_ v: LabelVideo) async {
+        guard !LocalStore.hasClip(v), !isOffline else { return }
+        if !aheadQueue.contains(where: { $0.id == v.id }) { aheadQueue.append(v) }
+        if aheadWorker == nil {
+            aheadWorker = Task { [weak self] in
+                while let next = self?.aheadQueue.first {
+                    self?.aheadQueue.removeFirst()
+                    _ = try? await self?.localClip(for: next)
+                }
+                self?.aheadWorker = nil
+            }
+        }
+        while !LocalStore.hasClip(v), inFlight[v.id] != nil || aheadQueue.contains(where: { $0.id == v.id }) {
+            try? await Task.sleep(for: .milliseconds(500))
         }
     }
 

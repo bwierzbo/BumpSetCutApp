@@ -340,11 +340,15 @@ final class ReviewFrames: @unchecked Sendable {
     private let lock = NSLock()
     private var cache: [Int64: CGImage] = [:]
     private var order: [Int64] = []
-    private static let keep = 40
+    /// A page of 9 and two pages read ahead, with room to go back.
+    private static let keep = 60
 
     init(video: URL) {
         self.video = video
-        generator = AVAssetImageGenerator(asset: AVURLAsset(url: video))
+        // Exact times on a streamed video too: without this a remote asset
+        // gives the nearest keyframe's time, and the frame shown is a
+        // fraction of a second off the box's.
+        generator = AVAssetImageGenerator(asset: AVURLAsset(url: video, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]))
         generator.appliesPreferredTrackTransform = true
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
@@ -398,8 +402,8 @@ protocol ReviewStore: AnyObject {
     func review(_ item: AnnotationReview.Item, _ change: (inout TrackPoint) -> Void) -> TrackPoint?
     /// A video's file (keyed as items key it), downloading it if need be.
     func videoFile(video: String) async throws -> URL
-    /// Bring a video's file here ahead of needing it, when that's cheap (the
-    /// phone skips it on cellular: a 100+ MB download would starve the stream).
+    /// Bring a video's file here ahead of needing it (the phone: one clip at
+    /// a time, in the order asked — two at once starve whatever is streaming).
     func fetchAhead(video: String) async
     func videoName(video: String) -> String
     /// Where to play a video from: the file, or streamed if it isn't here.
@@ -506,7 +510,7 @@ final class ReviewWalk {
                 guard shown == self.item else { return }
                 if let picture {
                     image = picture
-                    prefetch(after: at)
+                    prefetch(after: at, count: 12)
                     return
                 }
                 // Can't be read: pass over it (it stays to review) and go on.
@@ -539,7 +543,7 @@ final class ReviewWalk {
         }
         pageEnd = next
         page = shown
-        prefetch(after: next - 1, count: size)
+        prefetch(after: next - 1, count: 2 * size)
     }
 
     /// Whether a rally's frames are this person's to review: claimed for
@@ -581,12 +585,20 @@ final class ReviewWalk {
         return try await store.videoFile(video: video)
     }
 
-    /// Read ahead the next few frames after `index` of the same video.
-    private func prefetch(after index: Int, count: Int = 6) {
-        guard let item = items[safe: index], let reader = frames[item.video] else { return }
-        let ahead = items[(index + 1)...].prefix(count).filter { $0.video == item.video }
-            .compactMap { i in store.rally(of: i)?.points[safe: i.index]?.time }
-        reader.prefetch(ahead)
+    /// Read ahead the `count` frames after `index` — the next video's too,
+    /// its reader made now, so the move to it doesn't wait.
+    private func prefetch(after index: Int, count: Int) {
+        let start = index + 1
+        guard start < items.count else { return }
+        let ahead = Array(items[start...].prefix(count))
+        let videos = ahead.map(\.video).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        Task { [weak self] in
+            for video in videos {
+                guard let self, let source = try? await source(video) else { return }
+                if frames[video]?.video != source { frames[video] = ReviewFrames(video: source) }
+                frames[video]?.prefetch(ahead.filter { $0.video == video }.compactMap { i in store.rally(of: i)?.points[safe: i.index]?.time })
+            }
+        }
     }
 
     /// Decide this frame and go on.

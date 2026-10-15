@@ -1646,8 +1646,10 @@ struct RallyCheckView: View {
             failure = "Couldn't load the video: \(error.localizedDescription)"
             return
         }
-        // Bring this video, then the next one, onto the device while you
-        // watch (not on cellular): their other rallies then play from the file.
+        // Once the rally is playing (a download at the same time starves the
+        // stream), bring this video, then the next one, onto the device:
+        // their other rallies then play from the file.
+        for _ in 0..<60 where player.waiting && !Task.isCancelled { try? await Task.sleep(for: .milliseconds(250)) }
         let next = checks[at...].first { $0.video != check.video }?.video
         for video in [check.video, next].compactMap({ $0 }) where !Task.isCancelled { await store.fetchAhead(video: video) }
     }
