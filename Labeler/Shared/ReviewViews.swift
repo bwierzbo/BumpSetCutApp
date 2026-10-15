@@ -130,7 +130,7 @@ struct ReviewHomeView: View {
                 }
                 .buttonStyle(.plain).disabled(unsure == 0)
                 NavigationLink { SureReviewView(store: store) } label: {
-                    card("Sure frames", "\(sure.formatted()) the model is sure of · tap any that are wrong, approve the rest a page at a time",
+                    card("Sure frames", "\(sure.formatted()) the model is sure of · tap the wrong ones (Fix or Not sure), hold to hide a stretch, approve the rest a page at a time",
                          "square.grid.3x3", sure)
                 }
                 .buttonStyle(.plain).disabled(sure == 0)
@@ -413,15 +413,23 @@ struct SureReviewView: View {
     private let labeler: LabelingClient.LabelerSummary?
     /// This page's crops, cut out once when it loads.
     @State private var patches: [AnnotationReview.Item: CropPatch] = [:]
-    /// Picked out as wrong on this page.
-    @State private var wrong: Set<AnnotationReview.Item> = []
+    /// What you tapped each frame to — Fix (to Review, one at a time) or
+    /// Not sure; checking a labeler, one tap: wrong. Untouched: approved.
+    @State private var calls: [AnnotationReview.Item: QuickSortView.Call] = [:]
     @State private var approved = 0
     /// A labeler's pages checked, in order, for taking the checks back.
     @State private var checked: [[AnnotationReview.Item]] = []
     @State private var verdictFailure: String?
 
-    /// 3 × 3, big enough to judge a far ball, and the whole grid fits the window.
+    /// Big enough to judge a far ball, and the whole grid fits the window:
+    /// 3 × 3 on the phone, 5 × 5 on the Mac.
+    #if os(macOS)
+    private static let columns = 5
+    #else
     private static let columns = 3
+    #endif
+
+    private var wrong: Set<AnnotationReview.Item> { Set(calls.keys) }
 
     init(store: any ReviewStore) {
         labeler = nil
@@ -466,7 +474,7 @@ struct SureReviewView: View {
             if let verdictFailure {
                 Text(verdictFailure).font(.caption).foregroundStyle(.red)
             }
-            Text(labeler == nil ? "Tap any box that isn't on the ball · it goes to Not sure"
+            Text(labeler == nil ? "Leave the ones on the ball · tap: Fix (to Review) → Not sure · hold: hide the stretch"
                                 : "Tap any label that's wrong · it goes to your Not sure")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
@@ -475,7 +483,7 @@ struct SureReviewView: View {
                 }
                 .buttonStyle(.bordered).disabled(!walk.canGoBack)
                 Button { approvePage() } label: {
-                    Label(wrong.isEmpty ? "Approve all" : "Approve \(walk.page.count - wrong.count) · \(wrong.count) wrong",
+                    Label(wrong.isEmpty ? "Approve all" : "Approve \(walk.page.count - wrong.count) · \(wrong.count) \(labeler == nil ? "sorted" : "wrong")",
                           systemImage: "checkmark").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent).tint(.green).disabled(walk.page.isEmpty)
@@ -500,7 +508,12 @@ struct SureReviewView: View {
             patches = Dictionary(uniqueKeysWithValues: walk.page.compactMap { f in
                 box(f.item).flatMap { CropPatch(frame: f.image, box: $0) }.map { (f.item, $0) }
             })
-            wrong = Set(walk.page.map(\.item).filter { walk.store.rally(of: $0)?.points[safe: $0.index]?.unsure == true })
+            calls = Dictionary(uniqueKeysWithValues: walk.page.compactMap { f -> (AnnotationReview.Item, QuickSortView.Call)? in
+                guard let point = walk.store.rally(of: f.item)?.points[safe: f.item.index] else { return nil }
+                if point.unsure { return (f.item, .unsure) }
+                if labeler == nil, point.origin == .filled, (point.box?.confidence ?? 0) > 0 { return (f.item, .fix) }
+                return nil
+            })
         }
         .sensoryFeedback(.success, trigger: approved)
     }
@@ -509,12 +522,24 @@ struct SureReviewView: View {
         walk.store.rally(of: item)?.points[safe: item.index].flatMap { $0.state == .visible ? $0.box?.rect : nil }
     }
 
+    /// Fix → Not sure → approved; checking a labeler: wrong → right.
+    private func tap(_ item: AnnotationReview.Item) {
+        if labeler != nil { calls[item] = calls[item] == nil ? .unsure : nil; return }
+        switch calls[item] {
+        case nil: calls[item] = .fix
+        case .fix: calls[item] = .unsure
+        case .unsure, .hidden: calls[item] = nil
+        }
+    }
+
     @ViewBuilder
     private func cell(_ item: AnnotationReview.Item, image: CGImage) -> some View {
-        let isWrong = wrong.contains(item)
+        let call = calls[item]
+        let isWrong = call != nil
+        let tint: Color = labeler != nil ? (isWrong ? .red : .green) : (call?.tint ?? .green)
         Group {
             if let patch = patches[item], let box = box(item) {
-                CropCanvas(patch: patch, box: box, offset: .zero, scale: 1, tint: isWrong ? .red : .green)
+                CropCanvas(patch: patch, box: box, offset: .zero, scale: 1, tint: tint)
             } else {
                 // Called hidden (no box): the whole frame, to judge that.
                 Color.black.overlay {
@@ -527,23 +552,49 @@ struct SureReviewView: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if isWrong {
+            if labeler != nil, isWrong {
                 Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.white, .red).padding(4)
             }
         }
+        .overlay(alignment: .bottom) {
+            if labeler == nil, let call {
+                Label(call.title, systemImage: call.icon).font(.caption.bold())
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(call.tint, in: Capsule()).foregroundStyle(.black).padding(5)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isWrong ? Color.red : .clear, lineWidth: 3))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isWrong ? tint : .clear, lineWidth: 3))
         .contentShape(Rectangle())
-        .onTapGesture { if isWrong { wrong.remove(item) } else { wrong.insert(item) } }
+        .onTapGesture { tap(item) }
+        .contextMenu {
+            if labeler == nil {
+                let stretch = walk.stretch(from: item)
+                if stretch.count > 1 {
+                    Button { hide(stretch) } label: {
+                        Label("Hide this stretch · \(stretch.count) frames", systemImage: "eye.slash.fill")
+                    }
+                    Text("From here while the box follows the same thing — a ball resting on the sideline")
+                }
+            }
+        }
+    }
+
+    /// The whole run hidden at once: the frames on this page show it; the
+    /// ones past the page are decided now and passed over.
+    private func hide(_ stretch: [AnnotationReview.Item]) {
+        let onPage = Set(walk.page.map(\.item))
+        for item in stretch where onPage.contains(item) { calls[item] = .hidden }
+        walk.decideAhead(stretch.filter { !onPage.contains($0) }, AnnotationReview.confirmHidden)
     }
 
     /// Sure frames: the page's boxes approved as they are (squared like a
-    /// crop approved untouched). A labeler's: their labels kept as they
-    /// are, checked right. The ones picked out set aside as not sure.
+    /// crop approved untouched); Fix sent to Review, Not sure set aside. A
+    /// labeler's: their labels kept as they are, checked right, or wrong.
     private func approvePage() {
         guard !walk.page.isEmpty else { return }
         let sizes = Dictionary(uniqueKeysWithValues: walk.page.map { ($0.item, CGSize(width: $0.image.width, height: $0.image.height)) })
-        let wrong = wrong, items = walk.page.map(\.item)
+        let calls = calls, wrong = wrong, items = walk.page.map(\.item)
         approved += items.count - wrong.count
         if let labeler {
             checked.append(items)
@@ -551,10 +602,14 @@ struct SureReviewView: View {
         }
         Task {
             await walk.decidePage { item, point in
-                if wrong.contains(item) {
-                    AnnotationReview.markUnsure(&point)
-                } else if labeler == nil, point.state == .visible, let box = point.box?.rect, let size = sizes[item] {
-                    AnnotationReview.approve(&point, box: AnnotationReview.adjusted(box, offset: .zero, scale: 1, in: size))
+                switch calls[item] {
+                case .fix where labeler == nil: AnnotationReview.sendToReview(&point)
+                case .hidden where labeler == nil: AnnotationReview.confirmHidden(&point)
+                case .fix, .unsure, .hidden: AnnotationReview.markUnsure(&point)
+                case nil:
+                    if labeler == nil, point.state == .visible, let box = point.box?.rect, let size = sizes[item] {
+                        AnnotationReview.approve(&point, box: AnnotationReview.adjusted(box, offset: .zero, scale: 1, in: size))
+                    }
                 }
             }
         }

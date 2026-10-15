@@ -242,6 +242,16 @@ enum AnnotationReview {
         point.reviewed = false
     }
 
+    /// The box is a little off: to Review, one at a time, to fix. Taken out
+    /// of the model's sure frames (MachineLabels wants its own pick, `auto`)
+    /// by marking it as drawn rather than picked; its confidence stays, so
+    /// it isn't shown as a guess. A re-solve makes it the model's again.
+    static func sendToReview(_ point: inout TrackPoint) {
+        point.origin = .filled
+        point.reviewed = false
+        point.unsure = false
+    }
+
     /// A box for a ball placed on the full frame, sized like the boxes you
     /// placed or fixed nearest it (the closest two within 15 frames either
     /// way, so each one you place carries on), else the balls on the frames
