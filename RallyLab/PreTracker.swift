@@ -44,11 +44,12 @@ enum PreTracker {
     }
 
     /// `only`: these videos (session names); empty, every train video (`val`:
-    /// every val video instead).
+    /// every val video instead). `model`: the multi-frame model to track with
+    /// (default: the project's newest).
     static func run(sampler: SamplerModel, only: [String] = [], perVideo: Int = perVideo, redo: Bool, val: Bool = false,
-                    log: (String) -> Void) async -> Report {
+                    model: URL? = nil, log: (String) -> Void) async -> Report {
         var report = Report()
-        guard let heat = TrackLabelModel.newestHeatModel(in: sampler.datasetRoot) else {
+        guard let heat = model ?? TrackLabelModel.newestHeatModel(in: sampler.datasetRoot) else {
             log("No multi-frame model in this project (Models tab, or desktop.sh fetch) — pre-tracking needs one.")
             return report
         }
