@@ -365,19 +365,21 @@ enum TrackSolver {
 /// on the whole frame, or called hidden — the hardest frames, which it would
 /// otherwise never learn.
 ///
-/// Checked against the val rallies people tracked (RallyLab --pretrack-check,
-/// 2026-10-10, round-1 model): every sure frame within 4 px of the person's
-/// ball at any of these cut-offs; 2 neighbours each way makes 59% of their
-/// balls sure, 3 makes 54%.
+/// Checked against the val rallies people tracked (RallyLab --pretrack-check
+/// --heat, 2026-10-15, the 768 colour model): at confidence 0.4 with one
+/// neighbour each way, 1,386 of 1,387 sure frames were within 4 px of the
+/// person's ball and none fell where they saw no ball, making 67% of their
+/// balls sure; the old cut-offs (0.6, two neighbours, 0.006) made 61% at the
+/// same precision, and confidence alone at 0.3 was 99.5%.
 enum MachineLabels {
 
     /// The pick's confidence (YOLO and the multi-frame model merged).
-    static let minConfidence = 0.6
+    static let minConfidence = 0.4
     /// Neighbours each way that must have the ball.
-    static let reach = 2
+    static let reach = 1
     /// Off the arc by at most this share of the frame's width (or a
     /// quarter of the ball, if that's more).
-    static let maxOffArc = 0.006
+    static let maxOffArc = 0.010
     /// A stretch of frames without the ball at most this long (~2/3 s), with
     /// the ball both sides, is asked about; longer, it's out of the picture.
     static let maxLost = 20
