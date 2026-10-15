@@ -107,6 +107,11 @@ struct ReviewHomeView: View {
                          "play.rectangle.on.rectangle", checks)
                 }
                 .buttonStyle(.plain).disabled(checks == 0)
+                NavigationLink { QuickSortView(store: store) } label: {
+                    card("Quick sort", "\(frames.formatted()) frames to check, 9 at a time · leave the ones on the ball, tap the rest: Fix, Hidden or Not sure",
+                         "square.grid.3x3.square", frames)
+                }
+                .buttonStyle(.plain).disabled(frames == 0)
                 NavigationLink { CropReviewView(store: store) } label: {
                     card("Review", "\(frames.formatted()) frames to check · drag to centre, pinch to size, tap to approve", "viewfinder", frames)
                 }
@@ -571,6 +576,191 @@ struct SureReviewView: View {
                 verdictFailure = nil
             } catch {
                 verdictFailure = "Checks not saved: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+/// Review a page at a time: the frames to check as crops, 3 × 3. Leave the
+/// ones on the ball; tap the others through what they are — Fix (the box is
+/// a little off: left for Review, one at a time), Hidden, Not sure. Done
+/// approves the rest as they are; Back takes the page back.
+struct QuickSortView: View {
+    enum Call {
+        case fix, hidden, unsure
+
+        var next: Call? {
+            switch self {
+            case .fix: return .hidden
+            case .hidden: return .unsure
+            case .unsure: return nil
+            }
+        }
+        var title: String {
+            switch self {
+            case .fix: return "Fix"
+            case .hidden: return "Hidden"
+            case .unsure: return "Not sure"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .fix: return "arrow.up.and.down.and.arrow.left.and.right"
+            case .hidden: return "eye.slash.fill"
+            case .unsure: return "questionmark"
+            }
+        }
+        var tint: Color {
+            switch self {
+            case .fix: return .yellow
+            case .hidden: return .indigo
+            case .unsure: return .orange
+            }
+        }
+    }
+
+    @State private var walk: ReviewWalk
+    /// This page's crops, cut out once when it loads.
+    @State private var patches: [AnnotationReview.Item: CropPatch] = [:]
+    /// What you tapped each frame to; untouched ones are approved.
+    @State private var calls: [AnnotationReview.Item: Call] = [:]
+    @State private var approved = 0
+
+    private static let columns = 3
+
+    init(store: any ReviewStore) {
+        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.crop], pageSize: Self.columns * Self.columns))
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("\(walk.left.formatted()) left").font(.headline.monospacedDigit())
+                Spacer()
+                if let first = walk.page.first, let p = walk.store.rally(of: first.item)?.points[safe: first.item.index] {
+                    Text("\(walk.store.videoName(video: first.item.video)) · \(clockText(p.time))")
+                        .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 8)
+            GeometryReader { geo in
+                let side = max(1, (min(geo.size.width, geo.size.height) - 12) / CGFloat(Self.columns))
+                Group {
+                    if !walk.page.isEmpty {
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: 6), count: Self.columns), spacing: 6) {
+                            ForEach(walk.page, id: \.item) { cell($0.item).frame(width: side, height: side) }
+                        }
+                    } else if let failure = walk.failure {
+                        ContentUnavailableView("Can't show these frames", systemImage: "exclamationmark.triangle", description: Text(failure))
+                    } else if walk.item == nil {
+                        ContentUnavailableView("All frames sorted", systemImage: "checkmark.seal.fill",
+                                               description: Text("\(approved) approved this time. Ones marked Fix are in Review."))
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+            }
+            Text("Leave the ones on the ball · tap: Fix → Hidden → Not sure")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Button { Task { await walk.back() } } label: {
+                    Label("Back", systemImage: "arrow.uturn.backward").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered).disabled(!walk.canGoBack)
+                Button { donePage() } label: {
+                    Label(calls.isEmpty ? "Approve all" : "Approve \(walk.page.count - calls.count) · \(calls.count) sorted",
+                          systemImage: "checkmark").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent).tint(.green).disabled(walk.page.isEmpty)
+            }
+            .controlSize(.large)
+            ReviewPassBar(walk: walk)
+        }
+        .padding(.horizontal, 8).padding(.bottom, 8)
+        .navigationTitle("Quick sort")
+        .inlineTitle()
+        .reviewKeys { press in
+            switch press.key {
+            case .return, .space: donePage()
+            case .delete, .deleteForward: Task { await walk.back() }
+            default: return false
+            }
+            return true
+        }
+        .task { await walk.load() }
+        // A new page: cut out its crops; a page gone back to shows what was said of it.
+        .onChange(of: walk.page.map(\.item), initial: true) {
+            patches = Dictionary(uniqueKeysWithValues: walk.page.compactMap { f in
+                box(f.item).flatMap { CropPatch(frame: f.image, box: $0) }.map { (f.item, $0) }
+            })
+            calls = Dictionary(uniqueKeysWithValues: walk.page.compactMap { f -> (AnnotationReview.Item, Call)? in
+                guard let point = point(f.item) else { return nil }
+                if point.unsure { return (f.item, .unsure) }
+                if point.state == .hidden && point.reviewed { return (f.item, .hidden) }
+                return nil
+            })
+        }
+        .sensoryFeedback(.success, trigger: approved)
+    }
+
+    private func point(_ item: AnnotationReview.Item) -> TrackPoint? {
+        walk.store.rally(of: item)?.points[safe: item.index]
+    }
+
+    private func box(_ item: AnnotationReview.Item) -> CGRect? {
+        point(item).flatMap { $0.state == .visible ? $0.box?.rect : nil }
+    }
+
+    @ViewBuilder
+    private func cell(_ item: AnnotationReview.Item) -> some View {
+        let call = calls[item]
+        let guess = point(item)?.origin == .filled
+        Group {
+            if let patch = patches[item], let box = box(item) {
+                CropCanvas(patch: patch, box: box, offset: .zero, scale: 1, tint: call?.tint ?? .green)
+            } else {
+                Color.black
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            // Drawn between sightings: the model never saw the ball here.
+            if guess {
+                Text("guess").font(.caption2.bold()).padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(.black.opacity(0.6), in: Capsule()).foregroundStyle(.white).padding(4)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let call {
+                Label(call.title, systemImage: call.icon).font(.caption.bold())
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(call.tint, in: Capsule()).foregroundStyle(.black).padding(5)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(call?.tint ?? .clear, lineWidth: 3))
+        .contentShape(Rectangle())
+        .onTapGesture { calls[item] = call.map { $0.next } ?? .fix }
+    }
+
+    /// The page decided: untouched boxes approved as they are (squared like a
+    /// crop approved untouched), Hidden and Not sure set, Fix left for Review.
+    private func donePage() {
+        guard !walk.page.isEmpty else { return }
+        let sizes = Dictionary(uniqueKeysWithValues: walk.page.map { ($0.item, CGSize(width: $0.image.width, height: $0.image.height)) })
+        let calls = calls
+        approved += walk.page.count - calls.count
+        Task {
+            await walk.decidePage { item, point in
+                switch calls[item] {
+                case .hidden: AnnotationReview.confirmHidden(&point)
+                case .unsure: AnnotationReview.markUnsure(&point)
+                case .fix: break
+                case nil:
+                    if point.state == .visible, let box = point.box?.rect, let size = sizes[item] {
+                        AnnotationReview.approve(&point, box: AnnotationReview.adjusted(box, offset: .zero, scale: 1, in: size))
+                    }
+                }
             }
         }
     }

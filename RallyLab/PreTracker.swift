@@ -145,15 +145,17 @@ enum PreTracker {
         var coverage: Double { Double(right) / Double(max(people, 1)) }
     }
 
-    static let confidences = [0.4, 0.5, 0.6, 0.7, 0.8]
+    static let confidences = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     static let offArcs = [0.006, 0.01]
-    static let reaches = [1, 2, 3]
+    /// 0: confidence alone (no neighbours, no arc).
+    static let reaches = [0, 1, 2]
     /// The trainer's match radius, in pixels at its 512 wide.
     static let tolerance = 4.0
 
-    static func check(sampler: SamplerModel, log: (String) -> Void) async -> [Check] {
-        var checks = reaches.flatMap { r in confidences.flatMap { c in offArcs.map { Check(minConfidence: c, maxOffArc: $0, reach: r) } } }
-        guard let heat = TrackLabelModel.newestHeatModel(in: sampler.datasetRoot) else {
+    /// `model`: the multi-frame model to check (default: the project's newest).
+    static func check(sampler: SamplerModel, model: URL? = nil, log: (String) -> Void) async -> [Check] {
+        var checks = reaches.flatMap { r in confidences.flatMap { c in (r == 0 ? [0] : offArcs).map { Check(minConfidence: c, maxOffArc: $0, reach: r) } } }
+        guard let heat = model ?? TrackLabelModel.newestHeatModel(in: sampler.datasetRoot) else {
             log("No multi-frame model in this project — nothing to check.")
             return []
         }

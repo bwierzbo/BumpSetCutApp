@@ -395,6 +395,8 @@ enum MachineLabels {
         for i in p.indices where i >= reach && i + reach < p.count {
             guard p[i].state == .visible, p[i].origin == .auto, !p[i].isChecked, !p[i].unsure, let box = p[i].box,
                   box.confidence >= minConfidence else { continue }
+            // No neighbours asked for: the confidence alone decides.
+            if reach == 0 { out.insert(i); continue }
             let around = (i - reach...i + reach).filter { $0 != i }
             let boxes = around.compactMap { k in p[k].state == .visible && p[k].origin != .filled ? p[k].box.map { (p[k].time, $0.rect) } : nil }
             guard boxes.count == around.count else { continue }

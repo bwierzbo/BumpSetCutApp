@@ -42,7 +42,7 @@
 //             closest to the marked rallies of pipeline_tuning/validation.json's videos; reports, applies nothing)
 //    RallyLab --project v3 --serve-report [--verbose]    (the serve found in each marked rally of the validation
 //             videos, how far from the mark, and what starting clips at the serve would score)
-//    RallyLab --project v3 --pretrack-check                (how right "sure" frames are, against val rallies people tracked)
+//    RallyLab --project v3 --pretrack-check [--heat M]     (how right "sure" frames are, against val rallies people tracked)
 //    RallyLab --project v3 --add-heat <bring_back folder>  (convert + add a multi-frame model)
 //    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
 //    RallyLab --project v3 --render-heat <clip> <seconds>  (side-by-side video of a tracked rally)
@@ -187,7 +187,8 @@ enum HeadlessProjects {
                 ok = await ServeReport.run(sampler: projects.sampler, verbose: args.contains("--verbose"), log: log)
             }
             if ok, args.contains("--pretrack-check") {
-                let checks = await PreTracker.check(sampler: projects.sampler, log: log)
+                let checks = await PreTracker.check(sampler: projects.sampler,
+                                                    model: value(after: "--heat", in: args).map { heatModel($0, in: library) }, log: log)
                 if let c = checks.first { log("The path found a ball on \(c.found) checked frames; people saw \(c.people) balls.") }
                 log("reach  confidence  off arc   sure  right   precision  share of people's balls   (no ball where it was sure)")
                 for c in checks {
