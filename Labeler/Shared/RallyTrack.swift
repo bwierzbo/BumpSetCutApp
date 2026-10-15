@@ -370,7 +370,11 @@ enum TrackSolver {
 /// neighbour each way, 1,386 of 1,387 sure frames were within 4 px of the
 /// person's ball and none fell where they saw no ball, making 67% of their
 /// balls sure; the old cut-offs (0.6, two neighbours, 0.006) made 61% at the
-/// same precision, and confidence alone at 0.3 was 99.5%.
+/// same precision, and confidence alone at 0.3 was 99.5%. A still box is
+/// never sure: on 212 pre-tracked rallies' checked frames (2026-10-15), a
+/// sure frame whose box moved under half a ball over the 7 frames around it
+/// was right 74% of the time and on no ball at all 16% (a ball resting on
+/// the sideline), against 97% right for a moving one.
 enum MachineLabels {
 
     /// The pick's confidence (YOLO and the multi-frame model merged).
@@ -380,6 +384,10 @@ enum MachineLabels {
     /// Off the arc by at most this share of the frame's width (or a
     /// quarter of the ball, if that's more).
     static let maxOffArc = 0.010
+    /// A box that moves less than this many of its own widths over the
+    /// `stillSpan` frames each side is resting, not in play: never sure.
+    static let stillMove = 0.5
+    static let stillSpan = 3
     /// A stretch of frames without the ball at most this long (~2/3 s), with
     /// the ball both sides, is asked about; longer, it's out of the picture.
     static let maxLost = 20
@@ -405,10 +413,22 @@ enum MachineLabels {
             let fx = TrackSolver.fit(boxes.map { ($0.0, Double($0.1.midX)) })
             let fy = TrackSolver.fit(boxes.map { ($0.0, Double($0.1.midY)) })
             let off = hypot(fx(p[i].time) - box.rect.midX, (fy(p[i].time) - box.rect.midY) * 9 / 16)
-            if off <= max(maxOffArc, box.w / 4) { out.insert(i) }
+            guard off <= max(maxOffArc, box.w / 4), !isStill(p, at: i, width: box.w) else { continue }
+            out.insert(i)
         }
         if usual { cache.set(rally, (out, lostFrames(rally))) }
         return out
+    }
+
+    /// The box at `i` barely moves over the frames around it: a ball on the
+    /// ground or the sideline, which the path takes when the real one is gone.
+    private static func isStill(_ p: [TrackPoint], at i: Int, width: Double) -> Bool {
+        let around = (max(0, i - stillSpan)...min(p.count - 1, i + stillSpan))
+            .compactMap { k in p[k].state == .visible ? p[k].box?.rect : nil }
+        guard around.count >= 2 else { return false }
+        var far = 0.0
+        for a in around { for b in around { far = max(far, hypot(a.midX - b.midX, (a.midY - b.midY) * 9 / 16)) } }
+        return far < stillMove * width
     }
 
     /// Frames of a pre-tracked rally where it lost the ball for a moment

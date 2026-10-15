@@ -637,22 +637,22 @@ final class ReviewWalk {
     /// thing (a hard hit: ~5% of the frame), with a little slack.
     private static let stretchReach = 0.08
 
-    /// The run of this walk's frames from `item` on, in its rally, whose
-    /// boxes follow on from each other — each within reach of the last,
-    /// with no checked frame or lost frame between: when the pick is on
-    /// the wrong thing (a ball on the next court), this is that thing's run.
+    /// The run of frames from `item` on in its rally whose boxes follow on
+    /// from each other — each within reach of the last, with no checked
+    /// frame or lost frame between: when the pick is on the wrong thing (a
+    /// ball on the next court, one resting on the sideline), this is that
+    /// thing's run. The rally's frames, not only this walk's: the middle of
+    /// a run may be in the Sure pages instead.
     func stretch(from item: AnnotationReview.Item) -> [AnnotationReview.Item] {
-        guard let rally = store.rally(of: item), let start = items.firstIndex(of: item) else { return [] }
+        guard let rally = store.rally(of: item) else { return [] }
         var run: [AnnotationReview.Item] = []
         var last: CGRect?
-        var index = item.index
-        for next in items[start...] where next.track == item.track {
-            guard next.index == index, let point = rally.points[safe: next.index],
-                  !point.isChecked, point.state == .visible, let box = point.box?.rect else { break }
+        for index in item.index..<rally.points.count {
+            let point = rally.points[index]
+            guard !point.isChecked, point.state == .visible, let box = point.box?.rect else { break }
             if let last, hypot(box.midX - last.midX, (box.midY - last.midY) * 9 / 16) > Self.stretchReach { break }
-            run.append(next)
+            run.append(AnnotationReview.Item(video: item.video, track: item.track, index: index))
             last = box
-            index += 1
         }
         return run
     }
