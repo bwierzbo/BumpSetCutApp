@@ -1647,9 +1647,9 @@ struct RallyCheckView: View {
             return
         }
         // Bring this video, then the next one, onto the device while you
-        // watch: their other rallies then play from the file, not a stream.
+        // watch (not on cellular): their other rallies then play from the file.
         let next = checks[at...].first { $0.video != check.video }?.video
-        for video in [check.video, next].compactMap({ $0 }) where !Task.isCancelled { _ = try? await store.videoFile(video: video) }
+        for video in [check.video, next].compactMap({ $0 }) where !Task.isCancelled { await store.fetchAhead(video: video) }
     }
 
     private func answer(_ isRally: Bool) {

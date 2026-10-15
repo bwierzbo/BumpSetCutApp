@@ -10,6 +10,7 @@
 
 import AuthenticationServices
 import Foundation
+import Network
 import Observation
 import SwiftUI
 
@@ -24,6 +25,10 @@ final class LabelerModel: ReviewStore {
     private(set) var outbox = Outbox()
     private(set) var isLoading = false
     private(set) var isOffline = false
+    /// On cellular (or another network iOS calls expensive): clips stream,
+    /// and aren't downloaded ahead of being asked for.
+    private(set) var onCellular = false
+    @ObservationIgnored private let paths = NWPathMonitor()
     /// Why the last load or send failed, while it keeps failing (the app
     /// carries on with what's on the phone, which can fall far behind).
     private(set) var syncProblem: String?
@@ -38,6 +43,11 @@ final class LabelerModel: ReviewStore {
     init() {
         snapshot = LocalStore.load(LabelSnapshot.self, "snapshot.json") ?? LabelSnapshot()
         outbox = LocalStore.load(Outbox.self, "outbox.json") ?? Outbox()
+        paths.pathUpdateHandler = { [weak self] path in
+            let expensive = path.isExpensive || path.isConstrained
+            Task { @MainActor in self?.onCellular = expensive }
+        }
+        paths.start(queue: DispatchQueue(label: "labeler.network"))
     }
 
     // MARK: - Session
@@ -307,6 +317,11 @@ final class LabelerModel: ReviewStore {
 
     func videoName(video key: String) -> String { UUID(uuidString: key).flatMap(video)?.name ?? "" }
 
+    func fetchAhead(video key: String) async {
+        guard !onCellular, let v = UUID(uuidString: key).flatMap(video) else { return }
+        _ = try? await localClip(for: v)
+    }
+
     func playbackURL(video key: String) async throws -> URL {
         guard let v = UUID(uuidString: key).flatMap(video) else { throw LabelingClient.Failure.unreadable }
         return try await playbackURL(for: v)
@@ -543,7 +558,7 @@ final class LabelerModel: ReviewStore {
     /// so tasks open with their clip already here.
     func prefetch(next n: Int = 3) {
         let wanted = tasks.prefix(n).map(\.video).filter { !LocalStore.hasClip($0) && inFlight[$0.id] == nil }
-        guard !wanted.isEmpty, !isOffline else { return }
+        guard !wanted.isEmpty, !isOffline, !onCellular else { return }
         Task {
             for v in wanted { _ = try? await localClip(for: v) }
         }

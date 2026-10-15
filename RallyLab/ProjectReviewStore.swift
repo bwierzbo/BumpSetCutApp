@@ -65,6 +65,7 @@ final class ProjectReviewStore: ReviewStore {
     func videoName(video: String) -> String { video }
 
     func playbackURL(video: String) async throws -> URL { try await videoFile(video: video) }
+    func fetchAhead(video: String) async { _ = try? await videoFile(video: video) }
 
     func rallyChecks() -> [AnnotationReview.RallyCheck] { AnnotationReview.rallyChecks(rallies) }
 

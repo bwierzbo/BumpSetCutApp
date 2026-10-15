@@ -398,6 +398,9 @@ protocol ReviewStore: AnyObject {
     func review(_ item: AnnotationReview.Item, _ change: (inout TrackPoint) -> Void) -> TrackPoint?
     /// A video's file (keyed as items key it), downloading it if need be.
     func videoFile(video: String) async throws -> URL
+    /// Bring a video's file here ahead of needing it, when that's cheap (the
+    /// phone skips it on cellular: a 100+ MB download would starve the stream).
+    func fetchAhead(video: String) async
     func videoName(video: String) -> String
     /// Where to play a video from: the file, or streamed if it isn't here.
     func playbackURL(video: String) async throws -> URL
@@ -568,8 +571,9 @@ final class ReviewWalk {
             if !url.isFileURL {
                 streams[video] = url
                 Task { [weak self, store] in
-                    // Downloaded: the file from now on. Failed: keep streaming.
-                    if (try? await store.videoFile(video: video)) != nil { self?.streams[video] = nil }
+                    // Downloaded (if it was worth it): the file from now on; else keep streaming.
+                    await store.fetchAhead(video: video)
+                    if (try? await store.playbackURL(video: video))?.isFileURL == true { self?.streams[video] = nil }
                 }
                 return url
             }
