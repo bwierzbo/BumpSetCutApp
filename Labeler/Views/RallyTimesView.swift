@@ -50,7 +50,7 @@ struct RallyTimesView: View {
         .task { await load() }
         .fullScreenCover(item: $trimming) { rally in
             if let url {
-                RallyTrimView(video: video, rally: rally, url: url, onConfirm: { trimmed in
+                RallyTrimView(duration: video.duration, rally: rally, url: url, onConfirm: { trimmed in
                     move(rally.id) { $0.start = trimmed.start; $0.end = trimmed.end }
                     // A rally's id is its times: keep the trimmed one selected.
                     selected = trimmed.id

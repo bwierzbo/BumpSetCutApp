@@ -119,6 +119,21 @@ struct TrackedRally: Codable, Identifiable, Equatable {
 }
 
 extension TrackedRally {
+    /// Cut to the rally from `start` to `end`, the usual margin kept each
+    /// side: the frames outside go. It can only get shorter — frames past
+    /// the tracked span were never tracked.
+    func trimmed(start: Double, end: Double) -> TrackedRally {
+        let from = max(self.start, start - Self.margin) - 0.001, to = min(self.end, end + Self.margin) + 0.001
+        let keep = points.indices.filter { (from...to).contains(points[$0].time) }
+        guard let first = keep.first, let last = keep.last else { return self }
+        var t = self
+        t.points = keep.map { points[$0] }
+        t.candidates = candidates.count == points.count ? keep.map { candidates[$0] } : candidates
+        t.start = points[first].time
+        t.end = points[last].time
+        return t
+    }
+
     /// `tracks` with updatedAt set to now on every rally that's new or
     /// changed since `before` (changes from a sync keep their own time).
     static func stamped(_ tracks: [TrackedRally], since before: [TrackedRally]) -> [TrackedRally] {

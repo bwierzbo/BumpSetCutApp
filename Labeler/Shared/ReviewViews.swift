@@ -1321,14 +1321,19 @@ struct OffTopReviewView: View {
 }
 
 /// Rally or not: each pre-tracked rally plays on a loop until it's answered.
+/// One that runs long can be trimmed (on the phone) — that answers Rally too.
 struct RallyCheckView: View {
     let store: any ReviewStore
     @State private var checks: [AnnotationReview.RallyCheck]
     @State private var at = 0
-    @State private var undo: [AnnotationReview.RallyCheck] = []
+    /// Answers in order, with the rally as it was before a trim (to put back).
+    @State private var undo: [(check: AnnotationReview.RallyCheck, before: TrackedRally?)] = []
     @State private var player = RallyLoopPlayer()
     @State private var fast = true
     @State private var failure: String?
+    /// Where this rally's video plays from.
+    @State private var url: URL?
+    @State private var trimming = false
 
     init(store: any ReviewStore) {
         self.store = store
@@ -1371,6 +1376,13 @@ struct RallyCheckView: View {
                     Label("Not a rally", systemImage: "xmark").frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
+                #if os(iOS)
+                Button { player.stop(); trimming = true } label: {
+                    Label("Trim", systemImage: "timeline.selection").frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .disabled(url == nil)
+                #endif
                 Button { answer(true) } label: {
                     Label("Rally", systemImage: "checkmark").frame(maxWidth: .infinity, minHeight: 44)
                 }
@@ -1397,14 +1409,28 @@ struct RallyCheckView: View {
         }
         .task(id: check) { await play() }
         .onDisappear { player.stop() }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $trimming, onDismiss: { Task { await play() } }) {
+            if let check, let url, let rally = store.rally(of: check) {
+                RallyCheckTrimView(url: url, rally: rally.bounds, onConfirm: { kept in
+                    trimming = false
+                    trim(check, to: kept)
+                }, onCancel: { trimming = false })
+            } else {
+                Color.clear.onAppear { trimming = false }
+            }
+        }
+        #endif
     }
 
     private func play() async {
         guard let check else { player.stop(); return }
         failure = nil
+        url = nil
         do {
             let url = try await store.playbackURL(video: check.video)
             guard check == self.check else { return }
+            self.url = url
             player.loop(url, video: check.video, from: check.start, to: check.end, rate: fast ? 2 : 1)
         } catch {
             failure = "Couldn't load the video: \(error.localizedDescription)"
@@ -1419,14 +1445,26 @@ struct RallyCheckView: View {
     private func answer(_ isRally: Bool) {
         guard let check else { return }
         store.setIsRally(isRally, check)
-        undo.append(check)
+        undo.append((check, nil))
+        at += 1
+    }
+
+    /// Cut the rally to `kept` (the frames outside it go) and call it a rally.
+    private func trim(_ check: AnnotationReview.RallyCheck, to kept: LabelRally) {
+        guard let before = store.rally(of: check) else { return }
+        var cut = before.trimmed(start: kept.start, end: kept.end)
+        cut.isRally = true
+        store.replace(check, with: cut)
+        store.setIsRally(true, check)
+        undo.append((check, before))
         at += 1
     }
 
     private func back() {
         guard let last = undo.popLast() else { return }
-        store.setIsRally(nil, last)
-        at = checks.firstIndex(of: last) ?? max(0, at - 1)
+        if let before = last.before { store.replace(last.check, with: before) }
+        store.setIsRally(nil, last.check)
+        at = checks.firstIndex(of: last.check) ?? max(0, at - 1)
     }
 
     private func clock(_ t: Double) -> String { String(format: "%d:%02d", Int(t) / 60, Int(t) % 60) }

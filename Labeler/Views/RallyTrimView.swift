@@ -13,7 +13,8 @@ import AVFoundation
 import SwiftUI
 
 struct RallyTrimView: View {
-    let video: LabelVideo
+    /// The whole video's length, seconds.
+    let duration: Double
     let rally: LabelRally
     /// The clip to show: on the phone or streamed.
     let url: URL
@@ -41,10 +42,10 @@ struct RallyTrimView: View {
                 rallyStartTime: rally.start,
                 rallyEndTime: rally.end,
                 videoURL: url,
-                videoDuration: video.duration,
+                videoDuration: duration,
                 onScrub: { show($0) },
                 onConfirm: {
-                    onConfirm(LabelRally(start: max(0, rally.start - trimBefore), end: min(video.duration, rally.end + trimAfter)))
+                    onConfirm(LabelRally(start: max(0, rally.start - trimBefore), end: min(duration, rally.end + trimAfter)))
                 },
                 onCancel: onCancel,
                 onExtendPlaybackStart: { t in show(t); player.play() },
@@ -91,6 +92,29 @@ struct RallyTrimView: View {
     }
 }
 
+/// Rally or not's trim: a pre-tracked rally that runs long, cut to the
+/// serve and the dead ball. The video's length comes from the clip itself.
+struct RallyCheckTrimView: View {
+    let url: URL
+    let rally: LabelRally
+    let onConfirm: (LabelRally) -> Void
+    let onCancel: () -> Void
+    @State private var duration: Double?
+
+    var body: some View {
+        Group {
+            if let duration {
+                RallyTrimView(duration: duration, rally: rally, url: url, onConfirm: onConfirm, onCancel: onCancel)
+            } else {
+                ProgressView("Opening the video…").frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black)
+            }
+        }
+        .task {
+            duration = (try? await AVURLAsset(url: url).load(.duration).seconds).flatMap { $0.isFinite ? $0 : nil } ?? rally.end + 3
+        }
+    }
+}
+
 /// A track task: trim the rally to the serve and the dead ball, then track
 /// its ball (frames a little past it each side). Trimming streams the clip
 /// right away; tracking needs it on the phone, so it downloads meanwhile.
@@ -127,7 +151,7 @@ struct TrackTaskView: View {
                 }
                 .padding(40)
             } else if let playback {
-                RallyTrimView(video: video, rally: span, url: playback, onConfirm: { t in
+                RallyTrimView(duration: video.duration, rally: span, url: playback, onConfirm: { t in
                     LocalStore.setTrim(t, of: span, in: video)
                     trimmed = t
                 }, onCancel: { dismiss() },

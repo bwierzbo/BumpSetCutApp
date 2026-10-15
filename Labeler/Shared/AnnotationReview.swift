@@ -411,6 +411,10 @@ protocol ReviewStore: AnyObject {
     func offTopGaps() -> [AnnotationReview.Gap]
     /// Say whether a pre-tracked rally is a rally (nil takes it back).
     func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck)
+    /// A pre-tracked rally as it is now (nil when it isn't here).
+    func rally(of check: AnnotationReview.RallyCheck) -> TrackedRally?
+    /// Save a pre-tracked rally changed in Rally or not (trimmed, or put back as it was).
+    func replace(_ check: AnnotationReview.RallyCheck, with rally: TrackedRally)
 }
 
 extension ReviewStore {

@@ -65,7 +65,7 @@ struct RallyReviewView: View {
         .sensoryFeedback(.success, trigger: times.rallies.count)
         .fullScreenCover(item: $trimming) { rally in
             if let url {
-                RallyTrimView(video: video, rally: rally, url: url, onConfirm: { trimmed in
+                RallyTrimView(duration: video.duration, rally: rally, url: url, onConfirm: { trimmed in
                     model.update(video) { $0.rallies.append(trimmed) }
                     trimming = nil
                     advance()

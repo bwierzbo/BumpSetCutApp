@@ -72,6 +72,19 @@ final class ProjectReviewStore: ReviewStore {
 
     func offTopGaps() -> [AnnotationReview.Gap] { AnnotationReview.offTop(rallies) }
 
+    func rally(of check: AnnotationReview.RallyCheck) -> TrackedRally? {
+        sampler.sessions.first { $0.name == check.video }?.tracks?.first { $0.id == check.track }
+    }
+
+    func replace(_ check: AnnotationReview.RallyCheck, with rally: TrackedRally) {
+        guard var tracks = sampler.sessions.first(where: { $0.name == check.video })?.tracks,
+              let r = tracks.firstIndex(where: { $0.id == check.track }) else { return }
+        tracks[r] = rally
+        sampler.setTracks(tracks, session: check.video)
+        tracker.reloadRallies(session: check.video)
+        sync?.syncSoon()
+    }
+
     func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck) {
         guard var tracks = sampler.sessions.first(where: { $0.name == check.video })?.tracks,
               let r = tracks.firstIndex(where: { $0.id == check.track }) else { return }

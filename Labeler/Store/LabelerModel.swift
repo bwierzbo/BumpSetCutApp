@@ -320,6 +320,15 @@ final class LabelerModel: ReviewStore {
 
     /// Changed here at once, and sent as just that answer (the rally's frames
     /// are left as the server has them).
+    func rally(of check: AnnotationReview.RallyCheck) -> TrackedRally? {
+        UUID(uuidString: check.video).flatMap(video).flatMap { v in tracks(for: v).first { $0.id == check.track } }?.rally
+    }
+
+    func replace(_ check: AnnotationReview.RallyCheck, with rally: TrackedRally) {
+        guard let v = UUID(uuidString: check.video).flatMap(video) else { return }
+        save(LabelTrack(rally, videoId: v.id))
+    }
+
     func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck) {
         if let i = snapshot.tracks.firstIndex(where: { $0.id == check.track }) { snapshot.tracks[i].isRally = isRally }
         if outbox.tracks[check.track] != nil { outbox.tracks[check.track]!.isRally = isRally }
