@@ -5,13 +5,15 @@
 //  The training plan as RallyLab on the Mac runs it: the rounds as a
 //  timeline — trained ones with each run's F1 per surface, the current one
 //  with its frames per surface, what still blocks it and the videos to
-//  track next. Training itself starts on the Mac (Project → Plan).
+//  track next — and rallies and frames per kind of video. Training itself
+//  starts on the Mac (Project → Plan).
 //
 
 import SwiftUI
 
 struct PlanView: View {
     let model: LabelerModel
+    @State private var facet = VideoType.Facet.camera
 
     var body: some View {
         let progress = model.progress
@@ -42,6 +44,7 @@ struct PlanView: View {
                     .padding(.vertical, 4)
                 }
             }
+            breakdown(progress)
         }
         .refreshable { await model.reload() }
         .navigationTitle("Plan")
@@ -78,6 +81,8 @@ struct PlanView: View {
                     ProgressView(value: min(1, Double(s.frames) / Double(PlanProgress.quota(round))))
                     Text("\(s.frames.formatted())").font(.caption.monospacedDigit()).frame(width: 52, alignment: .trailing)
                 }
+                Text("\(s.valVideos)/\(round.valVideos) val videos · \(s.valFrames.formatted()) val frames")
+                    .font(.caption2).foregroundStyle(.secondary).padding(.leading, 90)
             }
             if blockers.isEmpty {
                 Label("Ready — train it from RallyLab on the Mac (Project → Plan).", systemImage: "checkmark.seal.fill")
@@ -89,6 +94,40 @@ struct PlanView: View {
                 Text("Track next: " + progress.queue.prefix(4).map(\.name).joined(separator: ", "))
                     .font(.caption).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// Rallies and frames per surface, then per camera, light or orientation.
+    @ViewBuilder
+    private func breakdown(_ progress: PlanProgress) -> some View {
+        Section {
+            Picker("Group by", selection: $facet) {
+                ForEach(VideoType.Facet.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            ForEach(progress.breakdown(by: facet), id: \.surface) { group in
+                VStack(alignment: .leading, spacing: 4) {
+                    bucketRow(group.surface, group.total).font(.subheadline.weight(.semibold))
+                    ForEach(group.rows, id: \.kind) { row in
+                        bucketRow(row.kind, row.bucket).font(.caption).padding(.leading, 12)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        } header: {
+            Text("By video type")
+        } footer: {
+            Text("Videos · rallies · frames training gets (val frames in purple).")
+        }
+    }
+
+    private func bucketRow(_ title: String, _ b: PlanProgress.Bucket) -> some View {
+        HStack(spacing: 8) {
+            Text(title).lineLimit(1)
+            Spacer()
+            Text("\(b.videos) · \(b.rallies) · \(b.frames.formatted())").monospacedDigit()
+                .foregroundStyle(b.rallies == 0 ? Color.red : .primary)
+            if b.valFrames > 0 { Text(b.valFrames.formatted()).monospacedDigit().foregroundStyle(.purple) }
         }
     }
 }

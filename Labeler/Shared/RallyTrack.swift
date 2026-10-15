@@ -151,6 +151,8 @@ extension TrackedRally {
 
     /// Frames with a decided label (the ball, or hidden): what training gets.
     var labeledFrames: Int { points.filter { $0.state != .unknown }.count }
+    /// Of those, the ones a person checked in review (or marked hidden).
+    var checkedFrames: Int { points.filter { $0.state != .unknown && $0.isChecked }.count }
 
     /// The rally itself: the tracked frames less the margin either side.
     var bounds: LabelRally {

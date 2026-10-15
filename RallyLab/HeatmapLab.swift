@@ -190,7 +190,7 @@ final class HeatmapLab {
         desktopBusy = true
         Task {
             defer { desktopBusy = false }
-            guard let name = await startDesktopRun(package: package, size: size, fromScratch: false) else { return }
+            guard let name = await startDesktopRun(package: package, arguments: ["--size", String(size)]) else { return }
             desktopRun = name
             if await followDesktopRun(name) { desktopRun = nil }
         }
@@ -198,10 +198,9 @@ final class HeatmapLab {
 
     /// Start training `package` (an exported multi-frame package folder) on
     /// the desktop; the run's name, or nil if it couldn't start.
-    func startDesktopRun(package: URL, size: Int, fromScratch: Bool) async -> String? {
+    func startDesktopRun(package: URL, arguments: [String]) async -> String? {
         desktopLine = "Sending \(package.lastPathComponent).zip…"
-        let started = await streamDesktop(["train", package.path + ".zip", "--size", String(size)]
-                                          + (fromScratch ? ["--from-scratch"] : []))
+        let started = await streamDesktop(["train", package.path + ".zip"] + arguments)
         guard started.status == 0, let name = started.lines.lazy.compactMap({ Self.runName(in: $0) }).first else {
             desktopLine = "Couldn't start: " + (started.lines.last ?? "no output")
             return nil

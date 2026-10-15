@@ -132,6 +132,9 @@ struct LabelTrack: Codable, Identifiable, Hashable {
     /// Someone started tracking it and hasn't finished.
     var isOpen: Bool { !done && !isMachine }
 
+    /// Goes into the training package (TrackedRally.isReady).
+    var isReady: Bool { done || (isMachine && isRally != false) }
+
     /// Labeled frames (ball or hidden) — what training gets.
     var labeledFrames: Int { points.points.filter { $0.state != .unknown }.count }
 

@@ -338,9 +338,10 @@ final class LabelerModel: ReviewStore {
     }
 
     func planVideo(_ v: LabelVideo) -> PlanVideo {
-        let done = tracks(for: v).filter(\.done)
+        let trains = tracks(for: v).filter { TrainingPlan.trains(done: $0.done, ready: $0.isReady, split: v.split) }
         return PlanVideo(name: v.name, surface: v.surface.rawValue, split: v.split, available: v.clipPath != nil,
-                         doneTracks: done.count, labeledFrames: done.reduce(0) { $0 + $1.labeledFrames },
+                         rallies: trains.count, labeledFrames: trains.reduce(0) { $0 + $1.labeledFrames },
+                         checkedFrames: trains.reduce(0) { $0 + $1.rally.checkedFrames },
                          openRallies: untrackedRallies(in: v).count, ralliesMarked: rallyTimes(for: v).complete)
     }
 

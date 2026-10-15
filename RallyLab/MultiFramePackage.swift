@@ -307,7 +307,7 @@ enum MultiFramePackage {
     /// Rallies tracked frame by frame and marked done, and pre-tracked ones
     /// in train videos not said to be no rally (val is people's labels only).
     static func readyTracks(_ session: VideoSession) -> [TrackedRally] {
-        (session.tracks ?? []).filter { $0.done || ($0.isReady && session.split != "val") }
+        (session.tracks ?? []).filter { TrainingPlan.trains(done: $0.done, ready: $0.isReady, split: session.split) }
     }
 
     static func readme(_ s: Summary) -> String {

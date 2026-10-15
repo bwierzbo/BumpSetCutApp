@@ -6,7 +6,8 @@
 //  trained with what each run scored per surface, the round you're on with
 //  its frames per surface against an even share, what still blocks it and
 //  the videos to track next — one rally each, spread over many videos —
-//  and the button that exports and trains it on the desktop.
+//  and the button that exports and trains it on the desktop. Below it,
+//  rallies and frames per kind of video (camera, light, orientation).
 //
 
 import SwiftUI
@@ -19,6 +20,7 @@ struct ProjectPlanView: View {
     let phone: LabelingSync
     @State private var email = ""
     @State private var password = ""
+    @State private var facet = VideoType.Facet.camera
 
     init(projects: ProjectsModel, library: ModelLibrary, phone: LabelingSync, track: @escaping (VideoSession) -> Void) {
         self.projects = projects
@@ -54,6 +56,8 @@ struct ProjectPlanView: View {
                         .padding(.bottom, isLast ? 0 : 26)
                     }
                 }
+                breakdown(progress)
+                    .padding(.top, 26)
             }
             .padding(20)
             .frame(maxWidth: 900, alignment: .leading)
@@ -72,11 +76,12 @@ struct ProjectPlanView: View {
     private func intro(_ progress: PlanProgress) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Training plan").font(.title2.weight(.bold))
-            Text("Track a few thousand frames spread evenly over indoor, grass and beach and over many videos, then train. Each round trains fine-tuned and from-scratch models on the same frames, so you can see when from scratch takes over.")
+            Text("Label rallies spread evenly over indoor, grass and beach and over many videos and cameras, then train on the desktop. Every model is now trained from scratch; each round compares sizes and grey against colour on the same frames. Frames here are what training gets: every labeled frame of your finished rallies and of the model's pre-tracked ones in train videos (val is your rallies only).")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 18) {
                 stat("\(progress.frames.formatted())", "labeled frames")
-                stat("\(progress.rallies)", "tracked rallies")
+                stat("\(progress.checkedFrames.formatted())", "checked by you")
+                stat("\(progress.rallies)", "rallies")
                 stat("\(progress.framesPerRally)", "frames per rally")
                 stat("\(progress.rallyTimeVideos)", "rally-time videos")
             }
@@ -232,6 +237,7 @@ struct ProjectPlanView: View {
                     Text("Frames · target \(PlanProgress.quota(round).formatted()) each").font(.caption.weight(.semibold))
                     Text("Validation share").font(.caption.weight(.semibold))
                     Text("Rally-time videos").font(.caption.weight(.semibold))
+                    Text("Val videos").font(.caption.weight(.semibold))
                 }
                 ForEach(ClipBoardView.environments.filter { TrainingPlan.surfaces.contains($0.name) }, id: \.name) { env in
                     let s = progress.surfaces[env.name] ?? PlanProgress.Surface()
@@ -244,6 +250,7 @@ struct ProjectPlanView: View {
                         Meter(value: s.rallyTimeVideos,
                               target: (round.rallyTimeVideos + TrainingPlan.surfaces.count - 1) / TrainingPlan.surfaces.count,
                               tint: env.tint)
+                        Meter(value: s.valVideos, target: round.valVideos, tint: env.tint)
                     }
                 }
             }
@@ -288,10 +295,67 @@ struct ProjectPlanView: View {
                     if plan.isRunning { ProgressView().controlSize(.small) }
                 }
                 Text("Exports a multi-frame package, then trains \(round.runs.map(\.title).joined(separator: ", ")) on the desktop one after another and brings each back. "
-                     + "About an hour per 512 run per 10k frames; 768 takes about twice as long. RallyLab can be closed — Carry On Training picks it up.")
+                     + "On 50k frames, 15 epochs from scratch: a 512 run takes about 3 hours, 768 about 4 (colour about 10), 1024 about 8 (colour more than a day). RallyLab can be closed — Carry On Training picks it up.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    // MARK: - By video type
+
+    /// Rallies and frames per surface, then per camera, light or orientation:
+    /// where the data is thin.
+    private func breakdown(_ progress: PlanProgress) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("By video type").font(.title3.weight(.bold))
+                Spacer()
+                Picker("Group by", selection: $facet) {
+                    ForEach(VideoType.Facet.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 300)
+            }
+            Text("Every video in the project, by what its name says. Frames are what training gets; val frames are what the score comes from.")
+                .font(.callout).foregroundStyle(.secondary)
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
+                GridRow {
+                    ForEach(["", "Videos", "Rallies", "Frames", "Checked", "Val frames", "Share"], id: \.self) {
+                        Text($0).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            .gridColumnAlignment($0.isEmpty ? .leading : .trailing)
+                    }
+                }
+                ForEach(progress.breakdown(by: facet), id: \.surface) { group in
+                    let env = ClipBoardView.environments.first { $0.name == group.surface }
+                    Divider().gridCellUnsizedAxes(.horizontal)
+                    GridRow {
+                        Label(group.surface, systemImage: env?.icon ?? "film").foregroundStyle(env?.tint ?? .primary).font(.headline)
+                        bucketCells(group.total, of: progress.frames, bold: true)
+                    }
+                    ForEach(group.rows, id: \.kind) { row in
+                        GridRow {
+                            Text(row.kind).font(.callout).padding(.leading, 26)
+                            bucketCells(row.bucket, of: group.total.frames, bold: false)
+                        }
+                    }
+                }
+            }
+            .padding(14)
+            .background(.background, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.07)))
+            Text("Share: of all frames for a surface; of its surface's frames for a kind.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func bucketCells(_ b: PlanProgress.Bucket, of total: Int, bold: Bool) -> some View {
+        let font: Font = bold ? .callout.weight(.semibold).monospacedDigit() : .callout.monospacedDigit()
+        Text("\(b.videos)").font(font)
+        Text("\(b.rallies)").font(font).foregroundStyle(b.rallies == 0 ? Color.red : .primary)
+        Text(b.frames.formatted()).font(font)
+        Text(b.checkedFrames.formatted()).font(font).foregroundStyle(.secondary)
+        Text(b.valFrames.formatted()).font(font).foregroundStyle(b.valFrames == 0 ? Color.secondary : .purple)
+        Text(total > 0 ? "\(Int((Double(b.frames) / Double(total) * 100).rounded()))%" : "—").font(font).foregroundStyle(.secondary)
     }
 
     private func nextRow(_ next: PlanVideo) -> some View {
@@ -305,7 +369,7 @@ struct ProjectPlanView: View {
                     .background(Color.purple.opacity(0.15), in: Capsule()).foregroundStyle(.purple)
             }
             Spacer()
-            Text("\(next.doneTracks)/\(TrainingPlan.maxRalliesPerVideo) tracked").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Text("\(next.rallies)/\(TrainingPlan.maxRalliesPerVideo) rallies").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             Text(next.openRallies > 0 ? "\(next.openRallies) found" : "search by hand").font(.caption).foregroundStyle(.secondary)
                 .help(next.openRallies > 0 ? "Rallies the Sampler found that aren't tracked yet — pick one in the Track tab"
                                      : "The Sampler found no rallies here — add one with New Rally in the Track tab")

@@ -6,8 +6,9 @@
 //  tracked rallies per environment and split against targets, videos with
 //  every rally's time marked, sampled frames usable (their video is on the
 //  Mac) or blocked, and every video's state — so the next hour of labeling
-//  goes where it counts. Targets come from the research: ~50 training and
-//  ~30 validation rallies (10+ indoor), validation from 10+ videos.
+//  goes where it counts. Rallies and frames are what training gets
+//  (TrainingPlan.trains); targets follow the plan's next rounds: 60 train
+//  and 10 val rallies per surface, val from 4+ videos each.
 //
 
 import SwiftUI
@@ -20,13 +21,17 @@ struct ProjectCoverageView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 12) {
-                    Tile(title: "Tracked rallies", value: "\(c.total(\.trainRallies) + c.total(\.valRallies))",
-                         detail: "\(c.total(\.trainRallies)) train · \(c.total(\.valRallies)) val · target 80",
-                         progress: Double(c.total(\.trainRallies) + c.total(\.valRallies)) / 80, tint: ReviewStyle.yours)
+                    let rallyTarget = (Coverage.trainTarget + Coverage.valTarget) * TrainingPlan.surfaces.count
+                    Tile(title: "Rallies", value: "\(c.total(\.trainRallies) + c.total(\.valRallies))",
+                         detail: "\(c.total(\.trainRallies)) train · \(c.total(\.valRallies)) val · target \(rallyTarget)",
+                         progress: Double(c.total(\.trainRallies) + c.total(\.valRallies)) / Double(rallyTarget), tint: ReviewStyle.yours)
+                    let frameTarget = Coverage.frameTarget(c.total(\.trackedFrames))
                     Tile(title: "Labeled rally frames", value: c.total(\.trackedFrames).formatted(),
-                         detail: "every frame of a tracked rally", progress: Double(c.total(\.trackedFrames)) / 16_000, tint: .teal)
+                         detail: "what training gets · next round \(frameTarget.formatted())",
+                         progress: Double(c.total(\.trackedFrames)) / Double(frameTarget), tint: .teal)
+                    let markedTarget = Coverage.markedTarget * TrainingPlan.surfaces.count
                     Tile(title: "Rally-time videos", value: "\(c.total(\.markedVideos))",
-                         detail: "whole video marked · target 6", progress: Double(c.total(\.markedVideos)) / 6, tint: .purple)
+                         detail: "whole video marked · target \(markedTarget)", progress: Double(c.total(\.markedVideos)) / Double(markedTarget), tint: .purple)
                     Tile(title: "Sampled frames usable", value: c.total(\.sampledUsable).formatted(),
                          detail: "\(c.total(\.sampledBlocked).formatted()) blocked: video not on this Mac",
                          progress: Double(c.total(\.sampledUsable)) / Double(max(1, c.total(\.sampledUsable) + c.total(\.sampledBlocked))),
@@ -49,7 +54,7 @@ struct ProjectCoverageView: View {
                                 Label(env.name, systemImage: env.icon).foregroundStyle(env.tint).font(.headline)
                                 Meter(value: row.trainRallies, target: Coverage.trainTarget, tint: env.tint)
                                 Meter(value: row.valRallies, target: Coverage.valTarget, tint: env.tint)
-                                Meter(value: row.valVideos, target: 3, tint: env.tint)
+                                Meter(value: row.valVideos, target: Coverage.valVideoTarget, tint: env.tint)
                                 Meter(value: row.markedVideos, target: Coverage.markedTarget, tint: env.tint)
                             }
                         }
@@ -81,7 +86,7 @@ struct ProjectCoverageView: View {
                     Text("Every video").font(.title3.weight(.bold))
                     Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
                         GridRow {
-                            ForEach(["Video", "Split", "On Mac", "Tracked", "Guesses left", "Rally times", "Sampled"], id: \.self) {
+                            ForEach(["Video", "Split", "On Mac", "Rallies", "Guesses left", "Rally times", "Sampled"], id: \.self) {
                                 Text($0).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                             }
                         }
@@ -109,9 +114,15 @@ struct ProjectCoverageView: View {
 /// Coverage of the multi-frame training data, from the dataset's sessions.
 @MainActor
 struct Coverage {
-    static let trainTarget = 17
+    static let trainTarget = 60
     static let valTarget = 10
-    static let markedTarget = 2
+    static let valVideoTarget = 4
+    static let markedTarget = 4
+
+    /// The frames of the next round in the plan above `frames` (the last round's once past it).
+    static func frameTarget(_ frames: Int) -> Int {
+        TrainingPlan.rounds.first { $0.frames > frames }?.frames ?? TrainingPlan.rounds.last?.frames ?? frames
+    }
 
     struct Row {
         var trainRallies = 0, valRallies = 0, valVideos = 0, markedVideos = 0
@@ -146,7 +157,7 @@ struct Coverage {
             let env = Self.environment(s.name)
             let onMac = FileManager.default.fileExists(atPath: s.sourcePath)
             let tracks = s.tracks ?? []
-            let done = tracks.filter(\.done)
+            let done = tracks.filter { TrainingPlan.trains(done: $0.done, ready: $0.isReady, split: s.split) }
             let sampled = s.frames.filter { $0.keep && $0.reviewed }.count
             let guesses = TrackLabelModel.suggestions(from: s, excluding: tracks).count
             let labels = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: s.sourcePath))
@@ -227,7 +238,7 @@ private struct VideoRow: View {
             Chip(text: video.split, tint: video.split == "val" ? .purple : .secondary)
             Image(systemName: video.onMac ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .foregroundStyle(video.onMac ? ReviewStyle.yours : Color.red)
-            Text(video.unfinished > 0 ? "\(video.done) done · \(video.unfinished) open" : "\(video.done)")
+            Text(video.unfinished > 0 ? "\(video.done) · \(video.unfinished) open" : "\(video.done)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(video.done == 0 ? Color.secondary : Color.primary)
             Text(video.guessesLeft > 0 ? "\(video.guessesLeft)" : "—").font(.caption.monospacedDigit())

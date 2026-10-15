@@ -440,6 +440,8 @@ final class ReviewWalk {
     /// Each decided frame as it was before this walk first decided it.
     private var original: [AnnotationReview.Item: TrackPoint] = [:]
     @ObservationIgnored private var frames: [String: ReviewFrames] = [:]
+    /// Videos read streamed while their download runs (the phone).
+    @ObservationIgnored private var streams: [String: URL] = [:]
 
     convenience init(store: any ReviewStore, kinds: Set<AnnotationReview.Kind>, pageSize: Int? = nil) {
         self.init(store: store, items: store.reviewItems(kinds), pageSize: pageSize)
@@ -532,11 +534,31 @@ final class ReviewWalk {
 
     /// A frame's picture (nil if it can't be read).
     private func picture(of item: AnnotationReview.Item, at time: Double) async throws -> CGImage? {
-        // The video's current file: a newer copy replaces the old one (and
-        // the old file goes), so a reader on it is made again.
-        let file = try await store.videoFile(video: item.video)
-        if frames[item.video]?.video != file { frames[item.video] = ReviewFrames(video: file) }
+        let source = try await source(item.video)
+        if frames[item.video]?.video != source { frames[item.video] = ReviewFrames(video: source) }
         return await frames[item.video]?.image(at: time)
+    }
+
+    /// Where to read a video's frames: its file, or — while a video not on
+    /// the phone yet downloads in the background — the video streamed, so
+    /// the first frame doesn't wait for the whole clip (100+ MB on cellular).
+    /// The video's current file is asked for each time: a newer copy
+    /// replaces the old one (and the old file goes), so a reader on it is
+    /// made again.
+    private func source(_ video: String) async throws -> URL {
+        if let stream = streams[video] { return stream }
+        if frames[video] == nil {
+            let url = try await store.playbackURL(video: video)
+            if !url.isFileURL {
+                streams[video] = url
+                Task { [weak self, store] in
+                    // Downloaded: the file from now on. Failed: keep streaming.
+                    if (try? await store.videoFile(video: video)) != nil { self?.streams[video] = nil }
+                }
+                return url
+            }
+        }
+        return try await store.videoFile(video: video)
     }
 
     /// Read ahead the next few frames after `index` of the same video.

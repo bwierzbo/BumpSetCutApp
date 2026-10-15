@@ -84,7 +84,8 @@ struct VideoRow: View {
                 Text(video.name).font(.callout.monospaced()).lineLimit(1)
                 HStack(spacing: 6) {
                     Text("\(times.rallies.count) marked")
-                    Text("· \(tracks.filter(\.done).count) tracked (\(tracks.filter(\.done).reduce(0) { $0 + $1.labeledFrames })/\(TrainingPlan.enoughFramesPerVideo) frames)")
+                    let plan = model.planVideo(video)
+                    Text("· \(plan.rallies) rallies (\(plan.labeledFrames.formatted()) frames)")
                     let open = tracks.filter(\.isOpen).count + model.untrackedRallies(in: video).filter { LocalStore.trim(of: $0, in: video) != nil }.count
                     if open > 0 { Text("· \(open) in progress").foregroundStyle(.orange) }
                     if !video.ralliesFound.isEmpty { Text("· \(video.ralliesFound.count) found") }

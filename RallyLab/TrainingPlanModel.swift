@@ -15,12 +15,24 @@ extension PlanVideo {
     @MainActor
     init(session s: VideoSession) {
         let tracks = s.tracks ?? []
-        let done = tracks.filter(\.done)
+        let trains = tracks.filter { TrainingPlan.trains(done: $0.done, ready: $0.isReady, split: s.split) }
         self.init(name: s.name, surface: Coverage.environment(s.name), split: s.split,
                   available: FileManager.default.fileExists(atPath: s.sourcePath),
-                  doneTracks: done.count, labeledFrames: done.reduce(0) { $0 + $1.labeledFrames },
+                  rallies: trains.count, labeledFrames: trains.reduce(0) { $0 + $1.labeledFrames },
+                  checkedFrames: trains.reduce(0) { $0 + $1.checkedFrames },
                   openRallies: TrackLabelModel.suggestions(from: s, excluding: tracks).count,
                   ralliesMarked: s.ralliesMarked ?? false)
+    }
+}
+
+extension TrainingPlan.Run {
+    /// desktop.sh train's flags. From scratch is the recipe rounds 3 and 4
+    /// trained with: 15 epochs, hidden balls as soft targets, quality focal
+    /// loss and hard-frame mining.
+    var desktopArguments: [String] {
+        ["--size", String(size)]
+            + (fromScratch ? ["--from-scratch", "--epochs", "15", "--occluded", "--qfl", "--mine"] : [])
+            + (color ? ["--color"] : []) + (pseudo ? ["--pseudo"] : [])
     }
 }
 
@@ -110,7 +122,7 @@ final class TrainingPlanModel {
                 name = started
             } else {
                 guard let started = await lab.startDesktopRun(package: package.appendingPathComponent(history[i].package),
-                                                              size: state.run.size, fromScratch: state.run.fromScratch) else {
+                                                              arguments: state.run.desktopArguments) else {
                     status = "Round \(number) stopped: \(lab.desktopLine)"
                     return
                 }

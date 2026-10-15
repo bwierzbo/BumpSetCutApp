@@ -2,14 +2,17 @@
 //  TrainingPlan.swift
 //  RallyLab (macOS and iPhone)
 //
-//  The road from a few tracked rallies to a multi-frame ball model trained
-//  from scratch, in rounds: track a few thousand frames spread evenly over
-//  indoor, grass and beach and over many videos, then export and train —
-//  fine-tuned and from scratch side by side, so each round is a point on
-//  the curve of how much data from-scratch training needs, and later 768
-//  against 512. What each round trained (package, desktop runs, the frames
-//  it had) is kept in the dataset's training_plan.json, so the timeline
-//  survives restarts and training carries on where it stopped.
+//  The road from a few tracked rallies to the app's own multi-frame ball
+//  model, in rounds: label rallies spread over indoor, grass and beach and
+//  over many videos and cameras, then export and train on the desktop.
+//  Rounds 1–2 fine-tuned VballNet's weights; from round 3 every model is
+//  trained from scratch, grey against colour and 512 against 768 and 1024.
+//  A round's frames are what training gets: every labeled frame of a
+//  rally you finished, or of one the model pre-tracked in a train video
+//  that nobody said isn't a rally (val is people's rallies only). What
+//  each round trained (package, desktop runs, the frames it had) is kept in
+//  the dataset's training_plan.json, so the timeline survives restarts and
+//  training carries on where it stopped.
 //
 
 import Foundation
@@ -20,8 +23,29 @@ enum TrainingPlan {
     struct Run: Codable, Hashable {
         let size: Int
         let fromScratch: Bool
+        /// R, G and B planes in, rather than grey.
+        var color = false
+        /// The model's own sure frames of pre-tracked rallies train too, at half weight.
+        var pseudo = false
 
-        var title: String { "\(fromScratch ? "From scratch" : "Fine-tune") · \(size)" }
+        init(size: Int, fromScratch: Bool, color: Bool = false, pseudo: Bool = false) {
+            self.size = size
+            self.fromScratch = fromScratch
+            self.color = color
+            self.pseudo = pseudo
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            size = try c.decode(Int.self, forKey: .size)
+            fromScratch = try c.decode(Bool.self, forKey: .fromScratch)
+            color = try c.decodeIfPresent(Bool.self, forKey: .color) ?? false
+            pseudo = try c.decodeIfPresent(Bool.self, forKey: .pseudo) ?? false
+        }
+
+        var title: String {
+            "\(fromScratch ? "From scratch" : "Fine-tune") · \(size) \(color ? "colour" : "grey")\(pseudo ? " + model's labels" : "")"
+        }
     }
 
     struct Round {
@@ -30,28 +54,33 @@ enum TrainingPlan {
         let frames: Int
         /// Videos with every rally's time marked: what rally cutting is scored on.
         let rallyTimeVideos: Int
+        /// Val videos with a tracked rally, per surface: what a surface's ball
+        /// score comes from. With one, a score is one video's.
+        let valVideos: Int
         let runs: [Run]
         let why: String
     }
 
     static let rounds: [Round] = [
-        Round(number: 1, frames: 6_000, rallyTimeVideos: 6, runs: [Run(size: 512, fromScratch: false)],
-              why: "The first balanced set: every surface in, fine-tuned like today's model."),
-        Round(number: 2, frames: 10_000, rallyTimeVideos: 10,
-              runs: [Run(size: 512, fromScratch: false), Run(size: 512, fromScratch: true)],
-              why: "The first from-scratch model, next to a fine-tune on the same frames."),
-        Round(number: 3, frames: 15_000, rallyTimeVideos: 15,
-              runs: [Run(size: 512, fromScratch: false), Run(size: 512, fromScratch: true)],
-              why: "Another point on the curve: how fast from scratch catches up."),
-        Round(number: 4, frames: 20_000, rallyTimeVideos: 20,
-              runs: [Run(size: 512, fromScratch: true), Run(size: 768, fromScratch: true), Run(size: 512, fromScratch: false)],
-              why: "The original model's amount of data. From scratch at 512 and 768: does 768 find more far balls?"),
-        Round(number: 5, frames: 30_000, rallyTimeVideos: 30,
-              runs: [Run(size: 512, fromScratch: true), Run(size: 768, fromScratch: true)],
-              why: "Past the original model's data: from scratch only."),
-        Round(number: 6, frames: 40_000, rallyTimeVideos: 40,
-              runs: [Run(size: 512, fromScratch: true), Run(size: 768, fromScratch: true)],
-              why: "The full set. The better size becomes the app's ball finder."),
+        Round(number: 1, frames: 6_000, rallyTimeVideos: 6, valVideos: 1, runs: [Run(size: 512, fromScratch: false)],
+              why: "The first balanced set: every surface in, fine-tuned from VballNet's weights."),
+        Round(number: 2, frames: 35_000, rallyTimeVideos: 8, valVideos: 1,
+              runs: [Run(size: 512, fromScratch: false, color: true), Run(size: 512, fromScratch: false, color: true, pseudo: true)],
+              why: "Colour, with and without the model's own sure frames as labels: people's labels only did better."),
+        Round(number: 3, frames: 40_000, rallyTimeVideos: 10, valVideos: 1,
+              runs: [Run(size: 512, fromScratch: true), Run(size: 512, fromScratch: true, color: true),
+                     Run(size: 768, fromScratch: true), Run(size: 768, fromScratch: true, color: true)],
+              why: "The first from-scratch models: grey against colour, 512 against 768."),
+        Round(number: 4, frames: 50_000, rallyTimeVideos: 10, valVideos: 1,
+              runs: [Run(size: 1024, fromScratch: true), Run(size: 768, fromScratch: true),
+                     Run(size: 1024, fromScratch: true, color: true), Run(size: 768, fromScratch: true, color: true)],
+              why: "Your corrected labels, and the largest size: does 1024 find more far balls?"),
+        Round(number: 5, frames: 75_000, rallyTimeVideos: 20, valVideos: 4,
+              runs: [Run(size: 512, fromScratch: true), Run(size: 768, fromScratch: true), Run(size: 768, fromScratch: true, color: true)],
+              why: "Indoor up to a quarter of the frames, and 4 test videos per surface with tracked rallies so models can be told apart. The winner ships."),
+        Round(number: 6, frames: 100_000, rallyTimeVideos: 30, valVideos: 6,
+              runs: [Run(size: 768, fromScratch: true), Run(size: 768, fromScratch: true, color: true)],
+              why: "The full set: the better of grey and colour becomes the app's ball finder."),
     ]
 
     static let surfaces = ["Indoor", "Grass", "Beach"]
@@ -72,6 +101,49 @@ enum TrainingPlan {
     }
     /// Frames a tracked rally gives before any are tracked (about 6–7 s).
     static let defaultFramesPerRally = 200
+
+    /// The rally trains (MultiFramePackage.readyTracks): a person's finished
+    /// rally, or one pre-tracked by the model (`ready`) in a train video —
+    /// val is people's rallies only.
+    static func trains(done: Bool, ready: Bool, split: String) -> Bool {
+        done || (ready && split != "val")
+    }
+}
+
+/// What a clip ID says about its video. The clip plan names videos
+/// surface_camera_light_orientation_source_NN (`ind_ele_dim_land_self_02`);
+/// tester footage is surface_extra_tester_NN.
+struct VideoType: Hashable {
+    enum Facet: String, CaseIterable, Identifiable {
+        case camera = "Camera", light = "Light", orientation = "Orientation"
+        var id: String { rawValue }
+    }
+
+    let camera: String
+    let light: String
+    let orientation: String
+
+    init(clipID: String) {
+        let parts = clipID.lowercased().split(separator: "_").map(String.init)
+        let part = { (i: Int) in parts.indices.contains(i) ? parts[i] : "" }
+        camera = Self.cameras[part(1)] ?? "Other"
+        let tester = part(1) == "extra"
+        light = tester ? "Not named" : Self.lights[part(2)] ?? "Other"
+        orientation = tester ? "Not named" : Self.orientations[part(3)] ?? "Other"
+    }
+
+    func value(_ facet: Facet) -> String {
+        switch facet {
+        case .camera: return camera
+        case .light: return light
+        case .orientation: return orientation
+        }
+    }
+
+    private static let cameras = ["ele": "End line, raised", "gnd": "End line, ground", "sid": "Sideline",
+                                  "tri": "Corner, tripod", "hnd": "Handheld", "onl": "Online video", "extra": "Tester footage"]
+    private static let lights = ["sun": "Sun", "ovc": "Overcast", "shade": "Shade", "dusk": "Dusk", "bright": "Bright", "dim": "Dim"]
+    private static let orientations = ["land": "Landscape", "port": "Portrait"]
 }
 
 /// What a round trained, as kept in training_plan.json.
@@ -105,12 +177,17 @@ struct PlanVideo: Identifiable, Hashable {
     let split: String
     /// Its footage can be tracked here (on the Mac: the video is on disk).
     let available: Bool
-    let doneTracks: Int
-    /// Labeled frames of its done tracked rallies.
+    /// Rallies that train (TrainingPlan.trains): finished, or pre-tracked in a train video.
+    let rallies: Int
+    /// Labeled frames (ball or hidden) of those rallies: what training gets.
     let labeledFrames: Int
+    /// Of those, the frames checked in review (or marked hidden) by a person.
+    let checkedFrames: Int
     /// Rallies found or marked in it that aren't tracked yet.
     let openRallies: Int
     let ralliesMarked: Bool
+
+    var type: VideoType { VideoType(clipID: name) }
 }
 
 /// Where the tracked frames stand against a round.
@@ -120,10 +197,19 @@ struct PlanProgress {
         var trainFrames = 0, valFrames = 0
         var frames: Int { trainFrames + valFrames }
         var rallyTimeVideos = 0
+        /// Val videos with a rally that counts.
+        var valVideos = 0
+    }
+
+    /// Videos, rallies and frames of one kind of video.
+    struct Bucket {
+        var videos = 0, rallies = 0, frames = 0, checkedFrames = 0, valFrames = 0
     }
 
     var surfaces: [String: Surface] = [:]
     var rallies = 0
+    var checkedFrames = 0
+    let videos: [PlanVideo]
     /// Videos to track a rally in next, one rally each.
     var queue: [PlanVideo] = []
 
@@ -132,15 +218,42 @@ struct PlanProgress {
     var framesPerRally: Int { rallies > 0 ? frames / rallies : TrainingPlan.defaultFramesPerRally }
 
     init(videos: [PlanVideo], round: TrainingPlan.Round?) {
+        self.videos = videos
         for name in TrainingPlan.surfaces { surfaces[name] = Surface() }
         for v in videos {
             guard var surface = surfaces[v.surface] else { continue }
             if v.split == "val" { surface.valFrames += v.labeledFrames } else { surface.trainFrames += v.labeledFrames }
+            if v.split == "val" && v.rallies > 0 { surface.valVideos += 1 }
             if v.ralliesMarked { surface.rallyTimeVideos += 1 }
             surfaces[v.surface] = surface
-            rallies += v.doneTracks
+            rallies += v.rallies
+            checkedFrames += v.checkedFrames
         }
         if let round { queue = Self.nextVideos(videos, surfaces: surfaces, round: round, perRally: framesPerRally) }
+    }
+
+    /// Per surface, the videos of each kind (`facet`) — every video, even one
+    /// with nothing tracked yet — with their rallies and frames, most frames first.
+    func breakdown(by facet: VideoType.Facet) -> [(surface: String, total: Bucket, rows: [(kind: String, bucket: Bucket)])] {
+        TrainingPlan.surfaces.map { surface in
+            var kinds: [String: Bucket] = [:]
+            for v in videos where v.surface == surface {
+                var b = kinds[v.type.value(facet)] ?? Bucket()
+                b.videos += 1
+                b.rallies += v.rallies
+                b.frames += v.labeledFrames
+                b.checkedFrames += v.checkedFrames
+                if v.split == "val" { b.valFrames += v.labeledFrames }
+                kinds[v.type.value(facet)] = b
+            }
+            let rows = kinds.map { (kind: $0.key, bucket: $0.value) }
+                .sorted { ($0.bucket.frames, $1.kind) > ($1.bucket.frames, $0.kind) }
+            let total = rows.reduce(into: Bucket()) { t, r in
+                t.videos += r.bucket.videos; t.rallies += r.bucket.rallies; t.frames += r.bucket.frames
+                t.checkedFrames += r.bucket.checkedFrames; t.valFrames += r.bucket.valFrames
+            }
+            return (surface, total, rows)
+        }
     }
 
     /// Frames each surface should reach in `round`: an even third.
@@ -158,8 +271,8 @@ struct PlanProgress {
             if s.frames < floor {
                 out.append("\(name) has \(s.frames.formatted()) frames — every surface needs \(floor.formatted()) (a quarter) so the model isn't tuned to one.")
             }
-            if s.valFrames == 0 {
-                out.append("\(name) has no validation rallies — track one in a val video so its score means something.")
+            if s.valVideos < round.valVideos {
+                out.append("\(name) has \(s.valVideos) val video\(s.valVideos == 1 ? "" : "s") with a tracked rally — it needs \(round.valVideos) so its score isn't one video's.")
             }
         }
         return out
@@ -174,7 +287,7 @@ struct PlanProgress {
                                    round: TrainingPlan.Round, perRally: Int) -> [PlanVideo] {
         let candidates = videos.filter {
             TrainingPlan.surfaces.contains($0.surface) && $0.available
-                && $0.doneTracks < TrainingPlan.maxRalliesPerVideo && $0.labeledFrames < TrainingPlan.enoughFramesPerVideo
+                && $0.rallies < TrainingPlan.maxRalliesPerVideo && $0.labeledFrames < TrainingPlan.enoughFramesPerVideo
         }
         var need = surfaces.mapValues { max(0, quota(round) - $0.frames) }
         var val = surfaces.mapValues(\.valFrames)
@@ -185,7 +298,7 @@ struct PlanProgress {
             let pool = candidates.filter { c in c.surface == env && !picked.contains(c) }
             guard let next = pool.min(by: { a, b in
                 func key(_ v: PlanVideo) -> (Int, Int, Int) {
-                    ((v.split == "val") == wantVal ? 0 : 1, v.doneTracks, v.openRallies > 0 ? 0 : 1)
+                    ((v.split == "val") == wantVal ? 0 : 1, v.rallies, v.openRallies > 0 ? 0 : 1)
                 }
                 return key(a) < key(b)
             }) else {
