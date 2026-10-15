@@ -108,7 +108,7 @@ struct ReviewHomeView: View {
                 }
                 .buttonStyle(.plain).disabled(checks == 0)
                 NavigationLink { QuickSortView(store: store) } label: {
-                    card("Quick sort", "\(frames.formatted()) frames to check, 9 at a time · leave the ones on the ball, tap the rest: Fix, Hidden or Not sure",
+                    card("Quick sort", "\(frames.formatted()) frames to check, 9 at a time · leave the ones on the ball, tap the rest: Hidden, Fix or Not sure",
                          "square.grid.3x3.square", frames)
                 }
                 .buttonStyle(.plain).disabled(frames == 0)
@@ -582,17 +582,20 @@ struct SureReviewView: View {
 }
 
 /// Review a page at a time: the frames to check as crops, 3 × 3. Leave the
-/// ones on the ball; tap the others through what they are — Fix (the box is
-/// a little off: left for Review, one at a time), Hidden, Not sure. Done
-/// approves the rest as they are; Back takes the page back.
+/// ones on the ball; tap the others through what they are — Hidden first
+/// (the usual case: the box is on something else and the ball is gone),
+/// then Fix (the box is a little off: left for Review, one at a time), then
+/// Not sure. Done approves the rest as they are; Back takes the page back.
+/// When the box has latched onto another ball for a stretch, hold a frame:
+/// Hide the stretch marks the whole run hidden at once, past this page too.
 struct QuickSortView: View {
     enum Call {
         case fix, hidden, unsure
 
         var next: Call? {
             switch self {
-            case .fix: return .hidden
-            case .hidden: return .unsure
+            case .hidden: return .fix
+            case .fix: return .unsure
             case .unsure: return nil
             }
         }
@@ -661,7 +664,7 @@ struct QuickSortView: View {
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
             }
-            Text("Leave the ones on the ball · tap: Fix → Hidden → Not sure")
+            Text("Leave the ones on the ball · tap: Hidden → Fix → Not sure")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Button { Task { await walk.back() } } label: {
@@ -740,7 +743,24 @@ struct QuickSortView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(call?.tint ?? .clear, lineWidth: 3))
         .contentShape(Rectangle())
-        .onTapGesture { calls[item] = call.map { $0.next } ?? .fix }
+        .onTapGesture { calls[item] = call.map { $0.next } ?? .hidden }
+        .contextMenu {
+            let stretch = walk.stretch(from: item)
+            if stretch.count > 1 {
+                Button { hide(stretch) } label: {
+                    Label("Hide this stretch · \(stretch.count) frames", systemImage: "eye.slash.fill")
+                }
+                Text("From here while the box follows the same thing")
+            }
+        }
+    }
+
+    /// The whole run hidden at once: the frames on this page show it; the
+    /// ones past the page are decided now and passed over.
+    private func hide(_ stretch: [AnnotationReview.Item]) {
+        let onPage = Set(walk.page.map(\.item))
+        for item in stretch where onPage.contains(item) { calls[item] = .hidden }
+        walk.decideAhead(stretch.filter { !onPage.contains($0) }, AnnotationReview.confirmHidden)
     }
 
     /// The page decided: untouched boxes approved as they are (squared like a

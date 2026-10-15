@@ -474,6 +474,9 @@ final class ReviewWalk {
     /// This frame as it was before this walk decided it (nil if it hasn't).
     var originalPoint: TrackPoint? { item.flatMap { original[$0] } }
 
+    /// Frames decided ahead of the walk, a whole stretch at once
+    /// (`decideAhead`): passed over when the walk reaches them.
+    @ObservationIgnored private var ahead: Set<AnnotationReview.Item> = []
     /// Frames that couldn't be read in this walk, passed over.
     private(set) var unreadable = 0
     /// Frames of rallies someone else is reviewing, passed over.
@@ -522,7 +525,7 @@ final class ReviewWalk {
         while shown.count < size, items.indices.contains(next) {
             let item = items[next]
             next += 1
-            guard let point = store.rally(of: item)?.points[safe: item.index] else { continue }
+            guard !ahead.contains(item), let point = store.rally(of: item)?.points[safe: item.index] else { continue }
             guard await isMine(item.track) else { othersFrames += 1; continue }
             do {
                 if let picture = try await picture(of: item, at: point.time) { shown.append((item, picture)) } else { unreadable += 1 }
@@ -624,7 +627,47 @@ final class ReviewWalk {
     /// answering again replaces them, and moving on keeps them.
     func back() async {
         guard let last = decided.popLast(), let first = last.first else { return }
+        // A stretch decided ahead comes back into the walk, to look at page by page.
+        ahead.subtract(last)
         at = items.firstIndex(of: first) ?? max(0, at - 1)
         await load()
+    }
+
+    /// How far the ball can move between frames and still be the same
+    /// thing (a hard hit: ~5% of the frame), with a little slack.
+    private static let stretchReach = 0.08
+
+    /// The run of this walk's frames from `item` on, in its rally, whose
+    /// boxes follow on from each other — each within reach of the last,
+    /// with no checked frame or lost frame between: when the pick is on
+    /// the wrong thing (a ball on the next court), this is that thing's run.
+    func stretch(from item: AnnotationReview.Item) -> [AnnotationReview.Item] {
+        guard let rally = store.rally(of: item), let start = items.firstIndex(of: item) else { return [] }
+        var run: [AnnotationReview.Item] = []
+        var last: CGRect?
+        var index = item.index
+        for next in items[start...] where next.track == item.track {
+            guard next.index == index, let point = rally.points[safe: next.index],
+                  !point.isChecked, point.state == .visible, let box = point.box?.rect else { break }
+            if let last, hypot(box.midX - last.midX, (box.midY - last.midY) * 9 / 16) > Self.stretchReach { break }
+            run.append(next)
+            last = box
+            index += 1
+        }
+        return run
+    }
+
+    /// Decide `stretch` (from `stretch(from:)`) at once, the frames past this
+    /// page too: one decision, so Back takes the whole stretch back.
+    func decideAhead(_ stretch: [AnnotationReview.Item], _ change: (inout TrackPoint) -> Void) {
+        var done: [AnnotationReview.Item] = []
+        for item in stretch {
+            guard let before = store.review(item, change) else { continue }
+            done.append(item)
+            if original[item] == nil { original[item] = before }
+        }
+        guard !done.isEmpty else { return }
+        decided.append(done)
+        ahead.formUnion(done)
     }
 }
