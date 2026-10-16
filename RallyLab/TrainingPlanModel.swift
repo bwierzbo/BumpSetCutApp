@@ -79,13 +79,13 @@ final class TrainingPlanModel {
     func exportAndTrain(_ round: TrainingPlan.Round, progress: PlanProgress) {
         guard !isRunning, !library.isBusy, !lab.desktopBusy else { return }
         isRunning = true
-        let before = library.lastMultiFramePackage?.zip
+        let before = library.lastMultiFramePackage?.output
         library.exportMultiFramePackage()
         Task {
             defer { isRunning = false }
             status = "Exporting the multi-frame package…"
             while library.isBusy { try? await Task.sleep(nanoseconds: 300_000_000) }
-            guard let zip = library.lastMultiFramePackage?.zip, zip != before else {
+            guard let zip = library.lastMultiFramePackage?.output, zip != before else {
                 status = "The export didn't finish: \(library.status)"
                 return
             }

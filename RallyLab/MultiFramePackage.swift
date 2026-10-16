@@ -120,12 +120,16 @@ enum MultiFramePackage {
     /// `unreviewed`: every labeled frame of a finished rally is a label, not
     /// only the ones checked in annotation review — for a quick look at where
     /// the footage gets, never for a training round.
-    static func export(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool = false,
-                       longSide: CGFloat = longSide, progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (zip: URL, summary: Summary) {
+    /// `valOnly`: just the val clips, and no zip — the test set for scoring
+    /// models on this Mac, in minutes rather than the hour the train clips
+    /// take. Returns the folder; otherwise the zip.
+    static func export(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool = false, valOnly: Bool = false,
+                       longSide: CGFloat = longSide, progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (output: URL, summary: Summary) {
         let fm = FileManager.default
-        let reviewed = sessions.map { session in
+        let all: [(VideoSession, [FrameRecord])] = sessions.map { session in
             (session, session.frames.filter { $0.keep && $0.reviewed && $0.source != "file" })
         }.filter { !$0.1.isEmpty || !Self.readyTracks($0.0).isEmpty || $0.0.ralliesMarked == true }
+        let reviewed = valOnly ? all.filter { $0.0.split == "val" } : all
         guard !reviewed.isEmpty else { throw PackageError.nothingReviewed }
         let usable = reviewed.filter { fm.fileExists(atPath: $0.0.sourcePath) }
         let missing = reviewed.filter { !fm.fileExists(atPath: $0.0.sourcePath) }
@@ -135,7 +139,7 @@ enum MultiFramePackage {
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyyMMdd-HHmm"
         let now = Date()
-        let packageName = "\(DatasetStore.safeName(name))\(unreviewed ? "-unreviewed" : "")-multiframe-\(stamp.string(from: now))"
+        let packageName = "\(DatasetStore.safeName(name))\(unreviewed ? "-unreviewed" : "")\(valOnly ? "-val" : "")-multiframe-\(stamp.string(from: now))"
         let exports = store.root.appendingPathComponent("exports", isDirectory: true)
         let dir = exports.appendingPathComponent(packageName, isDirectory: true)
         try? fm.removeItem(at: dir)
@@ -278,6 +282,7 @@ enum MultiFramePackage {
         summaryEncoder.dateEncodingStrategy = .iso8601
         summaryEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try summaryEncoder.encode(summary).write(to: dir.appendingPathComponent("summary.json"))
+        if valOnly { return (dir, summary) }
 
         let zip = exports.appendingPathComponent("\(packageName).zip")
         try? fm.removeItem(at: zip)

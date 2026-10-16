@@ -36,7 +36,7 @@ final class ModelLibrary {
     // Training packages
     private(set) var packages: [URL] = []
     private(set) var lastPackage: (zip: URL, summary: TrainingPackage.Summary)?
-    private(set) var lastMultiFramePackage: (zip: URL, summary: MultiFramePackage.Summary)?
+    private(set) var lastMultiFramePackage: (output: URL, summary: MultiFramePackage.Summary)?
 
     // Evaluation
     var evaluateValOnly = true
@@ -113,7 +113,7 @@ final class ModelLibrary {
     }
 
     /// `unreviewed`: see MultiFramePackage.export.
-    func exportMultiFramePackage(unreviewed: Bool = false, longSide: CGFloat = MultiFramePackage.longSide) {
+    func exportMultiFramePackage(unreviewed: Bool = false, valOnly: Bool = false, longSide: CGFloat = MultiFramePackage.longSide) {
         guard !isBusy else { return }
         isBusy = true
         status = "Pulling the frames around each reviewed frame from its video…"
@@ -124,7 +124,7 @@ final class ModelLibrary {
             defer { isBusy = false }
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
-                    try await MultiFramePackage.export(sessions: sessions, store: store, name: name, unreviewed: unreviewed,
+                    try await MultiFramePackage.export(sessions: sessions, store: store, name: name, unreviewed: unreviewed, valOnly: valOnly,
                                                        longSide: longSide) { done, total in
                         Task { @MainActor in self.status = "Pulling neighbouring frames… \(done)/\(total)" }
                     }
@@ -132,7 +132,7 @@ final class ModelLibrary {
                 lastMultiFramePackage = result
                 reload()
                 let s = result.summary
-                status = "Packaged \(s.trainWindows) train + \(s.valWindows) val windows from \(s.clips) clips → \(result.zip.lastPathComponent)"
+                status = "Packaged \(s.trainWindows) train + \(s.valWindows) val windows from \(s.clips) clips → \(result.output.lastPathComponent)"
                     + (s.missingVideos.isEmpty ? "" : " · \(s.framesWithoutVideo) frames left out: \(s.missingVideos.count) clips' videos aren't on this Mac")
             } catch {
                 status = error.localizedDescription

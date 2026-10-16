@@ -28,8 +28,9 @@
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
 //    RallyLab --project v3 --package                       (training package zip)
-//    RallyLab --project v3 --package-multiframe [--unreviewed] [--long-side 512]   (multi-frame package zip;
+//    RallyLab --project v3 --package-multiframe [--unreviewed] [--val-only] [--long-side 512]   (multi-frame package zip;
 //             --unreviewed: every labeled frame, not only reviewed ones — a quick look, not a round;
+//             --val-only: the val clips alone, as a folder (no zip) — the test set for scoring models here;
 //             --long-side: frames this big (default 1024; 512 is enough for 512 training, a quarter the disk))
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
@@ -219,7 +220,7 @@ enum HeadlessProjects {
             if ok, args.contains("--package") { ok = await package(library) }
             if ok, args.contains("--package-multiframe") { 
                 let side = value(after: "--long-side", in: args).flatMap(Double.init).map { CGFloat($0) } ?? MultiFramePackage.longSide
-                ok = await packageMultiFrame(library, unreviewed: args.contains("--unreviewed"), longSide: side)
+                ok = await packageMultiFrame(library, unreviewed: args.contains("--unreviewed"), valOnly: args.contains("--val-only"), longSide: side)
             }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
@@ -446,8 +447,8 @@ enum HeadlessProjects {
     }
 
     @MainActor
-    private static func packageMultiFrame(_ library: ModelLibrary, unreviewed: Bool, longSide: CGFloat) async -> Bool {
-        library.exportMultiFramePackage(unreviewed: unreviewed, longSide: longSide)
+    private static func packageMultiFrame(_ library: ModelLibrary, unreviewed: Bool, valOnly: Bool, longSide: CGFloat) async -> Bool {
+        library.exportMultiFramePackage(unreviewed: unreviewed, valOnly: valOnly, longSide: longSide)
         while library.isBusy { try? await Task.sleep(nanoseconds: 200_000_000) }
         log(library.status)
         return library.lastMultiFramePackage != nil
