@@ -839,7 +839,7 @@ struct QuickSortView: View {
                 switch calls[item] {
                 case .hidden: AnnotationReview.confirmHidden(&point)
                 case .unsure: AnnotationReview.markUnsure(&point)
-                case .fix: break
+                case .fix: AnnotationReview.sendToReview(&point)
                 case nil:
                     if point.state == .visible, let box = point.box?.rect, let size = sizes[item] {
                         AnnotationReview.approve(&point, box: AnnotationReview.adjusted(box, offset: .zero, scale: 1, in: size))

@@ -257,6 +257,8 @@ enum AnnotationReview {
         point.origin = .filled
         point.reviewed = false
         point.unsure = false
+        // An interpolated guess (confidence 0) marked Fix needs the marker too.
+        if let box = point.box, box.confidence <= 0 { point.box?.confidence = 0.001 }
     }
 
     /// A box for a ball placed on the full frame, sized like the boxes you
