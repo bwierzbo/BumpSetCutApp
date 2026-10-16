@@ -113,7 +113,7 @@ enum PreTracker {
             let machine = tracks.filter { $0.isMachine && $0.isRally != false }
             let frames = machine.reduce(0) { $0 + $1.points.count }
             let sure = machine.reduce(0) { $0 + MachineLabels.trusted($1).count }
-            let review = AnnotationReview.items(machine.map { (session.name, $0) }, kinds: [.crop, .noBall, .unsure]).count
+            let review = AnnotationReview.items(machine.map { (session.name, $0) }, kinds: [.crop, .fix, .noBall, .unsure]).count
             report.frames += frames
             report.sure += sure
             report.toReview += review

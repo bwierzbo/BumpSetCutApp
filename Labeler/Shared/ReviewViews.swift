@@ -65,7 +65,7 @@ struct ReviewHomeView: View {
 
     var body: some View {
         // Frames of rallies someone else is on are passed over when opened: not counted.
-        let frames = count([.crop]), noBall = count([.noBall]), unsure = count([.unsure]), sure = count([.sure])
+        let frames = count([.crop]), fixes = count([.fix]), noBall = count([.noBall]), unsure = count([.unsure]), sure = count([.sure])
         let gaps = store.offTopGaps().filter { !held.contains($0.track) }
         let checks = store.rallyChecks().count
         ScrollView {
@@ -112,6 +112,10 @@ struct ReviewHomeView: View {
                          "square.grid.3x3.square", frames)
                 }
                 .buttonStyle(.plain).disabled(frames == 0)
+                NavigationLink { CropReviewView(store: store, kind: .fix) } label: {
+                    card("Fix boxes", "\(fixes.formatted()) you marked Fix on a page · drag to centre, pinch to size, tap to approve", "arrow.up.left.and.down.right.magnifyingglass", fixes)
+                }
+                .buttonStyle(.plain).disabled(fixes == 0)
                 NavigationLink { CropReviewView(store: store) } label: {
                     card("Review", "\(frames.formatted()) frames to check · drag to centre, pinch to size, tap to approve", "viewfinder", frames)
                 }
@@ -184,7 +188,7 @@ struct ReviewHomeView: View {
 
     /// Only rallies that still have frames for this person to review.
     private func refreshHeld() async {
-        let mine = Set(store.reviewItems([.crop, .noBall, .unsure, .sure]).map(\.track) + store.offTopGaps().map(\.track))
+        let mine = Set(store.reviewItems([.crop, .fix, .noBall, .unsure, .sure]).map(\.track) + store.offTopGaps().map(\.track))
         held = await store.heldByOthers().intersection(mine)
     }
 
@@ -244,8 +248,13 @@ struct CropReviewView: View {
     private static let scrollSensitivity: CGFloat = 1
     #endif
 
-    init(store: any ReviewStore) {
-        _walk = State(initialValue: ReviewWalk(store: store, kinds: [.crop]))
+    /// Review walks the frames to check; Fix boxes (`kind: .fix`) only the
+    /// ones you marked Fix on a page.
+    private let title: String
+
+    init(store: any ReviewStore, kind: AnnotationReview.Kind = .crop) {
+        _walk = State(initialValue: ReviewWalk(store: store, kinds: [kind]))
+        title = kind == .fix ? "Fix boxes" : "Review"
     }
 
     /// The frame's ball box: your box on a frame gone back to, or the one it
@@ -316,7 +325,7 @@ struct CropReviewView: View {
             ReviewPassBar(walk: walk)
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .navigationTitle("Review")
+        .navigationTitle(title)
         .inlineTitle()
         .reviewKeys { press in cropKey(press) }
         .task { await walk.load() }
@@ -413,7 +422,7 @@ struct SureReviewView: View {
     private let labeler: LabelingClient.LabelerSummary?
     /// This page's crops, cut out once when it loads.
     @State private var patches: [AnnotationReview.Item: CropPatch] = [:]
-    /// What you tapped each frame to — Fix (to Review, one at a time) or
+    /// What you tapped each frame to — Fix (to Fix boxes, one at a time) or
     /// Not sure; checking a labeler, one tap: wrong. Untouched: approved.
     @State private var calls: [AnnotationReview.Item: QuickSortView.Call] = [:]
     @State private var approved = 0
@@ -474,7 +483,7 @@ struct SureReviewView: View {
             if let verdictFailure {
                 Text(verdictFailure).font(.caption).foregroundStyle(.red)
             }
-            Text(labeler == nil ? "Leave the ones on the ball · tap: Fix (to Review) → Not sure · hold: hide the stretch"
+            Text(labeler == nil ? "Leave the ones on the ball · tap: Fix (to Fix boxes) → Not sure · hold: hide the stretch"
                                 : "Tap any label that's wrong · it goes to your Not sure")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
@@ -589,7 +598,7 @@ struct SureReviewView: View {
     }
 
     /// Sure frames: the page's boxes approved as they are (squared like a
-    /// crop approved untouched); Fix sent to Review, Not sure set aside. A
+    /// crop approved untouched); Fix sent to Fix boxes, Not sure set aside. A
     /// labeler's: their labels kept as they are, checked right, or wrong.
     private func approvePage() {
         guard !walk.page.isEmpty else { return }
@@ -639,7 +648,7 @@ struct SureReviewView: View {
 /// Review a page at a time: the frames to check as crops, 3 × 3. Leave the
 /// ones on the ball; tap the others through what they are — Hidden first
 /// (the usual case: the box is on something else and the ball is gone),
-/// then Fix (the box is a little off: left for Review, one at a time), then
+/// then Fix (the box is a little off: left for Fix boxes, one at a time), then
 /// Not sure. Done approves the rest as they are; Back takes the page back.
 /// When the box has latched onto another ball for a stretch, hold a frame:
 /// Hide the stretch marks the whole run hidden at once, past this page too.
@@ -712,7 +721,7 @@ struct QuickSortView: View {
                         ContentUnavailableView("Can't show these frames", systemImage: "exclamationmark.triangle", description: Text(failure))
                     } else if walk.item == nil {
                         ContentUnavailableView("All frames sorted", systemImage: "checkmark.seal.fill",
-                                               description: Text("\(approved) approved this time. Ones marked Fix are in Review."))
+                                               description: Text("\(approved) approved this time. Ones marked Fix are in Fix boxes."))
                     } else {
                         ProgressView()
                     }
@@ -819,7 +828,7 @@ struct QuickSortView: View {
     }
 
     /// The page decided: untouched boxes approved as they are (squared like a
-    /// crop approved untouched), Hidden and Not sure set, Fix left for Review.
+    /// crop approved untouched), Hidden and Not sure set, Fix left for Fix boxes.
     private func donePage() {
         guard !walk.page.isEmpty else { return }
         let sizes = Dictionary(uniqueKeysWithValues: walk.page.map { ($0.item, CGSize(width: $0.image.width, height: $0.image.height)) })

@@ -35,6 +35,10 @@ enum AnnotationReview {
     enum Kind {
         /// A ball with a box: checked on a crop.
         case crop
+        /// Marked Fix on a page (Quick sort, Sure frames): the box is a
+        /// little off. Its own queue, so the ones you flagged are found
+        /// together, fixed on a crop.
+        case fix
         /// Lost by the model (or said "no ball" on its crop, in older builds): the ball is found on the whole frame.
         case noBall
         /// Set aside as not sure.
@@ -122,7 +126,9 @@ enum AnnotationReview {
         guard !point.isChecked else { return nil }
         if point.unsure { return .unsure }
         switch point.state {
-        case .visible: return point.box == nil ? nil : .crop
+        case .visible:
+            guard let box = point.box else { return nil }
+            return point.origin == .filled && box.confidence > 0 ? .fix : .crop
         case .hidden: return nil
         case .unknown: return point.origin == .user ? .noBall : nil
         }
@@ -242,10 +248,11 @@ enum AnnotationReview {
         point.reviewed = false
     }
 
-    /// The box is a little off: to Review, one at a time, to fix. Taken out
-    /// of the model's sure frames (MachineLabels wants its own pick, `auto`)
-    /// by marking it as drawn rather than picked; its confidence stays, so
-    /// it isn't shown as a guess. A re-solve makes it the model's again.
+    /// The box is a little off: to Fix boxes (`Kind.fix`), one at a time, to
+    /// fix. Taken out of the model's sure frames (MachineLabels wants its
+    /// own pick, `auto`) by marking it as drawn rather than picked; its
+    /// confidence stays, which is what tells a Fix from an interpolated
+    /// guess (confidence 0). A re-solve makes it the model's again.
     static func sendToReview(_ point: inout TrackPoint) {
         point.origin = .filled
         point.reviewed = false

@@ -45,7 +45,7 @@ struct VideoDetailView: View {
                             Text("\(RallyTimesView.clock(t.start)) – \(RallyTimesView.clock(t.end))").font(.callout.monospacedDigit())
                             Spacer()
                             if t.isMachine {
-                                let review = AnnotationReview.items([(video.name, t.rally)], kinds: [.crop, .noBall, .unsure]).count
+                                let review = AnnotationReview.items([(video.name, t.rally)], kinds: [.crop, .fix, .noBall, .unsure]).count
                                 Text("pre-tracked · \(review) to review").font(.caption).foregroundStyle(.teal)
                             } else if t.done {
                                 Text("\(t.labeledFrames) frames").font(.caption).foregroundStyle(.secondary)
