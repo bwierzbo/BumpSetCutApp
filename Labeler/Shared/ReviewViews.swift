@@ -11,7 +11,9 @@
 //     play/pause, ⌫ back.
 //   · Review — every ball's box in finished rallies, in order, as a crop:
 //     the box fixed in the middle (drag the picture to put the ball's centre
-//     under it, pinch to size it, tap to approve and go on). Hidden: the
+//     under it, pinch to size it, tap to approve and go on; on the Mac a
+//     click centres the ball where you clicked and Space or Return
+//     approves). Hidden: the
 //     ball can't be seen here — covered, or off screen (its place is worked
 //     out from the frames either side, so don't guess a box). Hidden frames
 //     aren't shown: they count as checked. Not sure (the box is on
@@ -113,11 +115,11 @@ struct ReviewHomeView: View {
                 }
                 .buttonStyle(.plain).disabled(frames == 0)
                 NavigationLink { CropReviewView(store: store, kind: .fix) } label: {
-                    card("Fix boxes", "\(fixes.formatted()) you marked Fix on a page · drag to centre, pinch to size, tap to approve", "arrow.up.left.and.down.right.magnifyingglass", fixes)
+                    card("Fix boxes", "\(fixes.formatted()) you marked Fix on a page · \(Self.cropHow)", "arrow.up.left.and.down.right.magnifyingglass", fixes)
                 }
                 .buttonStyle(.plain).disabled(fixes == 0)
                 NavigationLink { CropReviewView(store: store) } label: {
-                    card("Review", "\(frames.formatted()) frames to check · drag to centre, pinch to size, tap to approve", "viewfinder", frames)
+                    card("Review", "\(frames.formatted()) frames to check · \(Self.cropHow)", "viewfinder", frames)
                 }
                 .buttonStyle(.plain).disabled(frames == 0)
                 NavigationLink { OffTopReviewView(store: store) } label: {
@@ -208,6 +210,13 @@ struct ReviewHomeView: View {
         .contentShape(RoundedRectangle(cornerRadius: 16))
     }
 
+    /// How a crop is worked on this device (Review and Fix boxes cards).
+    #if os(macOS)
+    private static let cropHow = "click the ball to centre, pinch to size, Space to approve"
+    #else
+    private static let cropHow = "drag to centre, pinch to size, tap to approve"
+    #endif
+
     private func card(_ title: String, _ detail: String, _ icon: String, _ count: Int) -> some View {
         HStack(spacing: 14) {
             Image(systemName: icon).font(.title).foregroundStyle(count > 0 ? Color.accentColor : .secondary).frame(width: 40)
@@ -274,7 +283,10 @@ struct CropReviewView: View {
                         CropCanvas(patch: patch, box: box, offset: offset, scale: scale)
                             .contentShape(Rectangle())
                             // One gesture from the first touch: moving drags the picture
-                            // at once; lifting without moving (and no pinch) approves.
+                            // at once. Lifting without moving (and no pinch): on the Mac a
+                            // click puts the ball's centre where you clicked, as a click
+                            // does on the labelling canvas (Space or Return approves); on
+                            // the phone a tap approves.
                             .gesture(DragGesture(minimumDistance: 0)
                                 .onChanged { d in
                                     let base = dragBase ?? offset
@@ -283,13 +295,21 @@ struct CropReviewView: View {
                                     // The picture follows the finger: the ball's centre moves the other way.
                                     offset = CGSize(width: base.width - d.translation.width / k, height: base.height - d.translation.height / k)
                                 }
-                                .onEnded { _ in
+                                .onEnded { d in
                                     let tap = moved < 6 && !pinched
                                     if tap, let base = dragBase { offset = base }
                                     dragBase = nil
                                     moved = 0
                                     pinched = false
-                                    if tap { approve(box, image: image) }
+                                    guard tap else { return }
+                                    #if os(macOS)
+                                    // The clicked point is (location − middle) / k image
+                                    // pixels from the ball's centre; make it the centre.
+                                    offset = CGSize(width: offset.width + (d.location.x - side / 2) / k,
+                                                    height: offset.height + (d.location.y - side / 2) / k)
+                                    #else
+                                    approve(box, image: image)
+                                    #endif
                                 })
                             .simultaneousGesture(MagnifyGesture()
                                 .onChanged { m in
@@ -349,8 +369,13 @@ struct CropReviewView: View {
 
     private var controls: some View {
         VStack(spacing: 8) {
+            #if os(macOS)
+            Text("Click the ball to centre it · scroll to nudge · pinch or [ ] to size · Space or Return to approve · covered or off screen: Hidden · box on something else: Not sure")
+                .font(.caption).foregroundStyle(.secondary)
+            #else
             Text("Drag to centre the ball · pinch to size · tap to approve · covered or off screen: Hidden · box on something else: Not sure")
                 .font(.caption).foregroundStyle(.secondary)
+            #endif
             HStack(spacing: 10) {
                 Button { Task { reset(); await walk.back() } } label: {
                     Label("Back", systemImage: "arrow.uturn.backward").frame(maxWidth: .infinity)
