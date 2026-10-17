@@ -365,7 +365,10 @@ class Windows(torch.utils.data.Dataset):
         if self.train:
             if random.random() < 0.5:
                 clip = clip[:, :, ::-1]
-                per_frame = [None if f is None else [(W - 1 - x, y, r, k) for x, y, r, k in f] for f in per_frame]
+                # Continuous pixel coordinates (a ball at x lies in column
+                # floor(x)): mirrored, column i becomes W − 1 − i, so x becomes
+                # W − x. (W − 1 − x put flipped targets a pixel off.)
+                per_frame = [None if f is None else [(W - x, y, r, k) for x, y, r, k in f] for f in per_frame]
             if random.random() < 0.2:  # a ball's flight played backwards is still a ball's flight
                 clip = clip[::-1]
                 per_frame = per_frame[::-1]
@@ -616,6 +619,17 @@ def main() -> None:
     root = unpack(args.package)
     vballnet_source()
     from model.vballnet_v4c import VballNetV4c
+
+    def forward_fp32_heads(self, imgs_input):
+        """The author's forward with the heads in float32 even under autocast:
+        a float16 sigmoid saturates to exactly 1 above ~0.9995, and the loss's
+        clamp then has no gradient left for a confident miss or a confident
+        false peak. A no-op for export (float32 throughout)."""
+        features = self._features(imgs_input)
+        heat = torch.sigmoid(self.out_conv(features).float())
+        log_radius = self.radius_conv(features).float().clamp(self.min_log_radius, self.max_log_radius)
+        return torch.cat((heat, log_radius.exp()), dim=1)
+    VballNetV4c.forward = forward_fp32_heads
 
     size = SIZES[args.size]
     batch = args.batch or {512: 16, 768: 8}.get(args.size, 4)
