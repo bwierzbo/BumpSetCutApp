@@ -370,6 +370,7 @@ private struct MultiFrameBox: View {
                     }
                 }
                 desktopRow
+                testSetRow
                 if let r = lab.result { results(r) }
                 if !lab.status.isEmpty {
                     Text(lab.status).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
@@ -405,6 +406,65 @@ private struct MultiFrameBox: View {
                 Text(lab.desktopLine).font(.caption.monospaced()).lineLimit(2).foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// Score models on the test set (TestSetScore) and show the leaderboard.
+    private var testSetRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Divider()
+            HStack {
+                Menu {
+                    if let m = lab.selected {
+                        Button("\(m.name) only") { score([m]) }
+                    }
+                    Button("Every model (\(lab.models.count))") { score(lab.models) }
+                } label: { Label("Score on Test Set", systemImage: "list.number") }
+                .fixedSize()
+                .disabled(lab.isScoring || lab.testSets.isEmpty || lab.models.isEmpty)
+                .help("Peak within 4 px of a ball at 512 wide on the val clips' checked frames, as training scores; a few minutes a model, kept so it isn't repeated")
+                if lab.isScoring { ProgressView().controlSize(.small) }
+                if let page = lab.comparisonPage {
+                    Button("Open Comparison Page") { NSWorkspace.shared.open(page) }.buttonStyle(.link).font(.caption)
+                }
+            }
+            if let export = lab.testSets.first {
+                Text("Test set: \(export.lastPathComponent)").font(.caption2).foregroundStyle(.secondary)
+            } else {
+                Text("No test set yet — export one: Package → val only.").font(.caption2).foregroundStyle(.secondary)
+            }
+            if !lab.scoringLine.isEmpty {
+                Text(lab.scoringLine).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            if let board = lab.leaderboard { leaderboard(board) }
+        }
+    }
+
+    private func leaderboard(_ s: TestSetScore.Scores) -> some View {
+        let rows = s.models.enumerated().sorted { $0.element.f1 > $1.element.f1 }
+        return Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
+            GridRow {
+                Text("Model").gridColumnAlignment(.leading)
+                Text("F1 (range)"); Text("Beach"); Text("Grass"); Text("Indoor"); Text("ms")
+            }
+            .font(.caption2).foregroundStyle(.secondary)
+            ForEach(rows, id: \.offset) { row in
+                let r = row.element
+                GridRow {
+                    Text(r.name).lineLimit(1).truncationMode(.middle)
+                    Text(String(format: "%.3f  [%.3f–%.3f]", r.f1, r.lo, r.hi))
+                    Text(String(format: "%.3f", r.beach.f1))
+                    Text(String(format: "%.3f", r.grass.f1))
+                    Text(String(format: "%.3f", r.indoor.f1))
+                    Text(String(format: "%.0f", s.ms[row.offset]))
+                }
+                .font(.caption.monospacedDigit())
+            }
+        }
+    }
+
+    private func score(_ models: [HeatModelEntry]) {
+        guard let export = lab.testSets.first else { return }
+        Task { await lab.scoreTestSet(models: models, export: export) { _ in } }
     }
 
     private func results(_ r: HeatEvaluation.Result) -> some View {

@@ -3,9 +3,13 @@
 #
 #   scripts/desktop_training/desktop.sh train [package] [--size 512|768|1024] [--from-scratch] [--color] [--epochs N] [--name NAME]
 #                                              [--aug] [--occluded] [--qfl] [--mine] [--pseudo] [--seed N]
+#                                              [--batch N] [--lr X] [--workers N] [--resume]
 #       send the package (default: the newest multi-frame export) and the
 #       current trainer, start training detached, return right away
-#   scripts/desktop_training/desktop.sh status        what's running, the last lines of the log, GPU use
+#   scripts/desktop_training/desktop.sh queue [same as train]
+#       the same, but the run waits its turn: jobs run one after another
+#       (queue_runner.ps1 on the desktop), after any training already on the GPU
+#   scripts/desktop_training/desktop.sh status        what's running, the queue, the last lines of the log, GPU use
 #   scripts/desktop_training/desktop.sh wait NAME     follow the log until the run finishes
 #   scripts/desktop_training/desktop.sh fetch NAME [--no-score]
 #       bring back bring_back/NAME, add it to RallyLab and score it (RallyLab's
@@ -35,15 +39,17 @@ newest_package() {
     ls -td $EXPORTS/*-multiframe-*.zip(N) 2>/dev/null | head -1
 }
 
-cmd_train() {
+# The train/queue arguments → T_package T_zip T_name T_args (the trainer's
+# arguments after the package, --name apart).
+parse_train() {
     local package="" size=512 epochs=60 name="" scratch="" color="" opts=()
     while (( $# )); do
         case $1 in
             --size) size=$2; shift 2 ;;
             --from-scratch) scratch=--from-scratch; shift ;;
             --color) color=--color; shift ;;
-            --aug|--occluded|--qfl|--mine|--pseudo) opts+=($1); shift ;;
-            --seed) opts+=(--seed $2); shift 2 ;;
+            --aug|--occluded|--qfl|--mine|--pseudo|--resume) opts+=($1); shift ;;
+            --seed|--batch|--lr|--workers) opts+=($1 $2); shift 2 ;;
             --epochs) epochs=$2; shift 2 ;;
             --name) name=$2; shift 2 ;;
             *) package=$1; shift ;;
@@ -51,36 +57,68 @@ cmd_train() {
     done
     [[ -n $package ]] || package=$(newest_package)
     [[ -f $package ]] || die "No multi-frame package zip (export one in RallyLab's Models tab)."
-    local zip=${package:t} stem=${package:t:r}
+    local stem=${package:t:r}
     [[ -n $name ]] || name="heat_${stem##*-multiframe-}_${size}${scratch:+_scratch}${color:+_color}"
+    T_package=$package; T_zip=${package:t}; T_name=$name
+    T_args="--size $size --epochs $epochs $scratch $color ${opts[*]}"
+    T_summary="${size}, ${epochs} epochs${scratch:+, from scratch}${color:+, colour}${opts:+, ${opts[*]}}"
+}
 
-    say "Package: $zip  →  run \"$name\" (${size}, ${epochs} epochs${scratch:+, from scratch})"
+# The package and the current trainer on the desktop (the package only once).
+send_package() {
+    local zip=$T_zip stem=${T_package:t:r}
     if remote "if (Test-Path '$REMOTE\\$zip') { 'yes' } else { 'no' }" | grep -q yes; then
         say "Already on the desktop."
     else
         say "Freeing space: removing older packages on the desktop…"
         remote "Get-ChildItem '$REMOTE' -Filter '*-multiframe-*.zip' | Where-Object Name -ne '$zip' | Remove-Item -Force;
                 Get-ChildItem '$REMOTE\\prepared' -Directory -Filter '*-multiframe-*' -ErrorAction SilentlyContinue | Where-Object Name -ne '$stem' | Remove-Item -Recurse -Force"
-        say "Sending $(du -h $package | cut -f1) over the network…"
-        scp -o BatchMode=yes -o LogLevel=ERROR $package "$HOST:C:/BallTraining/$zip"
+        say "Sending $(du -h $T_package | cut -f1) over the network…"
+        scp -o BatchMode=yes -o LogLevel=ERROR $T_package "$HOST:C:/BallTraining/$zip"
     fi
     scp -o BatchMode=yes -o LogLevel=ERROR $HERE/train_heatmap_model.py "$HOST:C:/BallTraining/train_heatmap_model.py"
-    remote "if (Test-Path '$REMOTE\\runs\\heatmap\\$name') { 'exists' }" | grep -q exists && die "Run \"$name\" already exists on the desktop — pass --name."
+    scp -o BatchMode=yes -o LogLevel=ERROR $HERE/queue_runner.ps1 "$HOST:C:/BallTraining/queue_runner.ps1"
+    remote "if (Test-Path '$REMOTE\\runs\\heatmap\\$T_name') { 'exists' }" | grep -q exists && die "Run \"$T_name\" already exists on the desktop — pass --name."
+}
 
+cmd_train() {
+    local T_package T_zip T_name T_args T_summary
+    parse_train "$@"
+    say "Package: $T_zip  →  run \"$T_name\" ($T_summary)"
+    send_package
     # Started through WMI so it isn't tied to this SSH session: it keeps
     # training after we disconnect (and survives the Mac going to sleep).
-    local log="$REMOTE\\$name.log"
-    remote "\$cmd = 'cmd /c cd /d $REMOTE && set PYTHONUNBUFFERED=1 && \"$PY\" train_heatmap_model.py $zip --size $size --epochs $epochs --name $name $scratch $color ${opts[*]} > \"$log\" 2>&1';
+    local log="$REMOTE\\$T_name.log"
+    remote "\$cmd = 'cmd /c cd /d $REMOTE && set PYTHONUNBUFFERED=1 && \"$PY\" train_heatmap_model.py $T_zip $T_args --name $T_name > \"$log\" 2>&1';
             \$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = \$cmd; CurrentDirectory = '$REMOTE' };
             if (\$r.ReturnValue -ne 0) { throw \"start failed: \$(\$r.ReturnValue)\" }; 'started pid ' + \$r.ProcessId"
-    say "Training on the desktop. Follow it with: $SCRIPT wait $name"
+    say "Training on the desktop. Follow it with: $SCRIPT wait $T_name"
+}
+
+# Queue the run: a line for queue_runner.ps1, which is started if it isn't up.
+cmd_queue() {
+    local T_package T_zip T_name T_args T_summary
+    parse_train "$@"
+    say "Package: $T_zip  →  run \"$T_name\" ($T_summary), queued"
+    send_package
+    remote "Add-Content '$REMOTE\\queue.txt' '$T_name|$T_zip|$T_args';
+            \$up = Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | Where-Object { \$_.CommandLine -like '*-File*queue_runner.ps1*' -and \$_.ProcessId -ne \$PID };
+            if (\$up) { 'runner already up' } else {
+              \$cmd = 'cmd /c powershell -NoProfile -ExecutionPolicy Bypass -File $REMOTE\\queue_runner.ps1 > $REMOTE\\queue_runner.out 2>&1';
+              \$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = \$cmd; CurrentDirectory = '$REMOTE' };
+              if (\$r.ReturnValue -ne 0) { throw \"runner start failed: \$(\$r.ReturnValue)\" }; 'runner started pid ' + \$r.ProcessId }"
+    say "Queued. Follow it with: $SCRIPT wait $T_name   (the queue: $SCRIPT status)"
 }
 
 cmd_status() {
     remote "\$p = Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object CommandLine -like '*train_heatmap_model*';
-            if (\$p) { \$p | ForEach-Object { 'running: ' + (\$_.CommandLine -replace '.*train_heatmap_model.py ', '') } } else { 'no training running' };
+            if (\$p) { \$p | ForEach-Object { 'running: ' + (\$_.CommandLine -replace '.*train_heatmap_model.py ', '') } | Select-Object -Unique } else { 'no training running' };
+            \$q = if (Test-Path '$REMOTE\\queue.txt') { @(Get-Content '$REMOTE\\queue.txt' | Where-Object { \$_.Trim() -ne '' }) } else { @() };
+            \$up = Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | Where-Object { \$_.CommandLine -like '*-File*queue_runner.ps1*' -and \$_.ProcessId -ne \$PID };
+            'queue: ' + \$q.Count + ' waiting' + \$(if (\$up) { ' (runner up)' } else { '' });
+            \$q | ForEach-Object { '  ' + \$_ };
             nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader;
-            \$l = Get-ChildItem '$REMOTE\\heat_*.log' | Sort-Object LastWriteTime | Select-Object -Last 1;
+            \$l = Get-ChildItem '$REMOTE\\*.log' | Where-Object Name -notlike 'queue_runner*' | Sort-Object LastWriteTime | Select-Object -Last 1;
             if (\$l) { '--- ' + \$l.Name; Get-Content \$l.FullName -Tail 8 -Encoding UTF8 }"
 }
 
@@ -114,7 +152,8 @@ cmd_fetch() {
     [[ -x $RALLYLAB ]] || { say "RallyLab isn't built — add $INCOMING/$name in the Models tab."; return 0; }
     local backup=$(mktemp)
     defaults export app.BumpSetCut.RallyLab $backup
-    $RALLYLAB --project $PROJECT --add-heat $INCOMING/$name --evaluate-heat 2>&1 | grep -E "Saved|Scor|^  |❌" || true
+    $RALLYLAB --project $PROJECT --add-heat $INCOMING/$name 2>&1 | grep -E "Saved|❌" || true
+    $RALLYLAB --project $PROJECT --score-heat 2>&1 | grep -E "F1|frames|ms a window|❌" || true
     defaults import app.BumpSetCut.RallyLab $backup
     rm -f $backup
 }
@@ -129,9 +168,10 @@ cmd_run() {
 
 case ${1:-} in
     train) shift; cmd_train "$@" ;;
+    queue) shift; cmd_queue "$@" ;;
     status) cmd_status ;;
     wait) shift; cmd_wait "$@" ;;
     fetch) shift; cmd_fetch "$@" ;;
     run) shift; cmd_run "$@" ;;
-    *) sed -n '2,15p' $SCRIPT; exit 2 ;;
+    *) sed -n '2,19p' $SCRIPT; exit 2 ;;
 esac

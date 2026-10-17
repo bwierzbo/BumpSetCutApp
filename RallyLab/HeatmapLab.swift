@@ -75,6 +75,12 @@ final class HeatmapLab {
     private(set) var progress: String?
     private(set) var result: HeatEvaluation.Result?
 
+    /// Test sets — val-only exports — newest first; the leaderboard on the newest.
+    private(set) var testSets: [URL] = []
+    private(set) var leaderboard: TestSetScore.Scores?
+    private(set) var isScoring = false
+    private(set) var scoringLine = ""
+
     init(sampler: SamplerModel) {
         self.sampler = sampler
     }
@@ -101,6 +107,82 @@ final class HeatmapLab {
                 && fm.fileExists(atPath: $0.appendingPathComponent("windows.jsonl").path) }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
         if package.map({ !packages.contains($0) }) ?? true { package = packages.first }
+        testSets = packages.filter { $0.lastPathComponent.contains("-val-multiframe-") }
+        if let export = testSets.first,
+           let data = try? Data(contentsOf: scoresDir(for: export).appendingPathComponent("scores.json")) {
+            leaderboard = try? JSONDecoder().decode(TestSetScore.Scores.self, from: data)
+        }
+    }
+
+    private func scoresDir(for export: URL) -> URL {
+        sampler.datasetRoot.appendingPathComponent("scores", isDirectory: true)
+            .appendingPathComponent(export.lastPathComponent, isDirectory: true)
+    }
+
+    /// The comparison page of the newest test set's scores, when scored.
+    var comparisonPage: URL? {
+        guard let export = testSets.first else { return nil }
+        let page = scoresDir(for: export).appendingPathComponent("comparison.html")
+        return FileManager.default.fileExists(atPath: page.path) ? page : nil
+    }
+
+    /// Score `models` on the test set (TestSetScore): each model's peaks are
+    /// kept per export, so one already scored isn't run again; every model
+    /// scored on this export so far then goes into scores.json and the
+    /// comparison page. `log` gets the table.
+    @discardableResult
+    func scoreTestSet(models: [HeatModelEntry], export: URL, log: @escaping (String) -> Void) async -> Bool {
+        guard !isScoring else { return false }
+        isScoring = true
+        defer { isScoring = false }
+        let root = sampler.datasetRoot.appendingPathComponent("scores", isDirectory: true)
+        let jobs: [TestSetScore.Job]
+        do { jobs = try TestSetScore.jobs(export: export) } catch {
+            scoringLine = "Couldn't read \(export.lastPathComponent): \(error.localizedDescription)"
+            log("❌ " + scoringLine)
+            return false
+        }
+        scoringLine = "\(jobs.count) frames in \(export.lastPathComponent)"
+        log(scoringLine)
+        for model in models {
+            if TestSetScore.cached(model: model.name, export: export, scores: root) != nil {
+                log("  \(model.name): scored before")
+                continue
+            }
+            scoringLine = "\(model.name): 0/\(jobs.count)"
+            let line = LineCollector()
+            let url = model.url, name = model.name
+            let result = await Task.detached(priority: .userInitiated) {
+                TestSetScore.run(model: url, name: name, jobs: jobs, export: export) { n, total in
+                    line.append(["\(name): \(n)/\(total)"])
+                }
+            }.value
+            guard let result else { log("❌ \(model.name): couldn't load or run"); continue }
+            do { try TestSetScore.store(result, export: export, scores: root) } catch {
+                log("❌ \(model.name): couldn't keep its peaks: \(error.localizedDescription)")
+                continue
+            }
+            log(String(format: "  %@: %d frames, %.0f ms a window", model.name, result.items.count, result.ms))
+        }
+        // Everything scored on this export, newest model first (as the models list).
+        let results = self.models.compactMap { TestSetScore.cached(model: $0.name, export: export, scores: root) }
+        guard !results.isEmpty else { scoringLine = "Nothing scored."; return false }
+        scoringLine = "Comparing \(results.count) models…"
+        let scores = await Task.detached(priority: .userInitiated) { TestSetScore.score(results) }.value
+        let dir = scoresDir(for: export)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(scores).write(to: dir.appendingPathComponent("scores.json"), options: .atomic)
+            try TestSetScore.page(scores).write(to: dir.appendingPathComponent("comparison.html"), atomically: true, encoding: .utf8)
+        } catch {
+            log("❌ Couldn't write the scores: \(error.localizedDescription)")
+        }
+        if export == testSets.first { leaderboard = scores }
+        TestSetScore.lines(scores).forEach(log)
+        scoringLine = "Scored \(results.count) models on \(export.lastPathComponent)"
+        return true
     }
 
     /// A bring_back folder (or its best.pt) from train_heatmap_model.py,

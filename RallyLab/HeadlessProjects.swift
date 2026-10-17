@@ -23,6 +23,9 @@
 //             every rally of each processed video — as extra train cards, surface guessed; labelers' own
 //             footage left out; --posted also pulls rallies those people posted, a card per person per day.
 //             Signed in as for --sync-phone. Then --pretrack labels them)
+//    RallyLab --project v3 --add-extras <Indoor|Beach|Grass|auto> <file…>   (each file as its own extra card, the
+//             middle five minutes cut and sampled, as dropping it on the Import tab does; auto guesses the court
+//             from the frames)
 //    RallyLab --project v3 --move ind_ele_bright_land_self_01_v2 bch_ele_sun_land_self_01
 //    RallyLab --project v3 --status
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
@@ -46,6 +49,9 @@
 //    RallyLab --project v3 --pretrack-check [--heat M]     (how right "sure" frames are, against val rallies people tracked)
 //    RallyLab --project v3 --add-heat <bring_back folder>  (convert + add a multi-frame model)
 //    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
+//    RallyLab --project v3 --score-heat [model name…] [--export <val export>]   (score on the test set — the newest
+//             --val-only export unless given; all multi-frame models unless named — ranges, court splits, sweep,
+//             head to head; writes <project>/scores/<export>/{scores.json,comparison.html}; models scored before are kept)
 //    RallyLab --project v3 --render-heat <clip> <seconds>  (side-by-side video of a tracked rally)
 //    RallyLab --project v3 --pipeline-compare <multi-frame model> <clip>…   (pipeline YOLO vs YOLO+multi-frame)
 //    RallyLab --project v3 --compare-color <clip>…          (pipeline on raw frames vs standard-colour frames)
@@ -107,6 +113,16 @@ enum HeadlessProjects {
                 ok = await get(clipId: args[i + 1], source: args[i + 2], args: args, projects: projects)
             }
 
+            if ok, let i = args.firstIndex(of: "--add-extras") {
+                let files = args[(i + 2)...].prefix { !$0.hasPrefix("--") }
+                guard args.indices.contains(i + 1), !files.isEmpty else {
+                    log("usage: --add-extras <Indoor|Beach|Grass|auto> <file…>")
+                    exit(2)
+                }
+                ok = await addExtras(files.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) },
+                                     environment: args[i + 1], projects: projects)
+            }
+
             if ok, let i = args.firstIndex(of: "--move") {
                 guard args.indices.contains(i + 2) else {
                     log("usage: --move <video id> <to clip id>")
@@ -140,7 +156,7 @@ enum HeadlessProjects {
                 ok = report.failed == 0
             }
 
-            if args.contains("--status") || args.contains("--get") || args.contains("--move") || args.contains("--repull-all")
+            if args.contains("--status") || args.contains("--get") || args.contains("--add-extras") || args.contains("--move") || args.contains("--repull-all")
                 || args.contains("--pull-tester-footage") {
                 printStatus(projects)
             }
@@ -333,6 +349,7 @@ enum HeadlessProjects {
                 }
             }
             if ok, args.contains("--evaluate-heat") { ok = await evaluateHeat(library.heatmaps, args: args) }
+            if ok, args.contains("--score-heat") { ok = await scoreHeat(library.heatmaps, args: args) }
             if ok, let i = args.firstIndex(of: "--render-heat"), args.indices.contains(i + 2) {
                 let lab = library.heatmaps
                 lab.reload()
@@ -374,9 +391,15 @@ enum HeadlessProjects {
             return false
         }
         log("▸ \(videoId): \(projects.status)")
+        return await waitForVideo(videoId, projects: projects)
+    }
 
-        // Wait through cutting, then sampling.
+    /// Wait through a video's cutting, then sampling. The job may take a
+    /// moment to appear (a middle cut reads the duration first).
+    @MainActor
+    private static func waitForVideo(_ videoId: String, projects: ProjectsModel) async -> Bool {
         var last = ""
+        var notStarted = 0
         while true {
             try? await Task.sleep(nanoseconds: 500_000_000)
             let progress = projects.progress(ofVideo: videoId)
@@ -389,7 +412,8 @@ enum HeadlessProjects {
                 log("✅ \(videoId): \(frames) frames sampled into the dataset")
                 return true
             case .notStarted:
-                if projects.sampler.isIngesting || !projects.sampler.queue.isEmpty { continue }
+                notStarted += 1
+                if notStarted < 20 || projects.sampler.isIngesting || !projects.sampler.queue.isEmpty { continue }
                 log("❌ \(projects.status)")
                 return false
             }
@@ -398,6 +422,36 @@ enum HeadlessProjects {
                 last = line
             }
         }
+    }
+
+    /// Each file as its own extra card, the middle five minutes cut and
+    /// sampled as a drop on the Import tab does; `environment` is Indoor,
+    /// Beach, Grass, or auto to guess the court from the frames.
+    @MainActor
+    private static func addExtras(_ files: [URL], environment: String, projects: ProjectsModel) async -> Bool {
+        var allOK = true
+        for file in files {
+            guard FileManager.default.fileExists(atPath: file.path) else {
+                log("❌ No file \(file.path)")
+                allOK = false
+                continue
+            }
+            let env = environment.lowercased() == "auto" ? await TesterFootage.guessSurface([file]) : environment.capitalized
+            guard ["Indoor", "Beach", "Grass"].contains(env) else {
+                log("❌ The environment is Indoor, Beach, Grass or auto, not \(environment).")
+                return false
+            }
+            let before = Set(projects.project?.clips.map(\.id) ?? [])
+            projects.addExtras([file], environment: env)
+            guard let clipId = projects.project?.clips.map(\.id).first(where: { !before.contains($0) }) else {
+                log("❌ \(file.lastPathComponent): \(projects.status)")
+                allOK = false
+                continue
+            }
+            log("▸ \(clipId) (\(env)): \(file.lastPathComponent)")
+            if !(await waitForVideo(clipId, projects: projects)) { allOK = false }
+        }
+        return allOK
     }
 
     @MainActor
@@ -481,6 +535,24 @@ enum HeadlessProjects {
         log("  multi-frame by environment (tracked): " + r.byEnvironment.sorted { $0.key < $1.key }
             .map { String(format: "%@ %.1f%%/%.1f%%", $0.key, $0.value.recall * 100, $0.value.precision * 100) }.joined(separator: " · "))
         return true
+    }
+
+    @MainActor
+    private static func scoreHeat(_ lab: HeatmapLab, args: [String]) async -> Bool {
+        lab.reload()
+        guard let i = args.firstIndex(of: "--score-heat") else { return false }
+        let names = Array(args[(i + 1)...].prefix { !$0.hasPrefix("--") })
+        let models = names.isEmpty ? lab.models : lab.models.filter { names.contains($0.name) }
+        if let missing = names.first(where: { name in !lab.models.contains { $0.name == name } }) {
+            log("❌ No multi-frame model \(missing). Models: \(lab.models.map(\.name).joined(separator: ", "))")
+            return false
+        }
+        guard !models.isEmpty else { log("❌ No multi-frame models in this project."); return false }
+        guard let export = value(after: "--export", in: args).map({ URL(fileURLWithPath: $0) }) ?? lab.testSets.first else {
+            log("❌ No test set — export one: --package-multiframe --val-only")
+            return false
+        }
+        return await lab.scoreTestSet(models: models, export: export, log: log)
     }
 
     @MainActor

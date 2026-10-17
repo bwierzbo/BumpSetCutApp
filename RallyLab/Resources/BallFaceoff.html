@@ -1,0 +1,408 @@
+<title>Ball Detection Faceoff</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a scoreboard up top, then a contact sheet of zoomed frames, each one tap from the full picture. */
+:root {
+  --bg: #f3f5f4; --panel: #ffffff; --ink: #18211e; --muted: #5d6a65; --line: #d7ddda;
+  --m0: #0f8f7e; --m1: #2f6fd6; --m2: #c77700; --m3: #7b4fd1; --m4: #c4307a; --m5: #5b7a1a; --m6: #b03a2e; --m7: #0a6aa1; --m8: #8a6d00; --truth: #18211e;
+  --good: #1d7a45; --bad: #b3261e;
+  --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111614; --panel: #1a211e; --ink: #e6ece9; --muted: #95a39d; --line: #2c3632;
+  --m0: #38d1bb; --m1: #6fa8ff; --m2: #ffb340; --m3: #b794ff; --m4: #ff6fb1; --m5: #a9d44a; --m6: #ff7b6e; --m7: #4cc3ff; --m8: #e6c44a; --truth: #ffffff; --good: #5ad08a; --bad: #ff8a80; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #111614; --panel: #1a211e; --ink: #e6ece9; --muted: #95a39d; --line: #2c3632;
+  --m0: #38d1bb; --m1: #6fa8ff; --m2: #ffb340; --m3: #b794ff; --m4: #ff6fb1; --m5: #a9d44a; --m6: #ff7b6e; --m7: #4cc3ff; --m8: #e6c44a; --truth: #ffffff; --good: #5ad08a; --bad: #ff8a80; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.5 var(--body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 56px; display: grid; gap: 24px; }
+h1 { font: 700 clamp(28px, 5vw, 40px)/1.05 var(--display); margin: 0; letter-spacing: 0.01em; text-wrap: balance; }
+.lede { margin: 6px 0 0; color: var(--muted); max-width: 68ch; }
+.board { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-variant-numeric: tabular-nums; }
+th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 12px/1 var(--display); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+td.num { font: 500 20px/1 var(--display); }
+td.num small { display: block; font: 400 11px/1.4 var(--mono); color: var(--muted); margin-top: 4px; }
+td.num.best { color: var(--good); }
+.who { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.who span.note { font-weight: 400; color: var(--muted); font-size: 13px; }
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; }
+.group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.group > b { font: 600 12px/1 var(--display); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-right: 4px; }
+.chip { font: 500 14px/1 var(--body); padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.chip:focus-visible, .card:focus-visible { outline: 2px solid var(--m0); outline-offset: 2px; }
+.chip .count { font: 400 12px/1 var(--mono); opacity: 0.7; }
+.mk { width: 14px; height: 14px; flex: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; cursor: zoom-in; min-width: 0; }
+.card.full { grid-column: 1 / -1; cursor: zoom-out; }
+.card svg { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #000; }
+.meta { padding: 8px 10px 4px; display: flex; justify-content: space-between; gap: 8px; font: 400 12px/1.4 var(--mono); color: var(--muted); min-width: 0; }
+.meta .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.verdicts { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 4px; padding: 4px 10px 10px; }
+.v { display: flex; align-items: center; gap: 5px; font: 500 12px/1.2 var(--body); min-width: 0; }
+.v .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v.ok .t { color: var(--good); } .v.no .t { color: var(--bad); } .v.none .t { color: var(--muted); }
+.v.off { opacity: 0.3; }
+.outside { font: 400 11px/1 var(--mono); fill: #fff; }
+.empty { color: var(--muted); padding: 24px 0; }
+footer { color: var(--muted); font-size: 13px; max-width: 80ch; }
+h2 { font: 700 22px/1.1 var(--display); margin: 12px 0 0; letter-spacing: 0.01em; }
+.sub { color: var(--muted); margin: 4px 0 0; max-width: 72ch; font-size: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; }
+.panel svg.chart { display: block; width: 100%; height: auto; min-width: 520px; }
+.chart text { font: 400 11px var(--mono); fill: var(--muted); }
+.chart .lbl { font: 600 13px var(--body); fill: var(--ink); }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 16px; }
+table.small td, table.small th { padding: 7px 10px; font-size: 13px; }
+table.small td.n { font: 500 14px/1 var(--display); text-align: right; white-space: nowrap; }
+table.small th.n { text-align: right; }
+table.small td.best { color: var(--good); font-weight: 700; }
+table.small td.worst { color: var(--bad); }
+td.cell { text-align: center; font: 500 14px/1 var(--display); }
+.key { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); margin-top: 8px; }
+.key span { display: inline-flex; gap: 6px; align-items: center; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Ball Detection Faceoff</h1>
+    <p class="lede" id="lede"></p>
+  </header>
+
+  <div class="board"><table id="board"></table></div>
+
+  <section>
+    <h2>How sure is each score?</h2>
+    <p class="sub">The bar is the range the overall F1 lands in 90% of the time when the test videos with labelled balls are drawn again at random, so a model can get lucky or unlucky videos. Where two bars overlap a lot, the test can't tell those models apart.</p>
+  </section>
+  <div class="panel"><svg class="chart" id="ranges"></svg></div>
+
+  <div class="two">
+    <div>
+      <h2>Head to head</h2>
+      <p class="sub">How often the row model beats the column model over 2,000 redraws of those test videos. 95% or more is a real lead; around 50% is a coin flip.</p>
+      <div class="panel" style="margin-top:10px"><table class="small" id="beats"></table></div>
+    </div>
+    <div>
+      <h2>Confidence threshold</h2>
+      <p class="sub">F1 if the app kept peaks above a different confidence. The app uses 0.5 (the dashed line). A peak on the curve to the left would be found by lowering it.</p>
+      <div class="panel" style="margin-top:10px"><svg class="chart" id="sweep" style="min-width:360px"></svg><div class="key" id="sweepkey"></div></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>The details</h2>
+    <p class="sub" id="detailsub"></p>
+  </section>
+  <div class="panel"><table class="small" id="details"></table></div>
+
+  <section>
+    <h2>Video by video</h2>
+    <p class="sub">F1 on each test video at 0.5 confidence and 4 px. A model that wins overall can still lose whole videos.</p>
+  </section>
+  <div class="panel"><table class="small" id="clips"></table></div>
+
+  <section>
+    <h2>The frames</h2>
+    <p class="sub" id="gallerysub"></p>
+  </section>
+
+  <div class="controls">
+    <div class="group" id="kinds"><b>Show</b></div>
+    <div class="group" id="scenes"><b>Court</b></div>
+    <div class="group" id="models"><b>Models</b></div>
+  </div>
+  <div class="legend">
+    <span><svg class="mk" viewBox="-10 -10 20 20"><circle r="7" style="fill:none;stroke:var(--ink);stroke-width:2;stroke-dasharray:3 2"/></svg>Labelled ball</span>
+    <span><svg class="mk" viewBox="-10 -10 20 20"><circle r="7" style="fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:1 2"/></svg>Hidden ball (its place is a guess; a mark near it counts for nothing)</span>
+    <span>Solid mark: found the ball (within 4 px at 512×288)</span>
+    <span>Hollow mark: fired where there's no labelled ball</span>
+    <span>Tap a frame for the whole picture</span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const DATA = __DATA__;
+const MODELS = __MODELS__;
+const KINDS = [
+  { key: "disagree", label: "Models disagree" },
+  { key: "allmissed", label: "All missed" },
+  { key: "allfound", label: "All found" },
+];
+const SCENES = ["all", "beach", "grass", "indoor"];
+const W = 1024, H = 576;
+const state = { kind: "disagree", scene: "all", models: MODELS.map(() => true), full: new Set() };
+
+const S = DATA.scores;
+const COURTS = ["beach", "grass", "indoor"];
+const pct = x => (100 * x).toFixed(1) + "%";
+const col = i => `var(${MODELS[i].color})`;
+const cap = s => s[0].toUpperCase() + s.slice(1);
+
+function board() {
+  const cols = ["all", ...COURTS];
+  const f = (m, c) => c === "all" ? m : m[c];
+  const best = cols.map(c => Math.max(...S.models.map(m => f(m, c).f1)));
+  let h = "<tr><th>Model</th>" + cols.map(c => `<th>${c === "all" ? "Overall" : cap(c)}</th>`).join("") + "<th>Mac speed</th></tr>";
+  MODELS.forEach((m, i) => {
+    h += `<tr><td><div class="who">${marker(i, 14)}${m.name}<span class="note">${m.note}</span></div></td>`;
+    cols.forEach((c, k) => {
+      const t = f(S.models[i], c);
+      h += `<td class="num${t.f1 === best[k] ? " best" : ""}">${t.f1.toFixed(3)}<small>found ${t.tp}/${t.tp + t.fn} · ${t.fp} false</small></td>`;
+    });
+    h += `<td class="num">${Math.round(S.ms[i])} ms<small>per 9-frame window</small></td></tr>`;
+  });
+  document.getElementById("board").innerHTML = h;
+  document.getElementById("lede").textContent =
+    `All ${MODELS.length} multi-frame ball models, run on every labelled frame of the test set: ${S.labelled.toLocaleString()} frames, ` +
+    `${S.balls.toLocaleString()} balls, with the labels as you've checked them (${S.export}). No model trained on these videos. ` +
+    `The balls come from ${S.ballVideos} videos (${S.ballVideosByCourt}); the others in the test set only add dead time. ` +
+    `F1 balances finding the ball against firing where there isn't one; higher is better.`;
+  document.getElementById("foot").textContent =
+    `A mark finds the ball if it's within 4 pixels of it at 512×288 and is the nearest mark, the rule training scores with. ` +
+    `Each frame is run as the middle of 9 (or the 8th, at a tracked rally's end). The Mac speed is on this Mac's Neural Engine, not the phone.`;
+}
+
+function ranges() {
+  const lo = Math.min(...S.models.map(m => m.lo)) - 0.01, hi = Math.max(...S.models.map(m => m.hi)) + 0.01;
+  const W0 = 900, L = 200, R = 30, rowH = 34, top = 10, Hh = top + rowH * MODELS.length + 30;
+  const x = v => L + (v - lo) / (hi - lo) * (W0 - L - R);
+  let g = "";
+  for (let t = Math.ceil(lo * 50) / 50; t <= hi; t += 0.02) g += `<line x1="${x(t)}" x2="${x(t)}" y1="${top}" y2="${Hh - 26}" style="stroke:var(--line)"/><text x="${x(t)}" y="${Hh - 10}" text-anchor="middle">${t.toFixed(2)}</text>`;
+  S.models.forEach((m, i) => {
+    const y = top + rowH * i + rowH / 2;
+    g += `<text class="lbl" x="${L - 14}" y="${y + 4}" text-anchor="end">${MODELS[i].name}</text>` +
+      `<line x1="${x(m.lo)}" x2="${x(m.hi)}" y1="${y}" y2="${y}" style="stroke:${col(i)};stroke-width:6;stroke-linecap:round;opacity:0.45"/>` +
+      `<g transform="translate(${x(m.f1)},${y})">${shape(i, 0, 0, 7, true, col(i), 2)}</g>` +
+      `<text x="${x(m.hi) + 8}" y="${y + 4}">${m.f1.toFixed(3)}</text>`;
+  });
+  const svg = document.getElementById("ranges");
+  svg.setAttribute("viewBox", `0 0 ${W0} ${Hh}`); svg.innerHTML = g;
+}
+
+function beats() {
+  let h = "<tr><th>Beats →</th>" + MODELS.map((m, i) => `<th style="text-align:center">${marker(i, 14)}</th>`).join("") + "</tr>";
+  MODELS.forEach((m, a) => {
+    h += `<tr><td><div class="who">${marker(a, 12)}${m.name}</div></td>`;
+    MODELS.forEach((_, c) => {
+      if (a === c) { h += `<td class="cell" style="color:var(--muted)">—</td>`; return; }
+      const v = S.beats[a][c];
+      const tone = v >= 0.95 ? "var(--good)" : v <= 0.05 ? "var(--bad)" : "var(--muted)";
+      const bg = v >= 0.95 ? "color-mix(in srgb, var(--good) 16%, transparent)" : v <= 0.05 ? "color-mix(in srgb, var(--bad) 12%, transparent)" : "transparent";
+      h += `<td class="cell" style="color:${tone};background:${bg}">${Math.round(100 * v)}%</td>`;
+    });
+    h += "</tr>";
+  });
+  document.getElementById("beats").innerHTML = h;
+}
+
+function sweep() {
+  const ys = S.models.flatMap(m => m.sweep.map(s => s[2]));
+  const lo = Math.floor(Math.min(...ys) * 20) / 20, hi = Math.ceil(Math.max(...ys) * 20) / 20;
+  const W0 = 460, L = 40, R = 12, T = 10, B = 30, Hh = 260;
+  const x = t => L + (t - 0.1) / 0.8 * (W0 - L - R), y = v => T + (hi - v) / (hi - lo) * (Hh - T - B);
+  let g = "";
+  for (let v = lo; v <= hi + 1e-9; v += 0.05) g += `<line x1="${L}" x2="${W0 - R}" y1="${y(v)}" y2="${y(v)}" style="stroke:var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v.toFixed(2)}</text>`;
+  S.thresholds.forEach(t => g += `<text x="${x(t)}" y="${Hh - 10}" text-anchor="middle">${t.toFixed(1)}</text>`);
+  g += `<line x1="${x(0.5)}" x2="${x(0.5)}" y1="${T}" y2="${Hh - B}" style="stroke:var(--ink);stroke-dasharray:4 3;opacity:0.5"/>`;
+  S.models.forEach((m, i) => {
+    g += `<polyline points="${m.sweep.map((s, k) => `${x(S.thresholds[k])},${y(s[2])}`).join(" ")}" style="fill:none;stroke:${col(i)};stroke-width:2"/>`;
+    const k = m.sweep.reduce((b, s, j) => s[2] > m.sweep[b][2] ? j : b, 0);
+    g += `<g transform="translate(${x(S.thresholds[k])},${y(m.sweep[k][2])})">${shape(i, 0, 0, 5, true, col(i), 1.6)}<title>${MODELS[i].name}: best F1 ${m.sweep[k][2].toFixed(3)} at ${S.thresholds[k]}</title></g>`;
+  });
+  const svg = document.getElementById("sweep");
+  svg.setAttribute("viewBox", `0 0 ${W0} ${Hh}`); svg.innerHTML = g;
+  document.getElementById("sweepkey").innerHTML = MODELS.map((m, i) => {
+    const s = S.models[i].sweep, k = s.reduce((b, v, j) => v[2] > s[b][2] ? j : b, 0);
+    return `<span>${marker(i, 12)}best ${s[k][2].toFixed(3)} at ${S.thresholds[k]}</span>`;
+  }).join("");
+}
+
+function details() {
+  const sizes = ["small (<6 px)", "medium (6–10 px)", "large (10+ px)"];
+  const frac = ([a, b]) => b ? a / b : 0;
+  const rows = [
+    ["Precision (marks that are the ball)", m => m.p, pct, true],
+    ["Recall (balls found)", m => m.r, pct, true],
+    ["F1 if within 2 px", m => m.tau["2"], v => v.toFixed(3), true],
+    ["F1 if within 4 px (the rule)", m => m.tau["4"], v => v.toFixed(3), true],
+    ["F1 if within 8 px", m => m.tau["8"], v => v.toFixed(3), true],
+    ["Position error when found (median, px at 512)", m => m.err_median, v => v.toFixed(2), false],
+    ...sizes.map(s => [`Found: ${s.replace("(", "balls (").replace("<", "&lt;")}`, m => frac(m.size[s] || [0, 0]), pct, true, m => (m.size[s] || [0, 0])[1]]),
+    ["Hidden ball: a mark near where it must be", m => frac(m.occluded), pct, true, m => m.occluded[1]],
+    ["Rally on, no ball in frame: fires anyway", m => frac(m.empty), pct, false, m => m.empty[1]],
+    ["No rally on (dead time): fires", m => frac(m.deadfire), pct, false, m => m.deadfire[1]],
+    ["Mac time per window", (m, i) => S.ms[i], v => Math.round(v) + " ms", false],
+  ];
+  let h = "<tr><th>Measure</th>" + MODELS.map((m, i) => `<th class="n">${marker(i, 12)} ${m.name}</th>`).join("") + "</tr>";
+  rows.forEach(([label, get, fmt, high, n]) => {
+    const v = S.models.map((m, i) => get(m, i));
+    const best = high ? Math.max(...v) : Math.min(...v), worst = high ? Math.min(...v) : Math.max(...v);
+    h += `<tr><td>${label}${n ? ` <span style="color:var(--muted)">(${n(S.models[0]).toLocaleString()})</span>` : ""}</td>` +
+      v.map(x => `<td class="n${x === best ? " best" : x === worst ? " worst" : ""}">${fmt(x)}</td>`).join("") + "</tr>";
+  });
+  document.getElementById("details").innerHTML = h;
+  document.getElementById("detailsub").textContent =
+    `At the app's 0.5 confidence. Green is the best in each row, red the worst. Ball size is its labelled width at 512×288. ` +
+    `Dead time is ${S.dead} frames from between rallies, from videos with every rally marked; a ball can still be in them (tossed back, held), so it isn't all false.`;
+}
+
+function clips() {
+  let h = "<tr><th>Video</th><th>Court</th><th class=\"n\">Balls</th>" + MODELS.map((m, i) => `<th class="n">${marker(i, 12)}</th>`).join("") + "</tr>";
+  Object.entries(S.clips).sort((a, b) => a[1].scene.localeCompare(b[1].scene) || b[1].balls - a[1].balls).forEach(([c, v]) => {
+    const best = Math.max(...v.f1), worst = Math.min(...v.f1);
+    h += `<tr><td style="font-family:var(--mono);font-size:12px">${c}</td><td>${cap(v.scene)}</td><td class="n">${v.balls}</td>` +
+      v.f1.map(x => `<td class="n${x === best ? " best" : x === worst ? " worst" : ""}">${x.toFixed(3)}</td>`).join("") + "</tr>";
+  });
+  document.getElementById("clips").innerHTML = h;
+  const c = DATA.counts;
+  document.getElementById("gallerysub").textContent =
+    `${c.disagree.toLocaleString()} frames where the models don't all agree, ${c.allmissed} where they all miss and ${c.allfound.toLocaleString()} where they all find it. ` +
+    `Shown: 40 of the disagreements per court, 8 all-missed and 6 all-found, picked at random.`;
+}
+
+function marker(i, size) {
+  const c = `var(${MODELS[i].color})`;
+  return `<svg class="mk" style="width:${size}px;height:${size}px" viewBox="-10 -10 20 20">${shape(i, 0, 0, 7, true, c, 2)}</svg>`;
+}
+
+function shape(i, x, y, r, solid, color, sw) {
+  const st = `style="stroke:${color};stroke-width:${sw};fill:${solid ? color : "none"};fill-opacity:${solid ? 0.35 : 0}"`;
+  const s = MODELS[i].shape;
+  if (s === "circle") return `<circle cx="${x}" cy="${y}" r="${r}" ${st}/>`;
+  if (s === "square") return `<rect x="${x - r}" y="${y - r}" width="${2 * r}" height="${2 * r}" ${st}/>`;
+  if (s === "diamond") return `<polygon points="${x},${y - r * 1.3} ${x + r * 1.3},${y} ${x},${y + r * 1.3} ${x - r * 1.3},${y}" ${st}/>`;
+  if (s === "cross" || s === "plus") {
+    const a = s === "cross" ? Math.PI / 4 : 0, w = r * 0.45, L = r * 1.3;
+    const bar = (rot) => `<rect x="${-L}" y="${-w}" width="${2 * L}" height="${2 * w}" transform="rotate(${rot})"/>`;
+    return `<g transform="translate(${x},${y}) rotate(${a * 180 / Math.PI})" ${st}>${bar(0)}${bar(90)}</g>`;
+  }
+  if (s === "star") {
+    const pts = Array.from({ length: 10 }, (_, j) => { const a = -Math.PI / 2 + j * Math.PI / 5, rr = j % 2 ? r * 0.6 : r * 1.4; return `${x + rr * Math.cos(a)},${y + rr * Math.sin(a)}`; }).join(" ");
+    return `<polygon points="${pts}" ${st}/>`;
+  }
+  const k = s === "triangle" ? 3 : s === "hexagon" ? 6 : 5;
+  const pts = Array.from({ length: k }, (_, j) => { const a = -Math.PI / 2 + j * 2 * Math.PI / k; return `${x + r * 1.2 * Math.cos(a)},${y + r * 1.2 * Math.sin(a)}`; }).join(" ");
+  return `<polygon points="${pts}" ${st}/>`;
+}
+
+function centre(it) {
+  if (it.balls.length) return [it.balls[0][0] * W, it.balls[0][1] * H];
+  let best = null;
+  it.models.forEach(m => m.peaks.forEach(p => { if (!best || p[2] > best[2]) best = p; }));
+  return best ? [best[0] * W, best[1] * H] : [W / 2, H / 2];
+}
+
+function frameSVG(it, idx) {
+  const full = state.full.has(idx);
+  const vw = full ? W : 240, vh = vw * 9 / 16;
+  const [cx, cy] = centre(it);
+  const x0 = full ? 0 : Math.min(Math.max(cx - vw / 2, 0), W - vw);
+  const y0 = full ? 0 : Math.min(Math.max(cy - vh / 2, 0), H - vh);
+  const u = vw / 240;   // marker sizes stay the same on screen in both views
+  const inView = (x, y) => x >= x0 && x <= x0 + vw && y >= y0 && y <= y0 + vh;
+  let g = `<image href="${it.img}" x="0" y="0" width="${W}" height="${H}"/>`;
+  if (it.occluded) {
+    const b = it.occluded, r = Math.max(b[2] * W, b[3] * H) / 2 + 3 * u;
+    g += `<circle cx="${b[0] * W}" cy="${b[1] * H}" r="${r}" style="fill:none;stroke:#fff;stroke-opacity:0.7;stroke-width:${1.2 * u};stroke-dasharray:${1 * u} ${2 * u}"><title>Hidden ball (its place is a guess)</title></circle>`;
+  }
+  it.balls.forEach(b => {
+    const r = Math.max(b[2] * W, b[3] * H) / 2 + 3 * u;
+    g += `<circle cx="${b[0] * W}" cy="${b[1] * H}" r="${r}" style="fill:none;stroke:#000;stroke-opacity:0.6;stroke-width:${2.4 * u}"/>` +
+      `<circle cx="${b[0] * W}" cy="${b[1] * H}" r="${r}" style="fill:none;stroke:#fff;stroke-width:${1.2 * u};stroke-dasharray:${3 * u} ${2 * u}"><title>Labelled ball</title></circle>`;
+  });
+  let outside = 0;
+  const radii = MODELS.map((_, i) => 4.5 + 1.5 * i);
+  it.models.forEach((m, i) => {
+    if (!state.models[i]) return;
+    m.peaks.forEach(p => {
+      const x = p[0] * W, y = p[1] * H;
+      if (!inView(x, y)) { outside++; return; }
+      g += `<g>${shape(i, x, y, radii[i] * u, p[3], `var(${MODELS[i].color})`, 1.6 * u)}<title>${MODELS[i].name}: confidence ${p[2].toFixed(2)}${p[3] ? ", found the ball" : ", no ball here"}</title></g>`;
+    });
+  });
+  if (outside) g += `<text class="outside" x="${x0 + 6 * u}" y="${y0 + vh - 6 * u}" font-size="${10 * u}">${outside} more mark${outside > 1 ? "s" : ""} outside this view</text>`;
+  return `<svg viewBox="${x0} ${y0} ${vw} ${vh}" role="img" aria-label="${it.clip} at ${it.time} s">${g}</svg>`;
+}
+
+function verdict(it, i) {
+  const m = it.models[i], found = m.hit.filter(Boolean).length, n = m.hit.length;
+  let cls, text;
+  if (n === 0) { cls = m.fp ? "no" : "none"; text = m.fp ? `${m.fp} false` : "quiet"; }
+  else if (found === n) { cls = "ok"; text = n > 1 ? `found ${found}/${n}` : "found"; }
+  else { cls = "no"; text = n > 1 ? `found ${found}/${n}` : "missed"; }
+  if (n && m.fp) text += ` +${m.fp} false`;
+  return `<div class="v ${cls}${state.models[i] ? "" : " off"}">${marker(i, 12)}<span class="t">${text}</span></div>`;
+}
+
+function render() {
+  const list = DATA.items.map((it, i) => [it, i]).filter(([it]) => it.kind === state.kind && (state.scene === "all" || it.scene === state.scene));
+  const grid = document.getElementById("grid");
+  if (!list.length) { grid.innerHTML = `<p class="empty">No frames here. Try another court.</p>`; return; }
+  grid.innerHTML = list.map(([it, i]) => `
+    <article class="card${state.full.has(i) ? " full" : ""}" tabindex="0" data-i="${i}" aria-label="${it.scene}, ${it.clip}, ${it.time} seconds">
+      ${frameSVG(it, i)}
+      <div class="meta"><span class="clip">${it.clip}</span><span>${it.time.toFixed(2)} s</span></div>
+      <div class="verdicts">${MODELS.map((_, m) => verdict(it, m)).join("")}</div>
+    </article>`).join("");
+}
+
+function chips() {
+  const kinds = document.getElementById("kinds");
+  KINDS.forEach(k => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.id = "kind-" + k.key;
+    b.innerHTML = `${k.label}<span class="count">${DATA.items.filter(it => it.kind === k.key).length}</span>`;
+    b.onclick = () => { state.kind = k.key; sync(); };
+    kinds.appendChild(b);
+  });
+  const scenes = document.getElementById("scenes");
+  SCENES.forEach(s => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.id = "scene-" + s; b.textContent = s === "all" ? "All" : s[0].toUpperCase() + s.slice(1);
+    b.onclick = () => { state.scene = s; sync(); };
+    scenes.appendChild(b);
+  });
+  const models = document.getElementById("models");
+  MODELS.forEach((m, i) => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.id = "model-" + i; b.innerHTML = marker(i, 14) + m.name;
+    b.onclick = () => { state.models[i] = !state.models[i]; sync(); };
+    models.appendChild(b);
+  });
+}
+
+function sync() {
+  KINDS.forEach(k => document.getElementById("kind-" + k.key).setAttribute("aria-pressed", state.kind === k.key));
+  SCENES.forEach(s => document.getElementById("scene-" + s).setAttribute("aria-pressed", state.scene === s));
+  MODELS.forEach((m, i) => document.getElementById("model-" + i).setAttribute("aria-pressed", state.models[i]));
+  render();
+}
+
+function toggle(card) {
+  const i = +card.dataset.i;
+  state.full.has(i) ? state.full.delete(i) : state.full.add(i);
+  render();
+  document.querySelector(`.card[data-i="${i}"]`)?.focus({ preventScroll: true });
+}
+document.getElementById("grid").addEventListener("click", e => { const c = e.target.closest(".card"); if (c) toggle(c); });
+document.getElementById("grid").addEventListener("keydown", e => {
+  const c = e.target.closest(".card");
+  if (c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(c); }
+});
+
+board(); ranges(); beats(); sweep(); details(); clips(); chips(); sync();
+</script>
