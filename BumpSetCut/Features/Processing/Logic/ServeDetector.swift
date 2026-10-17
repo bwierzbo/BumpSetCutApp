@@ -55,8 +55,13 @@ struct ServeDetector {
     var minSizeRatio = 1.3
     /// …at this rate or faster (log size a second)…
     var minLogRate = 0.3
-    /// …steadily: this share of steps the same way (smoothed).
-    var minMonotonicity = 0.75
+    /// …steadily: a straight-line fit of log size on time explains this
+    /// share of its variance (r²). Detected box sizes jitter frame to
+    /// frame, so a step-by-step test fails balls that clearly double.
+    var minFit = 0.6
+    /// The fit spans at most this long from contact (a serve reaches the
+    /// net well within it; longer spans blend in the pass).
+    var maxSpan = 1.2
     /// Sizes are smoothed over this many detections (a running median).
     var smoothing = 5
     /// A gap longer than this ends the ball's track (and the serve).
@@ -79,7 +84,7 @@ struct ServeDetector {
     /// Contact is looked for this far before and after where the rally was
     /// decided to start (the decision comes about as the serve flies; a ball
     /// thrown back to the server just before also flies like one).
-    var before = 1.2, after = 1.5
+    var before = 3.0, after = 3.0
 
     /// The rally's serve: of the flights with contact around `rallyStart`
     /// (the decided start, before padding), the nearest — among `frames`
@@ -144,15 +149,23 @@ struct ServeDetector {
     }
 
     /// A flight starting at `i`, if one does: the size changing steadily
-    /// from there by `minSizeRatio` at `minLogRate` or faster.
+    /// from there by `minSizeRatio` at `minLogRate` or faster — the longest
+    /// span up to `maxSpan` whose straight-line fit of log size on time
+    /// says so and fits (`minFit`).
     private func flight(_ track: [Ball], _ logs: [Double], at i: Int) -> Serve? {
         var approaching: Bool?
-        var sameWaySteps = 0
-        for j in (i + 1)..<max(i + 1, track.count) {
-            let change = logs[j] - logs[i], span = track[j].t - track[i].t
-            if (logs[j] - logs[j - 1]) * change > 0 { sameWaySteps += 1 }
-            if Double(sameWaySteps) / Double(j - i) < minMonotonicity { break }
-            if span > 0, abs(change) >= log(minSizeRatio), abs(change) / span >= minLogRate { approaching = change > 0 }
+        var n = 0.0, st = 0.0, sl = 0.0, stt = 0.0, sll = 0.0, stl = 0.0
+        let t0 = track[i].t
+        for j in i..<track.count {
+            let t = track[j].t - t0, l = logs[j]
+            n += 1; st += t; sl += l; stt += t * t; sll += l * l; stl += t * l
+            guard j > i else { continue }
+            if t > maxSpan { break }
+            guard n >= 3 else { continue }
+            let vt = stt - st * st / n, vl = sll - sl * sl / n, cov = stl - st * sl / n
+            guard vt > 0, vl > 0 else { continue }
+            let slope = cov / vt, fit = cov * cov / (vt * vl)
+            if fit >= minFit, abs(slope) >= minLogRate, abs(slope) * t >= log(minSizeRatio) { approaching = slope > 0 }
         }
         guard let approaching else { return nil }
         let tossAt = toss(track, before: i)

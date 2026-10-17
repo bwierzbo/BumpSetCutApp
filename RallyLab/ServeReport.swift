@@ -59,7 +59,10 @@ enum ServeReport {
             for t in v.truth {
                 rallies += 1
                 guard let s = serves.filter({ abs($0.start - t.start) <= 3 }).min(by: { abs($0.start - t.start) < abs($1.start - t.start) }) else {
-                    if verbose { log(String(format: "  %6.1f  no serve within 3 s", t.start)) }
+                    if verbose {
+                        let nearest = starts.min { abs($0 - t.start) < abs($1 - t.start) }.map { String(format: "decided start %+.1f s away", $0 - t.start) } ?? "no decided start"
+                        log(String(format: "  %6.1f  no serve within 3 s · ", t.start) + nearest)
+                    }
                     continue
                 }
                 matched.insert(s.contact)

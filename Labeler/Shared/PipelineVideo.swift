@@ -177,6 +177,7 @@ enum PipelineVideo {
             if let ball = seen.last, t <= serve.end + 0.0005 {
                 ctx.setLineWidth(4)
                 ctx.strokeEllipse(in: CGRect(x: ball.x - 18, y: ball.y - 18, width: 36, height: 36))
+                label(ctx, "SERVE", at: CGPoint(x: ball.x + 24, y: ball.y + 10), size: 15)
             }
         }
 
