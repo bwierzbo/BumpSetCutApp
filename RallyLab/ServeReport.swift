@@ -42,10 +42,12 @@ enum ServeReport {
             guard let pass = await PipelineTuner.pass(v, base, key: key, cache: cache) else { log("  ⚠️ \(v.session.name): couldn't process"); continue }
             let frames = ServeDetector.Frame.from(pass.evidence)
             let clips = PipelineTuner.clips(pass, base)
-            // Each decided rally's serve (the decision before padding and joining).
-            let starts = EvidenceReplayer.decidedRanges(evidence: pass.evidence, duration: pass.duration, config: base.config,
-                                                        minRallySec: base.minRallySec, padded: false).map(\.start)
-            let serves = starts.compactMap { detector.serve(in: frames, rallyStart: $0) }
+            // Each decided rally's serve (the decision before padding and joining):
+            // the one it started on, else the detector's search around its start.
+            let decided = EvidenceReplayer.decidedRallies(evidence: pass.evidence, duration: pass.duration, config: base.config,
+                                                          minRallySec: base.minRallySec, padded: false)
+            let starts = decided.map(\.range.start)
+            let serves = decided.compactMap { $0.serve ?? detector.serve(in: frames, rallyStart: $0.range.start) }
             today.add(clips: clips, truth: v.truth)
             // A clip starts at its first rally's serve, less the lead-in.
             for (n, lead) in leadIns.enumerated() {

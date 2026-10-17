@@ -54,6 +54,8 @@ final class VideoProcessor: @unchecked Sendable {
     #endif
     @ObservationIgnored private var gate = BallisticsGate(config: ProcessorConfig())
     @ObservationIgnored private var decider = RallyDecider(config: ProcessorConfig())
+    /// Serves as they fly, for the decider's serve-primed start.
+    @ObservationIgnored private var serveWatch = ServeWatch()
     @ObservationIgnored private var segments = SegmentBuilder(config: ProcessorConfig())
 
     // Net detection (for off-court / under-net rules). The net is stationary, so a
@@ -192,9 +194,12 @@ final class VideoProcessor: @unchecked Sendable {
     /// only evaluation tools (RallyLab) opt in.
     @ObservationIgnored var collectFrameEvidence = false
     @ObservationIgnored private(set) var frameEvidence: [FrameEvidence] = []
-    /// Each kept rally's serve (ServeDetector), found from the evidence —
+    /// Each kept rally's serve: the one it started on (the decider's
+    /// serve-primed start), else ServeDetector's search of the evidence —
     /// so only when it's collected. For the debug video; not used to cut.
     @ObservationIgnored private(set) var serves: [ServeDetector.Serve] = []
+    /// The serves rallies started on, as the decider took them.
+    @ObservationIgnored private var startedServes: [ServeDetector.Serve] = []
     @ObservationIgnored private(set) var lastVideoDurationSec: Double = 0
 
     /// Set when background time is about to run out: the frame loop writes a
@@ -322,6 +327,7 @@ final class VideoProcessor: @unchecked Sendable {
         self.decider = RallyDecider(config: config)
         prepareDetector()
         decider.reset()
+        serveWatch.reset()
         selectedTrackId = nil
         selectedDropCount = 0
 
@@ -391,6 +397,7 @@ final class VideoProcessor: @unchecked Sendable {
                 let gateResult = selection.gate
                 let isProjectile = gateResult?.isValid ?? false
                 let hasBall = !dets.isEmpty
+                for serve in serveWatch.add(.init(t: CMTimeGetSeconds(pts), balls: dets.map(\.bbox))) { decider.noteServe(serve) }
                 let inRally = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
 
                 // Capture debug data if available
@@ -478,6 +485,7 @@ final class VideoProcessor: @unchecked Sendable {
 
         frameEvidence.removeAll()
         serves.removeAll()
+        startedServes.removeAll()
         lastVideoDurationSec = 0
 
         let startTime = Date()
@@ -495,6 +503,7 @@ final class VideoProcessor: @unchecked Sendable {
         self.gate = BallisticsGate(config: config)
         self.decider = RallyDecider(config: config)
         self.segments = SegmentBuilder(config: config)
+        serveWatch.reset()
         prepareDetector()
         prepareHeatmap()
         if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
@@ -553,6 +562,7 @@ final class VideoProcessor: @unchecked Sendable {
         // stages (tracker/decider) legitimately start fresh at the resume point.
         decider.reset()
         segments.reset()
+        serveWatch.reset()
         selectedTrackId = nil
         selectedDropCount = 0
         gate.net = nil
@@ -751,8 +761,10 @@ final class VideoProcessor: @unchecked Sendable {
                     ballSizes.append((sizeT, Double(sized.bboxSize.width * sized.bboxSize.height), Double(sized.center.x)))
                 }
             }
+            for serve in serveWatch.add(.init(t: CMTimeGetSeconds(pts), balls: courtDets.map(\.bbox))) { decider.noteServe(serve) }
             let isActive = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts, ballY: ballY)
-            segments.observe(isActive: isActive, at: pts)
+            segments.observe(isActive: isActive, at: pts, rallyStart: decider.rallyStart)
+            if let serve = decider.rallyServe, startedServes.last?.contact != serve.contact { startedServes.append(serve) }
 
             if collectFrameEvidence {
                 let trailPoint = config.useSmoothedTrack
@@ -1034,7 +1046,10 @@ final class VideoProcessor: @unchecked Sendable {
         let keep = kept.map { $0.padded }
         if collectFrameEvidence {
             let frames = ServeDetector.Frame.from(frameEvidence)
-            serves = kept.compactMap { ServeDetector().serve(in: frames, rallyStart: CMTimeGetSeconds($0.raw.start)) }
+            serves = kept.compactMap { seg in
+                let raw = Interval(start: CMTimeGetSeconds(seg.raw.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd(seg.raw)))
+                return startedServes.first { $0.startsRally(raw) } ?? ServeDetector().serve(in: frames, rallyStart: raw.start)
+            }
         }
 
         eventLog.log(.segmentFinalized, detail: "keepRanges=\(keep.count), videoDuration=\(String(format: "%.2f", CMTimeGetSeconds(duration)))s")

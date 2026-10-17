@@ -37,6 +37,14 @@ final class RallyDecider {
     // Segmenting state
     private var rallyStartTime: CMTime?
 
+    // A serve that just flew (noteServe), waiting for play to go on; the
+    // projectile time seen since its flight ended.
+    private var primedServe: ServeDetector.Serve?
+    private var primedProjectileSec = 0.0
+    private var lastUpdate: CMTime?
+    /// The serve the current rally started on (or moved back to), if one did.
+    private(set) var rallyServe: ServeDetector.Serve?
+
     init(config: ProcessorConfig, minRallySec: Double = 1.1653) {
         self.config = config
         self.minRallySec = minRallySec
@@ -52,6 +60,39 @@ final class RallyDecider {
         ballTimes.removeAll()
         rallyStartTime = nil
         lastBallY = nil
+        primedServe = nil
+        primedProjectileSec = 0
+        lastUpdate = nil
+        rallyServe = nil
+    }
+
+    /// When the current rally started — earlier than the frame it started on
+    /// when a serve dates it (SegmentBuilder opens the segment there).
+    var rallyStart: CMTime? { rallyStartTime }
+
+    /// A serve just flew (ServeWatch). Out of a rally it primes the start:
+    /// the rally begins at the serve once play goes on (`shouldStart`). In a
+    /// rally that began on the serve's heels — the gate caught the pass, not
+    /// the serve — the start moves back to the serve.
+    ///
+    /// A ball tossed back to the server flies like a serve too; caught and
+    /// held, nothing follows it and it expires unstarted. Tossed straight
+    /// back up into the serve, it dates the rally a moment before the toss
+    /// — and wears the serve's label. A rally already started on a serve
+    /// keeps it; a newer flight primes in place of an older one still waiting.
+    func noteServe(_ serve: ServeDetector.Serve) {
+        guard config.servePrimedStart else { return }
+        if inRally {
+            guard rallyServe == nil, let start = rallyStartTime else { return }
+            let s = CMTimeGetSeconds(start)
+            if s >= serve.contact - 0.5, s <= serve.end + config.serveContinuationSec {
+                rallyStartTime = CMTimeMakeWithSeconds(serve.start, preferredTimescale: 600)
+                rallyServe = serve
+            }
+        } else {
+            primedServe = serve
+            primedProjectileSec = 0
+        }
     }
 
     /// Update with latest signals.
@@ -86,16 +127,33 @@ final class RallyDecider {
         // Drop old evidence
         pruneOldEvidence(now: now)
 
+        // A primed serve: count projectile time after its flight, until the
+        // continuation window closes short of a start (a ball tossed back).
+        if let serve = primedServe {
+            let t = CMTimeGetSeconds(now)
+            if t > serve.end + config.serveContinuationSec {
+                primedServe = nil
+            } else if isProjectile, t > serve.end, let last = lastUpdate {
+                primedProjectileSec += min(t - CMTimeGetSeconds(last), 0.2)
+            }
+        }
+        lastUpdate = now
+
         if inRally {
             if shouldEnd(now: now) {
                 inRally = false
                 rallyStartTime = nil
+                rallyServe = nil
             }
         } else {
             if shouldStart(now: now) {
                 inRally = true
                 rallyStartCandidate = nil
-                rallyStartTime = now
+                // Started on a serve (primed, or the gate's own start on its
+                // heels): the rally dates from the serve.
+                rallyStartTime = primedServe.map { CMTimeMakeWithSeconds($0.start, preferredTimescale: 600) } ?? now
+                rallyServe = primedServe
+                primedServe = nil
             }
         }
         return inRally
@@ -117,6 +175,8 @@ final class RallyDecider {
     }
 
     private func shouldStart(now: CMTime) -> Bool {
+        // A serve followed by play: the rally starts (at the serve).
+        if primedServe != nil, primedProjectileSec >= config.serveContinuationProjectileSec { return true }
         // Start only after continuous projectile evidence spanning at least
         // startBuffer seconds — measured to the last projectile frame, not to
         // now: the grace period keeps a dropped frame from restarting the run,

@@ -13,6 +13,12 @@ import Foundation
 
 enum EvidenceReplayer {
 
+    /// A decided rally and the serve it started on, when one did.
+    struct Rally {
+        let range: Interval
+        let serve: ServeDetector.Serve?
+    }
+
     /// Runs the production decider + segment builder over recorded evidence.
     ///
     /// - Parameter padded: when false, preroll/postroll are zeroed so the
@@ -27,6 +33,17 @@ enum EvidenceReplayer {
         minRallySec: Double,
         padded: Bool
     ) -> [Interval] {
+        decidedRallies(evidence: evidence, duration: duration, config: config, minRallySec: minRallySec, padded: padded).map(\.range)
+    }
+
+    /// `decidedRanges`, with the serve each rally started on.
+    static func decidedRallies(
+        evidence: [VideoProcessor.FrameEvidence],
+        duration: Double,
+        config: ProcessorConfig,
+        minRallySec: Double,
+        padded: Bool
+    ) -> [Rally] {
         var cfg = config
         if !padded {
             cfg.preroll = 0
@@ -34,21 +51,28 @@ enum EvidenceReplayer {
         }
         let decider = RallyDecider(config: cfg, minRallySec: minRallySec)
         let builder = SegmentBuilder(config: cfg)
+        var serves = ServeWatch()
+        var startedServes: [ServeDetector.Serve] = []
 
         for frame in evidence {
             let t = CMTimeMakeWithSeconds(frame.time, preferredTimescale: 600)
+            // Serves as they fly, from the frame's on-court balls — as VideoProcessor feeds them.
+            for serve in serves.add(.init(t: frame.time, balls: frame.detections.filter { !$0.isOffCourt }.map(\.bbox))) {
+                decider.noteServe(serve)
+            }
             // trackPoint is the ball's position (Vision y, 1.0 = top); drives sky-ball grace.
             let isActive = decider.update(hasBall: frame.hasBall, isProjectile: frame.isProjectile,
                                           timestamp: t, ballY: frame.trackPoint?.y)
-            builder.observe(isActive: isActive, at: t)
+            builder.observe(isActive: isActive, at: t, rallyStart: decider.rallyStart)
+            if let serve = decider.rallyServe, startedServes.last?.contact != serve.contact { startedServes.append(serve) }
         }
 
         let built = builder.finalizeWithRaw(until: CMTimeMakeWithSeconds(duration, preferredTimescale: 600))
-        var segs = built.map {
-            (padded: Interval(start: CMTimeGetSeconds($0.padded.start),
-                              end: CMTimeGetSeconds(CMTimeRangeGetEnd($0.padded))),
-             raw: Interval(start: CMTimeGetSeconds($0.raw.start),
-                           end: CMTimeGetSeconds(CMTimeRangeGetEnd($0.raw))))
+        var segs = built.map { seg in
+            let raw = Interval(start: CMTimeGetSeconds(seg.raw.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd(seg.raw)))
+            return (padded: Interval(start: CMTimeGetSeconds(seg.padded.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd(seg.padded))),
+                    raw: raw,
+                    serve: startedServes.first { $0.startsRally(raw) })
         }
 
         // Per-segment rally-score verdict: drop rallies whose confidence is below
@@ -87,6 +111,6 @@ enum EvidenceReplayer {
                                                         arcProminence: cfg.aboveNetArcProminence)
             }
         }
-        return segs.map { $0.padded }
+        return segs.map { Rally(range: $0.padded, serve: $0.serve) }
     }
 }

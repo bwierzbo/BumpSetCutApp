@@ -203,6 +203,17 @@ struct ProcessorConfig {
     /// Prevents a single dropped detection from restarting the start-buffer clock.
     var projDropGracePeriod: Int = 5
 
+    /// A serve starts the rally (ServeWatch → RallyDecider): once a serve's
+    /// flight is followed, within `serveContinuationSec` of its end, by
+    /// `serveContinuationProjectileSec` of projectile evidence, the rally
+    /// begins at the serve — its toss when seen, else contact — rather than
+    /// at the gate's own start, which comes with the first pass (a straight
+    /// serve shows the gate no arc). A flight nothing follows, like a ball
+    /// tossed back to the server, starts nothing.
+    var servePrimedStart: Bool = true
+    var serveContinuationSec: Double = 3.0
+    var serveContinuationProjectileSec: Double = 0.6
+
     // Export trimming (tuned in RallyLab 2026-06-14)
     var preroll: Double = 2.0
     var postroll: Double = 0.5

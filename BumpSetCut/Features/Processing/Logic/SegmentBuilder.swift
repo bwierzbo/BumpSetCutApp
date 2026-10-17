@@ -55,9 +55,17 @@ final class SegmentBuilder {
         closeSegment(start: start, end: end)
     }
 
-    func observe(isActive: Bool, at time: CMTime) {
+    /// `rallyStart`: the decider's date for the rally's start, when it is
+    /// earlier than the frame it started on (a serve); the segment opens
+    /// there, moving back if the decider dates it later.
+    func observe(isActive: Bool, at time: CMTime, rallyStart: CMTime? = nil) {
         if isActive {
-            if currentStart == nil { currentStart = time }
+            let start = rallyStart.map { CMTimeMinimum($0, time) } ?? time
+            if let s = currentStart {
+                if CMTimeCompare(start, s) < 0 { currentStart = start }
+            } else {
+                currentStart = start
+            }
         } else {
             if let s = currentStart {
                 closeSegment(start: s, end: time)

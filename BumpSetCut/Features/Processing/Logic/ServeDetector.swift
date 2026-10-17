@@ -49,6 +49,10 @@ struct ServeDetector {
 
         /// The serve as it starts: the toss, else contact.
         var start: Double { toss ?? contact }
+
+        /// Whether this is the serve a decided rally (`raw` boundaries)
+        /// started on: it starts with the rally and contact falls inside.
+        func startsRally(_ raw: Interval) -> Bool { start >= raw.start - 0.5 && contact <= raw.end }
     }
 
     /// The flight must change the ball's size by at least this factor…
@@ -94,6 +98,11 @@ struct ServeDetector {
         let near = frames.filter { $0.t >= window.lowerBound - tossReach && $0.t <= window.upperBound + 3 }
         return tracks(near).flatMap { flights(on: $0) }.filter { window.contains($0.contact) }
             .min { abs($0.contact - rallyStart) < abs($1.contact - rallyStart) }
+    }
+
+    /// Every flight among `frames` (time-ordered), in order of contact.
+    func flights(in frames: [Frame]) -> [Serve] {
+        tracks(frames).flatMap { flights(on: $0) }.sorted { $0.contact < $1.contact }
     }
 
     // MARK: - Following the ball
@@ -218,6 +227,47 @@ struct ServeDetector {
         guard b.t > a.t, c.t > b.t, du / (b.t - a.t) >= minTurnSpeed, dv / (c.t - b.t) >= minTurnSpeed else { return false }
         let cos = Double(u.dx * v.dx + u.dy * v.dy) / (du * dv)
         return acos(min(1, max(-1, cos))) * 180 / .pi > maxTurnDegrees
+    }
+}
+
+/// Watches the ball frame by frame for serves as they happen, for the rally
+/// decision (RallyDecider.noteServe): every `pollInterval` it looks for
+/// flights among the last `lookback` seconds of frames and reports each new
+/// one once its end has stood for `settle` seconds — an end still open moves
+/// as frames arrive. Fed the same way live (VideoProcessor) and from
+/// recorded evidence (RallyLab's replay), so both decide alike.
+struct ServeWatch {
+    var detector = ServeDetector()
+    var lookback = 8.0
+    var pollInterval = 0.25
+    var settle = 0.5
+    /// A flight older than this isn't news — and the buffer's trailing edge
+    /// can cut an old flight into a shorter one that would look new.
+    var maxAge = 4.0
+
+    private var frames: [ServeDetector.Frame] = []
+    private var lastPoll = -Double.infinity
+    private var lastContact = -Double.infinity
+
+    mutating func reset() {
+        frames.removeAll()
+        lastPoll = -.infinity
+        lastContact = -.infinity
+    }
+
+    /// Takes this frame's on-court balls; returns the serves newly settled,
+    /// oldest first (usually none).
+    mutating func add(_ frame: ServeDetector.Frame) -> [ServeDetector.Serve] {
+        frames.append(frame)
+        let now = frame.t
+        if let keep = frames.firstIndex(where: { $0.t >= now - lookback }), keep > 0 { frames.removeFirst(keep) }
+        guard now - lastPoll >= pollInterval else { return [] }
+        lastPoll = now
+        let new = detector.flights(in: frames).filter {
+            $0.end <= now - settle && $0.contact >= now - maxAge && $0.contact > lastContact + 0.25
+        }
+        if let last = new.last { lastContact = last.contact }
+        return new
     }
 }
 
