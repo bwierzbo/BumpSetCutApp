@@ -10,8 +10,10 @@
 //  start and again at its end.
 //
 //  Saved next to the video as <name>.rallylabels.json (what the Pipeline
-//  tab's scoring reads), on every change. "Whole video marked" is kept on
-//  the session, so evaluation only counts videos you've finished.
+//  tab's scoring reads), on every change, with each rally's kind and
+//  touches when live tagging marked them (RallyEvents). "Whole video
+//  marked" is kept on the session, so evaluation only counts videos you've
+//  finished.
 //
 
 import AVFoundation
@@ -26,7 +28,12 @@ final class RallyMarkModel {
         let id: UUID
         var start: Double
         var end: Double
-        init(id: UUID = UUID(), start: Double, end: Double) { (self.id, self.start, self.end) = (id, start, end) }
+        var kind: RallyKind
+        /// Its touches in time order, the serve first, once live-tagged.
+        var contacts: [RallyContact]
+        init(id: UUID = UUID(), start: Double, end: Double, kind: RallyKind = .rally, contacts: [RallyContact] = []) {
+            (self.id, self.start, self.end, self.kind, self.contacts) = (id, start, end, kind, contacts)
+        }
         func contains(_ t: Double) -> Bool { t >= start && t <= end }
     }
 
@@ -181,8 +188,9 @@ final class RallyMarkModel {
 
     nonisolated static func load(_ url: URL) -> [Mark] {
         guard let data = try? Data(contentsOf: url),
-              let labels = try? JSONDecoder().decode([LabeledRally].self, from: data) else { return [] }
-        return labels.map { Mark(start: $0.startTime, end: $0.endTime) }.sorted { $0.start < $1.start }
+              let labels = try? JSONDecoder().decode([RallyMarkRecord].self, from: data) else { return [] }
+        return labels.map { Mark(start: $0.startTime, end: $0.endTime, kind: $0.kind ?? .rally, contacts: $0.contacts ?? []) }
+            .sorted { $0.start < $1.start }
     }
 
     /// Where the Sampler found rallies (its burst frames), and your tracked
@@ -206,6 +214,13 @@ final class RallyMarkModel {
     }
 
     // MARK: - Playback
+
+    /// Where playback is this instant: the observer reports 20 times a
+    /// second, a key press wants the frame it was pressed on.
+    var now: Double {
+        guard let t = player?.currentTime().seconds, t.isFinite else { return playhead }
+        return t
+    }
 
     func togglePlay() {
         guard let player else { return }
@@ -281,18 +296,20 @@ final class RallyMarkModel {
 
     /// A rally from `start` to `end`, replacing any marked rally it overlaps
     /// (the same rally, marked again).
-    func mark(start: Double, end: Double) {
-        let mark = Mark(start: start, end: end)
+    @discardableResult
+    func mark(start: Double, end: Double, kind: RallyKind = .rally, contacts: [RallyContact] = []) -> Mark {
+        let mark = Mark(start: start, end: end, kind: kind, contacts: contacts)
         rallies.removeAll { min($0.end, mark.end) - max($0.start, mark.start) > 0.5 * min($0.end - $0.start, mark.end - mark.start) }
         rallies.append(mark)
         selectedId = mark.id
         save()
+        return mark
     }
 
     /// Mark a rally in any video — the open one in place, so its unsaved
     /// view of the file doesn't later overwrite this.
     func mark(start: Double, end: Double, session: VideoSession) {
-        if session.name == sessionName { return mark(start: start, end: end) }
+        if session.name == sessionName { mark(start: start, end: end); return }
         let url = Self.labelsURL(for: URL(fileURLWithPath: session.sourcePath))
         var marks = Self.load(url)
         marks.removeAll { min($0.end, end) - max($0.start, start) > 0.5 * min($0.end - $0.start, end - start) }
@@ -332,6 +349,13 @@ final class RallyMarkModel {
         save()
     }
 
+    func delete(_ id: UUID) {
+        guard let i = rallies.firstIndex(where: { $0.id == id }) else { return }
+        rallies.remove(at: i)
+        if selectedId == id { selectedId = nil }
+        save()
+    }
+
     func setStart(_ id: UUID, to t: Double) {
         guard let i = rallies.firstIndex(where: { $0.id == id }) else { return }
         rallies[i].start = min(max(0, t), rallies[i].end - 0.2)
@@ -361,7 +385,9 @@ final class RallyMarkModel {
 
     @discardableResult
     private static func write(_ marks: [Mark], to url: URL) -> Error? {
-        let labels = marks.sorted { $0.start < $1.start }.map { LabeledRally(startTime: $0.start, endTime: $0.end) }
+        let labels = marks.sorted { $0.start < $1.start }.map {
+            RallyMarkRecord(startTime: $0.start, endTime: $0.end, kind: $0.kind, contacts: $0.contacts.isEmpty ? nil : $0.contacts)
+        }
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted]

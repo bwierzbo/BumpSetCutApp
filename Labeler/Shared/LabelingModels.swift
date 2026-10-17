@@ -89,9 +89,12 @@ func clockText(_ seconds: Double) -> String {
 }
 
 /// A rally's start and end. Two with the same times are the same rally.
+/// Live tagging adds its kind and touches (RallyEvents); nil until then.
 struct LabelRally: Codable, Hashable, Identifiable {
     var start: Double
     var end: Double
+    var kind: RallyKind? = nil
+    var contacts: [RallyContact]? = nil
 
     var id: String { "\(start)-\(end)" }
 }

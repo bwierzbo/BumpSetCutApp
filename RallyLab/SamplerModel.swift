@@ -1195,6 +1195,11 @@ final class SamplerModel {
         modify(session: name) { $0.notRallies = ($0.notRallies ?? []) + [start] }
     }
 
+    /// The net found in a video (live tagging), kept for next time.
+    func setNetBox(_ box: TrackCandidate?, session name: String) {
+        modify(session: name) { $0.netBox = box }
+    }
+
     /// These finished rallies' boxes have been fitted (BoxFitter).
     func markFitted(_ ids: [UUID], session name: String) {
         modify(session: name) { $0.fittedTracks = Array(Set(($0.fittedTracks ?? []) + ids)) }

@@ -6,9 +6,10 @@
 //  shows the round's progress and one big card with the most useful thing
 //  to do (LabelQueue — the same rules as the phone), then the few after it.
 //  A track task trims the rally on a filmstrip, then tracks its ball and
-//  stops you only on the frames worth a look; a review task confirms the
-//  rallies RallyLab found and skims for missed ones. Finishing one opens
-//  the next. Coverage and Plan are the project's frame counts and rounds.
+//  stops you only on the frames worth a look; a review task marks every
+//  rally in a video live, one key per event (LiveTagView). Finishing one
+//  opens the next. Coverage and Plan are the project's frame counts and
+//  rounds.
 //
 
 import AppKit
@@ -89,7 +90,7 @@ struct LabelTabView: View {
             LabelTrackTask(session: session, rally: rally, tracker: tracker, marker: marker, isActive: isActive,
                            onClose: { active = nil }, onDone: next)
         case .review:
-            LabelReviewView(session: session, marker: marker, isActive: isActive, onClose: { active = nil }, onDone: next)
+            LiveTagView(session: session, marker: marker, review: review, isActive: isActive, onClose: { active = nil }, onDone: next)
         }
     }
 
@@ -193,8 +194,8 @@ private struct LabelHomeView: View {
             switch job {
             case .review:
                 let found = session.map { LabelQueue.Video(session: $0).found } ?? 0
-                return ("Check the rallies", found > 0 ? "\(found) found rallies to confirm, then skim for missed ones" : "Skim for missed rallies and finish",
-                        "checklist")
+                return ("Mark the rallies", found > 0 ? "Watch at speed, one key per touch · \(found) found rallies confirm as you go"
+                            : "Watch at speed, one key per touch", "checklist")
             case .track(_, let r):
                 let resuming = session?.tracks?.contains { $0.isOpen && $0.bounds == r } ?? false
                 let frames = Int((r.end - r.start + 2 * TrackedRally.margin) * TrackLabelModel.frameRate)

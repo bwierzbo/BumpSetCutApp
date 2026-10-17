@@ -359,10 +359,11 @@ final class LabelingSync {
         for video in videos {
             guard let name = video.sessionName, let session = projects.session(named: name) else { continue }
             let labels = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: session.sourcePath))
-            let localRallies = (try? Data(contentsOf: labels)).flatMap { try? JSONDecoder().decode([LabeledRally].self, from: $0) }
+            let localRallies = (try? Data(contentsOf: labels)).flatMap { try? JSONDecoder().decode([RallyMarkRecord].self, from: $0) }
             let localChanged = (try? labels.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
             let local = localRallies.map { rallies in
-                LabelRallyTimes(videoId: video.id, rallies: rallies.map { LabelRally(start: $0.startTime, end: $0.endTime) },
+                LabelRallyTimes(videoId: video.id,
+                                rallies: rallies.map { LabelRally(start: $0.startTime, end: $0.endTime, kind: $0.kind, contacts: $0.contacts) },
                                 complete: session.ralliesMarked ?? false)
             }
             let theirs = remote[video.id]
@@ -506,18 +507,22 @@ final class LabelingSync {
 
     private func write(_ times: LabelRallyTimes, to labels: URL, session: String) {
         defer { onTimesChanged?(session) }
-        let rallies = times.rallies.sorted { $0.start < $1.start }.map { LabeledRally(startTime: $0.start, endTime: $0.end) }
+        let rallies = times.rallies.sorted { $0.start < $1.start }
+            .map { RallyMarkRecord(startTime: $0.start, endTime: $0.end, kind: $0.kind, contacts: $0.contacts) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted]
         try? encoder.encode(rallies).write(to: labels, options: .atomic)
         projects.sampler.setRalliesMarked(times.complete, session: session)
     }
 
-    /// Same rallies (to the frame) and the same "every rally marked".
+    /// Same rallies (to the frame, with the same kinds and touches) and the
+    /// same "every rally marked".
     private static func same(_ a: LabelRallyTimes, _ b: LabelRallyTimes) -> Bool {
         guard a.complete == b.complete, a.rallies.count == b.rallies.count else { return false }
         let x = a.rallies.sorted { $0.start < $1.start }, y = b.rallies.sorted { $0.start < $1.start }
-        return zip(x, y).allSatisfy { abs($0.start - $1.start) < 0.02 && abs($0.end - $1.end) < 0.02 }
+        return zip(x, y).allSatisfy {
+            abs($0.start - $1.start) < 0.02 && abs($0.end - $1.end) < 0.02 && $0.kind == $1.kind && ($0.contacts ?? []) == ($1.contacts ?? [])
+        }
     }
 
     // MARK: - Naming

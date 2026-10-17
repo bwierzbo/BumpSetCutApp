@@ -6,7 +6,7 @@
 import SwiftUI
 
 /// The video's length with found rallies (grey), yours (orange), the one
-/// being asked about (blue) and the playhead.
+/// being asked about (blue), touches as ticks, and the playhead.
 struct RallyTimesBar: View {
     let time: Double
     let duration: Double
@@ -14,6 +14,7 @@ struct RallyTimesBar: View {
     let marked: [LabelRally]
     let current: [Double]?
     let pending: Double?
+    var ticks: [Double] = []
 
     var body: some View {
         GeometryReader { geo in
@@ -28,6 +29,7 @@ struct RallyTimesBar: View {
                 for r in marked { bar(r.start, r.end, 13, 7, .orange) }
                 if let current { bar(current[0], current[1], 0, size.height, .blue.opacity(0.25)) }
                 if let pending { bar(pending, max(time, pending), 13, 7, .orange.opacity(0.5)) }
+                for t in ticks { ctx.fill(Path(CGRect(x: t / d * w - 0.75, y: 11, width: 1.5, height: 11)), with: .color(.white)) }
                 ctx.fill(Path(CGRect(x: time / d * w - 1, y: 0, width: 2, height: size.height)), with: .color(.primary))
             }
         }

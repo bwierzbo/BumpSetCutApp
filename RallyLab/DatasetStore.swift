@@ -98,6 +98,9 @@ struct VideoSession: Codable, Identifiable, Equatable {
     var notRallies: [Double]? = nil
     /// Finished rallies whose boxes have been fitted to the ball (BoxFitter).
     var fittedTracks: [UUID]? = nil
+    /// The net as NetDetector found it (the median box over sampled frames,
+    /// Vision-normalised, upright), for which side of it a touch was on.
+    var netBox: TrackCandidate? = nil
 
     var reviewedCount: Int { frames.filter(\.reviewed).count }
     var boxCount: Int { frames.filter(\.keep).reduce(0) { $0 + $1.boxes.count } }

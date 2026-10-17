@@ -18,6 +18,9 @@ struct EditableRally: Identifiable, Equatable {
     let id = UUID()
     var start: Double
     var end: Double
+    /// Live tagging's kind and touches (RallyEvents), carried through a save.
+    var kind: RallyKind? = nil
+    var contacts: [RallyContact]? = nil
 }
 
 /// One sampled frame for net detection: the upright frame image, its time, and the
@@ -809,7 +812,7 @@ final class RallyLabModel {
 
     private func saveLabels() {
         guard let url = labelsFileURL else { return }
-        let payload = labels.map { LabeledRally(startTime: $0.start, endTime: $0.end) }
+        let payload = labels.map { RallyMarkRecord(startTime: $0.start, endTime: $0.end, kind: $0.kind, contacts: $0.contacts) }
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -825,8 +828,8 @@ final class RallyLabModel {
         labels = []
         guard let url = labelsFileURL, let data = try? Data(contentsOf: url) else { return }
         do {
-            let decoded = try JSONDecoder().decode([LabeledRally].self, from: data)
-            labels = decoded.map { EditableRally(start: $0.startTime, end: $0.endTime) }
+            let decoded = try JSONDecoder().decode([RallyMarkRecord].self, from: data)
+            labels = decoded.map { EditableRally(start: $0.startTime, end: $0.endTime, kind: $0.kind, contacts: $0.contacts) }
         } catch {
             status = "Found \(url.lastPathComponent) but couldn't decode it: \(error.localizedDescription)"
         }
