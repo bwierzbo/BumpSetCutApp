@@ -18,12 +18,18 @@ enum ScrubProxy {
     static let longSide: CGFloat = 960
     static let keyframeInterval = 6
 
+    /// Where `video`'s copy lives, made or not.
+    static func url(for video: URL, in datasetRoot: URL) -> URL {
+        datasetRoot.appendingPathComponent("scrub_proxies", isDirectory: true)
+            .appendingPathComponent(video.deletingPathExtension().lastPathComponent + ".mp4")
+    }
+
     /// The copy of `video`, made first when missing or older than the video;
     /// nil if it can't be made.
     static func ready(for video: URL, in datasetRoot: URL) async -> URL? {
         let fm = FileManager.default
-        let dir = datasetRoot.appendingPathComponent("scrub_proxies", isDirectory: true)
-        let proxy = dir.appendingPathComponent(video.deletingPathExtension().lastPathComponent + ".mp4")
+        let proxy = url(for: video, in: datasetRoot)
+        let dir = proxy.deletingLastPathComponent()
         if let made = modified(proxy), let source = modified(video), made >= source { return proxy }
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let partial = dir.appendingPathComponent(UUID().uuidString + ".partial.mp4")

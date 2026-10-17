@@ -26,6 +26,8 @@ struct LabelTrackTask: View {
     let onDone: () -> Void
     /// The rally as trimmed, once it is.
     @State private var trimmed: LabelRally?
+    /// The footage was fetched back to this Mac while this task was open.
+    @State private var fetched = false
 
     /// A track of this rally you didn't finish.
     private var unfinished: TrackedRally? {
@@ -45,7 +47,10 @@ struct LabelTrackTask: View {
                 StepDots(step: trimmed == nil ? 0 : 1)
             }
             Divider()
-            if let trimmed {
+            if !fetched && !session.isOnMac {
+                // Trimming and tracking read full-size frames from the file.
+                FootageMissingView(session: session, datasetRoot: tracker.sampler.datasetRoot) { fetched = true }
+            } else if let trimmed {
                 LabelTrackView(session: session, bounds: trimmed, resume: unfinished?.id, tracker: tracker, marker: marker,
                                isActive: isActive, onClose: onClose, onDone: onDone)
             } else {

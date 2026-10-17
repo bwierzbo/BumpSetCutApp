@@ -3,12 +3,15 @@
 //  RallyLab
 //
 //  Finish a video's rally times by confirming instead of marking from
-//  scratch, as on the phone. 1) Each rally RallyLab found plays from a
-//  second before it, looping: Right (↩) · Adjust (A, the trim filmstrip) ·
-//  Not a rally (X). 2) Skim the rest at 2× and press M when a rally starts
-//  that wasn't found (it backs up for your reaction), M again when it
-//  ends. 3) "That's every rally" marks the video finished — it then counts
-//  in rally scoring — and opens the next task.
+//  scratch, as on the phone. 1) Each rally RallyLab found plays looping
+//  from a second before it, over a filmstrip with handles on its start and
+//  end: drag them (or ←/→ nudge the start, ⇧←/→ the end) to the serve and
+//  the dead ball, then Right (↩) marks it as the handles stand · Not a
+//  rally (X). 2) Skim the rest at 2× and press M when a rally starts that
+//  wasn't found (it backs up for your reaction), M again when it ends.
+//  3) "That's every rally" marks the video finished — it then counts in
+//  rally scoring — and opens the next task. Footage that lives on the
+//  desktop plays from its review copy; without one, fetch it first.
 //
 
 import SwiftUI
@@ -22,18 +25,30 @@ struct LabelReviewView: View {
 
     /// The found rally being asked about.
     @State private var current: RallyMarkModel.Mark?
-    /// The found rally being trimmed.
-    @State private var trimming: RallyMarkModel.Mark?
+    /// Its start and end as the handles stand.
+    @State private var start = 0.0
+    @State private var end = 0.0
+    /// How far the filmstrip reaches either side of the found rally; a
+    /// handle let go at the edge widens that side.
+    @State private var reachBefore = TrimFilmstrip.reach
+    @State private var reachAfter = TrimFilmstrip.reach
     @State private var skimming = false
     @State private var pendingStart: Double?
     @State private var rejected: [Double] = []
 
     private static let reaction = 0.3
+    private static let nudge = 0.2
 
     /// Found rallies not yet marked or turned down.
     private var open: [RallyMarkModel.Mark] {
         let no = (session.notRallies ?? []) + rejected
         return marker.openGuesses.filter { g in !no.contains { abs($0 - g.start) < 0.05 } }
+    }
+
+    private var window: ClosedRange<Double> {
+        guard let current else { return 0...max(marker.duration, 1) }
+        let d = marker.duration > 0 ? marker.duration : current.end + reachAfter
+        return max(0, current.start - reachBefore)...max(min(d, current.end + reachAfter), current.start + 1)
     }
 
     var body: some View {
@@ -43,15 +58,12 @@ struct LabelReviewView: View {
                     .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             }
             Divider()
-            if let trimming {
-                LabelTrimView(session: session, rally: LabelRally(start: trimming.start, end: trimming.end), isActive: isActive,
-                              confirmTitle: "Mark this rally",
-                              onConfirm: { r in
-                                  marker.mark(start: r.start, end: r.end)
-                                  self.trimming = nil
-                                  advance()
-                              },
-                              onCancel: { self.trimming = nil; replay() })
+            if marker.footageMissing {
+                FootageMissingView(session: session, datasetRoot: marker.sampler.datasetRoot,
+                                   reason: "It has no review copy here either.") {
+                    marker.reopen()
+                    advance()
+                }
             } else {
                 review
             }
@@ -62,10 +74,10 @@ struct LabelReviewView: View {
         }
         .onDisappear { if marker.isPlaying { marker.togglePlay() } }
         .onChange(of: marker.playhead) { _, t in
-            // Loop the rally being asked about.
-            if let c = current, trimming == nil, !skimming, marker.isPlaying, t > c.end + 1 { play(from: c.start - 1) }
+            // Loop the rally being asked about, as the handles stand.
+            if current != nil, !skimming, marker.isPlaying, t > end + 1 { play(from: start - 1) }
         }
-        .labelKeys(isActive: isActive && trimming == nil, handleKey)
+        .labelKeys(isActive: isActive, handleKey)
     }
 
     private var review: some View {
@@ -75,9 +87,15 @@ struct LabelReviewView: View {
                 if let player = marker.player { LabPlayerView(player: player, showsControls: false) }
             }
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            if current != nil, !skimming {
+                TrimFilmstrip(asset: marker.player?.currentItem?.asset, window: window, start: $start, end: $end, time: marker.playhead,
+                              onScrub: { show($0) },
+                              onEdge: { isStart in if isStart { reachBefore += TrimFilmstrip.reach } else { reachAfter += TrimFilmstrip.reach } })
+                    .frame(height: 64)
+            }
             RallyTimesBar(time: marker.playhead, duration: marker.duration, found: marker.guesses.map { [$0.start, $0.end] },
                           marked: marker.rallies.map { LabelRally(start: $0.start, end: $0.end) },
-                          current: current.map { [$0.start, $0.end] }, pending: pendingStart)
+                          current: current.map { _ in [start, end] }, pending: pendingStart)
                 .frame(height: 22)
                 .overlay {
                     // Click the timeline to go there.
@@ -103,16 +121,17 @@ struct LabelReviewView: View {
         let n = marker.guesses.firstIndex { $0.id == found.id }.map { $0 + 1 } ?? 0
         return VStack(spacing: 10) {
             Text("Found rally \(n) of \(marker.guesses.count) · is it a rally?").font(.title3.bold())
-            Text("\(TrackLabelModel.clock(found.start)) – \(TrackLabelModel.clock(found.end))")
+            Text("\(TrackLabelModel.clock(start)) – \(TrackLabelModel.clock(end))" + String(format: " · %.1f s", end - start))
                 .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Button { reject(found) } label: { Label("Not a rally  X", systemImage: "xmark").frame(maxWidth: .infinity) }
                     .tint(.red)
-                Button { adjust(found) } label: { Label("Adjust  A", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity) }
-                Button { accept(found) } label: { Label("Right  ↩", systemImage: "checkmark").frame(maxWidth: .infinity) }
+                Button { replay() } label: { Label("Replay  R", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity) }
+                Button { accept() } label: { Label("Right  ↩", systemImage: "checkmark").frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent).tint(.green)
             }
-            Button("Replay (R)") { replay() }.buttonStyle(.link)
+            Text("Drag the handles to the serve and the dead ball · ←/→ nudge the start, ⇧←/→ the end · Space pauses")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -158,8 +177,10 @@ struct LabelReviewView: View {
 
     // MARK: - Actions
 
-    private func accept(_ found: RallyMarkModel.Mark) {
-        marker.mark(start: found.start, end: found.end)
+    /// Right: the rally as the handles stand.
+    private func accept() {
+        guard current != nil else { return }
+        marker.mark(start: start, end: end)
         advance()
     }
 
@@ -169,9 +190,22 @@ struct LabelReviewView: View {
         advance()
     }
 
-    private func adjust(_ found: RallyMarkModel.Mark) {
+    /// Move a handle by a step and show the frame it lands on.
+    private func nudge(start isStart: Bool, by seconds: Double) {
+        guard current != nil else { return }
+        if isStart {
+            start = min(max(0, start + seconds), end - TrimFilmstrip.minLength)
+            show(start)
+        } else {
+            end = max(min(marker.duration > 0 ? marker.duration : end + seconds, end + seconds), start + TrimFilmstrip.minLength)
+            show(end)
+        }
+    }
+
+    /// Pause on a moment (a handle, or a click on the filmstrip).
+    private func show(_ t: Double) {
         if marker.isPlaying { marker.togglePlay() }
-        trimming = found
+        marker.seek(to: t)
     }
 
     private func startSkim() {
@@ -199,20 +233,29 @@ struct LabelReviewView: View {
 
     private func advance() {
         current = open.first
-        if let current { play(from: current.start - 1) } else if marker.isPlaying { marker.togglePlay() }
+        if let current {
+            start = current.start
+            end = current.end
+            reachBefore = TrimFilmstrip.reach
+            reachAfter = TrimFilmstrip.reach
+            play(from: current.start - 1)
+        } else if marker.isPlaying {
+            marker.togglePlay()
+        }
     }
 
     private func replay() {
-        if let current { play(from: current.start - 1) }
+        if current != nil { play(from: start - 1) }
     }
 
     private func play(from t: Double, rate: Float = 1) {
         marker.rate = rate
-        marker.seek(to: t)
+        marker.seek(to: max(0, t))
         if !marker.isPlaying { marker.togglePlay() }
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
+        guard !marker.footageMissing else { return false }
         if event.keyCode == 49 { marker.togglePlay(); return true }
         if skimming {
             switch event.keyCode {
@@ -224,10 +267,15 @@ struct LabelReviewView: View {
             return false
         }
         guard let current else { return false }
-        if event.keyCode == 36 || event.keyCode == 76 { accept(current); return true }
+        let shift = event.modifierFlags.contains(.shift)
+        switch event.keyCode {
+        case 36, 76: accept(); return true
+        case 123: nudge(start: !shift, by: -Self.nudge); return true
+        case 124: nudge(start: !shift, by: Self.nudge); return true
+        default: break
+        }
         switch event.charactersIgnoringModifiers?.lowercased() {
         case "x": reject(current)
-        case "a": adjust(current)
         case "r": replay()
         default: return false
         }

@@ -33,6 +33,8 @@ final class RallyMarkModel {
     let sampler: SamplerModel
     private(set) var sessionName: String?
     private(set) var player: AVPlayer?
+    /// Neither the footage nor its review copy is on this Mac.
+    private(set) var footageMissing = false
     private(set) var duration: Double = 0
     private(set) var playhead: Double = 0
     private(set) var isPlaying = false
@@ -109,7 +111,19 @@ final class RallyMarkModel {
         sessionName = name
         let url = URL(fileURLWithPath: session.sourcePath)
         video = url
-        let player = AVPlayer(url: url)
+        resetZoom()
+        rallies = Self.load(Self.labelsURL(for: url))
+        guesses = Self.guesses(for: session)
+        pendingStart = nil
+        selectedId = nil
+        // The footage may be off this Mac; its scrub proxy plays in its place.
+        guard let playback = session.playbackURL(in: sampler.datasetRoot) else {
+            footageMissing = true
+            status = "\(url.lastPathComponent) isn't on this Mac and has no review copy."
+            return
+        }
+        footageMissing = false
+        let player = AVPlayer(url: playback)
         player.isMuted = true
         self.player = player
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 20), queue: .main) { [weak self] t in
@@ -120,24 +134,28 @@ final class RallyMarkModel {
             }
         }
         Task {
-            duration = (try? await AVURLAsset(url: url).load(.duration).seconds) ?? 0
+            duration = (try? await AVURLAsset(url: playback).load(.duration).seconds) ?? 0
         }
-        let root = sampler.datasetRoot
-        proxyTask = Task { [weak self] in
-            guard let proxy = await ScrubProxy.ready(for: url, in: root), !Task.isCancelled,
-                  let self, self.video == url, let player = self.player else { return }
-            player.replaceCurrentItem(with: AVPlayerItem(url: proxy))
-            self.seek(to: self.playhead)
-            if self.isPlaying { player.rate = self.rate }
+        if playback == url {
+            let root = sampler.datasetRoot
+            proxyTask = Task { [weak self] in
+                guard let proxy = await ScrubProxy.ready(for: url, in: root), !Task.isCancelled,
+                      let self, self.video == url, let player = self.player else { return }
+                player.replaceCurrentItem(with: AVPlayerItem(url: proxy))
+                self.seek(to: self.playhead)
+                if self.isPlaying { player.rate = self.rate }
+            }
         }
-        resetZoom()
-        rallies = Self.load(Self.labelsURL(for: url))
-        guesses = Self.guesses(for: session)
-        pendingStart = nil
-        selectedId = nil
         status = rallies.isEmpty
             ? "\(guesses.count) guesses to start from — N jumps to the next, A accepts it, Enter marks your own."
             : "\(rallies.count) rallies marked."
+    }
+
+    /// Open the same video again (its footage was just fetched).
+    func reopen() {
+        guard let name = sessionName else { return }
+        sessionName = nil
+        open(sessionName: name)
     }
 
     /// The open video's rally times changed elsewhere (a sync with the
