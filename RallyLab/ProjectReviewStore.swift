@@ -56,16 +56,31 @@ final class ProjectReviewStore: ReviewStore {
         return before
     }
 
+    /// The footage itself, fetched back from the desktop's mirror when it
+    /// was moved off this Mac (frames are read from it at full size).
     func videoFile(video: String) async throws -> URL {
-        guard let path = sampler.sessions.first(where: { $0.name == video })?.sourcePath,
-              FileManager.default.fileExists(atPath: path) else { throw CocoaError(.fileNoSuchFile) }
-        return URL(fileURLWithPath: path)
+        guard let session = sampler.sessions.first(where: { $0.name == video }) else { throw CocoaError(.fileNoSuchFile) }
+        if !session.isOnMac {
+            try await FootageRemote.fetch(session, projectsRoot: sampler.datasetRoot.deletingLastPathComponent())
+        }
+        return session.sourceURL
     }
 
     func videoName(video: String) -> String { video }
 
-    func playbackURL(video: String) async throws -> URL { try await videoFile(video: video) }
-    func fetchAhead(video: String) async { _ = try? await videoFile(video: video) }
+    /// The footage, or its review copy when the footage is off this Mac.
+    func playbackURL(video: String) async throws -> URL {
+        if let url = sampler.sessions.first(where: { $0.name == video })?.playbackURL(in: sampler.datasetRoot) { return url }
+        return try await videoFile(video: video)
+    }
+
+    /// Only a video with nothing to play from is worth fetching ahead: the
+    /// review copy does for watching, and the originals are a few GB each.
+    func fetchAhead(video: String) async {
+        guard let session = sampler.sessions.first(where: { $0.name == video }),
+              session.playbackURL(in: sampler.datasetRoot) == nil else { return }
+        _ = try? await videoFile(video: video)
+    }
 
     func rallyChecks() -> [AnnotationReview.RallyCheck] { AnnotationReview.rallyChecks(rallies) }
 

@@ -1633,6 +1633,14 @@ struct RallyCheckView: View {
     /// Where this rally's video plays from.
     @State private var url: URL?
     @State private var trimming = false
+    #if os(macOS)
+    /// The rally's start and end as the handles stand: the Mac trims in
+    /// place, under the player, and Rally keeps the trim.
+    @State private var start = 0.0
+    @State private var end = 0.0
+    @State private var reachBefore = TrimFilmstrip.reach
+    @State private var reachAfter = TrimFilmstrip.reach
+    #endif
 
     init(store: any ReviewStore) {
         self.store = store
@@ -1640,6 +1648,15 @@ struct RallyCheckView: View {
     }
 
     private var check: AnnotationReview.RallyCheck? { checks.indices.contains(at) ? checks[at] : nil }
+
+    /// The bounds shown under the player.
+    private func shown(_ check: AnnotationReview.RallyCheck) -> (Double, Double) {
+        #if os(macOS)
+        return (start, end)
+        #else
+        return (check.start, check.end)
+        #endif
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -1660,7 +1677,22 @@ struct RallyCheckView: View {
                         VideoPlayer(player: player.player)
                             .overlay { if player.waiting { ProgressView().controlSize(.large).tint(.white) } }
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                        Text("\(store.videoName(video: check.video)) · \(clock(check.start))–\(clock(check.end))")
+                        #if os(macOS)
+                        if url != nil {
+                            let far = player.player.currentItem?.duration.seconds
+                            let top = far.flatMap { $0.isFinite ? min($0, check.end + reachAfter) : nil } ?? check.end + reachAfter
+                            TrimFilmstrip(asset: player.player.currentItem?.asset,
+                                          window: max(0, check.start - reachBefore)...max(top, check.start + 1),
+                                          start: $start, end: $end, time: player.time,
+                                          onScrub: { t in player.rebound(from: start, to: end); player.show(t) },
+                                          onEdge: { isStart in
+                                              if isStart { reachBefore += TrimFilmstrip.reach } else { reachAfter += TrimFilmstrip.reach }
+                                          })
+                                .frame(height: 56)
+                        }
+                        #endif
+                        let (from, to) = shown(check)
+                        Text("\(store.videoName(video: check.video)) · \(clock(from))–\(clock(to))" + String(format: " · %.1f s", to - from))
                             .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
                     }
                 } else {
@@ -1682,13 +1714,17 @@ struct RallyCheckView: View {
                 .buttonStyle(.bordered)
                 .disabled(url == nil)
                 #endif
-                Button { answer(true) } label: {
+                Button { confirm() } label: {
                     Label("Rally", systemImage: "checkmark").frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent).tint(.green)
             }
             .disabled(check == nil)
             .padding(.horizontal, 8)
+            #if os(macOS)
+            Text("Drag the handles to the serve and the dead ball · ←/→ nudge the start, ⇧←/→ the end · R rally (trimmed as set) · N not · Space play")
+                .font(.caption).foregroundStyle(.secondary)
+            #endif
             ProgressView(value: Double(min(at, checks.count)), total: Double(max(checks.count, 1))).tint(.green)
                 .padding(.horizontal, 12)
         }
@@ -1696,8 +1732,14 @@ struct RallyCheckView: View {
         .navigationTitle("Rally or not")
         .inlineTitle()
         .reviewKeys { press in
+            #if os(macOS)
+            if press.key == .leftArrow || press.key == .rightArrow {
+                nudge(start: !press.modifiers.contains(.shift), by: press.key == .leftArrow ? -0.2 : 0.2)
+                return true
+            }
+            #endif
             switch press.characters.lowercased() {
-            case "r": answer(true)
+            case "r": confirm()
             case "n": answer(false)
             case "s": if check != nil { at += 1 }
             case " ": player.togglePlay()
@@ -1730,6 +1772,12 @@ struct RallyCheckView: View {
             let url = try await store.playbackURL(video: check.video)
             guard check == self.check else { return }
             self.url = url
+            #if os(macOS)
+            start = check.start
+            end = check.end
+            reachBefore = TrimFilmstrip.reach
+            reachAfter = TrimFilmstrip.reach
+            #endif
             player.loop(url, video: check.video, from: check.start, to: check.end, rate: fast ? 2 : 1)
         } catch {
             failure = "Couldn't load the video: \(error.localizedDescription)"
@@ -1749,6 +1797,27 @@ struct RallyCheckView: View {
         undo.append((check, nil))
         at += 1
     }
+
+    /// Rally — trimmed to the handles where they were moved.
+    private func confirm() {
+        #if os(macOS)
+        if let check, abs(start - check.start) > 0.05 || abs(end - check.end) > 0.05 {
+            trim(check, to: LabelRally(start: start, end: end))
+            return
+        }
+        #endif
+        answer(true)
+    }
+
+    #if os(macOS)
+    /// Move a handle by a step and pause on the frame it lands on.
+    private func nudge(start isStart: Bool, by seconds: Double) {
+        guard check != nil else { return }
+        if isStart { start = min(max(0, start + seconds), end - TrimFilmstrip.minLength) } else { end = max(end + seconds, start + TrimFilmstrip.minLength) }
+        player.rebound(from: start, to: end)
+        player.show(isStart ? start : end)
+    }
+    #endif
 
     /// Cut the rally to `kept` (the frames outside it go) and call it a rally.
     private func trim(_ check: AnnotationReview.RallyCheck, to kept: LabelRally) {
@@ -1781,15 +1850,21 @@ final class RallyLoopPlayer {
     var rate: Float = 2 { didSet { if player.rate > 0 { player.rate = rate } } }
     /// Waiting for the video to load or buffer.
     private(set) var waiting = false
+    /// Where the video is, seconds (a trim strip follows it).
+    private(set) var time = 0.0
     @ObservationIgnored private var source: String?
     @ObservationIgnored private var start = CMTime.zero
     @ObservationIgnored private var boundary: Any?
     @ObservationIgnored private var status: NSKeyValueObservation?
+    @ObservationIgnored private var clock: Any?
 
     init() {
         status = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
             let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
             Task { @MainActor in self?.waiting = waiting }
+        }
+        clock = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 20), queue: .main) { [weak self] t in
+            MainActor.assumeIsolated { self?.time = t.seconds }
         }
     }
 
@@ -1799,14 +1874,25 @@ final class RallyLoopPlayer {
             player.replaceCurrentItem(with: AVPlayerItem(url: url))
             self.source = source
         }
+        rebound(from: start, to: end)
+        self.rate = rate
+        restart()
+    }
+
+    /// New ends for the loop, without restarting it.
+    func rebound(from start: Double, to end: Double) {
         if let boundary { player.removeTimeObserver(boundary) }
         self.start = CMTime(seconds: start, preferredTimescale: 600)
         boundary = player.addBoundaryTimeObserver(forTimes: [NSValue(time: CMTime(seconds: end, preferredTimescale: 600))],
                                                   queue: .main) { [weak self] in
             MainActor.assumeIsolated { self?.restart() }
         }
-        self.rate = rate
-        restart()
+    }
+
+    /// Pause on a moment (a handle being dragged).
+    func show(_ t: Double) {
+        player.pause()
+        player.seek(to: CMTime(seconds: t, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
     /// Back to the start and play: from the keyframe up to half a second
