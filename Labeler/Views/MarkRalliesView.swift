@@ -3,7 +3,7 @@
 //  RallyLab (iPhone)
 //
 //  Mark every rally in a video in one pass, live, as the Mac does: watch
-//  at 1–4× and tap one key per event. Serve starts a rally; Pass, Set,
+//  at ½–4× and tap one key per event. Serve starts a rally; Pass, Set,
 //  Attack, Block, Free ball tag its touches; Dead ball ends it; Not a rally
 //  ends it as a missed serve or other. Hold a key to say which side of the
 //  net when the guess from the ball's size is wrong. Undo takes back the
@@ -26,14 +26,14 @@ struct MarkRalliesView: View {
     @State private var time = 0.0
     @State private var duration = 0.0
     @State private var isPlaying = false
-    @State private var rate: Float = 2
+    @State private var rate: Float = 1
     @State private var observer: Any?
     @State private var loadError: String?
     @State private var url: URL?
     @State private var tagger: LiveTagger
     @State private var findingNet = false
 
-    private static let speeds: [Float] = [1, 2, 3, 4]
+    private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
 
     init(model: LabelerModel, video: LabelVideo) {
         self.model = model
@@ -183,7 +183,7 @@ struct MarkRalliesView: View {
             Picker("Speed", selection: $rate) {
                 ForEach(Self.speeds, id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
             }
-            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 180)
+            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 230)
             .onChange(of: rate) { _, r in if isPlaying { player.rate = r } }
         }
         .font(.title3)

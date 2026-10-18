@@ -2,7 +2,7 @@
 //  LiveTagView.swift
 //  RallyLab
 //
-//  Mark every rally in a video in one pass, live: watch at 1–4× and press
+//  Mark every rally in a video in one pass, live: watch at ½–4× and press
 //  one key per event as it happens. S at the serve starts a rally; P pass,
 //  T set, A attack, B block, F free ball tag its touches; D at the dead
 //  ball ends it. N ends it as not a rally (a missed serve when nothing
@@ -29,9 +29,9 @@ struct LiveTagView: View {
 
     @State private var tagger: LiveTagger
     @State private var findingNet = false
-    @State private var speed: Float = 2
+    @State private var speed: Float = 1
 
-    private static let speeds: [Float] = [1, 2, 3, 4]
+    private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
 
     init(session: VideoSession, marker: RallyMarkModel, review: ProjectReviewStore, isActive: Bool,
          onClose: @escaping () -> Void, onDone: @escaping () -> Void) {
@@ -52,7 +52,7 @@ struct LiveTagView: View {
                     ForEach(Self.speeds, id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
-                .help("Playback speed (1–4)")
+                .help("Playback speed (1–4; 0 for ½×)")
                 Text("\(marker.rallies.count) marked").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             }
             Divider()
@@ -278,7 +278,7 @@ struct LiveTagView: View {
         default: break
         }
         guard let ch = event.charactersIgnoringModifiers?.lowercased() else { return false }
-        if let n = Int(ch), let s = Self.speeds.first(where: { Int($0) == n }) { speed = s; return true }
+        if let n = Int(ch), let s = Self.speeds.first(where: { $0 == (n == 0 ? 0.5 : Float(n)) }) { speed = s; return true }
         switch ch {
         case "s": tagger.serve(press(flags))
         case "p": tagger.touch(.pass, press(flags))
