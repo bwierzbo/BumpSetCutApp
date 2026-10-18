@@ -388,8 +388,9 @@ final class LabelerModel: ReviewStore {
     var tasks: [LabelTask] {
         let byName = Dictionary(videos.map { ($0.name, $0) }) { a, _ in a }
         let queue = videos.map { v in
-            LabelQueue.Video(plan: planVideo(v), nextRally: nextRally(in: v),
-                             found: v.ralliesFound.count, complete: rallyTimes(for: v).complete)
+            let times = rallyTimes(for: v)
+            return LabelQueue.Video(plan: planVideo(v), nextRally: nextRally(in: v),
+                                    found: v.ralliesFound.count, marked: times.rallies.count, complete: times.complete)
         }
         return LabelQueue.jobs(queue, round: currentRound).compactMap { job in
             guard let v = byName[job.video] else { return nil }

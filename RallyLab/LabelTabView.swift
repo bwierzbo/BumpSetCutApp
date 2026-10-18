@@ -116,7 +116,7 @@ extension LabelQueue.Video {
         let unfinished = tracks.filter(\.isOpen).map(\.bounds)
         let open = TrackLabelModel.untracked(marked + found, tracks: tracks)
         self.init(plan: PlanVideo(session: s), nextRally: (unfinished + open).first, found: found.count,
-                  complete: s.ralliesMarked ?? false)
+                  marked: marked.count, complete: s.ralliesMarked ?? false)
     }
 }
 

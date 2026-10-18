@@ -95,11 +95,6 @@ enum TrainingPlan {
     /// rally, usually 3 rallies): the queue moves on to other videos.
     static let enoughFramesPerVideo = 600
 
-    /// A video's rally times are marked through (for scoring rally cutting)
-    /// in about this many videos per surface per round.
-    static func rallyTimeVideosPerSurface(_ round: Round) -> Int {
-        (round.rallyTimeVideos + surfaces.count - 1) / surfaces.count
-    }
     /// Frames a tracked rally gives before any are tracked (about 6–7 s).
     static let defaultFramesPerRally = 200
 
