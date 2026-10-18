@@ -105,7 +105,7 @@ struct ReviewHomeView: View {
                     .buttonStyle(.plain)
                 }
                 NavigationLink { RallyCheckView(store: store) } label: {
-                    card("Rally or not", "\(checks.formatted()) rallies the model picked · is each a real rally? Their frames come to review once it is",
+                    card("Rally or not", "\(checks.formatted()) rallies the model picked, not yet marked · Mark the rallies (Next) settles them as it goes; this answers them one by one instead",
                          "play.rectangle.on.rectangle", checks)
                 }
                 .buttonStyle(.plain).disabled(checks == 0)

@@ -16,8 +16,11 @@ extension PlanVideo {
     init(session s: VideoSession) {
         let tracks = s.tracks ?? []
         let ready = tracks.filter(\.isReady)
+        // Reachable footage: here, or moved to the desktop's mirror (marking
+        // plays the review copy; tracking fetches the original back).
+        let available = s.isOnMac || FootageRemote.remotePath(for: s, projectsRoot: ProjectsModel.defaultLocation) != nil
         self.init(name: s.name, surface: Coverage.environment(s.name), split: s.split,
-                  available: FileManager.default.fileExists(atPath: s.sourcePath),
+                  available: available,
                   rallies: ready.count,
                   labeledFrames: ready.reduce(0) { $0 + TrainingPlan.labels(labeled: $1.labeledFrames, checked: $1.checkedFrames, split: s.split) },
                   checkedFrames: ready.reduce(0) { $0 + $1.checkedFrames },
