@@ -30,7 +30,9 @@ struct LabelTrimView: View {
     @State private var observer: Any?
     @State private var stopAt: Any?
 
-    /// Letting go of a handle at the strip's edge widens that side by this.
+    /// How far past the rally the strip shows on each side. Letting go of a
+    /// handle at the strip's edge doubles that side, so a rally the finder
+    /// got badly wrong is a few pulls away, not a fixed few seconds.
     @State private var reachBefore = TrimFilmstrip.reach
     @State private var reachAfter = TrimFilmstrip.reach
 
@@ -48,7 +50,7 @@ struct LabelTrimView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             TrimFilmstrip(asset: player.currentItem?.asset, window: window, start: $start, end: $end, time: time,
                            onScrub: { show($0) },
-                           onEdge: { isStart in if isStart { reachBefore += TrimFilmstrip.reach } else { reachAfter += TrimFilmstrip.reach } })
+                           onEdge: { isStart in if isStart { reachBefore *= 2 } else { reachAfter *= 2 } })
                 .frame(height: 64)
             HStack(spacing: 12) {
                 Button { playSelection() } label: { Label("Play", systemImage: "play.fill") }

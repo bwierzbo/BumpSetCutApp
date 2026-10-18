@@ -31,7 +31,14 @@ struct RallyTrimOverlay: View {
     private let minSelectionDuration: Double = 1.0
     private let zoomAccessibilityStep: Double = 0.25
     private let edgeZoneWidth: CGFloat = 20
-    private let autoExtendRate: Double = 1.0   // video-seconds per second held at the edge
+    /// Video-seconds per second while a handle is held at the strip edge:
+    /// 1 at the edge itself (the video plays along), up to `maxAutoExtendRate`
+    /// the further the finger is pushed past it — there's no end to how far
+    /// a rally the finder got wrong can be pulled.
+    private let autoExtendRate: Double = 1.0
+    private let maxAutoExtendRate: Double = 12.0
+    /// How far past the edge the finger has to go to reach the top rate.
+    private let autoExtendReach: CGFloat = 120
     private let autoExtendTickSeconds: Double = 0.1
 
     private enum ExtendDirection { case left, right }
@@ -46,6 +53,7 @@ struct RallyTrimOverlay: View {
     @State private var selectionHaptic = UISelectionFeedbackGenerator()
     @State private var autoExtendTask: Task<Void, Never>? = nil
     @State private var autoExtendDirection: ExtendDirection? = nil
+    @State private var extendRate: Double = 1.0
     @State private var extendUsesPlayback = false
     @State private var thumbnailTask: Task<Void, Never>? = nil
     @State private var lastThumbnailWindow: (start: Double, end: Double) = (0, 0)
@@ -339,8 +347,10 @@ struct RallyTrimOverlay: View {
                 let desiredX = value.location.x - (leftGrabOffset ?? 0)
 
                 // Holding at the strip's left edge auto-extends the window
-                // (while the loop runs, ticks own trimBefore — not the finger).
+                // (while the loop runs, ticks own trimBefore — not the finger);
+                // pushing further past the edge runs it faster.
                 if desiredX <= edgeZoneWidth && windowStart > 0 {
+                    extendRate = rate(forOvershoot: edgeZoneWidth - desiredX)
                     if autoExtendTask == nil {
                         selectionHaptic.selectionChanged()
                         selectionHaptic.prepare()
@@ -372,6 +382,7 @@ struct RallyTrimOverlay: View {
                 let desiredX = value.location.x - (rightGrabOffset ?? 0)
 
                 if desiredX >= totalWidth - edgeZoneWidth && windowEnd < videoDuration {
+                    extendRate = rate(forOvershoot: desiredX - (totalWidth - edgeZoneWidth))
                     if autoExtendTask == nil {
                         selectionHaptic.selectionChanged()
                         selectionHaptic.prepare()
@@ -395,6 +406,13 @@ struct RallyTrimOverlay: View {
     }
 
     // MARK: - Edge-Hold Auto-Extension
+
+    /// The extend rate for a finger `overshoot` points past the edge zone:
+    /// the base rate at the edge, rising to the top rate over `autoExtendReach`.
+    private func rate(forOvershoot overshoot: CGFloat) -> Double {
+        let f = Double(min(max(overshoot, 0), autoExtendReach) / autoExtendReach)
+        return autoExtendRate + (maxAutoExtendRate - autoExtendRate) * pow(f, 1.5)
+    }
 
     private func startAutoExtend(_ direction: ExtendDirection) {
         autoExtendDirection = direction
@@ -429,7 +447,13 @@ struct RallyTrimOverlay: View {
     }
 
     private func performExtendTick(_ direction: ExtendDirection) {
-        let tickStep = autoExtendRate * autoExtendTickSeconds
+        let tickStep = extendRate * autoExtendTickSeconds
+        // Playback shows the footage at 1×; pushed faster than that, the
+        // video can't keep up, so the boundary steps on its own from here.
+        if extendUsesPlayback && extendRate > 1.5 {
+            extendUsesPlayback = false
+            onExtendPlaybackEnd?(windowEnd)
+        }
         switch direction {
         case .left:
             let step = min(tickStep, windowStart)
@@ -483,11 +507,12 @@ struct RallyTrimOverlay: View {
 
     // MARK: - Thumbnails
 
-    /// Regenerate the filmstrip for the current window — at most once per
-    /// ≥1s of window growth during auto-extension unless forced.
+    /// Regenerate the filmstrip for the current window — during
+    /// auto-extension only once it has grown by a tenth (a second at least),
+    /// unless forced.
     private func maybeRefreshThumbnails(force: Bool = false) {
         let grown = (lastThumbnailWindow.start - windowStart) + (windowEnd - lastThumbnailWindow.end)
-        guard force || grown >= 1.0 else { return }
+        guard force || grown >= max(1.0, 0.1 * windowDuration) else { return }
         thumbnailTask?.cancel()
         thumbnailTask = Task { await generateThumbnails() }
     }
