@@ -2,7 +2,7 @@
 //  VideoDetailView.swift
 //  RallyLab (iPhone)
 //
-//  One video: its rally times (review them, or edit freely), its tracked
+//  One video: its rally times (mark them live, or edit freely), its tracked
 //  rallies (open to check or fix, swipe to delete) and the rallies still
 //  to track.
 //
@@ -25,10 +25,10 @@ struct VideoDetailView: View {
             }
             Section("Rally times") {
                 NavigationLink {
-                    RallyReviewView(model: model, video: video)
+                    MarkRalliesView(model: model, video: video)
                 } label: {
-                    Label(model.openFound(in: video).isEmpty ? "Skim for missed rallies" : "Review \(model.openFound(in: video).count) found rallies",
-                          systemImage: "checklist")
+                    Label(model.openFound(in: video).isEmpty ? "Mark the rallies" : "Mark the rallies · \(model.openFound(in: video).count) found to confirm",
+                          systemImage: "flag")
                 }
                 NavigationLink {
                     RallyTimesView(model: model, video: video)

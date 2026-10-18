@@ -79,8 +79,9 @@ struct NextView: View {
             switch task {
             case .review(let v):
                 let open = model.openFound(in: v).count
-                return ("Check the rallies", open > 0 ? "\(open) found rallies to confirm, then skim for missed ones" : "Skim for missed rallies and finish",
-                        "checklist")
+                return ("Mark the rallies", open > 0 ? "Watch at speed, one tap per touch · \(open) found rallies confirm as you go"
+                                                    : "Watch at speed, one tap per touch, then finish",
+                        "flag")
             case .track(let v, let r):
                 if let t = model.unfinishedTrack(of: r, in: v) { return ("Finish tracking a rally", Self.progress(t), "scope") }
                 if let t = LocalStore.trim(of: r, in: v) {
@@ -152,7 +153,7 @@ extension LabelerModel.LabelTask {
     @MainActor @ViewBuilder
     func destination(_ model: LabelerModel) -> some View {
         switch self {
-        case .review(let v): RallyReviewView(model: model, video: v)
+        case .review(let v): MarkRalliesView(model: model, video: v)
         case .track(let v, let r): TrackTaskView(model: model, video: v, span: r)
         }
     }

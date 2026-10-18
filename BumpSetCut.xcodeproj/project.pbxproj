@@ -109,6 +109,7 @@
 				Shared/LabelingLive.swift,
 				Shared/LabelingModels.swift,
 				Shared/LabelQueue.swift,
+				Shared/LiveTagger.swift,
 				Shared/PipelineVideo.swift,
 				Shared/RallyEvents.swift,
 				Shared/RallyTimesBar.swift,
