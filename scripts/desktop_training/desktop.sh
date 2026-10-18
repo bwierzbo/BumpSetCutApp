@@ -78,7 +78,10 @@ send_package() {
     fi
     scp -o BatchMode=yes -o LogLevel=ERROR $HERE/train_heatmap_model.py "$HOST:C:/BallTraining/train_heatmap_model.py"
     scp -o BatchMode=yes -o LogLevel=ERROR $HERE/queue_runner.ps1 "$HOST:C:/BallTraining/queue_runner.ps1"
-    remote "if (Test-Path '$REMOTE\\runs\\heatmap\\$T_name') { 'exists' }" | grep -q exists && die "Run \"$T_name\" already exists on the desktop — pass --name."
+    # Not `… && die`: under set -e a failed last-command-of-a-list ends the function with 1, which ends the script.
+    if remote "if (Test-Path '$REMOTE\\runs\\heatmap\\$T_name') { 'exists' }" | grep -q exists; then
+        die "Run \"$T_name\" already exists on the desktop — pass --name."
+    fi
 }
 
 cmd_train() {
