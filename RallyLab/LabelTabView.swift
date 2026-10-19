@@ -25,6 +25,7 @@ struct LabelTabView: View {
     @AppStorage("RallyLab.labelPage") private var page: Page = .next
     @State private var plan: TrainingPlanModel
     @State private var review: ProjectReviewStore
+    @State private var paths: BallPathBuilder
     /// The task on screen, if any.
     @State private var active: LabelQueue.Job?
 
@@ -40,6 +41,7 @@ struct LabelTabView: View {
         self.isActive = isActive
         _plan = State(initialValue: TrainingPlanModel(library: library))
         _review = State(initialValue: ProjectReviewStore(sampler: projects.sampler, tracker: tracker, sync: phone))
+        _paths = State(initialValue: BallPathBuilder(sampler: projects.sampler))
     }
 
     private var sampler: SamplerModel { projects.sampler }
@@ -71,7 +73,7 @@ struct LabelTabView: View {
             case .next:
                 let videos = queueVideos
                 LabelHomeView(sampler: sampler, round: plan.currentRound, videos: videos,
-                              jobs: LabelQueue.jobs(videos, round: plan.currentRound), isActive: isActive) { active = $0 }
+                              jobs: LabelQueue.jobs(videos, round: plan.currentRound), paths: paths, isActive: isActive) { active = $0 }
             case .review:
                 NavigationStack { ReviewHomeView(store: review, progress: review.progress) }
             case .coverage:
@@ -92,7 +94,8 @@ struct LabelTabView: View {
             LabelTrackTask(session: session, rally: rally, tracker: tracker, marker: marker, isActive: isActive,
                            onClose: { active = nil }, onDone: next)
         case .review:
-            LiveTagView(session: session, marker: marker, review: review, isActive: isActive, onClose: { active = nil }, onDone: next)
+            LiveTagView(session: session, marker: marker, review: review, paths: paths, isActive: isActive,
+                        onClose: { active = nil }, onDone: next)
         }
     }
 
@@ -128,6 +131,7 @@ private struct LabelHomeView: View {
     let round: TrainingPlan.Round?
     let videos: [LabelQueue.Video]
     let jobs: [LabelQueue.Job]
+    let paths: BallPathBuilder
     let isActive: Bool
     let open: (LabelQueue.Job) -> Void
 
@@ -162,6 +166,14 @@ private struct LabelHomeView: View {
             .frame(maxWidth: .infinity)
         }
         .background(.background.secondary)
+        .onAppear {
+            // The ball's path for the next videos to mark, so snapping is ready when you open them.
+            let upcoming = jobs.compactMap { job -> VideoSession? in
+                guard case .review(let name) = job else { return nil }
+                return sampler.sessions.first { $0.name == name }
+            }
+            paths.ensure(Array(upcoming.prefix(4)))
+        }
     }
 
     private func roundCard(_ progress: PlanProgress) -> some View {

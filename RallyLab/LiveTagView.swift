@@ -23,6 +23,7 @@ struct LiveTagView: View {
     let session: VideoSession
     @Bindable var marker: RallyMarkModel
     let review: ProjectReviewStore
+    let paths: BallPathBuilder
     let isActive: Bool
     let onClose: () -> Void
     let onDone: () -> Void
@@ -33,11 +34,12 @@ struct LiveTagView: View {
 
     private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
 
-    init(session: VideoSession, marker: RallyMarkModel, review: ProjectReviewStore, isActive: Bool,
+    init(session: VideoSession, marker: RallyMarkModel, review: ProjectReviewStore, paths: BallPathBuilder, isActive: Bool,
          onClose: @escaping () -> Void, onDone: @escaping () -> Void) {
         self.session = session
         self.marker = marker
         self.review = review
+        self.paths = paths
         self.isActive = isActive
         self.onClose = onClose
         self.onDone = onDone
@@ -70,7 +72,10 @@ struct LiveTagView: View {
         .onAppear {
             marker.open(sessionName: session.name)
             marker.rate = speed
+            paths.ensure([session])
+            loadPath()
         }
+        .onChange(of: paths.finished) { loadPath() }
         .task { await findNet() }
         .onDisappear { if marker.isPlaying { marker.togglePlay() } }
         .onChange(of: speed) { _, s in marker.rate = s }
@@ -162,6 +167,16 @@ struct LiveTagView: View {
                 Text(clockText(marker.playhead)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 if findingNet { ProgressView().controlSize(.mini); Text("Finding the net…").font(.caption).foregroundStyle(.secondary) }
                 else if tagger.net == nil { Text("No net found · sides are up to ⇧ far and ⌥ near").font(.caption).foregroundStyle(.secondary) }
+                if paths.building == session.name {
+                    ProgressView().controlSize(.mini)
+                    Text("Finding the ball… \(Int(paths.fraction * 100))%").font(.caption).foregroundStyle(.secondary)
+                        .help("The pipeline is running over the video; once it's done, presses snap to where the ball changed course")
+                } else if marker.duration > 0 {
+                    let covered = tagger.path.stretches.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
+                    Text("Snaps to the ball on \(Int(min(1, covered / marker.duration) * 100))% of the video")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .help("Where the ball was seen; a press within 0.4 s of it changing course moves to that moment")
+                }
                 Spacer()
                 Text("⇧ far · ⌥ near · Z takes back a press · ←/→ 2 s · ⌫ removes the rally here")
                     .font(.caption).foregroundStyle(.secondary)
@@ -249,6 +264,12 @@ struct LiveTagView: View {
     private func play(from t: Double) {
         marker.seek(to: max(0, t))
         if !marker.isPlaying { marker.togglePlay() }
+    }
+
+    /// The ball's path: the rallies tracked by hand, and the pipeline's
+    /// sightings over the rest of the video once BallPathBuilder has them.
+    private func loadPath() {
+        tagger.path = BallPath(tracks: session.tracks ?? [], seen: paths.samples(for: session) ?? [])
     }
 
     /// The net, once per video, from the review copy; kept on the session.

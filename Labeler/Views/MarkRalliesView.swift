@@ -118,6 +118,10 @@ struct MarkRalliesView: View {
             }
             if let note = tagger.recentNote {
                 Text(note).font(.caption2).foregroundStyle(.secondary)
+            } else if duration > 0 {
+                let covered = tagger.path.stretches.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
+                Text("Snaps to the ball on \(Int(min(1, covered / duration) * 100))% of the video")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -267,6 +271,9 @@ struct MarkRalliesView: View {
             let item = AVPlayerItem(url: playback)
             player.replaceCurrentItem(with: item)
             duration = (try? await item.asset.load(.duration).seconds) ?? video.duration
+            if let seen = await model.ballPath(for: video) {
+                tagger.path = BallPath(tracks: model.tracks(for: video).map(\.rally), seen: seen)
+            }
             observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { t in
                 time = t.seconds
                 isPlaying = player.rate > 0

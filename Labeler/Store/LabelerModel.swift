@@ -589,6 +589,25 @@ final class LabelerModel: ReviewStore {
     }
 
     /// The clip to play: on the phone if it's there, else streamed.
+    /// Videos whose ball path isn't up yet (the Mac hasn't made or sent it);
+    /// asked once per launch.
+    @ObservationIgnored private var ballPathsMissing: Set<UUID> = []
+
+    /// The pipeline's sightings of the ball over the video, made on the Mac
+    /// and sent next to the clip; fetched once and kept.
+    func ballPath(for video: LabelVideo) async -> [BallPath.Sample]? {
+        let local = LocalStore.ballPath(for: video)
+        if let file = BallPathFile.load(local) { return file.samples }
+        guard let clip = video.clipPath, !ballPathsMissing.contains(video.id) else { return nil }
+        do {
+            try await client.download(BallPathFile.remotePath(forClip: clip), to: local)
+        } catch {
+            ballPathsMissing.insert(video.id)
+            return nil
+        }
+        return BallPathFile.load(local)?.samples
+    }
+
     func playbackURL(for video: LabelVideo) async throws -> URL {
         if LocalStore.hasClip(video) { return LocalStore.clip(for: video) }
         guard let path = video.clipPath else { throw LabelingClient.Failure.unreadable }

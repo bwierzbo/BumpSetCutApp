@@ -76,6 +76,13 @@ enum LocalStore {
         }
     }
 
+    /// The pipeline's sightings of the ball in the video (BallPathFile),
+    /// named for the copy they were made from.
+    static func ballPath(for video: LabelVideo) -> URL {
+        let copy = video.clipPath.map { ($0 as NSString).lastPathComponent } ?? "clip"
+        return support.appendingPathComponent("\(video.id.uuidString)-\(copy).ballpath.json")
+    }
+
     static func hasClip(_ video: LabelVideo) -> Bool { FileManager.default.fileExists(atPath: clip(for: video).path) }
 
     static func removeClip(_ video: LabelVideo) { try? FileManager.default.removeItem(at: clip(for: video)) }

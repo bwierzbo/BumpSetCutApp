@@ -100,24 +100,49 @@ struct BallPath {
     /// A volleyball is 0.21 m across; the net's band is a metre tall.
     static let ballToNet = 0.21
 
-    init(tracks: [TrackedRally]) {
+    /// A gap in the pipeline's sightings longer than this ends a stretch.
+    static let gap = 0.5
+
+    /// From rallies tracked frame by frame (exact), filled in where they
+    /// don't reach with `seen`: the pipeline's sightings of the ball over
+    /// the whole video (BallPathFile), in stretches between gaps.
+    init(tracks: [TrackedRally], seen: [Sample] = []) {
         var changes: [Double] = [], starts: [Double] = [], ends: [Double] = [], all: [Sample] = []
+        var covered: [ClosedRange<Double>] = []
         for track in tracks {
             let seen = track.points.compactMap { p -> Sample? in
                 guard p.state == .visible, let box = p.box else { return nil }
                 return Sample(time: p.time, center: CGPoint(x: box.rect.midX, y: box.rect.midY), size: box.h)
             }
             guard seen.count >= 5 else { continue }
+            covered.append(seen[0].time...seen[seen.count - 1].time)
             starts.append(seen[0].time)
             ends.append(seen[seen.count - 1].time)
             changes += Self.turns(seen)
             all += seen
+        }
+        let rest = seen.filter { s in !covered.contains { $0.contains(s.time) } }.sorted { $0.time < $1.time }
+        var stretch: [Sample] = []
+        for s in rest + [Sample(time: .infinity, center: .zero, size: 0)] {
+            if let last = stretch.last, s.time - last.time > Self.gap {
+                if stretch.count >= 5 {
+                    starts.append(stretch[0].time)
+                    ends.append(last.time)
+                    changes += Self.turns(stretch)
+                    all += stretch
+                }
+                stretch.removeAll()
+            }
+            if s.time.isFinite { stretch.append(s) }
         }
         self.changes = changes.sorted()
         self.starts = starts.sorted()
         self.ends = ends.sorted()
         samples = all.sorted { $0.time < $1.time }
     }
+
+    /// Stretches of the path, for showing where snapping works.
+    var stretches: [ClosedRange<Double>] { zip(starts, ends).map { $0...$1 } }
 
     /// Where the ball turned the way a touch turns it: it was falling and
     /// goes up, or speeds up sharply, or comes back the way it came — not

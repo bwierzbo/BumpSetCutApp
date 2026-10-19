@@ -185,6 +185,7 @@ final class LabelingSync {
             if videos {
                 let imported = try await importPhoneVideos(project: project)
                 let (listed, uploaded, failed) = try await publishVideos(project: project, remaking: remaking)
+                try await publishBallPaths(project: project)
                 parts.append("\(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), \(imported) phone videos pulled in")
             }
             let (pushed, pulled) = try await syncRallyTimes(project: project)
@@ -347,6 +348,37 @@ final class LabelingSync {
         case encode(String)
         var errorDescription: String? {
             switch self { case .encode(let why): return "Couldn't make the phone copy: \(why)" }
+        }
+    }
+
+    /// The ball's path over each video (BallPathBuilder), sent up next to
+    /// its clip once it exists here, so marking on the phone snaps too.
+    /// Footage moved to the desktop counts: the path was made from the
+    /// review copy. What's been sent is remembered in ballpaths/sent.json.
+    private func publishBallPaths(project: String) async throws {
+        let root = projects.sampler.datasetRoot
+        let sentFile = root.appendingPathComponent("ballpaths/sent.json")
+        var sent = Set((try? Data(contentsOf: sentFile)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? [])
+        let remote = try await client.videos().filter { $0.project == project }
+        var sentNow = 0
+        for video in remote {
+            guard let clip = video.clipPath, let name = video.sessionName else { continue }
+            let path = BallPathFile.remotePath(forClip: clip)
+            let local = BallPathBuilder.url(for: name, in: root)
+            guard !sent.contains(path), FileManager.default.fileExists(atPath: local.path) else { continue }
+            do {
+                try await client.upload(local, to: path)
+            } catch LabelingClient.Failure.notSignedIn {
+                throw LabelingClient.Failure.notSignedIn
+            } catch {
+                continue   // next sync
+            }
+            sent.insert(path)
+            sentNow += 1
+        }
+        if sentNow > 0, let data = try? JSONEncoder().encode(sent.sorted()) {
+            try? FileManager.default.createDirectory(at: sentFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: sentFile, options: .atomic)
         }
     }
 

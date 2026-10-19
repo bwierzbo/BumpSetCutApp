@@ -108,6 +108,7 @@
 				Shared/LabelingClient.swift,
 				Shared/LabelingLive.swift,
 				Shared/LabelingModels.swift,
+				Shared/BallPathFile.swift,
 				Shared/LabelQueue.swift,
 				Shared/LiveTagger.swift,
 				Shared/MarkingProgress.swift,
