@@ -121,29 +121,15 @@ struct HighlightCardView: View {
                         .accessibilityHidden(true)
                 }
 
-                // Page indicator dots at bottom for multi-video
-                if isMultiVideo {
+                // Page indicator dots for multi-video, with the chrome hidden:
+                // just above the bottom edge. With the chrome showing they sit
+                // in the controls stack, above the caption (overlayControls).
+                if isMultiVideo && chromeHidden {
                     VStack {
                         Spacer()
-                        HStack(spacing: 6) {
-                            ForEach(0..<videoURLs.count, id: \.self) { i in
-                                Circle()
-                                    .fill(i == currentVideoPage ? Color.bscOnMedia : Color.bscOnMedia.opacity(0.5))
-                                    .frame(width: 8, height: 8)
-                            }
-                        }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Page \(currentVideoPage + 1) of \(videoURLs.count)")
-                        .padding(.horizontal, BSCSpacing.md)
-                        .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.bscMediaScrim))
-                        // Sit just above the bottom edge in landscape; clear the
-                        // controls in portrait.
-                        .padding(.bottom, geo.size.width > geo.size.height
-                            ? bottomChromeInset + BSCSpacing.md
-                            : bottomChromeInset + BSCSpacing.huge + BSCSpacing.md)
+                        pageDots
+                            .padding(.bottom, bottomChromeInset + BSCSpacing.md)
                     }
-                    .allowsHitTesting(false)
                 }
 
                 // Bottom scrim so white chrome stays legible over bright video frames
@@ -217,9 +203,32 @@ struct HighlightCardView: View {
 
     // MARK: - Overlay Controls
 
+    /// Which of a post's videos is showing.
+    private var pageDots: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<videoURLs.count, id: \.self) { i in
+                Circle()
+                    .fill(i == currentVideoPage ? Color.bscOnMedia : Color.bscOnMedia.opacity(0.5))
+                    .frame(width: 8, height: 8)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Page \(currentVideoPage + 1) of \(videoURLs.count)")
+        .padding(.horizontal, BSCSpacing.md)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(Color.bscMediaScrim))
+        .allowsHitTesting(false)
+    }
+
     private func overlayControls(safeArea: EdgeInsets) -> some View {
         VStack {
             Spacer()
+
+            // Above the caption and buttons, never under them.
+            if isMultiVideo {
+                pageDots
+                    .padding(.bottom, BSCSpacing.md)
+            }
 
             HStack(alignment: .bottom, spacing: BSCSpacing.lg) {
                 // Left: author info + caption
