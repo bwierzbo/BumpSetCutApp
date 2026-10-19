@@ -364,6 +364,21 @@ final class LabelerModel: ReviewStore {
 
     var progress: PlanProgress { PlanProgress(videos: videos.map(planVideo), round: currentRound) }
 
+    /// Every video as the queue sees it (LabelQueue — the same rules as the Mac).
+    private var queueVideos: [LabelQueue.Video] {
+        videos.map { v in
+            let times = rallyTimes(for: v)
+            return LabelQueue.Video(plan: planVideo(v), nextRally: nextRally(in: v),
+                                    found: v.ralliesFound.count, marked: times.rallies.count, complete: times.complete)
+        }
+    }
+
+    /// How far marking the rallies has got, with each video's real length.
+    var marking: MarkingProgress {
+        let duration = Dictionary(videos.map { ($0.name, $0.duration) }) { a, _ in a }
+        return MarkingProgress(videos: queueVideos) { duration[$0.plan.name].flatMap { $0 > 0 ? $0 : nil } }
+    }
+
     // MARK: - Next tasks
 
     enum LabelTask: Identifiable, Hashable {
@@ -387,12 +402,7 @@ final class LabelerModel: ReviewStore {
     /// What to do next (LabelQueue — the same rules as the Mac).
     var tasks: [LabelTask] {
         let byName = Dictionary(videos.map { ($0.name, $0) }) { a, _ in a }
-        let queue = videos.map { v in
-            let times = rallyTimes(for: v)
-            return LabelQueue.Video(plan: planVideo(v), nextRally: nextRally(in: v),
-                                    found: v.ralliesFound.count, marked: times.rallies.count, complete: times.complete)
-        }
-        return LabelQueue.jobs(queue, round: currentRound).compactMap { job in
+        return LabelQueue.jobs(queueVideos, round: currentRound).compactMap { job in
             guard let v = byName[job.video] else { return nil }
             switch job {
             case .track(_, let r): return .track(v, r)

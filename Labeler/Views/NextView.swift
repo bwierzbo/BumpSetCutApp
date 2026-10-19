@@ -20,6 +20,7 @@ struct NextView: View {
         let progress = model.progress
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                markingCard(model.marking)
                 roundCard(progress)
                 if let first = tasks.first {
                     NavigationLink(value: first) { taskCard(first, big: true) }.buttonStyle(.plain)
@@ -49,6 +50,45 @@ struct NextView: View {
                 }
             }
         }
+    }
+
+    /// Videos marked through, left, and the footage still to watch, per surface.
+    private func markingCard(_ marking: MarkingProgress) -> some View {
+        let t = marking.total
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 10)
+                    Circle().trim(from: 0, to: t.fraction)
+                        .stroke(Color.green, style: StrokeStyle(lineWidth: 10, lineCap: .round)).rotationEffect(.degrees(-90))
+                    Text("\(Int((t.fraction * 100).rounded()))%").font(.headline.monospacedDigit())
+                }
+                .frame(width: 74, height: 74)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Marking the rallies").font(.headline)
+                    Text("\(t.marked) of \(t.videos) videos marked · \(t.left) left").font(.callout.monospacedDigit())
+                    Text(t.left == 0 ? "Every video is marked through."
+                         : t.footageLeft > 0 ? "About \(MarkingProgress.clock(t.footageLeft)) of footage to watch · \(t.rallies) rallies marked so far"
+                         : "\(t.rallies) rallies marked so far")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            HStack(spacing: 14) {
+                ForEach(marking.surfaces, id: \.surface) { surface, b in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label("\(b.marked)/\(b.videos)", systemImage: LabelSurface(rawValue: surface)?.icon ?? "film")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                        ProgressView(value: b.fraction).tint(b.marked == 0 ? .red : .green)
+                        Text(b.footageLeft > 0 ? "\(b.left) left · \(MarkingProgress.clock(b.footageLeft))" : "\(b.left) left")
+                            .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding()
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func roundCard(_ progress: PlanProgress) -> some View {

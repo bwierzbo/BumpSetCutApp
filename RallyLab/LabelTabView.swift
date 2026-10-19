@@ -69,7 +69,9 @@ struct LabelTabView: View {
             Divider()
             switch page {
             case .next:
-                LabelHomeView(sampler: sampler, round: plan.currentRound, jobs: jobs, isActive: isActive) { active = $0 }
+                let videos = queueVideos
+                LabelHomeView(sampler: sampler, round: plan.currentRound, videos: videos,
+                              jobs: LabelQueue.jobs(videos, round: plan.currentRound), isActive: isActive) { active = $0 }
             case .review:
                 NavigationStack { ReviewHomeView(store: review, progress: review.progress) }
             case .coverage:
@@ -100,9 +102,9 @@ struct LabelTabView: View {
         active = jobs.first { $0 != finished }
     }
 
-    private var jobs: [LabelQueue.Job] {
-        LabelQueue.jobs(sampler.sessions.map(LabelQueue.Video.init(session:)), round: plan.currentRound)
-    }
+    private var queueVideos: [LabelQueue.Video] { sampler.sessions.map(LabelQueue.Video.init(session:)) }
+
+    private var jobs: [LabelQueue.Job] { LabelQueue.jobs(queueVideos, round: plan.currentRound) }
 }
 
 extension LabelQueue.Video {
@@ -120,18 +122,24 @@ extension LabelQueue.Video {
     }
 }
 
-/// Next: the round, today, and what to do — the first task big.
+/// Next: marking progress, the round, today, and what to do — the first task big.
 private struct LabelHomeView: View {
     let sampler: SamplerModel
     let round: TrainingPlan.Round?
+    let videos: [LabelQueue.Video]
     let jobs: [LabelQueue.Job]
     let isActive: Bool
     let open: (LabelQueue.Job) -> Void
 
     var body: some View {
-        let progress = PlanProgress(videos: sampler.sessions.map(PlanVideo.init(session:)), round: round)
+        let progress = PlanProgress(videos: videos.map(\.plan), round: round)
+        // How long a video runs: sessions don't keep it, but the Sampler's
+        // random frames reach nearly to the end, so the last one's time is close.
+        let reach = Dictionary(sampler.sessions.map { ($0.name, $0.frames.map(\.time).max()) }) { a, _ in a }
+        let marking = MarkingProgress(videos: videos) { reach[$0.plan.name] ?? nil }
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                MarkingProgressView(progress: marking)
                 roundCard(progress)
                 if let first = jobs.first {
                     Button { open(first) } label: { card(first, big: true) }
