@@ -28,6 +28,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 - [`CLAUDE.md`](../CLAUDE.md) — build commands, architecture, product invariants, workflow pointer.
 - [`.claude/CLAUDE.md`](../.claude/CLAUDE.md) — behaviour rules.
+- [`AGENTS.md`](../AGENTS.md) — Codex repository instructions: operating boundaries and the eight high-value review rules; PR-review output format.
 - `.claude/rules/` — branch, worktree, GitHub, datetime and other operating rules.
 - `.claude/skills/` — build, run-rallylab, preexisting, device-logs.
 
