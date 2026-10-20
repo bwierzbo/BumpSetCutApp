@@ -62,10 +62,12 @@ Branches merge to main **only through a reviewed pull request** (decision D-005,
 gh pr create --base main --head epic/{name} --title "{title}" --body-file {filled-template.md}
 
 # Stop here. Codex reviews the PR; the owner merges after findings are addressed.
-# After the owner has merged:
+# After the owner has merged (verify first; a squash merge leaves the branch
+# tip outside main's history, so `-d` would refuse — use -D once MERGED):
+[[ $(gh pr view {pr-number} --json state --jq .state) == MERGED ]] || { echo "PR not merged yet"; exit 1; }
 git checkout main
 git pull origin main
-git branch -d epic/{name}
+git branch -D epic/{name}
 git push origin --delete epic/{name}
 ```
 
@@ -91,8 +93,8 @@ git branch -a
 
 ### Remove Stale Branch
 ```bash
-# Delete local branch
-git branch -d epic/{name}
+# Delete local branch (-D: squash-merged branches are not "fully merged" in git's eyes; confirm the PR is MERGED first)
+git branch -D epic/{name}
 
 # Delete remote branch
 git push origin --delete epic/{name}

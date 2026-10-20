@@ -61,12 +61,15 @@ git push -u origin epic/{name}
 gh pr create --base main --head epic/{name} --title "{title}" --body-file {filled-template.md}
 
 # Stop here. Codex reviews the PR; the owner merges after findings are addressed.
-# After the owner has merged, clean up from the main repository:
+# After the owner has merged (verify first; a squash merge leaves the branch
+# tip outside main's history, so `-d` would refuse — use -D once MERGED):
+[[ $(gh pr view {pr-number} --json state --jq .state) == MERGED ]] || { echo "PR not merged yet"; exit 1; }
 cd {main-repo}
 git checkout main
 git pull origin main
 git worktree remove ../epic-{name}
-git branch -d epic/{name}
+git branch -D epic/{name}
+git push origin --delete epic/{name}
 ```
 
 ## Handling Conflicts

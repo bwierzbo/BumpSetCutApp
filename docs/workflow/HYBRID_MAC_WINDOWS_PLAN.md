@@ -80,7 +80,7 @@ Draft ACL (owner applies; replace the port with the chosen remote-desktop tool's
 {
   "tagOwners": { "tag:gpu": ["autogroup:admin"] },
   "acls": [
-    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:gpu:22", "tag:gpu:21118"] }
+    { "action": "accept", "src": ["autogroup:owner"], "dst": ["tag:gpu:22", "tag:gpu:21118"] }
   ]
 }
 ```

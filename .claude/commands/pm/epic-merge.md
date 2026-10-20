@@ -107,7 +107,7 @@ git pull origin main
 
 git worktree remove ../epic-$ARGUMENTS
 echo "✅ Worktree removed: ../epic-$ARGUMENTS"
-git branch -d epic/$ARGUMENTS
+git branch -D epic/$ARGUMENTS   # -D: a squash merge leaves the tip outside main's history; MERGED was verified above
 git push origin --delete epic/$ARGUMENTS 2>/dev/null || true
 
 mkdir -p .claude/epics/archived/
