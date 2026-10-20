@@ -57,10 +57,11 @@ git commit -m "Issue #1235: Add dashboard component"
 
 Branches merge to main **only through a reviewed pull request** (decision D-005, see `docs/workflow/WORKING_AGREEMENT.md`). Agents never merge and never push to main:
 ```bash
-# Open the PR (template is filled in automatically)
-gh pr create --base main --head epic/{name} --fill
+# Fill .github/PULL_REQUEST_TEMPLATE.md with real evidence, then pass it
+# explicitly — `--fill` uses commit messages and skips the template.
+gh pr create --base main --head epic/{name} --title "{title}" --body-file {filled-template.md}
 
-# Stop here. The owner hands the PR to independent review, then merges it.
+# Stop here. Codex reviews the PR; the owner merges after findings are addressed.
 # After the owner has merged:
 git checkout main
 git pull origin main

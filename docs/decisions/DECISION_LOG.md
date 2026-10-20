@@ -28,6 +28,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-011](#d-011) | 2026-10-11 | superseded by D-007 | Tuner objective: covered share − 0.25 × dead time |
 | [D-012](#d-012) | 2026-10-09 | accepted | No Ultralytics licence; no YOLO-derived weights ship in the public app |
 | [D-013](#d-013) | 2026-10-06 | accepted (amended by D-001) | From-scratch multi-frame ball model + learned decision layer, all on-device |
+| [D-014](#d-014) | 2026-10-20 | accepted (amends D-005) | Review tiers: PR review by default for ML/data/architecture; streamlined path only with explicit owner authorisation; Codex is the reviewer |
 
 ---
 
@@ -158,3 +159,15 @@ The authoritative record of product, architecture, data and process decisions fo
 **Status 2026-10-20.** (1) shipped (`ball_heat` = scratch_768_1014, 2026-10-14). (2) reaffirmed and broadened by D-001.
 
 **Source.** Session memory `detection-architecture-direction`.
+
+### D-014
+
+**Review tiers; Codex is the independent reviewer** — 2026-10-20 — accepted, amends [D-005](#d-005) — owner, after the first Codex review of PR #65.
+
+**Decision.** The owner decides when a formal PR is required. Changes affecting ML models, datasets, training pipelines, evaluation methodology, architecture, or significant production behaviour require PR review by default. Minor UI adjustments, cosmetic changes, documentation corrections and low-risk bug fixes may use a streamlined workflow when the owner explicitly authorises it for that change. The owner can require a PR for any change or grant an exception for any change. Claude never pushes directly to `main` or merges without explicit owner authorisation. Codex (GitHub app) remains the independent reviewer for PRs; the manual ChatGPT export is the fallback. Blocking findings must be resolved or explicitly accepted by the owner.
+
+**Context.** D-005 required a PR for every change. The first review cycle showed that is heavier than needed for cosmetic and documentation fixes, while ML and production changes need the full gate.
+
+**Consequences.** [WORKING_AGREEMENT.md](../workflow/WORKING_AGREEMENT.md) "Review tiers"; [CHATGPT_REVIEW.md](../workflow/CHATGPT_REVIEW.md) now leads with Codex; `CLAUDE.md`, `.claude/CLAUDE.md`, `AGENTS.md` updated to point there. `/pm:epic-merge` no longer merges or pushes `main`.
+
+**Source.** Owner instruction to Claude Code, 2026-10-20 ("Task 2 — Update the development workflow"), recorded in PR #65.

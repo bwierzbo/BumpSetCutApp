@@ -4,7 +4,7 @@ allowed-tools: Bash, Read, Write
 
 # Epic Merge
 
-Merge completed epic from worktree back to main branch.
+Finish a completed epic by opening a pull request from its worktree branch to main. **This command does not merge and does not push `main`** (decision D-005/D-014, `docs/workflow/WORKING_AGREEMENT.md`): Codex reviews the PR and the owner merges. Cleanup runs only after the owner has merged.
 
 ## Usage
 ```
@@ -63,149 +63,79 @@ Update `.claude/epics/$ARGUMENTS/epic.md`:
 - Update completion date
 - Add final summary
 
-### 4. Attempt Merge
+### 4. Rebase onto main and push the branch
 
 ```bash
-# Return to main repository
-cd {main-repo-path}
+cd ../epic-$ARGUMENTS
+git fetch origin
+git rebase origin/main || {
+  echo "❌ Conflicts rebasing epic/$ARGUMENTS onto main — resolve in the worktree (git status; edit; git add; git rebase --continue), then rerun."
+  exit 1
+}
+git push --force-with-lease -u origin epic/$ARGUMENTS
+```
 
-# Ensure main is up to date
+### 5. Open the pull request (do not merge)
+
+Fill `.github/PULL_REQUEST_TEMPLATE.md` with real evidence (scope, acceptance criteria, build/test output, risks, docs). `--fill` would skip the template, so pass the filled file:
+
+```bash
+body=$(mktemp)
+# write the filled template to $body, listing the epic's completed tasks:
+#   $(cd .claude/epics/$ARGUMENTS && ls *.md | grep -E '^[0-9]+' | while read f; do echo "- $(grep '^name:' $f | cut -d: -f2)"; done)
+# and "Closes #<epic issue>" from .claude/epics/$ARGUMENTS/epic.md
+gh pr create --base main --head epic/$ARGUMENTS --title "Epic: $ARGUMENTS" --body-file "$body"
+```
+
+Codex reviews the PR when it opens. Address every finding on the branch (push, then comment `@codex review`). **Stop here.** The owner merges.
+
+### 6. After the owner has merged — cleanup
+
+Run only once `gh pr view <n> --json state --jq .state` prints `MERGED`:
+```bash
+cd {main-repo-path}
 git checkout main
 git pull origin main
 
-# Attempt merge
-echo "Merging epic/$ARGUMENTS to main..."
-git merge epic/$ARGUMENTS --no-ff -m "Merge epic: $ARGUMENTS
-
-Completed features:
-$(cd .claude/epics/$ARGUMENTS && ls *.md | grep -E '^[0-9]+' | while read f; do
-  echo "- $(grep '^name:' $f | cut -d: -f2)"
-done)
-
-Closes epic #$(grep 'github:' .claude/epics/$ARGUMENTS/epic.md | grep -oE '#[0-9]+')"
-```
-
-### 5. Handle Merge Conflicts
-
-If merge fails with conflicts:
-```bash
-# Check conflict status
-git status
-
-echo "
-❌ Merge conflicts detected!
-
-Conflicts in:
-$(git diff --name-only --diff-filter=U)
-
-Options:
-1. Resolve manually:
-   - Edit conflicted files
-   - git add {files}
-   - git commit
-   
-2. Abort merge:
-   git merge --abort
-   
-3. Get help:
-   /pm:epic-resolve $ARGUMENTS
-
-Worktree preserved at: ../epic-$ARGUMENTS
-"
-exit 1
-```
-
-### 6. Post-Merge Cleanup
-
-If merge succeeds:
-```bash
-# Push to remote
-git push origin main
-
-# Clean up worktree
 git worktree remove ../epic-$ARGUMENTS
 echo "✅ Worktree removed: ../epic-$ARGUMENTS"
-
-# Delete branch
 git branch -d epic/$ARGUMENTS
 git push origin --delete epic/$ARGUMENTS 2>/dev/null || true
 
-# Archive epic locally
 mkdir -p .claude/epics/archived/
 mv .claude/epics/$ARGUMENTS .claude/epics/archived/
 echo "✅ Epic archived: .claude/epics/archived/$ARGUMENTS"
 ```
 
-### 7. Update GitHub Issues
+### 7. Update GitHub Issues (after merge)
 
-Close related issues:
+Task issues close via `Closes #n` in the PR body when the owner merges. Close any that did not:
 ```bash
-# Get issue numbers from epic
-epic_issue=$(grep 'github:' .claude/epics/archived/$ARGUMENTS/epic.md | grep -oE '[0-9]+$')
-
-# Close epic issue
-gh issue close $epic_issue -c "Epic completed and merged to main"
-
-# Close task issues
 for task_file in .claude/epics/archived/$ARGUMENTS/[0-9]*.md; do
   issue_num=$(grep 'github:' $task_file | grep -oE '[0-9]+$')
   if [ ! -z "$issue_num" ]; then
-    gh issue close $issue_num -c "Completed in epic merge"
+    gh issue close $issue_num -c "Completed in epic $ARGUMENTS (PR merged by owner)" 2>/dev/null || true
   fi
 done
 ```
 
 ### 8. Final Output
 
+At the review gate (the normal stopping point):
 ```
-✅ Epic Merged Successfully: $ARGUMENTS
+✅ Epic ready for review: $ARGUMENTS
 
-Summary:
-  Branch: epic/$ARGUMENTS → main
-  Commits merged: {count}
-  Files changed: {count}
-  Issues closed: {count}
-  
-Cleanup completed:
-  ✓ Worktree removed
-  ✓ Branch deleted
-  ✓ Epic archived
-  ✓ GitHub issues closed
-  
-Next steps:
-  - Deploy changes if needed
-  - Start new epic: /pm:prd-new {feature}
-  - View completed work: git log --oneline -20
-```
+  PR: {url}
+  Branch: epic/$ARGUMENTS → main (rebased on origin/main)
+  Commits: {count} · Files changed: {count}
 
-## Conflict Resolution Help
-
-If conflicts need resolution:
-```
-The epic branch has conflicts with main.
-
-This typically happens when:
-- Main has changed since epic started
-- Multiple epics modified same files
-- Dependencies were updated
-
-To resolve:
-1. Open conflicted files
-2. Look for <<<<<<< markers
-3. Choose correct version or combine
-4. Remove conflict markers
-5. git add {resolved files}
-6. git commit
-7. git push
-
-Or abort and try later:
-  git merge --abort
+Next: Codex reviews; address findings; the owner merges. Then run step 6 cleanup.
 ```
 
 ## Important Notes
 
 - Always check for uncommitted changes first
-- Run tests before merging when possible
-- Use --no-ff to preserve epic history
+- Run tests before opening the PR when possible
+- Never `git merge` into main or `git push origin main` from this command; the owner merges the PR (D-005/D-014)
 - Archive epic data instead of deleting
 - Close GitHub issues to maintain sync

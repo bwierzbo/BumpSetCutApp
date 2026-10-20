@@ -56,9 +56,11 @@ Worktree branches merge to main **only through a reviewed pull request** (decisi
 ```bash
 # From the worktree: push the branch and open the PR
 git push -u origin epic/{name}
-gh pr create --base main --head epic/{name} --fill
+# Fill .github/PULL_REQUEST_TEMPLATE.md with real evidence, then pass it
+# explicitly — `--fill` uses commit messages and skips the template.
+gh pr create --base main --head epic/{name} --title "{title}" --body-file {filled-template.md}
 
-# Stop here. The owner hands the PR to independent review, then merges it.
+# Stop here. Codex reviews the PR; the owner merges after findings are addressed.
 # After the owner has merged, clean up from the main repository:
 cd {main-repo}
 git checkout main

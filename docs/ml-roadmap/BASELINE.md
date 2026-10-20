@@ -137,8 +137,8 @@ below).
 | Item | Value | SHA-256 (first 16) |
 |---|---|---|
 | `project.json` | 121 clip cards: Beach 49 / Grass 43 / Indoor 29; split pinned on 60 (49 train, 11 val), auto on 61 | `8404d1c0d97f10a4` |
-| `sessions/*.json` | 168 files (167 sessions: 142 train, 25 val) | `67d1c51590bcdf14` (concatenated) |
-| `*.rallylabels.json` | 33 files under `footage/raw/` (sidecars for the videos still on the Mac) | `679e8fff2972b276` (concatenated) |
+| `sessions/` | 168 files (167 sessions: 142 train, 25 val) | `06ed23f06ccd23ce` (canonical directory digest) |
+| `*.rallylabels.json` | 33 files under `footage/raw/` (sidecars for the videos still on the Mac) | `f86abb1cd5d09c87` (canonical digest over the 33 files, paths relative to `footage/`) |
 | `pipeline_tuning/validation.json` | tune 9 (bch 3 / grs 3 / ind 3), holdout 4 (bch 1 / grs 1 / ind 2); all 13 are val-split | `a47abc72dc063405` |
 | `pipeline_tuning/evidence/` | 122 cached evidence files; reports 2026-10-12 | — |
 | `scores/Scratch-val-multiframe-20261016-1100/scores.json` | 10 models, 11,685 frames / 11,380 labelled / 10,979 balls / 305 dead | `b92adf478ba17a5f` |
@@ -172,15 +172,17 @@ Caveat: this test set is the detector val split, which is also the tuning set
 
 ## Model inventory (`BumpSetCut/Resources/ML`, all git-tracked, all in the iOS bundle)
 
-| Model | Size | RallyLab | Labeler | Provenance | SHA-256 (first 16) |
-|---|---|---|---|---|---|
-| ball_heat | 524 K | yes | yes | scratch_768_1014, from scratch (VballNetV4c architecture, MIT) | `0f34e1208a42c1f4` |
-| ball_v2_small | 18 M | yes | yes | Ultralytics YOLO26s — AGPL-3.0 | `729d86a9deaa6a67` |
-| bestv3 | 4.8 M | yes | no | YOLO26n — AGPL-3.0 | `3977e88538231305` |
-| bestv2 | 5.9 M | yes | no | YOLOv8n-p2 — AGPL-3.0 | `4e269f2a4b5fdc76` |
-| ball_rallylab_960 | 18 M | yes | no | YOLO26s on Test1 — AGPL-3.0 | `ca862c17b3ab4438` |
-| ball_rallylab_1280 | 18 M | yes | no | YOLO26s on Test1 — AGPL-3.0 | `ad05b25240f20ca4` |
-| net | 4.8 M | yes | yes | YOLO26n — AGPL-3.0 | `3057b0eb3328ff45` |
+Digests use the canonical directory digest defined in [EXPERIMENT_REGISTRY.md](EXPERIMENT_REGISTRY.md) (sorted path + content); the git tree ID is at commit f63bfe0.
+
+| Model | Size | RallyLab | Labeler | Provenance | Canonical digest (first 16) | Git tree (first 16) |
+|---|---|---|---|---|---|---|
+| ball_heat | 524 K | yes | yes | scratch_768_1014, from scratch (VballNetV4c architecture, MIT) | `09620ab77519bd9d` | `4496563030b981ae` |
+| ball_v2_small | 18 M | yes | yes | Ultralytics YOLO26s — AGPL-3.0 | `58841629b8bf348c` | `6bbb6d1f1e57b107` |
+| bestv3 | 4.8 M | yes | no | YOLO26n — AGPL-3.0 | `670004cdd2d3bc94` | `f4e2562c1eca5122` |
+| bestv2 | 5.9 M | yes | no | YOLOv8n-p2 — AGPL-3.0 | `45b2864666c7e289` | `ab641ef7e580420b` |
+| ball_rallylab_960 | 18 M | yes | no | YOLO26s on Test1 — AGPL-3.0 | `5b1a2fc6ccc56876` | `80ac7c9c23f02fe3` |
+| ball_rallylab_1280 | 18 M | yes | no | YOLO26s on Test1 — AGPL-3.0 | `3dc93f4f3f518a20` | `832794e07d4dad21` |
+| net | 4.8 M | yes | yes | YOLO26n — AGPL-3.0 | `a12e3c360f80203e` | `172793afa4c5994b` |
 
 Runtime: `YOLODetector(modelName:)` defaults to `ball_v2_small` → `bestv3` →
 `bestv2`; `HeatmapBallDetector` has no default and takes the bundle's

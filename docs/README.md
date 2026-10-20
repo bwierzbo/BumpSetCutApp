@@ -5,7 +5,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 ## Process
 
 - [Working agreement](workflow/WORKING_AGREEMENT.md) — roles, the nine-step cycle, review gates, what needs the owner first, sources of truth.
-- [ChatGPT review procedure](workflow/CHATGPT_REVIEW.md) — exporting a PR, the review brief, bringing findings back.
+- [Independent review](workflow/CHATGPT_REVIEW.md) — Codex on GitHub (primary): triggers, retrieving and answering findings; manual ChatGPT export (fallback) with a tested, context-preserving export.
 - [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md) — scope, acceptance criteria, evidence, risks, docs.
 - [Hybrid Mac/Windows plan](workflow/HYBRID_MAC_WINDOWS_PLAN.md) — Tailscale connection verified 2026-10-20 (`bens-desktop`, 100.107.21.20); proposed read-only footage/GPU inventory; transfer workflow and remote desktop pending owner authorisation.
 
@@ -17,7 +17,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 ## ML roadmap and evaluation
 
-- [Roadmap (revised 2026-10-20)](ml-roadmap/ROADMAP_REVISED_2026-10-20.md) — the plan Claude Code executes; read with the decision log, which amends it (D-001 removes the research-only gate on the learned classifier; D-007 changes the tuner objective).
+- [Roadmap (revised 2026-10-20)](ml-roadmap/ROADMAP_REVISED_2026-10-20.md) — the plan Claude Code executes, **as amended by the decision log**. The copy carries a "superseded passages" banner and inline `[Superseded by D-001]` / `[Amended by D-007]` notes where the owner's later decisions override it (learned classifier is a production candidate, not research-only; tuner objective is constrained recall).
 - [Phase 0 baseline](ml-roadmap/BASELINE.md) — repo state, claim-by-claim audit of the roadmap against the code, data/model inventory with hashes, frozen Oct 17 score table, the ten questions that became D-001 … D-010.
 - [Experiment registry](ml-roadmap/EXPERIMENT_REGISTRY.md) — links issues ↔ experiments ↔ dataset/split versions ↔ model versions ↔ test results ↔ PRs. Historical rows recovered from memory notes.
 - [Experiment template](templates/EXPERIMENT.md).

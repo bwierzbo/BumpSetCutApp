@@ -124,9 +124,10 @@ After ANY DDL applied to the live project (`apply_migration`/`execute_sql`):
 3. Storage uploads with `upsert: true` need an UPDATE policy on the bucket, not just INSERT.
 4. Re-run `get_advisors` (security + performance). Explicit grants survive default-privilege revokes — re-check `anon` execute grants after hardening.
 
-## Development Workflow (decision D-005, 2026-10-20)
-- All work goes through a scoped feature branch and a GitHub pull request reviewed independently (the owner hands the PR to ChatGPT). **Never push to `main`. Never merge a PR**; the owner merges after explicit approval. Pushing intermediate commits to the feature branch is fine.
-- Full cycle, PR template, evidence requirements and the review hand-off: `docs/workflow/WORKING_AGREEMENT.md`, `docs/workflow/CHATGPT_REVIEW.md`, `.github/PULL_REQUEST_TEMPLATE.md`.
+## Development Workflow (decisions D-005 and D-014, 2026-10-20)
+- Work goes on a scoped feature branch. **Never push to `main` and never merge without explicit owner authorisation.** Pushing intermediate commits to the feature branch is fine.
+- Two tiers; the owner decides which applies. **PR with independent review (default)** for ML models, datasets/labels/splits, training pipelines, evaluation methodology, architecture, the shared processing pipeline and significant production behaviour: open the PR with the template filled in (`gh pr create … --body-file`, not `--fill`), Codex reviews it, blocking findings are fixed or explicitly accepted by the owner, the owner merges. **Streamlined** only when the owner explicitly authorises it for that change (minor UI, cosmetic, doc corrections, low-risk fixes).
+- Full cycle, tiers, evidence requirements and review hand-off: `docs/workflow/WORKING_AGREEMENT.md`, `docs/workflow/CHATGPT_REVIEW.md`, `.github/PULL_REQUEST_TEMPLATE.md`. Codex's own instructions: `AGENTS.md`.
 - Decisions live in `docs/decisions/DECISION_LOG.md`; experiments, datasets and model versions are linked through `docs/ml-roadmap/EXPERIMENT_REGISTRY.md`. Documentation index: `docs/README.md`. Update these as part of the change they describe, in the same PR.
 
 ## Product Invariants (each cost a real correction round-trip — don't re-learn them)

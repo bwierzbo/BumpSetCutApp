@@ -15,15 +15,26 @@ The single place that links **issues ↔ experiments ↔ datasets/splits ↔ mod
 |---|---|---|
 | Decision | `D-NNN` | [DECISION_LOG.md](../decisions/DECISION_LOG.md) |
 | Experiment | `EXP-YYYYMMDD-slug` | this registry |
-| Dataset version | manifest SHA-256 (first 16) of `project.json` + `sessions/` (concatenated) | computed by the evaluation command; recorded in the experiment record |
+| Dataset version | SHA-256 (first 16) of `project.json`, plus the canonical directory digest (below) of `sessions/` | computed by the evaluation command; recorded in the experiment record |
 | Split version | `split_id` string + SHA-256 of the split file | `pipeline_tuning/validation.json` today; the versioned manifest once D-009 lands |
 | Label set | `ball_track_truth_vN`, `rally_event_truth_vN` | D-004 / D-009 work |
-| Model version | package name + SHA-256 (first 16) of the `.mlpackage` contents | `shasum -a 256` over the package files; also embedded `package` metadata |
+| Model version | package name + canonical directory digest (first 16) of the `.mlpackage` | the `pkgdigest` command below; also the embedded `package` metadata |
 | Pipeline config | SHA-256 of the serialised `ProcessorConfig` | evaluation command |
 | Test results | path under `<project>/scores/<export>/` or `pipeline_tuning/report-*.md`, plus unit-test counts | experiment record |
 | GitHub | `#n` issues and PRs | GitHub |
 
-Hashes for the Phase 0 reference state are in [BASELINE.md](BASELINE.md).
+### Canonical directory digest
+
+An `.mlpackage` (and `sessions/`) is a directory, so a single hash needs a defined file order and path encoding. The canonical digest hashes the sorted list of `"<sha256>  ./<relative path>"` lines, one per regular file, with byte-wise (`LC_ALL=C`) ordering. Two packages get the same digest only if every relative path and every file's content match; a renamed or added file changes it.
+
+```bash
+pkgdigest() { (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 | shasum -a 256 | cut -c1-16); }
+pkgdigest BumpSetCut/Resources/ML/ball_heat.mlpackage     # → 09620ab77519bd9d (2026-10-20)
+```
+
+For packages tracked in git, `git rev-parse <commit>:<path>` gives the tree object ID, which identifies the same content independently; record it alongside when available (`ball_heat` at f63bfe0: tree `4496563030b981ae`). Single files use plain `shasum -a 256`.
+
+Hashes for the Phase 0 reference state are in [BASELINE.md](BASELINE.md), computed with this digest.
 
 ## Registry
 

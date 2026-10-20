@@ -19,13 +19,19 @@ header-includes:
 
 \newpage
 
+> **Repository note (added 2026-10-20, not part of the owner's original text).** This is the owner's roadmap, copied verbatim apart from the bracketed `[Superseded by D-NNN]` / `[Amended by D-NNN]` notes inserted at the affected passages. The decision log (`docs/decisions/DECISION_LOG.md`) amends it:
+> - **D-001** withdraws the "no ML rally classification" rule and the TCN research-only / approval gate (passages in "Decision in one page", "Conflicts Claude must not silently resolve", constraint 4, Phase 8, matrix row E09, and the execution brief). A learned temporal rally classifier is an approved production candidate; the FSM stays as benchmark and fallback; production adoption needs independent validation evidence.
+> - **D-007** replaces the roadmap's "present both alternatives" on the tuner objective with: constrained complete-rally recall is primary; the 0.25 score is a named diagnostic.
+> - **D-002 / D-009 / D-010** are consistent with the roadmap and refine it.
+> Where this document and the decision log disagree, the decision log wins.
+
 # Decision in one page
 
 **Goal.** Improve automatic volleyball highlight creation on previously recorded iPhone videos while preserving complete rallies, reducing retained dead time, working on-device with Core ML, keeping RallyLab and BumpSetCut behavior consistent, and eliminating prohibited model provenance from any release artifact.
 
 **The central recommendation:** Treat ball detection as one subsystem inside a **cost-sensitive temporal segmentation product**. Do **not** maximize detector F1 in isolation. Optimize complete-rally retention subject to dead-time removal, with real iPhone processing speed and licensing as release gates.
 
-**Do not do a wholesale rewrite.** The connected repository `bwierzbo/BumpSetCutApp` already contains a deterministic rally decider, segment builder, evidence replay, rally-level scorers, a pipeline tuner, model-library tooling, a multi-frame heatmap detector, and a Core ML converter. Reuse those first. The repository's own `CLAUDE.md` explicitly says **no ML rally classification as the primary mechanism**. A TCN/GRU is therefore an **offline, optional research branch**, requiring an explicit architecture decision before any production integration.
+**Do not do a wholesale rewrite.** The connected repository `bwierzbo/BumpSetCutApp` already contains a deterministic rally decider, segment builder, evidence replay, rally-level scorers, a pipeline tuner, model-library tooling, a multi-frame heatmap detector, and a Core ML converter. Reuse those first. The repository's own `CLAUDE.md` explicitly says **no ML rally classification as the primary mechanism**. A TCN/GRU is therefore an **offline, optional research branch**, requiring an explicit architecture decision before any production integration. *[Superseded by D-001, 2026-10-20: that `CLAUDE.md` rule is withdrawn; a learned temporal classifier is an approved production candidate and needs no further architecture approval to be developed and evaluated.]*
 
 **New priority after follow-up audit:** Ball detection/tracking annotations and rally event boundaries serve **different tests**. Do not throw away dense ball tracks to repair imprecise rally times; and do not treat a tracked ball's first/last visible timestamp as an independently reviewed serve/dead-ball label. Add a modest frame-accurate rally-boundary audit, source-aware annotation versioning, and tests for the raw-vs-padded scorer mismatch **before claiming rally-boundary improvements**. Existing heatmap training can continue under frozen data/split rules.
 
@@ -84,9 +90,9 @@ The available connected repository is **`bwierzbo/BumpSetCutApp`**, default bran
 
 **Product requirement vs existing model:** The questionnaire says **no YOLO-derived weights may ship**. The repository's current default model has a YOLO lineage. Preserve the baseline for internal measurement, but do not promote such an asset into a release under the no-YOLO requirement. Obtain the exact licensing choice and approval; engineering decisions do not settle legal obligations.
 
-**Research proposal vs product invariant:** The previous ML analysis recommends testing a small TCN. The repository explicitly says **no ML rally classification as primary production mechanism**. The correct near-term interpretation is *train and score a shadow TCN offline only after the deterministic baseline is sound; do not change the default production architecture without an explicit approval and positive independent test results*.
+**Research proposal vs product invariant:** The previous ML analysis recommends testing a small TCN. The repository explicitly says **no ML rally classification as primary production mechanism**. The correct near-term interpretation is *train and score a shadow TCN offline only after the deterministic baseline is sound; do not change the default production architecture without an explicit approval and positive independent test results*. *[Superseded by D-001: no approval gate on experimentation; the measurement-first ordering stands; production adoption still needs independent validation evidence.]*
 
-**User's 4x cost phrasing vs actual code:** The questionnaire describes a missed rally as costing 4x one second of dead time. The inspected `PipelineTuner.Score.value` actually computes *fraction of rally seconds retained minus 0.25 times dead-time seconds divided by total rally seconds*. This makes **one lost rally-second** equivalent to **four retained dead-time seconds**; it is **not** a fixed four-second penalty per completely missed rally. Rename/document the metric, present both alternatives, and get the product target aligned before tuning.
+**User's 4x cost phrasing vs actual code:** The questionnaire describes a missed rally as costing 4x one second of dead time. The inspected `PipelineTuner.Score.value` actually computes *fraction of rally seconds retained minus 0.25 times dead-time seconds divided by total rally seconds*. This makes **one lost rally-second** equivalent to **four retained dead-time seconds**; it is **not** a fixed four-second penalty per completely missed rally. Rename/document the metric, present both alternatives, and get the product target aligned before tuning. *[Amended by D-007: constrained complete-rally recall is the primary objective; the 0.25 score is kept as a named diagnostic; gates come from measured data.]*
 
 # What the current footage and annotations actually support
 
@@ -138,7 +144,7 @@ These are independent **annotation and evaluation tasks**; they may reference so
 1. **Keep user video immutable.** BumpSetCut processing produces metadata. It does not create or overwrite a second copy of the original video merely to record processing results.
 2. **Preserve the production path.** Shared Swift processing code must compile and behave in both RallyLab (macOS) and BumpSetCut (iOS). Don't introduce desktop-only dependencies into shared logic.
 3. **Use the exact repository build workflow:** `scripts/build.sh`, `scripts/build.sh ios`, `scripts/build.sh mac`, `scripts/build.sh both`; run the existing test suite. Do not improvise hard-coded simulator identifiers.
-4. **Do not replace the deterministic decider with a learned classifier as part of this plan.** Train a shadow classifier only in an isolated research experiment and bring the change back for explicit approval.
+4. **Do not replace the deterministic decider with a learned classifier as part of this plan.** Train a shadow classifier only in an isolated research experiment and bring the change back for explicit approval. *[Superseded by D-001: the learned classifier is developed as a production candidate; the deterministic decider remains benchmark and fallback until a validated change is approved.]*
 5. **Separate model confidence from derived scores.** Preserve raw model confidence in UI/evidence. Additional calibrated probabilities or gating scores require distinct names.
 6. **Fix leakage at source.** Frames, overlapping nine-frame windows, augmented views, and derived labels from the same recording must remain grouped. Prefer venue/session grouping for evaluation.
 7. **Avoid hidden data assumptions.** Only fully marked videos may contribute to dead-time metrics; unknown intervals must not be treated as verified negative labels.
@@ -331,6 +337,8 @@ The sequence below is intentionally dependencies-first. Each phase has an action
 
 ## Phase 8 - Optional shadow TCN vs deterministic FSM (P2 / approval gate)
 
+*[Superseded by D-001, 2026-10-20: this phase is no longer P2 or approval-gated. The learned temporal classifier is an approved production candidate, planned after the measurement phases (2, 7). Steps 1–5 below remain the method; step 6's "RFC" becomes the normal PR-review tier with independent validation evidence.]*
+
 **Do not implement as the shipping decision mechanism under the current `CLAUDE.md` product invariant.** If the owner explicitly approves an isolated experiment:
 
 1. Count actual independent venues, session groups, rally starts/ends, and fully marked dead-time minutes across the 167 video candidates. Only then assess whether labels are sufficient.
@@ -458,7 +466,7 @@ Run experiments in staged batches; record the hypothesis **before** training and
 | E06 | Color/resolution affect specific strata | 512-gray/RGB and 768-gray/RGB | Model-pixel-size recall, phone latency | No 1024 unless proven. |
 | E07 | FSM tuning improves export | Current `PipelineTuner` -> grouped sweep | Complete rallies at matched dead-time removal | Promote only after frozen holdout. |
 | E08 | Overlap increases track consistency | Hop 5 -> hop 3 -> hop 2 / smoothing | Missed rallies per device-minute | Require cost-adjusted gain. |
-| E09 | Learned temporal features beat FSM | FSM -> offline small TCN | Paired venue rally metrics | Research only; approval before shipping. |
+| E09 | Learned temporal features beat FSM | FSM -> offline small TCN | Paired venue rally metrics | Research only; approval before shipping. *[Amended by D-001: production candidate; ships via the PR tier with independent validation.]* |
 | E10 | FP16 parity is safe | PyTorch -> converted Core ML / device | Location, confidence and clip parity | Block candidate if meaningful drift. |
 
 **Stopping rules:** Reject immediately for data leakage, invalid licenses, mislabeled unknown negatives, one-sided surface regression, or broken producer-consumer frame coordinates. Pause and diagnose if a measured gain disappears in paired venue bootstrap, is dominated by one venue, or requires unacceptable phone throughput.
@@ -529,7 +537,7 @@ Do not write `0` to represent a missing or uncomputed metric; it makes unexecute
 
 > **Read this entire PDF (or the accompanying Markdown) before changing any code. This is a multi-phase implementation brief for the existing `bwierzbo/BumpSetCutApp` repository, not permission to recreate the application.**
 >
-> You are the lead ML systems engineer for BumpSetCut and RallyLab. Your task is to execute Phases 0-4 first and present measured evidence before expanding scope. Preserve the shared production pipeline, immutable original videos, existing RallyLab UX, and the constraints in the repository's `CLAUDE.md`. The deterministic FSM + physics/court-geometry approach remains the primary production rally classifier; a TCN is only an offline research option and requires my explicit approval before any app integration.
+> You are the lead ML systems engineer for BumpSetCut and RallyLab. Your task is to execute Phases 0-4 first and present measured evidence before expanding scope. Preserve the shared production pipeline, immutable original videos, existing RallyLab UX, and the constraints in the repository's `CLAUDE.md`. The deterministic FSM + physics/court-geometry approach remains the primary production rally classifier; a TCN is only an offline research option and requires my explicit approval before any app integration. *[Superseded by D-001: the FSM is the benchmark and fallback; the learned classifier is a production candidate developed under the normal PR tier.]*
 >
 > **New mandatory scope:** Before any model replacement, preserve verified dense ball tracks; audit automatically propagated track-to-rally labels; perform a frame-accurate 20-30-event boundary pilot; and produce two independent truth manifests, `ball_track_truth` and `rally_event_truth`. Prove that rally scoring uses raw intervals while export-quality scoring uses padded clips. Fix headless/UI scorer semantic mismatches without changing production cutting or overwriting old annotations.
 >
@@ -543,7 +551,7 @@ Do not write `0` to represent a missing or uncomputed metric; it makes unexecute
 >
 > **Deliver after each phase:** changed files and commit SHA; test/build results (including failures); dataset/split/model hashes; before/after by-surface and by-venue metrics; examples of wins and regressions; licensing status; a clear `keep / revert / need data` recommendation; and the exact next experiment. If tools, footage, GPU, or device are missing, generate working scripts/tests and show the unverified step rather than inventing numbers.
 >
-> **Do not take an unbounded rewrite mandate from this document.** Start with Phase 0 and a concise gap analysis, then implement P0 measurement and correctness work. Move to P1 experiments only after baseline checks and report review; request an explicit architectural decision before a production TCN.
+> **Do not take an unbounded rewrite mandate from this document.** Start with Phase 0 and a concise gap analysis, then implement P0 measurement and correctness work. Move to P1 experiments only after baseline checks and report review; request an explicit architectural decision before a production TCN. *[Superseded by D-001: no separate architectural decision is required; production adoption goes through the PR tier with independent validation evidence.]*
 
 # Review checklist for accepting Claude's work
 
