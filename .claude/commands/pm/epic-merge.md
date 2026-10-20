@@ -63,13 +63,16 @@ Update `.claude/epics/$ARGUMENTS/epic.md`:
 - Update completion date
 - Add final summary
 
-Commit it in the worktree so the rebase in step 4 starts from a clean tree (`rebase.autoStash` is off by default):
+Then archive the epic folder **on the epic branch** and commit, so the archive rides in the reviewed PR and `main` is never edited directly (the rebase in step 4 also needs a clean tree; `rebase.autoStash` is off by default):
 ```bash
 cd ../epic-$ARGUMENTS
-git add .claude/epics/$ARGUMENTS/epic.md
-git commit -m "Epic $ARGUMENTS: mark completed"
-[[ -z $(git status --porcelain) ]] || { echo "❌ Worktree still dirty after committing epic.md:"; git status --short; exit 1; }
+mkdir -p .claude/epics/archived/
+git mv .claude/epics/$ARGUMENTS .claude/epics/archived/$ARGUMENTS
+git add .claude/epics/archived/$ARGUMENTS/epic.md
+git commit -m "Epic $ARGUMENTS: mark completed and archive"
+[[ -z $(git status --porcelain) ]] || { echo "❌ Worktree still dirty after committing the archive:"; git status --short; exit 1; }
 ```
+From here on the epic's files are under `.claude/epics/archived/$ARGUMENTS/`.
 
 ### 4. Rebase onto main and push the branch
 
@@ -90,8 +93,8 @@ Fill `.github/PULL_REQUEST_TEMPLATE.md` with real evidence (scope, acceptance cr
 ```bash
 body=$(mktemp)
 # write the filled template to $body, listing the epic's completed tasks:
-#   $(cd .claude/epics/$ARGUMENTS && ls *.md | grep -E '^[0-9]+' | while read f; do echo "- $(grep '^name:' $f | cut -d: -f2)"; done)
-# and "Closes #<epic issue>" from .claude/epics/$ARGUMENTS/epic.md
+#   $(cd .claude/epics/archived/$ARGUMENTS && ls *.md | grep -E '^[0-9]+' | while read f; do echo "- $(grep '^name:' $f | cut -d: -f2)"; done)
+# and "Closes #<epic issue>" from .claude/epics/archived/$ARGUMENTS/epic.md
 gh pr create --base main --head epic/$ARGUMENTS --title "Epic: $ARGUMENTS" --body-file "$body"
 ```
 
@@ -109,10 +112,8 @@ git worktree remove ../epic-$ARGUMENTS
 echo "✅ Worktree removed: ../epic-$ARGUMENTS"
 git branch -D epic/$ARGUMENTS   # -D: a squash merge leaves the tip outside main's history; MERGED was verified above
 git push origin --delete epic/$ARGUMENTS 2>/dev/null || true
-
-mkdir -p .claude/epics/archived/
-mv .claude/epics/$ARGUMENTS .claude/epics/archived/
-echo "✅ Epic archived: .claude/epics/archived/$ARGUMENTS"
+# The archive under .claude/epics/archived/$ARGUMENTS arrived with the merge (step 3); nothing is written to main here.
+[[ -z $(git status --porcelain) ]] || { echo "❌ main is dirty after cleanup — investigate before continuing:"; git status --short; exit 1; }
 ```
 
 ### 7. Update GitHub Issues (after merge)
