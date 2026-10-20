@@ -52,17 +52,17 @@ git commit -m "Issue #1235: Add dashboard component"
 
 ## Merging Worktrees
 
-When epic is complete, merge back to main:
+Worktree branches merge to main **only through a reviewed pull request** (decision D-005, see `docs/workflow/WORKING_AGREEMENT.md`). Agents never merge and never push to main:
 ```bash
-# From main repository (not worktree)
+# From the worktree: push the branch and open the PR
+git push -u origin epic/{name}
+gh pr create --base main --head epic/{name} --fill
+
+# Stop here. The owner hands the PR to independent review, then merges it.
+# After the owner has merged, clean up from the main repository:
 cd {main-repo}
 git checkout main
 git pull origin main
-
-# Merge epic branch
-git merge epic/{name}
-
-# If successful, clean up
 git worktree remove ../epic-{name}
 git branch -d epic/{name}
 ```
