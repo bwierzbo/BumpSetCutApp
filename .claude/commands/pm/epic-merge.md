@@ -63,6 +63,14 @@ Update `.claude/epics/$ARGUMENTS/epic.md`:
 - Update completion date
 - Add final summary
 
+Commit it in the worktree so the rebase in step 4 starts from a clean tree (`rebase.autoStash` is off by default):
+```bash
+cd ../epic-$ARGUMENTS
+git add .claude/epics/$ARGUMENTS/epic.md
+git commit -m "Epic $ARGUMENTS: mark completed"
+[[ -z $(git status --porcelain) ]] || { echo "❌ Worktree still dirty after committing epic.md:"; git status --short; exit 1; }
+```
+
 ### 4. Rebase onto main and push the branch
 
 ```bash
