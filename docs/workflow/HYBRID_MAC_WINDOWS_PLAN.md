@@ -100,7 +100,7 @@ Get-ChildItem D:\RallyLabFootage\Scratch\footage -File -Recurse |
 # 2. Per-file size and mtime (fast; no hashing yet)
 Get-ChildItem D:\RallyLabFootage\Scratch\footage -File -Recurse |
   Select-Object @{n='path';e={$_.FullName.Substring('D:\RallyLabFootage\Scratch\footage\'.Length)}}, Length, LastWriteTimeUtc |
-  ConvertTo-Json -Depth 2 > $env:TEMP\scratch_footage_listing.json
+  ConvertTo-Json -Depth 2 > C:\Users\bwier\RallyLab-inventory\scratch_footage_listing.json   # New-Item -ItemType Directory -Force C:\Users\bwier\RallyLab-inventory first; outside the footage store
 
 # 3. SHA-256 of the small sidecars only (rally marks), to compare with the Mac
 Get-ChildItem D:\RallyLabFootage\Scratch\footage -File -Recurse -Filter *.rallylabels.json |
@@ -110,7 +110,7 @@ Get-ChildItem D:\RallyLabFootage\Scratch\footage -File -Recurse -Filter *.rallyl
 Get-PSDrive D | Select-Object Used, Free
 ```
 
-Then on the Mac: `scp bens-desktop:'%TEMP%\scratch_footage_listing.json' <scratchpad>/` and compare file names against `project.json` `clipFile`s (expected: 106 videos + 140 files per the 2026-10-16 move) and the 33 sidecars still on the Mac against the desktop's hashes (expected identical; any difference means two editable copies exist and must be reconciled before any label work).
+Then on the Mac: `scp bens-desktop:RallyLab-inventory/scratch_footage_listing.json <scratchpad>/` (OpenSSH 9 `scp` uses SFTP, so the path is relative to the login user's home `C:\Users\bwier` and no shell variable is expanded) and compare file names against `project.json` `clipFile`s (expected: 106 videos + 140 files per the 2026-10-16 move) and the 33 sidecars still on the Mac against the desktop's hashes (expected identical; any difference means two editable copies exist and must be reconciled before any label work).
 
 Full SHA-256 of the videos (25 GB, several minutes on the desktop) is step two of the same proposal, run only after A shows the expected file set; it produces the versioned footage manifest D-003 asks for.
 

@@ -48,7 +48,7 @@ Status: `planned`, `running`, `done`, `abandoned`. Historical rows (before this 
 | EXP-20261013-resolution | 2026-10-13 | done (historical) | 768 / 1024 from 512 weights help | Scratch multiframe export | r3_768, r3_1024 | 0.880 (768); 1024 stopped at epoch 9 | n/a | no bigger inputs | — |
 | EXP-20261016-testset-rescore | 2026-10-16/17 | done (historical) | Rank all heat models on one test set | `Scratch-val-multiframe-20261016-1100` (25 val sessions, 11,685 frames) — **also the tuning set; not independent** | 10 models, see BASELINE.md | `Scratch/scores/Scratch-val-multiframe-20261016-1100/scores.json`, sha `b92adf478ba17a5f` | n/a | shipped scratch_768_1014 (ed25d2c) | — |
 | EXP-20261017-scratch-768-gray-1016 | 2026-10-17 | done (historical) | More reviewed data (26,684 windows) moves F1 | `Scratch-multiframe-20261016-2018` | scratch_768_gray_1016 | 0.888 [0.869–0.903], below Oct 14 models | n/a | recipe decided by colour twin | — |
-| EXP-20261020-phase0-baseline | 2026-10-20 | done | Lock the reference state before methodology changes | hashes in BASELINE.md | ball_heat `0f34e1208a42c1f4` | BASELINE.md | build both targets: succeeded | D-001…D-010 | Task A PR |
+| EXP-20261020-phase0-baseline | 2026-10-20 | done | Lock the reference state before methodology changes | hashes in BASELINE.md | ball_heat `09620ab77519bd9d` (canonical digest; git tree `4496563030b981ae`) | BASELINE.md | build both targets: succeeded | D-001…D-010 | PR #65 |
 
 ## How a row is added
 
