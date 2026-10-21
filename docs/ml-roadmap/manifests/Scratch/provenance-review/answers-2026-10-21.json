@@ -1,5 +1,6 @@
 {
  "schema": "provenance-answers/1",
+ "project": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch",
  "exportedAt": "2026-10-21T17:00:04Z",
  "source": "owner answers in the private artifact store 2026-10-21 (answers/*, groups/*) + corrections confirmed in chat; sessionId = capture date of the original IMG_*.MOV from the Mac Photos library (ZASSET.ZDATECREATED), accepted by the owner ('unless it's on metadata')",
  "answers": {
