@@ -171,6 +171,8 @@ struct LiveTagView: View {
                     ProgressView().controlSize(.mini)
                     Text("Finding the ball… \(Int(paths.fraction * 100))%").font(.caption).foregroundStyle(.secondary)
                         .help("The pipeline is running over the video; once it's done, presses snap to where the ball changed course")
+                } else if let why = paths.refused[session.name] {
+                    Text(why).font(.caption).foregroundStyle(.secondary)
                 } else if marker.duration > 0 {
                     let covered = tagger.path.stretches.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
                     Text("Snaps to the ball on \(Int(min(1, covered / marker.duration) * 100))% of the video")

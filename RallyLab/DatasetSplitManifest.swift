@@ -76,6 +76,9 @@ struct ExposureRecord: Codable, Equatable, Hashable {
         case detectorEvaluation = "detector_evaluation"
         /// A model wrote machine tracks into the video (--pretrack).
         case preTracking = "pre_tracking"
+        /// The pipeline ran over the whole video to save where it saw the ball (BallPathBuilder,
+        /// for marking in the Label / Live-tag tabs).
+        case ballPath = "ball_path"
     }
 
     var kind: Kind
