@@ -2,7 +2,7 @@
 name: provenance-review-2026-10-21
 status: answers applied; D-017 (reservation closure) awaiting owner
 created: 2026-10-21T14:22:38Z
-updated: 2026-10-21T17:20:09Z
+updated: 2026-10-21T17:45:00Z
 decisions: D-015, D-016, D-017 (proposed)
 ---
 
@@ -111,11 +111,11 @@ Applied with 20 `RallyLab --project Scratch --set-provenance …` calls (log: 20
 
 A reservation covers every video that shares a file fingerprint **or a confirmed sourceId, sessionId or venueId** with a reserved one (`ReservedVideos.identities`, PR #66). Confirming venues and sessions therefore pulled nine **training** recordings into the candidates' alias groups: `bch_extra_self_29/30/31` and `grs_extra_self_12`, `grs_extra_self_02`, `grs_extra_self_15`, `grs_extra_self_20`, `ind_extra_self_06` (same outing as a candidate) and `bch_extra_self_10` (same venue as `bch_extra_self_18`, a different day). The manifest now reports them as `final_test_candidate` with `reservedAs: alias`, `unreservedSplit: train`; **train is 142 → 133**. Every package, score, tune and pre-track path refuses them from now on. `validation.json` was not touched; this follows from the data alone. It conflicts with the owner's answer on the review page ("leave training as it is", group bch_extra_self_05).
 
-Options (decision [D-017](../decisions/DECISION_LOG.md#d-017), proposed):
+Options (decision [D-017](../decisions/DECISION_LOG.md#d-017), proposed). A constraint applies to all of them: the audit treats a confirmed `sessionId` or `venueId` shared across two splits as a **hard** leak (`SESSION-SHARED` / `VENUE-SHARED`, proven identity, `DatasetAudit.run`), so whatever is decided, every confirmed group has to end up in one split.
 
 - **(a) Keep the venue-level closure.** The nine stay reserved; the candidates' venues are off limits to training. Most conservative; costs 9 of 142 training recordings for candidates that D-016 already makes unpromotable.
-- **(b) Narrow the closure to sessions.** Drop `venueId` from `ReservedVideos.identities` (code change, reviewed): same outing still aliases, same venue on another day does not. Eight of the nine stay reserved (`bch_extra_self_10` returns to train).
-- **(c) Withdraw the seven from `finalTestCandidates`** (recommended). Under D-016 none can become `final_test`; keeping them reserved buys no evaluation value and removes training data. They return to `dev_val` with their provenance, exposure and the same-outing facts recorded; the audit keeps reporting the overlaps as information; the independent final test comes from new footage at venues other than the eleven now named. This is what "leave training as it is" means in practice.
+- **(b) Narrow identity to fingerprint + sourceId + sessionId.** Code change in `ReservedVideos.identities` and the matching audit rule (`VENUE-SHARED` would have to become soft, or the venue overlap `bch_extra_self_18` / `bch_extra_self_10` is a hard leak). Same outing still aliases; same venue on another day does not. Eight of the nine stay reserved; `bch_extra_self_10` returns to train. Weakens the venue guarantee for every future split.
+- **(c) Withdraw the seven from `finalTestCandidates` and move each to its group's split** (recommended). Under D-016 none can become `final_test`; protecting them only costs training data. Each candidate joins the split of its confirmed group: the six with training neighbours and `bch_extra_self_18` (same venue as `bch_extra_self_10`, train) all go to **train** (`sessions/*.json` split `val` → `train`; they carry no reviewed frames, so training gains nothing until they are labeled). dev_val stays at its current 4, train becomes 149, reservations go back to none, no confirmed group straddles a split. Simply returning them to `dev_val` is **not** an option: it would put `bch_extra_self_05` in validation with `_29/_30/_31` from the same outing in training, a hard leak by the audit's own rule. The independent final test is collected at venues other than the eleven now named.
 
 Until the owner decides, the project stays as the writes left it (16 reserved). Nothing has been trained or packaged in that state.
 

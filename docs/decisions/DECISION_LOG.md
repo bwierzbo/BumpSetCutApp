@@ -31,7 +31,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-014](#d-014) | 2026-10-20 | accepted (amends D-005) | Review tiers: PR review by default for ML/data/architecture; streamlined path only with explicit owner authorisation; Codex is the reviewer |
 | [D-015](#d-015) | 2026-10-21 | accepted | Task B.1 decisions: holdout sibling moved; seven provisional final-test candidates protected; tune/dev_val cards kept; CLI provenance now, UI in B.2; YouTube IDs confirmed as sourceId |
 | [D-016](#d-016) | 2026-10-21 | accepted | Pre-tracking counts as exposure (strict); machine tracks kept; none of the seven candidates is promoted; provenance confirmed by visual review, never inferred |
-| [D-017](#d-017) | 2026-10-21 | proposed | Confirmed venues pulled nine training recordings into the candidates' reservation: keep venue-level closure, narrow to sessions, or withdraw the seven candidates (recommended) |
+| [D-017](#d-017) | 2026-10-21 | proposed | Confirmed venues pulled nine training recordings into the candidates' reservation: keep venue-level closure, narrow to sessions, or withdraw the seven candidates into their groups' split, train (recommended) |
 
 ---
 
@@ -206,6 +206,8 @@ The authoritative record of product, architecture, data and process decisions fo
 
 **Question.** Reservations alias every video sharing a confirmed `sourceId`, `sessionId` or `venueId` with a reserved one (PR #66). The owner's venue and session confirmations of 2026-10-21 made nine training recordings aliases of the seven protected candidates (eight by same outing, `bch_extra_self_10` by same venue on another day). Train fell 142 → 133 without a split decision; the owner's stated preference on the review page was to leave training as it is.
 
-**Options.** (a) Keep the venue-level closure: the candidates' venues are off limits to training. (b) Narrow the closure to fingerprint + sourceId + sessionId (code change): same venue on another day no longer aliases; eight of the nine stay reserved. (c) Withdraw the seven from `finalTestCandidates` (recommended): under D-016 they can never be `final_test`, so protecting them only costs training data; they return to `dev_val` with provenance and exposure recorded, and the independent final test is collected at new venues.
+**Constraint.** The audit treats a confirmed sessionId or venueId shared across two splits as a hard leak, so every confirmed group must end up in one split whatever is chosen.
+
+**Options.** (a) Keep the venue-level closure: the candidates' venues are off limits to training. (b) Narrow identity to fingerprint + sourceId + sessionId (code change in `ReservedVideos.identities` and the `VENUE-SHARED` audit rule): same venue on another day no longer aliases; eight of the nine stay reserved; the venue guarantee weakens for all future splits. (c) Withdraw the seven from `finalTestCandidates` and move each to its confirmed group's split, i.e. all seven to **train** (recommended): under D-016 they can never be `final_test`, so protecting them only costs training data; returning them to `dev_val` instead would split confirmed groups across validation and training, a hard leak. Train 133 → 149, dev_val stays 4, reservations none; the independent final test is collected at new venues.
 
 **Until decided.** The project stays as the writes left it (16 reserved); nothing is trained or packaged in that state. Details: [PROVENANCE_REVIEW_2026-10-21.md](../ml-roadmap/PROVENANCE_REVIEW_2026-10-21.md) § "Answers applied".
