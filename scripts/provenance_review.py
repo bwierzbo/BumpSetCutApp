@@ -11,7 +11,8 @@ Reads (never writes): <project>/project.json, <project>/manifests/manifest.json,
 960-px review copies; the original footage is not touched or needed).
 
 Writes only under <out> (default <project>/manifests/provenance-review/):
-  frames/<video>/f<i>.jpg   representative frames (proxy resolution)
+  frames/<video>/f<i>.jpg   representative frames (proxy resolution); source.json beside them records
+                            which proxy, duration and times they came from (stale frames are remade)
   index.html                the review page (open locally)
   artifact.html             the same page for publishing as a private claude.ai artifact
                             (answers go to the artifact's store: answers/<video>, groups/<group>)
@@ -30,7 +31,7 @@ Usage:
       Dry run only: it writes nothing and runs nothing.
 Requires ffmpeg/ffprobe on PATH (not for --answers).
 """
-import argparse, html, json, os, subprocess, sys
+import argparse, html, json, os, shlex, subprocess, sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -80,15 +81,28 @@ def probe(path):
 
 
 def extract(proxy, dest, n):
+    """Frames at centred bins (10 %, 30 %, 50 %, 70 %, 90 % for n=5). Existing frames are reused only
+    when source.json next to them records the same proxy (path, size, mtime), duration and times;
+    otherwise every frame is made again, so a changed --frames or a replaced proxy never keeps stale images."""
     info = probe(proxy)
-    dest.mkdir(parents=True, exist_ok=True)
-    times = [round(info["duration"] * (i + 0.5) / n, 2) for i in range(n)]   # centred bins: 10%,30%,50%,70%,90% for n=5
-    files = []
-    for i, t in enumerate(times, 1):
-        f = dest / f"f{i}.jpg"
-        if not f.exists():
-            run(["ffmpeg", "-v", "error", "-y", "-ss", str(t), "-i", str(proxy), "-frames:v", "1", "-q:v", "3", str(f)])
-        files.append({"file": f.name, "time_s": t})
+    st = proxy.stat()
+    times = [round(info["duration"] * (i + 0.5) / n, 2) for i in range(n)]
+    stamp = {"proxy": str(proxy), "size": st.st_size, "mtime": int(st.st_mtime), "duration": info["duration"],
+             "frames": n, "times": times}
+    marker = dest / "source.json"
+    files = [{"file": f"f{i}.jpg", "time_s": t} for i, t in enumerate(times, 1)]
+    current = None
+    try:
+        current = json.load(open(marker))
+    except (OSError, ValueError):
+        pass
+    if current != stamp or not all((dest / f["file"]).exists() for f in files):
+        dest.mkdir(parents=True, exist_ok=True)
+        for old in dest.glob("f*.jpg"):
+            old.unlink()
+        for f in files:
+            run(["ffmpeg", "-v", "error", "-y", "-ss", str(f["time_s"]), "-i", str(proxy), "-frames:v", "1", "-q:v", "3", str(dest / f["file"])])
+        json.dump(stamp, open(marker, "w"), indent=1)
     return info, files
 
 
@@ -357,7 +371,7 @@ def print_answer_plan(answers_path, project):
             if f.get("sessionId"):
                 args += ["--session-id", f["sessionId"]]
             note = f"   # camera: {f['camera']}" if f.get("camera") else ""
-            print(f"RallyLab --project {project.name} --set-provenance {video} " + " ".join(repr(x) if " " in x else x for x in args) + note)
+            print(shlex.join(["RallyLab", "--project", project.name, "--set-provenance", video] + args) + note)
         else:
             print(f"# {video}: {status}; venue={f.get('venueId') or '—'} session={f.get('sessionId') or '—'} — not applied"
                   + (f" ({f['notes']})" if f.get("notes") else ""))
