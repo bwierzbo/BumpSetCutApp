@@ -1,5 +1,5 @@
 {
-  "createdAt" : "2026-10-21T05:49:23Z",
+  "createdAt" : "2026-10-21T13:30:32Z",
   "generator" : "RallyLab 1.0 (2)",
   "hashes" : {
     "projectJson" : "463042ef707e83604e0d92a8667e1bb5ef8a02be80fcd07f07b07a71ae118410",
@@ -19,6 +19,7 @@
   "videos" : [
     {
       "addedAt" : "2026-10-07T02:40:44Z",
+      "aliasGroup" : "bch_ele_ovc_land_self_02",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "bch_ele_ovc_land_self_02",
@@ -61,6 +62,7 @@
     },
     {
       "addedAt" : "2026-10-07T21:39:13Z",
+      "aliasGroup" : "bch_ele_ovc_land_self_02_v2",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "bch_ele_ovc_land_self_02",
@@ -103,6 +105,7 @@
     },
     {
       "addedAt" : "2026-10-07T22:06:21Z",
+      "aliasGroup" : "bch_ele_ovc_land_self_02_v3",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "bch_ele_ovc_land_self_02",
@@ -145,6 +148,7 @@
     },
     {
       "addedAt" : "2026-10-07T22:24:26Z",
+      "aliasGroup" : "bch_ele_ovc_land_self_02_v4",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "bch_ele_ovc_land_self_02",
@@ -187,6 +191,7 @@
     },
     {
       "addedAt" : "2026-10-07T22:39:46Z",
+      "aliasGroup" : "bch_ele_ovc_land_self_02_v5",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "bch_ele_ovc_land_self_02",
@@ -229,6 +234,7 @@
     },
     {
       "addedAt" : "2026-10-07T08:45:48Z",
+      "aliasGroup" : "bch_ele_sun_land_self_01",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "bch_ele_sun_land_self_01",
@@ -270,6 +276,7 @@
     },
     {
       "addedAt" : "2026-10-07T16:00:23Z",
+      "aliasGroup" : "bch_ele_sun_port_self_03",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "val",
       "clipId" : "bch_ele_sun_port_self_03",
@@ -323,6 +330,7 @@
     },
     {
       "addedAt" : "2026-10-17T03:39:50Z",
+      "aliasGroup" : "bch_extra_self_01",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_01",
       "datasetSplit" : "train",
@@ -357,6 +365,7 @@
     },
     {
       "addedAt" : "2026-10-17T04:07:11Z",
+      "aliasGroup" : "bch_extra_self_02",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_02",
       "datasetSplit" : "train",
@@ -391,6 +400,7 @@
     },
     {
       "addedAt" : "2026-10-17T04:29:48Z",
+      "aliasGroup" : "bch_extra_self_03",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_03",
       "datasetSplit" : "train",
@@ -425,6 +435,7 @@
     },
     {
       "addedAt" : "2026-10-17T05:20:51Z",
+      "aliasGroup" : "bch_extra_self_04",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_04",
       "datasetSplit" : "train",
@@ -459,6 +470,7 @@
     },
     {
       "addedAt" : "2026-10-17T06:08:05Z",
+      "aliasGroup" : "bch_extra_self_05",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_05",
       "datasetSplit" : "val",
@@ -495,6 +507,7 @@
     },
     {
       "addedAt" : "2026-10-17T06:31:28Z",
+      "aliasGroup" : "bch_extra_self_06",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_06",
       "datasetSplit" : "train",
@@ -529,6 +542,7 @@
     },
     {
       "addedAt" : "2026-10-17T06:38:50Z",
+      "aliasGroup" : "bch_extra_self_07",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_07",
       "datasetSplit" : "train",
@@ -563,6 +577,7 @@
     },
     {
       "addedAt" : "2026-10-17T06:46:37Z",
+      "aliasGroup" : "bch_extra_self_08",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_08",
       "datasetSplit" : "train",
@@ -597,6 +612,7 @@
     },
     {
       "addedAt" : "2026-10-17T06:56:27Z",
+      "aliasGroup" : "bch_extra_self_09",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_09",
       "datasetSplit" : "train",
@@ -631,6 +647,7 @@
     },
     {
       "addedAt" : "2026-10-17T07:03:40Z",
+      "aliasGroup" : "bch_extra_self_10",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_10",
       "datasetSplit" : "train",
@@ -665,6 +682,7 @@
     },
     {
       "addedAt" : "2026-10-17T07:15:28Z",
+      "aliasGroup" : "bch_extra_self_11",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_11",
       "datasetSplit" : "train",
@@ -699,6 +717,7 @@
     },
     {
       "addedAt" : "2026-10-17T07:32:03Z",
+      "aliasGroup" : "bch_extra_self_12",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_12",
       "datasetSplit" : "train",
@@ -733,6 +752,7 @@
     },
     {
       "addedAt" : "2026-10-17T07:42:08Z",
+      "aliasGroup" : "bch_extra_self_13",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_13",
       "datasetSplit" : "train",
@@ -767,6 +787,7 @@
     },
     {
       "addedAt" : "2026-10-17T07:51:46Z",
+      "aliasGroup" : "bch_extra_self_14",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_14",
       "datasetSplit" : "train",
@@ -801,6 +822,7 @@
     },
     {
       "addedAt" : "2026-10-17T08:00:37Z",
+      "aliasGroup" : "bch_extra_self_15",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_15",
       "datasetSplit" : "train",
@@ -835,6 +857,7 @@
     },
     {
       "addedAt" : "2026-10-17T09:18:49Z",
+      "aliasGroup" : "bch_extra_self_16",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_16",
       "datasetSplit" : "train",
@@ -869,6 +892,7 @@
     },
     {
       "addedAt" : "2026-10-17T09:32:34Z",
+      "aliasGroup" : "bch_extra_self_17",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_17",
       "datasetSplit" : "train",
@@ -903,6 +927,7 @@
     },
     {
       "addedAt" : "2026-10-17T09:39:27Z",
+      "aliasGroup" : "bch_extra_self_18",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_18",
       "datasetSplit" : "val",
@@ -939,6 +964,7 @@
     },
     {
       "addedAt" : "2026-10-17T10:00:04Z",
+      "aliasGroup" : "bch_extra_self_19",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_19",
       "datasetSplit" : "train",
@@ -973,6 +999,7 @@
     },
     {
       "addedAt" : "2026-10-17T10:06:53Z",
+      "aliasGroup" : "bch_extra_self_20",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_20",
       "datasetSplit" : "train",
@@ -1007,6 +1034,7 @@
     },
     {
       "addedAt" : "2026-10-17T10:13:43Z",
+      "aliasGroup" : "bch_extra_self_21",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_21",
       "datasetSplit" : "train",
@@ -1041,6 +1069,7 @@
     },
     {
       "addedAt" : "2026-10-17T11:05:35Z",
+      "aliasGroup" : "bch_extra_self_22",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_22",
       "datasetSplit" : "train",
@@ -1075,6 +1104,7 @@
     },
     {
       "addedAt" : "2026-10-17T11:12:55Z",
+      "aliasGroup" : "bch_extra_self_23",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_23",
       "datasetSplit" : "train",
@@ -1104,6 +1134,7 @@
     },
     {
       "addedAt" : "2026-10-17T11:37:29Z",
+      "aliasGroup" : "bch_extra_self_24",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_24",
       "datasetSplit" : "train",
@@ -1133,6 +1164,7 @@
     },
     {
       "addedAt" : "2026-10-17T11:44:43Z",
+      "aliasGroup" : "bch_extra_self_25",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_25",
       "datasetSplit" : "train",
@@ -1167,6 +1199,7 @@
     },
     {
       "addedAt" : "2026-10-17T11:59:37Z",
+      "aliasGroup" : "bch_extra_self_26",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_26",
       "datasetSplit" : "train",
@@ -1201,6 +1234,7 @@
     },
     {
       "addedAt" : "2026-10-17T14:00:15Z",
+      "aliasGroup" : "bch_extra_self_27",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_27",
       "datasetSplit" : "train",
@@ -1235,6 +1269,7 @@
     },
     {
       "addedAt" : "2026-10-17T14:07:42Z",
+      "aliasGroup" : "bch_extra_self_28",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_28",
       "datasetSplit" : "train",
@@ -1269,6 +1304,7 @@
     },
     {
       "addedAt" : "2026-10-17T14:29:36Z",
+      "aliasGroup" : "bch_extra_self_29",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_29",
       "datasetSplit" : "train",
@@ -1303,6 +1339,7 @@
     },
     {
       "addedAt" : "2026-10-17T14:37:03Z",
+      "aliasGroup" : "bch_extra_self_30",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_30",
       "datasetSplit" : "train",
@@ -1337,6 +1374,7 @@
     },
     {
       "addedAt" : "2026-10-17T14:44:09Z",
+      "aliasGroup" : "bch_extra_self_31",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_31",
       "datasetSplit" : "train",
@@ -1371,6 +1409,7 @@
     },
     {
       "addedAt" : "2026-10-07T02:26:04Z",
+      "aliasGroup" : "bch_gnd_ovc_land_self_01",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "bch_gnd_ovc_land_self_01",
@@ -1412,6 +1451,7 @@
     },
     {
       "addedAt" : "2026-10-07T15:02:53Z",
+      "aliasGroup" : "bch_gnd_ovc_land_self_01_v2",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "bch_gnd_ovc_land_self_01",
@@ -1454,6 +1494,7 @@
     },
     {
       "addedAt" : "2026-10-07T19:25:57Z",
+      "aliasGroup" : "bch_gnd_ovc_land_self_03",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "bch_gnd_ovc_land_self_03",
@@ -1496,6 +1537,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:04:55Z",
+      "aliasGroup" : "bch_gnd_sun_land_self_02",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "bch_gnd_sun_land_self_02",
@@ -1538,6 +1580,7 @@
     },
     {
       "addedAt" : "2026-10-07T02:28:56Z",
+      "aliasGroup" : "bch_gnd_sun_land_self_02_v2",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "bch_gnd_sun_land_self_02",
@@ -1579,6 +1622,7 @@
     },
     {
       "addedAt" : "2026-10-07T06:01:45Z",
+      "aliasGroup" : "bch_gnd_sun_land_self_02_v3",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "bch_gnd_sun_land_self_02",
@@ -1621,6 +1665,7 @@
     },
     {
       "addedAt" : "2026-10-07T06:14:54Z",
+      "aliasGroup" : "bch_gnd_sun_land_self_02_v4",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "bch_gnd_sun_land_self_02",
@@ -1663,6 +1708,7 @@
     },
     {
       "addedAt" : "2026-10-07T06:32:58Z",
+      "aliasGroup" : "bch_gnd_sun_land_self_02_v5",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "bch_gnd_sun_land_self_02",
@@ -1705,6 +1751,7 @@
     },
     {
       "addedAt" : "2026-10-07T10:27:12Z",
+      "aliasGroup" : "bch_gnd_sun_land_self_02_v6",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "bch_gnd_sun_land_self_02",
@@ -1747,6 +1794,7 @@
     },
     {
       "addedAt" : "2026-10-07T19:36:33Z",
+      "aliasGroup" : "bch_hnd_ovc_land_self_01",
       "camera" : "Handheld \/ corner",
       "cardSplit" : "train",
       "clipId" : "bch_hnd_ovc_land_self_01",
@@ -1789,6 +1837,7 @@
     },
     {
       "addedAt" : "2026-10-07T00:33:33Z",
+      "aliasGroup" : "bch_onl_ovc_land_onl_02",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "bch_onl_ovc_land_onl_02",
@@ -1805,13 +1854,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -1858,6 +1907,7 @@
     },
     {
       "addedAt" : "2026-10-07T00:36:14Z",
+      "aliasGroup" : "bch_onl_ovc_land_onl_02_v2",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "bch_onl_ovc_land_onl_02",
@@ -1874,13 +1924,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -1927,6 +1977,7 @@
     },
     {
       "addedAt" : "2026-10-07T00:39:02Z",
+      "aliasGroup" : "bch_onl_ovc_land_onl_02_v3",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "bch_onl_ovc_land_onl_02",
@@ -1980,6 +2031,7 @@
     },
     {
       "addedAt" : "2026-10-06T23:48:39Z",
+      "aliasGroup" : "bch_onl_ovc_land_onl_02_v4",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "bch_onl_ovc_land_onl_02",
@@ -1996,13 +2048,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -2049,6 +2101,7 @@
     },
     {
       "addedAt" : "2026-10-07T11:59:57Z",
+      "aliasGroup" : "bch_onl_sun_land_onl_01",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "train",
       "clipId" : "bch_onl_sun_land_onl_01",
@@ -2091,6 +2144,7 @@
     },
     {
       "addedAt" : "2026-10-07T13:07:29Z",
+      "aliasGroup" : "bch_onl_sun_land_onl_01_v2",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "train",
       "clipId" : "bch_onl_sun_land_onl_01",
@@ -2133,6 +2187,7 @@
     },
     {
       "addedAt" : "2026-10-07T13:47:53Z",
+      "aliasGroup" : "bch_onl_sun_land_onl_03",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "bch_onl_sun_land_onl_03",
@@ -2190,6 +2245,7 @@
     },
     {
       "addedAt" : "2026-10-07T14:20:41Z",
+      "aliasGroup" : "bch_onl_sun_land_onl_03_v2",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "bch_onl_sun_land_onl_03",
@@ -2247,6 +2303,7 @@
     },
     {
       "addedAt" : "2026-10-07T16:32:05Z",
+      "aliasGroup" : "bch_onl_sun_land_onl_04",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "train",
       "clipId" : "bch_onl_sun_land_onl_04",
@@ -2289,6 +2346,7 @@
     },
     {
       "addedAt" : "2026-10-07T02:00:14Z",
+      "aliasGroup" : "bch_sid_ovc_land_self_02",
       "camera" : "Sideline \/ near net",
       "cardSplit" : "train",
       "clipId" : "bch_sid_ovc_land_self_02",
@@ -2330,6 +2388,7 @@
     },
     {
       "addedAt" : "2026-10-07T02:14:30Z",
+      "aliasGroup" : "bch_sid_ovc_land_self_02_v2",
       "camera" : "Sideline \/ near net",
       "cardSplit" : "train",
       "clipId" : "bch_sid_ovc_land_self_02",
@@ -2371,6 +2430,7 @@
     },
     {
       "addedAt" : "2026-10-07T11:20:42Z",
+      "aliasGroup" : "bch_sid_sun_land_self_03",
       "camera" : "Sideline \/ near net",
       "cardSplit" : "train",
       "clipId" : "bch_sid_sun_land_self_03",
@@ -2413,6 +2473,7 @@
     },
     {
       "addedAt" : "2026-10-07T22:40:01Z",
+      "aliasGroup" : "bch_sid_sun_port_self_01",
       "camera" : "Sideline \/ near net",
       "cardSplit" : "train",
       "clipId" : "bch_sid_sun_port_self_01",
@@ -2444,6 +2505,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:17:53Z",
+      "aliasGroup" : "bch_tri_sun_land_self_01",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "bch_tri_sun_land_self_01",
@@ -2485,6 +2547,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:23:22Z",
+      "aliasGroup" : "bch_tri_sun_land_self_01_v2",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "bch_tri_sun_land_self_01",
@@ -2526,6 +2589,7 @@
     },
     {
       "addedAt" : "2026-10-07T08:07:07Z",
+      "aliasGroup" : "bch_tri_sun_land_self_01_v3",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "bch_tri_sun_land_self_01",
@@ -2567,6 +2631,7 @@
     },
     {
       "addedAt" : "2026-10-07T08:24:51Z",
+      "aliasGroup" : "bch_tri_sun_land_self_01_v4",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "bch_tri_sun_land_self_01",
@@ -2608,6 +2673,7 @@
     },
     {
       "addedAt" : "2026-10-07T02:14:11Z",
+      "aliasGroup" : "grs_ele_dusk_port_self_03",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "grs_ele_dusk_port_self_03",
@@ -2644,6 +2710,7 @@
     },
     {
       "addedAt" : "2026-10-07T20:44:47Z",
+      "aliasGroup" : "grs_ele_dusk_port_self_03_v2",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "grs_ele_dusk_port_self_03",
@@ -2686,6 +2753,7 @@
     },
     {
       "addedAt" : "2026-10-07T13:29:42Z",
+      "aliasGroup" : "grs_ele_shade_land_self_02",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "grs_ele_shade_land_self_02",
@@ -2728,6 +2796,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:12:05Z",
+      "aliasGroup" : "grs_ele_sun_land_self_01",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "grs_ele_sun_land_self_01",
@@ -2769,6 +2838,7 @@
     },
     {
       "addedAt" : "2026-10-07T11:38:59Z",
+      "aliasGroup" : "grs_ele_sun_land_self_01_v2",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "grs_ele_sun_land_self_01",
@@ -2811,6 +2881,7 @@
     },
     {
       "addedAt" : "2026-10-07T12:40:40Z",
+      "aliasGroup" : "grs_ele_sun_land_self_01_v3",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "grs_ele_sun_land_self_01",
@@ -2853,6 +2924,7 @@
     },
     {
       "addedAt" : "2026-10-07T21:59:40Z",
+      "aliasGroup" : "grs_ele_sun_land_self_01_v4",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "grs_ele_sun_land_self_01",
@@ -2895,6 +2967,7 @@
     },
     {
       "addedAt" : "2026-10-17T03:53:30Z",
+      "aliasGroup" : "grs_extra_self_01",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_01",
       "datasetSplit" : "train",
@@ -2929,6 +3002,7 @@
     },
     {
       "addedAt" : "2026-10-17T04:36:54Z",
+      "aliasGroup" : "grs_extra_self_02",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_02",
       "datasetSplit" : "train",
@@ -2963,6 +3037,7 @@
     },
     {
       "addedAt" : "2026-10-17T05:32:42Z",
+      "aliasGroup" : "grs_extra_self_03",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_03",
       "datasetSplit" : "train",
@@ -2997,6 +3072,7 @@
     },
     {
       "addedAt" : "2026-10-17T05:44:01Z",
+      "aliasGroup" : "grs_extra_self_04",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_04",
       "datasetSplit" : "train",
@@ -3031,6 +3107,7 @@
     },
     {
       "addedAt" : "2026-10-17T05:57:32Z",
+      "aliasGroup" : "grs_extra_self_05",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_05",
       "datasetSplit" : "train",
@@ -3065,6 +3142,7 @@
     },
     {
       "addedAt" : "2026-10-17T07:11:52Z",
+      "aliasGroup" : "grs_extra_self_06",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_06",
       "datasetSplit" : "val",
@@ -3101,6 +3179,7 @@
     },
     {
       "addedAt" : "2026-10-17T08:12:52Z",
+      "aliasGroup" : "grs_extra_self_07",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_07",
       "datasetSplit" : "val",
@@ -3137,6 +3216,7 @@
     },
     {
       "addedAt" : "2026-10-17T08:25:51Z",
+      "aliasGroup" : "grs_extra_self_08",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_08",
       "datasetSplit" : "train",
@@ -3171,6 +3251,7 @@
     },
     {
       "addedAt" : "2026-10-17T08:35:13Z",
+      "aliasGroup" : "grs_extra_self_09",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_09",
       "datasetSplit" : "train",
@@ -3205,6 +3286,7 @@
     },
     {
       "addedAt" : "2026-10-17T08:47:27Z",
+      "aliasGroup" : "grs_extra_self_10",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_10",
       "datasetSplit" : "train",
@@ -3239,6 +3321,7 @@
     },
     {
       "addedAt" : "2026-10-17T09:46:23Z",
+      "aliasGroup" : "grs_extra_self_11",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_11",
       "datasetSplit" : "train",
@@ -3273,6 +3356,7 @@
     },
     {
       "addedAt" : "2026-10-17T09:53:14Z",
+      "aliasGroup" : "grs_extra_self_12",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_12",
       "datasetSplit" : "train",
@@ -3307,6 +3391,7 @@
     },
     {
       "addedAt" : "2026-10-17T12:07:03Z",
+      "aliasGroup" : "grs_extra_self_13",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_13",
       "datasetSplit" : "train",
@@ -3341,6 +3426,7 @@
     },
     {
       "addedAt" : "2026-10-17T12:27:47Z",
+      "aliasGroup" : "grs_extra_self_14",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_14",
       "datasetSplit" : "val",
@@ -3377,6 +3463,7 @@
     },
     {
       "addedAt" : "2026-10-17T12:35:08Z",
+      "aliasGroup" : "grs_extra_self_15",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_15",
       "datasetSplit" : "train",
@@ -3411,6 +3498,7 @@
     },
     {
       "addedAt" : "2026-10-17T12:54:13Z",
+      "aliasGroup" : "grs_extra_self_16",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_16",
       "datasetSplit" : "train",
@@ -3445,6 +3533,7 @@
     },
     {
       "addedAt" : "2026-10-17T13:00:30Z",
+      "aliasGroup" : "grs_extra_self_17",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_17",
       "datasetSplit" : "train",
@@ -3479,6 +3568,7 @@
     },
     {
       "addedAt" : "2026-10-17T13:10:29Z",
+      "aliasGroup" : "grs_extra_self_18",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_18",
       "datasetSplit" : "train",
@@ -3513,6 +3603,7 @@
     },
     {
       "addedAt" : "2026-10-17T13:29:28Z",
+      "aliasGroup" : "grs_extra_self_19",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_19",
       "datasetSplit" : "train",
@@ -3547,6 +3638,7 @@
     },
     {
       "addedAt" : "2026-10-17T13:36:38Z",
+      "aliasGroup" : "grs_extra_self_20",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_20",
       "datasetSplit" : "train",
@@ -3581,6 +3673,7 @@
     },
     {
       "addedAt" : "2026-10-17T13:43:50Z",
+      "aliasGroup" : "grs_extra_self_21",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_21",
       "datasetSplit" : "val",
@@ -3617,6 +3710,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:09:56Z",
+      "aliasGroup" : "grs_extra_tester_01",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_01",
@@ -3658,6 +3752,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:10:08Z",
+      "aliasGroup" : "grs_extra_tester_02",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_02",
@@ -3699,6 +3794,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:10:19Z",
+      "aliasGroup" : "grs_extra_tester_02_v2",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_02",
@@ -3740,6 +3836,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:10:31Z",
+      "aliasGroup" : "grs_extra_tester_03",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_03",
@@ -3781,6 +3878,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:10:38Z",
+      "aliasGroup" : "grs_extra_tester_03_v2",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_03",
@@ -3811,6 +3909,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:10:46Z",
+      "aliasGroup" : "grs_extra_tester_03_v3",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_03",
@@ -3852,6 +3951,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:10:57Z",
+      "aliasGroup" : "grs_extra_tester_03_v4",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_03",
@@ -3893,6 +3993,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:11:04Z",
+      "aliasGroup" : "grs_extra_tester_03_v5",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_03",
@@ -3934,6 +4035,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:11:13Z",
+      "aliasGroup" : "grs_extra_tester_03_v6",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_03",
@@ -3975,6 +4077,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:11:21Z",
+      "aliasGroup" : "grs_extra_tester_03_v7",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_03",
@@ -4016,6 +4119,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:11:31Z",
+      "aliasGroup" : "grs_extra_tester_03_v8",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_03",
@@ -4046,6 +4150,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:11:40Z",
+      "aliasGroup" : "grs_extra_tester_03_v9",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_03",
@@ -4087,6 +4192,7 @@
     },
     {
       "addedAt" : "2026-10-11T07:11:51Z",
+      "aliasGroup" : "grs_extra_tester_04",
       "camera" : "Extra",
       "cardSplit" : "train",
       "clipId" : "grs_extra_tester_04",
@@ -4128,6 +4234,7 @@
     },
     {
       "addedAt" : "2026-10-07T19:12:56Z",
+      "aliasGroup" : "grs_gnd_dusk_land_self_03",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "grs_gnd_dusk_land_self_03",
@@ -4170,6 +4277,7 @@
     },
     {
       "addedAt" : "2026-10-07T09:12:58Z",
+      "aliasGroup" : "grs_gnd_shade_land_self_02",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "grs_gnd_shade_land_self_02",
@@ -4201,6 +4309,7 @@
     },
     {
       "addedAt" : "2026-10-07T21:26:27Z",
+      "aliasGroup" : "grs_gnd_shade_land_self_02_v2",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "grs_gnd_shade_land_self_02",
@@ -4243,6 +4352,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:28:54Z",
+      "aliasGroup" : "grs_gnd_sun_land_self_01",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "grs_gnd_sun_land_self_01",
@@ -4284,6 +4394,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:35:16Z",
+      "aliasGroup" : "grs_gnd_sun_land_self_01_v2",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "grs_gnd_sun_land_self_01",
@@ -4325,6 +4436,7 @@
     },
     {
       "addedAt" : "2026-10-07T15:40:11Z",
+      "aliasGroup" : "grs_gnd_sun_land_self_01_v3",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "grs_gnd_sun_land_self_01",
@@ -4367,6 +4479,7 @@
     },
     {
       "addedAt" : "2026-10-07T16:24:58Z",
+      "aliasGroup" : "grs_gnd_sun_land_self_01_v4",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "grs_gnd_sun_land_self_01",
@@ -4409,6 +4522,7 @@
     },
     {
       "addedAt" : "2026-10-07T22:20:15Z",
+      "aliasGroup" : "grs_gnd_sun_land_self_01_v5",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "grs_gnd_sun_land_self_01",
@@ -4451,6 +4565,7 @@
     },
     {
       "addedAt" : "2026-10-07T22:33:11Z",
+      "aliasGroup" : "grs_gnd_sun_land_self_01_v6",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "grs_gnd_sun_land_self_01",
@@ -4493,6 +4608,7 @@
     },
     {
       "addedAt" : "2026-10-07T05:51:46Z",
+      "aliasGroup" : "grs_hnd_shade_port_self_02",
       "camera" : "Handheld \/ corner",
       "cardSplit" : "val",
       "clipId" : "grs_hnd_shade_port_self_02",
@@ -4509,13 +4625,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -4562,6 +4678,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:12:26Z",
+      "aliasGroup" : "grs_hnd_sun_land_self_01",
       "camera" : "Handheld \/ corner",
       "cardSplit" : "train",
       "clipId" : "grs_hnd_sun_land_self_01",
@@ -4603,6 +4720,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:17:59Z",
+      "aliasGroup" : "grs_hnd_sun_land_self_01_v2",
       "camera" : "Handheld \/ corner",
       "cardSplit" : "train",
       "clipId" : "grs_hnd_sun_land_self_01",
@@ -4633,6 +4751,7 @@
     },
     {
       "addedAt" : "2026-10-07T06:07:12Z",
+      "aliasGroup" : "grs_hnd_sun_land_self_01_v3",
       "camera" : "Handheld \/ corner",
       "cardSplit" : "train",
       "clipId" : "grs_hnd_sun_land_self_01",
@@ -4675,6 +4794,7 @@
     },
     {
       "addedAt" : "2026-10-06T23:34:05Z",
+      "aliasGroup" : "grs_onl_dusk_land_onl_03",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "grs_onl_dusk_land_onl_03",
@@ -4738,6 +4858,7 @@
     },
     {
       "addedAt" : "2026-10-07T00:47:29Z",
+      "aliasGroup" : "grs_onl_shade_land_onl_02",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "grs_onl_shade_land_onl_02",
@@ -4754,13 +4875,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -4807,6 +4928,7 @@
     },
     {
       "addedAt" : "2026-10-07T00:41:25Z",
+      "aliasGroup" : "grs_onl_sun_land_onl_01",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "grs_onl_sun_land_onl_01",
@@ -4823,13 +4945,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -4876,6 +4998,7 @@
     },
     {
       "addedAt" : "2026-10-07T00:43:27Z",
+      "aliasGroup" : "grs_onl_sun_land_onl_01_v2",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "grs_onl_sun_land_onl_01",
@@ -4929,6 +5052,7 @@
     },
     {
       "addedAt" : "2026-10-07T07:01:56Z",
+      "aliasGroup" : "grs_onl_sun_land_onl_04",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "train",
       "clipId" : "grs_onl_sun_land_onl_04",
@@ -4971,6 +5095,7 @@
     },
     {
       "addedAt" : "2026-10-07T10:56:32Z",
+      "aliasGroup" : "grs_onl_sun_land_onl_04_v2",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "train",
       "clipId" : "grs_onl_sun_land_onl_04",
@@ -5013,6 +5138,7 @@
     },
     {
       "addedAt" : "2026-10-07T02:34:20Z",
+      "aliasGroup" : "grs_sid_shade_land_self_02",
       "camera" : "Sideline \/ near net",
       "cardSplit" : "train",
       "clipId" : "grs_sid_shade_land_self_02",
@@ -5055,6 +5181,7 @@
     },
     {
       "addedAt" : "2026-10-07T06:20:00Z",
+      "aliasGroup" : "grs_sid_shade_land_self_02_v2",
       "camera" : "Sideline \/ near net",
       "cardSplit" : "train",
       "clipId" : "grs_sid_shade_land_self_02",
@@ -5097,6 +5224,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:38:42Z",
+      "aliasGroup" : "grs_sid_sun_port_self_01",
       "camera" : "Sideline \/ near net",
       "cardSplit" : "train",
       "clipId" : "grs_sid_sun_port_self_01",
@@ -5138,6 +5266,7 @@
     },
     {
       "addedAt" : "2026-10-07T14:50:37Z",
+      "aliasGroup" : "grs_sid_sun_port_self_01_v2",
       "camera" : "Sideline \/ near net",
       "cardSplit" : "train",
       "clipId" : "grs_sid_sun_port_self_01",
@@ -5180,6 +5309,7 @@
     },
     {
       "addedAt" : "2026-10-07T02:26:20Z",
+      "aliasGroup" : "grs_tri_shade_port_self_02",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "grs_tri_shade_port_self_02",
@@ -5222,6 +5352,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:59:52Z",
+      "aliasGroup" : "grs_tri_sun_land_self_01",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "grs_tri_sun_land_self_01",
@@ -5264,6 +5395,7 @@
     },
     {
       "addedAt" : "2026-10-07T14:06:12Z",
+      "aliasGroup" : "grs_tri_sun_land_self_01_v2",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "grs_tri_sun_land_self_01",
@@ -5295,6 +5427,7 @@
     },
     {
       "addedAt" : "2026-10-07T11:28:17Z",
+      "aliasGroup" : "ind_ele_bright_land_self_01",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "val",
       "clipId" : "ind_ele_bright_land_self_01",
@@ -5311,13 +5444,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -5364,6 +5497,7 @@
     },
     {
       "addedAt" : "2026-10-07T02:19:53Z",
+      "aliasGroup" : "ind_ele_dim_land_self_02",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "val",
       "clipId" : "ind_ele_dim_land_self_02",
@@ -5422,6 +5556,7 @@
     },
     {
       "addedAt" : "2026-10-07T20:57:05Z",
+      "aliasGroup" : "ind_ele_dim_land_self_02_v2",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "val",
       "clipId" : "ind_ele_dim_land_self_02",
@@ -5438,13 +5573,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -5491,6 +5626,7 @@
     },
     {
       "addedAt" : "2026-10-07T21:06:22Z",
+      "aliasGroup" : "ind_ele_dim_land_self_02_v3",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "val",
       "clipId" : "ind_ele_dim_land_self_02",
@@ -5544,6 +5680,7 @@
     },
     {
       "addedAt" : "2026-10-07T16:15:04Z",
+      "aliasGroup" : "ind_ele_dim_land_self_04",
       "camera" : "End line, elevated (stands\/tripod 2m+)",
       "cardSplit" : "train",
       "clipId" : "ind_ele_dim_land_self_04",
@@ -5586,6 +5723,7 @@
     },
     {
       "addedAt" : "2026-10-17T03:46:38Z",
+      "aliasGroup" : "ind_extra_self_01",
       "camera" : "Extra",
       "clipId" : "ind_extra_self_01",
       "datasetSplit" : "train",
@@ -5620,6 +5758,7 @@
     },
     {
       "addedAt" : "2026-10-17T04:00:21Z",
+      "aliasGroup" : "ind_extra_self_02",
       "camera" : "Extra",
       "clipId" : "ind_extra_self_02",
       "datasetSplit" : "train",
@@ -5654,6 +5793,7 @@
     },
     {
       "addedAt" : "2026-10-17T04:14:02Z",
+      "aliasGroup" : "ind_extra_self_03",
       "camera" : "Extra",
       "clipId" : "ind_extra_self_03",
       "datasetSplit" : "train",
@@ -5688,6 +5828,7 @@
     },
     {
       "addedAt" : "2026-10-17T04:22:42Z",
+      "aliasGroup" : "ind_extra_self_04",
       "camera" : "Extra",
       "clipId" : "ind_extra_self_04",
       "datasetSplit" : "train",
@@ -5722,6 +5863,7 @@
     },
     {
       "addedAt" : "2026-10-17T04:43:52Z",
+      "aliasGroup" : "ind_extra_self_05",
       "camera" : "Extra",
       "clipId" : "ind_extra_self_05",
       "datasetSplit" : "train",
@@ -5756,6 +5898,7 @@
     },
     {
       "addedAt" : "2026-10-17T05:03:24Z",
+      "aliasGroup" : "ind_extra_self_06",
       "camera" : "Extra",
       "clipId" : "ind_extra_self_06",
       "datasetSplit" : "train",
@@ -5790,6 +5933,7 @@
     },
     {
       "addedAt" : "2026-10-17T07:23:45Z",
+      "aliasGroup" : "ind_extra_self_07",
       "camera" : "Extra",
       "clipId" : "ind_extra_self_07",
       "datasetSplit" : "train",
@@ -5824,6 +5968,7 @@
     },
     {
       "addedAt" : "2026-10-17T09:25:43Z",
+      "aliasGroup" : "ind_extra_self_08",
       "camera" : "Extra",
       "clipId" : "ind_extra_self_08",
       "datasetSplit" : "train",
@@ -5858,6 +6003,7 @@
     },
     {
       "addedAt" : "2026-10-17T10:47:03Z",
+      "aliasGroup" : "ind_extra_self_09",
       "camera" : "Extra",
       "clipId" : "ind_extra_self_09",
       "datasetSplit" : "val",
@@ -5894,6 +6040,7 @@
     },
     {
       "addedAt" : "2026-10-07T02:06:23Z",
+      "aliasGroup" : "ind_gnd_bright_land_self_01",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "ind_gnd_bright_land_self_01",
@@ -5936,6 +6083,7 @@
     },
     {
       "addedAt" : "2026-10-07T13:56:36Z",
+      "aliasGroup" : "ind_gnd_bright_land_self_01_v2",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "ind_gnd_bright_land_self_01",
@@ -5978,6 +6126,7 @@
     },
     {
       "addedAt" : "2026-10-07T14:30:09Z",
+      "aliasGroup" : "ind_gnd_bright_land_self_01_v3",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "ind_gnd_bright_land_self_01",
@@ -6009,6 +6158,7 @@
     },
     {
       "addedAt" : "2026-10-07T15:16:50Z",
+      "aliasGroup" : "ind_gnd_bright_land_self_01_v4",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "ind_gnd_bright_land_self_01",
@@ -6051,6 +6201,7 @@
     },
     {
       "addedAt" : "2026-10-07T08:16:51Z",
+      "aliasGroup" : "ind_gnd_bright_port_self_03",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "ind_gnd_bright_port_self_03",
@@ -6092,6 +6243,7 @@
     },
     {
       "addedAt" : "2026-10-07T07:48:01Z",
+      "aliasGroup" : "ind_gnd_dim_land_self_02",
       "camera" : "End line, ground level",
       "cardSplit" : "train",
       "clipId" : "ind_gnd_dim_land_self_02",
@@ -6127,6 +6279,7 @@
     },
     {
       "addedAt" : "2026-10-07T10:41:55Z",
+      "aliasGroup" : "ind_hnd_bright_port_self_01",
       "camera" : "Handheld \/ corner",
       "cardSplit" : "train",
       "clipId" : "ind_hnd_bright_port_self_01",
@@ -6158,6 +6311,7 @@
     },
     {
       "addedAt" : "2026-10-07T02:52:08Z",
+      "aliasGroup" : "ind_hnd_dim_land_self_02",
       "camera" : "Handheld \/ corner",
       "cardSplit" : "train",
       "clipId" : "ind_hnd_dim_land_self_02",
@@ -6200,6 +6354,7 @@
     },
     {
       "addedAt" : "2026-10-07T21:50:48Z",
+      "aliasGroup" : "ind_hnd_dim_land_self_02_v2",
       "camera" : "Handheld \/ corner",
       "cardSplit" : "train",
       "clipId" : "ind_hnd_dim_land_self_02",
@@ -6231,6 +6386,7 @@
     },
     {
       "addedAt" : "2026-10-07T00:26:30Z",
+      "aliasGroup" : "ind_onl_bright_land_onl_01",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "train",
       "clipId" : "ind_onl_bright_land_onl_01",
@@ -6273,6 +6429,7 @@
     },
     {
       "addedAt" : "2026-10-07T00:29:16Z",
+      "aliasGroup" : "ind_onl_bright_land_onl_01_v2",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "train",
       "clipId" : "ind_onl_bright_land_onl_01",
@@ -6315,6 +6472,7 @@
     },
     {
       "addedAt" : "2026-10-07T00:30:36Z",
+      "aliasGroup" : "ind_onl_bright_land_onl_01_v3",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "train",
       "clipId" : "ind_onl_bright_land_onl_01",
@@ -6357,6 +6515,7 @@
     },
     {
       "addedAt" : "2026-10-07T00:32:05Z",
+      "aliasGroup" : "ind_onl_bright_land_onl_01_v4",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "train",
       "clipId" : "ind_onl_bright_land_onl_01",
@@ -6399,6 +6558,7 @@
     },
     {
       "addedAt" : "2026-10-07T06:49:22Z",
+      "aliasGroup" : "ind_onl_bright_land_onl_04",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "ind_onl_bright_land_onl_04",
@@ -6456,6 +6616,7 @@
     },
     {
       "addedAt" : "2026-10-07T13:19:20Z",
+      "aliasGroup" : "ind_sid_bright_land_self_02",
       "camera" : "Sideline \/ near net",
       "cardSplit" : "val",
       "clipId" : "ind_sid_bright_land_self_02",
@@ -6519,6 +6680,7 @@
     },
     {
       "addedAt" : "2026-10-07T08:03:33Z",
+      "aliasGroup" : "ind_sid_dim_land_self_01",
       "camera" : "Sideline \/ near net",
       "cardSplit" : "train",
       "clipId" : "ind_sid_dim_land_self_01",
@@ -6560,6 +6722,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:09:01Z",
+      "aliasGroup" : "ind_tri_bright_land_self_01",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "ind_tri_bright_land_self_01",
@@ -6590,6 +6753,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:12:13Z",
+      "aliasGroup" : "ind_tri_bright_land_self_01_v2",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "ind_tri_bright_land_self_01",
@@ -6620,6 +6784,7 @@
     },
     {
       "addedAt" : "2026-10-07T01:48:27Z",
+      "aliasGroup" : "ind_tri_bright_land_self_01_v3",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "ind_tri_bright_land_self_01",
@@ -6662,6 +6827,7 @@
     },
     {
       "addedAt" : "2026-10-07T19:58:01Z",
+      "aliasGroup" : "ind_tri_bright_land_self_01_v4",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "ind_tri_bright_land_self_01",
@@ -6704,6 +6870,7 @@
     },
     {
       "addedAt" : "2026-10-07T05:57:09Z",
+      "aliasGroup" : "ind_tri_dim_port_self_02",
       "camera" : "Tripod \/ corner",
       "cardSplit" : "train",
       "clipId" : "ind_tri_dim_port_self_02",

@@ -69,6 +69,23 @@ enum ReservedVideos {
         return ids
     }
 
+    /// Every video's alias group over the whole project (sessionless videos
+    /// included, since they can bridge two sessions): name → group ID, the
+    /// smallest name in the group. Same identities as `closure`.
+    static func groups(over sources: [String: ClipSource]) -> [String: String] {
+        let ids = sources.mapValues(identities)
+        var byIdentity: [String: [String]] = [:]
+        for (name, mine) in ids { for id in mine { byIdentity[id, default: []].append(name) } }
+        var parent = Dictionary(uniqueKeysWithValues: sources.keys.map { ($0, $0) })
+        func find(_ x: String) -> String { var r = x; while parent[r] != r { r = parent[r]! }; return r }
+        for names in byIdentity.values { for n in names.dropFirst() { parent[find(n)] = find(names[0]) } }
+        var members: [String: [String]] = [:]
+        for name in sources.keys { members[find(name), default: []].append(name) }
+        var out: [String: String] = [:]
+        for names in members.values { let id = names.min()!; for n in names { out[n] = id } }
+        return out
+    }
+
     /// The named sessions plus everything reachable through shared
     /// identities, to a fixed point: A reserved, A and B share a file, B and
     /// C share a confirmed venue → A, B and C are all reserved.

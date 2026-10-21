@@ -180,6 +180,13 @@ struct DatasetAudit: Codable {
     /// Alias groups: videos joined by a shared file fingerprint or a confirmed
     /// sourceId / sessionId / venueId, to a fixed point. Keyed by video name.
     static func aliasGroups(_ videos: [ManifestVideo]) -> [String: Set<String>] {
+        // Manifests from DatasetSplitManifest ≥ this version carry a project-wide group per video
+        // (sessionless project videos can bridge two sessions); use it when every video has one.
+        if videos.allSatisfy({ $0.aliasGroup != nil || $0.clipId == nil }) {
+            var members: [String: Set<String>] = [:]
+            for v in videos { members[v.aliasGroup ?? v.video, default: []].insert(v.video) }
+            return Dictionary(uniqueKeysWithValues: videos.map { ($0.video, members[$0.aliasGroup ?? $0.video] ?? [$0.video]) })
+        }
         var byIdentity: [String: [String]] = [:]
         for v in videos {
             var ids: [String] = []

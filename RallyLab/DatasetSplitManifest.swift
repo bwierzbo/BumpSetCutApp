@@ -113,6 +113,11 @@ struct ManifestVideo: Codable, Equatable {
     /// reserved only because it shares a file or confirmed identity with a
     /// listed one; nil when not reserved.
     var reservedAs: String?
+    /// Alias group over the whole project.json (shared file fingerprint or
+    /// confirmed sourceId / sessionId / venueId, transitively, including
+    /// project videos that have no dataset session): the smallest video
+    /// name in the group. nil for a session with no project video.
+    var aliasGroup: String?
     var ralliesMarked: Bool
     var frames: Int
     var reviewedFrames: Int
@@ -184,6 +189,7 @@ struct DatasetSplitManifest: Codable {
         let listedCandidates = Set(inputs.validation?.finalTestCandidates ?? []).subtracting(listedFinal)
         let finalTest = ReservedVideos.closure(of: listedFinal, over: sources)
         let candidates = ReservedVideos.closure(of: listedCandidates, over: sources).subtracting(finalTest)
+        let groupOf = ReservedVideos.groups(over: sources)
         let previous = Dictionary(uniqueKeysWithValues: (inputs.previous?.videos ?? []).map { ($0.video, $0.exposure) })
         // A moved or renamed video keeps its history: the previous manifest is also joined by file fingerprint.
         var previousByPrint: [String: Set<ExposureRecord>] = [:]
@@ -240,6 +246,7 @@ struct DatasetSplitManifest: Codable {
                 split: split,
                 unreservedSplit: split == unreserved ? nil : unreserved,
                 reservedAs: reservedAs,
+                aliasGroup: groupOf[session.name],
                 ralliesMarked: session.ralliesMarked ?? false,
                 frames: session.frames.count,
                 reviewedFrames: session.reviewedCount,

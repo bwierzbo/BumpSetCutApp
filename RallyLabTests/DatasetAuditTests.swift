@@ -140,6 +140,25 @@ final class DatasetAuditTests: XCTestCase {
         XCTAssertFalse(listed.message.contains("venueId unconfirmed"), "both venues are confirmed")
     }
 
+    func testSessionlessProjectVideoBridgesCandidateToTrainingVideo() throws {
+        // A (listed candidate, file AB) ~ B (project video with NO session, file AB, venue v1) ~ C (train session, venue v1).
+        let a = F.clip("grs_p", environment: "Grass", split: "val", videos: [F.source("grs_p", uploader: "Me", fingerprint: "y:AB", sessionId: "s1", venueId: "v-a")])
+        let b = F.clip("grs_q", environment: "Grass", split: "train", videos: [F.source("grs_q", uploader: "Me", fingerprint: "y:AB", venueId: "v1")])
+        let c = F.clip("grs_r", environment: "Grass", split: "train", videos: [F.source("grs_r", uploader: "You", fingerprint: "y:C", sessionId: "s3", venueId: "v1")])
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTestCandidates: ["grs_p"]),
+                              extraClips: [a, b, c], extraSessions: [F.session("grs_p", split: "val"), F.session("grs_r", split: "train")])   // no session for grs_q
+        inputs.discovered = ["grs_r": [ExposureRecord(kind: .trainingPackage, ref: "P1", date: nil, note: nil)]]
+        let m = try DatasetSplitManifest.build(inputs)
+        XCTAssertNil(m.videos.first { $0.video == "grs_q" }, "no session → not in the manifest")
+        XCTAssertEqual(m.videos.first { $0.video == "grs_p" }?.aliasGroup, m.videos.first { $0.video == "grs_r" }?.aliasGroup, "grouped through the sessionless bridge")
+        XCTAssertEqual(m.videos.first { $0.video == "grs_r" }?.split, .finalTestCandidate, "C is reserved with A through B")
+        let audit = DatasetAudit.run(manifest: m, now: F.day)
+        let listed = audit.findings.first { $0.code.hasPrefix("CANDIDATE") && $0.videos == ["grs_p"] }!
+        XCTAssertEqual(listed.code, "CANDIDATE-BLOCKED")
+        XCTAssertTrue(listed.message.contains("alias grs_r's frames sit in the training dataset"), listed.message)
+        XCTAssertTrue(listed.message.contains("via aliases: training_package"), listed.message)
+    }
+
     func testProvenanceQualityIsReported() throws {
         let a = try audit(F.inputs())
         let source = a.findings.first { $0.code == "PROVENANCE-SOURCE" }
