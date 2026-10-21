@@ -1,22 +1,19 @@
 # Dataset audit — Scratch
 
-Run 2026-10-21T01:56:10Z on manifest hashes project.json `8404d1c0d97f10a4`, sessions `06ed23f06ccd23ce`.
+Run 2026-10-21T02:39:05Z on manifest hashes project.json `8404d1c0d97f10a4`, sessions `06ed23f06ccd23ce`.
 
-**Result: HARD LEAK — fix before any training, scoring or tuning on this split.**
+**Result: no hard leak.**
 
 | Severity | Count |
 |---|---|
-| hard | 1 |
-| soft | 7 |
+| hard | 0 |
+| soft | 8 |
 | info | 3 |
-
-## Hard
-
-- **CARD-SPLIT** — 2 videos with same clip card "bch_onl_sun_land_onl_03" sit in dev_val + legacy_holdout. `bch_onl_sun_land_onl_03`, `bch_onl_sun_land_onl_03_v2`
 
 ## Soft
 
 - **CARD-SPLIT** — 4 videos with same clip card "bch_onl_ovc_land_onl_02" sit in dev_val + tune. `bch_onl_ovc_land_onl_02`, `bch_onl_ovc_land_onl_02_v2`, `bch_onl_ovc_land_onl_02_v3`, `bch_onl_ovc_land_onl_02_v4`
+- **CARD-SPLIT** — 2 videos with same clip card "bch_onl_sun_land_onl_03" sit in dev_val + legacy_holdout. `bch_onl_sun_land_onl_03`, `bch_onl_sun_land_onl_03_v2`
 - **CARD-SPLIT** — 2 videos with same clip card "grs_onl_sun_land_onl_01" sit in dev_val + tune. `grs_onl_sun_land_onl_01`, `grs_onl_sun_land_onl_01_v2`
 - **CARD-SPLIT** — 3 videos with same clip card "ind_ele_dim_land_self_02" sit in dev_val + tune. `ind_ele_dim_land_self_02`, `ind_ele_dim_land_self_02_v2`, `ind_ele_dim_land_self_02_v3`
 - **RESERVED-UPLOADER-IN-TRAIN** — bch_onl_sun_land_onl_03 (legacy_holdout) shares uploader "Dianne Gan" with train videos; confirm it is a different venue/session. `bch_onl_sun_land_onl_03`

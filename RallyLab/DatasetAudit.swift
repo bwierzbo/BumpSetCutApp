@@ -4,10 +4,11 @@
 //
 //  Leakage and provenance-quality checks over a DatasetSplitManifest
 //  (decisions D-002, D-009; AGENTS.md rule 3). A *hard* finding means two
-//  videos that share a recording, a confirmed session or venue, or a clip
-//  card sit on different sides of a split boundary; `--audit-dataset` exits
-//  non-zero on any. *Soft* findings are grouping that might be a leak but
-//  isn't proven (same uploader, cards the dataset split per video). *Info*
+//  videos that share a recording (same file fingerprint) or a confirmed
+//  sourceId / sessionId / venueId sit on different sides of a split
+//  boundary; `--audit-dataset` exits non-zero on any. *Soft* findings are
+//  grouping that might be a leak but isn't proven: the same clip card or
+//  uploader, cards the dataset split per video. *Info*
 //  is what the owner needs to decide: final-test candidates, provenance
 //  still unconfirmed.
 //
@@ -45,7 +46,9 @@ struct DatasetAudit: Codable {
         findings += grouped(videos, code: "SOURCE-SHARED", label: "same confirmed sourceId") { $0.sourceId.origin == .confirmed ? $0.sourceId.value : nil }
         findings += grouped(videos, code: "SESSION-SHARED", label: "same confirmed sessionId") { $0.sessionId.origin == .confirmed ? $0.sessionId.value : nil }
         findings += grouped(videos, code: "VENUE-SHARED", label: "same confirmed venueId") { $0.venueId.origin == .confirmed ? $0.venueId.value : nil }
-        findings += grouped(videos, code: "CARD-SPLIT", label: "same clip card") { $0.clipId }
+        // A card is a planned category (one channel/outing as the owner filed it), not confirmed
+        // recording, session or venue identity (D-009): never more than soft.
+        findings += grouped(videos, code: "CARD-SPLIT", label: "same clip card", cap: .soft) { $0.clipId }
         // An uploader is one channel, not one venue: never more than soft.
         findings += grouped(videos, code: "UPLOADER-SPLIT", label: "same uploader", cap: .soft) { $0.uploader }
 

@@ -18,13 +18,14 @@ final class DatasetAuditTests: XCTestCase {
         a.findings.filter { $0.severity == severity }.map(\.code)
     }
 
-    func testFixtureLeaksAcrossCards() throws {
+    func testCardOverlapIsSoftNeverHard() throws {
         let a = try audit(F.inputs())
-        // grs_c is an auto card with videos on both sides of train → hard card split;
-        // bch_a is pinned val but spans tune + legacy_holdout + dev_val → reserved touched → hard too.
-        XCTAssertTrue(a.hasHardLeak)
-        let cards = a.findings.filter { $0.code == "CARD-SPLIT" && $0.severity == .hard }.map { $0.videos.first ?? "" }
-        XCTAssertEqual(Set(cards), ["bch_a", "grs_c"])
+        // grs_c is an auto card with videos on both sides of train, bch_a spans tune + legacy_holdout
+        // + dev_val: a card is not confirmed identity (D-009), so both are soft and nothing is hard.
+        XCTAssertFalse(a.hasHardLeak)
+        let cards = a.findings.filter { $0.code == "CARD-SPLIT" }
+        XCTAssertEqual(Set(cards.map { $0.videos.first ?? "" }), ["bch_a", "grs_c"])
+        XCTAssertTrue(cards.allSatisfy { $0.severity == .soft })
         XCTAssertTrue(codes(a, .soft).contains("CARD-AUTO"))
     }
 
@@ -88,9 +89,12 @@ final class DatasetAuditTests: XCTestCase {
     }
 
     func testMarkdownNamesTheVerdict() throws {
-        let a = try audit(F.inputs())
+        let extra = F.clip("ind_dup", environment: "Indoor", split: "train",
+                           videos: [F.source("ind_dup", uploader: "Z", fingerprint: "youtube:A1")])
+        let a = try audit(F.inputs(extraClips: [extra], extraSessions: [F.session("ind_dup", split: "train")]))
         let md = a.markdown(manifest: try DatasetSplitManifest.build(F.inputs()))
         XCTAssertTrue(md.contains("HARD LEAK"))
-        XCTAssertTrue(md.contains("CARD-SPLIT"))
+        XCTAssertTrue(md.contains("FP-SHARED"))
+        XCTAssertFalse(try audit(F.inputs()).markdown(manifest: try DatasetSplitManifest.build(F.inputs())).contains("HARD LEAK"))
     }
 }

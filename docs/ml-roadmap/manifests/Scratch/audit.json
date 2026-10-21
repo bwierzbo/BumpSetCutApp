@@ -1,15 +1,6 @@
 {
-  "createdAt" : "2026-10-21T01:56:10Z",
+  "createdAt" : "2026-10-21T02:39:05Z",
   "findings" : [
-    {
-      "code" : "CARD-SPLIT",
-      "message" : "2 videos with same clip card \"bch_onl_sun_land_onl_03\" sit in dev_val + legacy_holdout.",
-      "severity" : "hard",
-      "videos" : [
-        "bch_onl_sun_land_onl_03",
-        "bch_onl_sun_land_onl_03_v2"
-      ]
-    },
     {
       "code" : "CARD-SPLIT",
       "message" : "4 videos with same clip card \"bch_onl_ovc_land_onl_02\" sit in dev_val + tune.",
@@ -19,6 +10,15 @@
         "bch_onl_ovc_land_onl_02_v2",
         "bch_onl_ovc_land_onl_02_v3",
         "bch_onl_ovc_land_onl_02_v4"
+      ]
+    },
+    {
+      "code" : "CARD-SPLIT",
+      "message" : "2 videos with same clip card \"bch_onl_sun_land_onl_03\" sit in dev_val + legacy_holdout.",
+      "severity" : "soft",
+      "videos" : [
+        "bch_onl_sun_land_onl_03",
+        "bch_onl_sun_land_onl_03_v2"
       ]
     },
     {

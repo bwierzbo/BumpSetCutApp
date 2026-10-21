@@ -347,12 +347,29 @@ struct DatasetSplitManifest: Codable {
 
     // MARK: - Files
 
-    static func read(from file: URL) -> DatasetSplitManifest? {
-        guard let data = try? Data(contentsOf: file) else { return nil }
+    enum ReadError: LocalizedError {
+        case unreadable(URL)
+        var errorDescription: String? {
+            switch self {
+            case .unreadable(let file):
+                return "\(file.path) exists but can't be decoded. It may be the only record of past exposure: restore or repair it before regenerating."
+            }
+        }
+    }
+
+    /// The manifest written last time, nil when there is none. Throws when the
+    /// file exists but won't decode, so a damaged record is never overwritten.
+    static func readStrict(from file: URL) throws -> DatasetSplitManifest? {
+        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(DatasetSplitManifest.self, from: data)
+        guard let data = try? Data(contentsOf: file),
+              let manifest = try? decoder.decode(DatasetSplitManifest.self, from: data) else { throw ReadError.unreadable(file) }
+        return manifest
     }
+
+    /// Lenient reader for display; never use it to decide what to overwrite.
+    static func read(from file: URL) -> DatasetSplitManifest? { (try? readStrict(from: file)) ?? nil }
 
     func write(to file: URL) throws {
         let encoder = JSONEncoder()
@@ -417,9 +434,20 @@ enum ExposureLog {
         }
     }
 
-    /// The log, [] when there is none. Throws when the file exists but won't
-    /// decode: history is unknown, and nothing may treat that as "none".
-    static func readStrict(in projectDir: URL) throws -> [DatasetSplitManifest.ExposureLogRow] { try rows(at: url(in: projectDir)) }
+    /// Uses parked while the main log was unreadable (see `record`).
+    static func sidecarURLs(in projectDir: URL) -> [URL] {
+        let dir = projectDir.appendingPathComponent("manifests", isDirectory: true)
+        return ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasPrefix("exposure-log.unmerged-") && $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    /// The log plus every parked sidecar, [] when there is none of either.
+    /// Throws when any of them exists but won't decode: history is unknown,
+    /// and nothing may treat that as "none".
+    static func readStrict(in projectDir: URL) throws -> [DatasetSplitManifest.ExposureLogRow] {
+        try rows(at: url(in: projectDir)) + sidecarURLs(in: projectDir).flatMap { try rows(at: $0) }
+    }
     static func readSeedStrict(in projectDir: URL) throws -> [DatasetSplitManifest.ExposureLogRow] { try rows(at: seedURL(in: projectDir)) }
     /// Lenient reader for display only; never use it to decide what is unseen.
     static func read(in projectDir: URL) -> [DatasetSplitManifest.ExposureLogRow] { (try? readStrict(in: projectDir)) ?? [] }
@@ -445,10 +473,19 @@ enum ExposureLog {
         let date = f.string(from: now)
         var all: [DatasetSplitManifest.ExposureLogRow]
         var target = url(in: projectDir)
-        do { all = try readStrict(in: projectDir) } catch {
-            // Keep the damaged file untouched; park this use beside it.
+        var mergedSidecars: [URL] = []
+        do {
+            // Fold any parked sidecars back into the main log while it is readable.
+            all = try rows(at: target)
+            for sidecar in sidecarURLs(in: projectDir) {
+                for row in try rows(at: sidecar) where !all.contains(where: { $0.video == row.video && $0.kind == row.kind && $0.ref == row.ref }) { all.append(row) }
+                mergedSidecars.append(sidecar)
+            }
+        } catch {
+            // Keep the damaged file untouched; park this use beside it (discovery reads sidecars too).
             target = projectDir.appendingPathComponent("manifests/exposure-log.unmerged-\(Int(now.timeIntervalSince1970)).json")
             all = []
+            mergedSidecars = []
             FileHandle.standardError.write(Data("❌ \(error.localizedDescription) This use is written to \(target.lastPathComponent) instead.\n".utf8))
         }
         for video in videos.sorted() {
@@ -460,6 +497,7 @@ enum ExposureLog {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(all).write(to: target, options: .atomic)
+            for sidecar in mergedSidecars { try? FileManager.default.removeItem(at: sidecar) }
         } catch {
             FileHandle.standardError.write(Data("⚠️ exposure log not written (\(error.localizedDescription)); run --manifest after fixing manifests/\n".utf8))
         }

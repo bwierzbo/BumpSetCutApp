@@ -142,6 +142,19 @@ final class HeatmapLab {
             log("❌ " + scoringLine)
             return false
         }
+        // Reserved final-test clips (D-002) must never be scored, whatever export they sit in; fail closed.
+        let reserved: Set<String>
+        do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot) } catch {
+            scoringLine = error.localizedDescription
+            log("❌ " + scoringLine)
+            return false
+        }
+        let reservedInExport = Set(jobs.map(\.clip)).intersection(reserved)
+        guard reservedInExport.isEmpty else {
+            scoringLine = "\(export.lastPathComponent) contains reserved final-test clips (\(reservedInExport.sorted().joined(separator: ", "))) — not scored. Re-export the test set."
+            log("⛔ " + scoringLine)
+            return false
+        }
         scoringLine = "\(jobs.count) frames in \(export.lastPathComponent)"
         log(scoringLine)
         for model in models {

@@ -109,6 +109,27 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertThrowsError(try DatasetSplitManifest.discoverExposure(in: root), "history unknown → the manifest must not be built")
     }
 
+    func testParkedSidecarsAreDiscoveredAndFoldedBackOnceTheLogIsRepaired() throws {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("manifests"), withIntermediateDirectories: true)
+        let log = ExposureLog.url(in: root)
+        try "{broken".write(to: log, atomically: true, encoding: .utf8)
+        ExposureLog.record(videos: ["parked"], kind: .rallyScoring, ref: "R1", note: nil, in: root)
+        XCTAssertEqual(ExposureLog.sidecarURLs(in: root).count, 1)
+        // Repair the log: discovery must now see the parked use, and the next record folds it in.
+        try "[]".write(to: log, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try DatasetSplitManifest.discoverExposure(in: root)["parked"]?.map(\.kind), [.rallyScoring])
+        ExposureLog.record(videos: ["later"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
+        XCTAssertEqual(ExposureLog.sidecarURLs(in: root).count, 0, "sidecar merged and removed")
+        XCTAssertEqual(Set(try ExposureLog.readStrict(in: root).map(\.video)), ["parked", "later"])
+    }
+
+    func testUnreadablePreviousManifestIsRefusedNotOverwritten() throws {
+        let file = root.appendingPathComponent("manifest.json")
+        try "{\"schemaVersion\":1,".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try DatasetSplitManifest.readStrict(from: file))
+        XCTAssertNil(try DatasetSplitManifest.readStrict(from: root.appendingPathComponent("absent.json")), "absence is not an error")
+    }
+
     func testLoggedExposureBlocksFinalTestReservation() throws {
         ExposureLog.record(videos: ["bch_a_v3"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
         var inputs = DatasetSplitManifestTests.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["bch_a_v3"]))

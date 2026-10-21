@@ -639,8 +639,12 @@ enum HeadlessProjects {
             log("❌ \(error.localizedDescription)")
             return false
         }
+        let previous: DatasetSplitManifest?
         let discovered: [String: [ExposureRecord]]
-        do { discovered = try DatasetSplitManifest.discoverExposure(in: dir) } catch {
+        do {
+            previous = try DatasetSplitManifest.readStrict(from: manifestURL)
+            discovered = try DatasetSplitManifest.discoverExposure(in: dir)
+        } catch {
             log("❌ \(error.localizedDescription)")
             return false
         }
@@ -648,7 +652,7 @@ enum HeadlessProjects {
             project: projects.project, sessions: projects.sampler.sessions,
             validation: validation,
             fingerprint: { projects.fingerprint(of: $0) },
-            previous: DatasetSplitManifest.read(from: manifestURL),
+            previous: previous,
             discovered: discovered,
             hashes: hashes, generator: generator, now: Date())
         let manifest: DatasetSplitManifest
