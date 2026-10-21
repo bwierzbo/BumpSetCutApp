@@ -93,8 +93,10 @@ enum MultiFramePackage {
 
     enum PackageError: LocalizedError {
         case nothingReviewed, noVideos, noValidation, zipFailed
+        case nameTaken(String)
         var errorDescription: String? {
             switch self {
+            case .nameTaken(let name): return "A package named \(name) already exists (folder or zip). Nothing is overwritten: wait a minute or move it away."
             case .nothingReviewed: return "No reviewed frames yet — review some before packaging."
             case .noVideos: return "None of the reviewed frames' videos are on this Mac — the frames around each one come from the video."
             case .noValidation: return "No reviewed frames from a val clip whose video is here. Set a clip with its video to Val."
@@ -123,8 +125,15 @@ enum MultiFramePackage {
     /// `valOnly`: just the val clips, and no zip — the test set for scoring
     /// models on this Mac, in minutes rather than the hour the train clips
     /// take. Returns the folder; otherwise the zip.
+    /// `beforeZip`: run on the finished folder before it is zipped (a
+    /// lineage package's preflight, LineagePackage). If it throws, the
+    /// folder is removed and the error is rethrown: no package exists.
+    /// A package name is never reused: an existing folder or zip of the same
+    /// name (two exports in one minute) is an error, so a rejected export can
+    /// never leave an older zip next to its own failed record.
     static func export(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool = false, valOnly: Bool = false,
-                       longSide: CGFloat = longSide, progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (output: URL, summary: Summary) {
+                       longSide: CGFloat = longSide, beforeZip: ((URL) throws -> Void)? = nil, now: Date = Date(),
+                       progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (output: URL, summary: Summary) {
         let fm = FileManager.default
         // Final-test recordings (D-002) never enter a package, train or val.
         let finalTest = try PipelineTuner.ValidationSet.finalTestNames(in: store.root)
@@ -141,11 +150,11 @@ enum MultiFramePackage {
 
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyyMMdd-HHmm"
-        let now = Date()
         let packageName = "\(DatasetStore.safeName(name))\(unreviewed ? "-unreviewed" : "")\(valOnly ? "-val" : "")-multiframe-\(stamp.string(from: now))"
         let exports = store.root.appendingPathComponent("exports", isDirectory: true)
         let dir = exports.appendingPathComponent(packageName, isDirectory: true)
-        try? fm.removeItem(at: dir)
+        let zip = exports.appendingPathComponent("\(packageName).zip")
+        guard !fm.fileExists(atPath: dir.path), !fm.fileExists(atPath: zip.path) else { throw PackageError.nameTaken(packageName) }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let total = usable.reduce(0) { $0 + $1.1.count }
@@ -288,10 +297,14 @@ enum MultiFramePackage {
         // Exposure is logged at export time so it survives the package being deleted.
         try ExposureLog.record(videos: Set(usable.map { $0.0.name }), kind: .trainingPackage, ref: packageName,
                            note: valOnly ? "val-only multi-frame export (test set)" : "multi-frame package", in: store.root)
+        if let beforeZip {
+            do { try beforeZip(dir) } catch {
+                try? fm.removeItem(at: dir)
+                throw error
+            }
+        }
         if valOnly { return (dir, summary) }
 
-        let zip = exports.appendingPathComponent("\(packageName).zip")
-        try? fm.removeItem(at: zip)
         guard try TrainingPackage.zipFolder(dir, to: zip) else { throw PackageError.zipFailed }
         return (zip, summary)
     }

@@ -41,6 +41,18 @@ enum ReservedVideos {
         return closure(of: named, over: sources(in: root))
     }
 
+    /// Everything a lineage package must leave out (D-018): the reserved names
+    /// plus validation.json `holdout` (the legacy holdout, which the manifest
+    /// assigns by name only), all expanded through the project's identities —
+    /// sessionless project videos included, since one can bridge a holdout
+    /// recording to a session under another name. Throws like `reservedNames`.
+    static func lineageWithheldNames(in root: URL) throws -> Set<String> {
+        guard let set = try PipelineTuner.ValidationSet.loadStrict(from: root) else { return [] }
+        let named = set.reservedAsListed.union(set.holdout)
+        guard !named.isEmpty else { return [] }
+        return closure(of: named, over: sources(in: root))
+    }
+
     /// The listed final test, lineage holdout and provisional candidates, each
     /// expanded to its aliases, kept apart in that precedence: a video that
     /// aliases a final-test video is final test; one that aliases a lineage

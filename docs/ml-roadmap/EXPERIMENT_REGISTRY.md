@@ -2,7 +2,7 @@
 name: experiment-registry
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-10-21T18:30:00Z
+updated: 2026-10-21T20:19:11Z
 ---
 
 # Experiment registry
@@ -51,6 +51,7 @@ Status: `planned`, `running`, `done`, `abandoned`. Historical rows (before this 
 | EXP-20261021-b1-decisions | 2026-10-21 | done | Apply D-015 to Scratch: holdout sibling, 7 provisional candidates, 73 YouTube sourceIds; re-audit | project.json `463042ef707e8360`, sessions `06ed23f06ccd23ce`, validation.json `4d4b4368ae3decad` | n/a | PROVENANCE_AUDIT_2026-10-21.md § Decisions applied; `manifests/Scratch/` | RallyLabTests 52/52; build mac | D-015; D-016 pending (pre-tracking ruling) | Task B.1 decisions PR |
 | EXP-20261021-provenance-manifest | 2026-10-21 | done | First versioned split manifest + leakage audit on Scratch (Task B.1, D-002/D-009) | project.json `8404d1c0d97f10a4`, sessions `06ed23f06ccd23ce`, validation.json `a47abc72dc063405` | n/a | [PROVENANCE_AUDIT_2026-10-21.md](PROVENANCE_AUDIT_2026-10-21.md); `manifests/Scratch/` | RallyLabTests 25/25; build both targets | awaiting D-002 follow-ups (holdout sibling, final-test assignment) | Task B.1 PR |
 | EXP-20261021-lineage-cut | 2026-10-21 | done | Define the model-lineage holdout (D-017) and the L2 cut-over | project.json `65243bca59895a7e`, sessions `06ed23f06ccd23ce`, validation.json `6d160a1ac00254a0` (16 `lineageHoldout`) | n/a (no training) | [MODEL_LINEAGES.md](MODEL_LINEAGES.md); audit 0 hard / 8 soft; train 133 | RallyLabTests 68/68; build mac | D-016 (amended), D-017 | PR data/d017-lineage-holdout |
+| EXP-20261021-l2-scratch-prereg | 2026-10-21 | planned (preregistration proposed, **not approved**) | First L2 detector from scratch on the manifest-isolated package; recipe = shipped L1 recipe (768, colour, 60 epochs, seed 20261021) | plan `manifests/Scratch/l2/20261021-145541-plan.json` (sha `11d13b3843345c18`) over project.json `65243bca59895a7e`, sessions `06ed23f06ccd23ce`, validation.json `6d160a1ac00254a0`; package not yet written | n/a (none trained) | [record](experiments/EXP-20261021-l2-scratch-prereg.md) | RallyLabTests 81/81; build mac; `--package-l2 --dry-run` on Scratch | D-017, D-018 | PR data/l2-dataset-isolation |
 | EXP-20261020-phase0-baseline | 2026-10-20 | done | Lock the reference state before methodology changes | hashes in BASELINE.md | ball_heat `09620ab77519bd9d` (canonical digest; git tree `4496563030b981ae`) | BASELINE.md | build: both targets succeeded at f63bfe0 · unit suite: **not run** (no code changed; last known 377/377 on 2026-10-04) | D-001…D-010 | PR #65 |
 
 ## How a row is added

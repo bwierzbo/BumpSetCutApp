@@ -11,8 +11,9 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 ## Decisions
 
-- [Decision log](decisions/DECISION_LOG.md) — authoritative; D-001 … D-017.
+- [Decision log](decisions/DECISION_LOG.md) — authoritative; D-001 … D-018.
 - [Owner decisions, 2026-10-20](decisions/2026-10-20-phase0-owner-decisions.md) — verbatim primary source for D-001 … D-010.
+- [Owner decisions, 2026-10-21 (L2)](decisions/2026-10-21-l2-owner-decisions.md) — verbatim primary source for D-018 (dataset isolation, preregistration).
 - [Decision template](templates/DECISION.md).
 
 ## ML roadmap and evaluation
@@ -26,7 +27,10 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 - [Visual provenance review, 2026-10-21](ml-roadmap/PROVENANCE_REVIEW_2026-10-21.md) — how to generate and use the local frame-review page (`scripts/provenance_review.py`), the thumbnail → recording mapping, the answer file format, the answers applied on 2026-10-21 and the reservation consequence awaiting D-017.
 - `ml-roadmap/manifests/<project>/` — committed `manifest.json` / `audit.json` (+ `.md`) per project, regenerated with `RallyLab --project <name> --audit-dataset`; also the YouTube source-ID reports and validation.json before/after copies.
 - [Experiment template](templates/EXPERIMENT.md).
-- `ml-roadmap/experiments/` — one record per experiment (created as experiments run).
+- [Lineage preregistration template](templates/PREREGISTRATION_L2.md) — the ten sections every L2 training run fills and the owner approves before training (D-018).
+- [EXP-20261021-l2-scratch-prereg](ml-roadmap/experiments/EXP-20261021-l2-scratch-prereg.md) — proposed first L2 run (not approved): recipe, data counts, holdout rules.
+- `ml-roadmap/manifests/<project>/l2/` — lineage package plans and records (`RallyLab --package-l2`): what is eligible, what is withheld, preflight results and file hashes.
+- `ml-roadmap/experiments/` — one record per experiment, written before it runs.
 - `ml-roadmap/manifests/` — footage and dataset manifests by hash (created when the transfer workflow lands).
 
 ## Agent instructions (not duplicated here)

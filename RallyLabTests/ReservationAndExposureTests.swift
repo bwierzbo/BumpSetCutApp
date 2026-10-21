@@ -43,6 +43,14 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["y", "z"])
     }
 
+    func testLineageWithheldNamesIncludeTheLegacyHoldout() throws {
+        try writeValidation(#"{"tune":["a"],"holdout":["b"],"finalTest":["z"],"lineageHoldout":["l"]}"#)
+        XCTAssertEqual(try ReservedVideos.reservedNames(in: root), ["l", "z"], "the legacy holdout is not reserved for scoring paths")
+        XCTAssertEqual(try ReservedVideos.lineageWithheldNames(in: root), ["b", "l", "z"], "but a lineage package leaves it out too")
+        try writeValidation(#"{"tune":["a"],"holdout":["b"],"finalTest":["z"]"#)   // truncated
+        XCTAssertThrowsError(try ReservedVideos.lineageWithheldNames(in: root))
+    }
+
     func testUnreadableValidationFileThrowsInsteadOfEmptying() throws {
         try writeValidation(#"{"tune":["a"],"holdout":["b"],"finalTest":["z"]"#)   // truncated
         XCTAssertThrowsError(try PipelineTuner.ValidationSet.finalTestNames(in: root)) { error in
