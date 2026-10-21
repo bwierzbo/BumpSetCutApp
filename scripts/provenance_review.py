@@ -253,13 +253,14 @@ ARTIFACT_HEAD = """<title>Scratch Provenance Review</title>
 LOCAL_SCRIPT = """
 <h2>Export</h2><p class="hint">Download answers JSON writes <code>provenance-answers.json</code> with every field as you left it (empty = not answered). Keep it outside the frames folder, e.g. <code>answers/</code> next to this page, and hand it over.</p>
 <script>
-const KEY='bumpsetcut.provenance.answers.v1';
+const PROJECT=__PROJECT__;
+const KEY='bumpsetcut.provenance.answers.v1:'+PROJECT;
 function fields(){return [...document.querySelectorAll('[data-k]')]}
 function collect(){const a={};for(const f of fields()){a[f.dataset.k]=f.value}return a}
 function apply(a){for(const f of fields()){if(a[f.dataset.k]!==undefined)f.value=a[f.dataset.k]}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(collect()));st('draft saved in this browser')}catch(e){st('could not save draft: '+e)}}
-function exportAnswers(){const a=collect();const out={schema:'provenance-answers/1',exportedAt:new Date().toISOString(),answers:a};const b=new Blob([JSON.stringify(out,null,1)],{type:'application/json'});const u=URL.createObjectURL(b);const l=document.createElement('a');l.href=u;l.download='provenance-answers.json';l.click();URL.revokeObjectURL(u);save();st('downloaded provenance-answers.json')}
-function loadAnswers(inp){const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);apply(j.answers||j);st('answers loaded')}catch(e){st('not a valid answers file')}};r.readAsText(inp.files[0])}
+function exportAnswers(){const a=collect();const out={schema:'provenance-answers/1',project:PROJECT,exportedAt:new Date().toISOString(),answers:a};const b=new Blob([JSON.stringify(out,null,1)],{type:'application/json'});const u=URL.createObjectURL(b);const l=document.createElement('a');l.href=u;l.download='provenance-answers.json';l.click();URL.revokeObjectURL(u);save();st('downloaded provenance-answers.json')}
+function loadAnswers(inp){const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);if(j.project!==PROJECT){st('not loaded: that file is for '+(j.project||'no named project')+', this page is '+PROJECT);return}apply(j.answers);st('answers loaded')}catch(e){st('not a valid answers file')}};r.readAsText(inp.files[0])}
 function zoom(img,cap){document.getElementById('lbi').src=img.src;document.getElementById('lbc').textContent=cap;document.getElementById('lb').style.display='flex'}
 function st(m){document.getElementById('status').textContent=m}
 try{const d=localStorage.getItem(KEY);if(d){apply(JSON.parse(d));st('draft restored from this browser')}}catch(e){}
@@ -275,7 +276,8 @@ function collect(){const a={};for(const f of fields()){a[f.dataset.k]=f.value}re
 function apply(a){for(const f of fields()){if(a[f.dataset.k]!==undefined)f.value=a[f.dataset.k]}}
 function zoom(img,cap){document.getElementById('lbi').src=img.src;document.getElementById('lbc').textContent=cap;document.getElementById('lb').style.display='flex'}
 function st(m,ok){const s=document.getElementById('status');s.textContent=m;s.className=ok?'saved':'hint'}
-function copyAnswers(){const out={schema:'provenance-answers/1',exportedAt:new Date().toISOString(),answers:collect()};const t=JSON.stringify(out,null,1);navigator.clipboard.writeText(t).then(()=>st('answers copied to the clipboard',true)).catch(()=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();st('select and copy the text below');});}
+const PROJECT=__PROJECT__;
+function copyAnswers(){const out={schema:'provenance-answers/1',project:PROJECT,exportedAt:new Date().toISOString(),answers:collect()};const t=JSON.stringify(out,null,1);navigator.clipboard.writeText(t).then(()=>st('answers copied to the clipboard',true)).catch(()=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();st('select and copy the text below');});}
 function docKey(k){if(k.startsWith('group.')){const [,gid,field]=k.split('.',3);return ['groups/'+gid,field]}const i=k.lastIndexOf('.');return ['answers/'+k.slice(0,i),k.slice(i+1)]}
 function docFields(path){const o={};for(const f of fields()){const [p,field]=docKey(f.dataset.k);if(p===path)o[field]=f.value}return o}
 let db=null;const queue={};const timers={};
@@ -342,7 +344,7 @@ def write_html(out, built, n_frames, project, artifact=False):
 <label for="{gid}-pref" style="margin-top:6px">If the candidate is not independent, what would you prefer?</label>
 <select id="{gid}-pref" data-k="group.{gid}.preference"><option value="">—</option><option value="drop-candidate">drop the candidate (stays protected, never final test)</option><option value="move-training">move the training recordings out of train (needs their own exposure review)</option><option value="n/a">not applicable</option></select>
 <label for="{gid}-notes" style="margin-top:6px">group notes</label><textarea id="{gid}-notes" rows="2" data-k="group.{gid}.notes"></textarea></div>''')
-    parts.append(ARTIFACT_SCRIPT if artifact else LOCAL_SCRIPT)
+    parts.append((ARTIFACT_SCRIPT if artifact else LOCAL_SCRIPT).replace("__PROJECT__", json.dumps(str(project))))
     (out / ("artifact.html" if artifact else "index.html")).write_text("\n".join(parts))
 
 
@@ -352,6 +354,8 @@ def print_answer_plan(answers_path, project):
     if doc.get("schema") != "provenance-answers/1":
         sys.exit(f"{answers_path}: not a provenance-answers/1 file")
     answers = doc["answers"]
+    if doc.get("project") is not None and Path(doc["project"]) != project:
+        sys.exit(f"{answers_path} was exported for project {doc['project']}, not {project}")
     per_video, groups = {}, {}
     for key, value in answers.items():
         value = (value or "").strip()
@@ -361,7 +365,7 @@ def print_answer_plan(answers_path, project):
         else:
             video, field = key.rsplit(".", 1)
             per_video.setdefault(video, {})[field] = value
-    print(f"# answers exported {doc.get('exportedAt')}; dry run, nothing written")
+    print(f"# answers exported {doc.get('exportedAt')} for {doc.get('project') or 'an unnamed project'}; dry run, nothing written")
     for video, f in sorted(per_video.items()):
         status = f.get("status") or "(no status)"
         if status == "confirmed" and (f.get("venueId") or f.get("sessionId")):
@@ -371,7 +375,7 @@ def print_answer_plan(answers_path, project):
             if f.get("sessionId"):
                 args += ["--session-id", f["sessionId"]]
             note = f"   # camera: {f['camera']}" if f.get("camera") else ""
-            print(shlex.join(["RallyLab", "--project", project.name, "--set-provenance", video] + args) + note)
+            print(shlex.join(["RallyLab", "--project", str(project), "--set-provenance", video] + args) + note)
         else:
             print(f"# {video}: {status}; venue={f.get('venueId') or '—'} session={f.get('sessionId') or '—'} — not applied"
                   + (f" ({f['notes']})" if f.get("notes") else ""))
@@ -388,7 +392,7 @@ def main():
     ap.add_argument("--groups", default=None, help="JSON file with the groups (default: the Q1/Q3 groups of 2026-10-21)")
     ap.add_argument("--answers", default=None, help="dry run: print the --set-provenance commands an exported answers file implies")
     a = ap.parse_args()
-    project = Path(a.project).expanduser()
+    project = Path(a.project).expanduser().resolve()
     if a.answers:
         print_answer_plan(a.answers, project)
         return
