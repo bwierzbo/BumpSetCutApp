@@ -289,7 +289,7 @@ function setReadOnly(msg){for(const f of fields()){f.disabled=true}st(msg)}
 (async()=>{db=await window.claude?.use?.('db');if(!db){setReadOnly('this view cannot save answers; open the page from your claude.ai account');return}
  const user=await window.claude.use('user');const w=user?await user.can('data.write'):null;if(w===false){setReadOnly('read-only view: only the owner can answer');return}
  try{const a={};let skipped=0;for(const col of ['answers','groups']){const snap=await db.collection(col).get();for(const d of snap.docs){const body=d.data()||{};if(body.project!==PROJECT){skipped++;continue}for(const [k,v] of Object.entries(body)){if(k==='updatedAt'||k==='project')continue;a[col==='groups'?'group.'+d.id+'.'+k:d.id+'.'+k]=v}}}
-  apply(a);const n=Object.values(a).filter(Boolean).length;st((n?('loaded '+n+' saved values'):'no answers saved yet')+(skipped?(' · '+skipped+' saved for another project ignored'):''),n>0)}catch(e){st('could not load saved answers ('+(e.code||e)+')')}
+  apply(a);const n=Object.values(a).filter(Boolean).length;st((n?('loaded '+n+' saved values'):'no answers saved yet')+(skipped?(' · '+skipped+' saved for another project ignored'):''),n>0)}catch(e){setReadOnly('could not load saved answers ('+(e.code||e)+'); reload the page to try again — nothing is saved until the load succeeds');return}
  for(const f of fields()){f.addEventListener('input',()=>scheduleSave(docKey(f.dataset.k)[0]));f.addEventListener('change',()=>scheduleSave(docKey(f.dataset.k)[0]))}
 })();
 </script>"""
