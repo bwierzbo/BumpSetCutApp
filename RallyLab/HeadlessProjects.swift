@@ -107,8 +107,9 @@ enum HeadlessProjects {
             }
             log("Project: \(projects.project?.name ?? name) → \(projects.projectDir?.path ?? "?")")
             // Final-test reservations (D-002): read once, fail closed, honoured by every scoring command below.
+            let projectRoot = projects.projectDir ?? URL(fileURLWithPath: "/nonexistent")
             let reserved: Set<String>
-            do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: projects.projectDir ?? URL(fileURLWithPath: "/nonexistent")) } catch {
+            do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: projectRoot) } catch {
                 log("❌ \(error.localizedDescription)")
                 exit(1)
             }
@@ -283,6 +284,7 @@ enum HeadlessProjects {
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     log("\(clip):")
                     guard let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) else { log("   no rally times or couldn't process"); continue }
+                    ExposureLog.record(videos: [session.name], kind: .rallyScoring, ref: "--diagnose-rallies", note: "ball model \(config.ballModel.rawValue)", in: projectRoot)
                     var t = RallyCutScore.Tally()
                     t.add(clips: v.clips, truth: v.truth)
                     log("   " + t.line)
@@ -312,7 +314,11 @@ enum HeadlessProjects {
                 var videos: [RallyCutScore.Video] = []
                 for session in sessions {
                     log("\(session.name) (\(session.split))…")
-                    if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) { videos.append(v) } else { log("   no rally times or couldn't process") }
+                    if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) {
+                        videos.append(v)
+                        ExposureLog.record(videos: [session.name], kind: .rallyScoring, ref: "--score-rallies",
+                                           note: "ball model \(config.ballModel.rawValue)\(config.heatmapModel == nil ? "" : " + multi-frame")", in: projectRoot)
+                    } else { log("   no rally times or couldn't process") }
                 }
                 if videos.isEmpty { log("❌ No fully marked videos (Track tab → Rally times → Whole video marked).") }
                 else { RallyCutScore.report(videos, log: log) }
@@ -337,6 +343,7 @@ enum HeadlessProjects {
                 }
                 log("\(session.name): pipeline (\(finder))…")
                 if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) {
+                    ExposureLog.record(videos: [session.name], kind: .rallyScoring, ref: "--render-pipeline", note: finder, in: projectRoot)
                     let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
                     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     for (start, length) in stretches {
@@ -632,12 +639,17 @@ enum HeadlessProjects {
             log("❌ \(error.localizedDescription)")
             return false
         }
+        let discovered: [String: [ExposureRecord]]
+        do { discovered = try DatasetSplitManifest.discoverExposure(in: dir) } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
         let inputs = DatasetSplitManifest.Inputs(
             project: projects.project, sessions: projects.sampler.sessions,
             validation: validation,
             fingerprint: { projects.fingerprint(of: $0) },
             previous: DatasetSplitManifest.read(from: manifestURL),
-            discovered: DatasetSplitManifest.discoverExposure(in: dir),
+            discovered: discovered,
             hashes: hashes, generator: generator, now: Date())
         let manifest: DatasetSplitManifest
         do { manifest = try DatasetSplitManifest.build(inputs) } catch {

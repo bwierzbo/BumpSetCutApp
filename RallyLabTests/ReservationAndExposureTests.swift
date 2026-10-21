@@ -75,7 +75,7 @@ final class ReservationAndExposureTests: XCTestCase {
         try #"[{"video":"v_seed","kind":"training_package","ref":"Old.zip","date":"2026-10-17","note":"from zip"}]"#
             .write(to: ExposureLog.seedURL(in: root), atomically: true, encoding: .utf8)
 
-        let found = DatasetSplitManifest.discoverExposure(in: root)
+        let found = try DatasetSplitManifest.discoverExposure(in: root)
         XCTAssertEqual(found["v_scored"]?.map(\.kind), [.testSetScoring])
         XCTAssertEqual(found["v_scored"]?.first?.ref, "Export-A")
         XCTAssertEqual(found["v_mf"]?.map(\.kind), [.trainingPackage])
@@ -95,10 +95,24 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertEqual(Set(rows.filter { $0.video == "a" }.map(\.kind)), [.trainingPackage, .testSetScoring])
     }
 
+    func testUnreadableExposureLogIsNeverOverwrittenAndFailsDiscovery() throws {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("manifests"), withIntermediateDirectories: true)
+        let log = ExposureLog.url(in: root)
+        try "[{\"video\":\"old\",\"kind\":\"training_package\",\"ref\":\"P0\"".write(to: log, atomically: true, encoding: .utf8)   // truncated
+        let before = try String(contentsOf: log, encoding: .utf8)
+        ExposureLog.record(videos: ["new"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
+        XCTAssertEqual(try String(contentsOf: log, encoding: .utf8), before, "a damaged log is left untouched")
+        let parked = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("manifests").path)
+            .filter { $0.hasPrefix("exposure-log.unmerged-") }
+        XCTAssertEqual(parked.count, 1, "the new use is parked beside it")
+        XCTAssertThrowsError(try ExposureLog.readStrict(in: root))
+        XCTAssertThrowsError(try DatasetSplitManifest.discoverExposure(in: root), "history unknown → the manifest must not be built")
+    }
+
     func testLoggedExposureBlocksFinalTestReservation() throws {
         ExposureLog.record(videos: ["bch_a_v3"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
         var inputs = DatasetSplitManifestTests.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["bch_a_v3"]))
-        inputs.discovered = DatasetSplitManifest.discoverExposure(in: root)
+        inputs.discovered = try DatasetSplitManifest.discoverExposure(in: root)
         XCTAssertThrowsError(try DatasetSplitManifest.build(inputs))
     }
 }

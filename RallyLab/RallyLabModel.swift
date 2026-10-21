@@ -935,6 +935,8 @@ final class RallyLabModel {
     /// so this is heavier than the live re-score in the Pipeline tab.
     func runComparison() async {
         guard let url = videoURL, !isComparing else { return }
+        if let refusal = Self.finalTestRefusal(for: url) { compareStatus = refusal; return }
+        Self.recordRallyScoring(url, ref: "RallyLab Compare tab")
         guard !labels.isEmpty else {
             compareStatus = "Add ground-truth labels in the Pipeline tab to score against."
             return
@@ -983,6 +985,15 @@ final class RallyLabModel {
         return reserved.contains(name) ? "⛔ \(name) is reserved as final_test (D-002) — not scored until promotion." : nil
     }
 
+    /// Running the pipeline on a project video and scoring it is a use the
+    /// split manifest must know about (D-002); logged as the run starts.
+    static func recordRallyScoring(_ url: URL, ref: String) {
+        guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return }
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        guard let name = DatasetStore(root: root).loadSessions().first(where: { $0.sourcePath == url.path })?.name else { return }
+        ExposureLog.record(videos: [name], kind: .rallyScoring, ref: ref, note: nil, in: root)
+    }
+
     /// Runs the real VideoProcessor (YOLO → Kalman → ballistics → decider →
     /// segments) on the loaded video with the current config, capturing
     /// per-frame evidence for replays.
@@ -990,6 +1001,7 @@ final class RallyLabModel {
         guard let url = videoURL else { return }
         guard !isProcessing, !exportingDebugVideo else { return }
         if let refusal = Self.finalTestRefusal(for: url) { status = refusal; return }
+        Self.recordRallyScoring(url, ref: "RallyLab Pipeline tab")
 
         let processor = VideoProcessor()
         processor.config = currentConfig()

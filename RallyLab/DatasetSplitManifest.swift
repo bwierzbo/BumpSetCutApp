@@ -66,6 +66,9 @@ struct ExposureRecord: Codable, Equatable, Hashable {
         case testSetScoring = "test_set_scoring"
         case pipelineTune = "pipeline_tuning_tune"
         case pipelineHoldout = "pipeline_tuning_holdout"
+        /// The rally pipeline was run on the video and scored against its marks
+        /// (--score-rallies, --diagnose-rallies, --render-pipeline, --serve-report, the RallyLab Pipeline/Compare tabs).
+        case rallyScoring = "rally_scoring"
     }
 
     var kind: Kind
@@ -228,7 +231,7 @@ struct DatasetSplitManifest: Codable {
     /// exports/<folder>/windows.jsonl (which clips a package holds; zipped
     /// packages are not opened), and manifests/exposure-seed.json (uses the
     /// implementer recorded by hand, each with a note saying where from).
-    static func discoverExposure(in projectDir: URL) -> [String: [ExposureRecord]] {
+    static func discoverExposure(in projectDir: URL) throws -> [String: [ExposureRecord]] {
         let fm = FileManager.default
         var found: [String: Set<ExposureRecord>] = [:]
         func add(_ video: String, _ record: ExposureRecord) { found[video, default: []].insert(record) }
@@ -285,7 +288,7 @@ struct DatasetSplitManifest: Codable {
 
         // The log every export, score run and tuning round appends to (survives deleted artefacts),
         // and the hand-written seed for artefacts that predate the log.
-        for row in ExposureLog.read(in: projectDir) + ExposureLog.readSeed(in: projectDir) {
+        for row in try ExposureLog.readStrict(in: projectDir) + ExposureLog.readSeedStrict(in: projectDir) {
             add(row.video, ExposureRecord(kind: row.kind, ref: row.ref, date: row.date, note: row.note))
         }
 
@@ -404,17 +407,35 @@ enum ExposureLog {
     static func url(in projectDir: URL) -> URL { projectDir.appendingPathComponent("manifests/exposure-log.json") }
     static func seedURL(in projectDir: URL) -> URL { projectDir.appendingPathComponent("manifests/exposure-seed.json") }
 
-    static func read(in projectDir: URL) -> [DatasetSplitManifest.ExposureLogRow] { rows(at: url(in: projectDir)) }
-    static func readSeed(in projectDir: URL) -> [DatasetSplitManifest.ExposureLogRow] { rows(at: seedURL(in: projectDir)) }
+    enum LogError: LocalizedError {
+        case unreadable(URL)
+        var errorDescription: String? {
+            switch self {
+            case .unreadable(let file):
+                return "\(file.path) exists but can't be decoded. It holds exposure history that must not be lost: restore it (git, Time Machine) or repair it by hand before anything is packaged, scored or reserved."
+            }
+        }
+    }
 
-    private static func rows(at file: URL) -> [DatasetSplitManifest.ExposureLogRow] {
-        guard let data = try? Data(contentsOf: file) else { return [] }
-        return (try? JSONDecoder().decode([DatasetSplitManifest.ExposureLogRow].self, from: data)) ?? []
+    /// The log, [] when there is none. Throws when the file exists but won't
+    /// decode: history is unknown, and nothing may treat that as "none".
+    static func readStrict(in projectDir: URL) throws -> [DatasetSplitManifest.ExposureLogRow] { try rows(at: url(in: projectDir)) }
+    static func readSeedStrict(in projectDir: URL) throws -> [DatasetSplitManifest.ExposureLogRow] { try rows(at: seedURL(in: projectDir)) }
+    /// Lenient reader for display only; never use it to decide what is unseen.
+    static func read(in projectDir: URL) -> [DatasetSplitManifest.ExposureLogRow] { (try? readStrict(in: projectDir)) ?? [] }
+
+    private static func rows(at file: URL) throws -> [DatasetSplitManifest.ExposureLogRow] {
+        guard FileManager.default.fileExists(atPath: file.path) else { return [] }
+        guard let data = try? Data(contentsOf: file),
+              let rows = try? JSONDecoder().decode([DatasetSplitManifest.ExposureLogRow].self, from: data) else { throw LogError.unreadable(file) }
+        return rows
     }
 
     /// Append one use for each video (duplicates of an identical row are dropped).
-    /// Failures are logged, never thrown: the export or score run must not fail
-    /// because the bookkeeping did, but the omission is visible on stderr.
+    /// Failures are reported on stderr, never thrown: the export or score run
+    /// must not fail because the bookkeeping did. An unreadable existing log is
+    /// never overwritten — the new rows are written to a sidecar instead so
+    /// nothing is lost either way.
     static func record(videos: Set<String>, kind: ExposureRecord.Kind, ref: String, note: String?, in projectDir: URL, now: Date = Date()) {
         guard !videos.isEmpty else { return }
         let f = DateFormatter()
@@ -422,17 +443,23 @@ enum ExposureLog {
         f.timeZone = TimeZone(identifier: "UTC")
         f.dateFormat = "yyyy-MM-dd"
         let date = f.string(from: now)
-        var all = read(in: projectDir)
+        var all: [DatasetSplitManifest.ExposureLogRow]
+        var target = url(in: projectDir)
+        do { all = try readStrict(in: projectDir) } catch {
+            // Keep the damaged file untouched; park this use beside it.
+            target = projectDir.appendingPathComponent("manifests/exposure-log.unmerged-\(Int(now.timeIntervalSince1970)).json")
+            all = []
+            FileHandle.standardError.write(Data("❌ \(error.localizedDescription) This use is written to \(target.lastPathComponent) instead.\n".utf8))
+        }
         for video in videos.sorted() {
             let row = DatasetSplitManifest.ExposureLogRow(video: video, kind: kind, ref: ref, date: date, note: note)
             if !all.contains(where: { $0.video == row.video && $0.kind == row.kind && $0.ref == row.ref }) { all.append(row) }
         }
         do {
-            let file = url(in: projectDir)
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(all).write(to: file, options: .atomic)
+            try encoder.encode(all).write(to: target, options: .atomic)
         } catch {
             FileHandle.standardError.write(Data("⚠️ exposure log not written (\(error.localizedDescription)); run --manifest after fixing manifests/\n".utf8))
         }

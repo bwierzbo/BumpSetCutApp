@@ -33,6 +33,7 @@ enum ServeReport {
         let threshold = base.config.heatmapModel.flatMap { HeatmapBallDetector(modelURL: $0) }.map { Double($0.threshold) } ?? 0.5
         let key = PipelineTuner.detectionKey(base, knobs: PipelineTuner.detectionKnobs(modelThreshold: threshold))
         log("\(videos.count) videos with every rally marked")
+        ExposureLog.record(videos: Set(videos.map(\.session.name)), kind: .rallyScoring, ref: "--serve-report", note: nil, in: sampler.datasetRoot)
 
         var errors: [Double] = [], contactErrors: [Double] = []
         var rallies = 0, served = 0, tosses = 0, falseServes = 0
