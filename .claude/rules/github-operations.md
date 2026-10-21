@@ -37,7 +37,7 @@ Fill `.github/PULL_REQUEST_TEMPLATE.md` with real evidence first; `--fill` uses 
 ```bash
 gh pr create --base main --head {branch} --title "{title}" --body-file {filled-template.md}
 ```
-Never push to `main` and never merge; the owner merges after review (`docs/workflow/WORKING_AGREEMENT.md`).
+Never push to `main` and never merge **without explicit owner authorisation** for that specific change or PR ("merge PR #n", or a streamlined-tier authorisation quoted in the commit). Otherwise the owner merges after review (`docs/workflow/WORKING_AGREEMENT.md`).
 
 ## Error Handling
 
