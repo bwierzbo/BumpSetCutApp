@@ -101,10 +101,29 @@ final class DatasetAuditTests: XCTestCase {
         let a = try audit(inputs)
         let listed = a.findings.first { $0.code.hasPrefix("CANDIDATE") && $0.videos == ["bch_a_v3"] }
         XCTAssertEqual(listed?.code, "CANDIDATE-BLOCKED")
-        XCTAssertTrue(listed!.message.contains("training-dataset"), listed!.message)
+        XCTAssertTrue(listed!.message.contains("alias ind_dup's frames sit in the training dataset"), listed!.message)
         let alias = a.findings.first { $0.code.hasPrefix("CANDIDATE") && $0.videos == ["ind_dup"] }
         XCTAssertEqual(alias?.code, "CANDIDATE-BLOCKED")
         XCTAssertTrue(alias!.message.contains("images/train"), alias!.message)
+    }
+
+    func testCandidateInheritsATuneAliasExposureAndRole() throws {
+        // bch_a is tune (searched on). ind_dup is the same file and is listed as a candidate:
+        // the overlay makes bch_a a candidate alias, but it was tune and its exposure counts.
+        let extra = F.clip("ind_dup", environment: "Indoor", split: "val",
+                           videos: [F.source("ind_dup", uploader: "Z", fingerprint: "youtube:A1")])
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: [], finalTestCandidates: ["ind_dup"]),
+                              extraClips: [extra], extraSessions: [F.session("ind_dup", split: "val")])
+        inputs.discovered = [:]
+        let m = try DatasetSplitManifest.build(inputs)
+        let alias = m.videos.first { $0.video == "bch_a" }!
+        XCTAssertEqual(alias.split, .finalTestCandidate); XCTAssertEqual(alias.reservedAs, "alias"); XCTAssertEqual(alias.unreservedSplit, .tune)
+        XCTAssertEqual(m.videos.first { $0.video == "ind_dup" }!.reservedAs, "listed")
+        let a = DatasetAudit.run(manifest: m, now: F.day)
+        let listed = a.findings.first { $0.code.hasPrefix("CANDIDATE") && $0.videos == ["ind_dup"] }!
+        XCTAssertEqual(listed.code, "CANDIDATE-BLOCKED")
+        XCTAssertTrue(listed.message.contains("alias bch_a was tune"), listed.message)
+        XCTAssertTrue(listed.message.contains("via aliases: pipeline_tuning_tune"), listed.message)
     }
 
     func testProvenanceQualityIsReported() throws {

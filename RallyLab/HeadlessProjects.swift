@@ -641,8 +641,8 @@ enum HeadlessProjects {
         let plan = YouTubeSourceIDs.plan(sources: ReservedVideos.sources(in: dir))
         let out = dir.appendingPathComponent("manifests", isDirectory: true)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmm"
-        let stamp = f.string(from: Date())
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"
+        let stamp = f.string(from: Date()) + "-" + UUID().uuidString.prefix(6).lowercased()   // never overwrites an earlier report
         // The report (every prior value, every proposed change) is written and read back
         // BEFORE anything is mutated, so a failed write never leaves changes unrecorded.
         let base = out.appendingPathComponent("youtube-source-ids-\(stamp)\(apply ? "-applied" : "-preview")")
@@ -690,16 +690,11 @@ enum HeadlessProjects {
             projectJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("project.json")),
             sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: dir.appendingPathComponent("sessions", isDirectory: true)),
             validationJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("pipeline_tuning/validation.json")))
-        var validation: PipelineTuner.ValidationSet?
+        let validation: PipelineTuner.ValidationSet?
         do {
             validation = try PipelineTuner.ValidationSet.loadStrict(from: dir)
-            // Aliases of a reserved recording (same file or confirmed identity) are reserved with it;
-            // final test and provisional candidates stay apart.
-            if let set = validation {
-                let (finalTest, candidates) = ReservedVideos.expanded(set, sources: ReservedVideos.sources(in: dir))
-                validation?.finalTest = finalTest.sorted()
-                validation?.finalTestCandidates = candidates.sorted()
-            }
+            // The manifest builder expands listed reservations to their aliases itself and
+            // records each video's pre-overlay split and listed/alias status.
         } catch {
             log("❌ \(error.localizedDescription)")
             return false

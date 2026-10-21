@@ -106,6 +106,13 @@ struct ManifestVideo: Codable, Equatable {
     /// The card's pinned split, or nil when the dataset chose per video.
     var cardSplit: String?
     var split: DatasetSplit
+    /// The split this video would have without any reservation overlay
+    /// (train / dev_val / tune / legacy_holdout); nil when equal to `split`.
+    var unreservedSplit: DatasetSplit?
+    /// "listed" when validation.json names this video; "alias" when it is
+    /// reserved only because it shares a file or confirmed identity with a
+    /// listed one; nil when not reserved.
+    var reservedAs: String?
     var ralliesMarked: Bool
     var frames: Int
     var reviewedFrames: Int
@@ -170,8 +177,13 @@ struct DatasetSplitManifest: Codable {
         }
         let tune = Set(inputs.validation?.tune ?? [])
         let holdout = Set(inputs.validation?.holdout ?? [])
-        let finalTest = Set(inputs.validation?.finalTest ?? [])
-        let candidates = Set(inputs.validation?.finalTestCandidates ?? []).subtracting(finalTest)
+        // Reservations name recordings: expand the listed names to their aliases here, so the
+        // manifest can also say what each video was before the overlay and why it is reserved.
+        let sources = Dictionary(uniqueKeysWithValues: cards.map { ($0.key, $0.value.source) })
+        let listedFinal = Set(inputs.validation?.finalTest ?? [])
+        let listedCandidates = Set(inputs.validation?.finalTestCandidates ?? []).subtracting(listedFinal)
+        let finalTest = ReservedVideos.closure(of: listedFinal, over: sources)
+        let candidates = ReservedVideos.closure(of: listedCandidates, over: sources).subtracting(finalTest)
         let previous = Dictionary(uniqueKeysWithValues: (inputs.previous?.videos ?? []).map { ($0.video, $0.exposure) })
         // A moved or renamed video keeps its history: the previous manifest is also joined by file fingerprint.
         var previousByPrint: [String: Set<ExposureRecord>] = [:]
@@ -182,13 +194,17 @@ struct DatasetSplitManifest: Codable {
         var exposed: [String] = []
         let videos = inputs.sessions.sorted { $0.name < $1.name }.map { session -> ManifestVideo in
             let card = cards[session.name]
+            let unreserved: DatasetSplit
+            if holdout.contains(session.name) { unreserved = .legacyHoldout }
+            else if tune.contains(session.name) { unreserved = .tune }
+            else if session.split == "val" { unreserved = .devVal }
+            else { unreserved = .train }
             let split: DatasetSplit
             if finalTest.contains(session.name) { split = .finalTest }
             else if candidates.contains(session.name) { split = .finalTestCandidate }
-            else if holdout.contains(session.name) { split = .legacyHoldout }
-            else if tune.contains(session.name) { split = .tune }
-            else if session.split == "val" { split = .devVal }
-            else { split = .train }
+            else { split = unreserved }
+            let reservedAs: String? = split.isReserved && split != .legacyHoldout
+                ? (listedFinal.contains(session.name) || listedCandidates.contains(session.name) ? "listed" : "alias") : nil
 
             var exposure = Set(previous[session.name] ?? [])
             exposure.formUnion(inputs.discovered[session.name] ?? [])
@@ -222,6 +238,8 @@ struct DatasetSplitManifest: Codable {
                 datasetSplit: session.split,
                 cardSplit: card?.clip.split,
                 split: split,
+                unreservedSplit: split == unreserved ? nil : unreserved,
+                reservedAs: reservedAs,
                 ralliesMarked: session.ralliesMarked ?? false,
                 frames: session.frames.count,
                 reviewedFrames: session.reviewedCount,

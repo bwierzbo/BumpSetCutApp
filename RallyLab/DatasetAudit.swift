@@ -83,18 +83,34 @@ struct DatasetAudit: Codable {
         }
 
         // Provisional final-test candidates (D-015 §2): what still blocks each one's promotion.
-        // "Others" are every video that is not a candidate/final test, PLUS every video whose
-        // frames sit in the training dataset (datasetSplit "train") even if the reservation
-        // overlay relabelled it as a candidate alias: its data is still in images/train.
+        // A candidate is judged with its whole alias group (same file or confirmed identity):
+        // the group's exposure is its exposure, and any alias that was train/tune/holdout before
+        // the overlay, or whose frames sit in images/train, blocks the group. Card/uploader
+        // overlap is checked against every video outside the group.
+        let groups = aliasGroups(videos)
         for v in videos where v.split == .finalTestCandidate {
-            let others = videos.filter { $0.video != v.video && (($0.split != .finalTestCandidate && $0.split != .finalTest) || $0.datasetSplit == "train") }
-            let otherCards = Set(others.compactMap(\.clipId)), otherUploaders = Set(others.compactMap(\.uploader)), otherPrints = Set(others.compactMap(\.fingerprint))
+            let group = groups[v.video] ?? [v.video]
+            let members = videos.filter { group.contains($0.video) }
+            let outside = videos.filter { !group.contains($0.video) && (($0.split != .finalTestCandidate && $0.split != .finalTest) || $0.datasetSplit == "train") }
+            let outCards = Set(outside.compactMap(\.clipId)), outUploaders = Set(outside.compactMap(\.uploader))
             var blockers: [String] = []
-            if v.datasetSplit == "train" { blockers.append("its own frames sit in the training dataset (images/train)") }
-            if !v.exposure.isEmpty { blockers.append("prior exposure (" + Set(v.exposure.map(\.kind.rawValue)).sorted().joined(separator: ", ") + ")") }
-            if v.fingerprint.map(otherPrints.contains) == true { blockers.append("same file as a non-candidate or training-dataset video") }
-            if v.clipId.map(otherCards.contains) == true { blockers.append("same card as a non-candidate or training-dataset video") }
-            if v.uploader.map(otherUploaders.contains) == true { blockers.append("same uploader as a non-candidate or training-dataset video") }
+            for m in members where m.datasetSplit == "train" {
+                blockers.append(m.video == v.video ? "its own frames sit in the training dataset (images/train)" : "alias \(m.video)'s frames sit in the training dataset (images/train)")
+            }
+            for m in members where m.video != v.video {
+                if let before = m.unreservedSplit, before == .tune || before == .legacyHoldout {
+                    blockers.append("alias \(m.video) was \(before.rawValue) before the overlay")
+                }
+            }
+            let exposure = Set(members.flatMap(\.exposure))
+            if !exposure.isEmpty {
+                let own = Set(v.exposure.map(\.kind.rawValue)).sorted(), inherited = Set(exposure.map(\.kind.rawValue)).subtracting(own).sorted()
+                var text = "prior exposure (" + own.joined(separator: ", ")
+                if !inherited.isEmpty { text += (own.isEmpty ? "" : "; ") + "via aliases: " + inherited.joined(separator: ", ") }
+                blockers.append(text + ")")
+            }
+            if members.contains(where: { m in m.clipId.map(outCards.contains) == true }) { blockers.append("same card as a video outside the group") }
+            if members.contains(where: { m in m.uploader.map(outUploaders.contains) == true }) { blockers.append("same uploader as a video outside the group") }
             if v.venueId.origin != .confirmed { blockers.append("venueId unconfirmed") }
             if v.sessionId.origin != .confirmed { blockers.append("sessionId unconfirmed") }
             findings.append(Finding(severity: .info, code: blockers.isEmpty ? "CANDIDATE-READY" : "CANDIDATE-BLOCKED",
@@ -155,6 +171,26 @@ struct DatasetAudit: Codable {
 
         return DatasetAudit(createdAt: now, manifestHashes: manifest.hashes,
                             findings: findings.sorted { ($0.severity, $0.code, $0.videos.first ?? "") < ($1.severity, $1.code, $1.videos.first ?? "") })
+    }
+
+    /// Alias groups: videos joined by a shared file fingerprint or a confirmed
+    /// sourceId / sessionId / venueId, to a fixed point. Keyed by video name.
+    static func aliasGroups(_ videos: [ManifestVideo]) -> [String: Set<String>] {
+        var byIdentity: [String: [String]] = [:]
+        for v in videos {
+            var ids: [String] = []
+            if let f = v.fingerprint { ids.append("fp:" + f) }
+            if v.sourceId.origin == .confirmed, let x = v.sourceId.value { ids.append("src:" + x) }
+            if v.sessionId.origin == .confirmed, let x = v.sessionId.value { ids.append("ses:" + x) }
+            if v.venueId.origin == .confirmed, let x = v.venueId.value { ids.append("ven:" + x) }
+            for id in ids { byIdentity[id, default: []].append(v.video) }
+        }
+        var parent: [String: String] = Dictionary(uniqueKeysWithValues: videos.map { ($0.video, $0.video) })
+        func find(_ x: String) -> String { var r = x; while parent[r] != r { r = parent[r]! }; return r }
+        for names in byIdentity.values { for n in names.dropFirst() { parent[find(n)] = find(names[0]) } }
+        var groups: [String: Set<String>] = [:]
+        for v in videos { groups[find(v.video), default: []].insert(v.video) }
+        return Dictionary(uniqueKeysWithValues: videos.map { ($0.video, groups[find($0.video)] ?? [$0.video]) })
     }
 
     /// Videos that share `key` but sit in different splits. A `proven` key
