@@ -360,15 +360,19 @@ final class ProjectsModel {
         markOpened(dir)
     }
 
-    private func save() {
-        guard let project, let dir = projectDir else { return }
+    /// Writes project.json; false (with the reason in `status`) when it couldn't.
+    @discardableResult
+    private func save() -> Bool {
+        guard let project, let dir = projectDir else { return false }
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(project).write(to: dir.appendingPathComponent("project.json"), options: .atomic)
+            return true
         } catch {
             status = "Couldn't save the project: \(error.localizedDescription)"
+            return false
         }
     }
 
@@ -1012,22 +1016,44 @@ final class ProjectsModel {
     /// leaves that field as it is; an empty string clears it. Returns false
     /// when no video has that ID.
     func setProvenance(videoId: String, sourceId: String?, sessionId: String?, venueId: String?) -> Bool {
-        guard var project else { return false }
-        for c in project.clips.indices {
-            for v in project.clips[c].videos.indices where project.clips[c].videoId(of: project.clips[c].videos[v]) == videoId {
-                func apply(_ new: String?, to field: inout String?) {
-                    guard let new else { return }
-                    field = new.isEmpty ? nil : new
+        setProvenance([ProvenanceChange(videoId: videoId, sourceId: sourceId, sessionId: sessionId, venueId: venueId)]) == 1
+    }
+
+    struct ProvenanceChange: Equatable {
+        var videoId: String
+        var sourceId: String?
+        var sessionId: String?
+        var venueId: String?
+    }
+
+    /// Apply several provenance changes as one transaction: all are set in
+    /// memory, project.json is written once, and on any failure (unknown
+    /// video, or the write) the in-memory project is restored to what is on
+    /// disk and nothing counts as applied. Returns how many were applied
+    /// (all, or 0).
+    func setProvenance(_ changes: [ProvenanceChange]) -> Int {
+        guard let before = project else { return 0 }
+        var project = before
+        for change in changes {
+            var found = false
+            for c in project.clips.indices {
+                for v in project.clips[c].videos.indices where project.clips[c].videoId(of: project.clips[c].videos[v]) == change.videoId {
+                    func apply(_ new: String?, to field: inout String?) {
+                        guard let new else { return }
+                        field = new.isEmpty ? nil : new
+                    }
+                    apply(change.sourceId, to: &project.clips[c].videos[v].sourceId)
+                    apply(change.sessionId, to: &project.clips[c].videos[v].sessionId)
+                    apply(change.venueId, to: &project.clips[c].videos[v].venueId)
+                    found = true
                 }
-                apply(sourceId, to: &project.clips[c].videos[v].sourceId)
-                apply(sessionId, to: &project.clips[c].videos[v].sessionId)
-                apply(venueId, to: &project.clips[c].videos[v].venueId)
-                self.project = project
-                save()
-                return true
             }
+            guard found else { status = "No video \(change.videoId) in the project; nothing changed."; return 0 }
         }
-        return false
+        self.project = project
+        if save() { return changes.count }
+        self.project = before   // the write failed: memory matches disk again
+        return 0
     }
 
     @ObservationIgnored private var fingerprintCache: [String: String] = [:]

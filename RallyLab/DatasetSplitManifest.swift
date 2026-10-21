@@ -24,10 +24,11 @@ enum DatasetSplit: String, Codable, CaseIterable {
     case devVal = "dev_val"
     case tune
     case legacyHoldout = "legacy_holdout"
+    case finalTestCandidate = "final_test_candidate"
     case finalTest = "final_test"
 
     /// Splits a model or the tuner must never have seen before the final test.
-    var isReserved: Bool { self == .legacyHoldout || self == .finalTest }
+    var isReserved: Bool { self == .legacyHoldout || self == .finalTest || self == .finalTestCandidate }
 
     static let definitions: [String: String] = [
         DatasetSplit.train.rawValue:
@@ -38,8 +39,10 @@ enum DatasetSplit: String, Codable, CaseIterable {
             "validation.json `tune`: pipeline settings are searched on these. Also in the detector's val split.",
         DatasetSplit.legacyHoldout.rawValue:
             "validation.json `holdout`: frozen recordings (D-002) with recorded prior exposure (test-set scoring, tuner reports). Not an unseen final test.",
+        DatasetSplit.finalTestCandidate.rawValue:
+            "validation.json `finalTestCandidates`: provisional final-test recordings (D-015 §2). Protected exactly like final_test while venue/session provenance and prior exposure are verified; NOT yet the final test.",
         DatasetSplit.finalTest.rawValue:
-            "validation.json `finalTest`: recordings with no recorded exposure, reserved until promotion. Excluded from packages, scoring and tuning.",
+            "validation.json `finalTest`: verified recordings with no recorded exposure, reserved until promotion. Excluded from packages, scoring and tuning.",
     ]
 }
 
@@ -103,6 +106,18 @@ struct ManifestVideo: Codable, Equatable {
     /// The card's pinned split, or nil when the dataset chose per video.
     var cardSplit: String?
     var split: DatasetSplit
+    /// The split this video would have without any reservation overlay
+    /// (train / dev_val / tune / legacy_holdout); nil when equal to `split`.
+    var unreservedSplit: DatasetSplit?
+    /// "listed" when validation.json names this video; "alias" when it is
+    /// reserved only because it shares a file or confirmed identity with a
+    /// listed one; nil when not reserved.
+    var reservedAs: String?
+    /// Alias group over the whole project.json (shared file fingerprint or
+    /// confirmed sourceId / sessionId / venueId, transitively, including
+    /// project videos that have no dataset session): the smallest video
+    /// name in the group. nil for a session with no project video.
+    var aliasGroup: String?
     var ralliesMarked: Bool
     var frames: Int
     var reviewedFrames: Int
@@ -167,7 +182,28 @@ struct DatasetSplitManifest: Codable {
         }
         let tune = Set(inputs.validation?.tune ?? [])
         let holdout = Set(inputs.validation?.holdout ?? [])
-        let finalTest = Set(inputs.validation?.finalTest ?? [])
+        // Reservations name recordings: expand the listed names to their aliases here, so the
+        // manifest can also say what each video was before the overlay and why it is reserved.
+        let sources = Dictionary(uniqueKeysWithValues: cards.map { ($0.key, $0.value.source) })
+        let listedFinal = Set(inputs.validation?.finalTest ?? [])
+        let listedCandidates = Set(inputs.validation?.finalTestCandidates ?? []).subtracting(listedFinal)
+        let finalTest = ReservedVideos.closure(of: listedFinal, over: sources)
+        let candidates = ReservedVideos.closure(of: listedCandidates, over: sources).subtracting(finalTest)
+        let groupOf = ReservedVideos.groups(over: sources)
+        // Project videos with no dataset session never get a row, but their history still belongs
+        // to their alias group (e.g. an exposed video whose session was removed from the dataset).
+        let sessionNames = Set(inputs.sessions.map(\.name))
+        var sessionless: [String: [String]] = [:]   // group id → sessionless member names
+        for (name, group) in groupOf where !sessionNames.contains(name) { sessionless[group, default: []].append(name) }
+        func inheritedExposure(forGroup group: String?) -> Set<ExposureRecord> {
+            var out = Set<ExposureRecord>()
+            for m in (group.flatMap { sessionless[$0] } ?? []).sorted() {
+                for r in (previous[m] ?? []) + (inputs.discovered[m] ?? []) {
+                    out.insert(ExposureRecord(kind: r.kind, ref: r.ref, date: r.date, note: (r.note.map { $0 + "; " } ?? "") + "via sessionless alias \(m)"))
+                }
+            }
+            return out
+        }
         let previous = Dictionary(uniqueKeysWithValues: (inputs.previous?.videos ?? []).map { ($0.video, $0.exposure) })
         // A moved or renamed video keeps its history: the previous manifest is also joined by file fingerprint.
         var previousByPrint: [String: Set<ExposureRecord>] = [:]
@@ -178,16 +214,22 @@ struct DatasetSplitManifest: Codable {
         var exposed: [String] = []
         let videos = inputs.sessions.sorted { $0.name < $1.name }.map { session -> ManifestVideo in
             let card = cards[session.name]
+            let unreserved: DatasetSplit
+            if holdout.contains(session.name) { unreserved = .legacyHoldout }
+            else if tune.contains(session.name) { unreserved = .tune }
+            else if session.split == "val" { unreserved = .devVal }
+            else { unreserved = .train }
             let split: DatasetSplit
             if finalTest.contains(session.name) { split = .finalTest }
-            else if holdout.contains(session.name) { split = .legacyHoldout }
-            else if tune.contains(session.name) { split = .tune }
-            else if session.split == "val" { split = .devVal }
-            else { split = .train }
+            else if candidates.contains(session.name) { split = .finalTestCandidate }
+            else { split = unreserved }
+            let reservedAs: String? = split.isReserved && split != .legacyHoldout
+                ? (listedFinal.contains(session.name) || listedCandidates.contains(session.name) ? "listed" : "alias") : nil
 
             var exposure = Set(previous[session.name] ?? [])
             exposure.formUnion(inputs.discovered[session.name] ?? [])
             if let source = card?.source, let print = inputs.fingerprint(source) { exposure.formUnion(previousByPrint[print] ?? []) }
+            exposure.formUnion(inheritedExposure(forGroup: groupOf[session.name]))
             if tune.contains(session.name) {
                 exposure.insert(ExposureRecord(kind: .pipelineTune, ref: "pipeline_tuning/validation.json", date: nil, note: nil))
             }
@@ -217,6 +259,9 @@ struct DatasetSplitManifest: Codable {
                 datasetSplit: session.split,
                 cardSplit: card?.clip.split,
                 split: split,
+                unreservedSplit: split == unreserved ? nil : unreserved,
+                reservedAs: reservedAs,
+                aliasGroup: groupOf[session.name],
                 ralliesMarked: session.ralliesMarked ?? false,
                 frames: session.frames.count,
                 reviewedFrames: session.reviewedCount,
@@ -241,13 +286,30 @@ struct DatasetSplitManifest: Codable {
     /// exports/<folder>/windows.jsonl (which clips a package holds; zipped
     /// packages are not opened), and manifests/exposure-seed.json (uses the
     /// implementer recorded by hand, each with a note saying where from).
+    enum DiscoveryError: LocalizedError {
+        case unreadable(URL)
+        var errorDescription: String? {
+            switch self {
+            case .unreadable(let dir):
+                return "\(dir.path) exists but can't be listed, so the exposure it holds is unknown. Fix access to it before building a manifest or reserving anything."
+            }
+        }
+    }
+
+    /// The directory's entries; [] when it does not exist; throws when it
+    /// exists but can't be listed (history unknown is not history empty).
+    private static func entries(of dir: URL, keys: [URLResourceKey] = []) throws -> [URL] {
+        guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
+        do { return try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) }
+        catch { throw DiscoveryError.unreadable(dir) }
+    }
+
     static func discoverExposure(in projectDir: URL) throws -> [String: [ExposureRecord]] {
-        let fm = FileManager.default
         var found: [String: Set<ExposureRecord>] = [:]
         func add(_ video: String, _ record: ExposureRecord) { found[video, default: []].insert(record) }
 
         let scores = projectDir.appendingPathComponent("scores", isDirectory: true)
-        for export in (try? fm.contentsOfDirectory(at: scores, includingPropertiesForKeys: nil)) ?? [] {
+        for export in try entries(of: scores) {
             let file = export.appendingPathComponent("scores.json")
             guard let data = try? Data(contentsOf: file),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -259,7 +321,7 @@ struct DatasetSplitManifest: Codable {
         }
 
         let exports = projectDir.appendingPathComponent("exports", isDirectory: true)
-        for folder in (try? fm.contentsOfDirectory(at: exports, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
+        for folder in try entries(of: exports, keys: [.isDirectoryKey]) {
             guard (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
             let windows = folder.appendingPathComponent("windows.jsonl")
             guard let text = try? String(contentsOf: windows, encoding: .utf8) else { continue }
@@ -276,7 +338,7 @@ struct DatasetSplitManifest: Codable {
         }
 
         // Single-frame (YOLO) packages keep a manifest.csv (image,clip,split,…).
-        for folder in (try? fm.contentsOfDirectory(at: exports, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
+        for folder in try entries(of: exports, keys: [.isDirectoryKey]) {
             guard (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
             let csv = folder.appendingPathComponent("manifest.csv")
             guard let text = try? String(contentsOf: csv, encoding: .utf8) else { continue }
@@ -294,6 +356,25 @@ struct DatasetSplitManifest: Codable {
             for (clip, split) in seen {
                 add(clip, ExposureRecord(kind: .trainingPackage, ref: folder.lastPathComponent, date: date, note: "manifest.csv split=\(split)"))
             }
+        }
+
+        // Uses that predate the log and leave marks in the project itself: machine tracks
+        // written by a pre-tracking model, and the tuner's / serve report's cached detection passes.
+        for session in try DatasetStore(root: projectDir).loadSessionsStrict() {
+            let machine = (session.tracks ?? []).filter(\.isMachine)
+            if !machine.isEmpty {
+                let latest = machine.compactMap(\.updatedAt).max()
+                add(session.name, ExposureRecord(kind: .preTracking, ref: "session tracks (machine)",
+                                                 date: latest.map(isoDay), note: "\(machine.count) machine track(s) in sessions/\(session.name).json; model not recorded"))
+            }
+        }
+        let evidence = projectDir.appendingPathComponent("pipeline_tuning/evidence", isDirectory: true)
+        for file in try entries(of: evidence) where file.pathExtension == "evidence" {
+            // <session>__<detection key>.evidence — the session name itself may contain "__", so split at the LAST separator.
+            let name = file.deletingPathExtension().lastPathComponent
+            guard let sep = name.range(of: "__", options: .backwards) else { continue }
+            add(String(name[..<sep.lowerBound]), ExposureRecord(kind: .rallyScoring, ref: "pipeline_tuning/evidence", date: isoDay(of: file),
+                                                               note: "cached detection pass (tuner or serve report)"))
         }
 
         // The log every export, score run and tuning round appends to (survives deleted artefacts),
@@ -315,6 +396,10 @@ struct DatasetSplitManifest: Codable {
 
     private static func isoDay(of file: URL) -> String? {
         guard let date = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { return nil }
+        return isoDay(date)
+    }
+
+    private static func isoDay(_ date: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(identifier: "UTC")

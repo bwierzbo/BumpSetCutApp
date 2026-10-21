@@ -21,7 +21,8 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 - [Phase 0 baseline](ml-roadmap/BASELINE.md) — repo state, claim-by-claim audit of the roadmap against the code, data/model inventory with hashes, frozen Oct 17 score table, the ten questions that became D-001 … D-010.
 - [Experiment registry](ml-roadmap/EXPERIMENT_REGISTRY.md) — links issues ↔ experiments ↔ dataset/split versions ↔ model versions ↔ test results ↔ PRs. Historical rows recovered from memory notes.
 - [Provenance audit, 2026-10-21](ml-roadmap/PROVENANCE_AUDIT_2026-10-21.md) — Task B.1 result on Scratch: split manifest, exposure history, the one hard leak, final-test candidates, and the five decisions for the owner.
-- `ml-roadmap/manifests/<project>/` — committed `manifest.json` / `audit.json` (+ `.md`) per project, regenerated with `RallyLab --project <name> --audit-dataset`.
+- [Provenance questions, 2026-10-21](ml-roadmap/PROVENANCE_QUESTIONS_2026-10-21.md) — what only the owner can answer after D-015: whether pre-tracking counts as exposure, venue/session for the seven candidates (with Photos-number hints), the legacy-holdout uploader overlap.
+- `ml-roadmap/manifests/<project>/` — committed `manifest.json` / `audit.json` (+ `.md`) per project, regenerated with `RallyLab --project <name> --audit-dataset`; also the YouTube source-ID reports and validation.json before/after copies.
 - [Experiment template](templates/EXPERIMENT.md).
 - `ml-roadmap/experiments/` — one record per experiment (created as experiments run).
 - `ml-roadmap/manifests/` — footage and dataset manifests by hash (created when the transfer workflow lands).

@@ -36,9 +36,18 @@ enum ReservedVideos {
     /// venueId with a reserved one. A reservation names a recording, not a
     /// filename. Throws when validation.json exists but can't be read.
     static func reservedNames(in root: URL) throws -> Set<String> {
-        let named = Set(try PipelineTuner.ValidationSet.loadStrict(from: root)?.finalTest ?? [])
+        let named = try PipelineTuner.ValidationSet.loadStrict(from: root)?.reservedAsListed ?? []
         guard !named.isEmpty else { return [] }
         return closure(of: named, over: sources(in: root))
+    }
+
+    /// The listed final test and provisional candidates, each expanded to
+    /// its aliases, kept apart: a candidate that aliases a final-test video
+    /// is final test. For the manifest's split assignment.
+    static func expanded(_ set: PipelineTuner.ValidationSet, sources: [String: ClipSource]) -> (finalTest: Set<String>, candidates: Set<String>) {
+        let finalTest = closure(of: Set(set.finalTest), over: sources)
+        let candidates = closure(of: Set(set.finalTestCandidates), over: sources).subtracting(finalTest)
+        return (finalTest, candidates)
     }
 
     /// A video's file identity as ProjectsModel computes it: the stored
@@ -58,6 +67,23 @@ enum ReservedVideos {
         if let v = s.sessionId, !v.isEmpty { ids.insert("ses:" + v) }
         if let v = s.venueId, !v.isEmpty { ids.insert("ven:" + v) }
         return ids
+    }
+
+    /// Every video's alias group over the whole project (sessionless videos
+    /// included, since they can bridge two sessions): name → group ID, the
+    /// smallest name in the group. Same identities as `closure`.
+    static func groups(over sources: [String: ClipSource]) -> [String: String] {
+        let ids = sources.mapValues(identities)
+        var byIdentity: [String: [String]] = [:]
+        for (name, mine) in ids { for id in mine { byIdentity[id, default: []].append(name) } }
+        var parent = Dictionary(uniqueKeysWithValues: sources.keys.map { ($0, $0) })
+        func find(_ x: String) -> String { var r = x; while parent[r] != r { r = parent[r]! }; return r }
+        for names in byIdentity.values { for n in names.dropFirst() { parent[find(n)] = find(names[0]) } }
+        var members: [String: [String]] = [:]
+        for name in sources.keys { members[find(name), default: []].append(name) }
+        var out: [String: String] = [:]
+        for names in members.values { let id = names.min()!; for n in names { out[n] = id } }
+        return out
     }
 
     /// The named sessions plus everything reachable through shared

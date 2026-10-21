@@ -152,6 +152,16 @@ final class LegacyProjectDecodingTests: XCTestCase {
         XCTAssertEqual(set.finalTest, [])
     }
 
+    func testValidationSetCandidatesRoundTripAndDefaultEmpty() throws {
+        let legacy = try JSONDecoder().decode(PipelineTuner.ValidationSet.self, from: Data(#"{"tune":["a"],"holdout":["b"],"finalTest":["z"]}"#.utf8))
+        XCTAssertEqual(legacy.finalTestCandidates, [])
+        XCTAssertEqual(legacy.reservedAsListed, ["z"])
+        let set = PipelineTuner.ValidationSet(tune: ["a"], holdout: ["b"], finalTest: ["z"], finalTestCandidates: ["c1", "c2"])
+        let again = try JSONDecoder().decode(PipelineTuner.ValidationSet.self, from: try JSONEncoder().encode(set))
+        XCTAssertEqual(again.finalTestCandidates, ["c1", "c2"])
+        XCTAssertEqual(again.reservedAsListed, ["z", "c1", "c2"])
+    }
+
     func testValidationSetWithFinalTestRoundTrips() throws {
         let set = PipelineTuner.ValidationSet(tune: ["a"], holdout: ["b"], finalTest: ["z"])
         let again = try JSONDecoder().decode(PipelineTuner.ValidationSet.self, from: try JSONEncoder().encode(set))

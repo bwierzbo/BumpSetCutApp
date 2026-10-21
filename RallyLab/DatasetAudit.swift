@@ -82,11 +82,53 @@ struct DatasetAudit: Codable {
             }
         }
 
-        // Final-test candidates: no exposure at all, and nothing of theirs in train.
+        // Provisional final-test candidates (D-015 §2): what still blocks each one's promotion.
+        // A candidate is judged with its whole alias group (same file or confirmed identity):
+        // the group's exposure is its exposure, and any alias that was train/tune/holdout before
+        // the overlay, or whose frames sit in images/train, blocks the group. Card/uploader
+        // overlap is checked against every video outside the group.
+        let groups = aliasGroups(videos)
+        for v in videos where v.split == .finalTestCandidate {
+            let group = groups[v.video] ?? [v.video]
+            let members = videos.filter { group.contains($0.video) }
+            let outside = videos.filter { !group.contains($0.video) && (($0.split != .finalTestCandidate && $0.split != .finalTest) || $0.datasetSplit == "train") }
+            let outCards = Set(outside.compactMap(\.clipId)), outUploaders = Set(outside.compactMap(\.uploader))
+            var blockers: [String] = []
+            for m in members where m.datasetSplit == "train" {
+                blockers.append(m.video == v.video ? "its own frames sit in the training dataset (images/train)" : "alias \(m.video)'s frames sit in the training dataset (images/train)")
+            }
+            for m in members where m.video != v.video {
+                if let before = m.unreservedSplit, before == .tune || before == .legacyHoldout {
+                    blockers.append("alias \(m.video) was \(before.rawValue) before the overlay")
+                }
+            }
+            let exposure = Set(members.flatMap(\.exposure))
+            if !exposure.isEmpty {
+                let own = Set(v.exposure.map(\.kind.rawValue)).sorted(), inherited = Set(exposure.map(\.kind.rawValue)).subtracting(own).sorted()
+                var text = "prior exposure (" + own.joined(separator: ", ")
+                if !inherited.isEmpty { text += (own.isEmpty ? "" : "; ") + "via aliases: " + inherited.joined(separator: ", ") }
+                blockers.append(text + ")")
+            }
+            if members.contains(where: { m in m.clipId.map(outCards.contains) == true }) { blockers.append("same card as a video outside the group") }
+            if members.contains(where: { m in m.uploader.map(outUploaders.contains) == true }) { blockers.append("same uploader as a video outside the group") }
+            // Promotion reserves the whole group, so every member needs confirmed provenance.
+            for m in members.sorted(by: { ($0.video == v.video ? 0 : 1, $0.video) < ($1.video == v.video ? 0 : 1, $1.video) }) {
+                let who = m.video == v.video ? "" : " (alias \(m.video))"
+                if m.venueId.origin != .confirmed { blockers.append("venueId unconfirmed\(who)") }
+                if m.sessionId.origin != .confirmed { blockers.append("sessionId unconfirmed\(who)") }
+            }
+            findings.append(Finding(severity: .info, code: blockers.isEmpty ? "CANDIDATE-READY" : "CANDIDATE-BLOCKED",
+                                    message: blockers.isEmpty
+                                        ? "\(v.video) is protected and has confirmed provenance and no prior exposure; the owner may promote it to finalTest."
+                                        : "\(v.video) is protected but not promotable yet: " + blockers.joined(separator: "; ") + ".",
+                                    videos: [v.video]))
+        }
+
+        // Further final-test candidates: no exposure at all, and nothing of theirs in train.
         let trainCards = Set(videos.filter { $0.split == .train }.compactMap(\.clipId))
         let trainUploaders = Set(videos.filter { $0.split == .train }.compactMap(\.uploader))
         let trainPrints = Set(videos.filter { $0.split == .train }.compactMap(\.fingerprint))
-        let candidates = videos.filter { $0.exposure.isEmpty && $0.split != .finalTest && $0.split != .train }
+        let candidates = videos.filter { $0.exposure.isEmpty && $0.split != .finalTest && $0.split != .finalTestCandidate && $0.split != .train }
         let clean = candidates.filter { v in
             !(v.clipId.map(trainCards.contains) ?? false) && !(v.uploader.map(trainUploaders.contains) ?? false)
                 && !(v.fingerprint.map(trainPrints.contains) ?? false)
@@ -133,6 +175,33 @@ struct DatasetAudit: Codable {
 
         return DatasetAudit(createdAt: now, manifestHashes: manifest.hashes,
                             findings: findings.sorted { ($0.severity, $0.code, $0.videos.first ?? "") < ($1.severity, $1.code, $1.videos.first ?? "") })
+    }
+
+    /// Alias groups: videos joined by a shared file fingerprint or a confirmed
+    /// sourceId / sessionId / venueId, to a fixed point. Keyed by video name.
+    static func aliasGroups(_ videos: [ManifestVideo]) -> [String: Set<String>] {
+        // Manifests from DatasetSplitManifest ≥ this version carry a project-wide group per video
+        // (sessionless project videos can bridge two sessions); use it when every video has one.
+        if videos.allSatisfy({ $0.aliasGroup != nil || $0.clipId == nil }) {
+            var members: [String: Set<String>] = [:]
+            for v in videos { members[v.aliasGroup ?? v.video, default: []].insert(v.video) }
+            return Dictionary(uniqueKeysWithValues: videos.map { ($0.video, members[$0.aliasGroup ?? $0.video] ?? [$0.video]) })
+        }
+        var byIdentity: [String: [String]] = [:]
+        for v in videos {
+            var ids: [String] = []
+            if let f = v.fingerprint { ids.append("fp:" + f) }
+            if v.sourceId.origin == .confirmed, let x = v.sourceId.value { ids.append("src:" + x) }
+            if v.sessionId.origin == .confirmed, let x = v.sessionId.value { ids.append("ses:" + x) }
+            if v.venueId.origin == .confirmed, let x = v.venueId.value { ids.append("ven:" + x) }
+            for id in ids { byIdentity[id, default: []].append(v.video) }
+        }
+        var parent: [String: String] = Dictionary(uniqueKeysWithValues: videos.map { ($0.video, $0.video) })
+        func find(_ x: String) -> String { var r = x; while parent[r] != r { r = parent[r]! }; return r }
+        for names in byIdentity.values { for n in names.dropFirst() { parent[find(n)] = find(names[0]) } }
+        var groups: [String: Set<String>] = [:]
+        for v in videos { groups[find(v.video), default: []].insert(v.video) }
+        return Dictionary(uniqueKeysWithValues: videos.map { ($0.video, groups[find($0.video)] ?? [$0.video]) })
     }
 
     /// Videos that share `key` but sit in different splits. A `proven` key

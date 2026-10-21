@@ -99,6 +99,18 @@ final class DatasetSplitManifestTests: XCTestCase {
         XCTAssertTrue(video("bch_a_v3", in: m).exposure.isEmpty)
     }
 
+    func testCandidatesAreTheirOwnSplitAndMayHaveExposureButFinalTestMayNot() throws {
+        let validation = PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: [], finalTestCandidates: ["bch_a_v3"])
+        let discovered = ["bch_a_v3": [ExposureRecord(kind: .preTracking, ref: "session tracks (machine)", date: nil, note: nil)]]
+        let m = try DatasetSplitManifest.build(Self.inputs(validation: validation, discovered: discovered))
+        XCTAssertEqual(video("bch_a_v3", in: m).split, .finalTestCandidate)
+        XCTAssertTrue(DatasetSplit.finalTestCandidate.isReserved)
+        XCTAssertEqual(video("bch_a_v3", in: m).exposure.map(\.kind), [.preTracking], "exposure is recorded, not refused, for a candidate")
+        // A name in both lists is final test, and final test with exposure is still refused.
+        let both = PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["bch_a_v3"], finalTestCandidates: ["bch_a_v3"])
+        XCTAssertThrowsError(try DatasetSplitManifest.build(Self.inputs(validation: both, discovered: discovered)))
+    }
+
     // MARK: - Exposure carry-forward
 
     func testPreviousExposureCarriesForwardAndMergesWithDiscovered() throws {

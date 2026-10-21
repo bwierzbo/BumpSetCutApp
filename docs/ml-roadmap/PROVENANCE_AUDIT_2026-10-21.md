@@ -46,7 +46,29 @@ Provenance: 0 of 167 videos have a confirmed `sourceId`, `sessionId` or `venueId
 
 **Info.** Seven `dev_val` videos have no exposure and share no card, uploader or file with train: `bch_extra_self_05`, `bch_extra_self_18`, `grs_extra_self_06`, `grs_extra_self_07`, `grs_extra_self_14`, `grs_extra_self_21`, `ind_extra_self_09`. They are the only existing recordings that could become `final_test` without new footage. They are album imports from the owner's own phone, so their venue is knowable but not recorded.
 
-## Decisions for the owner
+## Decisions applied (D-015, 2026-10-21)
+
+The owner answered all five ([verbatim](../decisions/2026-10-21-task-b1-owner-decisions.md), [D-015](../decisions/DECISION_LOG.md#d-015)). Applied to Scratch with backups (`manifests/validation.json.before-20261021-0513`, `manifests/project.json.before-20261021-0513`; committed copies `validation.before/after-2026-10-21.json`):
+
+| | Before | After | Why |
+|---|---|---|---|
+| train | 142 | 142 | — |
+| dev_val | 12 | 4 | −1 to legacy_holdout (decision 1), −7 to candidates (decision 2) |
+| tune | 9 | 9 | — |
+| legacy_holdout | 4 | 5 | `bch_onl_sun_land_onl_03_v2` joins its sibling |
+| final_test_candidate | 0 | 7 | protected, provisional |
+| final_test | 0 | 0 | nothing promoted yet |
+| hard findings | 0 | 0 | |
+| soft findings | 8 | 8 | the holdout-sibling CARD-SPLIT is gone; both siblings now carry RESERVED-UPLOADER-IN-TRAIN (Dianne Gan) |
+| info findings | 3 | 10 | 7 × CANDIDATE-BLOCKED + PROVENANCE ×2 + FINAL-TEST-NONE |
+| sourceId confirmed | 0 | 73 | every YouTube-origin video (decision 5); 94 local files stay `inferred_fingerprint` |
+| sessionId / venueId confirmed | 0 | 0 | awaiting the owner's answers |
+
+Decision 5 audit: all 73 link-origin videos are `youtube.com` links; every stored fingerprint equals the video ID parsed from the link; no ID is shared by two videos; nothing was ambiguous. What is confirmed is the identity of the YouTube video that was fetched; whether that video is itself the original upload cannot be verified offline and is not claimed. Reports: `manifests/Scratch/youtube-source-ids-20261020-2313-{preview,applied}.{md,json}`; reversible per video with `--set-provenance <video> --source-id ""`.
+
+**Why no candidate is promotable yet.** All seven carry `pre_tracking` exposure (machine tracks from a 2026-10-18 pre-tracking run, zero reviewed frames) that predates the ledger and is now discovered from the session files, and none has a confirmed venue or session. Six of the seven also have a training import with an adjacent Photos number (same outing, almost certainly). The questions that settle this are in [PROVENANCE_QUESTIONS_2026-10-21.md](PROVENANCE_QUESTIONS_2026-10-21.md).
+
+## Decisions for the owner (as asked on 2026-10-21, before D-015)
 
 1. **The holdout sibling.** `bch_onl_sun_land_onl_03_v2` is in dev_val while `bch_onl_sun_land_onl_03` is legacy_holdout. Options: (a) move `_v2` into `holdout` in validation.json so the card is whole (it stays legacy, both were scored); (b) confirm a `venueId` for both and let the audit decide (same venue → hard, different → clear); (c) drop `bch_onl_sun_land_onl_03` from the holdout. Recommendation: (a).
 2. **Final test.** Whether the seven unexposed dev_val videos become `final_test`. If yes, you confirm their `venueId`/`sessionId` first (they are your own recordings) and the implementer adds them to validation.json `finalTest`; from then on they are excluded from every package, score run and tuning. If no, the final test waits for new recordings.

@@ -265,6 +265,78 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertEqual(ReservedVideos.closure(of: ["E"], over: sources), ["E"])
     }
 
+    func testCandidatesAreProtectedLikeFinalTestButKeptApartInTheManifest() throws {
+        let F = DatasetSplitManifestTests.self
+        let project = Project(name: "T", createdAt: F.day, framesPerRally: 40, clips: [
+            F.clip("bch_a", split: "val", videos: [F.source("bch_a", fingerprint: "youtube:A")]),
+            F.clip("bch_c", split: "val", videos: [F.source("bch_c", fingerprint: "youtube:C")]),
+            F.clip("bch_c_copy", split: "train", videos: [F.source("bch_c_copy", fingerprint: "youtube:C")]),
+        ])
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        try enc.encode(project).write(to: root.appendingPathComponent("project.json"))
+        try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["bch_a"],"finalTestCandidates":["bch_c"]}"#)
+        XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["bch_a", "bch_c", "bch_c_copy"], "candidates and their aliases are protected everywhere")
+        let set = try XCTUnwrap(try PipelineTuner.ValidationSet.loadStrict(from: root))
+        let (finalTest, candidates) = ReservedVideos.expanded(set, sources: ReservedVideos.sources(in: root))
+        XCTAssertEqual(finalTest, ["bch_a"])
+        XCTAssertEqual(candidates, ["bch_c", "bch_c_copy"], "a candidate's alias is a candidate, not final test")
+    }
+
+    func testPreLoggingUsesAreDiscoveredFromMachineTracksAndEvidenceCache() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: root.appendingPathComponent("sessions"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: root.appendingPathComponent("pipeline_tuning/evidence"), withIntermediateDirectories: true)
+        // A session whose only trace of use is a machine track written by a pre-tracking model.
+        let session = #"{"name":"grs_x","sourcePath":"/f/grs_x.mov","split":"val","addedAt":"2026-10-17T07:11:52Z","frames":[],"tracks":[{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","start":1.0,"end":5.0,"points":[],"done":true,"isRally":true,"machine":true,"updatedAt":"2026-10-18T05:39:44Z","candidates":[]}]}"#
+        try session.write(to: root.appendingPathComponent("sessions/grs_x.json"), atomically: true, encoding: .utf8)
+        // Cached detection passes from a tuner round; one session name itself contains "__".
+        try "x".write(to: root.appendingPathComponent("pipeline_tuning/evidence/bch_y__02c961372a94.evidence"), atomically: true, encoding: .utf8)
+        try "x".write(to: root.appendingPathComponent("pipeline_tuning/evidence/ind_a__b__1d7253e72acc.evidence"), atomically: true, encoding: .utf8)
+        let found = try DatasetSplitManifest.discoverExposure(in: root)
+        XCTAssertEqual(found["grs_x"]?.map(\.kind), [.preTracking])
+        XCTAssertEqual(found["grs_x"]?.first?.date, "2026-10-18")
+        XCTAssertEqual(found["bch_y"]?.map(\.kind), [.rallyScoring])
+        XCTAssertEqual(found["ind_a__b"]?.map(\.kind), [.rallyScoring], "split at the last separator")
+        XCTAssertNil(found["ind_a"])
+    }
+
+    func testYouTubeSourceIdPlanIsDeterministicAndConservative() throws {
+        let F = DatasetSplitManifestTests.self
+        var good = F.source("v_good", fingerprint: "youtube:abc123DEF45"); good.origin = "https://www.youtube.com/watch?v=abc123DEF45"
+        var shorts = F.source("v_shorts", fingerprint: "youtube:zzz999ZZZ99"); shorts.origin = "https://youtube.com/shorts/zzz999ZZZ99?si=x"
+        var mismatch = F.source("v_mismatch", fingerprint: "youtube:OTHER"); mismatch.origin = "https://youtu.be/abc123DEF45"
+        var vimeo = F.source("v_vimeo", fingerprint: nil); vimeo.origin = "https://vimeo.com/12345"
+        var done = F.source("v_done", fingerprint: "youtube:abc123DEF45", sourceId: "youtube:abc123DEF45"); done.origin = "https://youtu.be/abc123DEF45"
+        var conflict = F.source("v_conflict", fingerprint: "youtube:abc123DEF45", sourceId: "src-manual"); conflict.origin = "https://youtu.be/abc123DEF45"
+        var local = F.source("v_local", fingerprint: "file:aa"); local.kind = .file; local.origin = "/Users/x/own.mov"
+        var nofp = F.source("v_nofp", fingerprint: nil); nofp.origin = "https://youtu.be/abc123DEF45"
+        let all = ["v_good": good, "v_shorts": shorts, "v_mismatch": mismatch, "v_vimeo": vimeo, "v_done": done, "v_conflict": conflict, "v_local": local, "v_nofp": nofp]
+        let plan = YouTubeSourceIDs.plan(sources: all)
+        XCTAssertEqual(plan.proposals.map(\.video), ["v_good", "v_shorts"])
+        XCTAssertEqual(plan.proposals.map(\.sourceId), ["youtube:abc123DEF45", "youtube:zzz999ZZZ99"])
+        XCTAssertEqual(plan.alreadyConfirmed, ["v_done"])
+        XCTAssertEqual(Set(plan.ambiguous.map(\.video)), ["v_mismatch", "v_vimeo", "v_conflict", "v_nofp"], "a link alone never confirms: a stored fingerprint must agree")
+        XCTAssertEqual(plan, YouTubeSourceIDs.plan(sources: all), "deterministic")
+    }
+
+    func testUnlistableArtefactDirectoryFailsDiscovery() throws {
+        // A file where pipeline_tuning/evidence should be: it exists but cannot be listed.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("pipeline_tuning"), withIntermediateDirectories: true)
+        try "x".write(to: root.appendingPathComponent("pipeline_tuning/evidence"), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try DatasetSplitManifest.discoverExposure(in: root)) { error in
+            guard case DatasetSplitManifest.DiscoveryError.unreadable = error else { return XCTFail("\(error)") }
+        }
+    }
+
+    func testMalformedSessionFileFailsDiscovery() throws {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("sessions"), withIntermediateDirectories: true)
+        try "{broken".write(to: root.appendingPathComponent("sessions/grs_bad.json"), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try DatasetSplitManifest.discoverExposure(in: root)) { error in
+            guard case DatasetStore.LoadError.malformed = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertEqual(DatasetStore(root: root).loadSessions().count, 0, "the lenient loader still skips it for the UI")
+    }
+
     func testLoggedExposureBlocksFinalTestReservation() throws {
         try ExposureLog.record(videos: ["bch_a_v3"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
         var inputs = DatasetSplitManifestTests.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["bch_a_v3"]))
