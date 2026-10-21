@@ -268,7 +268,9 @@ for(const f of fields()){f.addEventListener('change',save)}
 </script></body></html>"""
 
 # Artifact store layout: one document per recording at answers/<video> and one per group at groups/<groupId>,
-# each holding its fields plus updatedAt. Claude reads them with the ArtifactData tool.
+# each holding its fields plus `project` (the page's project path) and updatedAt. The page restores only
+# documents whose project matches its own, so a republish for another project never inherits answers.
+# Claude reads them with the ArtifactData tool.
 ARTIFACT_SCRIPT = """
 <script>
 function fields(){return [...document.querySelectorAll('[data-k]')]}
@@ -281,13 +283,13 @@ function copyAnswers(){const out={schema:'provenance-answers/1',project:PROJECT,
 function docKey(k){if(k.startsWith('group.')){const [,gid,field]=k.split('.',3);return ['groups/'+gid,field]}const i=k.lastIndexOf('.');return ['answers/'+k.slice(0,i),k.slice(i+1)]}
 function docFields(path){const o={};for(const f of fields()){const [p,field]=docKey(f.dataset.k);if(p===path)o[field]=f.value}return o}
 let db=null;const queue={};const timers={};
-function flush(path){const data={...docFields(path),updatedAt:new Date().toISOString()};queue[path]=(queue[path]||Promise.resolve()).then(()=>db.doc(path).set(data)).then(()=>st('saved '+path.split('/')[1]+' · '+new Date().toLocaleTimeString(),true)).catch(e=>st('not saved ('+(e.code||e)+'); keep the page open and retry, or copy answers as JSON'))}
+function flush(path){const data={...docFields(path),project:PROJECT,updatedAt:new Date().toISOString()};queue[path]=(queue[path]||Promise.resolve()).then(()=>db.doc(path).set(data)).then(()=>st('saved '+path.split('/')[1]+' · '+new Date().toLocaleTimeString(),true)).catch(e=>st('not saved ('+(e.code||e)+'); keep the page open and retry, or copy answers as JSON'))}
 function scheduleSave(path){clearTimeout(timers[path]);timers[path]=setTimeout(()=>flush(path),700)}
 function setReadOnly(msg){for(const f of fields()){f.disabled=true}st(msg)}
 (async()=>{db=await window.claude?.use?.('db');if(!db){setReadOnly('this view cannot save answers; open the page from your claude.ai account');return}
  const user=await window.claude.use('user');const w=user?await user.can('data.write'):null;if(w===false){setReadOnly('read-only view: only the owner can answer');return}
- try{const a={};for(const col of ['answers','groups']){const snap=await db.collection(col).get();for(const d of snap.docs){const body=d.data()||{};for(const [k,v] of Object.entries(body)){if(k==='updatedAt')continue;a[col==='groups'?'group.'+d.id+'.'+k:d.id+'.'+k]=v}}}
-  apply(a);const n=Object.values(a).filter(Boolean).length;st(n?('loaded '+n+' saved values'):'no answers saved yet',n>0)}catch(e){st('could not load saved answers ('+(e.code||e)+')')}
+ try{const a={};let skipped=0;for(const col of ['answers','groups']){const snap=await db.collection(col).get();for(const d of snap.docs){const body=d.data()||{};if(body.project!==PROJECT){skipped++;continue}for(const [k,v] of Object.entries(body)){if(k==='updatedAt'||k==='project')continue;a[col==='groups'?'group.'+d.id+'.'+k:d.id+'.'+k]=v}}}
+  apply(a);const n=Object.values(a).filter(Boolean).length;st((n?('loaded '+n+' saved values'):'no answers saved yet')+(skipped?(' · '+skipped+' saved for another project ignored'):''),n>0)}catch(e){st('could not load saved answers ('+(e.code||e)+')')}
  for(const f of fields()){f.addEventListener('input',()=>scheduleSave(docKey(f.dataset.k)[0]));f.addEventListener('change',()=>scheduleSave(docKey(f.dataset.k)[0]))}
 })();
 </script>"""
