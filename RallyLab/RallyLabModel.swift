@@ -970,12 +970,26 @@ final class RallyLabModel {
 
     // MARK: - Pipeline
 
+    /// Why this video must not be run: it is reserved as final_test in the
+    /// open project (D-002), or the reservations can't be read. nil = go ahead.
+    static func finalTestRefusal(for url: URL) -> String? {
+        guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return nil }
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        let reserved: Set<String>
+        do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: root) } catch { return "❌ \(error.localizedDescription)" }
+        guard !reserved.isEmpty else { return nil }
+        let sessions = DatasetStore(root: root).loadSessions()
+        let name = sessions.first { $0.sourcePath == url.path }?.name ?? url.deletingPathExtension().lastPathComponent
+        return reserved.contains(name) ? "⛔ \(name) is reserved as final_test (D-002) — not scored until promotion." : nil
+    }
+
     /// Runs the real VideoProcessor (YOLO → Kalman → ballistics → decider →
     /// segments) on the loaded video with the current config, capturing
     /// per-frame evidence for replays.
     func runPipeline() async {
         guard let url = videoURL else { return }
         guard !isProcessing, !exportingDebugVideo else { return }
+        if let refusal = Self.finalTestRefusal(for: url) { status = refusal; return }
 
         let processor = VideoProcessor()
         processor.config = currentConfig()

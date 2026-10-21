@@ -262,18 +262,37 @@ struct DatasetSplitManifest: Codable {
             }
         }
 
-        let seed = projectDir.appendingPathComponent("manifests/exposure-seed.json")
-        if let data = try? Data(contentsOf: seed),
-           let rows = try? JSONDecoder().decode([ExposureSeedRow].self, from: data) {
-            for row in rows {
-                add(row.video, ExposureRecord(kind: row.kind, ref: row.ref, date: row.date, note: row.note))
+        // Single-frame (YOLO) packages keep a manifest.csv (image,clip,split,…).
+        for folder in (try? fm.contentsOfDirectory(at: exports, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
+            guard (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+            let csv = folder.appendingPathComponent("manifest.csv")
+            guard let text = try? String(contentsOf: csv, encoding: .utf8) else { continue }
+            let date = isoDay(of: csv)
+            var lines = text.split(separator: "\n", omittingEmptySubsequences: true).makeIterator()
+            guard let header = lines.next()?.split(separator: ",").map(String.init),
+                  let clipCol = header.firstIndex(of: "clip") else { continue }
+            let splitCol = header.firstIndex(of: "split")
+            var seen: [String: String] = [:]
+            for line in lines {
+                let cols = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+                guard cols.indices.contains(clipCol) else { continue }
+                if seen[cols[clipCol]] == nil { seen[cols[clipCol]] = splitCol.flatMap { cols.indices.contains($0) ? cols[$0] : nil } ?? "?" }
             }
+            for (clip, split) in seen {
+                add(clip, ExposureRecord(kind: .trainingPackage, ref: folder.lastPathComponent, date: date, note: "manifest.csv split=\(split)"))
+            }
+        }
+
+        // The log every export, score run and tuning round appends to (survives deleted artefacts),
+        // and the hand-written seed for artefacts that predate the log.
+        for row in ExposureLog.read(in: projectDir) + ExposureLog.readSeed(in: projectDir) {
+            add(row.video, ExposureRecord(kind: row.kind, ref: row.ref, date: row.date, note: row.note))
         }
 
         return found.mapValues { Array($0) }
     }
 
-    struct ExposureSeedRow: Codable {
+    struct ExposureLogRow: Codable, Equatable {
         var video: String
         var kind: ExposureRecord.Kind
         var ref: String
@@ -373,5 +392,49 @@ struct DatasetSplitManifest: Codable {
             md += "| \(v.video) | \(v.split.rawValue) | \(v.surface ?? "?") | \(v.clipId ?? "—") | \(v.cardSplit ?? "auto") | \(v.uploader ?? "—") | \(source) | \(exposure) |\n"
         }
         return md
+    }
+}
+
+/// Append-only record of what each video has been used for, written at the
+/// moment of use (package export, test-set scoring, a tuning round) so the
+/// manifest's exposure history does not depend on the artefact surviving.
+/// `manifests/exposure-seed.json` is the hand-written counterpart for uses
+/// that predate the log; `manifests/exposure-log.json` is this one.
+enum ExposureLog {
+    static func url(in projectDir: URL) -> URL { projectDir.appendingPathComponent("manifests/exposure-log.json") }
+    static func seedURL(in projectDir: URL) -> URL { projectDir.appendingPathComponent("manifests/exposure-seed.json") }
+
+    static func read(in projectDir: URL) -> [DatasetSplitManifest.ExposureLogRow] { rows(at: url(in: projectDir)) }
+    static func readSeed(in projectDir: URL) -> [DatasetSplitManifest.ExposureLogRow] { rows(at: seedURL(in: projectDir)) }
+
+    private static func rows(at file: URL) -> [DatasetSplitManifest.ExposureLogRow] {
+        guard let data = try? Data(contentsOf: file) else { return [] }
+        return (try? JSONDecoder().decode([DatasetSplitManifest.ExposureLogRow].self, from: data)) ?? []
+    }
+
+    /// Append one use for each video (duplicates of an identical row are dropped).
+    /// Failures are logged, never thrown: the export or score run must not fail
+    /// because the bookkeeping did, but the omission is visible on stderr.
+    static func record(videos: Set<String>, kind: ExposureRecord.Kind, ref: String, note: String?, in projectDir: URL, now: Date = Date()) {
+        guard !videos.isEmpty else { return }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd"
+        let date = f.string(from: now)
+        var all = read(in: projectDir)
+        for video in videos.sorted() {
+            let row = DatasetSplitManifest.ExposureLogRow(video: video, kind: kind, ref: ref, date: date, note: note)
+            if !all.contains(where: { $0.video == row.video && $0.kind == row.kind && $0.ref == row.ref }) { all.append(row) }
+        }
+        do {
+            let file = url(in: projectDir)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(all).write(to: file, options: .atomic)
+        } catch {
+            FileHandle.standardError.write(Data("⚠️ exposure log not written (\(error.localizedDescription)); run --manifest after fixing manifests/\n".utf8))
+        }
     }
 }

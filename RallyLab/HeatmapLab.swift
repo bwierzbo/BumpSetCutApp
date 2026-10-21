@@ -179,6 +179,9 @@ final class HeatmapLab {
         } catch {
             log("❌ Couldn't write the scores: \(error.localizedDescription)")
         }
+        // Every clip in this test set has now been used for model selection (D-002 exposure).
+        ExposureLog.record(videos: Set(jobs.map(\.clip)), kind: .testSetScoring, ref: export.lastPathComponent,
+                           note: "\(results.count) model(s) compared", in: sampler.datasetRoot)
         if export == testSets.first { leaderboard = scores }
         TestSetScore.lines(scores).forEach(log)
         scoringLine = "Scored \(results.count) models on \(export.lastPathComponent)"

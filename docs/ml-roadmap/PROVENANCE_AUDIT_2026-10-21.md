@@ -56,7 +56,8 @@ Provenance: 0 of 167 videos have a confirmed `sourceId`, `sessionId` or `venueId
 ## What changed in the code (summary; see the PR)
 
 - `ClipSource` gains optional `sourceId`, `sessionId`, `venueId` (decodeIfPresent; nil is never written). Legacy project shapes (Test1-era cards, the single-`source` shape) and every session shape on disk still decode: `RallyLabTests/LegacyProjectDecodingTests`.
-- `pipeline_tuning/validation.json` gains an optional `finalTest` list; `MultiFramePackage`, `TrainingPackage` and the model-evaluation frame set exclude those videos.
+- `pipeline_tuning/validation.json` gains an optional `finalTest` list. Reserved videos are excluded from `MultiFramePackage`, `TrainingPackage`, the model-evaluation frame set, `PreTracker`, and every direct scoring entry (`--score-rallies`, `--diagnose-rallies`, `--render-pipeline`, the RallyLab pipeline button); the tuner refuses a reserved name in its tune/holdout lists. Reservation loading **fails closed**: a missing file means no reservations (legacy), an unreadable file aborts the operation instead of silently emptying the reserved set.
+- Exposure is now written at the moment of use to an append-only `manifests/exposure-log.json` (package exports, test-set scoring, tuning rounds), so the history no longer depends on artefacts surviving; `manifest.csv` of single-frame (YOLO) packages is also scanned.
 - New `DatasetSplitManifest` (versioned, hashed, exposure carried forward) and `DatasetAudit`; headless `--manifest`, `--audit-dataset`, `--set-provenance`.
 - New `RallyLabTests` unit-test target (25 tests).
 - One surface parser (`ClipID`) replaces two duplicated switch statements.

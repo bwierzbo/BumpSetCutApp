@@ -124,9 +124,33 @@ enum PipelineTuner {
             finalTest = try c.decodeIfPresent([String].self, forKey: .finalTest) ?? []
         }
 
-        /// Sessions that must stay out of every package, score run and tuning.
-        static func finalTestNames(in datasetRoot: URL) -> Set<String> {
-            Set(load(from: datasetRoot)?.finalTest ?? [])
+        enum ReservationError: LocalizedError {
+            case unreadable(URL)
+            var errorDescription: String? {
+                switch self {
+                case .unreadable(let file):
+                    return "\(file.path) exists but can't be read, so the final-test reservations are unknown. Fix the file before packaging, scoring, tuning or pre-tracking."
+                }
+            }
+        }
+
+        static func file(in datasetRoot: URL) -> URL { datasetRoot.appendingPathComponent("pipeline_tuning/validation.json") }
+
+        /// The file as written, nil when there is none (a project from before
+        /// tuning). A file that exists but won't decode throws: the reserved
+        /// set is then unknown, and callers must not treat that as "none".
+        static func loadStrict(from datasetRoot: URL) throws -> ValidationSet? {
+            let file = file(in: datasetRoot)
+            guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+            guard let data = try? Data(contentsOf: file),
+                  let set = try? JSONDecoder().decode(ValidationSet.self, from: data) else { throw ReservationError.unreadable(file) }
+            return set
+        }
+
+        /// Sessions that must stay out of every package, score run, tuning
+        /// and pre-tracking (D-002). Fails closed: unreadable file → throws.
+        static func finalTestNames(in datasetRoot: URL) throws -> Set<String> {
+            Set(try loadStrict(from: datasetRoot)?.finalTest ?? [])
         }
 
         static func load(from datasetRoot: URL) -> ValidationSet? {
@@ -332,6 +356,11 @@ enum PipelineTuner {
             log("❌ No \(dir.lastPathComponent)/validation.json (lists the tune and holdout videos).")
             return false
         }
+        let clash = (set.tune + set.holdout).filter { set.finalTest.contains($0) }
+        guard clash.isEmpty else {
+            log("❌ Reserved final-test videos are also listed as tune/holdout: \(clash.joined(separator: ", ")). Fix validation.json (D-002).")
+            return false
+        }
         let tune = videos(set.tune, sampler: sampler, log: log), holdout = videos(set.holdout, sampler: sampler, log: log)
         log("Tune: \(tune.count) of \(set.tune.count) videos · holdout: \(holdout.count) of \(set.holdout.count)")
         guard tune.count >= 2 else { log("❌ Mark every rally in at least 2 tune videos first."); return false }
@@ -449,6 +478,8 @@ enum PipelineTuner {
         let file = dir.appendingPathComponent("report-\(stamp).md")
         try? report.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
         log("Report: \(file.path)")
+        ExposureLog.record(videos: Set(tune.map(\.session.name)), kind: .pipelineTune, ref: file.lastPathComponent, note: "settings searched on", in: sampler.datasetRoot)
+        ExposureLog.record(videos: Set(holdout.map(\.session.name)), kind: .pipelineHoldout, ref: file.lastPathComponent, note: "reported, not searched on", in: sampler.datasetRoot)
         return true
     }
 

@@ -220,7 +220,8 @@ final class ModelLibrary {
 
     /// The reviewed frames the models are scored on.
     private var evaluationFrames: [ModelEvaluation.Frame] {
-        let finalTest = PipelineTuner.ValidationSet.finalTestNames(in: sampler.store.root)
+        // Fails closed: when the reservations can't be read, nothing is evaluated (D-002).
+        guard let finalTest = try? PipelineTuner.ValidationSet.finalTestNames(in: sampler.store.root) else { return [] }
         return sampler.sessions
             .filter { !evaluateValOnly || $0.split == "val" }
             .filter { !finalTest.contains($0.name) }   // reserved until promotion (D-002)
@@ -236,6 +237,10 @@ final class ModelLibrary {
 
     func evaluate() {
         guard !isBusy else { return }
+        if (try? PipelineTuner.ValidationSet.finalTestNames(in: sampler.store.root)) == nil {
+            status = "❌ pipeline_tuning/validation.json exists but can't be read — final-test reservations unknown, so nothing is evaluated (D-002)."
+            return
+        }
         let frames = evaluationFrames
         guard !frames.isEmpty else {
             status = evaluateValOnly

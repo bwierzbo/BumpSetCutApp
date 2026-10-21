@@ -106,6 +106,13 @@ enum HeadlessProjects {
                 projects.create(name: name, in: location)
             }
             log("Project: \(projects.project?.name ?? name) → \(projects.projectDir?.path ?? "?")")
+            // Final-test reservations (D-002): read once, fail closed, honoured by every scoring command below.
+            let reserved: Set<String>
+            do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: projects.projectDir ?? URL(fileURLWithPath: "/nonexistent")) } catch {
+                log("❌ \(error.localizedDescription)")
+                exit(1)
+            }
+            if !reserved.isEmpty { log("Reserved final-test videos (never packaged, scored, tuned or pre-tracked): \(reserved.sorted().joined(separator: ", "))") }
 
             var ok = true
             if let i = args.firstIndex(of: "--get") {
@@ -272,6 +279,7 @@ enum HeadlessProjects {
                 if let name = value(after: "--ball-model", in: args), let model = BallModel(rawValue: name) { config.ballModel = model }
                 log("ball model \(config.ballModel.rawValue) · rotation \(config.applyVideoRotation ? "applied" : "not applied")")
                 for clip in args[(i + 1)...].prefix(while: { !$0.hasPrefix("--") }) {
+                    guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not scored."); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     log("\(clip):")
                     guard let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) else { log("   no rally times or couldn't process"); continue }
@@ -283,8 +291,9 @@ enum HeadlessProjects {
             }
             if ok, let i = args.firstIndex(of: "--score-rallies") {
                 let named = args[(i + 1)...].prefix { !$0.hasPrefix("--") }
+                for n in named where reserved.contains(n) { log("⛔ \(n) is reserved as final_test (D-002) — not scored.") }
                 let sessions = projects.sampler.sessions.filter {
-                    named.isEmpty ? ($0.ralliesMarked ?? false) : named.contains($0.name)
+                    (named.isEmpty ? ($0.ralliesMarked ?? false) : named.contains($0.name)) && !reserved.contains($0.name)
                 }
                 var config = ProcessorConfig()
                 config.applyVideoRotation = args.contains("--rotate")
@@ -316,6 +325,7 @@ enum HeadlessProjects {
                     log("usage: --render-pipeline <clip> <start s> <length s> [<start s> <length s>…] [--heat <model> [--heat-only]] [--rotate]")
                     exit(2)
                 }
+                guard !reserved.contains(session.name) else { log("⛔ \(session.name) is reserved as final_test (D-002) — not rendered."); exit(1) }
                 var config = ProcessorConfig()
                 config.applyVideoRotation = args.contains("--rotate")
                 var finder = "YOLO"
@@ -617,9 +627,14 @@ enum HeadlessProjects {
             projectJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("project.json")),
             sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: dir.appendingPathComponent("sessions", isDirectory: true)),
             validationJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("pipeline_tuning/validation.json")))
+        let validation: PipelineTuner.ValidationSet?
+        do { validation = try PipelineTuner.ValidationSet.loadStrict(from: dir) } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
         let inputs = DatasetSplitManifest.Inputs(
             project: projects.project, sessions: projects.sampler.sessions,
-            validation: PipelineTuner.ValidationSet.load(from: dir),
+            validation: validation,
             fingerprint: { projects.fingerprint(of: $0) },
             previous: DatasetSplitManifest.read(from: manifestURL),
             discovered: DatasetSplitManifest.discoverExposure(in: dir),

@@ -127,7 +127,7 @@ enum MultiFramePackage {
                        longSide: CGFloat = longSide, progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (output: URL, summary: Summary) {
         let fm = FileManager.default
         // Final-test recordings (D-002) never enter a package, train or val.
-        let finalTest = PipelineTuner.ValidationSet.finalTestNames(in: store.root)
+        let finalTest = try PipelineTuner.ValidationSet.finalTestNames(in: store.root)
         let sessions = sessions.filter { !finalTest.contains($0.name) }
         let all: [(VideoSession, [FrameRecord])] = sessions.map { session in
             (session, session.frames.filter { $0.keep && $0.reviewed && $0.source != "file" })
@@ -285,6 +285,9 @@ enum MultiFramePackage {
         summaryEncoder.dateEncodingStrategy = .iso8601
         summaryEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try summaryEncoder.encode(summary).write(to: dir.appendingPathComponent("summary.json"))
+        // Exposure is logged at export time so it survives the package being deleted.
+        ExposureLog.record(videos: Set(usable.map { $0.0.name }), kind: .trainingPackage, ref: packageName,
+                           note: valOnly ? "val-only multi-frame export (test set)" : "multi-frame package", in: store.root)
         if valOnly { return (dir, summary) }
 
         let zip = exports.appendingPathComponent("\(packageName).zip")
