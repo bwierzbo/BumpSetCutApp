@@ -110,7 +110,7 @@ Get-ChildItem D:\RallyLabFootage\Scratch\footage -File -Recurse -Filter *.rallyl
 Get-PSDrive D | Select-Object Used, Free
 ```
 
-Then on the Mac: `scp bens-desktop:RallyLab-inventory/scratch_footage_listing.json <scratchpad>/` (OpenSSH 9 `scp` uses SFTP, so the path is relative to the login user's home `C:\Users\bwier` and no shell variable is expanded) and compare file names against `project.json` `clipFile`s (expected: 106 videos + 140 files per the 2026-10-16 move) and the 33 sidecars still on the Mac against the desktop's hashes (expected identical; any difference means two editable copies exist and must be reconciled before any label work).
+Then on the Mac: `scp bens-desktop:RallyLab-inventory/scratch_footage_listing.json <scratchpad>/` (OpenSSH 9 `scp` uses SFTP, so the path is relative to the login user's home `C:\Users\bwier` and no shell variable is expanded) and compare file names against `project.json` `clipFile`s (read-only count on 2026-10-20: 201 files under `footage/`, of which 167 videos; the other 34 are the 33 `*.rallylabels.json` sidecars and `meta/sources.csv`) and the 33 sidecars still on the Mac against the desktop's hashes (expected identical; any difference means two editable copies exist and must be reconciled before any label work).
 
 Full SHA-256 of the videos (25 GB, several minutes on the desktop) is step two of the same proposal, run only after A shows the expected file set; it produces the versioned footage manifest D-003 asks for.
 
@@ -134,21 +134,32 @@ And from the Mac on the LAN: `scripts/desktop_training/desktop.sh status` (read-
 
 Versioned, checksummed, one direction at a time.
 
-- **Footage manifest.** Generated on the desktop **outside the footage tree** (so the outputs never enumerate or hash themselves), then committed under `docs/ml-roadmap/manifests/<project>-footage-<date>/`: `manifest.json` (relative path, size, SHA-256, `addedAt`) for tooling, and `SHA256SUMS` in `shasum` format (`<sha256 lower-case>  <relative path>`, two spaces, forward slashes, **LF line endings** — `Set-Content` would write CRLF and `shasum -c` would then read `\r` as part of each filename). PowerShell:
+- **Footage manifest.** Covers **video files only**; annotation sidecars and metadata are excluded by construction so every row can carry a `sourceId`. Generated on the desktop **outside the footage tree** (so the outputs never enumerate or hash themselves), then committed under `docs/ml-roadmap/manifests/<project>-footage-<date>/`: `manifest.json` (relative path, size, SHA-256, `addedAt`) for tooling, and `SHA256SUMS` in `shasum` format (`<sha256 lower-case>  <relative path>`, two spaces, forward slashes, **LF line endings** — `Set-Content` would write CRLF and `shasum -c` would then read `\r` as part of each filename). PowerShell:
   ```powershell
   $root = 'D:\RallyLabFootage\Scratch\footage'
   $out  = "C:\Users\bwier\RallyLab-inventory\Scratch-footage-$(Get-Date -Format yyyyMMdd)"
   New-Item -ItemType Directory -Force $out | Out-Null
-  $rows = Get-ChildItem $root -File -Recurse | ForEach-Object {
+  # Videos only. Sidecars (*.rallylabels.json), meta/sources.csv and anything else under footage/ are Mac-owned or derived and are never inventoried or transferred.
+  $rows = Get-ChildItem $root -File -Recurse | Where-Object { $_.Extension -in '.mp4','.mov','.m4v','.MP4','.MOV' } | ForEach-Object {
     $rel = $_.FullName.Substring($root.Length + 1) -replace '\\','/'
     [pscustomobject]@{ path = $rel; size = $_.Length; sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); addedAt = $_.CreationTimeUtc.ToString('o') }
   }
   [IO.File]::WriteAllText("$out\manifest.json", ($rows | ConvertTo-Json -Depth 2) + "`n")
   [IO.File]::WriteAllText("$out\SHA256SUMS", (($rows | ForEach-Object { "$($_.sha256)  $($_.path)" }) -join "`n") + "`n")
   ```
-  **`sourceId` enrichment (Mac, before committing).** The desktop has no `project.json`, so it cannot name the original recording. On the Mac, each row's `path` is matched to a `ClipSource` in `~/Movies/RallyLab/Projects/<project>/project.json` by its `clipFile` basename, and `sourceId` is set to that source's `fingerprint` (for example `youtube:<id>`, or the size+hash fingerprint for local files; see `ProjectsModel.fingerprint`). Rows that match nothing get `sourceId: null` and are listed in the commit message for the owner to resolve; the manifest is not used for splits until every row has a `sourceId` (D-009). The `SHA256SUMS` sidecar is unaffected by enrichment.
+  **`sourceId` enrichment (Mac, before committing).** The desktop has no `project.json`, so it cannot name the original recording. On the Mac, each row's `path` is matched to a `ClipSource` in `~/Movies/RallyLab/Projects/<project>/project.json` by its `clipFile` basename, and `sourceId` is set to that source's `fingerprint` (for example `youtube:<id>`, or the size+hash fingerprint for local files; see `ProjectsModel.fingerprint`). Every row is a video, so every row requires a `sourceId`; rows that match nothing get `sourceId: null`, are listed in the commit message for the owner to resolve, and the manifest is not used for splits until none remain (D-009). The `SHA256SUMS` sidecar is unaffected by enrichment.
   Every evaluation names its footage version by the SHA-256 of the committed, enriched `manifest.json`.
-- **Pull to the Mac** for evaluations that need video: `scp -r` or rsync over `bens-desktop` (rsync needs an rsync binary on Windows), then verify with `(cd ~/Movies/RallyLab/Projects/<project>/footage && shasum -a 256 -c <repo>/docs/ml-roadmap/manifests/<project>-footage-<date>/SHA256SUMS)` — `shasum -c` needs `shasum` output format with LF endings, which `SHA256SUMS` is; `manifest.json` is not consumable by `shasum`. Copies are transient unless the owner says otherwise.
+- **Pull to the Mac** for evaluations that need video: **videos only, by explicit list, never a recursive copy of `footage/`.** The desktop's `*.rallylabels.json` files are a stale 2026-10-16 snapshot; the Mac's are authoritative and must not be overwritten (one-editable-copy rule). Take the file list from the committed manifest, copy each video with `scp` (no `-r`, no wildcards), refuse to overwrite anything already present, then verify:
+  ```bash
+  m=<repo>/docs/ml-roadmap/manifests/<project>-footage-<date>; dst=~/Movies/RallyLab/Projects/<project>/footage
+  python3 -c 'import json,sys; [print(r["path"]) for r in json.load(open(sys.argv[1]))]' "$m/manifest.json" | while read -r rel; do
+    case "$rel" in *.rallylabels.json|meta/*) echo "refusing non-video: $rel"; exit 1;; esac
+    [ -e "$dst/$rel" ] && { echo "exists, not overwriting: $rel"; continue; }
+    mkdir -p "$dst/$(dirname "$rel")" && scp -q "bens-desktop:D:/RallyLabFootage/<project>/footage/$rel" "$dst/$rel"
+  done
+  (cd "$dst" && shasum -a 256 -c "$m/SHA256SUMS")   # shasum -c needs shasum output format with LF endings, which SHA256SUMS is
+  ```
+  (Over the Windows OpenSSH server, `scp` accepts the absolute form `D:/…` (or `/D:/…`); `/d/…` does not work; a bare relative path is resolved against `C:\Users\bwier`. Verified 2026-10-20 by fetching `meta/sources.csv` read-only.) Copies are transient unless the owner says otherwise.
 - **Push to the desktop** (training packages, val exports): `desktop.sh train/queue` as today, plus a SHA-256 check on arrival recorded in the experiment record.
 - **Fetch results**: `desktop.sh fetch NAME --no-score`, hash on arrival, register in the [experiment registry](../ml-roadmap/EXPERIMENT_REGISTRY.md).
 - **Never** two editable copies of annotations. The desktop receives label exports with a hash, read-only.
