@@ -1,0 +1,1463 @@
+[
+ {
+  "id": "Q1-bch_extra_self_05",
+  "question": "Q1",
+  "candidate": "bch_extra_self_05",
+  "others": [
+   "bch_extra_self_31",
+   "bch_extra_self_30",
+   "bch_extra_self_29"
+  ],
+  "recordings": [
+   {
+    "video": "bch_extra_self_05",
+    "role": "candidate",
+    "split": "final_test_candidate",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/bch_extra_self_05.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.01
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.01
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.02
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.03
+     }
+    ],
+    "probe": {
+     "width": 540,
+     "height": 960,
+     "fps": 59.94,
+     "duration": 300.03
+    },
+    "meta": {
+     "card": "bch_extra_self_05",
+     "surface": "Beach",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_4969.MOV",
+     "title": "IMG_4969.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T06:01:27Z",
+     "start": 176,
+     "length": 300.04,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/beach/bch_extra_self_05.mp4",
+     "fingerprint": "file:30ce89bf4182a96d7a5f0fbfc565939b50b9fdd9cfce7924b3c0a131d9de04f5",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T06:08:05Z",
+     "frames": 12,
+     "machineTracks": 6,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "bch_extra_self_31",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/bch_extra_self_31.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.0
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.0
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.0
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.0
+     }
+    ],
+    "probe": {
+     "width": 540,
+     "height": 960,
+     "fps": 59.94,
+     "duration": 300.0
+    },
+    "meta": {
+     "card": "bch_extra_self_31",
+     "surface": "Beach",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_4970.MOV",
+     "title": "IMG_4970.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T14:37:33Z",
+     "start": 77,
+     "length": 300.013021,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/beach/bch_extra_self_31.mp4",
+     "fingerprint": "file:64b152182bf98d2a784b4280dacaf36a6bd04fdacbd17981c961f7878f9292a0",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T14:44:09Z",
+     "frames": 2,
+     "machineTracks": 1,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "bch_extra_self_30",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/bch_extra_self_30.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.01
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.01
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.02
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.03
+     }
+    ],
+    "probe": {
+     "width": 540,
+     "height": 960,
+     "fps": 59.94,
+     "duration": 300.03
+    },
+    "meta": {
+     "card": "bch_extra_self_30",
+     "surface": "Beach",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_4967.MOV",
+     "title": "IMG_4967.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T14:30:11Z",
+     "start": 91,
+     "length": 300.045,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/beach/bch_extra_self_30.mp4",
+     "fingerprint": "file:02e0b8c0b9ac6e9ce1395fa96de9e09d740e550f4f6c876763fce7ac71a54d76",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T14:37:03Z",
+     "frames": 18,
+     "machineTracks": 8,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "bch_extra_self_29",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/bch_extra_self_29.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 25.79
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 77.38
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 128.97
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 180.56
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 232.15
+     }
+    ],
+    "probe": {
+     "width": 540,
+     "height": 960,
+     "fps": 60.0,
+     "duration": 257.95
+    },
+    "meta": {
+     "card": "bch_extra_self_29",
+     "surface": "Beach",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_4966.MOV",
+     "title": "IMG_4966.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T14:23:39Z",
+     "start": 0,
+     "length": 257.962,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/beach/bch_extra_self_29.mp4",
+     "fingerprint": "file:8d0e3e60b02b9e15ddc58d52ce9b4a43ecb4554eb7f3790f1a2a0dd2f89dd575",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T14:29:36Z",
+     "frames": 8,
+     "machineTracks": 4,
+     "ralliesMarked": null
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q1-bch_extra_self_18",
+  "question": "Q1",
+  "candidate": "bch_extra_self_18",
+  "others": [
+   "bch_extra_self_10",
+   "bch_extra_self_02"
+  ],
+  "recordings": [
+   {
+    "video": "bch_extra_self_18",
+    "role": "candidate",
+    "split": "final_test_candidate",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/bch_extra_self_18.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.01
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.01
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.01
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.02
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 300.02
+    },
+    "meta": {
+     "card": "bch_extra_self_18",
+     "surface": "Beach",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_0612.MOV",
+     "title": "IMG_0612.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T09:33:03Z",
+     "start": 189,
+     "length": 300.010998,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/beach/bch_extra_self_18.mp4",
+     "fingerprint": "file:d7690d3efadbbce7b36f3ccd1aa9fb952d8bafbde0075a884b80400816685168",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T09:39:27Z",
+     "frames": 18,
+     "machineTracks": 8,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "bch_extra_self_10",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/bch_extra_self_10.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.01
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.01
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.01
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.02
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 300.02
+    },
+    "meta": {
+     "card": "bch_extra_self_10",
+     "surface": "Beach",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_0643.MOV",
+     "title": "IMG_0643.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T06:57:30Z",
+     "start": 24,
+     "length": 300.01401,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/beach/bch_extra_self_10.mp4",
+     "fingerprint": "file:15b90949710691c7915085a1f4aeaca8df74ab97065cf5ef4713c3e3fff4ff61",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T07:03:40Z",
+     "frames": 13,
+     "machineTracks": 6,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "bch_extra_self_02",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/bch_extra_self_02.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.01
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.01
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.01
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.02
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 300.02
+    },
+    "meta": {
+     "card": "bch_extra_self_02",
+     "surface": "Beach",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_0668.MOV",
+     "title": "IMG_0668.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T04:00:47Z",
+     "start": 265,
+     "length": 300.01401,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/beach/bch_extra_self_02.mp4",
+     "fingerprint": "file:e66a7b9d73859c90e0f79fd591d798dc5c0be2bcff4fa9fb1c18c92437fad5d3",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T04:07:11Z",
+     "frames": 23,
+     "machineTracks": 8,
+     "ralliesMarked": null
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q1-grs_extra_self_06",
+  "question": "Q1",
+  "candidate": "grs_extra_self_06",
+  "others": [
+   "grs_extra_self_12"
+  ],
+  "recordings": [
+   {
+    "video": "grs_extra_self_06",
+    "role": "candidate",
+    "split": "final_test_candidate",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/grs_extra_self_06.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 89.99
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 149.99
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 209.98
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 269.97
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 299.97
+    },
+    "meta": {
+     "card": "grs_extra_self_06",
+     "surface": "Grass",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_0823.MOV",
+     "title": "IMG_0823.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T07:05:41Z",
+     "start": 211,
+     "length": 300.01,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/grass/grs_extra_self_06.mp4",
+     "fingerprint": "file:d04cff74d627cce2cbb49435e4d34a489f8dbd43bcd3eea26944bdcbbe9342ae",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T07:11:52Z",
+     "frames": 15,
+     "machineTracks": 7,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "grs_extra_self_12",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/grs_extra_self_12.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.01
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.01
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.02
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.03
+     }
+    ],
+    "probe": {
+     "width": 540,
+     "height": 960,
+     "fps": 29.97,
+     "duration": 300.03
+    },
+    "meta": {
+     "card": "grs_extra_self_12",
+     "surface": "Grass",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_0822.MOV",
+     "title": "IMG_0822.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T09:46:51Z",
+     "start": 363,
+     "length": 300.020998,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/grass/grs_extra_self_12.mp4",
+     "fingerprint": "file:136b3de8a5dd2d05ef40a225d7814636f1e58b45e9a9182e90086e45b5a0d835",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T09:53:14Z",
+     "frames": 22,
+     "machineTracks": 8,
+     "ralliesMarked": null
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q1-grs_extra_self_07",
+  "question": "Q1",
+  "candidate": "grs_extra_self_07",
+  "others": [
+   "grs_extra_self_02"
+  ],
+  "recordings": [
+   {
+    "video": "grs_extra_self_07",
+    "role": "candidate",
+    "split": "final_test_candidate",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/grs_extra_self_07.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.0
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.0
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.0
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.0
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 300.0
+    },
+    "meta": {
+     "card": "grs_extra_self_07",
+     "surface": "Grass",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_2378.MOV",
+     "title": "IMG_2378.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T08:06:28Z",
+     "start": 632,
+     "length": 300.000998,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/grass/grs_extra_self_07.mp4",
+     "fingerprint": "file:3133ae1df9486849ff66365c2432cd57ba4304e6396a5e3df6d4180824633251",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T08:12:52Z",
+     "frames": 18,
+     "machineTracks": 7,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "grs_extra_self_02",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/grs_extra_self_02.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.0
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.0
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.0
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.0
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 300.0
+    },
+    "meta": {
+     "card": "grs_extra_self_02",
+     "surface": "Grass",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_2379.MOV",
+     "title": "IMG_2379.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T04:30:13Z",
+     "start": 520,
+     "length": 300.010998,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/grass/grs_extra_self_02.mp4",
+     "fingerprint": "file:c78c94e19844aa4232874e9fa269a11e6599c5e62dc56ba1bfe654d169d302c5",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T04:36:54Z",
+     "frames": 17,
+     "machineTracks": 7,
+     "ralliesMarked": null
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q1-grs_extra_self_14",
+  "question": "Q1",
+  "candidate": "grs_extra_self_14",
+  "others": [
+   "grs_extra_self_15",
+   "grs_extra_self_16"
+  ],
+  "recordings": [
+   {
+    "video": "grs_extra_self_14",
+    "role": "candidate",
+    "split": "final_test_candidate",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/grs_extra_self_14.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.01
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.01
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.02
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.03
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 60.0,
+     "duration": 300.03
+    },
+    "meta": {
+     "card": "grs_extra_self_14",
+     "surface": "Grass",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_4372.MOV",
+     "title": "IMG_4372.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T12:20:53Z",
+     "start": 496,
+     "length": 300.05,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/grass/grs_extra_self_14.mp4",
+     "fingerprint": "file:8641d83e784b78eb9d7e8f8c1a80a9875eae84748219bd37f4da457ac284f643",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T12:27:47Z",
+     "frames": 23,
+     "machineTracks": 6,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "grs_extra_self_15",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/grs_extra_self_15.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.01
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.01
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.02
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.03
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 300.03
+    },
+    "meta": {
+     "card": "grs_extra_self_15",
+     "surface": "Grass",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_4374.MOV",
+     "title": "IMG_4374.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T12:28:16Z",
+     "start": 214,
+     "length": 300.036979,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/grass/grs_extra_self_15.mp4",
+     "fingerprint": "file:d35e60771003c4ed91d18e9e76ee62bb9585e319041b8501d07022f0e360b9db",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T12:35:08Z",
+     "frames": 18,
+     "machineTracks": 8,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "grs_extra_self_16",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/grs_extra_self_16.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.01
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.02
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.03
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.03
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.05
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 300.05
+    },
+    "meta": {
+     "card": "grs_extra_self_16",
+     "surface": "Grass",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_4394.MOV",
+     "title": "IMG_4394.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T12:47:16Z",
+     "start": 200,
+     "length": 300.04599,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/grass/grs_extra_self_16.mp4",
+     "fingerprint": "file:6ab635998960f071d09175a66f52651b0c1dfa17ee674df6df01045773b5c39f",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T12:54:13Z",
+     "frames": 19,
+     "machineTracks": 7,
+     "ralliesMarked": null
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q1-grs_extra_self_21",
+  "question": "Q1",
+  "candidate": "grs_extra_self_21",
+  "others": [
+   "grs_extra_self_20"
+  ],
+  "recordings": [
+   {
+    "video": "grs_extra_self_21",
+    "role": "candidate",
+    "split": "final_test_candidate",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/grs_extra_self_21.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.01
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.01
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.02
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.03
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 60.0,
+     "duration": 300.03
+    },
+    "meta": {
+     "card": "grs_extra_self_21",
+     "surface": "Grass",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_4778.MOV",
+     "title": "IMG_4778.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T13:37:09Z",
+     "start": 288,
+     "length": 300.038021,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/grass/grs_extra_self_21.mp4",
+     "fingerprint": "file:e67e36f8731943f702ca6644819c893b641b16fa43f11d6ee8ce056d2b19d655",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T13:43:50Z",
+     "frames": 28,
+     "machineTracks": 8,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "grs_extra_self_20",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/grs_extra_self_20.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.01
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.02
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.03
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.03
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.05
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 300.05
+    },
+    "meta": {
+     "card": "grs_extra_self_20",
+     "surface": "Grass",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_4776.MOV",
+     "title": "IMG_4776.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T13:29:58Z",
+     "start": 370,
+     "length": 300.04099,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/grass/grs_extra_self_20.mp4",
+     "fingerprint": "file:da357993415f35eb5c73d19ba94c64f33cf826322a256ee2ca1fa40f26f76a2f",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T13:36:38Z",
+     "frames": 26,
+     "machineTracks": 7,
+     "ralliesMarked": null
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q1-ind_extra_self_09",
+  "question": "Q1",
+  "candidate": "ind_extra_self_09",
+  "others": [
+   "ind_extra_self_06"
+  ],
+  "recordings": [
+   {
+    "video": "ind_extra_self_09",
+    "role": "candidate",
+    "split": "final_test_candidate",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/ind_extra_self_09.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.01
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.02
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.04
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.06
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.07
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 300.08
+    },
+    "meta": {
+     "card": "ind_extra_self_09",
+     "surface": "Indoor",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_0043.MOV",
+     "title": "IMG_0043.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T10:40:07Z",
+     "start": 519,
+     "length": 300.093021,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/indoor/ind_extra_self_09.mp4",
+     "fingerprint": "file:8f9ab8c1859044fc8daf3ec5166e2049158aafd1a8a899dc37088e467bce2f51",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T10:47:03Z",
+     "frames": 23,
+     "machineTracks": 7,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "ind_extra_self_06",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking"
+    ],
+    "proxy": "scrub_proxies/ind_extra_self_06.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.01
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.02
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.04
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.06
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.07
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 59.94,
+     "duration": 300.08
+    },
+    "meta": {
+     "card": "ind_extra_self_06",
+     "surface": "Indoor",
+     "camera_card": "Extra",
+     "lighting": "",
+     "orientation": "",
+     "card_split": null,
+     "kind": "file",
+     "origin": "/Users/benjaminwierzbanowski/Movies/RallyLab/Inbox/VolleyballTraining/IMG_0041.MOV",
+     "title": "IMG_0041.MOV",
+     "uploader": "",
+     "license": "Own footage",
+     "fetchedAt": "2026-10-17T04:56:32Z",
+     "start": 443,
+     "length": 300.091979,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/indoor/ind_extra_self_06.mp4",
+     "fingerprint": "file:16ad6a443d1f98bfa1013de6bbc90fec47ab3c0645d71b811d6364bdb5091982",
+     "sourceId": null,
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-17T05:03:24Z",
+     "frames": 18,
+     "machineTracks": 7,
+     "ralliesMarked": null
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q3-dianne-gan",
+  "question": "Q3",
+  "candidate": null,
+  "others": [
+   "bch_onl_sun_land_onl_03",
+   "bch_onl_sun_land_onl_03_v2",
+   "grs_onl_sun_land_onl_04",
+   "grs_sid_shade_land_self_02_v2"
+  ],
+  "title": "Q3 \u2014 Dianne Gan recordings (legacy_holdout vs train)",
+  "ask": "Are the two beach recordings (legacy_holdout) and the two grass recordings (train) from the same venue? Give a venueId for each venue you recognise.",
+  "recordings": [
+   {
+    "video": "bch_onl_sun_land_onl_03",
+    "role": "legacy holdout",
+    "split": "legacy_holdout",
+    "exposure": [
+     "pipeline_tuning_holdout",
+     "pre_tracking",
+     "test_set_scoring",
+     "training_package"
+    ],
+    "proxy": "scrub_proxies/bch_onl_sun_land_onl_03.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 29.9
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 89.7
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 149.5
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 209.3
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 269.1
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 30.0,
+     "duration": 299.0
+    },
+    "meta": {
+     "card": "bch_onl_sun_land_onl_03",
+     "surface": "Beach",
+     "camera_card": "Online (CC-licensed)",
+     "lighting": "Sunny",
+     "orientation": "Landscape",
+     "card_split": "val",
+     "kind": "link",
+     "origin": "https://www.youtube.com/watch?v=2UUUGXanWxQ",
+     "title": "Beach Volleyball Pick-up 7/9/26 Game 1",
+     "uploader": "Dianne Gan",
+     "license": "permission: Dianne Gan, email, 2026-10-06",
+     "fetchedAt": "2026-10-07T13:31:41Z",
+     "start": 43,
+     "length": 299,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/online/beach/bch_onl_sun_land_onl_03.mp4",
+     "fingerprint": "youtube:2UUUGXanWxQ",
+     "sourceId": "youtube:2UUUGXanWxQ",
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-07T13:47:53Z",
+     "frames": 49,
+     "machineTracks": 3,
+     "ralliesMarked": true
+    }
+   },
+   {
+    "video": "bch_onl_sun_land_onl_03_v2",
+    "role": "legacy holdout",
+    "split": "legacy_holdout",
+    "exposure": [
+     "pipeline_tuning_holdout",
+     "pre_tracking",
+     "test_set_scoring",
+     "training_package"
+    ],
+    "proxy": "scrub_proxies/bch_onl_sun_land_onl_03_v2.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 29.97
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 89.92
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 149.87
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 209.81
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 269.76
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 30.0,
+     "duration": 299.73
+    },
+    "meta": {
+     "card": "bch_onl_sun_land_onl_03",
+     "surface": "Beach",
+     "camera_card": "Online (CC-licensed)",
+     "lighting": "Sunny",
+     "orientation": "Landscape",
+     "card_split": "val",
+     "kind": "link",
+     "origin": "https://www.youtube.com/watch?v=julH3gK_3Yo",
+     "title": "Beach Volleyball Pick-up 7/9/26 Game 2",
+     "uploader": "Dianne Gan",
+     "license": "permission: Dianne Gan, email, 2026-10-06",
+     "fetchedAt": "2026-10-07T14:08:11Z",
+     "start": 138,
+     "length": 299.733333,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/online/beach/bch_onl_sun_land_onl_03_v2.mp4",
+     "fingerprint": "youtube:julH3gK_3Yo",
+     "sourceId": "youtube:julH3gK_3Yo",
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-07T14:20:41Z",
+     "frames": 40,
+     "machineTracks": 3,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "grs_onl_sun_land_onl_04",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking",
+     "training_package"
+    ],
+    "proxy": "scrub_proxies/grs_onl_sun_land_onl_04.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.0
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.0
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.0
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.0
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 30.0,
+     "duration": 300.0
+    },
+    "meta": {
+     "card": "grs_onl_sun_land_onl_04",
+     "surface": "Grass",
+     "camera_card": "Online (CC-licensed)",
+     "lighting": "Sunny",
+     "orientation": "Landscape",
+     "card_split": "train",
+     "kind": "link",
+     "origin": "https://www.youtube.com/watch?v=MU6Jy81tb7E",
+     "title": "R2s Grass Volleyball pick up 7/3/26 Game 1",
+     "uploader": "Dianne Gan",
+     "license": "permission: Dianne Gan, email, 2026-10-06",
+     "fetchedAt": "2026-10-07T06:51:39Z",
+     "start": 160,
+     "length": 300,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/online/grass/grs_onl_sun_land_onl_04.mp4",
+     "fingerprint": "youtube:MU6Jy81tb7E",
+     "sourceId": "youtube:MU6Jy81tb7E",
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-07T07:01:56Z",
+     "frames": 40,
+     "machineTracks": 3,
+     "ralliesMarked": null
+    }
+   },
+   {
+    "video": "grs_sid_shade_land_self_02_v2",
+    "role": "training",
+    "split": "train",
+    "exposure": [
+     "pre_tracking",
+     "training_package"
+    ],
+    "proxy": "scrub_proxies/grs_sid_shade_land_self_02_v2.mp4",
+    "frames": [
+     {
+      "file": "f1.jpg",
+      "time_s": 30.0
+     },
+     {
+      "file": "f2.jpg",
+      "time_s": 90.0
+     },
+     {
+      "file": "f3.jpg",
+      "time_s": 150.0
+     },
+     {
+      "file": "f4.jpg",
+      "time_s": 210.0
+     },
+     {
+      "file": "f5.jpg",
+      "time_s": 270.0
+     }
+    ],
+    "probe": {
+     "width": 960,
+     "height": 540,
+     "fps": 30.0,
+     "duration": 300.0
+    },
+    "meta": {
+     "card": "grs_sid_shade_land_self_02",
+     "surface": "Grass",
+     "camera_card": "Sideline / near net",
+     "lighting": "Shade",
+     "orientation": "Landscape",
+     "card_split": "train",
+     "kind": "link",
+     "origin": "https://www.youtube.com/watch?v=eFU9BZN7Tqw",
+     "title": "R2s Grass Volleyball pick up 7/3/26 Game 2",
+     "uploader": "Dianne Gan",
+     "license": "permission: Dianne Gan, email, 2026-10-06",
+     "fetchedAt": "2026-10-07T06:18:19Z",
+     "start": 194,
+     "length": 300,
+     "clipFile": "/Users/benjaminwierzbanowski/Movies/RallyLab/Projects/Scratch/footage/raw/self/grass/grs_sid_shade_land_self_02_v2.mp4",
+     "fingerprint": "youtube:eFU9BZN7Tqw",
+     "sourceId": "youtube:eFU9BZN7Tqw",
+     "sessionId": null,
+     "venueId": null,
+     "addedAt": "2026-10-07T06:20:00Z",
+     "frames": 27,
+     "machineTracks": 3,
+     "ralliesMarked": null
+    }
+   }
+  ]
+ }
+]
