@@ -26,6 +26,8 @@ final class BallPathBuilder {
     private(set) var finished = 0
     private var waiting: [VideoSession] = []
     private var failed: Set<String> = []
+    /// Videos the pipeline was not run over, and why (reserved as final_test, or the ledger refused).
+    private(set) var refused: [String: String] = [:]
     private var running = false
 
     init(sampler: SamplerModel) {
@@ -56,6 +58,22 @@ final class BallPathBuilder {
         if !running { Task { await run() } }
     }
 
+    /// Why `name` may not get a ball path, or nil once its run is admitted and on the ledger.
+    /// Running the pipeline over a video is exposure (D-002): a reserved recording is refused, and
+    /// the run is recorded before it starts; a ledger that cannot be read or written refuses too.
+    nonisolated static func admission(of name: String, in datasetRoot: URL) -> String? {
+        do {
+            if try PipelineTuner.ValidationSet.finalTestNames(in: datasetRoot).contains(name) {
+                return "\(name) is reserved as final_test (D-002) — the pipeline is not run over it, so presses don't snap."
+            }
+            try ExposureLog.record(videos: [name], kind: .ballPath, ref: "BallPathBuilder",
+                                   note: "ball path for marking (Label / Live-tag)", in: datasetRoot)
+            return nil
+        } catch {
+            return "\(name): \(error.localizedDescription)"
+        }
+    }
+
     private func run() async {
         running = true
         defer { running = false }
@@ -63,6 +81,11 @@ final class BallPathBuilder {
             let session = waiting.removeFirst()
             guard !FileManager.default.fileExists(atPath: url(for: session).path),
                   let playback = session.playbackURL(in: datasetRoot) else { continue }
+            if let why = Self.admission(of: session.name, in: datasetRoot) {
+                refused[session.name] = why
+                failed.insert(session.name)
+                continue
+            }
             building = session.name
             fraction = 0
             let processor = VideoProcessor()
