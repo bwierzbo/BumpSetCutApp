@@ -4,8 +4,12 @@
 #   scripts/desktop_training/desktop.sh train [package] [--size 512|768|1024] [--from-scratch] [--color] [--epochs N] [--name NAME]
 #                                              [--aug] [--occluded] [--qfl] [--mine] [--pseudo] [--seed N]
 #                                              [--batch N] [--lr X] [--workers N] [--resume]
+#                                              [--score-only C:\BallTraining\runs\heatmap\RUN\best.pt]
 #       send the package (default: the newest multi-frame export) and the
 #       current trainer, start training detached, return right away
+#       (--score-only: score that checkpoint on the package's val windows
+#       instead of training, for paired_compare.py; bring the metrics back
+#       with `fetch NAME --no-score`)
 #   scripts/desktop_training/desktop.sh queue [same as train]
 #       the same, but the run waits its turn: jobs run one after another
 #       (queue_runner.ps1 on the desktop), after any training already on the GPU
@@ -49,7 +53,7 @@ parse_train() {
             --from-scratch) scratch=--from-scratch; shift ;;
             --color) color=--color; shift ;;
             --aug|--occluded|--qfl|--mine|--pseudo|--resume) opts+=($1); shift ;;
-            --seed|--batch|--lr|--workers) opts+=($1 $2); shift 2 ;;
+            --seed|--batch|--lr|--workers|--score-only) opts+=($1 $2); shift 2 ;;
             --epochs) epochs=$2; shift 2 ;;
             --name) name=$2; shift 2 ;;
             *) package=$1; shift ;;

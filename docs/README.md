@@ -11,9 +11,10 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 ## Decisions
 
-- [Decision log](decisions/DECISION_LOG.md) — authoritative; D-001 … D-018.
+- [Decision log](decisions/DECISION_LOG.md) — authoritative; D-001 … D-019.
 - [Owner decisions, 2026-10-20](decisions/2026-10-20-phase0-owner-decisions.md) — verbatim primary source for D-001 … D-010.
 - [Owner decisions, 2026-10-21 (L2)](decisions/2026-10-21-l2-owner-decisions.md) — verbatim primary source for D-018 (dataset isolation, preregistration).
+- [Owner decisions, 2026-10-21 (PR #73, L2 recipe)](decisions/2026-10-21-l2-approval-decisions.md) — verbatim primary source for D-019 (merge, recipe approved with amendments, one seed, legacy holdout confirmed).
 - [Decision template](templates/DECISION.md).
 
 ## ML roadmap and evaluation
