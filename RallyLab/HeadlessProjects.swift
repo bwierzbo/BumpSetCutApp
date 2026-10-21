@@ -659,12 +659,13 @@ enum HeadlessProjects {
             return false
         }
         var applied = 0
-        if apply {
-            for p in plan.proposals where projects.setProvenance(videoId: p.video, sourceId: p.sourceId, sessionId: nil, venueId: nil) { applied += 1 }
+        if apply, !plan.proposals.isEmpty {
+            // One transaction: all proposals in memory, one project.json write, rollback on failure.
+            applied = projects.setProvenance(plan.proposals.map { .init(videoId: $0.video, sourceId: $0.sourceId, sessionId: nil, venueId: nil) })
             guard applied == plan.proposals.count else {
-                let note = "\n\n**Partial apply: \(applied) of \(plan.proposals.count) written.** Check project.json against the table above.\n"
+                let note = "\n\n**Not applied.** The single project.json write failed (\(projects.status)); nothing changed on disk.\n"
                 if let h = try? FileHandle(forWritingTo: base.appendingPathExtension("md")) { h.seekToEndOfFile(); h.write(Data(note.utf8)); try? h.close() }
-                log("❌ Applied \(applied) of \(plan.proposals.count) — see \(base.lastPathComponent).md and project.json.")
+                log("❌ Not applied: \(projects.status) — see \(base.lastPathComponent).md.")
                 return false
             }
         }

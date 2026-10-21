@@ -111,8 +111,12 @@ struct DatasetAudit: Codable {
             }
             if members.contains(where: { m in m.clipId.map(outCards.contains) == true }) { blockers.append("same card as a video outside the group") }
             if members.contains(where: { m in m.uploader.map(outUploaders.contains) == true }) { blockers.append("same uploader as a video outside the group") }
-            if v.venueId.origin != .confirmed { blockers.append("venueId unconfirmed") }
-            if v.sessionId.origin != .confirmed { blockers.append("sessionId unconfirmed") }
+            // Promotion reserves the whole group, so every member needs confirmed provenance.
+            for m in members.sorted(by: { ($0.video == v.video ? 0 : 1, $0.video) < ($1.video == v.video ? 0 : 1, $1.video) }) {
+                let who = m.video == v.video ? "" : " (alias \(m.video))"
+                if m.venueId.origin != .confirmed { blockers.append("venueId unconfirmed\(who)") }
+                if m.sessionId.origin != .confirmed { blockers.append("sessionId unconfirmed\(who)") }
+            }
             findings.append(Finding(severity: .info, code: blockers.isEmpty ? "CANDIDATE-READY" : "CANDIDATE-BLOCKED",
                                     message: blockers.isEmpty
                                         ? "\(v.video) is protected and has confirmed provenance and no prior exposure; the owner may promote it to finalTest."

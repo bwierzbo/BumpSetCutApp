@@ -126,6 +126,20 @@ final class DatasetAuditTests: XCTestCase {
         XCTAssertTrue(listed.message.contains("via aliases: pipeline_tuning_tune"), listed.message)
     }
 
+    func testCandidateNeedsConfirmedProvenanceForEveryAlias() throws {
+        // Listed candidate A has confirmed venue + session; its alias B (same confirmed venue) has no session.
+        let a = F.clip("grs_a", environment: "Grass", split: "val", videos: [F.source("grs_a", uploader: "Me", fingerprint: "y:a", sessionId: "s1", venueId: "v1")])
+        let b = F.clip("grs_b", environment: "Grass", split: "val", videos: [F.source("grs_b", uploader: "Me", fingerprint: "y:b", venueId: "v1")])
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTestCandidates: ["grs_a"]),
+                              extraClips: [a, b], extraSessions: [F.session("grs_a", split: "val"), F.session("grs_b", split: "val")])
+        inputs.discovered = [:]
+        let audit = try audit(inputs)
+        let listed = audit.findings.first { $0.code.hasPrefix("CANDIDATE") && $0.videos == ["grs_a"] }!
+        XCTAssertEqual(listed.code, "CANDIDATE-BLOCKED")
+        XCTAssertTrue(listed.message.contains("sessionId unconfirmed (alias grs_b)"), listed.message)
+        XCTAssertFalse(listed.message.contains("venueId unconfirmed"), "both venues are confirmed")
+    }
+
     func testProvenanceQualityIsReported() throws {
         let a = try audit(F.inputs())
         let source = a.findings.first { $0.code == "PROVENANCE-SOURCE" }
