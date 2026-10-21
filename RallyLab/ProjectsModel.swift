@@ -1065,7 +1065,7 @@ final class ProjectsModel {
         return "file:" + hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    static func linkFingerprint(_ link: String) -> String? {
+    nonisolated static func linkFingerprint(_ link: String) -> String? {
         guard var parts = URLComponents(string: link), let host = parts.host?.lowercased() else { return nil }
         let path = parts.path.split(separator: "/").map(String.init)
         if host == "youtu.be", let id = path.first {

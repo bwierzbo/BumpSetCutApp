@@ -38,19 +38,44 @@ enum ReservedVideos {
     static func reservedNames(in root: URL) throws -> Set<String> {
         let named = Set(try PipelineTuner.ValidationSet.loadStrict(from: root)?.finalTest ?? [])
         guard !named.isEmpty else { return [] }
-        let sources = sources(in: root)
-        func identities(_ s: ClipSource) -> Set<String> {
-            var ids = Set<String>()
-            if let f = s.fingerprint { ids.insert("fp:" + f) }
-            if let v = s.sourceId, !v.isEmpty { ids.insert("src:" + v) }
-            if let v = s.sessionId, !v.isEmpty { ids.insert("ses:" + v) }
-            if let v = s.venueId, !v.isEmpty { ids.insert("ven:" + v) }
-            return ids
-        }
-        var reservedIds = Set<String>()
-        for name in named { if let s = sources[name] { reservedIds.formUnion(identities(s)) } }
+        return closure(of: named, over: sources(in: root))
+    }
+
+    /// A video's file identity as ProjectsModel computes it: the stored
+    /// fingerprint, else derived from its origin (older videos stored none).
+    static func effectiveFingerprint(_ s: ClipSource) -> String? {
+        if let stored = s.fingerprint { return stored }
+        let origin = s.origin.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !origin.isEmpty else { return nil }
+        let path = (origin as NSString).expandingTildeInPath
+        return FileManager.default.fileExists(atPath: path) ? ProjectsModel.fileFingerprint(atPath: path) : ProjectsModel.linkFingerprint(origin)
+    }
+
+    static func identities(_ s: ClipSource) -> Set<String> {
+        var ids = Set<String>()
+        if let f = effectiveFingerprint(s) { ids.insert("fp:" + f) }
+        if let v = s.sourceId, !v.isEmpty { ids.insert("src:" + v) }
+        if let v = s.sessionId, !v.isEmpty { ids.insert("ses:" + v) }
+        if let v = s.venueId, !v.isEmpty { ids.insert("ven:" + v) }
+        return ids
+    }
+
+    /// The named sessions plus everything reachable through shared
+    /// identities, to a fixed point: A reserved, A and B share a file, B and
+    /// C share a confirmed venue → A, B and C are all reserved.
+    static func closure(of named: Set<String>, over sources: [String: ClipSource]) -> Set<String> {
+        let ids = sources.mapValues(identities)
         var all = named
-        for (name, source) in sources where !identities(source).isDisjoint(with: reservedIds) { all.insert(name) }
+        var reservedIds = Set<String>()
+        var grew = true
+        while grew {
+            grew = false
+            for name in all { reservedIds.formUnion(ids[name] ?? []) }
+            for (name, mine) in ids where !all.contains(name) && !mine.isDisjoint(with: reservedIds) {
+                all.insert(name)
+                grew = true
+            }
+        }
         return all
     }
 
@@ -69,7 +94,7 @@ enum ReservedVideos {
             let source = sources[session.name]
             if (source?.clipFile).map({ URL(fileURLWithPath: $0).lastPathComponent == base }) == true || base.hasPrefix(session.name + ".") { return true }
             guard let mine = print else { return false }
-            if source?.fingerprint == mine { return true }
+            if source.flatMap(effectiveFingerprint) == mine { return true }
             // A YouTube-origin video stores the link's ID; compare against its cut file's content when that file is here.
             if let cut = source?.clipFile, FileManager.default.fileExists(atPath: cut), ProjectsModel.fileFingerprint(atPath: cut) == mine { return true }
             if FileManager.default.fileExists(atPath: session.sourcePath), ProjectsModel.fileFingerprint(atPath: session.sourcePath) == mine { return true }

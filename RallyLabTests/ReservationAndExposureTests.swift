@@ -236,6 +236,35 @@ final class ReservationAndExposureTests: XCTestCase {
                        "every package/score/tune/pre-track filter sees the aliases")
     }
 
+    func testLegacySourceWithoutStoredFingerprintStillAliases() throws {
+        let F = DatasetSplitManifestTests.self
+        // The reserved video is an older record: no stored fingerprint, only its origin link.
+        var legacy = F.source("bch_old", fingerprint: nil); legacy.origin = "https://youtu.be/SAME"
+        let copy = F.source("bch_copy", fingerprint: "youtube:SAME")
+        let project = Project(name: "T", createdAt: F.day, framesPerRally: 40, clips: [
+            F.clip("bch_old", split: "val", videos: [legacy]),
+            F.clip("bch_copy", split: "train", videos: [copy]),
+        ])
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        try enc.encode(project).write(to: root.appendingPathComponent("project.json"))
+        try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["bch_old"]}"#)
+        XCTAssertEqual(try ReservedVideos.reservedNames(in: root), ["bch_old", "bch_copy"])
+    }
+
+    func testReservationClosureFollowsIdentityChains() throws {
+        let F = DatasetSplitManifestTests.self
+        // A ~file~ B ~venue~ C ~session~ D; E unrelated. Reserving A must reserve B, C and D.
+        let sources: [String: ClipSource] = [
+            "A": F.source("A", fingerprint: "youtube:AB"),
+            "B": F.source("B", fingerprint: "youtube:AB", venueId: "venue-1"),
+            "C": F.source("C", fingerprint: "youtube:C", sessionId: "sess-cd", venueId: "venue-1"),
+            "D": F.source("D", fingerprint: "youtube:D", sessionId: "sess-cd"),
+            "E": F.source("E", fingerprint: "youtube:E"),
+        ]
+        XCTAssertEqual(ReservedVideos.closure(of: ["A"], over: sources), ["A", "B", "C", "D"])
+        XCTAssertEqual(ReservedVideos.closure(of: ["E"], over: sources), ["E"])
+    }
+
     func testLoggedExposureBlocksFinalTestReservation() throws {
         try ExposureLog.record(videos: ["bch_a_v3"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
         var inputs = DatasetSplitManifestTests.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["bch_a_v3"]))
