@@ -37,7 +37,7 @@ Provenance: 0 of 167 videos have a confirmed `sourceId`, `sessionId` or `venueId
 
 ## Leakage findings
 
-**Hard (0).** No two videos that share a file fingerprint or a confirmed sourceId/sessionId/venueId sit on different sides of a split. (There are no confirmed IDs yet, so only the fingerprint check could fire.)
+**Hard (0).** No two videos that share a file fingerprint or a confirmed sourceId/sessionId/venueId sit in different splits — any two splits, including dev_val vs tune. (There are no confirmed IDs yet, so only the fingerprint check could fire.)
 
 **Soft (8).** Card and uploader overlaps. A clip card is how the owner filed a channel or outing, not confirmed recording, session or venue identity (D-009), so these are uncertainty to resolve, not proven leaks:
 - The frozen holdout is not self-contained by card: `bch_onl_sun_land_onl_03` is `legacy_holdout` while its sibling `bch_onl_sun_land_onl_03_v2` (same card, same channel, likely the same beach) is `dev_val` and was scored in the Oct 16 test-set run. Whether that is the same venue is exactly what a confirmed `venueId` would settle.

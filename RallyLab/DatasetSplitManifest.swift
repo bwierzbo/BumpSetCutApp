@@ -473,7 +473,8 @@ enum ExposureLog {
     /// under the old name is duplicated under the new one. Old rows stay, so
     /// an older manifest still joins. Fails the same way `record` does.
     static func rename(_ old: String, to new: String, in projectDir: URL, now: Date = Date()) {
-        guard old != new, let rows = try? readStrict(in: projectDir) else { return }
+        guard old != new, let logged = try? readStrict(in: projectDir), let seeded = try? readSeedStrict(in: projectDir) else { return }
+        let rows = logged + seeded
         let grouped = Dictionary(grouping: rows.filter { $0.video == old }, by: \.kind)
         for (kind, group) in grouped {
             for row in group {

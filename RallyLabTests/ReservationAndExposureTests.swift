@@ -151,6 +151,14 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertTrue(rows.first { $0.video == "new_name" }!.note!.contains("carried from old_name"))
     }
 
+    func testRenameCarriesSeedHistoryToo() throws {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("manifests"), withIntermediateDirectories: true)
+        try #"[{"video":"old_name","kind":"training_package","ref":"Old.zip","date":"2026-10-17","note":"from zip"}]"#
+            .write(to: ExposureLog.seedURL(in: root), atomically: true, encoding: .utf8)
+        ExposureLog.rename("old_name", to: "new_name", in: root)
+        XCTAssertEqual(try DatasetSplitManifest.discoverExposure(in: root)["new_name"]?.map(\.ref), ["Old.zip"])
+    }
+
     func testPreviousManifestExposureFollowsTheFingerprintAcrossARename() throws {
         // bch_a_v3 was scored under that name; it is then moved and becomes ind_moved with the same fingerprint.
         let before = try DatasetSplitManifest.build(DatasetSplitManifestTests.inputs(discovered: [

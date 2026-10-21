@@ -60,6 +60,17 @@ final class DatasetAuditTests: XCTestCase {
         XCTAssertEqual(a.findings.first { $0.code == "UPLOADER-SPLIT" && $0.videos == ["ind_v1", "ind_v2"] }?.severity, .soft)
     }
 
+    func testProvenIdentityAcrossDevValAndTuneIsHard() throws {
+        // Same file in tune (bch_a) and dev_val (ind_dup): proven relationship, two evaluation splits → hard.
+        let extra = F.clip("ind_dup", environment: "Indoor", split: "val",
+                           videos: [F.source("ind_dup", uploader: "Z", fingerprint: "youtube:A1")])
+        let a = try audit(F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: []),
+                                   extraClips: [extra], extraSessions: [F.session("ind_dup", split: "val")]))
+        let fp = a.findings.first { $0.code == "FP-SHARED" }
+        XCTAssertEqual(fp?.severity, .hard)
+        XCTAssertTrue(a.hasHardLeak)
+    }
+
     func testDevValVersusTuneOnOneCardIsSoftNotHard() throws {
         // bch_a card: bch_a tune, bch_a_v3 dev_val, and no holdout → soft.
         let a = try audit(F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: [])))

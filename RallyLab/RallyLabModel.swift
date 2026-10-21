@@ -936,11 +936,11 @@ final class RallyLabModel {
     func runComparison() async {
         guard let url = videoURL, !isComparing else { return }
         if let refusal = Self.finalTestRefusal(for: url) { compareStatus = refusal; return }
-        Self.recordRallyScoring(url, ref: "RallyLab Compare tab")
         guard !labels.isEmpty else {
             compareStatus = "Add ground-truth labels in the Pipeline tab to score against."
             return
         }
+        Self.recordRallyScoring(url, ref: "RallyLab Compare tab")   // only once a comparison will actually run
         isComparing = true
         defer { isComparing = false }
         comparisonA = nil

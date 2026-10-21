@@ -362,11 +362,13 @@ enum HeadlessProjects {
             }
             if ok, let i = args.firstIndex(of: "--compare-color") {
                 for clip in args[(i + 1)...] where !clip.hasPrefix("--") {
+                    guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not compared."); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     var sdr = ProcessorConfig()
                     sdr.standardColorFrames = true
                     log("\(clip)…")
                     guard let (raw, std) = await PipelineCompare.run(session: session, a: ProcessorConfig(), b: sdr) else { log("   couldn't process"); continue }
+                    ExposureLog.record(videos: [session.name], kind: .rallyScoring, ref: "--compare-color", note: nil, in: projectRoot)
                     log("   raw frames     : " + PipelineCompare.describe(raw))
                     log("   standard colour: " + PipelineCompare.describe(std))
                 }
@@ -374,9 +376,11 @@ enum HeadlessProjects {
             if ok, let i = args.firstIndex(of: "--pipeline-compare"), args.indices.contains(i + 2) {
                 let model = heatModel(args[i + 1], in: library)
                 for clip in args[(i + 2)...] where !clip.hasPrefix("--") {
+                    guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not compared."); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     log("\(clip) (\(session.split), \((session.tracks ?? []).filter(\.done).count) done tracked rallies)…")
                     guard let (off, on) = await PipelineCompare.run(session: session, heatModel: model) else { log("   couldn't process"); continue }
+                    ExposureLog.record(videos: [session.name], kind: .rallyScoring, ref: "--pipeline-compare " + model.deletingPathExtension().lastPathComponent, note: nil, in: projectRoot)
                     log("   YOLO only        : " + PipelineCompare.describe(off))
                     log("   YOLO + multi-frame: " + PipelineCompare.describe(on))
                 }
@@ -386,7 +390,9 @@ enum HeadlessProjects {
             if ok, let i = args.firstIndex(of: "--render-heat"), args.indices.contains(i + 2) {
                 let lab = library.heatmaps
                 lab.reload()
-                if let item = lab.trackedRallies.first(where: { $0.session == args[i + 1] && abs($0.rally.start - (Double(args[i + 2]) ?? -1)) < 1 }) {
+                if reserved.contains(args[i + 1]) {
+                    log("⛔ \(args[i + 1]) is reserved as final_test (D-002) — not rendered.")
+                } else if let item = lab.trackedRallies.first(where: { $0.session == args[i + 1] && abs($0.rally.start - (Double(args[i + 2]) ?? -1)) < 1 }) {
                     lab.renderVideo(session: item.session, rally: item.rally)
                     while lab.isBusy { try? await Task.sleep(nanoseconds: 300_000_000) }
                     log(lab.status)

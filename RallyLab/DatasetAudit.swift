@@ -41,16 +41,15 @@ struct DatasetAudit: Codable {
         var findings: [Finding] = []
         let videos = manifest.videos
 
-        // Groups that prove a shared origin.
-        findings += grouped(videos, code: "FP-SHARED", label: "same file fingerprint") { $0.fingerprint }
-        findings += grouped(videos, code: "SOURCE-SHARED", label: "same confirmed sourceId") { $0.sourceId.origin == .confirmed ? $0.sourceId.value : nil }
-        findings += grouped(videos, code: "SESSION-SHARED", label: "same confirmed sessionId") { $0.sessionId.origin == .confirmed ? $0.sessionId.value : nil }
-        findings += grouped(videos, code: "VENUE-SHARED", label: "same confirmed venueId") { $0.venueId.origin == .confirmed ? $0.venueId.value : nil }
-        // A card is a planned category (one channel/outing as the owner filed it), not confirmed
-        // recording, session or venue identity (D-009): never more than soft.
-        findings += grouped(videos, code: "CARD-SPLIT", label: "same clip card", cap: .soft) { $0.clipId }
-        // An uploader is one channel, not one venue: never more than soft.
-        findings += grouped(videos, code: "UPLOADER-SPLIT", label: "same uploader", cap: .soft) { $0.uploader }
+        // Groups that prove a shared origin: any two splits is a hard leak.
+        findings += grouped(videos, code: "FP-SHARED", label: "same file fingerprint", proven: true) { $0.fingerprint }
+        findings += grouped(videos, code: "SOURCE-SHARED", label: "same confirmed sourceId", proven: true) { $0.sourceId.origin == .confirmed ? $0.sourceId.value : nil }
+        findings += grouped(videos, code: "SESSION-SHARED", label: "same confirmed sessionId", proven: true) { $0.sessionId.origin == .confirmed ? $0.sessionId.value : nil }
+        findings += grouped(videos, code: "VENUE-SHARED", label: "same confirmed venueId", proven: true) { $0.venueId.origin == .confirmed ? $0.venueId.value : nil }
+        // Heuristic groups — a card is a planned category (one channel/outing as the owner filed it)
+        // and an uploader is one channel, neither confirmed identity (D-009): soft.
+        findings += grouped(videos, code: "CARD-SPLIT", label: "same clip card", proven: false) { $0.clipId }
+        findings += grouped(videos, code: "UPLOADER-SPLIT", label: "same uploader", proven: false) { $0.uploader }
 
         // Cards the dataset split video by video.
         let autoCards = Dictionary(grouping: videos.filter { $0.clipId != nil && $0.cardSplit == nil }, by: { $0.clipId! })
@@ -136,10 +135,10 @@ struct DatasetAudit: Codable {
                             findings: findings.sorted { ($0.severity, $0.code, $0.videos.first ?? "") < ($1.severity, $1.code, $1.videos.first ?? "") })
     }
 
-    /// Videos that share `key` but sit in different splits. Train vs anything
-    /// else, or any mix that touches a reserved split, is hard; dev_val vs
-    /// tune is soft; `cap` lowers the ceiling for keys that don't prove origin.
-    private static func grouped(_ videos: [ManifestVideo], code: String, label: String, cap: Severity = .hard,
+    /// Videos that share `key` but sit in different splits. A `proven` key
+    /// (fingerprint, confirmed ID) makes any cross-split match hard; a
+    /// heuristic key (card, uploader) is soft.
+    private static func grouped(_ videos: [ManifestVideo], code: String, label: String, proven: Bool,
                                 key: (ManifestVideo) -> String?) -> [Finding] {
         var out: [Finding] = []
         let groups = Dictionary(grouping: videos.compactMap { v in key(v).map { ($0, v) } }, by: { $0.0 })
@@ -147,10 +146,7 @@ struct DatasetAudit: Codable {
             let rows = pairs.map(\.1)
             let splits = Set(rows.map(\.split))
             guard splits.count > 1 else { continue }
-            let crossesTrain = splits.contains(.train)
-            let touchesReserved = splits.contains { $0.isReserved }
-            // Severity orders hard < soft < info, so `max` applies the ceiling.
-            let severity = max((crossesTrain || touchesReserved) ? Severity.hard : .soft, cap)
+            let severity: Severity = proven ? .hard : .soft
             out.append(Finding(severity: severity, code: code,
                                message: "\(rows.count) videos with \(label) \"\(value)\" sit in \(splits.map(\.rawValue).sorted().joined(separator: " + ")).",
                                videos: rows.map(\.video).sorted()))
