@@ -84,7 +84,7 @@ The authoritative record of product, architecture, data and process decisions fo
 
 **Decision.** Nine-step cycle: define task with measurable acceptance criteria → scoped feature branch from approved `main` → implement and test → record files, results, assumptions, limitations, outstanding issues → open a PR with evidence → owner hands PR to ChatGPT for review → incorporate findings → merge only after explicit owner approval → docs and decision records updated as part of the change. No direct pushes to `main`. No automatic merges. Intermediate commits to the feature branch are fine. The first PR is documentation and workflow only.
 
-**Consequences.** [WORKING_AGREEMENT.md](../workflow/WORKING_AGREEMENT.md), [CHATGPT_REVIEW.md](../workflow/CHATGPT_REVIEW.md), `.github/PULL_REQUEST_TEMPLATE.md`, this log, the [experiment registry](../ml-roadmap/EXPERIMENT_REGISTRY.md), the [docs index](../README.md). `CLAUDE.md`, `.claude/CLAUDE.md` ("push after every commit chunk" now means the feature branch), `.claude/rules/branch-operations.md` and `worktree-operations.md` (merge sections) updated. `.planning/` and `.claude/commands/pm` kept as-is; GitHub issues/PRs are the tracker.
+**Consequences.** [WORKING_AGREEMENT.md](../workflow/WORKING_AGREEMENT.md), [CHATGPT_REVIEW.md](../workflow/CHATGPT_REVIEW.md), `.github/PULL_REQUEST_TEMPLATE.md`, this log, the [experiment registry](../ml-roadmap/EXPERIMENT_REGISTRY.md), the [docs index](../README.md). `CLAUDE.md`, `.claude/CLAUDE.md` ("push after every commit chunk" now means the feature branch) and `.claude/rules/github-operations.md` updated. `.planning/` kept as history; the unused CCPM add-on (`/pm:*` commands, scripts, epic rules) removed because it carried direct-to-`main` merge paths; GitHub issues/PRs are the tracker.
 
 **Source.** [Owner decisions §5](2026-10-20-phase0-owner-decisions.md).
 
@@ -168,6 +168,6 @@ The authoritative record of product, architecture, data and process decisions fo
 
 **Context.** D-005 required a PR for every change. The first review cycle showed that is heavier than needed for cosmetic and documentation fixes, while ML and production changes need the full gate.
 
-**Consequences.** [WORKING_AGREEMENT.md](../workflow/WORKING_AGREEMENT.md) "Review tiers"; [CHATGPT_REVIEW.md](../workflow/CHATGPT_REVIEW.md) now leads with Codex; `CLAUDE.md`, `.claude/CLAUDE.md`, `AGENTS.md` updated to point there. `/pm:epic-merge` no longer merges or pushes `main`.
+**Consequences.** [WORKING_AGREEMENT.md](../workflow/WORKING_AGREEMENT.md) "Review tiers"; [CHATGPT_REVIEW.md](../workflow/CHATGPT_REVIEW.md) now leads with Codex; `CLAUDE.md`, `.claude/CLAUDE.md`, `AGENTS.md` updated to point there. The CCPM epic tooling, whose merge command pushed `main`, was removed rather than patched (unused third-party add-on).
 
 **Source.** Owner instruction to Claude Code, 2026-10-20 ("Task 2 — Update the development workflow"), recorded in PR #65.

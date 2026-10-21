@@ -115,4 +115,4 @@ This rule has **HIGHEST PRIORITY** and must be followed by all commands that:
 - Track timestamps or progress
 - Log any time-based information
 
-Commands affected: prd-new, prd-parse, epic-decompose, epic-sync, issue-start, issue-sync, and any other command that writes timestamps.
+Applies to any command, skill or document (frontmatter in `docs/`, decision log, experiment records) that writes timestamps.

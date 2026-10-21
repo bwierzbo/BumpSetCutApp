@@ -86,7 +86,7 @@ Numerical acceptance thresholds come from measured evaluation data, not from the
 | Source footage and training packages | The desktop `D:\RallyLabFootage` | the Mac, except transient copies |
 | Task tracking | GitHub issues and PRs | a second tracker |
 
-`.planning/` holds the earlier GSD milestone documents (rally viewer, social features) and stays as history; it is not the tracker for this work. The CCPM commands under `.claude/commands/pm` remain available for epics that want them; `/pm:epic-merge` now ends by opening a PR instead of merging and pushing `main`, so they comply with this agreement.
+`.planning/` holds the earlier GSD milestone documents (rally viewer, social features) and stays as history; it is not the tracker for this work. The CCPM add-on (`/pm:*` epic and PRD commands, their scripts, worktree/branch/agent-coordination rules) was removed on 2026-10-20 as unused third-party tooling that contained direct-to-`main` merge paths; GitHub issues and PRs are the only tracker.
 
 ## Definition of done
 

@@ -29,7 +29,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 - [`CLAUDE.md`](../CLAUDE.md) — build commands, architecture, product invariants, workflow pointer.
 - [`.claude/CLAUDE.md`](../.claude/CLAUDE.md) — behaviour rules.
 - [`AGENTS.md`](../AGENTS.md) — Codex repository instructions: operating boundaries and the eight high-value review rules; PR-review output format.
-- `.claude/rules/` — branch, worktree, GitHub, datetime and other operating rules.
+- `.claude/rules/` — GitHub operations, datetime, test execution, ast-grep. (The CCPM add-on's epic/worktree/PRD commands and rules were removed 2026-10-20.)
 - `.claude/skills/` — build, run-rallylab, preexisting, device-logs.
 
 ## Earlier planning (history, not the tracker)
