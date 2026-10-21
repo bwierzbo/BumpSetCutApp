@@ -39,7 +39,7 @@ The script also writes `artifact.html`, the same page for publishing as a **priv
 ## Answer file
 
 ```json
-{"schema": "provenance-answers/1", "exportedAt": "…",
+{"schema": "provenance-answers/1", "project": "/Users/…/Projects/Scratch", "exportedAt": "…",
  "answers": {"<video>.venueId": "…", "<video>.sessionId": "…", "<video>.camera": "…",
              "<video>.status": "confirmed|unsure|unknown|", "<video>.notes": "…",
              "group.<groupId>.sameOuting": "same|same-venue|different|unknown|",
@@ -47,7 +47,7 @@ The script also writes `artifact.html`, the same page for publishing as a **priv
              "group.<groupId>.notes": "…"}}
 ```
 
-Empty strings mean "not answered". The answers are never applied automatically. `scripts/provenance_review.py --answers provenance-answers.json` prints, as a dry run, the `RallyLab --project Scratch --set-provenance <video> --venue-id … --session-id …` commands that the *confirmed* rows imply and lists the unsure/unknown rows and the group verdicts as comments. Applying them is a separate reviewed PR with the before/after provenance report and a re-run of `--audit-dataset`, per D-015 §4.
+Empty strings mean "not answered". `project` names the project the page was generated for: the page refuses to load a file for another project, the browser draft is keyed by it, and the dry run refuses a file whose project differs from `--project`. The answers are never applied automatically. `scripts/provenance_review.py --answers provenance-answers.json` prints, as a dry run, the `RallyLab --project Scratch --set-provenance <video> --venue-id … --session-id …` commands that the *confirmed* rows imply and lists the unsure/unknown rows and the group verdicts as comments. Applying them is a separate reviewed PR with the before/after provenance report and a re-run of `--audit-dataset`, per D-015 §4.
 
 ## What is reviewed
 
