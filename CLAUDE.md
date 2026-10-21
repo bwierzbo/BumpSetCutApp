@@ -111,6 +111,7 @@ YOLODetector → KalmanBallTracker → BallisticsGate → RallyDecider → Segme
 ## CoreML Model
 - **Processing default is multi-frame only** (`BallFinder.current` → `.multiFrameOnly`): the bundled `ball_heat.mlpackage` (9-frame heatmap, `HeatmapBallDetector`) finds the ball. `YOLODetector()` (default `ball_v2_small.mlpackage`; fallbacks bestv3, bestv2; net model `net.mlpackage`) remains for the debug picker and RallyLab pre-labeling.
 - **Licensing (decision 2026-10-09):** every YOLO/Ultralytics-derived `.mlpackage` (ball_v2_small, bestv2, bestv3, ball_rallylab_*, net) must leave the public iOS bundle before launch. RallyLab and the internal Labeler build may keep them. Flag any change that would ship Ultralytics-derived weights.
+- **Lineage training data (D-018):** a model lineage (L2 onward) trains only from a package written by `RallyLab --project <name> --package-l2` whose preflight passed (`l2-manifest.json`). The project `data.yaml` / `images/` folder is unsupported for lineage training and must not be pointed at a trainer. Training starts only after the owner approves the preregistration (`docs/templates/PREREGISTRATION_L2.md`).
 - App functions without model but AI features are disabled
 - **New models must be**: (1) added to `Resources/ML/`, (2) added to RallyLab's `membershipExceptions` in project.pbxproj, (3) **committed to git in the same commit that references them** — a pbxproj reference to an uncommitted mlpackage builds locally but breaks Xcode Cloud. Large blobs may need `git config http.postBuffer 524288000` to push.
 

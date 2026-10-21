@@ -429,6 +429,12 @@ struct DatasetSplitManifest: Codable {
     /// then SHA-256 of those lines. Identical trees give identical digests;
     /// a renamed or added file changes it.
     static func canonicalDigest(ofDirectory dir: URL) -> String? {
+        canonicalFileHashes(ofDirectory: dir).map { canonicalDigest(lines: $0.map { ($0.path, $0.sha256) }) }
+    }
+
+    /// Every regular file under `dir` in the digest's byte order, with its
+    /// SHA-256 and size; nil when any file can't be read.
+    static func canonicalFileHashes(ofDirectory dir: URL) -> [(path: String, sha256: String, bytes: Int)]? {
         let fm = FileManager.default
         // Path-based enumeration yields paths relative to `dir`, whatever
         // symlinks (e.g. /var → /private/var) sit above it.
@@ -437,16 +443,22 @@ struct DatasetSplitManifest: Codable {
         while let rel = enumerator.nextObject() as? String {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: dir.appendingPathComponent(rel).path, isDirectory: &isDir), !isDir.boolValue else { continue }
-            paths.append("./" + rel)
+            paths.append(rel)
         }
         paths.sort { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }
-        var lines = ""
+        var out: [(path: String, sha256: String, bytes: Int)] = []
         for path in paths {
-            let file = dir.appendingPathComponent(String(path.dropFirst(2)))
-            guard let hash = sha256(of: file) else { return nil }
-            lines += "\(hash)  \(path)\n"
+            let file = dir.appendingPathComponent(path)
+            guard let data = try? Data(contentsOf: file) else { return nil }
+            out.append((path, SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), data.count))
         }
-        return SHA256.hash(data: Data(lines.utf8)).map { String(format: "%02x", $0) }.joined()
+        return out
+    }
+
+    /// The digest of `<sha256>  ./<path>` lines, one per file, in the order given.
+    static func canonicalDigest(lines: [(path: String, sha256: String)]) -> String {
+        let text = lines.map { "\($0.sha256)  ./\($0.path)\n" }.joined()
+        return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Files

@@ -2,8 +2,8 @@
 name: model-lineages
 status: authoritative
 created: 2026-10-21T18:30:00Z
-updated: 2026-10-21T18:30:00Z
-decisions: D-016, D-017
+updated: 2026-10-21T20:19:11Z
+decisions: D-016, D-017, D-018
 ---
 
 # Model lineages
@@ -32,11 +32,12 @@ Three things are kept apart (D-016 as amended by D-017):
 |---|---|
 | Cut-over | 2026-10-21, PR `data/d017-lineage-holdout`: `pipeline_tuning/validation.json` gains `lineageHoldout` (16 names), sha256 `6d160a1ac00254a0` |
 | Data manifest at the cut | project.json `65243bca59895a7e` · sessions `06ed23f06ccd23ce` · validation.json `6d160a1ac00254a0` (committed under [`manifests/Scratch/`](manifests/Scratch/)) |
-| Withheld recordings | the 16 in `lineageHoldout` and anything that aliases them (same file, confirmed sourceId/sessionId/venueId), enforced by `ReservedVideos.reservedNames` in every package, score, tune, pre-track, ball-path and GUI path |
+| Withheld recordings | the 16 in `lineageHoldout` and anything that aliases them (same file, confirmed sourceId/sessionId/venueId), enforced by `ReservedVideos.reservedNames` in every package, score, tune, pre-track, ball-path and GUI path; in the L2 package also the 5 `legacy_holdout` recordings (D-018): 21 withheld |
+| Training data isolation (D-018) | **only** a package written by `RallyLab --project Scratch --package-l2` with a passing preflight: clips chosen from the split manifest, every withheld recording physically absent, `l2-manifest.json` with plan, preflight and the SHA-256 of every file. The project `data.yaml` / `images/` dataset is unsupported for L2 (its header says so). Plan of 2026-10-21: [`manifests/Scratch/l2/20261021-1415-plan.md`](manifests/Scratch/l2/20261021-1415-plan.md) — 133 train (76 with labels today, 27,067 labeled + 246 dead windows) · 13 val (12 with labels, 4,778 windows) · 21 withheld |
 | Initialisation | from scratch (random init), no weights from any L1 model; no L1 model output (machine tracks, pseudo-labels, scores) in any input |
-| Eligible training data | train split minus reservations: **133 recordings** (142 before the cut); packages must be exported after the cut (ledger date > cut-over) |
+| Eligible training data | train split minus reservations: **133 recordings** (142 before the cut); packages must be exported after the cut (ledger date > cut-over) and be L2 packages (above) |
 | Model selection | dev_val (4) + tune (9) as today; **not** the lineage holdout. To be preregistered. |
-| Preregistration (required before any L2 holdout evaluation) | training recipe (data package name + hash, resolution, epochs, augmentation, seed), model-selection criterion and the validation set it uses, metrics and their definitions, the holdout evaluation procedure, and the number of holdout evaluations allowed (one per final candidate). Written to `docs/ml-roadmap/experiments/EXP-….md` and linked from the registry **before** the first look at holdout numbers. |
+| Preregistration (required before any L2 training, D-018) | from [PREREGISTRATION_L2.md](../templates/PREREGISTRATION_L2.md): objective and hypotheses, data versions/counts/hashes, architecture and independent initialisation, hyperparameters/seeds/augmentation/stopping, dev-validation and checkpoint selection, metrics, per-surface reporting, holdout access rules (one evaluation per named final candidate; never for selection or tuning), reproducibility, success/failure/limitations. Approved by the owner **before** training; first record (proposed, not approved): [EXP-20261021-l2-scratch-prereg](experiments/EXP-20261021-l2-scratch-prereg.md). |
 | Holdout evaluation | detector: on reviewed frames of the 16 once people have reviewed them (today: **0 reviewed frames** in all 16; the machine tracks are not ground truth). Pipeline: on rally marks of the seven candidates once marked (today: none). Report by surface (beach 6, grass 8, indoor 2) and by recording group (7 outings + 1 venue pair), with sample sizes and intervals. No repeated evaluations to pick models. |
 | Exposure history of the members | `pre_tracking` 2026-10-17 (nine neighbours, two candidates) and 2026-10-18 (five candidates), ref "session tracks (machine)"; nothing else. Kept in the manifest permanently. |
 

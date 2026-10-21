@@ -273,6 +273,10 @@ final class DatasetStore: @unchecked Sendable {
     func writeDataYAML() throws {
         let text = """
         # Written by RallyLab's Sampler. Whole videos are assigned to train or val.
+        # NOT a model-lineage dataset (D-017/D-018): this folder knows nothing of reserved
+        # recordings (final test, candidates, lineage holdout, legacy holdout) and may hold their
+        # frames under images/ or excluded/. Unsupported for L2 training. A lineage trains only
+        # from a package written by `RallyLab --project <name> --package-l2` with a passing preflight.
         path: \(root.path)
         train: images/train
         val: images/val

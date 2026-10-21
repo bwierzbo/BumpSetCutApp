@@ -39,6 +39,10 @@
 //             --unreviewed: every labeled frame, not only reviewed ones — a quick look, not a round;
 //             --val-only: the val clips alone, as a folder (no zip) — the test set for scoring models here;
 //             --long-side: frames this big (default 1024; 512 is enough for 512 training, a quarter the disk))
+//    RallyLab --project v3 --package-l2 [--dry-run] [--long-side 512]   (lineage package, D-017/D-018: clips chosen from the
+//             split manifest, every reserved recording and its aliases physically absent, preflight audit + file hashes
+//             written into the package (l2-manifest.json) and manifests/l2/; any failed check removes the package;
+//             --dry-run: the plan only. The project's data.yaml is not a lineage dataset.)
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
 //    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo] [--val] [--heat M]   (self-training: the newest multi-frame
@@ -265,6 +269,10 @@ enum HeadlessProjects {
             if ok, args.contains("--package-multiframe") { 
                 let side = value(after: "--long-side", in: args).flatMap(Double.init).map { CGFloat($0) } ?? MultiFramePackage.longSide
                 ok = await packageMultiFrame(library, unreviewed: args.contains("--unreviewed"), valOnly: args.contains("--val-only"), longSide: side)
+            }
+            if ok, args.contains("--package-l2") {
+                let side = value(after: "--long-side", in: args).flatMap(Double.init).map { CGFloat($0) } ?? MultiFramePackage.longSide
+                ok = await packageL2(projects, dryRun: args.contains("--dry-run"), longSide: side)
             }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
@@ -683,10 +691,25 @@ enum HeadlessProjects {
         let out = value(after: "--out", in: args)
             .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
             ?? dir.appendingPathComponent("manifests", isDirectory: true)
+        guard let built = buildManifest(projects, out: out, audit: audit) else { return false }
+        return built.audit.map { !$0.hasHardLeak } ?? true
+    }
+
+    private static func generator() -> String {
+        let info = Bundle.main.infoDictionary
+        return "RallyLab \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+    }
+
+    /// Builds the split manifest from the project as it is now and writes
+    /// manifest.{json,md} to `out`; with `audit`, also runs the leakage audit
+    /// and writes audit.{json,md}. nil (after logging why) when anything
+    /// can't be read or written. The caller decides what a hard leak means.
+    @MainActor
+    private static func buildManifest(_ projects: ProjectsModel, out: URL, audit: Bool) -> (manifest: DatasetSplitManifest, audit: DatasetAudit?)? {
+        guard let dir = projects.projectDir else { log("❌ No project folder."); return nil }
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let manifestURL = out.appendingPathComponent("manifest.json")
-        let info = Bundle.main.infoDictionary
-        let generator = "RallyLab \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+        let generator = generator()
         let hashes = DatasetSplitManifest.Hashes(
             projectJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("project.json")),
             sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: dir.appendingPathComponent("sessions", isDirectory: true)),
@@ -698,7 +721,7 @@ enum HeadlessProjects {
             // records each video's pre-overlay split and listed/alias status.
         } catch {
             log("❌ \(error.localizedDescription)")
-            return false
+            return nil
         }
         let previous: DatasetSplitManifest?
         let discovered: [String: [ExposureRecord]]
@@ -707,7 +730,7 @@ enum HeadlessProjects {
             discovered = try DatasetSplitManifest.discoverExposure(in: dir)
         } catch {
             log("❌ \(error.localizedDescription)")
-            return false
+            return nil
         }
         let inputs = DatasetSplitManifest.Inputs(
             project: projects.project, sessions: projects.sampler.sessions,
@@ -719,19 +742,19 @@ enum HeadlessProjects {
         let manifest: DatasetSplitManifest
         do { manifest = try DatasetSplitManifest.build(inputs) } catch {
             log("❌ \(error.localizedDescription)")
-            return false
+            return nil
         }
         do {
             try manifest.write(to: manifestURL)
             try manifest.markdownSummary().write(to: out.appendingPathComponent("manifest.md"), atomically: true, encoding: .utf8)
         } catch {
             log("❌ Couldn't write the manifest: \(error.localizedDescription)")
-            return false
+            return nil
         }
         let counts = Dictionary(grouping: manifest.videos, by: \.split).mapValues(\.count)
         log("✅ Manifest: \(manifest.videos.count) videos — "
             + DatasetSplit.allCases.map { "\($0.rawValue) \(counts[$0] ?? 0)" }.joined(separator: " · ") + " → \(out.path)")
-        guard audit else { return true }
+        guard audit else { return (manifest, nil) }
 
         let result = DatasetAudit.run(manifest: manifest)
         do {
@@ -739,13 +762,73 @@ enum HeadlessProjects {
             try result.markdown(manifest: manifest).write(to: out.appendingPathComponent("audit.md"), atomically: true, encoding: .utf8)
         } catch {
             log("❌ Couldn't write the audit: \(error.localizedDescription)")
-            return false
+            return nil
         }
         for f in result.findings where f.severity != .info { log("  [\(f.severity.rawValue)] \(f.code): \(f.message)") }
         let hard = result.findings.filter { $0.severity == .hard }.count
         log(hard == 0 ? "✅ Audit: no hard leak (\(result.findings.count) findings → audit.md)"
                       : "❌ Audit: \(hard) hard leak(s) → audit.md")
-        return hard == 0
+        return (manifest, result)
+    }
+
+    /// `--package-l2`: the lineage package (LineagePackage, D-017/D-018): clips chosen from the
+    /// split manifest, reserved recordings physically absent, preflight audit and file hashes
+    /// in the package. Always writes the plan to manifests/l2/; `--dry-run` stops there.
+    @MainActor
+    private static func packageL2(_ projects: ProjectsModel, dryRun: Bool, longSide: CGFloat) async -> Bool {
+        guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
+        let manifests = dir.appendingPathComponent("manifests", isDirectory: true)
+        guard let built = buildManifest(projects, out: manifests, audit: true), let audit = built.audit else { return false }
+        let reserved: Set<String>
+        do { reserved = try ReservedVideos.reservedNames(in: dir) } catch { log("❌ \(error.localizedDescription)"); return false }
+        let now = Date()
+        let stamp = DateFormatter()
+        stamp.dateFormat = "yyyyMMdd-HHmm"
+        let l2 = manifests.appendingPathComponent("l2", isDirectory: true)
+        let plan: LineagePackage.Plan
+        do {
+            plan = try LineagePackage.plan(manifest: built.manifest, audit: audit, reserved: reserved, generator: generator(), now: now)
+            try FileManager.default.createDirectory(at: l2, withIntermediateDirectories: true)
+            let base = l2.appendingPathComponent("\(stamp.string(from: now))-plan")
+            try LineagePackage.write(plan, to: base.appendingPathExtension("json"))
+            try LineagePackage.markdown(plan).write(to: base.appendingPathExtension("md"), atomically: true, encoding: .utf8)
+            // The project's data.yaml carries the header that says it is not a lineage dataset.
+            try projects.sampler.store.writeDataYAML()
+            log("✅ \(LineagePackage.lineage) plan: \(plan.trainCount) train · \(plan.valCount) val eligible, \(plan.withheld.count) withheld "
+                + "(\(plan.withheld.filter { $0.split == .lineageHoldout }.count) lineage_holdout) → \(base.path).{json,md}")
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
+        if dryRun { return true }
+
+        let store = projects.sampler.store
+        let sessions = projects.sampler.sessions.filter { plan.eligibleNames.contains($0.name) }
+        let protected = LineagePackage.protectedFrameHashes(sessions: projects.sampler.sessions, withheld: plan.withheldNames, store: store)
+        let name = "\(dir.lastPathComponent)-\(LineagePackage.lineage)"
+        do {
+            let result = try await Task.detached(priority: .userInitiated) {
+                try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, beforeZip: { folder in
+                    let preflight = try LineagePackage.preflight(packageDir: folder, plan: plan, protectedHashes: protected)
+                    let record = LineagePackage.Record(plan: plan, preflight: preflight)
+                    // manifests/l2 gets the record first, so a failed preflight is still on record after the folder is removed.
+                    try LineagePackage.write(record, to: l2.appendingPathComponent("\(folder.lastPathComponent).json"))
+                    try (LineagePackage.markdown(plan) + "\n" + LineagePackage.markdown(preflight))
+                        .write(to: l2.appendingPathComponent("\(folder.lastPathComponent).md"), atomically: true, encoding: .utf8)
+                    guard preflight.passed else { throw LineagePackage.PreflightError.failed(preflight.checks.filter { !$0.passed }.map(\.name)) }
+                    try LineagePackage.write(record, to: folder.appendingPathComponent(LineagePackage.recordFile))
+                }) { done, total in
+                    if done % 500 == 0 || done == total { log("  frames \(done)/\(total)") }
+                }
+            }.value
+            let s = result.summary
+            log("✅ \(LineagePackage.lineage) package: \(s.trainWindows) train + \(s.valWindows) val windows from \(s.clips) clips → \(result.output.path)")
+            log("   record: \(l2.appendingPathComponent(s.name).path).{json,md}")
+            return true
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
     }
 
     /// Record a use, or say why it couldn't be and report failure (the command then fails).
