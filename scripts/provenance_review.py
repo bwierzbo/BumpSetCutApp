@@ -31,7 +31,7 @@ Usage:
       Dry run only: it writes nothing and runs nothing.
 Requires ffmpeg/ffprobe on PATH (not for --answers).
 """
-import argparse, html, json, os, shlex, subprocess, sys
+import argparse, hashlib, html, json, os, shlex, subprocess, sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -267,10 +267,10 @@ try{const d=localStorage.getItem(KEY);if(d){apply(JSON.parse(d));st('draft resto
 for(const f of fields()){f.addEventListener('change',save)}
 </script></body></html>"""
 
-# Artifact store layout: one document per recording at answers/<video> and one per group at groups/<groupId>,
-# each holding its fields plus `project` (the page's project path) and updatedAt. The page restores only
-# documents whose project matches its own, so a republish for another project never inherits answers.
-# Claude reads them with the ArtifactData tool.
+# Artifact store layout: documents live under projects/<key>/answers/<video> and projects/<key>/groups/<groupId>,
+# where <key> is the first 16 hex digits of the SHA-256 of the project path, so two projects reviewed through
+# one artifact never read or overwrite each other's answers. Each document holds its fields plus `project`
+# (the full path, checked again on load) and updatedAt. Claude reads them with the ArtifactData tool.
 ARTIFACT_SCRIPT = """
 <script>
 function fields(){return [...document.querySelectorAll('[data-k]')]}
@@ -278,17 +278,17 @@ function collect(){const a={};for(const f of fields()){a[f.dataset.k]=f.value}re
 function apply(a){for(const f of fields()){if(a[f.dataset.k]!==undefined)f.value=a[f.dataset.k]}}
 function zoom(img,cap){document.getElementById('lbi').src=img.src;document.getElementById('lbc').textContent=cap;document.getElementById('lb').style.display='flex'}
 function st(m,ok){const s=document.getElementById('status');s.textContent=m;s.className=ok?'saved':'hint'}
-const PROJECT=__PROJECT__;
+const PROJECT=__PROJECT__;const PROJECT_KEY=__PROJECT_KEY__;const ROOT='projects/'+PROJECT_KEY+'/';
 function copyAnswers(){const out={schema:'provenance-answers/1',project:PROJECT,exportedAt:new Date().toISOString(),answers:collect()};const t=JSON.stringify(out,null,1);navigator.clipboard.writeText(t).then(()=>st('answers copied to the clipboard',true)).catch(()=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();st('select and copy the text below');});}
-function docKey(k){if(k.startsWith('group.')){const [,gid,field]=k.split('.',3);return ['groups/'+gid,field]}const i=k.lastIndexOf('.');return ['answers/'+k.slice(0,i),k.slice(i+1)]}
+function docKey(k){if(k.startsWith('group.')){const [,gid,field]=k.split('.',3);return [ROOT+'groups/'+gid,field]}const i=k.lastIndexOf('.');return [ROOT+'answers/'+k.slice(0,i),k.slice(i+1)]}
 function docFields(path){const o={};for(const f of fields()){const [p,field]=docKey(f.dataset.k);if(p===path)o[field]=f.value}return o}
 let db=null;const queue={};const timers={};
-function flush(path){const data={...docFields(path),project:PROJECT,updatedAt:new Date().toISOString()};queue[path]=(queue[path]||Promise.resolve()).then(()=>db.doc(path).set(data)).then(()=>st('saved '+path.split('/')[1]+' · '+new Date().toLocaleTimeString(),true)).catch(e=>st('not saved ('+(e.code||e)+'); keep the page open and retry, or copy answers as JSON'))}
+function flush(path){const data={...docFields(path),project:PROJECT,updatedAt:new Date().toISOString()};queue[path]=(queue[path]||Promise.resolve()).then(()=>db.doc(path).set(data)).then(()=>st('saved '+path.split('/').pop()+' · '+new Date().toLocaleTimeString(),true)).catch(e=>st('not saved ('+(e.code||e)+'); keep the page open and retry, or copy answers as JSON'))}
 function scheduleSave(path){clearTimeout(timers[path]);timers[path]=setTimeout(()=>flush(path),700)}
 function setReadOnly(msg){for(const f of fields()){f.disabled=true}st(msg)}
 (async()=>{db=await window.claude?.use?.('db');if(!db){setReadOnly('this view cannot save answers; open the page from your claude.ai account');return}
  const user=await window.claude.use('user');const w=user?await user.can('data.write'):null;if(w===false){setReadOnly('read-only view: only the owner can answer');return}
- try{const a={};let skipped=0;for(const col of ['answers','groups']){const snap=await db.collection(col).get();for(const d of snap.docs){const body=d.data()||{};if(body.project!==PROJECT){skipped++;continue}for(const [k,v] of Object.entries(body)){if(k==='updatedAt'||k==='project')continue;a[col==='groups'?'group.'+d.id+'.'+k:d.id+'.'+k]=v}}}
+ try{const a={};let skipped=0;for(const col of ['answers','groups']){const snap=await db.collection(ROOT+col).get();for(const d of snap.docs){const body=d.data()||{};if(body.project!==PROJECT){skipped++;continue}for(const [k,v] of Object.entries(body)){if(k==='updatedAt'||k==='project')continue;a[col==='groups'?'group.'+d.id+'.'+k:d.id+'.'+k]=v}}}
   apply(a);const n=Object.values(a).filter(Boolean).length;st((n?('loaded '+n+' saved values'):'no answers saved yet')+(skipped?(' · '+skipped+' saved for another project ignored'):''),n>0)}catch(e){setReadOnly('could not load saved answers ('+(e.code||e)+'); reload the page to try again — nothing is saved until the load succeeds');return}
  for(const f of fields()){f.addEventListener('input',()=>scheduleSave(docKey(f.dataset.k)[0]));f.addEventListener('change',()=>scheduleSave(docKey(f.dataset.k)[0]))}
 })();
@@ -346,12 +346,23 @@ def write_html(out, built, n_frames, project, artifact=False):
 <label for="{gid}-pref" style="margin-top:6px">If the candidate is not independent, what would you prefer?</label>
 <select id="{gid}-pref" data-k="group.{gid}.preference"><option value="">—</option><option value="drop-candidate">drop the candidate (stays protected, never final test)</option><option value="move-training">move the training recordings out of train (needs their own exposure review)</option><option value="n/a">not applicable</option></select>
 <label for="{gid}-notes" style="margin-top:6px">group notes</label><textarea id="{gid}-notes" rows="2" data-k="group.{gid}.notes"></textarea></div>''')
-    parts.append((ARTIFACT_SCRIPT if artifact else LOCAL_SCRIPT).replace("__PROJECT__", json.dumps(str(project))))
+    key = hashlib.sha256(str(project).encode()).hexdigest()[:16]
+    parts.append((ARTIFACT_SCRIPT if artifact else LOCAL_SCRIPT).replace("__PROJECT__", json.dumps(str(project))).replace("__PROJECT_KEY__", json.dumps(key)))
     (out / ("artifact.html" if artifact else "index.html")).write_text("\n".join(parts))
 
 
+def comment(text):
+    """`text` as shell comment lines, every line prefixed (free text may contain line breaks)."""
+    return "\n".join("# " + line for line in (text or "").splitlines()) or "# "
+
+
+def one_line(text):
+    return " ".join((text or "").split())
+
+
 def print_answer_plan(answers_path, project):
-    """Dry run: translate an exported provenance-answers.json into the CLI calls it implies."""
+    """Dry run: translate an exported provenance-answers.json into the CLI calls it implies.
+    Everything that is not a command is printed as comment lines, one `# ` per line."""
     doc = json.load(open(answers_path))
     if doc.get("schema") != "provenance-answers/1":
         sys.exit(f"{answers_path}: not a provenance-answers/1 file")
@@ -367,7 +378,7 @@ def print_answer_plan(answers_path, project):
         else:
             video, field = key.rsplit(".", 1)
             per_video.setdefault(video, {})[field] = value
-    print(f"# answers exported {doc.get('exportedAt')} for {doc.get('project') or 'an unnamed project'}; dry run, nothing written")
+    print(comment(f"answers exported {one_line(doc.get('exportedAt'))} for {one_line(doc.get('project')) or 'an unnamed project'}; dry run, nothing written"))
     for video, f in sorted(per_video.items()):
         status = f.get("status") or "(no status)"
         if status == "confirmed" and (f.get("venueId") or f.get("sessionId")):
@@ -376,14 +387,14 @@ def print_answer_plan(answers_path, project):
                 args += ["--venue-id", f["venueId"]]
             if f.get("sessionId"):
                 args += ["--session-id", f["sessionId"]]
-            note = f"   # camera: {f['camera']}" if f.get("camera") else ""
+            note = f"   # camera: {one_line(f['camera'])}" if f.get("camera") else ""
             print(shlex.join(["RallyLab", "--project", str(project), "--set-provenance", video] + args) + note)
         else:
-            print(f"# {video}: {status}; venue={f.get('venueId') or '—'} session={f.get('sessionId') or '—'} — not applied"
-                  + (f" ({f['notes']})" if f.get("notes") else ""))
+            print(comment(f"{video}: {one_line(status)}; venue={one_line(f.get('venueId')) or '—'} session={one_line(f.get('sessionId')) or '—'} — not applied"
+                          + (f" ({f['notes']})" if f.get("notes") else "")))
     for gid, f in sorted(groups.items()):
-        print(f"# group {gid}: same outing = {f.get('sameOuting') or '—'}; preference = {f.get('preference') or '—'}"
-              + (f"; notes: {f['notes']}" if f.get("notes") else ""))
+        print(comment(f"group {gid}: same outing = {one_line(f.get('sameOuting')) or '—'}; preference = {one_line(f.get('preference')) or '—'}"
+                      + (f"; notes: {f['notes']}" if f.get("notes") else "")))
 
 
 def main():
