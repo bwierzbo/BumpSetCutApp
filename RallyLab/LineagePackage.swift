@@ -73,9 +73,15 @@ enum LineagePackage {
         var manifestHashes: DatasetSplitManifest.Hashes
         var audit: AuditSummary
         var withheld: [Withheld]
+        /// Every name validation.json withholds, expanded over the whole project — including
+        /// project videos that have no dataset session and so no `withheld` row. Their file
+        /// identities are still checked against every packaged source.
+        var withheldClosure: [String]
         var eligible: [Eligible]
 
         var withheldNames: Set<String> { Set(withheld.map(\.video)) }
+        /// Names whose source identities the preflight must know: the rows plus the closure.
+        var protectedNames: Set<String> { withheldNames.union(withheldClosure) }
         var eligibleNames: Set<String> { Set(eligible.map(\.video)) }
         var trainCount: Int { eligible.filter { $0.packageSplit == "train" }.count }
         var valCount: Int { eligible.filter { $0.packageSplit == "val" }.count }
@@ -158,7 +164,7 @@ enum LineagePackage {
         return Plan(lineage: lineage, project: manifest.project, createdAt: now, generator: generator,
                     manifestHashes: manifest.hashes,
                     audit: AuditSummary(hard: counts[.hard] ?? 0, soft: counts[.soft] ?? 0, info: counts[.info] ?? 0),
-                    withheld: withheld, eligible: eligible)
+                    withheld: withheld, withheldClosure: withheldClosure.sorted(), eligible: eligible)
     }
 
     // MARK: - Preflight of a written package
@@ -359,6 +365,16 @@ enum LineagePackage {
         }
         check("sources-not-protected", badSources,
               ok: "every packaged clip's video is fingerprinted and matches none of the \(protectedSources.count) withheld identities")
+        // The same footage on both sides of the package (two sessions, two project identities, one
+        // file) would let val score what train saw. Grouped by the file actually exported.
+        var byFingerprint: [String: [String]] = [:]
+        for (clip, entry) in windowsByClip { if let fp = sourceFingerprints[clip] { byFingerprint[fp, default: []].append(clip) }; _ = entry }
+        var shared: [String] = []
+        for (fp, clips) in byFingerprint {
+            let splits = Set(clips.flatMap { windowsByClip[$0]!.split })
+            if splits.isSuperset(of: ["train", "val"]) { shared.append("\(clips.sorted().joined(separator: "+")) share one video (\(fp.prefix(21))…) across train and val") }
+        }
+        check("sources-disjoint-across-splits", shared, ok: "no video file is packaged on both the train and the val side")
         let splits = Set(windowsByClip.values.flatMap(\.split))
         check("both-splits-present", splits.isSuperset(of: ["train", "val"]) ? [] : ["have: " + splits.sorted().joined(separator: ",")],
               ok: "train and val windows present")

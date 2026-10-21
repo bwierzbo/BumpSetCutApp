@@ -77,6 +77,7 @@ final class LineagePackageTests: XCTestCase {
                             manifestHashes: .init(projectJson: "p", sessions: "s", validationJson: "v"),
                             audit: .init(hard: 0, soft: 0, info: 0),
                             withheld: withheld.map { .init(video: $0, split: .lineageHoldout, reservedAs: "listed", aliasGroup: $0, identities: []) },
+                            withheldClosure: withheld,
                             eligible: eligible.map { .init(video: $0.0, split: $0.1 == "train" ? .train : .devVal, packageSplit: $0.1,
                                                            aliasGroup: $0.0, identities: [], reviewedFrames: 1, ralliesMarked: false) })
     }
@@ -102,6 +103,16 @@ final class LineagePackageTests: XCTestCase {
         XCTAssertTrue(plan.withheld.first { $0.video == "bch_n" }!.identities.contains("ses:2026-10-03"))
         XCTAssertEqual(plan.audit.hard, 0)
         XCTAssertTrue(LineagePackage.markdown(plan).contains("| bch_n | lineage_holdout | alias |"))
+    }
+
+    func testPlanCarriesTheFullWithheldClosureIncludingSessionlessVideos() throws {
+        // `ghost` is withheld (legacy holdout) but has no session: no manifest row, yet its file identities must be checked.
+        let clips = [F.clip("ghost", split: "val", videos: [F.source("ghost", uploader: "", fingerprint: "file:G")])]
+        let validation = PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2", "ghost"])
+        let plan = try planned(F.inputs(validation: validation, extraClips: clips))
+        XCTAssertEqual(plan.withheldNames, ["bch_a_v2"])
+        XCTAssertEqual(Set(plan.withheldClosure), ["bch_a_v2", "ghost"])
+        XCTAssertEqual(plan.protectedNames, ["bch_a_v2", "ghost"])
     }
 
     func testPlanRefusesAHardLeak() throws {
@@ -321,6 +332,34 @@ final class LineagePackageTests: XCTestCase {
         let dir = try writeCleanPackage()
         let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), sources: sources, protectedSources: protected)
         XCTAssertEqual(failed(p), ["sources-not-protected"])
+    }
+
+    func testSessionlessWithheldVideoStillProtectsItsCutFile() throws {
+        // `ghost` has no session and a link identity only; an eligible session exports a byte copy of its cut file.
+        try write(String(repeating: "ghost footage ", count: 8000), to: "footage/ghost_cut.mp4")
+        try FileManager.default.copyItem(at: root.appendingPathComponent("footage/ghost_cut.mp4"), to: root.appendingPathComponent("footage/t.mp4"))
+        try write("other", to: "footage/v.mp4")
+        let ghost = ClipSource(kind: .link, origin: "https://youtu.be/G", start: 0, length: 300, license: "permission", title: "t", uploader: "",
+                               clipFile: root.appendingPathComponent("footage/ghost_cut.mp4").path, fetchedAt: F.day, videoId: "ghost", frames: nil,
+                               fingerprint: "youtube:G", sourceId: nil, sessionId: nil, venueId: nil)
+        let t = VideoSession(name: "t", sourcePath: root.appendingPathComponent("footage/t.mp4").path, split: "train", addedAt: F.day, frames: [])
+        let v = VideoSession(name: "v", sourcePath: root.appendingPathComponent("footage/v.mp4").path, split: "val", addedAt: F.day, frames: [])
+        var thePlan = plan(eligible: [("t", "train"), ("v", "val")], withheld: [])
+        thePlan.withheldClosure = ["ghost"]
+        let protected = try LineagePackage.protectedSourceFingerprints(sessions: [t, v], withheld: thePlan.protectedNames, sources: ["ghost": ghost])
+        XCTAssertEqual(protected, ["youtube:G", ProjectsModel.fileFingerprint(atPath: root.appendingPathComponent("footage/ghost_cut.mp4").path)!])
+        let dir = try writeCleanPackage()
+        let p = try preflight(dir, plan: thePlan, sources: try LineagePackage.sourceFingerprints(of: [t, v]), protectedSources: protected)
+        XCTAssertEqual(failed(p), ["sources-not-protected"])
+        XCTAssertTrue(p.checks.first { $0.name == "sources-not-protected" }!.detail.contains("t: its video is a withheld recording's"))
+    }
+
+    func testPreflightRejectsOneVideoOnBothSidesOfThePackage() throws {
+        // Distinct manifest identities, identical source bytes: train and val would share footage.
+        let dir = try writeCleanPackage()
+        let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), sources: ["t": "file:SAME", "v": "file:SAME"])
+        XCTAssertEqual(failed(p), ["sources-disjoint-across-splits"])
+        XCTAssertTrue(p.checks.first { $0.name == "sources-disjoint-across-splits" }!.detail.contains("t+v share one video"))
     }
 
     func testSourceChecksFailClosed() throws {

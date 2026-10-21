@@ -812,7 +812,7 @@ enum HeadlessProjects {
         let protected: Set<String>, protectedSources: Set<String>, eligibleSources: [String: String]
         do {
             protected = try LineagePackage.protectedFrameHashes(sessions: projects.sampler.sessions, withheld: plan.withheldNames, store: store)
-            protectedSources = try LineagePackage.protectedSourceFingerprints(sessions: projects.sampler.sessions, withheld: plan.withheldNames,
+            protectedSources = try LineagePackage.protectedSourceFingerprints(sessions: projects.sampler.sessions, withheld: plan.protectedNames,
                                                                              sources: ReservedVideos.sources(in: dir))
             eligibleSources = try LineagePackage.sourceFingerprints(of: sessions)
         } catch {
