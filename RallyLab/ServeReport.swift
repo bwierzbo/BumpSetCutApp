@@ -35,7 +35,12 @@ enum ServeReport {
             log("❌ \(error.localizedDescription)")
             return false
         }
-        let clash = (set.tune + set.holdout).filter { set.reservedAsListed.contains($0) }
+        let reserved: Set<String>
+        do { reserved = try ReservedVideos.reservedNames(in: sampler.datasetRoot) } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
+        let clash = (set.tune + set.holdout).filter { reserved.contains($0) }   // listed names and their aliases
         guard clash.isEmpty else {
             log("❌ Reserved final-test videos are also listed as tune/holdout: \(clash.joined(separator: ", ")). Fix validation.json (D-002).")
             return false

@@ -51,7 +51,11 @@ enum YouTubeSourceIDs {
                 plan.ambiguous.append(Ambiguous(video: video, reason: "no video ID could be parsed from \(origin)"))
                 continue
             }
-            if let stored = s.fingerprint, stored != parsed {
+            guard let stored = s.fingerprint else {
+                plan.ambiguous.append(Ambiguous(video: video, reason: "no stored fingerprint to check the link against (older record); confirm by hand with --set-provenance"))
+                continue
+            }
+            guard stored == parsed else {
                 plan.ambiguous.append(Ambiguous(video: video, reason: "stored fingerprint \(stored) differs from the link's \(parsed)"))
                 continue
             }
@@ -67,7 +71,7 @@ enum YouTubeSourceIDs {
 
     static func markdown(_ plan: Plan, applied: Bool) -> String {
         var md = "# YouTube source IDs — \(applied ? "applied" : "preview")\n\n"
-        md += "Rule: `sourceId = youtube:<id>` only when the ID parsed from the origin link equals the stored fingerprint and the link is a YouTube host. "
+        md += "Rule: `sourceId = youtube:<id>` only when a stored fingerprint exists and equals the ID parsed from the origin link, and the link is a YouTube host. "
         md += "What this confirms is the identity of the YouTube video that was fetched; whether that video is itself the original upload cannot be verified offline and is not claimed. "
         md += "Reversible with `RallyLab --project <name> --set-provenance <video> --source-id \"\"`.\n\n"
         md += "| Count | |\n|---|---|\n| proposed | \(plan.proposals.count) |\n| already confirmed | \(plan.alreadyConfirmed.count) |\n| ambiguous (left unconfirmed) | \(plan.ambiguous.count) |\n\n"

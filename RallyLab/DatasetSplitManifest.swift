@@ -246,13 +246,30 @@ struct DatasetSplitManifest: Codable {
     /// exports/<folder>/windows.jsonl (which clips a package holds; zipped
     /// packages are not opened), and manifests/exposure-seed.json (uses the
     /// implementer recorded by hand, each with a note saying where from).
+    enum DiscoveryError: LocalizedError {
+        case unreadable(URL)
+        var errorDescription: String? {
+            switch self {
+            case .unreadable(let dir):
+                return "\(dir.path) exists but can't be listed, so the exposure it holds is unknown. Fix access to it before building a manifest or reserving anything."
+            }
+        }
+    }
+
+    /// The directory's entries; [] when it does not exist; throws when it
+    /// exists but can't be listed (history unknown is not history empty).
+    private static func entries(of dir: URL, keys: [URLResourceKey] = []) throws -> [URL] {
+        guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
+        do { return try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) }
+        catch { throw DiscoveryError.unreadable(dir) }
+    }
+
     static func discoverExposure(in projectDir: URL) throws -> [String: [ExposureRecord]] {
-        let fm = FileManager.default
         var found: [String: Set<ExposureRecord>] = [:]
         func add(_ video: String, _ record: ExposureRecord) { found[video, default: []].insert(record) }
 
         let scores = projectDir.appendingPathComponent("scores", isDirectory: true)
-        for export in (try? fm.contentsOfDirectory(at: scores, includingPropertiesForKeys: nil)) ?? [] {
+        for export in try entries(of: scores) {
             let file = export.appendingPathComponent("scores.json")
             guard let data = try? Data(contentsOf: file),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -264,7 +281,7 @@ struct DatasetSplitManifest: Codable {
         }
 
         let exports = projectDir.appendingPathComponent("exports", isDirectory: true)
-        for folder in (try? fm.contentsOfDirectory(at: exports, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
+        for folder in try entries(of: exports, keys: [.isDirectoryKey]) {
             guard (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
             let windows = folder.appendingPathComponent("windows.jsonl")
             guard let text = try? String(contentsOf: windows, encoding: .utf8) else { continue }
@@ -281,7 +298,7 @@ struct DatasetSplitManifest: Codable {
         }
 
         // Single-frame (YOLO) packages keep a manifest.csv (image,clip,split,…).
-        for folder in (try? fm.contentsOfDirectory(at: exports, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
+        for folder in try entries(of: exports, keys: [.isDirectoryKey]) {
             guard (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
             let csv = folder.appendingPathComponent("manifest.csv")
             guard let text = try? String(contentsOf: csv, encoding: .utf8) else { continue }
@@ -312,7 +329,7 @@ struct DatasetSplitManifest: Codable {
             }
         }
         let evidence = projectDir.appendingPathComponent("pipeline_tuning/evidence", isDirectory: true)
-        for file in (try? fm.contentsOfDirectory(at: evidence, includingPropertiesForKeys: nil)) ?? [] where file.pathExtension == "evidence" {
+        for file in try entries(of: evidence) where file.pathExtension == "evidence" {
             let name = file.deletingPathExtension().lastPathComponent
             guard let sep = name.range(of: "__") else { continue }
             add(String(name[..<sep.lowerBound]), ExposureRecord(kind: .rallyScoring, ref: "pipeline_tuning/evidence", date: isoDay(of: file),

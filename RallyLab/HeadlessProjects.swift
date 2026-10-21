@@ -643,23 +643,30 @@ enum HeadlessProjects {
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmm"
         let stamp = f.string(from: Date())
+        // The report (every prior value, every proposed change) is written and read back
+        // BEFORE anything is mutated, so a failed write never leaves changes unrecorded.
+        let base = out.appendingPathComponent("youtube-source-ids-\(stamp)\(apply ? "-applied" : "-preview")")
+        do {
+            let md = base.appendingPathExtension("md"), json = base.appendingPathExtension("json")
+            try YouTubeSourceIDs.markdown(plan, applied: apply).write(to: md, atomically: true, encoding: .utf8)
+            let rows = plan.proposals.map { ["video": $0.video, "sourceId": $0.sourceId, "previous": $0.previous ?? "", "origin": $0.origin] }
+                + plan.ambiguous.map { ["video": $0.video, "ambiguous": $0.reason] }
+            try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]).write(to: json)
+            guard (try? String(contentsOf: md, encoding: .utf8))?.isEmpty == false,
+                  (try? Data(contentsOf: json))?.isEmpty == false else { throw CocoaError(.fileReadCorruptFile) }
+        } catch {
+            log("❌ Couldn't write the report; nothing was changed: \(error.localizedDescription)")
+            return false
+        }
         var applied = 0
         if apply {
             for p in plan.proposals where projects.setProvenance(videoId: p.video, sourceId: p.sourceId, sessionId: nil, venueId: nil) { applied += 1 }
             guard applied == plan.proposals.count else {
-                log("❌ Applied \(applied) of \(plan.proposals.count) — check the report and project.json.")
+                let note = "\n\n**Partial apply: \(applied) of \(plan.proposals.count) written.** Check project.json against the table above.\n"
+                if let h = try? FileHandle(forWritingTo: base.appendingPathExtension("md")) { h.seekToEndOfFile(); h.write(Data(note.utf8)); try? h.close() }
+                log("❌ Applied \(applied) of \(plan.proposals.count) — see \(base.lastPathComponent).md and project.json.")
                 return false
             }
-        }
-        let base = out.appendingPathComponent("youtube-source-ids-\(stamp)\(apply ? "-applied" : "-preview")")
-        do {
-            try YouTubeSourceIDs.markdown(plan, applied: apply).write(to: base.appendingPathExtension("md"), atomically: true, encoding: .utf8)
-            let rows = plan.proposals.map { ["video": $0.video, "sourceId": $0.sourceId, "previous": $0.previous ?? "", "origin": $0.origin] }
-                + plan.ambiguous.map { ["video": $0.video, "ambiguous": $0.reason] }
-            try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]).write(to: base.appendingPathExtension("json"))
-        } catch {
-            log("❌ Couldn't write the report: \(error.localizedDescription)")
-            return false
         }
         log("\(apply ? "✅ Confirmed" : "Preview:") \(plan.proposals.count) YouTube source ID(s) · \(plan.alreadyConfirmed.count) already confirmed · \(plan.ambiguous.count) ambiguous (unchanged) → \(base.lastPathComponent).md")
         for a in plan.ambiguous { log("  ambiguous: \(a.video) — \(a.reason)") }

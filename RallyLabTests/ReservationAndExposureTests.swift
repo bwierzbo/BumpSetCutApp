@@ -306,12 +306,23 @@ final class ReservationAndExposureTests: XCTestCase {
         var done = F.source("v_done", fingerprint: "youtube:abc123DEF45", sourceId: "youtube:abc123DEF45"); done.origin = "https://youtu.be/abc123DEF45"
         var conflict = F.source("v_conflict", fingerprint: "youtube:abc123DEF45", sourceId: "src-manual"); conflict.origin = "https://youtu.be/abc123DEF45"
         var local = F.source("v_local", fingerprint: "file:aa"); local.kind = .file; local.origin = "/Users/x/own.mov"
-        let plan = YouTubeSourceIDs.plan(sources: ["v_good": good, "v_shorts": shorts, "v_mismatch": mismatch, "v_vimeo": vimeo, "v_done": done, "v_conflict": conflict, "v_local": local])
+        var nofp = F.source("v_nofp", fingerprint: nil); nofp.origin = "https://youtu.be/abc123DEF45"
+        let all = ["v_good": good, "v_shorts": shorts, "v_mismatch": mismatch, "v_vimeo": vimeo, "v_done": done, "v_conflict": conflict, "v_local": local, "v_nofp": nofp]
+        let plan = YouTubeSourceIDs.plan(sources: all)
         XCTAssertEqual(plan.proposals.map(\.video), ["v_good", "v_shorts"])
         XCTAssertEqual(plan.proposals.map(\.sourceId), ["youtube:abc123DEF45", "youtube:zzz999ZZZ99"])
         XCTAssertEqual(plan.alreadyConfirmed, ["v_done"])
-        XCTAssertEqual(Set(plan.ambiguous.map(\.video)), ["v_mismatch", "v_vimeo", "v_conflict"])
-        XCTAssertEqual(plan, YouTubeSourceIDs.plan(sources: ["v_good": good, "v_shorts": shorts, "v_mismatch": mismatch, "v_vimeo": vimeo, "v_done": done, "v_conflict": conflict, "v_local": local]), "deterministic")
+        XCTAssertEqual(Set(plan.ambiguous.map(\.video)), ["v_mismatch", "v_vimeo", "v_conflict", "v_nofp"], "a link alone never confirms: a stored fingerprint must agree")
+        XCTAssertEqual(plan, YouTubeSourceIDs.plan(sources: all), "deterministic")
+    }
+
+    func testUnlistableArtefactDirectoryFailsDiscovery() throws {
+        // A file where pipeline_tuning/evidence should be: it exists but cannot be listed.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("pipeline_tuning"), withIntermediateDirectories: true)
+        try "x".write(to: root.appendingPathComponent("pipeline_tuning/evidence"), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try DatasetSplitManifest.discoverExposure(in: root)) { error in
+            guard case DatasetSplitManifest.DiscoveryError.unreadable = error else { return XCTFail("\(error)") }
+        }
     }
 
     func testLoggedExposureBlocksFinalTestReservation() throws {
