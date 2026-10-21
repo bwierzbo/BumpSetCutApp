@@ -282,9 +282,9 @@ enum HeadlessProjects {
                 for clip in args[(i + 1)...].prefix(while: { !$0.hasPrefix("--") }) {
                     guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not scored."); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
+                    guard recorded([session.name], .rallyScoring, ref: "--diagnose-rallies", note: "ball model \(config.ballModel.rawValue)", in: projectRoot) else { ok = false; break }
                     log("\(clip):")
                     guard let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) else { log("   no rally times or couldn't process"); continue }
-                    guard recorded([session.name], .rallyScoring, ref: "--diagnose-rallies", note: "ball model \(config.ballModel.rawValue)", in: projectRoot) else { ok = false; break }
                     var t = RallyCutScore.Tally()
                     t.add(clips: v.clips, truth: v.truth)
                     log("   " + t.line)
@@ -294,7 +294,7 @@ enum HeadlessProjects {
             if ok, let i = args.firstIndex(of: "--score-rallies") {
                 let named = args[(i + 1)...].prefix { !$0.hasPrefix("--") }
                 for n in named where reserved.contains(n) { log("⛔ \(n) is reserved as final_test (D-002) — not scored.") }
-                let sessions = projects.sampler.sessions.filter {
+                var sessions = projects.sampler.sessions.filter {
                     (named.isEmpty ? ($0.ralliesMarked ?? false) : named.contains($0.name)) && !reserved.contains($0.name)
                 }
                 var config = ProcessorConfig()
@@ -311,14 +311,17 @@ enum HeadlessProjects {
                     config.heatmapOnly = false
                     log("ball finder: YOLO only")
                 }
+                // Exposure is recorded before the first pipeline runs, so an interrupted run is still on record (D-002).
+                if !recorded(Set(sessions.map(\.name)), .rallyScoring, ref: "--score-rallies",
+                             note: "ball model \(config.ballModel.rawValue)\(config.heatmapModel == nil ? "" : " + multi-frame")", in: projectRoot) {
+                    ok = false
+                    sessions = []
+                }
                 var videos: [RallyCutScore.Video] = []
                 for session in sessions {
                     log("\(session.name) (\(session.split))…")
-                    if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) {
-                        videos.append(v)
-                        guard recorded([session.name], .rallyScoring, ref: "--score-rallies",
-                                       note: "ball model \(config.ballModel.rawValue)\(config.heatmapModel == nil ? "" : " + multi-frame")", in: projectRoot) else { ok = false; break }
-                    } else { log("   no rally times or couldn't process") }
+                    if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) { videos.append(v) }
+                    else { log("   no rally times or couldn't process") }
                 }
                 if videos.isEmpty { log("❌ No fully marked videos (Track tab → Rally times → Whole video marked).") }
                 else { RallyCutScore.report(videos, log: log) }
@@ -342,8 +345,8 @@ enum HeadlessProjects {
                     finder = config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame"
                 }
                 log("\(session.name): pipeline (\(finder))…")
+                guard recorded([session.name], .rallyScoring, ref: "--render-pipeline", note: finder, in: projectRoot) else { ok = false; exit(1) }
                 if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) {
-                    guard recorded([session.name], .rallyScoring, ref: "--render-pipeline", note: finder, in: projectRoot) else { ok = false; exit(1) }
                     let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
                     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     for (start, length) in stretches {
@@ -367,8 +370,8 @@ enum HeadlessProjects {
                     var sdr = ProcessorConfig()
                     sdr.standardColorFrames = true
                     log("\(clip)…")
-                    guard let (raw, std) = await PipelineCompare.run(session: session, a: ProcessorConfig(), b: sdr) else { log("   couldn't process"); continue }
                     guard recorded([session.name], .rallyScoring, ref: "--compare-color", note: nil, in: projectRoot) else { ok = false; break }
+                    guard let (raw, std) = await PipelineCompare.run(session: session, a: ProcessorConfig(), b: sdr) else { log("   couldn't process"); continue }
                     log("   raw frames     : " + PipelineCompare.describe(raw))
                     log("   standard colour: " + PipelineCompare.describe(std))
                 }
@@ -379,8 +382,8 @@ enum HeadlessProjects {
                     guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not compared."); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     log("\(clip) (\(session.split), \((session.tracks ?? []).filter(\.done).count) done tracked rallies)…")
-                    guard let (off, on) = await PipelineCompare.run(session: session, heatModel: model) else { log("   couldn't process"); continue }
                     guard recorded([session.name], .rallyScoring, ref: "--pipeline-compare " + model.deletingPathExtension().lastPathComponent, note: nil, in: projectRoot) else { ok = false; break }
+                    guard let (off, on) = await PipelineCompare.run(session: session, heatModel: model) else { log("   couldn't process"); continue }
                     log("   YOLO only        : " + PipelineCompare.describe(off))
                     log("   YOLO + multi-frame: " + PipelineCompare.describe(on))
                 }
@@ -640,8 +643,12 @@ enum HeadlessProjects {
             projectJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("project.json")),
             sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: dir.appendingPathComponent("sessions", isDirectory: true)),
             validationJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("pipeline_tuning/validation.json")))
-        let validation: PipelineTuner.ValidationSet?
-        do { validation = try PipelineTuner.ValidationSet.loadStrict(from: dir) } catch {
+        var validation: PipelineTuner.ValidationSet?
+        do {
+            validation = try PipelineTuner.ValidationSet.loadStrict(from: dir)
+            // Aliases of a reserved recording (same file or confirmed identity) are reserved with it.
+            if validation != nil { validation?.finalTest = Array(try ReservedVideos.reservedNames(in: dir)).sorted() }
+        } catch {
             log("❌ \(error.localizedDescription)")
             return false
         }

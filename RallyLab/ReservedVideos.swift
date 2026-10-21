@@ -16,11 +16,8 @@ enum ReservedVideos {
         let reserved: Bool
     }
 
-    /// The project video `url` is, or nil for a file that is not one of the
-    /// project's videos. Throws when the reservations can't be read.
-    static func match(_ url: URL, root: URL) throws -> Match? {
-        let reserved = try PipelineTuner.ValidationSet.finalTestNames(in: root)
-        let sessions = DatasetStore(root: root).loadSessions()
+    /// The project's videos by session name, from project.json (empty when there is none).
+    static func sources(in root: URL) -> [String: ClipSource] {
         let project = (try? Data(contentsOf: root.appendingPathComponent("project.json"))).flatMap { data -> Project? in
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -30,6 +27,39 @@ enum ReservedVideos {
         for clip in project?.clips ?? [] {
             for video in clip.videos { sources[DatasetStore.safeName(clip.videoId(of: video))] = video }
         }
+        return sources
+    }
+
+    /// Every session that must be treated as reserved: the names in
+    /// validation.json `finalTest` plus every alias — a session whose video
+    /// shares a file fingerprint or a confirmed sourceId / sessionId /
+    /// venueId with a reserved one. A reservation names a recording, not a
+    /// filename. Throws when validation.json exists but can't be read.
+    static func reservedNames(in root: URL) throws -> Set<String> {
+        let named = Set(try PipelineTuner.ValidationSet.loadStrict(from: root)?.finalTest ?? [])
+        guard !named.isEmpty else { return [] }
+        let sources = sources(in: root)
+        func identities(_ s: ClipSource) -> Set<String> {
+            var ids = Set<String>()
+            if let f = s.fingerprint { ids.insert("fp:" + f) }
+            if let v = s.sourceId, !v.isEmpty { ids.insert("src:" + v) }
+            if let v = s.sessionId, !v.isEmpty { ids.insert("ses:" + v) }
+            if let v = s.venueId, !v.isEmpty { ids.insert("ven:" + v) }
+            return ids
+        }
+        var reservedIds = Set<String>()
+        for name in named { if let s = sources[name] { reservedIds.formUnion(identities(s)) } }
+        var all = named
+        for (name, source) in sources where !identities(source).isDisjoint(with: reservedIds) { all.insert(name) }
+        return all
+    }
+
+    /// The project video `url` is, or nil for a file that is not one of the
+    /// project's videos. Throws when the reservations can't be read.
+    static func match(_ url: URL, root: URL) throws -> Match? {
+        let reserved = try reservedNames(in: root)
+        let sessions = DatasetStore(root: root).loadSessions()
+        let sources = sources(in: root)
         let path = url.standardizedFileURL.path
         let base = url.lastPathComponent
         lazy var print: String? = ProjectsModel.fileFingerprint(atPath: path)

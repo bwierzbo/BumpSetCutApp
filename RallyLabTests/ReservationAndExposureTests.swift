@@ -219,6 +219,23 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertNil(try ReservedVideos.match(other, root: root), "a file that is not a project video")
     }
 
+    func testAliasesOfAReservedRecordingAreReservedToo() throws {
+        let F = DatasetSplitManifestTests.self
+        // Two sessions, one file (same fingerprint); a third shares a confirmed venue; a fourth is unrelated.
+        let project = Project(name: "T", createdAt: F.day, framesPerRally: 40, clips: [
+            F.clip("bch_a", split: "val", videos: [F.source("bch_a", fingerprint: "youtube:SAME", venueId: "venue-1")]),
+            F.clip("bch_copy", split: "train", videos: [F.source("bch_copy", fingerprint: "youtube:SAME")]),
+            F.clip("bch_same_venue", split: "train", videos: [F.source("bch_same_venue", fingerprint: "youtube:OTHER", venueId: "venue-1")]),
+            F.clip("grs_other", split: "train", videos: [F.source("grs_other", fingerprint: "youtube:X")]),
+        ])
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        try enc.encode(project).write(to: root.appendingPathComponent("project.json"))
+        try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["bch_a"]}"#)
+        XCTAssertEqual(try ReservedVideos.reservedNames(in: root), ["bch_a", "bch_copy", "bch_same_venue"])
+        XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["bch_a", "bch_copy", "bch_same_venue"],
+                       "every package/score/tune/pre-track filter sees the aliases")
+    }
+
     func testLoggedExposureBlocksFinalTestReservation() throws {
         try ExposureLog.record(videos: ["bch_a_v3"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
         var inputs = DatasetSplitManifestTests.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["bch_a_v3"]))

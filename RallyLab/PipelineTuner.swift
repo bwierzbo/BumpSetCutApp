@@ -148,9 +148,11 @@ enum PipelineTuner {
         }
 
         /// Sessions that must stay out of every package, score run, tuning
-        /// and pre-tracking (D-002). Fails closed: unreadable file → throws.
+        /// and pre-tracking (D-002): the listed names and their aliases (same
+        /// file or confirmed identity under another session name). Fails
+        /// closed: unreadable file → throws.
         static func finalTestNames(in datasetRoot: URL) throws -> Set<String> {
-            Set(try loadStrict(from: datasetRoot)?.finalTest ?? [])
+            try ReservedVideos.reservedNames(in: datasetRoot)
         }
 
         static func load(from datasetRoot: URL) -> ValidationSet? {
