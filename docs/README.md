@@ -11,7 +11,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 ## Decisions
 
-- [Decision log](decisions/DECISION_LOG.md) — authoritative; D-001 … D-016.
+- [Decision log](decisions/DECISION_LOG.md) — authoritative; D-001 … D-016, D-017 proposed.
 - [Owner decisions, 2026-10-20](decisions/2026-10-20-phase0-owner-decisions.md) — verbatim primary source for D-001 … D-010.
 - [Decision template](templates/DECISION.md).
 
@@ -22,7 +22,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 - [Experiment registry](ml-roadmap/EXPERIMENT_REGISTRY.md) — links issues ↔ experiments ↔ dataset/split versions ↔ model versions ↔ test results ↔ PRs. Historical rows recovered from memory notes.
 - [Provenance audit, 2026-10-21](ml-roadmap/PROVENANCE_AUDIT_2026-10-21.md) — Task B.1 result on Scratch: split manifest, exposure history, the one hard leak, final-test candidates, and the five decisions for the owner.
 - [Provenance questions, 2026-10-21](ml-roadmap/PROVENANCE_QUESTIONS_2026-10-21.md) — what only the owner can answer after D-015: Q0 (pre-tracking) is settled by D-016; venue/session for the seven candidates and the legacy-holdout uploader overlap are answered on the review page.
-- [Visual provenance review, 2026-10-21](ml-roadmap/PROVENANCE_REVIEW_2026-10-21.md) — how to generate and use the local frame-review page (`scripts/provenance_review.py`), the thumbnail → recording mapping, the answer file format, and what provenance is still unknown.
+- [Visual provenance review, 2026-10-21](ml-roadmap/PROVENANCE_REVIEW_2026-10-21.md) — how to generate and use the local frame-review page (`scripts/provenance_review.py`), the thumbnail → recording mapping, the answer file format, the answers applied on 2026-10-21 and the reservation consequence awaiting D-017.
 - `ml-roadmap/manifests/<project>/` — committed `manifest.json` / `audit.json` (+ `.md`) per project, regenerated with `RallyLab --project <name> --audit-dataset`; also the YouTube source-ID reports and validation.json before/after copies.
 - [Experiment template](templates/EXPERIMENT.md).
 - `ml-roadmap/experiments/` — one record per experiment (created as experiments run).

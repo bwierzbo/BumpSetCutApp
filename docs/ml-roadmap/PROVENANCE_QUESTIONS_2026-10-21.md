@@ -1,8 +1,8 @@
 ---
 name: provenance-questions-2026-10-21
-status: Q0 answered (D-016); Q1–Q3 answered on the review page; Q4 deferred
+status: Q0 → D-016; Q1–Q3 answered and applied 2026-10-21 (see PROVENANCE_REVIEW); Q4 deferred
 created: 2026-10-21T05:20:00Z
-updated: 2026-10-21T14:22:38Z
+updated: 2026-10-21T17:20:09Z
 decisions: D-015, D-016
 ---
 
@@ -10,7 +10,7 @@ decisions: D-015, D-016
 
 Everything D-015 asked for that does not need your answer is done (see [PROVENANCE_AUDIT_2026-10-21.md](PROVENANCE_AUDIT_2026-10-21.md) § "Decisions applied"). What remains needs facts only you have.
 
-**Status 2026-10-21.** Q0 is decided: [D-016](../decisions/DECISION_LOG.md#d-016), option (a) strict. Q1–Q3 are answered by looking at frames on the local review page described in [PROVENANCE_REVIEW_2026-10-21.md](PROVENANCE_REVIEW_2026-10-21.md) (`scripts/provenance_review.py`); the exported answer file is applied with `--set-provenance` in a reviewed PR and nothing is inferred. Q4 stays deferred.
+**Status 2026-10-21.** Q0 is decided: [D-016](../decisions/DECISION_LOG.md#d-016), option (a) strict. Q1–Q3 were answered on the review page and applied on 2026-10-21 (20 videos; table and consequences in PROVENANCE_REVIEW_2026-10-21.md § "Answers applied") described in [PROVENANCE_REVIEW_2026-10-21.md](PROVENANCE_REVIEW_2026-10-21.md) (`scripts/provenance_review.py`); the exported answer file is applied with `--set-provenance` in a reviewed PR and nothing is inferred. Q4 stays deferred.
 
 ## Q0 — A ruling first: does pre-tracking count as exposure?
 

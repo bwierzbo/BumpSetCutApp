@@ -1,9 +1,9 @@
 ---
 name: provenance-review-2026-10-21
-status: awaiting owner answers
+status: answers applied; D-017 (reservation closure) awaiting owner
 created: 2026-10-21T14:22:38Z
-updated: 2026-10-21T14:22:38Z
-decisions: D-015, D-016
+updated: 2026-10-21T17:45:00Z
+decisions: D-015, D-016, D-017 (proposed)
 ---
 
 # Task B.1 — visual provenance review
@@ -80,3 +80,49 @@ All 22 had a review proxy on the Mac; no recording is missing from the page.
 2. Implementer runs the dry run, opens a PR that applies the *confirmed* rows with `--set-provenance`, commits the before/after report and the regenerated manifest/audit, and states the group verdicts and preferences in the PR.
 3. The audit decides what the answers imply (training neighbours sharing a venue/session with a candidate; Dianne Gan venues). Any split change is a further owner decision.
 4. Task B.2 starts only after that PR is reviewed.
+
+## Answers applied (2026-10-21, PR `data/provenance-answers`)
+
+The owner answered every recording on the phone page (22 recordings, 8 groups, read from the artifact store) and settled the follow-up questions in chat. The resolved answer file is committed as [`manifests/Scratch/provenance-review/answers-2026-10-21.json`](manifests/Scratch/provenance-review/answers-2026-10-21.json); its `source` field says where each value came from.
+
+**Session dates.** The owner did not know dates ("unless it's on metadata"). The imported footage files carry no capture date (the RallyLab import strips the QuickTime `mvhd`/`udta` metadata; checked on the desktop copies), but the original `IMG_*.MOV` files are still in the Mac Photos library, whose database records the capture date. The dates were read from a read-only copy of `Photos.sqlite` (`ZASSET.ZDATECREATED` joined to `ZADDITIONALASSETATTRIBUTES.ZORIGINALFILENAME`), the copy was deleted, and the owner accepted them as `sessionId`. The YouTube recordings have no date.
+
+| Video | venueId | sessionId | camera | Note |
+|---|---|---|---|---|
+| bch_extra_self_05 (candidate) | beach-colorado-memorialpark | 2026-10-03 | tripod-corner | same outing as _29/_30/_31 (11:00–11:35) |
+| bch_extra_self_29 / _30 / _31 | beach-colorado-memorialpark | 2026-10-03 | tripod rightback / backleft / sideview | |
+| bch_extra_self_18 (candidate) | beach-florida-nsb | 2022-09-05 | tripod-backright | |
+| bch_extra_self_10 | beach-florida-nsb | 2022-09-10 | tripod-backright | same venue as _18, different day |
+| bch_extra_self_02 | beach-florida-daytonaboardwalk | 2022-09-13 | tripod-back | |
+| grs_extra_self_06 (candidate) / _12 | grass-florida-jacksonville | 2022-10-09 | tripod back / backright | same outing |
+| grs_extra_self_07 (candidate) / _02 | grass-florida-orlando | 2024-10-20 | tripod back / backleft | same day, different court and game |
+| grs_extra_self_14 (candidate) / _15 | grass-colorado-breck | 2026-07-26 | tripod back | same venue and day, different games |
+| grs_extra_self_16 | grass-colorado-springspark | 2026-07-30 | tripod-backleft | |
+| grs_extra_self_21 (candidate) / _20 | grass-colorado-aspen | 2026-09-06 | tripod backleft / back | same day, different court and game |
+| ind_extra_self_09 (candidate) / _06 | indoor-florida-ova | 2024-12-14 | tripod-backright | same outing |
+| bch_onl_sun_land_onl_03, _v2 | beach-washington-alki | — | tripod-back | same source video |
+| grs_onl_sun_land_onl_04, grs_sid_shade_land_self_02_v2 | *(unknown, left unset)* | — | tripod-back | owner: the two share one venue, location unknown |
+
+Applied with 20 `RallyLab --project Scratch --set-provenance …` calls (log: 20 × "Provenance saved"). Before/after diff of `project.json`: 38 field changes on 20 videos, all `venueId`/`sessionId` from unset to the values above, nothing else changed (121 clips before and after; sha `463042ef707e8360` → `65243bca59895a7e`; backup at `manifests/project.json.before-20261021-1700`). Camera and notes have no field in `ClipSource`; they live in the answer file only.
+
+**Audit after the writes** (`--audit-dataset`, exit 0): 0 hard, 8 soft (unchanged), 16 `CANDIDATE-BLOCKED`, 3 info. Hashes: project.json `65243bca59895a7e`, sessions `06ed23f06ccd23ce` (unchanged), validation.json `4d4b4368ae3decad` (unchanged).
+
+### Consequence the owner must decide: the reservation closure grew from 7 to 16 videos
+
+A reservation covers every video that shares a file fingerprint **or a confirmed sourceId, sessionId or venueId** with a reserved one (`ReservedVideos.identities`, PR #66). Confirming venues and sessions therefore pulled nine **training** recordings into the candidates' alias groups: `bch_extra_self_29/30/31` and `grs_extra_self_12`, `grs_extra_self_02`, `grs_extra_self_15`, `grs_extra_self_20`, `ind_extra_self_06` (same outing as a candidate) and `bch_extra_self_10` (same venue as `bch_extra_self_18`, a different day). The manifest now reports them as `final_test_candidate` with `reservedAs: alias`, `unreservedSplit: train`; **train is 142 → 133**. Every package, score, tune and pre-track path refuses them from now on. `validation.json` was not touched; this follows from the data alone. It conflicts with the owner's answer on the review page ("leave training as it is", group bch_extra_self_05).
+
+Options (decision [D-017](../decisions/DECISION_LOG.md#d-017), proposed). A constraint applies to all of them: the audit treats a confirmed `sessionId` or `venueId` shared across two splits as a **hard** leak (`SESSION-SHARED` / `VENUE-SHARED`, proven identity, `DatasetAudit.run`), so whatever is decided, every confirmed group has to end up in one split.
+
+- **(a) Keep the venue-level closure.** The nine stay reserved; the candidates' venues are off limits to training. Most conservative; costs 9 of 142 training recordings for candidates that D-016 already makes unpromotable.
+- **(b) Narrow identity to fingerprint + sourceId + sessionId.** Code change in `ReservedVideos.identities` and the matching audit rule (`VENUE-SHARED` would have to become soft, or the venue overlap `bch_extra_self_18` / `bch_extra_self_10` is a hard leak). Same outing still aliases; same venue on another day does not. Eight of the nine stay reserved; `bch_extra_self_10` returns to train. Weakens the venue guarantee for every future split.
+- **(c) Withdraw the seven from `finalTestCandidates` and move each to its group's split** (recommended). Under D-016 none can become `final_test`; protecting them only costs training data. Each candidate joins the split of its confirmed group: the six with training neighbours and `bch_extra_self_18` (same venue as `bch_extra_self_10`, train) all go to **train** (`sessions/*.json` split `val` → `train`; they carry no reviewed frames, so training gains nothing until they are labeled). dev_val stays at its current 4, train becomes 149, reservations go back to none, no confirmed group straddles a split. Simply returning them to `dev_val` is **not** an option: it would put `bch_extra_self_05` in validation with `_29/_30/_31` from the same outing in training, a hard leak by the audit's own rule. The independent final test is collected at venues other than the eleven now named.
+
+Until the owner decides, the project stays as the writes left it (16 reserved). Nothing has been trained or packaged in that state.
+
+### Gap found on the way: `BallPathBuilder` runs the pipeline unlogged
+
+Opening a recording in the Label or Live-tag tab builds its ball path by running `VideoProcessor` over the whole video (`BallPathBuilder.ensure`, since f63bfe0). That path neither refuses reserved recordings nor records exposure (D-002 consumer list in `CLAUDE.md` does not name it). A labeler opening one of the candidates in the GUI would run a detector over it with no ledger row. Proposed fix (separate small PR, not started): `BallPathBuilder.run` refuses reserved videos and records `pre_tracking`-class exposure before running, through the shared function.
+
+### Note on running RallyLab headless from zsh
+
+`"$BIN" $args` in zsh passes `$args` as one word (no word splitting), so RallyLab sees no `--project` and launches the GUI, which restores the last video and runs the pipeline on it. Use a bash script or an array. The one stray launch during this work processed a file in `~/Downloads` (not a project video, no ledger entry) and re-saved the session files byte-identically (digest unchanged); it was killed before the second command.
