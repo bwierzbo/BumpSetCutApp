@@ -53,6 +53,9 @@ enum TrainingPackage {
 
     /// Write the package and its zip. Returns the zip's URL and the summary.
     static func export(sessions: [VideoSession], store: DatasetStore, name: String) async throws -> (zip: URL, summary: Summary) {
+        // Final-test recordings (D-002) never enter a package, train or val.
+        let finalTest = PipelineTuner.ValidationSet.finalTestNames(in: store.root)
+        let sessions = sessions.filter { !finalTest.contains($0.name) }
         let frames = sessions.flatMap { session in
             session.frames.filter { $0.keep && $0.reviewed }.map { (session, $0) }
         }

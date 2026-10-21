@@ -144,12 +144,7 @@ struct Coverage {
     func total(_ key: KeyPath<Row, Int>) -> Int { rows.values.reduce(0) { $0 + $1[keyPath: key] } }
 
     static func environment(_ name: String) -> String {
-        switch name.prefix(3) {
-        case "ind": return "Indoor"
-        case "bch": return "Beach"
-        case "grs": return "Grass"
-        default: return "Other"
-        }
+        ClipID.surface(of: name)?.title ?? "Other"
     }
 
     init(sessions: [VideoSession]) {

@@ -126,6 +126,9 @@ enum MultiFramePackage {
     static func export(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool = false, valOnly: Bool = false,
                        longSide: CGFloat = longSide, progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (output: URL, summary: Summary) {
         let fm = FileManager.default
+        // Final-test recordings (D-002) never enter a package, train or val.
+        let finalTest = PipelineTuner.ValidationSet.finalTestNames(in: store.root)
+        let sessions = sessions.filter { !finalTest.contains($0.name) }
         let all: [(VideoSession, [FrameRecord])] = sessions.map { session in
             (session, session.frames.filter { $0.keep && $0.reviewed && $0.source != "file" })
         }.filter { !$0.1.isEmpty || !Self.readyTracks($0.0).isEmpty || $0.0.ralliesMarked == true }

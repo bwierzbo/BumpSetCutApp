@@ -220,8 +220,10 @@ final class ModelLibrary {
 
     /// The reviewed frames the models are scored on.
     private var evaluationFrames: [ModelEvaluation.Frame] {
-        sampler.sessions
+        let finalTest = PipelineTuner.ValidationSet.finalTestNames(in: sampler.store.root)
+        return sampler.sessions
             .filter { !evaluateValOnly || $0.split == "val" }
+            .filter { !finalTest.contains($0.name) }   // reserved until promotion (D-002)
             .flatMap { session in
                 session.frames.filter { $0.keep && $0.reviewed }.map {
                     ModelEvaluation.Frame(session: session.name, record: $0,

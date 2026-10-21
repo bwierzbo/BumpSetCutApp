@@ -28,6 +28,9 @@
 //             from the frames)
 //    RallyLab --project v3 --move ind_ele_bright_land_self_01_v2 bch_ele_sun_land_self_01
 //    RallyLab --project v3 --status
+//    RallyLab --project v3 --manifest [--out <dir>]          (dataset split manifest → manifests/manifest.{json,md})
+//    RallyLab --project v3 --audit-dataset [--out <dir>]     (manifest + leakage audit → audit.{json,md}; exit 1 on a hard leak)
+//    RallyLab --project v3 --set-provenance <video id> [--source-id X] [--session-id Y] [--venue-id Z]   ("" clears)
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
 //    RallyLab --project v3 --package                       (training package zip)
@@ -159,6 +162,19 @@ enum HeadlessProjects {
             if args.contains("--status") || args.contains("--get") || args.contains("--add-extras") || args.contains("--move") || args.contains("--repull-all")
                 || args.contains("--pull-tester-footage") {
                 printStatus(projects)
+            }
+
+            // Dataset provenance (D-002, D-009): the split manifest, its leakage audit,
+            // and the owner's confirmations of where a video came from.
+            if ok, args.contains("--manifest") || args.contains("--audit-dataset") {
+                ok = datasetManifest(projects, audit: args.contains("--audit-dataset"), args: args)
+            }
+            if ok, let videoId = value(after: "--set-provenance", in: args) {
+                ok = projects.setProvenance(videoId: videoId,
+                                            sourceId: value(after: "--source-id", in: args),
+                                            sessionId: value(after: "--session-id", in: args),
+                                            venueId: value(after: "--venue-id", in: args))
+                log(ok ? "✅ Provenance saved for \(videoId)." : "❌ No video \(videoId) in the project.")
             }
 
             let library = ModelLibrary(sampler: projects.sampler)
@@ -583,6 +599,61 @@ enum HeadlessProjects {
             for (env, c) in score.byEnv { log(line(env, c)) }
         }
         return true
+    }
+
+    /// `--manifest` writes <project>/manifests/manifest.{json,md} (or --out <dir>);
+    /// `--audit-dataset` also writes audit.{json,md} and fails on a hard leak.
+    @MainActor
+    private static func datasetManifest(_ projects: ProjectsModel, audit: Bool, args: [String]) -> Bool {
+        guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
+        let out = value(after: "--out", in: args)
+            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+            ?? dir.appendingPathComponent("manifests", isDirectory: true)
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let manifestURL = out.appendingPathComponent("manifest.json")
+        let info = Bundle.main.infoDictionary
+        let generator = "RallyLab \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+        let hashes = DatasetSplitManifest.Hashes(
+            projectJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("project.json")),
+            sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: dir.appendingPathComponent("sessions", isDirectory: true)),
+            validationJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("pipeline_tuning/validation.json")))
+        let inputs = DatasetSplitManifest.Inputs(
+            project: projects.project, sessions: projects.sampler.sessions,
+            validation: PipelineTuner.ValidationSet.load(from: dir),
+            fingerprint: { projects.fingerprint(of: $0) },
+            previous: DatasetSplitManifest.read(from: manifestURL),
+            discovered: DatasetSplitManifest.discoverExposure(in: dir),
+            hashes: hashes, generator: generator, now: Date())
+        let manifest: DatasetSplitManifest
+        do { manifest = try DatasetSplitManifest.build(inputs) } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
+        do {
+            try manifest.write(to: manifestURL)
+            try manifest.markdownSummary().write(to: out.appendingPathComponent("manifest.md"), atomically: true, encoding: .utf8)
+        } catch {
+            log("❌ Couldn't write the manifest: \(error.localizedDescription)")
+            return false
+        }
+        let counts = Dictionary(grouping: manifest.videos, by: \.split).mapValues(\.count)
+        log("✅ Manifest: \(manifest.videos.count) videos — "
+            + DatasetSplit.allCases.map { "\($0.rawValue) \(counts[$0] ?? 0)" }.joined(separator: " · ") + " → \(out.path)")
+        guard audit else { return true }
+
+        let result = DatasetAudit.run(manifest: manifest)
+        do {
+            try result.write(to: out.appendingPathComponent("audit.json"))
+            try result.markdown(manifest: manifest).write(to: out.appendingPathComponent("audit.md"), atomically: true, encoding: .utf8)
+        } catch {
+            log("❌ Couldn't write the audit: \(error.localizedDescription)")
+            return false
+        }
+        for f in result.findings where f.severity != .info { log("  [\(f.severity.rawValue)] \(f.code): \(f.message)") }
+        let hard = result.findings.filter { $0.severity == .hard }.count
+        log(hard == 0 ? "✅ Audit: no hard leak (\(result.findings.count) findings → audit.md)"
+                      : "❌ Audit: \(hard) hard leak(s) → audit.md")
+        return hard == 0
     }
 
     @MainActor

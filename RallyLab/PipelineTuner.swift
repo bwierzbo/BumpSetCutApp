@@ -105,6 +105,29 @@ enum PipelineTuner {
     struct ValidationSet: Codable {
         var tune: [String]
         var holdout: [String]
+        /// Recordings reserved as the independent final test (D-002): never
+        /// packaged, scored or tuned on until promotion. Absent in older files.
+        var finalTest: [String]
+
+        init(tune: [String], holdout: [String], finalTest: [String] = []) {
+            self.tune = tune
+            self.holdout = holdout
+            self.finalTest = finalTest
+        }
+
+        private enum CodingKeys: String, CodingKey { case tune, holdout, finalTest }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            tune = try c.decode([String].self, forKey: .tune)
+            holdout = try c.decode([String].self, forKey: .holdout)
+            finalTest = try c.decodeIfPresent([String].self, forKey: .finalTest) ?? []
+        }
+
+        /// Sessions that must stay out of every package, score run and tuning.
+        static func finalTestNames(in datasetRoot: URL) -> Set<String> {
+            Set(load(from: datasetRoot)?.finalTest ?? [])
+        }
 
         static func load(from datasetRoot: URL) -> ValidationSet? {
             (try? Data(contentsOf: datasetRoot.appendingPathComponent("pipeline_tuning/validation.json")))

@@ -547,12 +547,7 @@ enum HeatEvaluation {
     }
 
     static func environment(_ clip: String) -> String {
-        switch clip.prefix(3) {
-        case "ind": return "indoor"
-        case "bch": return "beach"
-        case "grs": return "grass"
-        default: return "other"
-        }
+        ClipID.surface(of: clip)?.rawValue ?? "other"
     }
 
     private struct Window: Decodable {

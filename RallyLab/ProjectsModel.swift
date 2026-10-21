@@ -101,6 +101,14 @@ struct ClipSource: Codable, Equatable, Hashable {
     /// video reused on any card is recognised. nil for older videos; it's
     /// worked out from `origin` instead.
     var fingerprint: String?
+    /// Provenance the owner confirmed (decision D-009); nil means unknown, and
+    /// nothing in RallyLab fills these in on its own. `sourceId` names the
+    /// original recording, `sessionId` the outing it was filmed in (one camera,
+    /// one day), `venueId` the court. The split manifest reports them and
+    /// `--set-provenance` writes them.
+    var sourceId: String?
+    var sessionId: String?
+    var venueId: String?
 }
 
 struct Project: Codable, Equatable {
@@ -976,6 +984,28 @@ final class ProjectsModel {
         video.fingerprint ?? fingerprint(of: video.origin)
     }
 
+    /// Record owner-confirmed provenance on one video (D-009). A nil argument
+    /// leaves that field as it is; an empty string clears it. Returns false
+    /// when no video has that ID.
+    func setProvenance(videoId: String, sourceId: String?, sessionId: String?, venueId: String?) -> Bool {
+        guard var project else { return false }
+        for c in project.clips.indices {
+            for v in project.clips[c].videos.indices where project.clips[c].videoId(of: project.clips[c].videos[v]) == videoId {
+                func apply(_ new: String?, to field: inout String?) {
+                    guard let new else { return }
+                    field = new.isEmpty ? nil : new
+                }
+                apply(sourceId, to: &project.clips[c].videos[v].sourceId)
+                apply(sessionId, to: &project.clips[c].videos[v].sessionId)
+                apply(venueId, to: &project.clips[c].videos[v].venueId)
+                self.project = project
+                save()
+                return true
+            }
+        }
+        return false
+    }
+
     @ObservationIgnored private var fingerprintCache: [String: String] = [:]
 
     /// A link's video ID (YouTube links in any of their forms come out the
@@ -1162,7 +1192,7 @@ enum ProjectLayout {
             + envs.map { "footage/raw/online/\($0)" }
             + ["footage/raw/negatives", "footage/meta",
                "images/train", "images/val", "labels/train", "labels/val",
-               "sessions", "excluded", "runs", "models", "exports"]
+               "sessions", "excluded", "runs", "models", "exports", "manifests"]
     }()
 
     static func create(at dir: URL) throws {
