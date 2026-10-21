@@ -192,6 +192,33 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertThrowsError(try ExposureLog.rename("old", to: "new", in: root))
     }
 
+    func testReservedVideoIsRecognisedByPathNameAndContent() throws {
+        let fm = FileManager.default
+        let footage = root.appendingPathComponent("footage"); try fm.createDirectory(at: footage, withIntermediateDirectories: true)
+        try fm.createDirectory(at: root.appendingPathComponent("sessions"), withIntermediateDirectories: true)
+        let video = footage.appendingPathComponent("grs_extra_self_06.mp4")
+        try Data((0..<5000).map { UInt8($0 % 251) }).write(to: video)
+        let print = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: video.path))
+        // Session + project card for it; reserved in validation.json.
+        let session = DatasetSplitManifestTests.session("grs_extra_self_06", split: "val")
+        var s = session; s = VideoSession(name: s.name, sourcePath: video.path, split: s.split, addedAt: s.addedAt, frames: [])
+        try DatasetStore(root: root).save(s)
+        let clip = DatasetSplitManifestTests.clip("grs_extra_self_06", environment: "Grass", split: "val",
+                                                  videos: [DatasetSplitManifestTests.source(nil, fingerprint: print)])
+        var source = clip.videos[0]; source.clipFile = video.path
+        let project = Project(name: "T", createdAt: DatasetSplitManifestTests.day, framesPerRally: 40,
+                              clips: [DatasetSplitManifestTests.clip("grs_extra_self_06", environment: "Grass", split: "val", videos: [source])])
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        try enc.encode(project).write(to: root.appendingPathComponent("project.json"))
+        try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["grs_extra_self_06"]}"#)
+
+        XCTAssertEqual(try ReservedVideos.match(video, root: root), .init(session: "grs_extra_self_06", reserved: true), "by path")
+        let renamed = root.appendingPathComponent("somewhere else.mp4"); try fm.copyItem(at: video, to: renamed)
+        XCTAssertEqual(try ReservedVideos.match(renamed, root: root), .init(session: "grs_extra_self_06", reserved: true), "a copy under another name, by content")
+        let other = root.appendingPathComponent("other.mp4"); try Data([1, 2, 3]).write(to: other)
+        XCTAssertNil(try ReservedVideos.match(other, root: root), "a file that is not a project video")
+    }
+
     func testLoggedExposureBlocksFinalTestReservation() throws {
         try ExposureLog.record(videos: ["bch_a_v3"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
         var inputs = DatasetSplitManifestTests.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["bch_a_v3"]))

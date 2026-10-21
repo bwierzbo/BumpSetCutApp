@@ -24,8 +24,20 @@ enum ServeReport {
                     log: @escaping (String) -> Void) async -> Bool {
         let cache = sampler.datasetRoot.appendingPathComponent("pipeline_tuning/evidence", isDirectory: true)
         try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
-        guard let set = PipelineTuner.ValidationSet.load(from: sampler.datasetRoot) else {
-            log("❌ No pipeline_tuning/validation.json.")
+        let set: PipelineTuner.ValidationSet
+        do {
+            guard let loaded = try PipelineTuner.ValidationSet.loadStrict(from: sampler.datasetRoot) else {
+                log("❌ No pipeline_tuning/validation.json.")
+                return false
+            }
+            set = loaded
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
+        let clash = (set.tune + set.holdout).filter { set.finalTest.contains($0) }
+        guard clash.isEmpty else {
+            log("❌ Reserved final-test videos are also listed as tune/holdout: \(clash.joined(separator: ", ")). Fix validation.json (D-002).")
             return false
         }
         let videos = PipelineTuner.videos(set.tune + set.holdout, sampler: sampler, log: log)

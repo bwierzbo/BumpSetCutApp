@@ -977,12 +977,11 @@ final class RallyLabModel {
     static func finalTestRefusal(for url: URL) -> String? {
         guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return nil }
         let root = URL(fileURLWithPath: rootPath, isDirectory: true)
-        let reserved: Set<String>
-        do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: root) } catch { return "❌ \(error.localizedDescription)" }
-        guard !reserved.isEmpty else { return nil }
-        let sessions = DatasetStore(root: root).loadSessions()
-        let name = sessions.first { $0.sourcePath == url.path }?.name ?? url.deletingPathExtension().lastPathComponent
-        return reserved.contains(name) ? "⛔ \(name) is reserved as final_test (D-002) — not scored until promotion." : nil
+        do {
+            // Matched by path, name or content, so a copy of a reserved recording is refused too.
+            guard let match = try ReservedVideos.match(url, root: root), match.reserved else { return nil }
+            return "⛔ \(match.session) is reserved as final_test (D-002) — not scored until promotion."
+        } catch { return "❌ \(error.localizedDescription)" }
     }
 
     /// Running the pipeline on a project video and scoring it is a use the
@@ -990,8 +989,8 @@ final class RallyLabModel {
     static func recordRallyScoring(_ url: URL, ref: String) throws {
         guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return }
         let root = URL(fileURLWithPath: rootPath, isDirectory: true)
-        guard let name = DatasetStore(root: root).loadSessions().first(where: { $0.sourcePath == url.path })?.name else { return }
-        try ExposureLog.record(videos: [name], kind: .rallyScoring, ref: ref, note: nil, in: root)
+        guard let match = try ReservedVideos.match(url, root: root) else { return }   // not a project video
+        try ExposureLog.record(videos: [match.session], kind: .rallyScoring, ref: ref, note: nil, in: root)
     }
 
     /// Runs the real VideoProcessor (YOLO → Kalman → ballistics → decider →

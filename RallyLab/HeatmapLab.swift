@@ -155,6 +155,15 @@ final class HeatmapLab {
             log("⛔ " + scoringLine)
             return false
         }
+        // Logged before any model runs, so an interrupted run is still on record (D-002).
+        do {
+            try ExposureLog.record(videos: Set(jobs.map(\.clip)), kind: .testSetScoring, ref: export.lastPathComponent,
+                                   note: "models: " + models.map(\.name).joined(separator: ", "), in: sampler.datasetRoot)
+        } catch {
+            scoringLine = error.localizedDescription
+            log("❌ " + scoringLine)
+            return false
+        }
         scoringLine = "\(jobs.count) frames in \(export.lastPathComponent)"
         log(scoringLine)
         for model in models {
@@ -192,15 +201,7 @@ final class HeatmapLab {
         } catch {
             log("❌ Couldn't write the scores: \(error.localizedDescription)")
         }
-        // Every clip in this test set has now been used for model selection (D-002 exposure).
-        do {
-            try ExposureLog.record(videos: Set(jobs.map(\.clip)), kind: .testSetScoring, ref: export.lastPathComponent,
-                                   note: "\(results.count) model(s) compared", in: sampler.datasetRoot)
-        } catch {
-            scoringLine = error.localizedDescription
-            log("❌ " + scoringLine)
-            return false
-        }
+
         if export == testSets.first { leaderboard = scores }
         TestSetScore.lines(scores).forEach(log)
         scoringLine = "Scored \(results.count) models on \(export.lastPathComponent)"

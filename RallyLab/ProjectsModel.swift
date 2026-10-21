@@ -1042,6 +1042,14 @@ final class ProjectsModel {
         let path = (trimmed as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: path) else { return Self.linkFingerprint(trimmed) }
         if let cached = fingerprintCache[path] { return cached }
+        guard let print = Self.fileFingerprint(atPath: path) else { return nil }
+        fingerprintCache[path] = print
+        return print
+    }
+
+    /// A file's identity wherever it is copied: its size plus a hash of its
+    /// first and last 4 MB, as `"file:<sha256>"`. nil when it can't be read.
+    nonisolated static func fileFingerprint(atPath path: String) -> String? {
         guard let handle = FileHandle(forReadingAtPath: path),
               let size = try? handle.seekToEnd() else { return nil }
         defer { try? handle.close() }
@@ -1054,9 +1062,7 @@ final class ProjectsModel {
             try? handle.seek(toOffset: size - min(chunk, size - chunk))
             if let tail = try? handle.readToEnd() { hasher.update(data: tail) }
         }
-        let print = "file:" + hasher.finalize().map { String(format: "%02x", $0) }.joined()
-        fingerprintCache[path] = print
-        return print
+        return "file:" + hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     static func linkFingerprint(_ link: String) -> String? {

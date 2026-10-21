@@ -364,6 +364,18 @@ enum PipelineTuner {
         let tune = videos(set.tune, sampler: sampler, log: log), holdout = videos(set.holdout, sampler: sampler, log: log)
         log("Tune: \(tune.count) of \(set.tune.count) videos · holdout: \(holdout.count) of \(set.holdout.count)")
         guard tune.count >= 2 else { log("❌ Mark every rally in at least 2 tune videos first."); return false }
+        // Logged before the first pass, so a run that is quit or crashes is still on record (D-002).
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmm"
+        let stamp = formatter.string(from: Date())
+        let reportName = "report-\(stamp).md"
+        do {
+            try ExposureLog.record(videos: Set(tune.map(\.session.name)), kind: .pipelineTune, ref: reportName, note: "settings searched on", in: sampler.datasetRoot)
+            try ExposureLog.record(videos: Set(holdout.map(\.session.name)), kind: .pipelineHoldout, ref: reportName, note: "reported, not searched on", in: sampler.datasetRoot)
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
 
         var base = Settings(config: ProcessorConfig())
         let modelThreshold = base.config.heatmapModel.flatMap { HeatmapBallDetector(modelURL: $0) }.map { Double($0.threshold) } ?? 0.5
@@ -472,19 +484,9 @@ enum PipelineTuner {
         }
         if changes == 0 { report.append("- none: today's settings are already the best found") }
         for line in report { log(line) }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmm"
-        let stamp = formatter.string(from: Date())
-        let file = dir.appendingPathComponent("report-\(stamp).md")
+        let file = dir.appendingPathComponent(reportName)
         try? report.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
         log("Report: \(file.path)")
-        do {
-            try ExposureLog.record(videos: Set(tune.map(\.session.name)), kind: .pipelineTune, ref: file.lastPathComponent, note: "settings searched on", in: sampler.datasetRoot)
-            try ExposureLog.record(videos: Set(holdout.map(\.session.name)), kind: .pipelineHoldout, ref: file.lastPathComponent, note: "reported, not searched on", in: sampler.datasetRoot)
-        } catch {
-            log("❌ \(error.localizedDescription)")
-            return false
-        }
         return true
     }
 
