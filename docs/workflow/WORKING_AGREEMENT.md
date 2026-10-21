@@ -42,6 +42,7 @@ The owner can require a PR for any change and can grant an exception for any cha
 7. **Address findings.** Every finding gets a fix commit or a written reason in the PR. Blocking findings (Codex P0/P1, or "Blocking defect" per `AGENTS.md`) are resolved, or the owner explicitly accepts them in a PR comment. Further review rounds as needed.
 8. **Merge.** Only after the owner's explicit approval, and only by the owner (or by the implementer when the owner says "merge PR #n" for that PR).
 9. **Documentation is part of the change.** Decision log, experiment registry, `CLAUDE.md`/rules and the docs index are updated in the same PR, not afterwards.
+10. **Lessons are written down once.** If two or more review findings on a PR share a root cause, the implementer adds one concrete, testable rule to `CLAUDE.md` (and, when it is a review question, to `AGENTS.md`) in the next docs PR. Rules say what to grep, list or check, never "be careful"; rules that stop applying are removed.
 
 ## Review gates
 
