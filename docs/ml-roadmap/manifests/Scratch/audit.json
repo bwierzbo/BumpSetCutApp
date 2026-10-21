@@ -1,5 +1,5 @@
 {
-  "createdAt" : "2026-10-21T13:39:02Z",
+  "createdAt" : "2026-10-21T17:19:06Z",
   "findings" : [
     {
       "code" : "CARD-SPLIT",
@@ -83,7 +83,7 @@
     },
     {
       "code" : "CANDIDATE-BLOCKED",
-      "message" : "bch_extra_self_05 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "message" : "bch_extra_self_05 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images\/train); alias bch_extra_self_30's frames sit in the training dataset (images\/train); alias bch_extra_self_31's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
       "severity" : "info",
       "videos" : [
         "bch_extra_self_05"
@@ -91,7 +91,15 @@
     },
     {
       "code" : "CANDIDATE-BLOCKED",
-      "message" : "bch_extra_self_18 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "message" : "bch_extra_self_10 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "severity" : "info",
+      "videos" : [
+        "bch_extra_self_10"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "bch_extra_self_18 is protected but not promotable yet: alias bch_extra_self_10's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
       "severity" : "info",
       "videos" : [
         "bch_extra_self_18"
@@ -99,7 +107,39 @@
     },
     {
       "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_06 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "message" : "bch_extra_self_29 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); alias bch_extra_self_30's frames sit in the training dataset (images\/train); alias bch_extra_self_31's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "severity" : "info",
+      "videos" : [
+        "bch_extra_self_29"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "bch_extra_self_30 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images\/train); its own frames sit in the training dataset (images\/train); alias bch_extra_self_31's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "severity" : "info",
+      "videos" : [
+        "bch_extra_self_30"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "bch_extra_self_31 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images\/train); alias bch_extra_self_30's frames sit in the training dataset (images\/train); its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "severity" : "info",
+      "videos" : [
+        "bch_extra_self_31"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "grs_extra_self_02 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "severity" : "info",
+      "videos" : [
+        "grs_extra_self_02"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "grs_extra_self_06 is protected but not promotable yet: alias grs_extra_self_12's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_06"
@@ -107,7 +147,7 @@
     },
     {
       "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_07 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "message" : "grs_extra_self_07 is protected but not promotable yet: alias grs_extra_self_02's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_07"
@@ -115,7 +155,15 @@
     },
     {
       "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_14 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "message" : "grs_extra_self_12 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "severity" : "info",
+      "videos" : [
+        "grs_extra_self_12"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "grs_extra_self_14 is protected but not promotable yet: alias grs_extra_self_15's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_14"
@@ -123,7 +171,23 @@
     },
     {
       "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_21 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "message" : "grs_extra_self_15 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "severity" : "info",
+      "videos" : [
+        "grs_extra_self_15"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "grs_extra_self_20 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "severity" : "info",
+      "videos" : [
+        "grs_extra_self_20"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "grs_extra_self_21 is protected but not promotable yet: alias grs_extra_self_20's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_21"
@@ -131,7 +195,15 @@
     },
     {
       "code" : "CANDIDATE-BLOCKED",
-      "message" : "ind_extra_self_09 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "message" : "ind_extra_self_06 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "severity" : "info",
+      "videos" : [
+        "ind_extra_self_06"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "ind_extra_self_09 is protected but not promotable yet: alias ind_extra_self_06's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
       "severity" : "info",
       "videos" : [
         "ind_extra_self_09"
@@ -248,7 +320,7 @@
     },
     {
       "code" : "PROVENANCE-VENUE",
-      "message" : "167 video(s) have no confirmed venueId and 167 no sessionId. Until set, grouping by venue is impossible and the uploader\/card checks above are the only guard.",
+      "message" : "147 video(s) have no confirmed venueId and 149 no sessionId. Until set, grouping by venue is impossible and the uploader\/card checks above are the only guard.",
       "severity" : "info",
       "videos" : [
         "bch_ele_ovc_land_self_02",
@@ -259,15 +331,12 @@
         "bch_ele_sun_land_self_01",
         "bch_ele_sun_port_self_03",
         "bch_extra_self_01",
-        "bch_extra_self_02",
         "bch_extra_self_03",
         "bch_extra_self_04",
-        "bch_extra_self_05",
         "bch_extra_self_06",
         "bch_extra_self_07",
         "bch_extra_self_08",
         "bch_extra_self_09",
-        "bch_extra_self_10",
         "bch_extra_self_11",
         "bch_extra_self_12",
         "bch_extra_self_13",
@@ -275,7 +344,6 @@
         "bch_extra_self_15",
         "bch_extra_self_16",
         "bch_extra_self_17",
-        "bch_extra_self_18",
         "bch_extra_self_19",
         "bch_extra_self_20",
         "bch_extra_self_21",
@@ -286,9 +354,6 @@
         "bch_extra_self_26",
         "bch_extra_self_27",
         "bch_extra_self_28",
-        "bch_extra_self_29",
-        "bch_extra_self_30",
-        "bch_extra_self_31",
         "bch_gnd_ovc_land_self_01",
         "bch_gnd_ovc_land_self_01_v2",
         "bch_gnd_ovc_land_self_03",
@@ -305,8 +370,6 @@
         "bch_onl_ovc_land_onl_02_v4",
         "bch_onl_sun_land_onl_01",
         "bch_onl_sun_land_onl_01_v2",
-        "bch_onl_sun_land_onl_03",
-        "bch_onl_sun_land_onl_03_v2",
         "bch_onl_sun_land_onl_04",
         "bch_sid_ovc_land_self_02",
         "bch_sid_ovc_land_self_02_v2",
@@ -324,26 +387,17 @@
         "grs_ele_sun_land_self_01_v3",
         "grs_ele_sun_land_self_01_v4",
         "grs_extra_self_01",
-        "grs_extra_self_02",
         "grs_extra_self_03",
         "grs_extra_self_04",
         "grs_extra_self_05",
-        "grs_extra_self_06",
-        "grs_extra_self_07",
         "grs_extra_self_08",
         "grs_extra_self_09",
         "grs_extra_self_10",
         "grs_extra_self_11",
-        "grs_extra_self_12",
         "grs_extra_self_13",
-        "grs_extra_self_14",
-        "grs_extra_self_15",
-        "grs_extra_self_16",
         "grs_extra_self_17",
         "grs_extra_self_18",
         "grs_extra_self_19",
-        "grs_extra_self_20",
-        "grs_extra_self_21",
         "grs_extra_tester_01",
         "grs_extra_tester_02",
         "grs_extra_tester_02_v2",
@@ -393,10 +447,8 @@
         "ind_extra_self_03",
         "ind_extra_self_04",
         "ind_extra_self_05",
-        "ind_extra_self_06",
         "ind_extra_self_07",
         "ind_extra_self_08",
-        "ind_extra_self_09",
         "ind_gnd_bright_land_self_01",
         "ind_gnd_bright_land_self_01_v2",
         "ind_gnd_bright_land_self_01_v3",
@@ -422,7 +474,7 @@
     }
   ],
   "manifestHashes" : {
-    "projectJson" : "463042ef707e83604e0d92a8667e1bb5ef8a02be80fcd07f07b07a71ae118410",
+    "projectJson" : "65243bca59895a7e53dace6119d639ac11e520df3178577f5392f64d27692a6e",
     "sessions" : "06ed23f06ccd23ceba499fb77f3b4f5a864e21496fad91ba2370c84059ae5886",
     "validationJson" : "4d4b4368ae3decad222630591f0d29d3be4db15e2366a217cf0d11c19afcd8f5"
   }

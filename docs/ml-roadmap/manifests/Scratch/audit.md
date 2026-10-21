@@ -1,6 +1,6 @@
 # Dataset audit — Scratch
 
-Run 2026-10-21T13:39:02Z on manifest hashes project.json `463042ef707e8360`, sessions `06ed23f06ccd23ce`.
+Run 2026-10-21T17:19:06Z on manifest hashes project.json `65243bca59895a7e`, sessions `06ed23f06ccd23ce`.
 
 **Result: no hard leak.**
 
@@ -8,7 +8,7 @@ Run 2026-10-21T13:39:02Z on manifest hashes project.json `463042ef707e8360`, ses
 |---|---|
 | hard | 0 |
 | soft | 8 |
-| info | 10 |
+| info | 19 |
 
 ## Soft
 
@@ -23,13 +23,22 @@ Run 2026-10-21T13:39:02Z on manifest hashes project.json `463042ef707e8360`, ses
 
 ## Info
 
-- **CANDIDATE-BLOCKED** — bch_extra_self_05 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed. `bch_extra_self_05`
-- **CANDIDATE-BLOCKED** — bch_extra_self_18 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed. `bch_extra_self_18`
-- **CANDIDATE-BLOCKED** — grs_extra_self_06 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed. `grs_extra_self_06`
-- **CANDIDATE-BLOCKED** — grs_extra_self_07 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed. `grs_extra_self_07`
-- **CANDIDATE-BLOCKED** — grs_extra_self_14 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed. `grs_extra_self_14`
-- **CANDIDATE-BLOCKED** — grs_extra_self_21 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed. `grs_extra_self_21`
-- **CANDIDATE-BLOCKED** — ind_extra_self_09 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed. `ind_extra_self_09`
+- **CANDIDATE-BLOCKED** — bch_extra_self_05 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images/train); alias bch_extra_self_30's frames sit in the training dataset (images/train); alias bch_extra_self_31's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_05`
+- **CANDIDATE-BLOCKED** — bch_extra_self_10 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_10`
+- **CANDIDATE-BLOCKED** — bch_extra_self_18 is protected but not promotable yet: alias bch_extra_self_10's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_18`
+- **CANDIDATE-BLOCKED** — bch_extra_self_29 is protected but not promotable yet: its own frames sit in the training dataset (images/train); alias bch_extra_self_30's frames sit in the training dataset (images/train); alias bch_extra_self_31's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_29`
+- **CANDIDATE-BLOCKED** — bch_extra_self_30 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images/train); its own frames sit in the training dataset (images/train); alias bch_extra_self_31's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_30`
+- **CANDIDATE-BLOCKED** — bch_extra_self_31 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images/train); alias bch_extra_self_30's frames sit in the training dataset (images/train); its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_31`
+- **CANDIDATE-BLOCKED** — grs_extra_self_02 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_02`
+- **CANDIDATE-BLOCKED** — grs_extra_self_06 is protected but not promotable yet: alias grs_extra_self_12's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_06`
+- **CANDIDATE-BLOCKED** — grs_extra_self_07 is protected but not promotable yet: alias grs_extra_self_02's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_07`
+- **CANDIDATE-BLOCKED** — grs_extra_self_12 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_12`
+- **CANDIDATE-BLOCKED** — grs_extra_self_14 is protected but not promotable yet: alias grs_extra_self_15's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_14`
+- **CANDIDATE-BLOCKED** — grs_extra_self_15 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_15`
+- **CANDIDATE-BLOCKED** — grs_extra_self_20 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_20`
+- **CANDIDATE-BLOCKED** — grs_extra_self_21 is protected but not promotable yet: alias grs_extra_self_20's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_21`
+- **CANDIDATE-BLOCKED** — ind_extra_self_06 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `ind_extra_self_06`
+- **CANDIDATE-BLOCKED** — ind_extra_self_09 is protected but not promotable yet: alias ind_extra_self_06's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `ind_extra_self_09`
 - **FINAL-TEST-NONE** — Every video has recorded exposure; an independent final test needs new recordings.
 - **PROVENANCE-SOURCE** — 94 video(s) have no confirmed sourceId (94 carry a file fingerprint as a suggestion, 0 nothing). Confirm with `--set-provenance <video> --source-id <id>`. (94 videos, see audit.json)
-- **PROVENANCE-VENUE** — 167 video(s) have no confirmed venueId and 167 no sessionId. Until set, grouping by venue is impossible and the uploader/card checks above are the only guard. (167 videos, see audit.json)
+- **PROVENANCE-VENUE** — 147 video(s) have no confirmed venueId and 149 no sessionId. Until set, grouping by venue is impossible and the uploader/card checks above are the only guard. (147 videos, see audit.json)

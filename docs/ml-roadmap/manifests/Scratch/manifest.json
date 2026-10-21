@@ -1,8 +1,8 @@
 {
-  "createdAt" : "2026-10-21T13:39:02Z",
+  "createdAt" : "2026-10-21T17:19:06Z",
   "generator" : "RallyLab 1.0 (2)",
   "hashes" : {
-    "projectJson" : "463042ef707e83604e0d92a8667e1bb5ef8a02be80fcd07f07b07a71ae118410",
+    "projectJson" : "65243bca59895a7e53dace6119d639ac11e520df3178577f5392f64d27692a6e",
     "sessions" : "06ed23f06ccd23ceba499fb77f3b4f5a864e21496fad91ba2370c84059ae5886",
     "validationJson" : "4d4b4368ae3decad222630591f0d29d3be4db15e2366a217cf0d11c19afcd8f5"
   },
@@ -385,7 +385,8 @@
       "ralliesMarked" : false,
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2022-09-13"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
@@ -394,7 +395,8 @@
       "split" : "train",
       "surface" : "beach",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "beach-florida-daytonaboardwalk"
       },
       "video" : "bch_extra_self_02"
     },
@@ -491,7 +493,8 @@
       "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2026-10-03"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
@@ -501,7 +504,8 @@
       "surface" : "beach",
       "unreservedSplit" : "dev_val",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "beach-colorado-memorialpark"
       },
       "video" : "bch_extra_self_05"
     },
@@ -665,18 +669,22 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
+      "reservedAs" : "alias",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2022-09-10"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
         "value" : "file:15b90949710691c7915085a1f4aeaca8df74ab97065cf5ef4713c3e3fff4ff61"
       },
-      "split" : "train",
+      "split" : "final_test_candidate",
       "surface" : "beach",
+      "unreservedSplit" : "train",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "beach-florida-nsb"
       },
       "video" : "bch_extra_self_10"
     },
@@ -927,7 +935,7 @@
     },
     {
       "addedAt" : "2026-10-17T09:39:27Z",
-      "aliasGroup" : "bch_extra_self_18",
+      "aliasGroup" : "bch_extra_self_10",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_18",
       "datasetSplit" : "val",
@@ -948,7 +956,8 @@
       "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2022-09-05"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
@@ -958,7 +967,8 @@
       "surface" : "beach",
       "unreservedSplit" : "dev_val",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "beach-florida-nsb"
       },
       "video" : "bch_extra_self_18"
     },
@@ -1304,7 +1314,7 @@
     },
     {
       "addedAt" : "2026-10-17T14:29:36Z",
-      "aliasGroup" : "bch_extra_self_29",
+      "aliasGroup" : "bch_extra_self_05",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_29",
       "datasetSplit" : "train",
@@ -1322,24 +1332,28 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
+      "reservedAs" : "alias",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2026-10-03"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
         "value" : "file:8d0e3e60b02b9e15ddc58d52ce9b4a43ecb4554eb7f3790f1a2a0dd2f89dd575"
       },
-      "split" : "train",
+      "split" : "final_test_candidate",
       "surface" : "beach",
+      "unreservedSplit" : "train",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "beach-colorado-memorialpark"
       },
       "video" : "bch_extra_self_29"
     },
     {
       "addedAt" : "2026-10-17T14:37:03Z",
-      "aliasGroup" : "bch_extra_self_30",
+      "aliasGroup" : "bch_extra_self_05",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_30",
       "datasetSplit" : "train",
@@ -1357,24 +1371,28 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
+      "reservedAs" : "alias",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2026-10-03"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
         "value" : "file:02e0b8c0b9ac6e9ce1395fa96de9e09d740e550f4f6c876763fce7ac71a54d76"
       },
-      "split" : "train",
+      "split" : "final_test_candidate",
       "surface" : "beach",
+      "unreservedSplit" : "train",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "beach-colorado-memorialpark"
       },
       "video" : "bch_extra_self_30"
     },
     {
       "addedAt" : "2026-10-17T14:44:09Z",
-      "aliasGroup" : "bch_extra_self_31",
+      "aliasGroup" : "bch_extra_self_05",
       "camera" : "Extra",
       "clipId" : "bch_extra_self_31",
       "datasetSplit" : "train",
@@ -1392,18 +1410,22 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
+      "reservedAs" : "alias",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2026-10-03"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
         "value" : "file:64b152182bf98d2a784b4280dacaf36a6bd04fdacbd17981c961f7878f9292a0"
       },
-      "split" : "train",
+      "split" : "final_test_candidate",
       "surface" : "beach",
+      "unreservedSplit" : "train",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "beach-colorado-memorialpark"
       },
       "video" : "bch_extra_self_31"
     },
@@ -2239,13 +2261,14 @@
       "surface" : "beach",
       "uploader" : "Dianne Gan",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "beach-washington-alki"
       },
       "video" : "bch_onl_sun_land_onl_03"
     },
     {
       "addedAt" : "2026-10-07T14:20:41Z",
-      "aliasGroup" : "bch_onl_sun_land_onl_03_v2",
+      "aliasGroup" : "bch_onl_sun_land_onl_03",
       "camera" : "Online (CC-licensed)",
       "cardSplit" : "val",
       "clipId" : "bch_onl_sun_land_onl_03",
@@ -2297,7 +2320,8 @@
       "surface" : "beach",
       "uploader" : "Dianne Gan",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "beach-washington-alki"
       },
       "video" : "bch_onl_sun_land_onl_03_v2"
     },
@@ -3020,18 +3044,22 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
+      "reservedAs" : "alias",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2024-10-20"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
         "value" : "file:c78c94e19844aa4232874e9fa269a11e6599c5e62dc56ba1bfe654d169d302c5"
       },
-      "split" : "train",
+      "split" : "final_test_candidate",
       "surface" : "grass",
+      "unreservedSplit" : "train",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "grass-florida-orlando"
       },
       "video" : "grs_extra_self_02"
     },
@@ -3163,7 +3191,8 @@
       "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2022-10-09"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
@@ -3173,13 +3202,14 @@
       "surface" : "grass",
       "unreservedSplit" : "dev_val",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "grass-florida-jacksonville"
       },
       "video" : "grs_extra_self_06"
     },
     {
       "addedAt" : "2026-10-17T08:12:52Z",
-      "aliasGroup" : "grs_extra_self_07",
+      "aliasGroup" : "grs_extra_self_02",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_07",
       "datasetSplit" : "val",
@@ -3200,7 +3230,8 @@
       "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2024-10-20"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
@@ -3210,7 +3241,8 @@
       "surface" : "grass",
       "unreservedSplit" : "dev_val",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "grass-florida-orlando"
       },
       "video" : "grs_extra_self_07"
     },
@@ -3356,7 +3388,7 @@
     },
     {
       "addedAt" : "2026-10-17T09:53:14Z",
-      "aliasGroup" : "grs_extra_self_12",
+      "aliasGroup" : "grs_extra_self_06",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_12",
       "datasetSplit" : "train",
@@ -3374,18 +3406,22 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
+      "reservedAs" : "alias",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2022-10-09"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
         "value" : "file:136b3de8a5dd2d05ef40a225d7814636f1e58b45e9a9182e90086e45b5a0d835"
       },
-      "split" : "train",
+      "split" : "final_test_candidate",
       "surface" : "grass",
+      "unreservedSplit" : "train",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "grass-florida-jacksonville"
       },
       "video" : "grs_extra_self_12"
     },
@@ -3447,7 +3483,8 @@
       "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2026-07-26"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
@@ -3457,13 +3494,14 @@
       "surface" : "grass",
       "unreservedSplit" : "dev_val",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "grass-colorado-breck"
       },
       "video" : "grs_extra_self_14"
     },
     {
       "addedAt" : "2026-10-17T12:35:08Z",
-      "aliasGroup" : "grs_extra_self_15",
+      "aliasGroup" : "grs_extra_self_14",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_15",
       "datasetSplit" : "train",
@@ -3481,18 +3519,22 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
+      "reservedAs" : "alias",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2026-07-26"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
         "value" : "file:d35e60771003c4ed91d18e9e76ee62bb9585e319041b8501d07022f0e360b9db"
       },
-      "split" : "train",
+      "split" : "final_test_candidate",
       "surface" : "grass",
+      "unreservedSplit" : "train",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "grass-colorado-breck"
       },
       "video" : "grs_extra_self_15"
     },
@@ -3518,7 +3560,8 @@
       "ralliesMarked" : false,
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2026-07-30"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
@@ -3527,7 +3570,8 @@
       "split" : "train",
       "surface" : "grass",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "grass-colorado-springspark"
       },
       "video" : "grs_extra_self_16"
     },
@@ -3656,24 +3700,28 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
+      "reservedAs" : "alias",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2026-09-06"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
         "value" : "file:da357993415f35eb5c73d19ba94c64f33cf826322a256ee2ca1fa40f26f76a2f"
       },
-      "split" : "train",
+      "split" : "final_test_candidate",
       "surface" : "grass",
+      "unreservedSplit" : "train",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "grass-colorado-aspen"
       },
       "video" : "grs_extra_self_20"
     },
     {
       "addedAt" : "2026-10-17T13:43:50Z",
-      "aliasGroup" : "grs_extra_self_21",
+      "aliasGroup" : "grs_extra_self_20",
       "camera" : "Extra",
       "clipId" : "grs_extra_self_21",
       "datasetSplit" : "val",
@@ -3694,7 +3742,8 @@
       "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2026-09-06"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
@@ -3704,7 +3753,8 @@
       "surface" : "grass",
       "unreservedSplit" : "dev_val",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "grass-colorado-aspen"
       },
       "video" : "grs_extra_self_21"
     },
@@ -5916,18 +5966,22 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
+      "reservedAs" : "alias",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2024-12-14"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
         "value" : "file:16ad6a443d1f98bfa1013de6bbc90fec47ab3c0645d71b811d6364bdb5091982"
       },
-      "split" : "train",
+      "split" : "final_test_candidate",
       "surface" : "indoor",
+      "unreservedSplit" : "train",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "indoor-florida-ova"
       },
       "video" : "ind_extra_self_06"
     },
@@ -6003,7 +6057,7 @@
     },
     {
       "addedAt" : "2026-10-17T10:47:03Z",
-      "aliasGroup" : "ind_extra_self_09",
+      "aliasGroup" : "ind_extra_self_06",
       "camera" : "Extra",
       "clipId" : "ind_extra_self_09",
       "datasetSplit" : "val",
@@ -6024,7 +6078,8 @@
       "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "2024-12-14"
       },
       "sourceId" : {
         "origin" : "inferred_fingerprint",
@@ -6034,7 +6089,8 @@
       "surface" : "indoor",
       "unreservedSplit" : "dev_val",
       "venueId" : {
-        "origin" : "unknown"
+        "origin" : "confirmed",
+        "value" : "indoor-florida-ova"
       },
       "video" : "ind_extra_self_09"
     },
