@@ -159,6 +159,23 @@ final class DatasetAuditTests: XCTestCase {
         XCTAssertTrue(listed.message.contains("via aliases: training_package"), listed.message)
     }
 
+    func testExposureOfASessionlessAliasIsInheritedByTheCandidate() throws {
+        // A (listed candidate, confirmed s/v) shares a confirmed venue with B, whose session was removed
+        // from the dataset but whose training_package record is still on the ledger.
+        let a = F.clip("grs_s", environment: "Grass", split: "val", videos: [F.source("grs_s", uploader: "Me", fingerprint: "y:S", sessionId: "s-s", venueId: "v-shared")])
+        let b = F.clip("grs_t", environment: "Grass", split: "train", videos: [F.source("grs_t", uploader: "Me", fingerprint: "y:T", sessionId: "s-t", venueId: "v-shared")])
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTestCandidates: ["grs_s"]),
+                              extraClips: [a, b], extraSessions: [F.session("grs_s", split: "val")])   // grs_t has no session
+        inputs.discovered = ["grs_t": [ExposureRecord(kind: .trainingPackage, ref: "P1", date: "2026-10-17", note: nil)]]
+        let m = try DatasetSplitManifest.build(inputs)
+        let row = m.videos.first { $0.video == "grs_s" }!
+        XCTAssertEqual(row.exposure.map(\.kind), [.trainingPackage], "inherited from the sessionless alias")
+        XCTAssertTrue(row.exposure.first!.note!.contains("via sessionless alias grs_t"))
+        let listed = DatasetAudit.run(manifest: m, now: F.day).findings.first { $0.code.hasPrefix("CANDIDATE") && $0.videos == ["grs_s"] }!
+        XCTAssertEqual(listed.code, "CANDIDATE-BLOCKED")
+        XCTAssertTrue(listed.message.contains("prior exposure (training_package"), listed.message)
+    }
+
     func testProvenanceQualityIsReported() throws {
         let a = try audit(F.inputs())
         let source = a.findings.first { $0.code == "PROVENANCE-SOURCE" }

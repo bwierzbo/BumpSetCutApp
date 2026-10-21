@@ -1,6 +1,6 @@
 # Dataset split manifest — Scratch
 
-Created 2026-10-21T13:30:32Z by RallyLab 1.0 (2). Schema 1.
+Created 2026-10-21T13:39:02Z by RallyLab 1.0 (2). Schema 1.
 
 Hashes: project.json `463042ef707e8360` · sessions/ `06ed23f06ccd23ce` · validation.json `4d4b4368ae3decad`
 

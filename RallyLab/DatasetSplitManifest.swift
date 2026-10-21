@@ -190,6 +190,20 @@ struct DatasetSplitManifest: Codable {
         let finalTest = ReservedVideos.closure(of: listedFinal, over: sources)
         let candidates = ReservedVideos.closure(of: listedCandidates, over: sources).subtracting(finalTest)
         let groupOf = ReservedVideos.groups(over: sources)
+        // Project videos with no dataset session never get a row, but their history still belongs
+        // to their alias group (e.g. an exposed video whose session was removed from the dataset).
+        let sessionNames = Set(inputs.sessions.map(\.name))
+        var sessionless: [String: [String]] = [:]   // group id → sessionless member names
+        for (name, group) in groupOf where !sessionNames.contains(name) { sessionless[group, default: []].append(name) }
+        func inheritedExposure(forGroup group: String?) -> Set<ExposureRecord> {
+            var out = Set<ExposureRecord>()
+            for m in (group.flatMap { sessionless[$0] } ?? []).sorted() {
+                for r in (previous[m] ?? []) + (inputs.discovered[m] ?? []) {
+                    out.insert(ExposureRecord(kind: r.kind, ref: r.ref, date: r.date, note: (r.note.map { $0 + "; " } ?? "") + "via sessionless alias \(m)"))
+                }
+            }
+            return out
+        }
         let previous = Dictionary(uniqueKeysWithValues: (inputs.previous?.videos ?? []).map { ($0.video, $0.exposure) })
         // A moved or renamed video keeps its history: the previous manifest is also joined by file fingerprint.
         var previousByPrint: [String: Set<ExposureRecord>] = [:]
@@ -215,6 +229,7 @@ struct DatasetSplitManifest: Codable {
             var exposure = Set(previous[session.name] ?? [])
             exposure.formUnion(inputs.discovered[session.name] ?? [])
             if let source = card?.source, let print = inputs.fingerprint(source) { exposure.formUnion(previousByPrint[print] ?? []) }
+            exposure.formUnion(inheritedExposure(forGroup: groupOf[session.name]))
             if tune.contains(session.name) {
                 exposure.insert(ExposureRecord(kind: .pipelineTune, ref: "pipeline_tuning/validation.json", date: nil, note: nil))
             }
