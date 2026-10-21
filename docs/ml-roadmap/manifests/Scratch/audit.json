@@ -1,5 +1,5 @@
 {
-  "createdAt" : "2026-10-21T03:52:50Z",
+  "createdAt" : "2026-10-21T05:13:49Z",
   "findings" : [
     {
       "code" : "CARD-SPLIT",
@@ -10,15 +10,6 @@
         "bch_onl_ovc_land_onl_02_v2",
         "bch_onl_ovc_land_onl_02_v3",
         "bch_onl_ovc_land_onl_02_v4"
-      ]
-    },
-    {
-      "code" : "CARD-SPLIT",
-      "message" : "2 videos with same clip card \"bch_onl_sun_land_onl_03\" sit in dev_val + legacy_holdout.",
-      "severity" : "soft",
-      "videos" : [
-        "bch_onl_sun_land_onl_03",
-        "bch_onl_sun_land_onl_03_v2"
       ]
     },
     {
@@ -49,6 +40,14 @@
       ]
     },
     {
+      "code" : "RESERVED-UPLOADER-IN-TRAIN",
+      "message" : "bch_onl_sun_land_onl_03_v2 (legacy_holdout) shares uploader \"Dianne Gan\" with train videos; confirm it is a different venue\/session.",
+      "severity" : "soft",
+      "videos" : [
+        "bch_onl_sun_land_onl_03_v2"
+      ]
+    },
+    {
       "code" : "UPLOADER-SPLIT",
       "message" : "4 videos with same uploader \"Blake Seegers\" sit in dev_val + tune.",
       "severity" : "soft",
@@ -61,7 +60,7 @@
     },
     {
       "code" : "UPLOADER-SPLIT",
-      "message" : "4 videos with same uploader \"Dianne Gan\" sit in dev_val + legacy_holdout + train.",
+      "message" : "4 videos with same uploader \"Dianne Gan\" sit in legacy_holdout + train.",
       "severity" : "soft",
       "videos" : [
         "bch_onl_sun_land_onl_03",
@@ -83,31 +82,75 @@
       ]
     },
     {
-      "code" : "FINAL-TEST-CANDIDATE",
-      "message" : "7 video(s) have no recorded exposure and share no card, uploader or file with train. Owner decision: confirm venue\/session, then list in validation.json `finalTest`.",
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "bch_extra_self_05 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
       "severity" : "info",
       "videos" : [
-        "bch_extra_self_05",
-        "bch_extra_self_18",
-        "grs_extra_self_06",
-        "grs_extra_self_07",
-        "grs_extra_self_14",
-        "grs_extra_self_21",
+        "bch_extra_self_05"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "bch_extra_self_18 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "severity" : "info",
+      "videos" : [
+        "bch_extra_self_18"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "grs_extra_self_06 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "severity" : "info",
+      "videos" : [
+        "grs_extra_self_06"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "grs_extra_self_07 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "severity" : "info",
+      "videos" : [
+        "grs_extra_self_07"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "grs_extra_self_14 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "severity" : "info",
+      "videos" : [
+        "grs_extra_self_14"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "grs_extra_self_21 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "severity" : "info",
+      "videos" : [
+        "grs_extra_self_21"
+      ]
+    },
+    {
+      "code" : "CANDIDATE-BLOCKED",
+      "message" : "ind_extra_self_09 is protected but not promotable yet: prior exposure (pre_tracking); venueId unconfirmed; sessionId unconfirmed.",
+      "severity" : "info",
+      "videos" : [
         "ind_extra_self_09"
       ]
     },
     {
-      "code" : "PROVENANCE-SOURCE",
-      "message" : "167 video(s) have no confirmed sourceId (167 carry a file fingerprint as a suggestion, 0 nothing). Confirm with `--set-provenance <video> --source-id <id>`.",
+      "code" : "FINAL-TEST-NONE",
+      "message" : "Every video has recorded exposure; an independent final test needs new recordings.",
       "severity" : "info",
       "videos" : [
-        "bch_ele_ovc_land_self_02",
-        "bch_ele_ovc_land_self_02_v2",
-        "bch_ele_ovc_land_self_02_v3",
-        "bch_ele_ovc_land_self_02_v4",
-        "bch_ele_ovc_land_self_02_v5",
+
+      ]
+    },
+    {
+      "code" : "PROVENANCE-SOURCE",
+      "message" : "94 video(s) have no confirmed sourceId (94 carry a file fingerprint as a suggestion, 0 nothing). Confirm with `--set-provenance <video> --source-id <id>`.",
+      "severity" : "info",
+      "videos" : [
         "bch_ele_sun_land_self_01",
-        "bch_ele_sun_port_self_03",
         "bch_extra_self_01",
         "bch_extra_self_02",
         "bch_extra_self_03",
@@ -140,39 +183,14 @@
         "bch_extra_self_30",
         "bch_extra_self_31",
         "bch_gnd_ovc_land_self_01",
-        "bch_gnd_ovc_land_self_01_v2",
-        "bch_gnd_ovc_land_self_03",
-        "bch_gnd_sun_land_self_02",
         "bch_gnd_sun_land_self_02_v2",
-        "bch_gnd_sun_land_self_02_v3",
-        "bch_gnd_sun_land_self_02_v4",
-        "bch_gnd_sun_land_self_02_v5",
-        "bch_gnd_sun_land_self_02_v6",
-        "bch_hnd_ovc_land_self_01",
-        "bch_onl_ovc_land_onl_02",
-        "bch_onl_ovc_land_onl_02_v2",
-        "bch_onl_ovc_land_onl_02_v3",
-        "bch_onl_ovc_land_onl_02_v4",
-        "bch_onl_sun_land_onl_01",
-        "bch_onl_sun_land_onl_01_v2",
-        "bch_onl_sun_land_onl_03",
-        "bch_onl_sun_land_onl_03_v2",
-        "bch_onl_sun_land_onl_04",
         "bch_sid_ovc_land_self_02",
         "bch_sid_ovc_land_self_02_v2",
-        "bch_sid_sun_land_self_03",
-        "bch_sid_sun_port_self_01",
         "bch_tri_sun_land_self_01",
         "bch_tri_sun_land_self_01_v2",
         "bch_tri_sun_land_self_01_v3",
         "bch_tri_sun_land_self_01_v4",
-        "grs_ele_dusk_port_self_03",
-        "grs_ele_dusk_port_self_03_v2",
-        "grs_ele_shade_land_self_02",
         "grs_ele_sun_land_self_01",
-        "grs_ele_sun_land_self_01_v2",
-        "grs_ele_sun_land_self_01_v3",
-        "grs_ele_sun_land_self_01_v4",
         "grs_extra_self_01",
         "grs_extra_self_02",
         "grs_extra_self_03",
@@ -207,37 +225,11 @@
         "grs_extra_tester_03_v8",
         "grs_extra_tester_03_v9",
         "grs_extra_tester_04",
-        "grs_gnd_dusk_land_self_03",
-        "grs_gnd_shade_land_self_02",
-        "grs_gnd_shade_land_self_02_v2",
         "grs_gnd_sun_land_self_01",
         "grs_gnd_sun_land_self_01_v2",
-        "grs_gnd_sun_land_self_01_v3",
-        "grs_gnd_sun_land_self_01_v4",
-        "grs_gnd_sun_land_self_01_v5",
-        "grs_gnd_sun_land_self_01_v6",
-        "grs_hnd_shade_port_self_02",
         "grs_hnd_sun_land_self_01",
         "grs_hnd_sun_land_self_01_v2",
-        "grs_hnd_sun_land_self_01_v3",
-        "grs_onl_dusk_land_onl_03",
-        "grs_onl_shade_land_onl_02",
-        "grs_onl_sun_land_onl_01",
-        "grs_onl_sun_land_onl_01_v2",
-        "grs_onl_sun_land_onl_04",
-        "grs_onl_sun_land_onl_04_v2",
-        "grs_sid_shade_land_self_02",
-        "grs_sid_shade_land_self_02_v2",
         "grs_sid_sun_port_self_01",
-        "grs_sid_sun_port_self_01_v2",
-        "grs_tri_shade_port_self_02",
-        "grs_tri_sun_land_self_01",
-        "grs_tri_sun_land_self_01_v2",
-        "ind_ele_bright_land_self_01",
-        "ind_ele_dim_land_self_02",
-        "ind_ele_dim_land_self_02_v2",
-        "ind_ele_dim_land_self_02_v3",
-        "ind_ele_dim_land_self_04",
         "ind_extra_self_01",
         "ind_extra_self_02",
         "ind_extra_self_03",
@@ -247,27 +239,11 @@
         "ind_extra_self_07",
         "ind_extra_self_08",
         "ind_extra_self_09",
-        "ind_gnd_bright_land_self_01",
-        "ind_gnd_bright_land_self_01_v2",
-        "ind_gnd_bright_land_self_01_v3",
-        "ind_gnd_bright_land_self_01_v4",
         "ind_gnd_bright_port_self_03",
         "ind_gnd_dim_land_self_02",
-        "ind_hnd_bright_port_self_01",
-        "ind_hnd_dim_land_self_02",
-        "ind_hnd_dim_land_self_02_v2",
-        "ind_onl_bright_land_onl_01",
-        "ind_onl_bright_land_onl_01_v2",
-        "ind_onl_bright_land_onl_01_v3",
-        "ind_onl_bright_land_onl_01_v4",
-        "ind_onl_bright_land_onl_04",
-        "ind_sid_bright_land_self_02",
         "ind_sid_dim_land_self_01",
         "ind_tri_bright_land_self_01",
-        "ind_tri_bright_land_self_01_v2",
-        "ind_tri_bright_land_self_01_v3",
-        "ind_tri_bright_land_self_01_v4",
-        "ind_tri_dim_port_self_02"
+        "ind_tri_bright_land_self_01_v2"
       ]
     },
     {
@@ -446,8 +422,8 @@
     }
   ],
   "manifestHashes" : {
-    "projectJson" : "8404d1c0d97f10a4d0821a36c9f7a26a4e9e6bba72371458643aa762866b98d1",
+    "projectJson" : "463042ef707e83604e0d92a8667e1bb5ef8a02be80fcd07f07b07a71ae118410",
     "sessions" : "06ed23f06ccd23ceba499fb77f3b4f5a864e21496fad91ba2370c84059ae5886",
-    "validationJson" : "a47abc72dc063405fa8bc3dd5a0470a0386694b5e3507cff4e16cf0fca9d4056"
+    "validationJson" : "4d4b4368ae3decad222630591f0d29d3be4db15e2366a217cf0d11c19afcd8f5"
   }
 }

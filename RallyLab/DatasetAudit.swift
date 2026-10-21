@@ -82,11 +82,29 @@ struct DatasetAudit: Codable {
             }
         }
 
-        // Final-test candidates: no exposure at all, and nothing of theirs in train.
+        // Provisional final-test candidates (D-015 §2): what still blocks each one's promotion.
+        let others = videos.filter { $0.split != .finalTestCandidate && $0.split != .finalTest }
+        let otherCards = Set(others.compactMap(\.clipId)), otherUploaders = Set(others.compactMap(\.uploader)), otherPrints = Set(others.compactMap(\.fingerprint))
+        for v in videos where v.split == .finalTestCandidate {
+            var blockers: [String] = []
+            if !v.exposure.isEmpty { blockers.append("prior exposure (" + Set(v.exposure.map(\.kind.rawValue)).sorted().joined(separator: ", ") + ")") }
+            if v.fingerprint.map(otherPrints.contains) == true { blockers.append("same file as a non-candidate video") }
+            if v.clipId.map(otherCards.contains) == true { blockers.append("same card as a non-candidate video") }
+            if v.uploader.map(otherUploaders.contains) == true { blockers.append("same uploader as a non-candidate video") }
+            if v.venueId.origin != .confirmed { blockers.append("venueId unconfirmed") }
+            if v.sessionId.origin != .confirmed { blockers.append("sessionId unconfirmed") }
+            findings.append(Finding(severity: .info, code: blockers.isEmpty ? "CANDIDATE-READY" : "CANDIDATE-BLOCKED",
+                                    message: blockers.isEmpty
+                                        ? "\(v.video) is protected and has confirmed provenance and no prior exposure; the owner may promote it to finalTest."
+                                        : "\(v.video) is protected but not promotable yet: " + blockers.joined(separator: "; ") + ".",
+                                    videos: [v.video]))
+        }
+
+        // Further final-test candidates: no exposure at all, and nothing of theirs in train.
         let trainCards = Set(videos.filter { $0.split == .train }.compactMap(\.clipId))
         let trainUploaders = Set(videos.filter { $0.split == .train }.compactMap(\.uploader))
         let trainPrints = Set(videos.filter { $0.split == .train }.compactMap(\.fingerprint))
-        let candidates = videos.filter { $0.exposure.isEmpty && $0.split != .finalTest && $0.split != .train }
+        let candidates = videos.filter { $0.exposure.isEmpty && $0.split != .finalTest && $0.split != .finalTestCandidate && $0.split != .train }
         let clean = candidates.filter { v in
             !(v.clipId.map(trainCards.contains) ?? false) && !(v.uploader.map(trainUploaders.contains) ?? false)
                 && !(v.fingerprint.map(trainPrints.contains) ?? false)

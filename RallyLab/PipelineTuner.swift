@@ -108,21 +108,30 @@ enum PipelineTuner {
         /// Recordings reserved as the independent final test (D-002): never
         /// packaged, scored or tuned on until promotion. Absent in older files.
         var finalTest: [String]
+        /// Provisional final-test candidates (D-015 §2): protected exactly like
+        /// `finalTest` while their provenance is verified, but not yet the
+        /// final test. Promotion moves a name from here to `finalTest`.
+        var finalTestCandidates: [String]
 
-        init(tune: [String], holdout: [String], finalTest: [String] = []) {
+        init(tune: [String], holdout: [String], finalTest: [String] = [], finalTestCandidates: [String] = []) {
             self.tune = tune
             self.holdout = holdout
             self.finalTest = finalTest
+            self.finalTestCandidates = finalTestCandidates
         }
 
-        private enum CodingKeys: String, CodingKey { case tune, holdout, finalTest }
+        private enum CodingKeys: String, CodingKey { case tune, holdout, finalTest, finalTestCandidates }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             tune = try c.decode([String].self, forKey: .tune)
             holdout = try c.decode([String].self, forKey: .holdout)
             finalTest = try c.decodeIfPresent([String].self, forKey: .finalTest) ?? []
+            finalTestCandidates = try c.decodeIfPresent([String].self, forKey: .finalTestCandidates) ?? []
         }
+
+        /// Every reserved name as listed (final test and provisional candidates).
+        var reservedAsListed: Set<String> { Set(finalTest).union(finalTestCandidates) }
 
         enum ReservationError: LocalizedError {
             case unreadable(URL)
@@ -358,7 +367,7 @@ enum PipelineTuner {
             log("❌ No \(dir.lastPathComponent)/validation.json (lists the tune and holdout videos).")
             return false
         }
-        let clash = (set.tune + set.holdout).filter { set.finalTest.contains($0) }
+        let clash = (set.tune + set.holdout).filter { set.reservedAsListed.contains($0) }
         guard clash.isEmpty else {
             log("❌ Reserved final-test videos are also listed as tune/holdout: \(clash.joined(separator: ", ")). Fix validation.json (D-002).")
             return false

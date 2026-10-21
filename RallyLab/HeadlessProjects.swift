@@ -31,6 +31,7 @@
 //    RallyLab --project v3 --manifest [--out <dir>]          (dataset split manifest → manifests/manifest.{json,md})
 //    RallyLab --project v3 --audit-dataset [--out <dir>]     (manifest + leakage audit → audit.{json,md}; exit 1 on a hard leak)
 //    RallyLab --project v3 --set-provenance <video id> [--source-id X] [--session-id Y] [--venue-id Z]   ("" clears)
+//    RallyLab --project v3 --confirm-youtube-source-ids [--apply]   (D-015 §5: preview/apply sourceId = youtube:<id> where verifiable)
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
 //    RallyLab --project v3 --package                       (training package zip)
@@ -176,6 +177,9 @@ enum HeadlessProjects {
             // and the owner's confirmations of where a video came from.
             if ok, args.contains("--manifest") || args.contains("--audit-dataset") {
                 ok = datasetManifest(projects, audit: args.contains("--audit-dataset"), args: args)
+            }
+            if ok, args.contains("--confirm-youtube-source-ids") {
+                ok = confirmYouTubeSourceIDs(projects, apply: args.contains("--apply"))
             }
             if ok, let videoId = value(after: "--set-provenance", in: args) {
                 ok = projects.setProvenance(videoId: videoId,
@@ -627,6 +631,42 @@ enum HeadlessProjects {
         return true
     }
 
+    /// `--confirm-youtube-source-ids [--apply]`: D-015 §5. Preview (default) or
+    /// apply `sourceId = youtube:<id>` where the link's ID equals the stored
+    /// fingerprint; everything else is listed and left unconfirmed. Writes
+    /// manifests/youtube-source-ids-<stamp>.{md,json} with every prior value.
+    @MainActor
+    private static func confirmYouTubeSourceIDs(_ projects: ProjectsModel, apply: Bool) -> Bool {
+        guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
+        let plan = YouTubeSourceIDs.plan(sources: ReservedVideos.sources(in: dir))
+        let out = dir.appendingPathComponent("manifests", isDirectory: true)
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmm"
+        let stamp = f.string(from: Date())
+        var applied = 0
+        if apply {
+            for p in plan.proposals where projects.setProvenance(videoId: p.video, sourceId: p.sourceId, sessionId: nil, venueId: nil) { applied += 1 }
+            guard applied == plan.proposals.count else {
+                log("❌ Applied \(applied) of \(plan.proposals.count) — check the report and project.json.")
+                return false
+            }
+        }
+        let base = out.appendingPathComponent("youtube-source-ids-\(stamp)\(apply ? "-applied" : "-preview")")
+        do {
+            try YouTubeSourceIDs.markdown(plan, applied: apply).write(to: base.appendingPathExtension("md"), atomically: true, encoding: .utf8)
+            let rows = plan.proposals.map { ["video": $0.video, "sourceId": $0.sourceId, "previous": $0.previous ?? "", "origin": $0.origin] }
+                + plan.ambiguous.map { ["video": $0.video, "ambiguous": $0.reason] }
+            try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]).write(to: base.appendingPathExtension("json"))
+        } catch {
+            log("❌ Couldn't write the report: \(error.localizedDescription)")
+            return false
+        }
+        log("\(apply ? "✅ Confirmed" : "Preview:") \(plan.proposals.count) YouTube source ID(s) · \(plan.alreadyConfirmed.count) already confirmed · \(plan.ambiguous.count) ambiguous (unchanged) → \(base.lastPathComponent).md")
+        for a in plan.ambiguous { log("  ambiguous: \(a.video) — \(a.reason)") }
+        if !apply, !plan.proposals.isEmpty { log("  add --apply to write them (reversible: --set-provenance <video> --source-id \"\")") }
+        return true
+    }
+
     /// `--manifest` writes <project>/manifests/manifest.{json,md} (or --out <dir>);
     /// `--audit-dataset` also writes audit.{json,md} and fails on a hard leak.
     @MainActor
@@ -646,8 +686,13 @@ enum HeadlessProjects {
         var validation: PipelineTuner.ValidationSet?
         do {
             validation = try PipelineTuner.ValidationSet.loadStrict(from: dir)
-            // Aliases of a reserved recording (same file or confirmed identity) are reserved with it.
-            if validation != nil { validation?.finalTest = Array(try ReservedVideos.reservedNames(in: dir)).sorted() }
+            // Aliases of a reserved recording (same file or confirmed identity) are reserved with it;
+            // final test and provisional candidates stay apart.
+            if let set = validation {
+                let (finalTest, candidates) = ReservedVideos.expanded(set, sources: ReservedVideos.sources(in: dir))
+                validation?.finalTest = finalTest.sorted()
+                validation?.finalTestCandidates = candidates.sorted()
+            }
         } catch {
             log("❌ \(error.localizedDescription)")
             return false

@@ -24,10 +24,11 @@ enum DatasetSplit: String, Codable, CaseIterable {
     case devVal = "dev_val"
     case tune
     case legacyHoldout = "legacy_holdout"
+    case finalTestCandidate = "final_test_candidate"
     case finalTest = "final_test"
 
     /// Splits a model or the tuner must never have seen before the final test.
-    var isReserved: Bool { self == .legacyHoldout || self == .finalTest }
+    var isReserved: Bool { self == .legacyHoldout || self == .finalTest || self == .finalTestCandidate }
 
     static let definitions: [String: String] = [
         DatasetSplit.train.rawValue:
@@ -38,8 +39,10 @@ enum DatasetSplit: String, Codable, CaseIterable {
             "validation.json `tune`: pipeline settings are searched on these. Also in the detector's val split.",
         DatasetSplit.legacyHoldout.rawValue:
             "validation.json `holdout`: frozen recordings (D-002) with recorded prior exposure (test-set scoring, tuner reports). Not an unseen final test.",
+        DatasetSplit.finalTestCandidate.rawValue:
+            "validation.json `finalTestCandidates`: provisional final-test recordings (D-015 §2). Protected exactly like final_test while venue/session provenance and prior exposure are verified; NOT yet the final test.",
         DatasetSplit.finalTest.rawValue:
-            "validation.json `finalTest`: recordings with no recorded exposure, reserved until promotion. Excluded from packages, scoring and tuning.",
+            "validation.json `finalTest`: verified recordings with no recorded exposure, reserved until promotion. Excluded from packages, scoring and tuning.",
     ]
 }
 
@@ -168,6 +171,7 @@ struct DatasetSplitManifest: Codable {
         let tune = Set(inputs.validation?.tune ?? [])
         let holdout = Set(inputs.validation?.holdout ?? [])
         let finalTest = Set(inputs.validation?.finalTest ?? [])
+        let candidates = Set(inputs.validation?.finalTestCandidates ?? []).subtracting(finalTest)
         let previous = Dictionary(uniqueKeysWithValues: (inputs.previous?.videos ?? []).map { ($0.video, $0.exposure) })
         // A moved or renamed video keeps its history: the previous manifest is also joined by file fingerprint.
         var previousByPrint: [String: Set<ExposureRecord>] = [:]
@@ -180,6 +184,7 @@ struct DatasetSplitManifest: Codable {
             let card = cards[session.name]
             let split: DatasetSplit
             if finalTest.contains(session.name) { split = .finalTest }
+            else if candidates.contains(session.name) { split = .finalTestCandidate }
             else if holdout.contains(session.name) { split = .legacyHoldout }
             else if tune.contains(session.name) { split = .tune }
             else if session.split == "val" { split = .devVal }
@@ -296,6 +301,24 @@ struct DatasetSplitManifest: Codable {
             }
         }
 
+        // Uses that predate the log and leave marks in the project itself: machine tracks
+        // written by a pre-tracking model, and the tuner's / serve report's cached detection passes.
+        for session in DatasetStore(root: projectDir).loadSessions() {
+            let machine = (session.tracks ?? []).filter(\.isMachine)
+            if !machine.isEmpty {
+                let latest = machine.compactMap(\.updatedAt).max()
+                add(session.name, ExposureRecord(kind: .preTracking, ref: "session tracks (machine)",
+                                                 date: latest.map(isoDay), note: "\(machine.count) machine track(s) in sessions/\(session.name).json; model not recorded"))
+            }
+        }
+        let evidence = projectDir.appendingPathComponent("pipeline_tuning/evidence", isDirectory: true)
+        for file in (try? fm.contentsOfDirectory(at: evidence, includingPropertiesForKeys: nil)) ?? [] where file.pathExtension == "evidence" {
+            let name = file.deletingPathExtension().lastPathComponent
+            guard let sep = name.range(of: "__") else { continue }
+            add(String(name[..<sep.lowerBound]), ExposureRecord(kind: .rallyScoring, ref: "pipeline_tuning/evidence", date: isoDay(of: file),
+                                                               note: "cached detection pass (tuner or serve report)"))
+        }
+
         // The log every export, score run and tuning round appends to (survives deleted artefacts),
         // and the hand-written seed for artefacts that predate the log.
         for row in try ExposureLog.readStrict(in: projectDir) + ExposureLog.readSeedStrict(in: projectDir) {
@@ -315,6 +338,10 @@ struct DatasetSplitManifest: Codable {
 
     private static func isoDay(of file: URL) -> String? {
         guard let date = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { return nil }
+        return isoDay(date)
+    }
+
+    private static func isoDay(_ date: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(identifier: "UTC")

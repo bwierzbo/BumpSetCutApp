@@ -29,6 +29,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-012](#d-012) | 2026-10-09 | accepted | No Ultralytics licence; no YOLO-derived weights ship in the public app |
 | [D-013](#d-013) | 2026-10-06 | accepted (amended by D-001) | From-scratch multi-frame ball model + learned decision layer, all on-device |
 | [D-014](#d-014) | 2026-10-20 | accepted (amends D-005) | Review tiers: PR review by default for ML/data/architecture; streamlined path only with explicit owner authorisation; Codex is the reviewer |
+| [D-015](#d-015) | 2026-10-21 | accepted | Task B.1 decisions: holdout sibling moved; seven provisional final-test candidates protected; tune/dev_val cards kept; CLI provenance now, UI in B.2; YouTube IDs confirmed as sourceId |
 
 ---
 
@@ -171,3 +172,16 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** [WORKING_AGREEMENT.md](../workflow/WORKING_AGREEMENT.md) "Review tiers"; [CHATGPT_REVIEW.md](../workflow/CHATGPT_REVIEW.md) now leads with Codex; `CLAUDE.md`, `.claude/CLAUDE.md`, `AGENTS.md` updated to point there. The CCPM epic tooling, whose merge command pushed `main`, was removed rather than patched (unused third-party add-on).
 
 **Source.** Owner instruction to Claude Code, 2026-10-20 ("Task 2 — Update the development workflow"), recorded in PR #65.
+
+### D-015
+
+**Task B.1 decisions applied** — 2026-10-21 — accepted — owner (with ChatGPT review). Source: [owner note, verbatim](2026-10-21-task-b1-owner-decisions.md).
+
+**Decision.**
+1. `bch_onl_sun_land_onl_03_v2` joins its sibling in `legacy_holdout` (option A). Both were exposed to evaluation; neither is unseen.
+2. The seven unexposed dev_val recordings (`bch_extra_self_05`, `bch_extra_self_18`, `grs_extra_self_06`, `grs_extra_self_07`, `grs_extra_self_14`, `grs_extra_self_21`, `ind_extra_self_09`) are **provisional final-test candidates**: protected immediately against any new training, tuning, evaluation or scoring exposure, and promoted to `final_test` only after the owner confirms venue and session, duplicates and overlap with training/tuning are checked, historical exposure evidence is reviewed (an empty ledger does not prove absence of use before logging), and independence is justified. Provisional candidates are kept distinct from verified final-test recordings. They are an initial evaluation resource, not a basis for broad generalisation claims; a stronger independent final-test collection (more venues, sessions, cameras, all three surfaces) stays planned.
+3. Tune/dev_val card overlaps are not reorganised now; the soft findings stay documented and visible; reassess when the D-007 tuning methodology is implemented.
+4. Provenance is assigned with the existing CLI now; a lightweight provenance editor (sourceId, sessionId, venueId, explicit confirmation status, unknown values; never inferring) joins the RallyLab clip card in Task B.2 without blocking integrity work.
+5. YouTube video IDs may be confirmed as `sourceId` when independently verifiable, by a deterministic, reversible, previewed procedure; venueId/sessionId are never inferred from YouTube IDs, uploaders or cards; ambiguous entries stay unconfirmed.
+
+**Consequences.** `validation.json` gains `finalTestCandidates`; split `final_test_candidate` (reserved like `final_test`, reported apart); `--confirm-youtube-source-ids [--apply]`; pre-logging uses are discovered from session machine tracks and the tuner evidence cache. Applied to Scratch on 2026-10-21: holdout 4→5, dev_val 12→4, candidates 0→7, 73 YouTube `sourceId`s confirmed, hard 0→0, soft 8→8. All seven candidates are `CANDIDATE-BLOCKED` (pre-tracking exposure; venue/session unconfirmed) pending the owner's answers in [PROVENANCE_QUESTIONS_2026-10-21.md](../ml-roadmap/PROVENANCE_QUESTIONS_2026-10-21.md). Task B.2 does not start until those are addressed and this work is reviewed.

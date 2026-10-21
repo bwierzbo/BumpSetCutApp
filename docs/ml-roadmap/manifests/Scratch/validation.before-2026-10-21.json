@@ -1,0 +1,19 @@
+{
+  "tune": [
+    "bch_onl_ovc_land_onl_02",
+    "bch_onl_ovc_land_onl_02_v2",
+    "bch_onl_ovc_land_onl_02_v4",
+    "grs_hnd_shade_port_self_02",
+    "grs_onl_shade_land_onl_02",
+    "grs_onl_sun_land_onl_01",
+    "ind_ele_bright_land_self_01",
+    "ind_ele_dim_land_self_02",
+    "ind_ele_dim_land_self_02_v2"
+  ],
+  "holdout": [
+    "bch_onl_sun_land_onl_03",
+    "grs_onl_dusk_land_onl_03",
+    "ind_onl_bright_land_onl_04",
+    "ind_sid_bright_land_self_02"
+  ]
+}

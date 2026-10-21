@@ -35,7 +35,7 @@ enum ServeReport {
             log("❌ \(error.localizedDescription)")
             return false
         }
-        let clash = (set.tune + set.holdout).filter { set.finalTest.contains($0) }
+        let clash = (set.tune + set.holdout).filter { set.reservedAsListed.contains($0) }
         guard clash.isEmpty else {
             log("❌ Reserved final-test videos are also listed as tune/holdout: \(clash.joined(separator: ", ")). Fix validation.json (D-002).")
             return false

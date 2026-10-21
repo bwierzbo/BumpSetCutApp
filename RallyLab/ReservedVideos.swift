@@ -36,9 +36,18 @@ enum ReservedVideos {
     /// venueId with a reserved one. A reservation names a recording, not a
     /// filename. Throws when validation.json exists but can't be read.
     static func reservedNames(in root: URL) throws -> Set<String> {
-        let named = Set(try PipelineTuner.ValidationSet.loadStrict(from: root)?.finalTest ?? [])
+        let named = try PipelineTuner.ValidationSet.loadStrict(from: root)?.reservedAsListed ?? []
         guard !named.isEmpty else { return [] }
         return closure(of: named, over: sources(in: root))
+    }
+
+    /// The listed final test and provisional candidates, each expanded to
+    /// its aliases, kept apart: a candidate that aliases a final-test video
+    /// is final test. For the manifest's split assignment.
+    static func expanded(_ set: PipelineTuner.ValidationSet, sources: [String: ClipSource]) -> (finalTest: Set<String>, candidates: Set<String>) {
+        let finalTest = closure(of: Set(set.finalTest), over: sources)
+        let candidates = closure(of: Set(set.finalTestCandidates), over: sources).subtracting(finalTest)
+        return (finalTest, candidates)
     }
 
     /// A video's file identity as ProjectsModel computes it: the stored
