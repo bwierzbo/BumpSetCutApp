@@ -1,6 +1,6 @@
 # Dataset audit — Scratch
 
-Run 2026-10-21T17:19:06Z on manifest hashes project.json `65243bca59895a7e`, sessions `06ed23f06ccd23ce`.
+Run 2026-10-21T18:53:12Z on manifest hashes project.json `65243bca59895a7e`, sessions `06ed23f06ccd23ce`.
 
 **Result: no hard leak.**
 
@@ -8,7 +8,7 @@ Run 2026-10-21T17:19:06Z on manifest hashes project.json `65243bca59895a7e`, ses
 |---|---|
 | hard | 0 |
 | soft | 8 |
-| info | 19 |
+| info | 21 |
 
 ## Soft
 
@@ -23,22 +23,24 @@ Run 2026-10-21T17:19:06Z on manifest hashes project.json `65243bca59895a7e`, ses
 
 ## Info
 
-- **CANDIDATE-BLOCKED** — bch_extra_self_05 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images/train); alias bch_extra_self_30's frames sit in the training dataset (images/train); alias bch_extra_self_31's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_05`
-- **CANDIDATE-BLOCKED** — bch_extra_self_10 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_10`
-- **CANDIDATE-BLOCKED** — bch_extra_self_18 is protected but not promotable yet: alias bch_extra_self_10's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_18`
-- **CANDIDATE-BLOCKED** — bch_extra_self_29 is protected but not promotable yet: its own frames sit in the training dataset (images/train); alias bch_extra_self_30's frames sit in the training dataset (images/train); alias bch_extra_self_31's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_29`
-- **CANDIDATE-BLOCKED** — bch_extra_self_30 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images/train); its own frames sit in the training dataset (images/train); alias bch_extra_self_31's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_30`
-- **CANDIDATE-BLOCKED** — bch_extra_self_31 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images/train); alias bch_extra_self_30's frames sit in the training dataset (images/train); its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `bch_extra_self_31`
-- **CANDIDATE-BLOCKED** — grs_extra_self_02 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_02`
-- **CANDIDATE-BLOCKED** — grs_extra_self_06 is protected but not promotable yet: alias grs_extra_self_12's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_06`
-- **CANDIDATE-BLOCKED** — grs_extra_self_07 is protected but not promotable yet: alias grs_extra_self_02's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_07`
-- **CANDIDATE-BLOCKED** — grs_extra_self_12 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_12`
-- **CANDIDATE-BLOCKED** — grs_extra_self_14 is protected but not promotable yet: alias grs_extra_self_15's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_14`
-- **CANDIDATE-BLOCKED** — grs_extra_self_15 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_15`
-- **CANDIDATE-BLOCKED** — grs_extra_self_20 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_20`
-- **CANDIDATE-BLOCKED** — grs_extra_self_21 is protected but not promotable yet: alias grs_extra_self_20's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `grs_extra_self_21`
-- **CANDIDATE-BLOCKED** — ind_extra_self_06 is protected but not promotable yet: its own frames sit in the training dataset (images/train); prior exposure (pre_tracking). `ind_extra_self_06`
-- **CANDIDATE-BLOCKED** — ind_extra_self_09 is protected but not promotable yet: alias ind_extra_self_06's frames sit in the training dataset (images/train); prior exposure (pre_tracking). `ind_extra_self_09`
 - **FINAL-TEST-NONE** — Every video has recorded exposure; an independent final test needs new recordings.
+- **LINEAGE-HOLDOUT** — bch_extra_self_05: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over. `bch_extra_self_05`
+- **LINEAGE-HOLDOUT** — bch_extra_self_10: historical exposure: pre_tracking; no reviewed frames; stored under images/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over. `bch_extra_self_10`
+- **LINEAGE-HOLDOUT** — bch_extra_self_18: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over. `bch_extra_self_18`
+- **LINEAGE-HOLDOUT** — bch_extra_self_29: historical exposure: pre_tracking; no reviewed frames; stored under images/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over. `bch_extra_self_29`
+- **LINEAGE-HOLDOUT** — bch_extra_self_30: historical exposure: pre_tracking; no reviewed frames; stored under images/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over. `bch_extra_self_30`
+- **LINEAGE-HOLDOUT** — bch_extra_self_31: historical exposure: pre_tracking; no reviewed frames; stored under images/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over. `bch_extra_self_31`
+- **LINEAGE-HOLDOUT** — grs_extra_self_02: historical exposure: pre_tracking; no reviewed frames; stored under images/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over. `grs_extra_self_02`
+- **LINEAGE-HOLDOUT** — grs_extra_self_06: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over. `grs_extra_self_06`
+- **LINEAGE-HOLDOUT** — grs_extra_self_07: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over. `grs_extra_self_07`
+- **LINEAGE-HOLDOUT** — grs_extra_self_12: historical exposure: pre_tracking; no reviewed frames; stored under images/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over. `grs_extra_self_12`
+- **LINEAGE-HOLDOUT** — grs_extra_self_14: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over. `grs_extra_self_14`
+- **LINEAGE-HOLDOUT** — grs_extra_self_15: historical exposure: pre_tracking; no reviewed frames; stored under images/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over. `grs_extra_self_15`
+- **LINEAGE-HOLDOUT** — grs_extra_self_20: historical exposure: pre_tracking; no reviewed frames; stored under images/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over. `grs_extra_self_20`
+- **LINEAGE-HOLDOUT** — grs_extra_self_21: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over. `grs_extra_self_21`
+- **LINEAGE-HOLDOUT** — ind_extra_self_06: historical exposure: pre_tracking; no reviewed frames; stored under images/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over. `ind_extra_self_06`
+- **LINEAGE-HOLDOUT** — ind_extra_self_09: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over. `ind_extra_self_09`
+- **LINEAGE-HOLDOUT-SUMMARY** — 16 lineage-holdout recording(s): beach 6, grass 8, indoor 2; 0 carry reviewed frames, 0 have rally marks; unreviewed machine tracks are not ground truth. Historically exposed: not an untouched final test. (16 videos, see audit.json)
+- **LINEAGE-UNKNOWN-RELATIONS** — 144 train/dev recording(s) (76 own files, 68 links) have neither a confirmed venue nor session: their relation to the lineage holdout is unknown, not cleared. Only the card/uploader checks cover them. (144 videos, see audit.json)
 - **PROVENANCE-SOURCE** — 94 video(s) have no confirmed sourceId (94 carry a file fingerprint as a suggestion, 0 nothing). Confirm with `--set-provenance <video> --source-id <id>`. (94 videos, see audit.json)
 - **PROVENANCE-VENUE** — 147 video(s) have no confirmed venueId and 149 no sessionId. Until set, grouping by venue is impossible and the uploader/card checks above are the only guard. (147 videos, see audit.json)

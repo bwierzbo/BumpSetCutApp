@@ -277,9 +277,37 @@ final class ReservationAndExposureTests: XCTestCase {
         try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["bch_a"],"finalTestCandidates":["bch_c"]}"#)
         XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["bch_a", "bch_c", "bch_c_copy"], "candidates and their aliases are protected everywhere")
         let set = try XCTUnwrap(try PipelineTuner.ValidationSet.loadStrict(from: root))
-        let (finalTest, candidates) = ReservedVideos.expanded(set, sources: ReservedVideos.sources(in: root))
+        let (finalTest, lineage, candidates) = ReservedVideos.expanded(set, sources: ReservedVideos.sources(in: root))
         XCTAssertEqual(finalTest, ["bch_a"])
+        XCTAssertEqual(lineage, [])
         XCTAssertEqual(candidates, ["bch_c", "bch_c_copy"], "a candidate's alias is a candidate, not final test")
+    }
+
+    func testLineageHoldoutIsReservedWithItsAliasesAndOutranksCandidates() throws {
+        let F = DatasetSplitManifestTests.self
+        let project = Project(name: "T", createdAt: F.day, framesPerRally: 40, clips: [
+            F.clip("bch_l", split: "val", videos: [F.source("bch_l", fingerprint: "file:L", sessionId: "2026-10-03", venueId: "beach-x")]),
+            F.clip("bch_n", split: "train", videos: [F.source("bch_n", fingerprint: "file:N", sessionId: "2026-10-03", venueId: "beach-x")]),
+            F.clip("bch_c", split: "val", videos: [F.source("bch_c", fingerprint: "file:C")]),
+            F.clip("bch_t", split: "train", videos: [F.source("bch_t", fingerprint: "file:T")]),
+        ])
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        try enc.encode(project).write(to: root.appendingPathComponent("project.json"))
+        try writeValidation(#"{"tune":[],"holdout":[],"finalTest":[],"finalTestCandidates":["bch_c","bch_l"],"lineageHoldout":["bch_l"]}"#)
+        XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["bch_c", "bch_l", "bch_n"],
+                       "the lineage holdout and its same-session alias are protected everywhere packages, scoring, tuning and pre-tracking look")
+        let set = try XCTUnwrap(try PipelineTuner.ValidationSet.loadStrict(from: root))
+        let (finalTest, lineage, candidates) = ReservedVideos.expanded(set, sources: ReservedVideos.sources(in: root))
+        XCTAssertEqual(finalTest, [])
+        XCTAssertEqual(lineage, ["bch_l", "bch_n"], "an alias of a lineage-holdout video is lineage holdout")
+        XCTAssertEqual(candidates, ["bch_c"], "a name listed in both is lineage holdout, not a candidate")
+    }
+
+    func testOlderValidationFilesWithoutLineageHoldoutStillDecode() throws {
+        try writeValidation(#"{"tune":["a"],"holdout":["b"],"finalTest":[],"finalTestCandidates":["c"]}"#)
+        let set = try XCTUnwrap(try PipelineTuner.ValidationSet.loadStrict(from: root))
+        XCTAssertEqual(set.lineageHoldout, [])
+        XCTAssertEqual(set.reservedAsListed, ["c"])
     }
 
     func testPreLoggingUsesAreDiscoveredFromMachineTracksAndEvidenceCache() throws {

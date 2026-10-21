@@ -1,8 +1,8 @@
 # Dataset split manifest — Scratch
 
-Created 2026-10-21T17:19:06Z by RallyLab 1.0 (2). Schema 1.
+Created 2026-10-21T18:53:12Z by RallyLab 1.0 (2). Schema 1.
 
-Hashes: project.json `65243bca59895a7e` · sessions/ `06ed23f06ccd23ce` · validation.json `4d4b4368ae3decad`
+Hashes: project.json `65243bca59895a7e` · sessions/ `06ed23f06ccd23ce` · validation.json `6d160a1ac00254a0`
 
 ## Videos by split and surface
 
@@ -12,13 +12,14 @@ Hashes: project.json `65243bca59895a7e` · sessions/ `06ed23f06ccd23ce` · valid
 | dev_val | 2 | 1 | 1 | 4 |
 | tune | 3 | 3 | 3 | 9 |
 | legacy_holdout | 2 | 1 | 2 | 5 |
-| final_test_candidate | 6 | 8 | 2 | 16 |
+| lineage_holdout | 6 | 8 | 2 | 16 |
 | final_test | 0 | 0 | 0 | 0 |
 
 - **train** — Detector training (dataset split "train").
 - **dev_val** — Development validation: dataset split "val" and not listed in pipeline_tuning/validation.json. Used for model selection; not unseen.
 - **tune** — validation.json `tune`: pipeline settings are searched on these. Also in the detector's val split.
 - **legacy_holdout** — validation.json `holdout`: frozen recordings (D-002) with recorded prior exposure (test-set scoring, tuner reports). Not an unseen final test.
+- **lineage_holdout** — validation.json `lineageHoldout`: recordings with recorded historical exposure, withheld from every training, tuning, selection and development-time scoring use from the D-017 cut-over on, so a model lineage started after the cut can be evaluated on them. Protected exactly like final_test; NOT an untouched final test — results are valid only for lineages trained after the cut.
 - **final_test_candidate** — validation.json `finalTestCandidates`: provisional final-test recordings (D-015 §2). Protected exactly like final_test while venue/session provenance and prior exposure are verified; NOT yet the final test.
 - **final_test** — validation.json `finalTest`: verified recordings with no recorded exposure, reserved until promotion. Excluded from packages, scoring and tuning.
 
@@ -33,6 +34,7 @@ Hashes: project.json `65243bca59895a7e` · sessions/ `06ed23f06ccd23ce` · valid
 | rally_scoring | 11 | pipeline_tuning/evidence |
 | detector_evaluation | 0 |  |
 | pre_tracking | 152 | session tracks (machine) |
+| ball_path | 1 | BallPathBuilder |
 
 Videos with no recorded exposure: 13 (bch_extra_self_23, bch_extra_self_24, bch_sid_sun_port_self_01, grs_extra_tester_03_v2, grs_extra_tester_03_v8, grs_gnd_shade_land_self_02, grs_hnd_sun_land_self_01_v2, grs_tri_sun_land_self_01_v2, ind_gnd_bright_land_self_01_v3, ind_hnd_bright_port_self_01, ind_hnd_dim_land_self_02_v2, ind_tri_bright_land_self_01, ind_tri_bright_land_self_01_v2)
 
@@ -51,7 +53,7 @@ Videos with no recorded exposure: 13 (bch_extra_self_23, bch_extra_self_24, bch_
 | bch_ele_ovc_land_self_02 | train | beach | bch_ele_ovc_land_self_02 | train | Alex | youtube:y_96TGH6LlY (confirmed) | pre_tracking, training_package |
 | bch_ele_ovc_land_self_02_v2 | train | beach | bch_ele_ovc_land_self_02 | train | Beach Junkies | youtube:5bmSFq7edL0 (confirmed) | pre_tracking, training_package |
 | bch_ele_ovc_land_self_02_v3 | train | beach | bch_ele_ovc_land_self_02 | train | Ben W | youtube:hoHwSypvTLo (confirmed) | pre_tracking, training_package |
-| bch_ele_ovc_land_self_02_v4 | train | beach | bch_ele_ovc_land_self_02 | train | Beware Of Hamsters | youtube:u2wRqEJdEB4 (confirmed) | pre_tracking, training_package |
+| bch_ele_ovc_land_self_02_v4 | train | beach | bch_ele_ovc_land_self_02 | train | Beware Of Hamsters | youtube:u2wRqEJdEB4 (confirmed) | ball_path, pre_tracking, training_package |
 | bch_ele_ovc_land_self_02_v5 | train | beach | bch_ele_ovc_land_self_02 | train | Brandon Tarter | youtube:nGlB764XoME (confirmed) | pre_tracking, training_package |
 | bch_ele_sun_land_self_01 | train | beach | bch_ele_sun_land_self_01 | train | — | file:f7f69c1611f8d0179cabee9044cfd24b62f341fd62008cdff81b56445f327338 (inferred_fingerprint) | pre_tracking, training_package |
 | bch_ele_sun_port_self_03 | dev_val | beach | bch_ele_sun_port_self_03 | val |  Arbel Sports | youtube:hPG3FjkDe_8 (confirmed) | pre_tracking, test_set_scoring, training_package |
@@ -59,12 +61,12 @@ Videos with no recorded exposure: 13 (bch_extra_self_23, bch_extra_self_24, bch_
 | bch_extra_self_02 | train | beach | bch_extra_self_02 | auto | — | file:e66a7b9d73859c90e0f79fd591d798dc5c0be2bcff4fa9fb1c18c92437fad5d3 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_03 | train | beach | bch_extra_self_03 | auto | — | file:b539b539db2726bc649b2fcc42b777921c9220662067f696bbe886357160c3ec (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_04 | train | beach | bch_extra_self_04 | auto | — | file:1ebb6279d5d4edfbb7a8094afe98d6290e1deeada01d60e069e3611e28df64ad (inferred_fingerprint) | pre_tracking |
-| bch_extra_self_05 | final_test_candidate | beach | bch_extra_self_05 | auto | — | file:30ce89bf4182a96d7a5f0fbfc565939b50b9fdd9cfce7924b3c0a131d9de04f5 (inferred_fingerprint) | pre_tracking |
+| bch_extra_self_05 | lineage_holdout | beach | bch_extra_self_05 | auto | — | file:30ce89bf4182a96d7a5f0fbfc565939b50b9fdd9cfce7924b3c0a131d9de04f5 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_06 | train | beach | bch_extra_self_06 | auto | — | file:b842477a44883651c2d932fff47a8540e198cf6471448e52bf2b0b9c3324424b (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_07 | train | beach | bch_extra_self_07 | auto | — | file:a6c015b2cc1caaec1695b3f6396db90567e7d9e9bd0d961e4cee9bfd71875b54 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_08 | train | beach | bch_extra_self_08 | auto | — | file:7e424df8a69ac2dd61bb76d8b90a09b74d4d96c5dfc44b4faac304bb46c24c30 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_09 | train | beach | bch_extra_self_09 | auto | — | file:9d06491935e04c10bdfa043efcbc3e9105510a45ca6e757fe442a39609240c69 (inferred_fingerprint) | pre_tracking |
-| bch_extra_self_10 | final_test_candidate | beach | bch_extra_self_10 | auto | — | file:15b90949710691c7915085a1f4aeaca8df74ab97065cf5ef4713c3e3fff4ff61 (inferred_fingerprint) | pre_tracking |
+| bch_extra_self_10 | lineage_holdout | beach | bch_extra_self_10 | auto | — | file:15b90949710691c7915085a1f4aeaca8df74ab97065cf5ef4713c3e3fff4ff61 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_11 | train | beach | bch_extra_self_11 | auto | — | file:203271a1bddd49d000fc4f8dceffce6ff2e18659b9632e17871f8d9cf694ff96 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_12 | train | beach | bch_extra_self_12 | auto | — | file:2e4d1e2005e12bfb87e6761787d30df70b4b191800cc336df03e3288a6d1657e (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_13 | train | beach | bch_extra_self_13 | auto | — | file:22a3f3f2a83a86214e0f6f54bf040da2301c3e09bf3d0b0056aded83985aef2c (inferred_fingerprint) | pre_tracking |
@@ -72,7 +74,7 @@ Videos with no recorded exposure: 13 (bch_extra_self_23, bch_extra_self_24, bch_
 | bch_extra_self_15 | train | beach | bch_extra_self_15 | auto | — | file:3de4e1f05ce496363a6ba8ccc1eaf61b8a7bbc890f6b89209b197d0bb1e100ac (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_16 | train | beach | bch_extra_self_16 | auto | — | file:08a09953d74188fa48a42e0c275f4dcce0b171bbe53dba1b954608e130d9be29 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_17 | train | beach | bch_extra_self_17 | auto | — | file:ecc03a3565151800eedd73c5ecce83a6ef15ffeb02e2ef064df0341ab7554ccb (inferred_fingerprint) | pre_tracking |
-| bch_extra_self_18 | final_test_candidate | beach | bch_extra_self_18 | auto | — | file:d7690d3efadbbce7b36f3ccd1aa9fb952d8bafbde0075a884b80400816685168 (inferred_fingerprint) | pre_tracking |
+| bch_extra_self_18 | lineage_holdout | beach | bch_extra_self_18 | auto | — | file:d7690d3efadbbce7b36f3ccd1aa9fb952d8bafbde0075a884b80400816685168 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_19 | train | beach | bch_extra_self_19 | auto | — | file:a60d76364ffea6b87efbe20f440754cac2f1650e9106fbdcadd36774cd578b25 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_20 | train | beach | bch_extra_self_20 | auto | — | file:486c56e0b1375acd62e67bf8f50b50b0cd3d8485c2551d98092df28ec1057a0d (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_21 | train | beach | bch_extra_self_21 | auto | — | file:dc29fb39ce417ad47bd28c24a3ae4cab3a0692f20773163c38a60bd50ed6d272 (inferred_fingerprint) | pre_tracking |
@@ -83,9 +85,9 @@ Videos with no recorded exposure: 13 (bch_extra_self_23, bch_extra_self_24, bch_
 | bch_extra_self_26 | train | beach | bch_extra_self_26 | auto | — | file:9c3d7952875e177499e5ccbb964120e2576c2aaed9117c745d83b055c5e363d9 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_27 | train | beach | bch_extra_self_27 | auto | — | file:9c5175a25f7cdc1ad679e4c324090ca10c14fb040d79bd542d2f00d2eb59e503 (inferred_fingerprint) | pre_tracking |
 | bch_extra_self_28 | train | beach | bch_extra_self_28 | auto | — | file:8ec4493cf1fd0e2abd1b1430262c92d6b7703e05c3da7c785b5ad83b26a572c9 (inferred_fingerprint) | pre_tracking |
-| bch_extra_self_29 | final_test_candidate | beach | bch_extra_self_29 | auto | — | file:8d0e3e60b02b9e15ddc58d52ce9b4a43ecb4554eb7f3790f1a2a0dd2f89dd575 (inferred_fingerprint) | pre_tracking |
-| bch_extra_self_30 | final_test_candidate | beach | bch_extra_self_30 | auto | — | file:02e0b8c0b9ac6e9ce1395fa96de9e09d740e550f4f6c876763fce7ac71a54d76 (inferred_fingerprint) | pre_tracking |
-| bch_extra_self_31 | final_test_candidate | beach | bch_extra_self_31 | auto | — | file:64b152182bf98d2a784b4280dacaf36a6bd04fdacbd17981c961f7878f9292a0 (inferred_fingerprint) | pre_tracking |
+| bch_extra_self_29 | lineage_holdout | beach | bch_extra_self_29 | auto | — | file:8d0e3e60b02b9e15ddc58d52ce9b4a43ecb4554eb7f3790f1a2a0dd2f89dd575 (inferred_fingerprint) | pre_tracking |
+| bch_extra_self_30 | lineage_holdout | beach | bch_extra_self_30 | auto | — | file:02e0b8c0b9ac6e9ce1395fa96de9e09d740e550f4f6c876763fce7ac71a54d76 (inferred_fingerprint) | pre_tracking |
+| bch_extra_self_31 | lineage_holdout | beach | bch_extra_self_31 | auto | — | file:64b152182bf98d2a784b4280dacaf36a6bd04fdacbd17981c961f7878f9292a0 (inferred_fingerprint) | pre_tracking |
 | bch_gnd_ovc_land_self_01 | train | beach | bch_gnd_ovc_land_self_01 | train | — | file:8dbefe7b605c004cf611855426567f08cc2114160fb94bbdc7a68d9fbb357a83 (inferred_fingerprint) | pre_tracking, training_package |
 | bch_gnd_ovc_land_self_01_v2 | train | beach | bch_gnd_ovc_land_self_01 | train | Mike Jazgarski | youtube:em0vtWfpFSQ (confirmed) | pre_tracking, training_package |
 | bch_gnd_ovc_land_self_03 | train | beach | bch_gnd_ovc_land_self_03 | train | Beach Volleyball | youtube:Wwm1VcxbMHE (confirmed) | pre_tracking, training_package |
@@ -121,26 +123,26 @@ Videos with no recorded exposure: 13 (bch_extra_self_23, bch_extra_self_24, bch_
 | grs_ele_sun_land_self_01_v3 | train | grass | grs_ele_sun_land_self_01 | train | Gainesville Volleyball | Big Grass Party | youtube:Pf3R1hEH6Fs (confirmed) | pre_tracking, training_package |
 | grs_ele_sun_land_self_01_v4 | train | grass | grs_ele_sun_land_self_01 | train | Blandford Drone & Video | youtube:I26flewmE2o (confirmed) | pre_tracking, training_package |
 | grs_extra_self_01 | train | grass | grs_extra_self_01 | auto | — | file:b4823c28cad90135a2dde8d8627973a2aeaf2ee265cd362043698dc2199ffdb0 (inferred_fingerprint) | pre_tracking |
-| grs_extra_self_02 | final_test_candidate | grass | grs_extra_self_02 | auto | — | file:c78c94e19844aa4232874e9fa269a11e6599c5e62dc56ba1bfe654d169d302c5 (inferred_fingerprint) | pre_tracking |
+| grs_extra_self_02 | lineage_holdout | grass | grs_extra_self_02 | auto | — | file:c78c94e19844aa4232874e9fa269a11e6599c5e62dc56ba1bfe654d169d302c5 (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_03 | train | grass | grs_extra_self_03 | auto | — | file:6dc3457462a1406afba7196661d8f56513aed40f08156b4537b4845ff76fb005 (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_04 | train | grass | grs_extra_self_04 | auto | — | file:1f34abe677ac07290fa88021f39a8e49dc8838918d0ceb7f07ac659fbcdea8a8 (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_05 | train | grass | grs_extra_self_05 | auto | — | file:8f97fde5371bcde164055b815670e3a0ea4dff10265a5485bcad141499fb2551 (inferred_fingerprint) | pre_tracking |
-| grs_extra_self_06 | final_test_candidate | grass | grs_extra_self_06 | auto | — | file:d04cff74d627cce2cbb49435e4d34a489f8dbd43bcd3eea26944bdcbbe9342ae (inferred_fingerprint) | pre_tracking |
-| grs_extra_self_07 | final_test_candidate | grass | grs_extra_self_07 | auto | — | file:3133ae1df9486849ff66365c2432cd57ba4304e6396a5e3df6d4180824633251 (inferred_fingerprint) | pre_tracking |
+| grs_extra_self_06 | lineage_holdout | grass | grs_extra_self_06 | auto | — | file:d04cff74d627cce2cbb49435e4d34a489f8dbd43bcd3eea26944bdcbbe9342ae (inferred_fingerprint) | pre_tracking |
+| grs_extra_self_07 | lineage_holdout | grass | grs_extra_self_07 | auto | — | file:3133ae1df9486849ff66365c2432cd57ba4304e6396a5e3df6d4180824633251 (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_08 | train | grass | grs_extra_self_08 | auto | — | file:7a0ec4665137d2d8b6777107f9e43817d21b11b5f8d35b9598989f5573a42f4f (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_09 | train | grass | grs_extra_self_09 | auto | — | file:56be263f4a151ee847b4d93530737a5c35058deee7a70a18052749d31fdffd1a (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_10 | train | grass | grs_extra_self_10 | auto | — | file:6ddd7f8aaac651b4fc0aeeb7f37316c1ff3028ed966d9f1d1bf6e729a46ea2ae (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_11 | train | grass | grs_extra_self_11 | auto | — | file:cbc347aa6ba5ddd7908fd3eed4994ec1de285289b552fa6c73a5105d18d61a41 (inferred_fingerprint) | pre_tracking |
-| grs_extra_self_12 | final_test_candidate | grass | grs_extra_self_12 | auto | — | file:136b3de8a5dd2d05ef40a225d7814636f1e58b45e9a9182e90086e45b5a0d835 (inferred_fingerprint) | pre_tracking |
+| grs_extra_self_12 | lineage_holdout | grass | grs_extra_self_12 | auto | — | file:136b3de8a5dd2d05ef40a225d7814636f1e58b45e9a9182e90086e45b5a0d835 (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_13 | train | grass | grs_extra_self_13 | auto | — | file:eae9375de8c63d7f1b593bec2803dd9b736a44bc59beed02674a7ddd829c3b35 (inferred_fingerprint) | pre_tracking |
-| grs_extra_self_14 | final_test_candidate | grass | grs_extra_self_14 | auto | — | file:8641d83e784b78eb9d7e8f8c1a80a9875eae84748219bd37f4da457ac284f643 (inferred_fingerprint) | pre_tracking |
-| grs_extra_self_15 | final_test_candidate | grass | grs_extra_self_15 | auto | — | file:d35e60771003c4ed91d18e9e76ee62bb9585e319041b8501d07022f0e360b9db (inferred_fingerprint) | pre_tracking |
+| grs_extra_self_14 | lineage_holdout | grass | grs_extra_self_14 | auto | — | file:8641d83e784b78eb9d7e8f8c1a80a9875eae84748219bd37f4da457ac284f643 (inferred_fingerprint) | pre_tracking |
+| grs_extra_self_15 | lineage_holdout | grass | grs_extra_self_15 | auto | — | file:d35e60771003c4ed91d18e9e76ee62bb9585e319041b8501d07022f0e360b9db (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_16 | train | grass | grs_extra_self_16 | auto | — | file:6ab635998960f071d09175a66f52651b0c1dfa17ee674df6df01045773b5c39f (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_17 | train | grass | grs_extra_self_17 | auto | — | file:c6c491d7a94b99013b8009bc2ddb6052bc559f10e63cfa7e6e1ab552fed1a864 (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_18 | train | grass | grs_extra_self_18 | auto | — | file:18d08a5c3b44392bda0c8e5c8d09b7f25e666f97c3f73304068bc1db2b62ee34 (inferred_fingerprint) | pre_tracking |
 | grs_extra_self_19 | train | grass | grs_extra_self_19 | auto | — | file:908656ed165c56e0c90dad2cdfd2daf0e9bf3591d9a6f0a02cbc0b1075c26f9e (inferred_fingerprint) | pre_tracking |
-| grs_extra_self_20 | final_test_candidate | grass | grs_extra_self_20 | auto | — | file:da357993415f35eb5c73d19ba94c64f33cf826322a256ee2ca1fa40f26f76a2f (inferred_fingerprint) | pre_tracking |
-| grs_extra_self_21 | final_test_candidate | grass | grs_extra_self_21 | auto | — | file:e67e36f8731943f702ca6644819c893b641b16fa43f11d6ee8ce056d2b19d655 (inferred_fingerprint) | pre_tracking |
+| grs_extra_self_20 | lineage_holdout | grass | grs_extra_self_20 | auto | — | file:da357993415f35eb5c73d19ba94c64f33cf826322a256ee2ca1fa40f26f76a2f (inferred_fingerprint) | pre_tracking |
+| grs_extra_self_21 | lineage_holdout | grass | grs_extra_self_21 | auto | — | file:e67e36f8731943f702ca6644819c893b641b16fa43f11d6ee8ce056d2b19d655 (inferred_fingerprint) | pre_tracking |
 | grs_extra_tester_01 | train | grass | grs_extra_tester_01 | train | — | file:ba601df0a1cd2236321c01d2d522d47ed0585ff61db3995462c54d16b1c43839 (inferred_fingerprint) | pre_tracking, training_package |
 | grs_extra_tester_02 | train | grass | grs_extra_tester_02 | train | — | file:c3a1ea850f85102bbca32220c84abbadb8cecb846fd1a03a89b84406f28abcd7 (inferred_fingerprint) | pre_tracking, training_package |
 | grs_extra_tester_02_v2 | train | grass | grs_extra_tester_02 | train | — | file:01b7c9fde0e5c16fa7b76dee5e5f3f72b1a6bf9513b007908cd2a4cdf1b26339 (inferred_fingerprint) | pre_tracking, training_package |
@@ -190,10 +192,10 @@ Videos with no recorded exposure: 13 (bch_extra_self_23, bch_extra_self_24, bch_
 | ind_extra_self_03 | train | indoor | ind_extra_self_03 | auto | — | file:dee8f49ee1962ad16ebc312c8298b5e0d2c74bda597ab9c70f3cad804f22e415 (inferred_fingerprint) | pre_tracking |
 | ind_extra_self_04 | train | indoor | ind_extra_self_04 | auto | — | file:6e9f748668bbe5e42ebe894e42f4386ce70f1221704bcb1741e4c73deee47912 (inferred_fingerprint) | pre_tracking |
 | ind_extra_self_05 | train | indoor | ind_extra_self_05 | auto | — | file:6c135e9df8b34af49de298627969c819fec6d73200cb118f66ecf5f44a9db6da (inferred_fingerprint) | pre_tracking |
-| ind_extra_self_06 | final_test_candidate | indoor | ind_extra_self_06 | auto | — | file:16ad6a443d1f98bfa1013de6bbc90fec47ab3c0645d71b811d6364bdb5091982 (inferred_fingerprint) | pre_tracking |
+| ind_extra_self_06 | lineage_holdout | indoor | ind_extra_self_06 | auto | — | file:16ad6a443d1f98bfa1013de6bbc90fec47ab3c0645d71b811d6364bdb5091982 (inferred_fingerprint) | pre_tracking |
 | ind_extra_self_07 | train | indoor | ind_extra_self_07 | auto | — | file:aaf674a8b7cd824193b6184774a6dc3f0824f35a857f8f49da4ddb2e7a9e2b5c (inferred_fingerprint) | pre_tracking |
 | ind_extra_self_08 | train | indoor | ind_extra_self_08 | auto | — | file:3a677cb643487dda761900c93d61f1a30f0ee505b87e35a6148f6e137f861bb8 (inferred_fingerprint) | pre_tracking |
-| ind_extra_self_09 | final_test_candidate | indoor | ind_extra_self_09 | auto | — | file:8f9ab8c1859044fc8daf3ec5166e2049158aafd1a8a899dc37088e467bce2f51 (inferred_fingerprint) | pre_tracking |
+| ind_extra_self_09 | lineage_holdout | indoor | ind_extra_self_09 | auto | — | file:8f9ab8c1859044fc8daf3ec5166e2049158aafd1a8a899dc37088e467bce2f51 (inferred_fingerprint) | pre_tracking |
 | ind_gnd_bright_land_self_01 | train | indoor | ind_gnd_bright_land_self_01 | train | Jayster | youtube:ngZSGGOc-Tg (confirmed) | pre_tracking, training_package |
 | ind_gnd_bright_land_self_01_v2 | train | indoor | ind_gnd_bright_land_self_01 | train | Andre Troyer | youtube:pk46UoPr0a8 (confirmed) | pre_tracking, training_package |
 | ind_gnd_bright_land_self_01_v3 | train | indoor | ind_gnd_bright_land_self_01 | train | Tyler Ripoli | youtube:Qg2akNKcFJI (confirmed) | none |

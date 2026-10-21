@@ -24,11 +24,12 @@ enum DatasetSplit: String, Codable, CaseIterable {
     case devVal = "dev_val"
     case tune
     case legacyHoldout = "legacy_holdout"
+    case lineageHoldout = "lineage_holdout"
     case finalTestCandidate = "final_test_candidate"
     case finalTest = "final_test"
 
     /// Splits a model or the tuner must never have seen before the final test.
-    var isReserved: Bool { self == .legacyHoldout || self == .finalTest || self == .finalTestCandidate }
+    var isReserved: Bool { self == .legacyHoldout || self == .lineageHoldout || self == .finalTest || self == .finalTestCandidate }
 
     static let definitions: [String: String] = [
         DatasetSplit.train.rawValue:
@@ -39,6 +40,8 @@ enum DatasetSplit: String, Codable, CaseIterable {
             "validation.json `tune`: pipeline settings are searched on these. Also in the detector's val split.",
         DatasetSplit.legacyHoldout.rawValue:
             "validation.json `holdout`: frozen recordings (D-002) with recorded prior exposure (test-set scoring, tuner reports). Not an unseen final test.",
+        DatasetSplit.lineageHoldout.rawValue:
+            "validation.json `lineageHoldout`: recordings with recorded historical exposure, withheld from every training, tuning, selection and development-time scoring use from the D-017 cut-over on, so a model lineage started after the cut can be evaluated on them. Protected exactly like final_test; NOT an untouched final test — results are valid only for lineages trained after the cut.",
         DatasetSplit.finalTestCandidate.rawValue:
             "validation.json `finalTestCandidates`: provisional final-test recordings (D-015 §2). Protected exactly like final_test while venue/session provenance and prior exposure are verified; NOT yet the final test.",
         DatasetSplit.finalTest.rawValue:
@@ -189,9 +192,11 @@ struct DatasetSplitManifest: Codable {
         // manifest can also say what each video was before the overlay and why it is reserved.
         let sources = Dictionary(uniqueKeysWithValues: cards.map { ($0.key, $0.value.source) })
         let listedFinal = Set(inputs.validation?.finalTest ?? [])
-        let listedCandidates = Set(inputs.validation?.finalTestCandidates ?? []).subtracting(listedFinal)
+        let listedLineage = Set(inputs.validation?.lineageHoldout ?? []).subtracting(listedFinal)
+        let listedCandidates = Set(inputs.validation?.finalTestCandidates ?? []).subtracting(listedFinal).subtracting(listedLineage)
         let finalTest = ReservedVideos.closure(of: listedFinal, over: sources)
-        let candidates = ReservedVideos.closure(of: listedCandidates, over: sources).subtracting(finalTest)
+        let lineage = ReservedVideos.closure(of: listedLineage, over: sources).subtracting(finalTest)
+        let candidates = ReservedVideos.closure(of: listedCandidates, over: sources).subtracting(finalTest).subtracting(lineage)
         let groupOf = ReservedVideos.groups(over: sources)
         // Project videos with no dataset session never get a row, but their history still belongs
         // to their alias group (e.g. an exposed video whose session was removed from the dataset).
@@ -224,10 +229,11 @@ struct DatasetSplitManifest: Codable {
             else { unreserved = .train }
             let split: DatasetSplit
             if finalTest.contains(session.name) { split = .finalTest }
+            else if lineage.contains(session.name) { split = .lineageHoldout }
             else if candidates.contains(session.name) { split = .finalTestCandidate }
             else { split = unreserved }
             let reservedAs: String? = split.isReserved && split != .legacyHoldout
-                ? (listedFinal.contains(session.name) || listedCandidates.contains(session.name) ? "listed" : "alias") : nil
+                ? (listedFinal.contains(session.name) || listedLineage.contains(session.name) || listedCandidates.contains(session.name) ? "listed" : "alias") : nil
 
             var exposure = Set(previous[session.name] ?? [])
             exposure.formUnion(inputs.discovered[session.name] ?? [])

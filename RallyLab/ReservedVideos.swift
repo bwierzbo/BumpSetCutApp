@@ -41,13 +41,15 @@ enum ReservedVideos {
         return closure(of: named, over: sources(in: root))
     }
 
-    /// The listed final test and provisional candidates, each expanded to
-    /// its aliases, kept apart: a candidate that aliases a final-test video
-    /// is final test. For the manifest's split assignment.
-    static func expanded(_ set: PipelineTuner.ValidationSet, sources: [String: ClipSource]) -> (finalTest: Set<String>, candidates: Set<String>) {
+    /// The listed final test, lineage holdout and provisional candidates, each
+    /// expanded to its aliases, kept apart in that precedence: a video that
+    /// aliases a final-test video is final test; one that aliases a lineage
+    /// holdout video is lineage holdout. For the manifest's split assignment.
+    static func expanded(_ set: PipelineTuner.ValidationSet, sources: [String: ClipSource]) -> (finalTest: Set<String>, lineageHoldout: Set<String>, candidates: Set<String>) {
         let finalTest = closure(of: Set(set.finalTest), over: sources)
-        let candidates = closure(of: Set(set.finalTestCandidates), over: sources).subtracting(finalTest)
-        return (finalTest, candidates)
+        let lineage = closure(of: Set(set.lineageHoldout), over: sources).subtracting(finalTest)
+        let candidates = closure(of: Set(set.finalTestCandidates), over: sources).subtracting(finalTest).subtracting(lineage)
+        return (finalTest, lineage, candidates)
     }
 
     /// A video's file identity as ProjectsModel computes it: the stored

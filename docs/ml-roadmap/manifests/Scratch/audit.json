@@ -1,5 +1,5 @@
 {
-  "createdAt" : "2026-10-21T17:19:06Z",
+  "createdAt" : "2026-10-21T18:53:12Z",
   "findings" : [
     {
       "code" : "CARD-SPLIT",
@@ -82,139 +82,313 @@
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "bch_extra_self_05 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images\/train); alias bch_extra_self_30's frames sit in the training dataset (images\/train); alias bch_extra_self_31's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "FINAL-TEST-NONE",
+      "message" : "Every video has recorded exposure; an independent final test needs new recordings.",
+      "severity" : "info",
+      "videos" : [
+
+      ]
+    },
+    {
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "bch_extra_self_05: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "bch_extra_self_05"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "bch_extra_self_10 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "bch_extra_self_10: historical exposure: pre_tracking; no reviewed frames; stored under images\/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "bch_extra_self_10"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "bch_extra_self_18 is protected but not promotable yet: alias bch_extra_self_10's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "bch_extra_self_18: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "bch_extra_self_18"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "bch_extra_self_29 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); alias bch_extra_self_30's frames sit in the training dataset (images\/train); alias bch_extra_self_31's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "bch_extra_self_29: historical exposure: pre_tracking; no reviewed frames; stored under images\/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "bch_extra_self_29"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "bch_extra_self_30 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images\/train); its own frames sit in the training dataset (images\/train); alias bch_extra_self_31's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "bch_extra_self_30: historical exposure: pre_tracking; no reviewed frames; stored under images\/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "bch_extra_self_30"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "bch_extra_self_31 is protected but not promotable yet: alias bch_extra_self_29's frames sit in the training dataset (images\/train); alias bch_extra_self_30's frames sit in the training dataset (images\/train); its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "bch_extra_self_31: historical exposure: pre_tracking; no reviewed frames; stored under images\/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "bch_extra_self_31"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_02 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "grs_extra_self_02: historical exposure: pre_tracking; no reviewed frames; stored under images\/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_02"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_06 is protected but not promotable yet: alias grs_extra_self_12's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "grs_extra_self_06: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_06"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_07 is protected but not promotable yet: alias grs_extra_self_02's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "grs_extra_self_07: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_07"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_12 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "grs_extra_self_12: historical exposure: pre_tracking; no reviewed frames; stored under images\/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_12"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_14 is protected but not promotable yet: alias grs_extra_self_15's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "grs_extra_self_14: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_14"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_15 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "grs_extra_self_15: historical exposure: pre_tracking; no reviewed frames; stored under images\/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_15"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_20 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "grs_extra_self_20: historical exposure: pre_tracking; no reviewed frames; stored under images\/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_20"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "grs_extra_self_21 is protected but not promotable yet: alias grs_extra_self_20's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "grs_extra_self_21: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "grs_extra_self_21"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "ind_extra_self_06 is protected but not promotable yet: its own frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "ind_extra_self_06: historical exposure: pre_tracking; no reviewed frames; stored under images\/train (excluded from packages by name). Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "ind_extra_self_06"
       ]
     },
     {
-      "code" : "CANDIDATE-BLOCKED",
-      "message" : "ind_extra_self_09 is protected but not promotable yet: alias ind_extra_self_06's frames sit in the training dataset (images\/train); prior exposure (pre_tracking).",
+      "code" : "LINEAGE-HOLDOUT",
+      "message" : "ind_extra_self_09: historical exposure: pre_tracking; no reviewed frames. Results on it are valid only for model lineages trained after the D-017 cut-over.",
       "severity" : "info",
       "videos" : [
         "ind_extra_self_09"
       ]
     },
     {
-      "code" : "FINAL-TEST-NONE",
-      "message" : "Every video has recorded exposure; an independent final test needs new recordings.",
+      "code" : "LINEAGE-HOLDOUT-SUMMARY",
+      "message" : "16 lineage-holdout recording(s): beach 6, grass 8, indoor 2; 0 carry reviewed frames, 0 have rally marks; unreviewed machine tracks are not ground truth. Historically exposed: not an untouched final test.",
       "severity" : "info",
       "videos" : [
-
+        "bch_extra_self_05",
+        "bch_extra_self_10",
+        "bch_extra_self_18",
+        "bch_extra_self_29",
+        "bch_extra_self_30",
+        "bch_extra_self_31",
+        "grs_extra_self_02",
+        "grs_extra_self_06",
+        "grs_extra_self_07",
+        "grs_extra_self_12",
+        "grs_extra_self_14",
+        "grs_extra_self_15",
+        "grs_extra_self_20",
+        "grs_extra_self_21",
+        "ind_extra_self_06",
+        "ind_extra_self_09"
+      ]
+    },
+    {
+      "code" : "LINEAGE-UNKNOWN-RELATIONS",
+      "message" : "144 train\/dev recording(s) (76 own files, 68 links) have neither a confirmed venue nor session: their relation to the lineage holdout is unknown, not cleared. Only the card\/uploader checks cover them.",
+      "severity" : "info",
+      "videos" : [
+        "bch_ele_ovc_land_self_02",
+        "bch_ele_ovc_land_self_02_v2",
+        "bch_ele_ovc_land_self_02_v3",
+        "bch_ele_ovc_land_self_02_v4",
+        "bch_ele_ovc_land_self_02_v5",
+        "bch_ele_sun_land_self_01",
+        "bch_ele_sun_port_self_03",
+        "bch_extra_self_01",
+        "bch_extra_self_03",
+        "bch_extra_self_04",
+        "bch_extra_self_06",
+        "bch_extra_self_07",
+        "bch_extra_self_08",
+        "bch_extra_self_09",
+        "bch_extra_self_11",
+        "bch_extra_self_12",
+        "bch_extra_self_13",
+        "bch_extra_self_14",
+        "bch_extra_self_15",
+        "bch_extra_self_16",
+        "bch_extra_self_17",
+        "bch_extra_self_19",
+        "bch_extra_self_20",
+        "bch_extra_self_21",
+        "bch_extra_self_22",
+        "bch_extra_self_23",
+        "bch_extra_self_24",
+        "bch_extra_self_25",
+        "bch_extra_self_26",
+        "bch_extra_self_27",
+        "bch_extra_self_28",
+        "bch_gnd_ovc_land_self_01",
+        "bch_gnd_ovc_land_self_01_v2",
+        "bch_gnd_ovc_land_self_03",
+        "bch_gnd_sun_land_self_02",
+        "bch_gnd_sun_land_self_02_v2",
+        "bch_gnd_sun_land_self_02_v3",
+        "bch_gnd_sun_land_self_02_v4",
+        "bch_gnd_sun_land_self_02_v5",
+        "bch_gnd_sun_land_self_02_v6",
+        "bch_hnd_ovc_land_self_01",
+        "bch_onl_ovc_land_onl_02",
+        "bch_onl_ovc_land_onl_02_v2",
+        "bch_onl_ovc_land_onl_02_v3",
+        "bch_onl_ovc_land_onl_02_v4",
+        "bch_onl_sun_land_onl_01",
+        "bch_onl_sun_land_onl_01_v2",
+        "bch_onl_sun_land_onl_04",
+        "bch_sid_ovc_land_self_02",
+        "bch_sid_ovc_land_self_02_v2",
+        "bch_sid_sun_land_self_03",
+        "bch_sid_sun_port_self_01",
+        "bch_tri_sun_land_self_01",
+        "bch_tri_sun_land_self_01_v2",
+        "bch_tri_sun_land_self_01_v3",
+        "bch_tri_sun_land_self_01_v4",
+        "grs_ele_dusk_port_self_03",
+        "grs_ele_dusk_port_self_03_v2",
+        "grs_ele_shade_land_self_02",
+        "grs_ele_sun_land_self_01",
+        "grs_ele_sun_land_self_01_v2",
+        "grs_ele_sun_land_self_01_v3",
+        "grs_ele_sun_land_self_01_v4",
+        "grs_extra_self_01",
+        "grs_extra_self_03",
+        "grs_extra_self_04",
+        "grs_extra_self_05",
+        "grs_extra_self_08",
+        "grs_extra_self_09",
+        "grs_extra_self_10",
+        "grs_extra_self_11",
+        "grs_extra_self_13",
+        "grs_extra_self_17",
+        "grs_extra_self_18",
+        "grs_extra_self_19",
+        "grs_extra_tester_01",
+        "grs_extra_tester_02",
+        "grs_extra_tester_02_v2",
+        "grs_extra_tester_03",
+        "grs_extra_tester_03_v2",
+        "grs_extra_tester_03_v3",
+        "grs_extra_tester_03_v4",
+        "grs_extra_tester_03_v5",
+        "grs_extra_tester_03_v6",
+        "grs_extra_tester_03_v7",
+        "grs_extra_tester_03_v8",
+        "grs_extra_tester_03_v9",
+        "grs_extra_tester_04",
+        "grs_gnd_dusk_land_self_03",
+        "grs_gnd_shade_land_self_02",
+        "grs_gnd_shade_land_self_02_v2",
+        "grs_gnd_sun_land_self_01",
+        "grs_gnd_sun_land_self_01_v2",
+        "grs_gnd_sun_land_self_01_v3",
+        "grs_gnd_sun_land_self_01_v4",
+        "grs_gnd_sun_land_self_01_v5",
+        "grs_gnd_sun_land_self_01_v6",
+        "grs_hnd_shade_port_self_02",
+        "grs_hnd_sun_land_self_01",
+        "grs_hnd_sun_land_self_01_v2",
+        "grs_hnd_sun_land_self_01_v3",
+        "grs_onl_shade_land_onl_02",
+        "grs_onl_sun_land_onl_01",
+        "grs_onl_sun_land_onl_01_v2",
+        "grs_onl_sun_land_onl_04",
+        "grs_onl_sun_land_onl_04_v2",
+        "grs_sid_shade_land_self_02",
+        "grs_sid_shade_land_self_02_v2",
+        "grs_sid_sun_port_self_01",
+        "grs_sid_sun_port_self_01_v2",
+        "grs_tri_shade_port_self_02",
+        "grs_tri_sun_land_self_01",
+        "grs_tri_sun_land_self_01_v2",
+        "ind_ele_bright_land_self_01",
+        "ind_ele_dim_land_self_02",
+        "ind_ele_dim_land_self_02_v2",
+        "ind_ele_dim_land_self_02_v3",
+        "ind_ele_dim_land_self_04",
+        "ind_extra_self_01",
+        "ind_extra_self_02",
+        "ind_extra_self_03",
+        "ind_extra_self_04",
+        "ind_extra_self_05",
+        "ind_extra_self_07",
+        "ind_extra_self_08",
+        "ind_gnd_bright_land_self_01",
+        "ind_gnd_bright_land_self_01_v2",
+        "ind_gnd_bright_land_self_01_v3",
+        "ind_gnd_bright_land_self_01_v4",
+        "ind_gnd_bright_port_self_03",
+        "ind_gnd_dim_land_self_02",
+        "ind_hnd_bright_port_self_01",
+        "ind_hnd_dim_land_self_02",
+        "ind_hnd_dim_land_self_02_v2",
+        "ind_onl_bright_land_onl_01",
+        "ind_onl_bright_land_onl_01_v2",
+        "ind_onl_bright_land_onl_01_v3",
+        "ind_onl_bright_land_onl_01_v4",
+        "ind_sid_dim_land_self_01",
+        "ind_tri_bright_land_self_01",
+        "ind_tri_bright_land_self_01_v2",
+        "ind_tri_bright_land_self_01_v3",
+        "ind_tri_bright_land_self_01_v4",
+        "ind_tri_dim_port_self_02"
       ]
     },
     {
@@ -476,6 +650,6 @@
   "manifestHashes" : {
     "projectJson" : "65243bca59895a7e53dace6119d639ac11e520df3178577f5392f64d27692a6e",
     "sessions" : "06ed23f06ccd23ceba499fb77f3b4f5a864e21496fad91ba2370c84059ae5886",
-    "validationJson" : "4d4b4368ae3decad222630591f0d29d3be4db15e2366a217cf0d11c19afcd8f5"
+    "validationJson" : "6d160a1ac00254a088d8c80d8072ca8f70bc9d1913a1c22ff4cc85a4a23d1602"
   }
 }

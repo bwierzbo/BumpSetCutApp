@@ -1,10 +1,10 @@
 {
-  "createdAt" : "2026-10-21T17:19:06Z",
+  "createdAt" : "2026-10-21T18:53:12Z",
   "generator" : "RallyLab 1.0 (2)",
   "hashes" : {
     "projectJson" : "65243bca59895a7e53dace6119d639ac11e520df3178577f5392f64d27692a6e",
     "sessions" : "06ed23f06ccd23ceba499fb77f3b4f5a864e21496fad91ba2370c84059ae5886",
-    "validationJson" : "4d4b4368ae3decad222630591f0d29d3be4db15e2366a217cf0d11c19afcd8f5"
+    "validationJson" : "6d160a1ac00254a088d8c80d8072ca8f70bc9d1913a1c22ff4cc85a4a23d1602"
   },
   "project" : "Scratch",
   "schemaVersion" : 1,
@@ -13,6 +13,7 @@
     "final_test" : "validation.json `finalTest`: verified recordings with no recorded exposure, reserved until promotion. Excluded from packages, scoring and tuning.",
     "final_test_candidate" : "validation.json `finalTestCandidates`: provisional final-test recordings (D-015 §2). Protected exactly like final_test while venue\/session provenance and prior exposure are verified; NOT yet the final test.",
     "legacy_holdout" : "validation.json `holdout`: frozen recordings (D-002) with recorded prior exposure (test-set scoring, tuner reports). Not an unseen final test.",
+    "lineage_holdout" : "validation.json `lineageHoldout`: recordings with recorded historical exposure, withheld from every training, tuning, selection and development-time scoring use from the D-017 cut-over on, so a model lineage started after the cut can be evaluated on them. Protected exactly like final_test; NOT an untouched final test — results are valid only for lineages trained after the cut.",
     "train" : "Detector training (dataset split \"train\").",
     "tune" : "validation.json `tune`: pipeline settings are searched on these. Also in the detector's val split."
   },
@@ -154,6 +155,12 @@
       "clipId" : "bch_ele_ovc_land_self_02",
       "datasetSplit" : "train",
       "exposure" : [
+        {
+          "date" : "2026-10-21",
+          "kind" : "ball_path",
+          "note" : "ball path for marking (Label \/ Live-tag)",
+          "ref" : "BallPathBuilder"
+        },
         {
           "date" : "2026-10-20",
           "kind" : "pre_tracking",
@@ -500,7 +507,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:30ce89bf4182a96d7a5f0fbfc565939b50b9fdd9cfce7924b3c0a131d9de04f5"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "beach",
       "unreservedSplit" : "dev_val",
       "venueId" : {
@@ -669,7 +676,7 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
-      "reservedAs" : "alias",
+      "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
         "origin" : "confirmed",
@@ -679,7 +686,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:15b90949710691c7915085a1f4aeaca8df74ab97065cf5ef4713c3e3fff4ff61"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "beach",
       "unreservedSplit" : "train",
       "venueId" : {
@@ -963,7 +970,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:d7690d3efadbbce7b36f3ccd1aa9fb952d8bafbde0075a884b80400816685168"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "beach",
       "unreservedSplit" : "dev_val",
       "venueId" : {
@@ -1332,7 +1339,7 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
-      "reservedAs" : "alias",
+      "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
         "origin" : "confirmed",
@@ -1342,7 +1349,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:8d0e3e60b02b9e15ddc58d52ce9b4a43ecb4554eb7f3790f1a2a0dd2f89dd575"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "beach",
       "unreservedSplit" : "train",
       "venueId" : {
@@ -1371,7 +1378,7 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
-      "reservedAs" : "alias",
+      "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
         "origin" : "confirmed",
@@ -1381,7 +1388,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:02e0b8c0b9ac6e9ce1395fa96de9e09d740e550f4f6c876763fce7ac71a54d76"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "beach",
       "unreservedSplit" : "train",
       "venueId" : {
@@ -1410,7 +1417,7 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
-      "reservedAs" : "alias",
+      "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
         "origin" : "confirmed",
@@ -1420,7 +1427,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:64b152182bf98d2a784b4280dacaf36a6bd04fdacbd17981c961f7878f9292a0"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "beach",
       "unreservedSplit" : "train",
       "venueId" : {
@@ -1876,13 +1883,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -1946,13 +1953,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -2070,13 +2077,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -3044,7 +3051,7 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
-      "reservedAs" : "alias",
+      "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
         "origin" : "confirmed",
@@ -3054,7 +3061,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:c78c94e19844aa4232874e9fa269a11e6599c5e62dc56ba1bfe654d169d302c5"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "grass",
       "unreservedSplit" : "train",
       "venueId" : {
@@ -3198,7 +3205,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:d04cff74d627cce2cbb49435e4d34a489f8dbd43bcd3eea26944bdcbbe9342ae"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "grass",
       "unreservedSplit" : "dev_val",
       "venueId" : {
@@ -3237,7 +3244,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:3133ae1df9486849ff66365c2432cd57ba4304e6396a5e3df6d4180824633251"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "grass",
       "unreservedSplit" : "dev_val",
       "venueId" : {
@@ -3406,7 +3413,7 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
-      "reservedAs" : "alias",
+      "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
         "origin" : "confirmed",
@@ -3416,7 +3423,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:136b3de8a5dd2d05ef40a225d7814636f1e58b45e9a9182e90086e45b5a0d835"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "grass",
       "unreservedSplit" : "train",
       "venueId" : {
@@ -3490,7 +3497,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:8641d83e784b78eb9d7e8f8c1a80a9875eae84748219bd37f4da457ac284f643"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "grass",
       "unreservedSplit" : "dev_val",
       "venueId" : {
@@ -3519,7 +3526,7 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
-      "reservedAs" : "alias",
+      "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
         "origin" : "confirmed",
@@ -3529,7 +3536,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:d35e60771003c4ed91d18e9e76ee62bb9585e319041b8501d07022f0e360b9db"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "grass",
       "unreservedSplit" : "train",
       "venueId" : {
@@ -3700,7 +3707,7 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
-      "reservedAs" : "alias",
+      "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
         "origin" : "confirmed",
@@ -3710,7 +3717,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:da357993415f35eb5c73d19ba94c64f33cf826322a256ee2ca1fa40f26f76a2f"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "grass",
       "unreservedSplit" : "train",
       "venueId" : {
@@ -3749,7 +3756,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:e67e36f8731943f702ca6644819c893b641b16fa43f11d6ee8ce056d2b19d655"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "grass",
       "unreservedSplit" : "dev_val",
       "venueId" : {
@@ -4675,13 +4682,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -4925,13 +4932,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -4995,13 +5002,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -5494,13 +5501,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -5623,13 +5630,13 @@
           "ref" : "session tracks (machine)"
         },
         {
-          "date" : "2026-10-12",
+          "date" : "2026-10-11",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
         },
         {
-          "date" : "2026-10-11",
+          "date" : "2026-10-12",
           "kind" : "rally_scoring",
           "note" : "cached detection pass (tuner or serve report)",
           "ref" : "pipeline_tuning\/evidence"
@@ -5966,7 +5973,7 @@
       "orientation" : "",
       "originKind" : "file",
       "ralliesMarked" : false,
-      "reservedAs" : "alias",
+      "reservedAs" : "listed",
       "reviewedFrames" : 0,
       "sessionId" : {
         "origin" : "confirmed",
@@ -5976,7 +5983,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:16ad6a443d1f98bfa1013de6bbc90fec47ab3c0645d71b811d6364bdb5091982"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "indoor",
       "unreservedSplit" : "train",
       "venueId" : {
@@ -6085,7 +6092,7 @@
         "origin" : "inferred_fingerprint",
         "value" : "file:8f9ab8c1859044fc8daf3ec5166e2049158aafd1a8a899dc37088e467bce2f51"
       },
-      "split" : "final_test_candidate",
+      "split" : "lineage_holdout",
       "surface" : "indoor",
       "unreservedSplit" : "dev_val",
       "venueId" : {

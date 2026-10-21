@@ -1,8 +1,8 @@
 ---
 name: provenance-review-2026-10-21
-status: answers applied; D-017 (reservation closure) awaiting owner
+status: answers applied; D-017 decided (lineage holdout)
 created: 2026-10-21T14:22:38Z
-updated: 2026-10-21T17:45:00Z
+updated: 2026-10-21T18:30:00Z
 decisions: D-015, D-016, D-017 (proposed)
 ---
 
@@ -117,7 +117,7 @@ Options (decision [D-017](../decisions/DECISION_LOG.md#d-017), proposed). A cons
 - **(b) Narrow identity to fingerprint + sourceId + sessionId.** Code change in `ReservedVideos.identities` and the matching audit rule (`VENUE-SHARED` would have to become soft, or the venue overlap `bch_extra_self_18` / `bch_extra_self_10` is a hard leak). Same outing still aliases; same venue on another day does not. Eight of the nine stay reserved; `bch_extra_self_10` returns to train. Weakens the venue guarantee for every future split.
 - **(c) Withdraw the seven from `finalTestCandidates` and move each to its group's split** (recommended). Under D-016 none can become `final_test`; protecting them only costs training data. Each candidate joins the split of its confirmed group: the six with training neighbours and `bch_extra_self_18` (same venue as `bch_extra_self_10`, train) all go to **train** (`sessions/*.json` split `val` → `train`; they carry no reviewed frames, so training gains nothing until they are labeled). dev_val stays at its current 4, train becomes 149, reservations go back to none, no confirmed group straddles a split. Simply returning them to `dev_val` is **not** an option: it would put `bch_extra_self_05` in validation with `_29/_30/_31` from the same outing in training, a hard leak by the audit's own rule. The independent final test is collected at venues other than the eleven now named.
 
-Until the owner decides, the project stays as the writes left it (16 reserved). Nothing has been trained or packaged in that state.
+**Decided 2026-10-21 (D-017):** the 16 become a model-lineage holdout (`validation.json` `lineageHoldout`), option (a) with qualifications; see the decision log and [MODEL_LINEAGES.md](MODEL_LINEAGES.md). Correction to an earlier statement in this document: none of the 16 has reviewed frames or rally marks, and none was ever in a training package (all were imported 2026-10-17, after the last export); their only recorded exposure is pre-tracking.
 
 ### Gap found on the way: `BallPathBuilder` runs the pipeline unlogged
 

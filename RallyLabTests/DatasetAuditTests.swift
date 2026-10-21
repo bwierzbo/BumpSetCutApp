@@ -195,3 +195,45 @@ final class DatasetAuditTests: XCTestCase {
         XCTAssertFalse(try audit(F.inputs()).markdown(manifest: try DatasetSplitManifest.build(F.inputs())).contains("HARD LEAK"))
     }
 }
+
+// MARK: - Model-lineage holdout (D-017)
+
+extension DatasetAuditTests {
+    func testLineageHoldoutKeepsItsGroupInOneSplitAndIsReportedAsExposed() throws {
+        // A historically exposed dev_val recording and its same-outing training neighbour, listed as lineage holdout.
+        let clips = [
+            F.clip("bch_l", split: "val", videos: [F.source("bch_l", uploader: "", fingerprint: "file:L", sessionId: "2026-10-03", venueId: "beach-x")]),
+            F.clip("bch_n", split: "train", videos: [F.source("bch_n", uploader: "", fingerprint: "file:N", sessionId: "2026-10-03", venueId: "beach-x")]),
+        ]
+        let sessions = [F.session("bch_l", split: "val"), F.session("bch_n", split: "train", marked: true)]
+        let validation = PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2"], lineageHoldout: ["bch_l"])
+        let inputs = F.inputs(validation: validation,
+                              discovered: ["bch_l": [ExposureRecord(kind: .preTracking, ref: "session tracks (machine)", date: "2026-10-18", note: nil)],
+                                           "bch_n": [ExposureRecord(kind: .trainingPackage, ref: "pkg-1", date: "2026-10-16", note: nil)]],
+                              extraClips: clips, extraSessions: sessions)
+        let manifest = try DatasetSplitManifest.build(inputs)
+        let l = manifest.videos.first { $0.video == "bch_l" }!, n = manifest.videos.first { $0.video == "bch_n" }!
+        XCTAssertEqual(l.split, .lineageHoldout); XCTAssertEqual(l.reservedAs, "listed")
+        XCTAssertEqual(n.split, .lineageHoldout); XCTAssertEqual(n.reservedAs, "alias"); XCTAssertEqual(n.unreservedSplit, .train)
+        let a = DatasetAudit.run(manifest: manifest, now: F.day)
+        XCTAssertEqual(codes(a, .hard), [], "a confirmed session shared inside one reserved split is not a leak")
+        let infos = a.findings.filter { $0.code == "LINEAGE-HOLDOUT" }
+        XCTAssertEqual(Set(infos.flatMap(\.videos)), ["bch_l", "bch_n"])
+        XCTAssertTrue(infos.first { $0.videos == ["bch_n"] }!.message.contains("images/train"), "reviewed frames of the moved neighbour are named")
+        XCTAssertTrue(infos.first { $0.videos == ["bch_l"] }!.message.contains("pre_tracking"))
+        let summary = a.findings.first { $0.code == "LINEAGE-HOLDOUT-SUMMARY" }
+        XCTAssertNotNil(summary)
+        XCTAssertTrue(summary!.message.contains("2 lineage-holdout"))
+        XCTAssertTrue(a.findings.contains { $0.code == "LINEAGE-UNKNOWN-RELATIONS" }, "train/dev recordings without venue or session are reported as unknown, not cleared")
+        XCTAssertFalse(a.findings.contains { $0.code.hasPrefix("CANDIDATE") }, "lineage holdout members are not judged as final-test candidates")
+    }
+
+    func testLineageHoldoutIsNotASourceOfFinalTestCandidates() throws {
+        let clips = [F.clip("grs_l", environment: "Grass", split: "val", videos: [F.source("grs_l", uploader: "", fingerprint: "file:GL", sessionId: "2026-09-06", venueId: "grass-x")])]
+        let inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2"], lineageHoldout: ["grs_l"]),
+                              extraClips: clips, extraSessions: [F.session("grs_l", split: "val")])
+        let a = try audit(inputs)
+        XCTAssertFalse(a.findings.contains { $0.code == "FINAL-TEST-CANDIDATE" && $0.videos.contains("grs_l") },
+                       "even with no recorded exposure, a lineage-holdout recording is never offered as a final-test candidate")
+    }
+}

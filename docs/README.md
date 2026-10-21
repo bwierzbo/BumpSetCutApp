@@ -11,7 +11,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 ## Decisions
 
-- [Decision log](decisions/DECISION_LOG.md) — authoritative; D-001 … D-016, D-017 proposed.
+- [Decision log](decisions/DECISION_LOG.md) — authoritative; D-001 … D-017.
 - [Owner decisions, 2026-10-20](decisions/2026-10-20-phase0-owner-decisions.md) — verbatim primary source for D-001 … D-010.
 - [Decision template](templates/DECISION.md).
 
@@ -19,6 +19,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 - [Roadmap (revised 2026-10-20)](ml-roadmap/ROADMAP_REVISED_2026-10-20.md) — the plan Claude Code executes, **as amended by the decision log**. The copy carries a "superseded passages" banner and inline `[Superseded by D-001]` / `[Amended by D-007]` notes where the owner's later decisions override it (learned classifier is a production candidate, not research-only; tuner objective is constrained recall).
 - [Phase 0 baseline](ml-roadmap/BASELINE.md) — repo state, claim-by-claim audit of the roadmap against the code, data/model inventory with hashes, frozen Oct 17 score table, the ten questions that became D-001 … D-010.
+- [Model lineages](ml-roadmap/MODEL_LINEAGES.md) — L1 (every model to date, historical) and L2 (planned from-scratch lineage after the D-017 cut-over): cut-over hashes, withheld recordings, preregistration requirements.
 - [Experiment registry](ml-roadmap/EXPERIMENT_REGISTRY.md) — links issues ↔ experiments ↔ dataset/split versions ↔ model versions ↔ test results ↔ PRs. Historical rows recovered from memory notes.
 - [Provenance audit, 2026-10-21](ml-roadmap/PROVENANCE_AUDIT_2026-10-21.md) — Task B.1 result on Scratch: split manifest, exposure history, the one hard leak, final-test candidates, and the five decisions for the owner.
 - [Provenance questions, 2026-10-21](ml-roadmap/PROVENANCE_QUESTIONS_2026-10-21.md) — what only the owner can answer after D-015: Q0 (pre-tracking) is settled by D-016; venue/session for the seven candidates and the legacy-holdout uploader overlap are answered on the review page.
