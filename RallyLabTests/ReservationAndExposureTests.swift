@@ -289,12 +289,15 @@ final class ReservationAndExposureTests: XCTestCase {
         // A session whose only trace of use is a machine track written by a pre-tracking model.
         let session = #"{"name":"grs_x","sourcePath":"/f/grs_x.mov","split":"val","addedAt":"2026-10-17T07:11:52Z","frames":[],"tracks":[{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","start":1.0,"end":5.0,"points":[],"done":true,"isRally":true,"machine":true,"updatedAt":"2026-10-18T05:39:44Z","candidates":[]}]}"#
         try session.write(to: root.appendingPathComponent("sessions/grs_x.json"), atomically: true, encoding: .utf8)
-        // A cached detection pass from a tuner round.
+        // Cached detection passes from a tuner round; one session name itself contains "__".
         try "x".write(to: root.appendingPathComponent("pipeline_tuning/evidence/bch_y__02c961372a94.evidence"), atomically: true, encoding: .utf8)
+        try "x".write(to: root.appendingPathComponent("pipeline_tuning/evidence/ind_a__b__1d7253e72acc.evidence"), atomically: true, encoding: .utf8)
         let found = try DatasetSplitManifest.discoverExposure(in: root)
         XCTAssertEqual(found["grs_x"]?.map(\.kind), [.preTracking])
         XCTAssertEqual(found["grs_x"]?.first?.date, "2026-10-18")
         XCTAssertEqual(found["bch_y"]?.map(\.kind), [.rallyScoring])
+        XCTAssertEqual(found["ind_a__b"]?.map(\.kind), [.rallyScoring], "split at the last separator")
+        XCTAssertNil(found["ind_a"])
     }
 
     func testYouTubeSourceIdPlanIsDeterministicAndConservative() throws {

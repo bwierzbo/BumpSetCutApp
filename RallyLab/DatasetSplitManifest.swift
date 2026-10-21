@@ -348,8 +348,9 @@ struct DatasetSplitManifest: Codable {
         }
         let evidence = projectDir.appendingPathComponent("pipeline_tuning/evidence", isDirectory: true)
         for file in try entries(of: evidence) where file.pathExtension == "evidence" {
+            // <session>__<detection key>.evidence — the session name itself may contain "__", so split at the LAST separator.
             let name = file.deletingPathExtension().lastPathComponent
-            guard let sep = name.range(of: "__") else { continue }
+            guard let sep = name.range(of: "__", options: .backwards) else { continue }
             add(String(name[..<sep.lowerBound]), ExposureRecord(kind: .rallyScoring, ref: "pipeline_tuning/evidence", date: isoDay(of: file),
                                                                note: "cached detection pass (tuner or serve report)"))
         }
