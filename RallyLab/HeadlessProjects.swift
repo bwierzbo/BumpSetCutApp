@@ -779,15 +779,15 @@ enum HeadlessProjects {
         guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
         let manifests = dir.appendingPathComponent("manifests", isDirectory: true)
         guard let built = buildManifest(projects, out: manifests, audit: true), let audit = built.audit else { return false }
-        let reserved: Set<String>
-        do { reserved = try ReservedVideos.reservedNames(in: dir) } catch { log("❌ \(error.localizedDescription)"); return false }
+        let withheldClosure: Set<String>
+        do { withheldClosure = try ReservedVideos.lineageWithheldNames(in: dir) } catch { log("❌ \(error.localizedDescription)"); return false }
         let now = Date()
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyyMMdd-HHmm"
         let l2 = manifests.appendingPathComponent("l2", isDirectory: true)
         let plan: LineagePackage.Plan
         do {
-            plan = try LineagePackage.plan(manifest: built.manifest, audit: audit, reserved: reserved, generator: generator(), now: now)
+            plan = try LineagePackage.plan(manifest: built.manifest, audit: audit, withheldClosure: withheldClosure, generator: generator(), now: now)
             try FileManager.default.createDirectory(at: l2, withIntermediateDirectories: true)
             let base = l2.appendingPathComponent("\(stamp.string(from: now))-plan")
             try LineagePackage.write(plan, to: base.appendingPathExtension("json"))

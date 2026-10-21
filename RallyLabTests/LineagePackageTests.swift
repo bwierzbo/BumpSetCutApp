@@ -38,12 +38,15 @@ final class LineagePackageTests: XCTestCase {
         return F.inputs(validation: validation, extraClips: clips, extraSessions: sessions)
     }
 
-    private func planned(_ inputs: DatasetSplitManifest.Inputs, reserved: Set<String>? = nil) throws -> LineagePackage.Plan {
+    /// As `--package-l2` does: the withheld closure is validation.json's reserved names plus
+    /// `holdout`, expanded over every project video (ReservedVideos.lineageWithheldNames).
+    private func planned(_ inputs: DatasetSplitManifest.Inputs, withheldClosure: Set<String>? = nil) throws -> LineagePackage.Plan {
         let manifest = try DatasetSplitManifest.build(inputs)
         let audit = DatasetAudit.run(manifest: manifest, now: F.day)
         let sources = Dictionary(uniqueKeysWithValues: (inputs.project?.clips ?? []).flatMap { c in c.videos.map { (c.videoId(of: $0), $0) } })
-        let closure = ReservedVideos.closure(of: inputs.validation?.reservedAsListed ?? [], over: sources)
-        return try LineagePackage.plan(manifest: manifest, audit: audit, reserved: reserved ?? closure, generator: "test", now: F.day)
+        let named = (inputs.validation?.reservedAsListed ?? []).union(inputs.validation?.holdout ?? [])
+        let closure = ReservedVideos.closure(of: named, over: sources)
+        return try LineagePackage.plan(manifest: manifest, audit: audit, withheldClosure: withheldClosure ?? closure, generator: "test", now: F.day)
     }
 
     private func write(_ text: String, to path: String) throws {
@@ -106,8 +109,26 @@ final class LineagePackageTests: XCTestCase {
 
     func testPlanRefusesWhenValidationAndManifestDisagree() throws {
         // validation.json (read on its own) reserves a recording the manifest would package.
-        XCTAssertThrowsError(try planned(lineageInputs(), reserved: ["bch_l", "bch_n", "bch_b"])) { error in
+        XCTAssertThrowsError(try planned(lineageInputs(), withheldClosure: ["bch_l", "bch_n", "bch_b"])) { error in
             XCTAssertEqual(error as? LineagePackage.PlanError, .reservedButEligible(["bch_b"]))
+        }
+    }
+
+    func testSessionlessLegacyHoldoutStillWithholdsItsAliasSession() throws {
+        // `ghost` is in validation.json `holdout` but has no dataset session, so the manifest has no row
+        // for it and the audit cannot see it; its project video shares a confirmed venue with the
+        // training session bch_z. The withheld closure (project-wide identities) must catch bch_z.
+        let clips = [
+            F.clip("ghost", split: "val", videos: [F.source("ghost", uploader: "", fingerprint: "file:G", venueId: "beach-ghost")]),
+            F.clip("bch_z", split: "train", videos: [F.source("bch_z", uploader: "", fingerprint: "file:Z", venueId: "beach-ghost")]),
+        ]
+        let validation = PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2", "ghost"])
+        let inputs = F.inputs(validation: validation, extraClips: clips, extraSessions: [F.session("bch_z", split: "train")])
+        let manifest = try DatasetSplitManifest.build(inputs)
+        XCTAssertEqual(manifest.videos.first { $0.video == "bch_z" }?.split, .train, "the manifest alone would package it")
+        XCTAssertFalse(DatasetAudit.run(manifest: manifest, now: F.day).hasHardLeak, "and the audit alone cannot see the sessionless holdout")
+        XCTAssertThrowsError(try planned(inputs)) { error in
+            XCTAssertEqual(error as? LineagePackage.PlanError, .reservedButEligible(["bch_z"]))
         }
     }
 
@@ -119,7 +140,7 @@ final class LineagePackageTests: XCTestCase {
             manifest.videos[i].venueId = .confirmed("beach-shared")
         }
         let empty = DatasetAudit(createdAt: F.day, manifestHashes: manifest.hashes, findings: [])
-        XCTAssertThrowsError(try LineagePackage.plan(manifest: manifest, audit: empty, reserved: ["bch_l", "bch_n"], generator: "test", now: F.day)) { error in
+        XCTAssertThrowsError(try LineagePackage.plan(manifest: manifest, audit: empty, withheldClosure: ["bch_l", "bch_n"], generator: "test", now: F.day)) { error in
             XCTAssertEqual(error as? LineagePackage.PlanError, .sharedIdentity(eligible: "bch_b", withheld: "bch_a_v2", identity: "ven:beach-shared"))
         }
     }

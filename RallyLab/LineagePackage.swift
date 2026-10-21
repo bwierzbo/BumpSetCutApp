@@ -86,7 +86,7 @@ enum LineagePackage {
         var errorDescription: String? {
             switch self {
             case .hardLeak(let n): return "The audit has \(n) hard finding(s); no lineage package while the dataset leaks."
-            case .reservedButEligible(let v): return "Reserved by validation.json but the manifest would package: \(v.joined(separator: ", ")). The two disagree; nothing is written."
+            case .reservedButEligible(let v): return "Withheld by validation.json (reserved names and legacy holdout, expanded through the project's identities) but the manifest would package: \(v.joined(separator: ", ")). The two disagree; nothing is written."
             case .sharedIdentity(let e, let w, let id): return "\(e) would be packaged but shares \(id) with withheld \(w)."
             case .noTrain: return "No eligible train recording."
             case .noVal: return "No eligible val recording (dev_val or tune)."
@@ -104,10 +104,12 @@ enum LineagePackage {
         return ids.sorted()
     }
 
-    /// `reserved`: the closure validation.json names, read independently of
-    /// the manifest (ReservedVideos.reservedNames). The plan fails when the
-    /// two sources disagree on any recording.
-    static func plan(manifest: DatasetSplitManifest, audit: DatasetAudit, reserved: Set<String>,
+    /// `withheldClosure`: every name validation.json withholds — reserved names
+    /// and the legacy holdout — expanded over the whole project's identities
+    /// (ReservedVideos.lineageWithheldNames), read independently of the
+    /// manifest, which has rows only for recordings with a dataset session.
+    /// The plan fails when the two disagree on any recording.
+    static func plan(manifest: DatasetSplitManifest, audit: DatasetAudit, withheldClosure: Set<String>,
                      generator: String, now: Date = Date()) throws -> Plan {
         let hard = audit.findings.filter { $0.severity == .hard }.count
         guard hard == 0 else { throw PlanError.hardLeak(hard) }
@@ -126,7 +128,7 @@ enum LineagePackage {
         }
         let withheldNames = Set(withheld.map(\.video))
         let eligibleNames = Set(eligible.map(\.video))
-        let wrongly = reserved.intersection(eligibleNames)
+        let wrongly = withheldClosure.intersection(eligibleNames)
         guard wrongly.isEmpty else { throw PlanError.reservedButEligible(wrongly.sorted()) }
 
         // Exclusion closure, recomputed from the manifest rows: no identity and no alias group
