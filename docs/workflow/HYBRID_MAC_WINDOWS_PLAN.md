@@ -144,16 +144,22 @@ Versioned, checksummed, one direction at a time.
     $rel = $_.FullName.Substring($root.Length + 1) -replace '\\','/'
     [pscustomobject]@{ path = $rel; size = $_.Length; sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); addedAt = $_.CreationTimeUtc.ToString('o') }
   }
+  # Deterministic order (filesystem enumeration order is not guaranteed): ordinal sort by relative path, so identical footage always yields the identical manifest hash.
+  $rows = [System.Linq.Enumerable]::ToArray([System.Linq.Enumerable]::OrderBy([object[]]$rows, [Func[object,string]]{ param($r) $r.path }, [System.StringComparer]::Ordinal))
   [IO.File]::WriteAllText("$out\manifest.json", ($rows | ConvertTo-Json -Depth 2) + "`n")
   [IO.File]::WriteAllText("$out\SHA256SUMS", (($rows | ForEach-Object { "$($_.sha256)  $($_.path)" }) -join "`n") + "`n")
   ```
   **`sourceId` enrichment (Mac, before committing).** The desktop has no `project.json`, so it cannot name the original recording. On the Mac, each row's `path` is matched to a `ClipSource` in `~/Movies/RallyLab/Projects/<project>/project.json` by its `clipFile` basename, and `sourceId` is set to that source's `fingerprint` (for example `youtube:<id>`, or the size+hash fingerprint for local files; see `ProjectsModel.fingerprint`). Every row is a video, so every row requires a `sourceId`; rows that match nothing get `sourceId: null`, are listed in the commit message for the owner to resolve, and the manifest is not used for splits until none remain (D-009). The `SHA256SUMS` sidecar is unaffected by enrichment.
   Every evaluation names its footage version by the SHA-256 of the committed, enriched `manifest.json`.
-- **Pull to the Mac** for evaluations that need video: **videos only, by explicit list, never a recursive copy of `footage/`.** The desktop's `*.rallylabels.json` files are a stale 2026-10-16 snapshot; the Mac's are authoritative and must not be overwritten (one-editable-copy rule). Take the file list from the committed manifest, copy each video with `scp` (no `-r`, no wildcards), refuse to overwrite anything already present, then verify:
+- **Pull to the Mac** for evaluations that need video: **videos only, by explicit list, never a recursive copy of `footage/`.** The desktop's `*.rallylabels.json` files are a stale 2026-10-16 snapshot; the Mac's are authoritative and must not be overwritten (one-editable-copy rule). Take the file list from the committed manifest, but do not trust it blindly: the loop whitelists video extensions and rejects absolute or parent-traversal paths before creating any directory or calling `scp` (no `-r`, no wildcards), refuses to overwrite anything already present, then verifies:
   ```bash
   m=<repo>/docs/ml-roadmap/manifests/<project>-footage-<date>; dst=~/Movies/RallyLab/Projects/<project>/footage
   python3 -c 'import json,sys; [print(r["path"]) for r in json.load(open(sys.argv[1]))]' "$m/manifest.json" | while read -r rel; do
-    case "$rel" in *.rallylabels.json|meta/*) echo "refusing non-video: $rel"; exit 1;; esac
+    case "$rel" in
+      /*|*/../*|../*|*/..|..) echo "refusing absolute or parent-traversal path: $rel"; exit 1;;
+      *.mp4|*.mov|*.m4v|*.MP4|*.MOV) ;;                       # whitelist: only these are copied
+      *) echo "refusing non-video path: $rel"; exit 1;;
+    esac
     [ -e "$dst/$rel" ] && { echo "exists, not overwriting: $rel"; continue; }
     mkdir -p "$dst/$(dirname "$rel")" && scp -q "bens-desktop:D:/RallyLabFootage/<project>/footage/$rel" "$dst/$rel"
   done
