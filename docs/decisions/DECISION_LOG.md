@@ -52,7 +52,7 @@ The authoritative record of product, architecture, data and process decisions fo
 
 **Context.** Phase 0 found all 13 tuning videos inside the detector val split (BASELINE.md, decision 2).
 
-**Consequences.** Dataset manifest gains a `split` of `train | dev_val | tune | holdout_frozen | final_test` with an `exposure` history. Any report states the split version. Test-set scoring excludes `final_test` until promotion.
+**Consequences.** Dataset manifest gains a `split` of `train | dev_val | tune | legacy_holdout | final_test` with an `exposure` history (`legacy_holdout` is the canonical name for the four previously reused holdout recordings, per `AGENTS.md` rule 3; `final_test` is reserved for recordings with no prior exposure). Any report states the split version. Test-set scoring excludes `final_test` until promotion.
 
 **Source.** [Owner decisions §2](2026-10-20-phase0-owner-decisions.md).
 

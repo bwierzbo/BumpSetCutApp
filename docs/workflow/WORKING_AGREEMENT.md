@@ -49,7 +49,8 @@ A PR is ready for review when every applicable row has evidence pasted or linked
 
 | Change touches | Required evidence |
 |---|---|
-| Anything | `scripts/build.sh both` succeeded on the branch head; unit suite result with counts (or "not run" with the reason) |
+| Code or build inputs (Swift, Python, scripts, `project.pbxproj`, assets, models) | `scripts/build.sh auto` succeeded on the branch head — both targets when shared-pipeline files changed, otherwise only the affected target (untouched targets need not rebuild, per `CLAUDE.md`); unit suite result with counts, or "not run" with the reason |
+| Documentation or agent-instruction files only | Build and tests recorded as "not run — no code changed"; relative-link check passes |
 | Scoring, replay, `SegmentBuilder`, `RallyDecider`, tuner | Scorer fixture tests and replay-vs-`VideoProcessor` parity test pass |
 | Dataset, labels, manifests, splits | Leakage audit output; label provenance counts (reviewed vs legacy); hashes of the manifest/split used |
 | Trainer or converter | Experiment registry entry with hypothesis, control, seeds, dataset hash; Core ML parity on real frames |
