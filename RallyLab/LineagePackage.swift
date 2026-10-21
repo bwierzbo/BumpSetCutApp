@@ -393,6 +393,20 @@ enum LineagePackage {
                          protectedSourceFingerprints: protectedSources.sorted())
     }
 
+    /// The sessions the exporter is given: the eligible ones, each with the split the plan
+    /// assigned (the manifest can place a `tune` recording on the val side while its dataset
+    /// session still says "train"; the exporter reads `session.split`, so the copy carries the
+    /// planned side). Everything else about the session is unchanged; the dataset is not written.
+    static func exportSessions(_ sessions: [VideoSession], plan: Plan) -> [VideoSession] {
+        let planned = Dictionary(uniqueKeysWithValues: plan.eligible.map { ($0.video, $0.packageSplit) })
+        return sessions.compactMap { s in
+            guard let split = planned[s.name] else { return nil }
+            return VideoSession(name: s.name, sourcePath: s.sourcePath, split: split, addedAt: s.addedAt, frames: s.frames,
+                                rejected: s.rejected, tracks: s.tracks, ralliesMarked: s.ralliesMarked, syncedTrackIds: s.syncedTrackIds,
+                                notRallies: s.notRallies, fittedTracks: s.fittedTracks, netBox: s.netBox)
+        }
+    }
+
     /// SHA-256 of every frame image the dataset holds for the withheld recordings, kept or parked.
     /// Throws when any of them can't be read: an incomplete reference set would let the content
     /// check pass without proving anything.

@@ -808,7 +808,7 @@ enum HeadlessProjects {
         if dryRun { return true }
 
         let store = projects.sampler.store
-        let sessions = projects.sampler.sessions.filter { plan.eligibleNames.contains($0.name) }
+        let sessions = LineagePackage.exportSessions(projects.sampler.sessions, plan: plan)
         let protected: Set<String>, protectedSources: Set<String>, eligibleSources: [String: String]
         do {
             protected = try LineagePackage.protectedFrameHashes(sessions: projects.sampler.sessions, withheld: plan.withheldNames, store: store)

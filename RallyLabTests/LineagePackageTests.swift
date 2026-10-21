@@ -171,6 +171,19 @@ final class LineagePackageTests: XCTestCase {
         XCTAssertThrowsError(try planned(inputs)) { XCTAssertEqual($0 as? LineagePackage.PlanError, .noVal) }
     }
 
+    func testExportSessionsCarryThePlannedSplitAndDropEverythingElse() throws {
+        // A tune recording listed in validation.json whose dataset session still says "train".
+        var tune = F.session("tune_t", split: "train", marked: true)
+        tune.notRallies = [3.5]
+        let others = [F.session("bch_x", split: "train"), F.session("w", split: "val")]
+        let thePlan = plan(eligible: [("tune_t", "val"), ("bch_x", "train")], withheld: ["w"])
+        let out = LineagePackage.exportSessions([tune] + others, plan: thePlan)
+        XCTAssertEqual(out.map(\.name), ["tune_t", "bch_x"], "withheld sessions are not handed to the exporter")
+        XCTAssertEqual(out[0].split, "val", "the planned side, not the dataset's")
+        XCTAssertEqual(out[1].split, "train")
+        XCTAssertEqual(out[0].ralliesMarked, true); XCTAssertEqual(out[0].notRallies, [3.5]); XCTAssertEqual(out[0].sourcePath, tune.sourcePath)
+    }
+
     // MARK: - Preflight
 
     func testPreflightPassesACleanPackageAndHashesEveryFile() throws {
