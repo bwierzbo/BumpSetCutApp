@@ -809,8 +809,13 @@ enum HeadlessProjects {
 
         let store = projects.sampler.store
         let sessions = projects.sampler.sessions.filter { plan.eligibleNames.contains($0.name) }
-        let protected: Set<String>
-        do { protected = try LineagePackage.protectedFrameHashes(sessions: projects.sampler.sessions, withheld: plan.withheldNames, store: store) } catch {
+        let protected: Set<String>, protectedSources: Set<String>, eligibleSources: [String: String]
+        do {
+            protected = try LineagePackage.protectedFrameHashes(sessions: projects.sampler.sessions, withheld: plan.withheldNames, store: store)
+            protectedSources = try LineagePackage.protectedSourceFingerprints(sessions: projects.sampler.sessions, withheld: plan.withheldNames,
+                                                                             sources: ReservedVideos.sources(in: dir))
+            eligibleSources = try LineagePackage.sourceFingerprints(of: sessions)
+        } catch {
             log("❌ \(error.localizedDescription)")
             return false
         }
@@ -819,7 +824,8 @@ enum HeadlessProjects {
             let result = try await Task.detached(priority: .userInitiated) {
                 try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, beforeZip: { folder in
                     // The package name is unique (export refuses an existing name), so this record is this package's alone.
-                    let preflight = try LineagePackage.preflight(packageDir: folder, plan: plan, protectedHashes: protected)
+                    let preflight = try LineagePackage.preflight(packageDir: folder, plan: plan, sourceFingerprints: eligibleSources,
+                                                                 protectedSources: protectedSources, protectedHashes: protected)
                     let record = LineagePackage.Record(plan: plan, preflight: preflight)
                     // manifests/l2 gets the record first, so a failed preflight is still on record after the folder is removed.
                     try LineagePackage.write(record, to: l2.appendingPathComponent("\(folder.lastPathComponent).json"))

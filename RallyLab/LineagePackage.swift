@@ -9,7 +9,11 @@
 //  provisional candidate, lineage holdout, legacy holdout) or shares a
 //  confirmed identity with one is absent from the package — no frame, no
 //  window, no folder — and a preflight audit of the written package proves
-//  it before the zip exists. Any failed check removes the package. The
+//  it before the zip exists. The video file behind every packaged session
+//  is fingerprinted and compared with every identity a withheld recording's
+//  video can have (project fingerprint, cut file, session file), so a copy
+//  of protected footage under another session is refused by content, not
+//  by name. Any failed check removes the package. The
 //  record's digest and file list cover everything but l2-manifest.json
 //  itself (a record cannot hold its own hash): verify a package by hashing
 //  it with that one file left out.
@@ -192,6 +196,55 @@ enum LineagePackage {
         /// record has been written: verify with the same exclusion.
         var digest: String
         var windowsSha256: String?
+        /// Fingerprint (ProjectsModel.fileFingerprint) of the video each packaged clip was exported from.
+        var sourceFingerprints: [String: String]
+        /// Every fingerprint a withheld recording's video can carry; no packaged source may match one.
+        var protectedSourceFingerprints: [String]
+    }
+
+    enum SourceError: LocalizedError, Equatable {
+        case protectedSourceUnknown(String)
+        case sourceUnreadable(clip: String, path: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .protectedSourceUnknown(let name): return "Withheld recording \(name) has no file identity (no stored fingerprint, no cut file, no session video here), so a copy of it could not be recognised. Nothing is packaged."
+            case .sourceUnreadable(let clip, let path): return "\(clip)'s video can't be fingerprinted: \(path). Nothing is packaged."
+            }
+        }
+    }
+
+    /// Every identity under which a withheld recording's video can appear on disk: the
+    /// project's stored or derived fingerprint, the cut file's fingerprint and the session
+    /// video's fingerprint when those files are here. Throws when a withheld recording yields
+    /// none — its copies could not be recognised, so the check would prove nothing.
+    static func protectedSourceFingerprints(sessions: [VideoSession], withheld: Set<String>, sources: [String: ClipSource]) throws -> Set<String> {
+        let fm = FileManager.default
+        let byName = Dictionary(sessions.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        var out = Set<String>()
+        for name in withheld.sorted() {
+            var mine = Set<String>()
+            if let s = sources[name] {
+                if let f = ReservedVideos.effectiveFingerprint(s) { mine.insert(f) }
+                if fm.fileExists(atPath: s.clipFile), let f = ProjectsModel.fileFingerprint(atPath: s.clipFile) { mine.insert(f) }
+            }
+            if let session = byName[name], fm.fileExists(atPath: session.sourcePath),
+               let f = ProjectsModel.fileFingerprint(atPath: session.sourcePath) { mine.insert(f) }
+            guard !mine.isEmpty else { throw SourceError.protectedSourceUnknown(name) }
+            out.formUnion(mine)
+        }
+        return out
+    }
+
+    /// The fingerprint of the video each session is exported from, for the sessions whose
+    /// video is here (the exporter skips the others). Throws when a present file can't be read.
+    static func sourceFingerprints(of sessions: [VideoSession]) throws -> [String: String] {
+        var out: [String: String] = [:]
+        for s in sessions where FileManager.default.fileExists(atPath: s.sourcePath) {
+            guard let f = ProjectsModel.fileFingerprint(atPath: s.sourcePath) else { throw SourceError.sourceUnreadable(clip: s.name, path: s.sourcePath) }
+            out[s.name] = f
+        }
+        return out
     }
 
     enum PreflightError: LocalizedError, Equatable {
@@ -216,10 +269,16 @@ enum LineagePackage {
     private static let topLevelFiles: Set<String> = ["windows.jsonl", "README.txt", "summary.json", recordFile]
 
     /// Checks the package folder against the plan and hashes every file.
+    /// `sourceFingerprints` / `protectedSources`: the packaged clips' source
+    /// videos (sourceFingerprints(of:)) and every identity a withheld
+    /// recording's video can carry (protectedSourceFingerprints): a packaged
+    /// clip whose video is a withheld recording's, under any name, fails.
     /// `protectedHashes`: SHA-256 of every frame image the dataset holds for a
-    /// withheld recording (kept or parked), so a protected frame is caught by
-    /// content even under another name.
-    static func preflight(packageDir: URL, plan: Plan, protectedHashes: Set<String>, now: Date = Date()) throws -> Preflight {
+    /// withheld recording (kept or parked) — a secondary check that catches a
+    /// byte-identical copy of a dataset frame; the exporter re-extracts frames,
+    /// so it cannot stand in for the source check.
+    static func preflight(packageDir: URL, plan: Plan, sourceFingerprints: [String: String], protectedSources: Set<String>,
+                          protectedHashes: Set<String>, now: Date = Date()) throws -> Preflight {
         let fm = FileManager.default
         let windowsURL = packageDir.appendingPathComponent("windows.jsonl")
         guard let text = try? String(contentsOf: windowsURL, encoding: .utf8) else { throw PreflightError.noWindows(packageDir.path) }
@@ -293,6 +352,13 @@ enum LineagePackage {
         check("no-stray-files", stray, ok: "only windows.jsonl, README.txt, summary.json, \(recordFile) and the eligible clips' frames")
         check("frame-dirs-have-windows", clipDirs, ok: "every frames/ folder belongs to a packaged clip")
         check("no-protected-content", protected, ok: "no file matches a withheld recording's frame by content (\(protectedHashes.count) hashes)")
+        var badSources: [String] = []
+        for clip in windowsByClip.keys.sorted() {
+            guard let fp = sourceFingerprints[clip] else { badSources.append("\(clip): no source fingerprint"); continue }
+            if protectedSources.contains(fp) { badSources.append("\(clip): its video is a withheld recording's (\(fp.prefix(21))…)") }
+        }
+        check("sources-not-protected", badSources,
+              ok: "every packaged clip's video is fingerprinted and matches none of the \(protectedSources.count) withheld identities")
         let splits = Set(windowsByClip.values.flatMap(\.split))
         check("both-splits-present", splits.isSuperset(of: ["train", "val"]) ? [] : ["have: " + splits.sorted().joined(separator: ",")],
               ok: "train and val windows present")
@@ -304,7 +370,9 @@ enum LineagePackage {
         }
         return Preflight(createdAt: now, package: packageDir.lastPathComponent, passed: checks.allSatisfy(\.passed),
                          checks: checks, clips: clips, files: files, digest: digest,
-                         windowsSha256: files.first { $0.path == "windows.jsonl" }?.sha256)
+                         windowsSha256: files.first { $0.path == "windows.jsonl" }?.sha256,
+                         sourceFingerprints: sourceFingerprints.filter { windowsByClip[$0.key] != nil },
+                         protectedSourceFingerprints: protectedSources.sorted())
     }
 
     /// SHA-256 of every frame image the dataset holds for the withheld recordings, kept or parked.

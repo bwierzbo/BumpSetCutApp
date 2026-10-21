@@ -83,6 +83,13 @@ final class LineagePackageTests: XCTestCase {
 
     private func failed(_ p: LineagePackage.Preflight) -> Set<String> { Set(p.checks.filter { !$0.passed }.map(\.name)) }
 
+    /// Preflight with clean source identities unless a test says otherwise.
+    private func preflight(_ dir: URL, plan: LineagePackage.Plan, protectedHashes: Set<String> = [],
+                           sources: [String: String] = ["t": "file:T", "v": "file:V", "w": "file:W"], protectedSources: Set<String> = ["file:W", "youtube:W"]) throws -> LineagePackage.Preflight {
+        try LineagePackage.preflight(packageDir: dir, plan: plan, sourceFingerprints: sources, protectedSources: protectedSources,
+                                     protectedHashes: protectedHashes, now: F.day)
+    }
+
     // MARK: - Plan
 
     func testPlanWithholdsEveryReservedSplitIncludingAliasesAndLegacyHoldout() throws {
@@ -157,8 +164,7 @@ final class LineagePackageTests: XCTestCase {
 
     func testPreflightPassesACleanPackageAndHashesEveryFile() throws {
         let dir = try writeCleanPackage()
-        let p = try LineagePackage.preflight(packageDir: dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]),
-                                             protectedHashes: ["0000"], now: F.day)
+        let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: ["0000"])
         XCTAssertTrue(p.passed, p.checks.filter { !$0.passed }.map(\.detail).joined(separator: "; "))
         XCTAssertEqual(p.files.map(\.path), ["README.txt", "frames/t/1000.jpg", "frames/t/2000.jpg", "frames/v/1000.jpg", "summary.json", "windows.jsonl"])
         XCTAssertEqual(p.digest, DatasetSplitManifest.canonicalDigest(ofDirectory: dir), "the package digest is the manifest's canonical directory digest")
@@ -177,9 +183,9 @@ final class LineagePackageTests: XCTestCase {
     func testDigestIsStableOnceTheRecordIsEmbedded() throws {
         let dir = try writeCleanPackage()
         let thePlan = plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"])
-        let before = try LineagePackage.preflight(packageDir: dir, plan: thePlan, protectedHashes: [], now: F.day)
+        let before = try preflight(dir, plan: thePlan, protectedHashes: [])
         try LineagePackage.write(.init(plan: thePlan, preflight: before), to: dir.appendingPathComponent(LineagePackage.recordFile))
-        let after = try LineagePackage.preflight(packageDir: dir, plan: thePlan, protectedHashes: [], now: F.day)
+        let after = try preflight(dir, plan: thePlan, protectedHashes: [])
         XCTAssertTrue(after.passed, "the embedded record is an allowed file")
         XCTAssertEqual(after.digest, before.digest, "the record is never hashed into its own digest, so verification after export matches")
         XCTAssertEqual(after.files, before.files)
@@ -193,16 +199,17 @@ final class LineagePackageTests: XCTestCase {
         try write("w-frame", to: "\(dir.lastPathComponent)/frames/w/1000.jpg")
         let lines = try String(contentsOf: dir.appendingPathComponent("windows.jsonl"), encoding: .utf8)
         try write(lines + window("w", "train", ["frames/w/1000.jpg"]) + "\n", to: "\(dir.lastPathComponent)/windows.jsonl")
-        let p = try LineagePackage.preflight(packageDir: dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [])
+        let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [])
         XCTAssertFalse(p.passed)
-        XCTAssertEqual(failed(p), ["windows-clips-eligible", "windows-clips-not-withheld", "frame-paths-eligible", "no-stray-files", "frame-dirs-have-windows"])
+        XCTAssertEqual(failed(p), ["windows-clips-eligible", "windows-clips-not-withheld", "frame-paths-eligible", "no-stray-files", "frame-dirs-have-windows",
+                                   "sources-not-protected"], "the withheld clip's video is also caught by its source fingerprint")
     }
 
     func testPreflightFailsOnAStrayFrameFolderEvenWithoutAWindow() throws {
         let dir = try writeCleanPackage()
         try write("w-frame", to: "\(dir.lastPathComponent)/frames/w/1000.jpg")
         try write("note", to: "\(dir.lastPathComponent)/notes.txt")
-        let p = try LineagePackage.preflight(packageDir: dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [])
+        let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [])
         XCTAssertEqual(failed(p), ["no-stray-files", "frame-dirs-have-windows"])
         XCTAssertTrue(p.checks.first { $0.name == "no-stray-files" }!.detail.contains("frames/w/1000.jpg"))
         XCTAssertTrue(p.checks.first { $0.name == "no-stray-files" }!.detail.contains("notes.txt"))
@@ -211,7 +218,7 @@ final class LineagePackageTests: XCTestCase {
     func testPreflightFailsOnProtectedContentUnderAnyName() throws {
         let dir = try writeCleanPackage()
         let protected = DatasetSplitManifest.sha256(of: dir.appendingPathComponent("frames/t/2000.jpg"))!
-        let p = try LineagePackage.preflight(packageDir: dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [protected])
+        let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [protected])
         XCTAssertEqual(failed(p), ["no-protected-content"])
         XCTAssertTrue(p.checks.first { $0.name == "no-protected-content" }!.detail.contains("frames/t/2000.jpg"))
     }
@@ -220,7 +227,7 @@ final class LineagePackageTests: XCTestCase {
         let dir = try writeCleanPackage()
         try write([window("t", "val", ["frames/t/1000.jpg", "frames/t/3000.jpg"]), window("v", "val", ["frames/v/1000.jpg"])].joined(separator: "\n") + "\n",
                   to: "\(dir.lastPathComponent)/windows.jsonl")
-        let p = try LineagePackage.preflight(packageDir: dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [])
+        let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [])
         XCTAssertEqual(failed(p), ["windows-clips-eligible", "frame-files-exist", "both-splits-present"])
     }
 
@@ -229,7 +236,7 @@ final class LineagePackageTests: XCTestCase {
         let pseudo = window("t", "train", ["frames/t/1000.jpg", "frames/t/2000.jpg"]).replacingOccurrences(of: "\"balls\":[]", with: "\"balls\":[],\"pseudo\":[false,true]")
         try write([pseudo, window("v", "val", ["frames/v/1000.jpg"])].joined(separator: "\n") + "\n", to: "\(dir.lastPathComponent)/windows.jsonl")
         try write("{\"machineFrames\": 3}", to: "\(dir.lastPathComponent)/summary.json")
-        let p = try LineagePackage.preflight(packageDir: dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [])
+        let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [])
         XCTAssertEqual(failed(p), ["no-machine-labels"])
         XCTAssertTrue(p.checks.first { $0.name == "no-machine-labels" }!.detail.contains("t"))
         XCTAssertTrue(p.checks.first { $0.name == "no-machine-labels" }!.detail.contains("machineFrames 3"))
@@ -238,11 +245,11 @@ final class LineagePackageTests: XCTestCase {
     func testPreflightRefusesAMalformedOrMissingWindowsFile() throws {
         let dir = try writeCleanPackage()
         try write("{\"clip\":\"t\"}\n", to: "\(dir.lastPathComponent)/windows.jsonl")
-        XCTAssertThrowsError(try LineagePackage.preflight(packageDir: dir, plan: plan(eligible: [("t", "train")], withheld: []), protectedHashes: [])) {
+        XCTAssertThrowsError(try preflight(dir, plan: plan(eligible: [("t", "train")], withheld: []), protectedHashes: [])) {
             XCTAssertEqual($0 as? LineagePackage.PreflightError, .malformedWindow(1))
         }
         try FileManager.default.removeItem(at: dir.appendingPathComponent("windows.jsonl"))
-        XCTAssertThrowsError(try LineagePackage.preflight(packageDir: dir, plan: plan(eligible: [("t", "train")], withheld: []), protectedHashes: [])) {
+        XCTAssertThrowsError(try preflight(dir, plan: plan(eligible: [("t", "train")], withheld: []), protectedHashes: [])) {
             XCTAssertEqual($0 as? LineagePackage.PreflightError, .noWindows(dir.path))
         }
     }
@@ -276,6 +283,58 @@ final class LineagePackageTests: XCTestCase {
             XCTAssertEqual(taken, name)
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("exports/\(name)").path), "no folder was created")
+    }
+
+    func testPreflightFailsWhenAPackagedVideoIsAWithheldRecordings() throws {
+        let dir = try writeCleanPackage()
+        let thePlan = plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"])
+        // t's video is a copy of w's: same fingerprint under another session name.
+        let p = try preflight(dir, plan: thePlan, sources: ["t": "file:W", "v": "file:V"])
+        XCTAssertEqual(failed(p), ["sources-not-protected"])
+        XCTAssertTrue(p.checks.first { $0.name == "sources-not-protected" }!.detail.contains("t: its video is a withheld recording's"))
+        XCTAssertEqual(p.sourceFingerprints, ["t": "file:W", "v": "file:V"])
+        XCTAssertEqual(p.protectedSourceFingerprints, ["file:W", "youtube:W"])
+        // A packaged clip without a fingerprint is never waved through.
+        let q = try preflight(dir, plan: thePlan, sources: ["v": "file:V"])
+        XCTAssertEqual(failed(q), ["sources-not-protected"])
+        XCTAssertTrue(q.checks.first { $0.name == "sources-not-protected" }!.detail.contains("t: no source fingerprint"))
+    }
+
+    func testSourceFingerprintsRecogniseACopyOfProtectedFootageByContent() throws {
+        // Real bytes, not names: w's cut file copied to another path under an eligible session.
+        try write(String(repeating: "protected footage bytes ", count: 5000), to: "footage/w_cut.mp4")
+        try FileManager.default.copyItem(at: root.appendingPathComponent("footage/w_cut.mp4"), to: root.appendingPathComponent("footage/t.mp4"))
+        try write("other footage", to: "footage/v.mp4")
+        let wSource = ClipSource(kind: .link, origin: "https://youtu.be/W", start: 0, length: 300, license: "permission", title: "t", uploader: "",
+                                 clipFile: root.appendingPathComponent("footage/w_cut.mp4").path, fetchedAt: F.day, videoId: "w", frames: nil,
+                                 fingerprint: "youtube:W", sourceId: nil, sessionId: nil, venueId: nil)
+        let w = VideoSession(name: "w", sourcePath: "/gone/w.mp4", split: "val", addedAt: F.day, frames: [])
+        let t = VideoSession(name: "t", sourcePath: root.appendingPathComponent("footage/t.mp4").path, split: "train", addedAt: F.day, frames: [])
+        let v = VideoSession(name: "v", sourcePath: root.appendingPathComponent("footage/v.mp4").path, split: "val", addedAt: F.day, frames: [])
+        let protected = try LineagePackage.protectedSourceFingerprints(sessions: [w, t, v], withheld: ["w"], sources: ["w": wSource])
+        let cut = ProjectsModel.fileFingerprint(atPath: root.appendingPathComponent("footage/w_cut.mp4").path)!
+        XCTAssertEqual(protected, ["youtube:W", cut], "the link identity and the cut file's content identity")
+        let sources = try LineagePackage.sourceFingerprints(of: [t, v, w])
+        XCTAssertEqual(sources["t"], cut, "the copy has the cut file's fingerprint")
+        XCTAssertNotEqual(sources["v"], cut)
+        XCTAssertNil(sources["w"], "a session whose video is not here is skipped, as the exporter skips it")
+        let dir = try writeCleanPackage()
+        let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), sources: sources, protectedSources: protected)
+        XCTAssertEqual(failed(p), ["sources-not-protected"])
+    }
+
+    func testSourceChecksFailClosed() throws {
+        // A withheld recording with no identity at all cannot be checked for copies.
+        let ghost = VideoSession(name: "w", sourcePath: "/gone/w.mp4", split: "val", addedAt: F.day, frames: [])
+        XCTAssertThrowsError(try LineagePackage.protectedSourceFingerprints(sessions: [ghost], withheld: ["w"], sources: [:])) {
+            XCTAssertEqual($0 as? LineagePackage.SourceError, .protectedSourceUnknown("w"))
+        }
+        // An eligible session whose video is present but unreadable (a folder) is not skipped.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("footage/t.mp4"), withIntermediateDirectories: true)
+        let t = VideoSession(name: "t", sourcePath: root.appendingPathComponent("footage/t.mp4").path, split: "train", addedAt: F.day, frames: [])
+        XCTAssertThrowsError(try LineagePackage.sourceFingerprints(of: [t])) {
+            XCTAssertEqual($0 as? LineagePackage.SourceError, .sourceUnreadable(clip: "t", path: root.appendingPathComponent("footage/t.mp4").path))
+        }
     }
 
     func testProtectedFrameHashesCoverKeptAndParkedFrames() throws {
