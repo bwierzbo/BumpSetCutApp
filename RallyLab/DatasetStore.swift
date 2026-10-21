@@ -147,6 +147,32 @@ final class DatasetStore: @unchecked Sendable {
             .sorted { $0.addedAt > $1.addedAt }
     }
 
+    enum LoadError: LocalizedError {
+        case unlistable(URL)
+        case malformed(URL)
+        var errorDescription: String? {
+            switch self {
+            case .unlistable(let dir): return "\(dir.path) exists but can't be listed; the sessions it holds are unknown."
+            case .malformed(let file): return "\(file.path) can't be decoded; its tracks and frames are unknown. Repair or restore it before building a manifest or reserving anything."
+            }
+        }
+    }
+
+    /// Every session, or an error naming the first file that can't be read.
+    /// For audits: an unreadable session is unknown history, not no history.
+    /// (`loadSessions()` stays lenient for the UI.)
+    func loadSessionsStrict() throws -> [VideoSession] {
+        guard fm.fileExists(atPath: sessionsDir.path) else { return [] }
+        let files: [URL]
+        do { files = try fm.contentsOfDirectory(at: sessionsDir, includingPropertiesForKeys: nil) } catch { throw LoadError.unlistable(sessionsDir) }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try files.filter { $0.pathExtension == "json" }.map { url in
+            guard let data = try? Data(contentsOf: url), let session = try? decoder.decode(VideoSession.self, from: data) else { throw LoadError.malformed(url) }
+            return session
+        }
+    }
+
     func save(_ session: VideoSession) throws {
         try prepare()
         let encoder = JSONEncoder()

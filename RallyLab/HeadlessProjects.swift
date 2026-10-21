@@ -186,7 +186,7 @@ enum HeadlessProjects {
                                             sourceId: value(after: "--source-id", in: args),
                                             sessionId: value(after: "--session-id", in: args),
                                             venueId: value(after: "--venue-id", in: args))
-                log(ok ? "✅ Provenance saved for \(videoId)." : "❌ No video \(videoId) in the project.")
+                log(ok ? "✅ Provenance saved for \(videoId)." : "❌ Not saved for \(videoId): no such video, or project.json couldn't be written (see status).")
             }
 
             let library = ModelLibrary(sampler: projects.sampler)

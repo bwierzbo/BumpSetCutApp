@@ -320,7 +320,7 @@ struct DatasetSplitManifest: Codable {
 
         // Uses that predate the log and leave marks in the project itself: machine tracks
         // written by a pre-tracking model, and the tuner's / serve report's cached detection passes.
-        for session in DatasetStore(root: projectDir).loadSessions() {
+        for session in try DatasetStore(root: projectDir).loadSessionsStrict() {
             let machine = (session.tracks ?? []).filter(\.isMachine)
             if !machine.isEmpty {
                 let latest = machine.compactMap(\.updatedAt).max()

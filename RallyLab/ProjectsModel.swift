@@ -360,15 +360,19 @@ final class ProjectsModel {
         markOpened(dir)
     }
 
-    private func save() {
-        guard let project, let dir = projectDir else { return }
+    /// Writes project.json; false (with the reason in `status`) when it couldn't.
+    @discardableResult
+    private func save() -> Bool {
+        guard let project, let dir = projectDir else { return false }
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(project).write(to: dir.appendingPathComponent("project.json"), options: .atomic)
+            return true
         } catch {
             status = "Couldn't save the project: \(error.localizedDescription)"
+            return false
         }
     }
 
@@ -1023,8 +1027,7 @@ final class ProjectsModel {
                 apply(sessionId, to: &project.clips[c].videos[v].sessionId)
                 apply(venueId, to: &project.clips[c].videos[v].venueId)
                 self.project = project
-                save()
-                return true
+                return save()   // only a persisted change counts
             }
         }
         return false

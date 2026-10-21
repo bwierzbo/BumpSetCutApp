@@ -325,6 +325,15 @@ final class ReservationAndExposureTests: XCTestCase {
         }
     }
 
+    func testMalformedSessionFileFailsDiscovery() throws {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("sessions"), withIntermediateDirectories: true)
+        try "{broken".write(to: root.appendingPathComponent("sessions/grs_bad.json"), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try DatasetSplitManifest.discoverExposure(in: root)) { error in
+            guard case DatasetStore.LoadError.malformed = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertEqual(DatasetStore(root: root).loadSessions().count, 0, "the lenient loader still skips it for the UI")
+    }
+
     func testLoggedExposureBlocksFinalTestReservation() throws {
         try ExposureLog.record(videos: ["bch_a_v3"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
         var inputs = DatasetSplitManifestTests.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["bch_a_v3"]))

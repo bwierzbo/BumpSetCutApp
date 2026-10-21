@@ -90,6 +90,23 @@ final class DatasetAuditTests: XCTestCase {
         XCTAssertTrue(a.findings.first { $0.code == "FINAL-TEST-CANDIDATE-OVERLAP" }!.videos.contains("grs_c_v2"))
     }
 
+    func testCandidateWithAnAliasInTheTrainingDatasetIsBlocked() throws {
+        // bch_a_v3 is a listed candidate; ind_dup is the same file and its frames are in images/train.
+        // The reservation overlay relabels ind_dup as a candidate alias, but its data is still training data.
+        let extra = F.clip("ind_dup", environment: "Indoor", split: "train",
+                           videos: [F.source("ind_dup", uploader: "Z", fingerprint: "youtube:A3")])
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTestCandidates: ["bch_a_v3", "ind_dup"]),
+                              extraClips: [extra], extraSessions: [F.session("ind_dup", split: "train")])
+        inputs.discovered = [:]
+        let a = try audit(inputs)
+        let listed = a.findings.first { $0.code.hasPrefix("CANDIDATE") && $0.videos == ["bch_a_v3"] }
+        XCTAssertEqual(listed?.code, "CANDIDATE-BLOCKED")
+        XCTAssertTrue(listed!.message.contains("training-dataset"), listed!.message)
+        let alias = a.findings.first { $0.code.hasPrefix("CANDIDATE") && $0.videos == ["ind_dup"] }
+        XCTAssertEqual(alias?.code, "CANDIDATE-BLOCKED")
+        XCTAssertTrue(alias!.message.contains("images/train"), alias!.message)
+    }
+
     func testProvenanceQualityIsReported() throws {
         let a = try audit(F.inputs())
         let source = a.findings.first { $0.code == "PROVENANCE-SOURCE" }

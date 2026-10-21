@@ -83,14 +83,18 @@ struct DatasetAudit: Codable {
         }
 
         // Provisional final-test candidates (D-015 §2): what still blocks each one's promotion.
-        let others = videos.filter { $0.split != .finalTestCandidate && $0.split != .finalTest }
-        let otherCards = Set(others.compactMap(\.clipId)), otherUploaders = Set(others.compactMap(\.uploader)), otherPrints = Set(others.compactMap(\.fingerprint))
+        // "Others" are every video that is not a candidate/final test, PLUS every video whose
+        // frames sit in the training dataset (datasetSplit "train") even if the reservation
+        // overlay relabelled it as a candidate alias: its data is still in images/train.
         for v in videos where v.split == .finalTestCandidate {
+            let others = videos.filter { $0.video != v.video && (($0.split != .finalTestCandidate && $0.split != .finalTest) || $0.datasetSplit == "train") }
+            let otherCards = Set(others.compactMap(\.clipId)), otherUploaders = Set(others.compactMap(\.uploader)), otherPrints = Set(others.compactMap(\.fingerprint))
             var blockers: [String] = []
+            if v.datasetSplit == "train" { blockers.append("its own frames sit in the training dataset (images/train)") }
             if !v.exposure.isEmpty { blockers.append("prior exposure (" + Set(v.exposure.map(\.kind.rawValue)).sorted().joined(separator: ", ") + ")") }
-            if v.fingerprint.map(otherPrints.contains) == true { blockers.append("same file as a non-candidate video") }
-            if v.clipId.map(otherCards.contains) == true { blockers.append("same card as a non-candidate video") }
-            if v.uploader.map(otherUploaders.contains) == true { blockers.append("same uploader as a non-candidate video") }
+            if v.fingerprint.map(otherPrints.contains) == true { blockers.append("same file as a non-candidate or training-dataset video") }
+            if v.clipId.map(otherCards.contains) == true { blockers.append("same card as a non-candidate or training-dataset video") }
+            if v.uploader.map(otherUploaders.contains) == true { blockers.append("same uploader as a non-candidate or training-dataset video") }
             if v.venueId.origin != .confirmed { blockers.append("venueId unconfirmed") }
             if v.sessionId.origin != .confirmed { blockers.append("sessionId unconfirmed") }
             findings.append(Finding(severity: .info, code: blockers.isEmpty ? "CANDIDATE-READY" : "CANDIDATE-BLOCKED",
