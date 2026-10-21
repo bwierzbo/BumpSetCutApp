@@ -1,0 +1,40 @@
+{
+  "tune": [
+    "bch_onl_ovc_land_onl_02",
+    "bch_onl_ovc_land_onl_02_v2",
+    "bch_onl_ovc_land_onl_02_v4",
+    "grs_hnd_shade_port_self_02",
+    "grs_onl_shade_land_onl_02",
+    "grs_onl_sun_land_onl_01",
+    "ind_ele_bright_land_self_01",
+    "ind_ele_dim_land_self_02",
+    "ind_ele_dim_land_self_02_v2"
+  ],
+  "holdout": [
+    "bch_onl_sun_land_onl_03",
+    "grs_onl_dusk_land_onl_03",
+    "ind_onl_bright_land_onl_04",
+    "ind_sid_bright_land_self_02",
+    "bch_onl_sun_land_onl_03_v2"
+  ],
+  "finalTestCandidates": [],
+  "finalTest": [],
+  "lineageHoldout": [
+    "bch_extra_self_05",
+    "bch_extra_self_10",
+    "bch_extra_self_18",
+    "bch_extra_self_29",
+    "bch_extra_self_30",
+    "bch_extra_self_31",
+    "grs_extra_self_02",
+    "grs_extra_self_06",
+    "grs_extra_self_07",
+    "grs_extra_self_12",
+    "grs_extra_self_14",
+    "grs_extra_self_15",
+    "grs_extra_self_20",
+    "grs_extra_self_21",
+    "ind_extra_self_06",
+    "ind_extra_self_09"
+  ]
+}

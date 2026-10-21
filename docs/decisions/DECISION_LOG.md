@@ -2,7 +2,7 @@
 name: decision-log
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-10-21T17:20:09Z
+updated: 2026-10-21T18:30:00Z
 ---
 
 # Decision log
@@ -30,8 +30,8 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-013](#d-013) | 2026-10-06 | accepted (amended by D-001) | From-scratch multi-frame ball model + learned decision layer, all on-device |
 | [D-014](#d-014) | 2026-10-20 | accepted (amends D-005) | Review tiers: PR review by default for ML/data/architecture; streamlined path only with explicit owner authorisation; Codex is the reviewer |
 | [D-015](#d-015) | 2026-10-21 | accepted | Task B.1 decisions: holdout sibling moved; seven provisional final-test candidates protected; tune/dev_val cards kept; CLI provenance now, UI in B.2; YouTube IDs confirmed as sourceId |
-| [D-016](#d-016) | 2026-10-21 | accepted | Pre-tracking counts as exposure (strict); machine tracks kept; none of the seven candidates is promoted; provenance confirmed by visual review, never inferred |
-| [D-017](#d-017) | 2026-10-21 | proposed | Confirmed venues pulled nine training recordings into the candidates' reservation: keep venue-level closure, narrow to sessions, or withdraw the seven candidates into their groups' split, train (recommended) |
+| [D-016](#d-016) | 2026-10-21 | accepted (amended by D-017) | Pre-tracking counts as exposure (strict); machine tracks kept; none of the seven candidates is promoted; provenance confirmed by visual review, never inferred |
+| [D-017](#d-017) | 2026-10-21 | accepted | Model-lineage holdout: the seven candidates and their nine related recordings (16) are withheld from all future training as `lineageHoldout`; historical exposure kept; never the final test; new lineages preregister before evaluating on it |
 
 ---
 
@@ -190,7 +190,7 @@ The authoritative record of product, architecture, data and process decisions fo
 
 ### D-016
 
-**Pre-tracking counts as exposure; candidates stay protected; provenance by visual review only** — 2026-10-21 — accepted — owner (answer to Q0 of [PROVENANCE_QUESTIONS_2026-10-21.md](../ml-roadmap/PROVENANCE_QUESTIONS_2026-10-21.md)).
+**Pre-tracking counts as exposure; candidates stay protected; provenance by visual review only** — 2026-10-21 — accepted, amended by [D-017](#d-017) — owner (answer to Q0 of [PROVENANCE_QUESTIONS_2026-10-21.md](../ml-roadmap/PROVENANCE_QUESTIONS_2026-10-21.md)).
 
 **Decision.** Option (a), strict. A pre-tracking run that wrote machine tracks into a session is model exposure like any other, even when nothing was trained, tuned or selected on those tracks and no human reviewed them. Consequently: (1) the seven provisional candidates of D-015 §2 keep their `pre_tracking` exposure and remain `CANDIDATE-BLOCKED`; none is promoted to `final_test`; (2) the machine tracks are **not** deleted from the seven sessions (deleting them would not undo the exposure and would discard evidence of it); (3) the seven remain protected candidates — reserved against any further training, tuning, evaluation or scoring use — and the independent final test waits for new footage collected after the ledger existed; (4) venue, session and camera for the candidates, their neighbouring training imports and the Dianne Gan recordings are established by the owner looking at frames in a local review page ([PROVENANCE_REVIEW_2026-10-21.md](../ml-roadmap/PROVENANCE_REVIEW_2026-10-21.md)); nothing is pre-filled or inferred from file numbers, uploaders, YouTube metadata or visual similarity, and every answer may be "unknown". Q4 (tune/dev_val uploader venues) stays deferred to the D-007 tuning work.
 
@@ -202,12 +202,15 @@ The authoritative record of product, architecture, data and process decisions fo
 
 ### D-017
 
-**Reservation closure after confirmed provenance** — 2026-10-21 — proposed — awaiting the owner.
+**Model-lineage holdout of 16 recordings; D-016 amended with a three-way distinction** — 2026-10-21 — accepted — owner (with ChatGPT review). Source: owner note "D-017 Owner Decision and Next Steps", 2026-10-21.
 
-**Question.** Reservations alias every video sharing a confirmed `sourceId`, `sessionId` or `venueId` with a reserved one (PR #66). The owner's venue and session confirmations of 2026-10-21 made nine training recordings aliases of the seven protected candidates (eight by same outing, `bch_extra_self_10` by same venue on another day). Train fell 142 → 133 without a split decision; the owner's stated preference on the review page was to leave training as it is.
+**Context.** Confirming venues and sessions (PR #70) made the reservation closure grow from the seven candidates to 16 recordings (nine training recordings alias them by confirmed session or venue), train 142 → 133. The seven can never be the independent final test (D-016). The owner proposed retraining from scratch without those recordings and evaluating on them.
 
-**Constraint.** The audit treats a confirmed sessionId or venueId shared across two splits as a hard leak, so every confirmed group must end up in one split whatever is chosen.
+**Decision.**
+1. **Option (a) of the proposal, with qualifications.** The seven provisional candidates and their nine related training recordings are excluded from all future detector training packages and preserved as a protected, versioned **model-lineage holdout** (`validation.json` `lineageHoldout`, manifest split `lineage_holdout`), distinct from `finalTest`. Reserved exactly like the final test in every package, scoring, tuning, selection, pre-tracking and GUI path; their machine tracks never enter training, tuning, selection or development-time scoring.
+2. **D-016 amendment.** The strict historical interpretation stands: pre-tracking and any earlier use stay recorded permanently; nothing is deleted or rewritten. Three things are distinguished: (i) historical exposure of a recording during earlier development; (ii) training exclusion for a specifically identified new model lineage; (iii) eligibility for an independent, never-used final test. A newly initialised model trained without the 16 may be described as having no direct training exposure to them, once its full training and model-selection dependencies are verified from the ledger; the 16 must never be described as an untouched final test.
+3. **Holdout composition.** All 16. The nine's reviewed ball annotations are preserved for later detector evaluation (as of the cut-over none of the 16 has reviewed frames; the machine tracks are not ground truth). The seven serve pipeline evaluation only once trustworthy rally-boundary annotations exist; missing or unverified annotations are never ground truth.
+4. **Evaluation restrictions.** Scores of any model exposed before the cut (every model to date, L1) on this set are marked exposed, diagnostic-only. New lineages preregister the training recipe, selection criterion, metrics and holdout procedure before looking at holdout results; no tuning against the holdout, no repeated evaluations for selection; results reported by surface and recording group with sample-size limits. A separate new-footage final test remains planned for broader claims.
+5. **Before finalising**, all remaining training and development recordings were audited for confirmed or suspected overlap; unknown relations are reported explicitly (`LINEAGE-UNKNOWN-RELATIONS`: 144 recordings without confirmed venue or session).
 
-**Options.** (a) Keep the venue-level closure: the candidates' venues are off limits to training. (b) Narrow identity to fingerprint + sourceId + sessionId (code change in `ReservedVideos.identities` and the `VENUE-SHARED` audit rule): same venue on another day no longer aliases; eight of the nine stay reserved; the venue guarantee weakens for all future splits. (c) Withdraw the seven from `finalTestCandidates` and move each to its confirmed group's split, i.e. all seven to **train** (recommended): under D-016 they can never be `final_test`, so protecting them only costs training data; returning them to `dev_val` instead would split confirmed groups across validation and training, a hard leak. Train 133 → 149, dev_val stays 4, reservations none; the independent final test is collected at new venues.
-
-**Until decided.** The project stays as the writes left it (16 reserved); nothing is trained or packaged in that state. Details: [PROVENANCE_REVIEW_2026-10-21.md](../ml-roadmap/PROVENANCE_REVIEW_2026-10-21.md) § "Answers applied".
+**Consequences.** `validation.json` key `lineageHoldout`; `DatasetSplit.lineageHoldout` ("lineage_holdout", reserved); `ReservedVideos.expanded` ranks final test > lineage holdout > candidates; audit findings `LINEAGE-HOLDOUT`, `LINEAGE-HOLDOUT-SUMMARY`, `LINEAGE-UNKNOWN-RELATIONS`; lineage record [MODEL_LINEAGES.md](../ml-roadmap/MODEL_LINEAGES.md) (L1 historical, L2 planned with cut-over hashes). Applied to Scratch 2026-10-21: train 133 · dev_val 4 · tune 9 · legacy_holdout 5 · lineage_holdout 16 · candidates 0 · final_test 0; 0 hard, 8 soft. Older `validation.json` files without the key still decode (tested). No model training started; the stack #68 → #71 is merged only on owner authorisation.

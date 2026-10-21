@@ -112,15 +112,21 @@ enum PipelineTuner {
         /// `finalTest` while their provenance is verified, but not yet the
         /// final test. Promotion moves a name from here to `finalTest`.
         var finalTestCandidates: [String]
+        /// Model-lineage holdout (D-017): recordings with recorded historical exposure that are
+        /// withheld from every training, tuning, selection and development-time scoring use from
+        /// the cut-over on, so a model lineage started after the cut can be evaluated on them.
+        /// Protected exactly like `finalTest`; never the independent final test.
+        var lineageHoldout: [String]
 
-        init(tune: [String], holdout: [String], finalTest: [String] = [], finalTestCandidates: [String] = []) {
+        init(tune: [String], holdout: [String], finalTest: [String] = [], finalTestCandidates: [String] = [], lineageHoldout: [String] = []) {
             self.tune = tune
             self.holdout = holdout
             self.finalTest = finalTest
             self.finalTestCandidates = finalTestCandidates
+            self.lineageHoldout = lineageHoldout
         }
 
-        private enum CodingKeys: String, CodingKey { case tune, holdout, finalTest, finalTestCandidates }
+        private enum CodingKeys: String, CodingKey { case tune, holdout, finalTest, finalTestCandidates, lineageHoldout }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -128,10 +134,11 @@ enum PipelineTuner {
             holdout = try c.decode([String].self, forKey: .holdout)
             finalTest = try c.decodeIfPresent([String].self, forKey: .finalTest) ?? []
             finalTestCandidates = try c.decodeIfPresent([String].self, forKey: .finalTestCandidates) ?? []
+            lineageHoldout = try c.decodeIfPresent([String].self, forKey: .lineageHoldout) ?? []
         }
 
-        /// Every reserved name as listed (final test and provisional candidates).
-        var reservedAsListed: Set<String> { Set(finalTest).union(finalTestCandidates) }
+        /// Every reserved name as listed (final test, provisional candidates, lineage holdout).
+        var reservedAsListed: Set<String> { Set(finalTest).union(finalTestCandidates).union(lineageHoldout) }
 
         enum ReservationError: LocalizedError {
             case unreadable(URL)

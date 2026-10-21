@@ -124,11 +124,43 @@ struct DatasetAudit: Codable {
                                     videos: [v.video]))
         }
 
+        // Model-lineage holdout (D-017): protected, historically exposed, never the final test.
+        // Say what each member's history is, and what else in train/dev has no known relation to it.
+        let lineage = videos.filter { $0.split == .lineageHoldout }
+        if !lineage.isEmpty {
+            for v in lineage {
+                var notes: [String] = []
+                let kinds = Set(v.exposure.map(\.kind.rawValue)).sorted()
+                notes.append(kinds.isEmpty ? "no recorded exposure" : "historical exposure: " + kinds.joined(separator: ", "))
+                notes.append(v.reviewedFrames > 0 ? "\(v.reviewedFrames) reviewed frame(s)" : "no reviewed frames")
+                if v.datasetSplit == "train" { notes.append("stored under images/train (excluded from packages by name)") }
+                if v.reservedAs == "alias" { notes.append("reserved as an alias of a listed member") }
+                if v.venueId.origin != .confirmed { notes.append("venueId unconfirmed") }
+                if v.sessionId.origin != .confirmed { notes.append("sessionId unconfirmed") }
+                findings.append(Finding(severity: .info, code: "LINEAGE-HOLDOUT",
+                                        message: "\(v.video): " + notes.joined(separator: "; ") + ". Results on it are valid only for model lineages trained after the D-017 cut-over.",
+                                        videos: [v.video]))
+            }
+            let surfaces = Dictionary(grouping: lineage, by: { $0.surface ?? "?" }).mapValues(\.count)
+            findings.append(Finding(severity: .info, code: "LINEAGE-HOLDOUT-SUMMARY",
+                                    message: "\(lineage.count) lineage-holdout recording(s): " + surfaces.keys.sorted().map { "\($0) \(surfaces[$0]!)" }.joined(separator: ", ")
+                                        + "; \(lineage.filter { $0.reviewedFrames > 0 }.count) carry reviewed frames, \(lineage.filter { $0.ralliesMarked == true }.count) have rally marks; unreviewed machine tracks are not ground truth. Historically exposed: not an untouched final test.",
+                                    videos: lineage.map(\.video).sorted()))
+            // Relations the audit cannot see: train/dev recordings with no confirmed venue share no checkable identity with the holdout.
+            let unknown = videos.filter { !$0.split.isReserved && $0.venueId.origin != .confirmed && $0.sessionId.origin != .confirmed }
+            if !unknown.isEmpty {
+                let own = unknown.filter { $0.originKind == "file" }.count
+                findings.append(Finding(severity: .info, code: "LINEAGE-UNKNOWN-RELATIONS",
+                                        message: "\(unknown.count) train/dev recording(s) (\(own) own files, \(unknown.count - own) links) have neither a confirmed venue nor session: their relation to the lineage holdout is unknown, not cleared. Only the card/uploader checks cover them.",
+                                        videos: unknown.map(\.video).sorted()))
+            }
+        }
+
         // Further final-test candidates: no exposure at all, and nothing of theirs in train.
         let trainCards = Set(videos.filter { $0.split == .train }.compactMap(\.clipId))
         let trainUploaders = Set(videos.filter { $0.split == .train }.compactMap(\.uploader))
         let trainPrints = Set(videos.filter { $0.split == .train }.compactMap(\.fingerprint))
-        let candidates = videos.filter { $0.exposure.isEmpty && $0.split != .finalTest && $0.split != .finalTestCandidate && $0.split != .train }
+        let candidates = videos.filter { $0.exposure.isEmpty && !$0.split.isReserved && $0.split != .train }
         let clean = candidates.filter { v in
             !(v.clipId.map(trainCards.contains) ?? false) && !(v.uploader.map(trainUploaders.contains) ?? false)
                 && !(v.fingerprint.map(trainPrints.contains) ?? false)
