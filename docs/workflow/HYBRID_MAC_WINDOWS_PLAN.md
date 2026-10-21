@@ -134,18 +134,21 @@ And from the Mac on the LAN: `scripts/desktop_training/desktop.sh status` (read-
 
 Versioned, checksummed, one direction at a time.
 
-- **Footage manifest.** Two files generated together on the desktop and committed under `docs/ml-roadmap/manifests/<project>-footage-<date>/`: `manifest.json` (relative path, size, SHA-256, `addedAt`, `sourceId`) for tooling, and `SHA256SUMS` in `shasum` format (`<sha256 lower-case>  <relative path>`, two spaces, forward slashes) so the copy can be verified with the standard tool. PowerShell to produce both:
+- **Footage manifest.** Generated on the desktop **outside the footage tree** (so the outputs never enumerate or hash themselves), then committed under `docs/ml-roadmap/manifests/<project>-footage-<date>/`: `manifest.json` (relative path, size, SHA-256, `addedAt`) for tooling, and `SHA256SUMS` in `shasum` format (`<sha256 lower-case>  <relative path>`, two spaces, forward slashes, **LF line endings** — `Set-Content` would write CRLF and `shasum -c` would then read `\r` as part of each filename). PowerShell:
   ```powershell
   $root = 'D:\RallyLabFootage\Scratch\footage'
+  $out  = "C:\Users\bwier\RallyLab-inventory\Scratch-footage-$(Get-Date -Format yyyyMMdd)"
+  New-Item -ItemType Directory -Force $out | Out-Null
   $rows = Get-ChildItem $root -File -Recurse | ForEach-Object {
     $rel = $_.FullName.Substring($root.Length + 1) -replace '\\','/'
     [pscustomobject]@{ path = $rel; size = $_.Length; sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); addedAt = $_.CreationTimeUtc.ToString('o') }
   }
-  $rows | ConvertTo-Json -Depth 2 | Set-Content "$root\manifest.json"
-  $rows | ForEach-Object { "$($_.sha256)  $($_.path)" } | Set-Content -Encoding ascii "$root\SHA256SUMS"
+  [IO.File]::WriteAllText("$out\manifest.json", ($rows | ConvertTo-Json -Depth 2) + "`n")
+  [IO.File]::WriteAllText("$out\SHA256SUMS", (($rows | ForEach-Object { "$($_.sha256)  $($_.path)" }) -join "`n") + "`n")
   ```
-  Every evaluation names its footage version by the SHA-256 of `manifest.json`.
-- **Pull to the Mac** for evaluations that need video: `scp -r` or rsync over `bens-desktop` (rsync needs an rsync binary on Windows), then verify from inside the destination folder with `shasum -a 256 -c SHA256SUMS` (the `shasum -c` input must be `shasum` output format, which `SHA256SUMS` is; `manifest.json` is not consumable by `shasum`). Copies are transient unless the owner says otherwise.
+  **`sourceId` enrichment (Mac, before committing).** The desktop has no `project.json`, so it cannot name the original recording. On the Mac, each row's `path` is matched to a `ClipSource` in `~/Movies/RallyLab/Projects/<project>/project.json` by its `clipFile` basename, and `sourceId` is set to that source's `fingerprint` (for example `youtube:<id>`, or the size+hash fingerprint for local files; see `ProjectsModel.fingerprint`). Rows that match nothing get `sourceId: null` and are listed in the commit message for the owner to resolve; the manifest is not used for splits until every row has a `sourceId` (D-009). The `SHA256SUMS` sidecar is unaffected by enrichment.
+  Every evaluation names its footage version by the SHA-256 of the committed, enriched `manifest.json`.
+- **Pull to the Mac** for evaluations that need video: `scp -r` or rsync over `bens-desktop` (rsync needs an rsync binary on Windows), then verify with `(cd ~/Movies/RallyLab/Projects/<project>/footage && shasum -a 256 -c <repo>/docs/ml-roadmap/manifests/<project>-footage-<date>/SHA256SUMS)` — `shasum -c` needs `shasum` output format with LF endings, which `SHA256SUMS` is; `manifest.json` is not consumable by `shasum`. Copies are transient unless the owner says otherwise.
 - **Push to the desktop** (training packages, val exports): `desktop.sh train/queue` as today, plus a SHA-256 check on arrival recorded in the experiment record.
 - **Fetch results**: `desktop.sh fetch NAME --no-score`, hash on arrival, register in the [experiment registry](../ml-roadmap/EXPERIMENT_REGISTRY.md).
 - **Never** two editable copies of annotations. The desktop receives label exports with a hash, read-only.

@@ -22,7 +22,7 @@
 
 | Check | Result | Evidence |
 |---|---|---|
-| `scripts/build.sh both` (or `auto`) | | |
+| Build — target chosen from the **whole PR diff** (`both` if any shared-pipeline file or `.mlpackage` appears in `git diff --name-only $(git merge-base origin/main HEAD) HEAD`; else `ios` / `mac`). `auto` counts only when the PR is a single commit or the working tree held the full change. | | |
 | Unit tests (`BumpSetCutTests`) | | |
 | Scoring / replay parity tests (if scoring, replay, builder or decider touched) | | |
 | Headless RallyLab run (if pipeline or data code touched) | | |
