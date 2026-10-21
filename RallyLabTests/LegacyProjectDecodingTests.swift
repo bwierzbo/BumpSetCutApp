@@ -100,6 +100,19 @@ final class LegacyProjectDecodingTests: XCTestCase {
         XCTAssertEqual(again.clips[0].videos[0].venueId, "venue-park-1")
     }
 
+    func testMovedVideoKeepsConfirmedProvenance() throws {
+        let project = try decoder.decode(Project.self, from: Data(scratchProjectWithProvenance.utf8))
+        let original = project.clips[0].videos[0]
+        var fresh = original
+        fresh.clipFile = "/f/moved.mp4"; fresh.videoId = "ind_moved"; fresh.sourceId = nil; fresh.sessionId = nil; fresh.venueId = nil
+        let moved = ClipSource.carryingProvenance(fresh, from: original)
+        XCTAssertEqual(moved.sourceId, "src-zzz")
+        XCTAssertEqual(moved.sessionId, "sess-1")
+        XCTAssertEqual(moved.venueId, "venue-park-1")
+        XCTAssertEqual(moved.clipFile, "/f/moved.mp4", "only provenance is carried")
+        XCTAssertNil(ClipSource.carryingProvenance(fresh, from: nil).venueId, "nothing is invented without a source")
+    }
+
     // MARK: - Sessions
 
     private let minimalSession = """

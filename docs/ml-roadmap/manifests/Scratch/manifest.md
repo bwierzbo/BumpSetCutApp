@@ -1,6 +1,6 @@
 # Dataset split manifest — Scratch
 
-Created 2026-10-21T02:39:05Z by RallyLab 1.0 (2). Schema 1.
+Created 2026-10-21T02:46:22Z by RallyLab 1.0 (2). Schema 1.
 
 Hashes: project.json `8404d1c0d97f10a4` · sessions/ `06ed23f06ccd23ce` · validation.json `a47abc72dc063405`
 
@@ -29,6 +29,8 @@ Hashes: project.json `8404d1c0d97f10a4` · sessions/ `06ed23f06ccd23ce` · valid
 | pipeline_tuning_tune | 9 | pipeline_tuning/validation.json |
 | pipeline_tuning_holdout | 4 | pipeline_tuning/validation.json |
 | rally_scoring | 0 |  |
+| detector_evaluation | 0 |  |
+| pre_tracking | 0 |  |
 
 Videos with no recorded exposure: 73 (bch_extra_self_01, bch_extra_self_02, bch_extra_self_03, bch_extra_self_04, bch_extra_self_05, bch_extra_self_06, bch_extra_self_07, bch_extra_self_08, bch_extra_self_09, bch_extra_self_10, bch_extra_self_11, bch_extra_self_12, bch_extra_self_13, bch_extra_self_14, bch_extra_self_15, bch_extra_self_16, bch_extra_self_17, bch_extra_self_18, bch_extra_self_19, bch_extra_self_20, bch_extra_self_21, bch_extra_self_22, bch_extra_self_23, bch_extra_self_24, bch_extra_self_25, bch_extra_self_26, bch_extra_self_27, bch_extra_self_28, bch_extra_self_29, bch_extra_self_30, bch_extra_self_31, bch_sid_sun_port_self_01, grs_extra_self_01, grs_extra_self_02, grs_extra_self_03, grs_extra_self_04, grs_extra_self_05, grs_extra_self_06, grs_extra_self_07, grs_extra_self_08, grs_extra_self_09, grs_extra_self_10, grs_extra_self_11, grs_extra_self_12, grs_extra_self_13, grs_extra_self_14, grs_extra_self_15, grs_extra_self_16, grs_extra_self_17, grs_extra_self_18, grs_extra_self_19, grs_extra_self_20, grs_extra_self_21, grs_extra_tester_03_v2, grs_extra_tester_03_v8, grs_gnd_shade_land_self_02, grs_hnd_sun_land_self_01_v2, grs_tri_sun_land_self_01_v2, ind_extra_self_01, ind_extra_self_02, ind_extra_self_03, ind_extra_self_04, ind_extra_self_05, ind_extra_self_06, ind_extra_self_07, ind_extra_self_08, ind_extra_self_09, ind_gnd_bright_land_self_01_v3, ind_gnd_dim_land_self_02, ind_hnd_bright_port_self_01, ind_hnd_dim_land_self_02_v2, ind_tri_bright_land_self_01, ind_tri_bright_land_self_01_v2)
 

@@ -69,6 +69,10 @@ struct ExposureRecord: Codable, Equatable, Hashable {
         /// The rally pipeline was run on the video and scored against its marks
         /// (--score-rallies, --diagnose-rallies, --render-pipeline, --serve-report, the RallyLab Pipeline/Compare tabs).
         case rallyScoring = "rally_scoring"
+        /// A detector was evaluated on the video's reviewed frames (ModelLibrary evaluate, --pretrack-check).
+        case detectorEvaluation = "detector_evaluation"
+        /// A model wrote machine tracks into the video (--pretrack).
+        case preTracking = "pre_tracking"
     }
 
     var kind: Kind
@@ -165,6 +169,11 @@ struct DatasetSplitManifest: Codable {
         let holdout = Set(inputs.validation?.holdout ?? [])
         let finalTest = Set(inputs.validation?.finalTest ?? [])
         let previous = Dictionary(uniqueKeysWithValues: (inputs.previous?.videos ?? []).map { ($0.video, $0.exposure) })
+        // A moved or renamed video keeps its history: the previous manifest is also joined by file fingerprint.
+        var previousByPrint: [String: Set<ExposureRecord>] = [:]
+        for v in inputs.previous?.videos ?? [] {
+            if let print = v.fingerprint { previousByPrint[print, default: []].formUnion(v.exposure) }
+        }
 
         var exposed: [String] = []
         let videos = inputs.sessions.sorted { $0.name < $1.name }.map { session -> ManifestVideo in
@@ -178,6 +187,7 @@ struct DatasetSplitManifest: Codable {
 
             var exposure = Set(previous[session.name] ?? [])
             exposure.formUnion(inputs.discovered[session.name] ?? [])
+            if let source = card?.source, let print = inputs.fingerprint(source) { exposure.formUnion(previousByPrint[print] ?? []) }
             if tune.contains(session.name) {
                 exposure.insert(ExposureRecord(kind: .pipelineTune, ref: "pipeline_tuning/validation.json", date: nil, note: nil))
             }
@@ -459,6 +469,19 @@ enum ExposureLog {
         return rows
     }
 
+    /// A video renamed (moved to another card) keeps its history: every row
+    /// under the old name is duplicated under the new one. Old rows stay, so
+    /// an older manifest still joins. Fails the same way `record` does.
+    static func rename(_ old: String, to new: String, in projectDir: URL, now: Date = Date()) {
+        guard old != new, let rows = try? readStrict(in: projectDir) else { return }
+        let grouped = Dictionary(grouping: rows.filter { $0.video == old }, by: \.kind)
+        for (kind, group) in grouped {
+            for row in group {
+                record(videos: [new], kind: kind, ref: row.ref, note: (row.note.map { $0 + "; " } ?? "") + "carried from \(old)", in: projectDir, now: now)
+            }
+        }
+    }
+
     /// Append one use for each video (duplicates of an identical row are dropped).
     /// Failures are reported on stderr, never thrown: the export or score run
     /// must not fail because the bookkeeping did. An unreadable existing log is
@@ -483,7 +506,7 @@ enum ExposureLog {
             }
         } catch {
             // Keep the damaged file untouched; park this use beside it (discovery reads sidecars too).
-            target = projectDir.appendingPathComponent("manifests/exposure-log.unmerged-\(Int(now.timeIntervalSince1970)).json")
+            target = projectDir.appendingPathComponent("manifests/exposure-log.unmerged-\(Int(now.timeIntervalSince1970))-\(UUID().uuidString.prefix(8)).json")
             all = []
             mergedSidecars = []
             FileHandle.standardError.write(Data("❌ \(error.localizedDescription) This use is written to \(target.lastPathComponent) instead.\n".utf8))

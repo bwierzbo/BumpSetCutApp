@@ -79,6 +79,19 @@ extension PlannedClip: Codable {
     }
 }
 
+extension ClipSource {
+    /// A re-recorded video (moved to another card) keeps what the owner
+    /// confirmed about it: the three provenance IDs are copied from the
+    /// source it was rebuilt from; nothing else changes.
+    static func carryingProvenance(_ fresh: ClipSource, from provenance: ClipSource?) -> ClipSource {
+        var out = fresh
+        out.sourceId = provenance?.sourceId ?? out.sourceId
+        out.sessionId = provenance?.sessionId ?? out.sessionId
+        out.venueId = provenance?.venueId ?? out.venueId
+        return out
+    }
+}
+
 struct ClipSource: Codable, Equatable, Hashable {
     enum Kind: String, Codable { case link, file }
     var kind: Kind
@@ -805,16 +818,20 @@ final class ProjectsModel {
               let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }),
               project?.clips.contains(where: { $0.id == targetId }) == true else { return }
         moving.insert(videoId)
+        var newId: String?   // set below; the completion runs later on the main actor
         let started = addVideo(to: targetId, source: video.clipFile, start: 0, length: video.length + 1,
                                license: video.license, frames: video.frames, allowDuplicate: true,
                                provenance: video) { [weak self] worked in
             guard let self else { return }
             self.moving.remove(videoId)
             if worked {
+                // The video's exposure history follows it to its new session name (D-002).
+                if let newId, let dir = self.projectDir { ExposureLog.rename(videoId, to: DatasetStore.safeName(newId), in: dir) }
                 self.removeVideo(videoId, from: clipId)
                 self.status = "Moved \(videoId) to \(targetId)."
             }
         }
+        newId = started
         if started == nil { moving.remove(videoId) }
     }
 
@@ -926,14 +943,15 @@ final class ProjectsModel {
                              origin: String, license: String, frames: Int?, fingerprint: String?,
                              provenance: ClipSource?) {
         guard let i = project?.clips.firstIndex(where: { $0.id == clipId }) else { return }
-        project?.clips[i].videos.append(ClipSource(
+        let fresh = ClipSource(
             kind: provenance?.kind ?? kind,
             origin: provenance?.origin ?? (kind == .link ? result.url : origin),
             start: provenance?.start ?? result.start, length: result.duration, license: license,
             title: provenance?.title ?? result.title, uploader: provenance?.uploader ?? result.uploader,
             clipFile: result.file, fetchedAt: provenance?.fetchedAt ?? Date(),
             videoId: videoId == clipId ? nil : videoId, frames: frames, fingerprint: fingerprint
-        ))
+        )
+        project?.clips[i].videos.append(ClipSource.carryingProvenance(fresh, from: provenance))
         save()
     }
 

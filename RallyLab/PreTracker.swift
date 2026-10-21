@@ -65,6 +65,9 @@ enum PreTracker {
             ($0.split == "val") == val && FileManager.default.fileExists(atPath: $0.sourcePath) && (only.isEmpty || only.contains($0.name))
                 && !reserved.contains($0.name)
         }
+        // Machine tracks written by a model are exposure (D-002); logged as the run starts.
+        ExposureLog.record(videos: Set(sessions.map(\.name)), kind: .preTracking,
+                           ref: heat.deletingPathExtension().lastPathComponent, note: val ? "--pretrack --val" : "--pretrack", in: sampler.datasetRoot)
         for (n, session) in sessions.enumerated() {
             let video = AVURLAsset(url: URL(fileURLWithPath: session.sourcePath))
             guard let track = try? await video.loadTracks(withMediaType: .video).first,
@@ -172,8 +175,10 @@ enum PreTracker {
             return []
         }
         let yolo = sampler.prelabelModel
-        for session in sampler.sessions where session.split == "val" && FileManager.default.fileExists(atPath: session.sourcePath)
-            && !reserved.contains(session.name) {
+        let checked = sampler.sessions.filter { $0.split == "val" && FileManager.default.fileExists(atPath: $0.sourcePath) && !reserved.contains($0.name) }
+        ExposureLog.record(videos: Set(checked.map(\.name)), kind: .detectorEvaluation,
+                           ref: "--pretrack-check " + heat.deletingPathExtension().lastPathComponent, note: nil, in: sampler.datasetRoot)
+        for session in checked {
             let people = (session.tracks ?? []).filter { $0.done && !$0.isMachine }
             guard !people.isEmpty else { continue }
             let video = AVURLAsset(url: URL(fileURLWithPath: session.sourcePath))

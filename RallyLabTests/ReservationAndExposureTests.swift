@@ -130,6 +130,46 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertNil(try DatasetSplitManifest.readStrict(from: root.appendingPathComponent("absent.json")), "absence is not an error")
     }
 
+    func testParkedSidecarsNeverCollideWithinOneSecond() throws {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("manifests"), withIntermediateDirectories: true)
+        try "{broken".write(to: ExposureLog.url(in: root), atomically: true, encoding: .utf8)
+        let now = Date()
+        ExposureLog.record(videos: ["a"], kind: .pipelineTune, ref: "report-1.md", note: nil, in: root, now: now)
+        ExposureLog.record(videos: ["b"], kind: .pipelineHoldout, ref: "report-1.md", note: nil, in: root, now: now)
+        XCTAssertEqual(ExposureLog.sidecarURLs(in: root).count, 2, "same-second records get their own sidecars")
+        try "[]".write(to: ExposureLog.url(in: root), atomically: true, encoding: .utf8)
+        XCTAssertEqual(Set(try ExposureLog.readStrict(in: root).map(\.video)), ["a", "b"])
+    }
+
+    func testRenameCarriesLogHistoryToTheNewName() throws {
+        ExposureLog.record(videos: ["old_name"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
+        ExposureLog.record(videos: ["old_name"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
+        ExposureLog.rename("old_name", to: "new_name", in: root)
+        let rows = try ExposureLog.readStrict(in: root)
+        XCTAssertEqual(Set(rows.filter { $0.video == "new_name" }.map(\.kind)), [.trainingPackage, .testSetScoring])
+        XCTAssertEqual(rows.filter { $0.video == "old_name" }.count, 2, "old rows stay for older manifests")
+        XCTAssertTrue(rows.first { $0.video == "new_name" }!.note!.contains("carried from old_name"))
+    }
+
+    func testPreviousManifestExposureFollowsTheFingerprintAcrossARename() throws {
+        // bch_a_v3 was scored under that name; it is then moved and becomes ind_moved with the same fingerprint.
+        let before = try DatasetSplitManifest.build(DatasetSplitManifestTests.inputs(discovered: [
+            "bch_a_v3": [ExposureRecord(kind: .testSetScoring, ref: "S1", date: nil, note: nil)],
+        ]))
+        let F = DatasetSplitManifestTests.self
+        var inputs = F.inputs(previous: before)
+        inputs.project?.clips[0].videos.removeAll { $0.videoId == "bch_a_v3" }
+        inputs.project?.clips.append(F.clip("ind_moved", environment: "Indoor", split: "val",
+                                            videos: [F.source("ind_moved", fingerprint: "youtube:A3")]))
+        inputs.sessions = inputs.sessions.filter { $0.name != "bch_a_v3" } + [F.session("ind_moved", split: "val")]
+        let after = try DatasetSplitManifest.build(inputs)
+        let moved = after.videos.first { $0.video == "ind_moved" }!
+        XCTAssertEqual(moved.exposure.map(\.kind), [.testSetScoring], "history followed the fingerprint")
+        // And it can therefore not be reserved.
+        inputs.validation = PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["ind_moved"])
+        XCTAssertThrowsError(try DatasetSplitManifest.build(inputs))
+    }
+
     func testLoggedExposureBlocksFinalTestReservation() throws {
         ExposureLog.record(videos: ["bch_a_v3"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
         var inputs = DatasetSplitManifestTests.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["bch_a_v3"]))
