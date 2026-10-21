@@ -26,7 +26,7 @@ Rally start/end accuracy must be evaluated against **raw** segment boundaries. E
 
 ### 3. Dataset independence and provenance
 
-Never split related frames or clips across train, development validation, tuning, and final test if they share the same source recording, known session, or confirmed venue grouping. Clip-card IDs, uploader names, and surface labels do not by themselves prove distinct venues. Flag overlaps and uncertainty; preserve existing metadata and use optional, backward-compatible fields for `sourceId`, `sessionId`, and `venueId`. Previously reused holdouts are `legacy_holdout`, not genuinely unseen final tests. Any published comparison needs the dataset/split identities and exposure history.
+Never split related frames or clips across train, development validation, tuning, and final test if they share the same source recording, known session, or confirmed venue grouping. For any change to reservations, exclusions, or exposure records, verify every consumer path (CLI commands, GUI tabs, and the shared functions they call) and every failure mode (missing, unreadable, unwritable, renamed or moved) before approving. Clip-card IDs, uploader names, and surface labels do not by themselves prove distinct venues. Flag overlaps and uncertainty; preserve existing metadata and use optional, backward-compatible fields for `sourceId`, `sessionId`, and `venueId`. Previously reused holdouts are `legacy_holdout`, not genuinely unseen final tests. Any published comparison needs the dataset/split identities and exposure history.
 
 ### 4. Ball visibility is independent of rally activity
 

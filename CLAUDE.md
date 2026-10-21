@@ -136,6 +136,9 @@ After ANY DDL applied to the live project (`apply_migration`/`execute_sql`):
 - RallyLab and the iOS app are ONE shared pipeline — a tuning/config change in one must be applied to the other.
 - Lifetime stats (e.g. "time cut") are cumulative and must survive rally/file deletion — never derive them from file existence.
 - Displayed detection confidence = the raw model confidence (YOLO score or heatmap peak), never a derived/binary value. Calibrated or gating scores need distinct names. Debug overlays must reflect actual algorithm state and be toggleable.
+- **Reserved or excluded data (D-002).** An exclusion is only real if every consumer honours it. Before a PR that adds or changes one, grep for every place that runs a model or the pipeline on a session (`sampler.sessions`, `RallyCutScore.process`, `PipelineCompare.run`, `VideoProcessor`, `HeatmapLab`, `PreTracker`, `ModelLibrary.evaluate`, the RallyLab Pipeline/Compare/Models tabs) and list them in the PR with how each one refuses.
+- **Ledgers fail closed.** A record of use (exposure log, split manifest) is written at the moment of use, by the shared function, not by the CLI or GUI wrapper. A missing ledger means empty; an unreadable or unwritable one aborts the operation. Nothing that renames or moves an identity may drop a row. Never write `0` or empty for a value that could not be read.
+- **Guards live in the shared function.** When a CLI command and a GUI tab call the same operation, the refusal and the logging go in the operation itself, so a new caller cannot bypass them.
 - The user verifies features on a **physical iPhone**, not the simulator — don't build simulator UI-automation flows for manual verification; add temporary tagged debug logging instead and strip it before commit (see the **device-logs** skill for triaging pasted console output).
 
 ## Sub-Agent Usage
