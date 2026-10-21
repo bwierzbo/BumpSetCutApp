@@ -32,6 +32,10 @@ Frames are taken at 10 %, 30 %, 50 %, 70 % and 90 % of each proxy, at proxy reso
 
 The page is a single file with no network access; it works from `file://` in Safari and Chrome.
 
+### On the phone: the private artifact
+
+The script also writes `artifact.html`, the same page for publishing as a **private claude.ai artifact** with the frames as supporting files, so the owner can review from a phone without the Mac. Published 2026-10-21 (private, owner only): the link is in the owner's claude.ai artifacts gallery ("Scratch Provenance Review"). On that copy the answers save as you type into the artifact's own database (one document per recording at `answers/<video>`, one per group at `groups/<groupId>`, same field names as the answer file plus `updatedAt`), and Claude Code reads them back with the ArtifactData tool and converts them to the `provenance-answers/1` form below. "Copy answers as JSON" puts the same export on the clipboard as a backup. Republish after regenerating: `Artifact` tool, same URL, `artifact.html` plus `frames/**`.
+
 ## Answer file
 
 ```json

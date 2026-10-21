@@ -12,7 +12,9 @@ Reads (never writes): <project>/project.json, <project>/manifests/manifest.json,
 
 Writes only under <out> (default <project>/manifests/provenance-review/):
   frames/<video>/f<i>.jpg   representative frames (proxy resolution)
-  index.html                the review page
+  index.html                the review page (open locally)
+  artifact.html             the same page for publishing as a private claude.ai artifact
+                            (answers go to the artifact's store: answers/<video>, groups/<group>)
   mapping.json, mapping.md  thumbnail → recording, with timestamps and metadata
   groups.json               the groups as built (for reproducibility)
 The owner's answers are never written here by this script: the page keeps a
@@ -162,6 +164,7 @@ def build(project, out, n_frames, groups):
     json.dump(mapping, open(out / "mapping.json", "w"), indent=1)
     write_mapping_md(out, built, project)
     write_html(out, built, n_frames, project)
+    write_html(out, built, n_frames, project, artifact=True)
     return built
 
 
@@ -180,39 +183,104 @@ def write_mapping_md(out, built, project):
     (out / "mapping.md").write_text("\n".join(lines) + "\n")
 
 
-def write_html(out, built, n_frames, project):
-    esc = html.escape
-    parts = []
-    parts.append(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Provenance review</title>
-<style>
-:root{{--bg:#fff;--fg:#111;--mut:#666;--line:#ddd;--cand:#fff3d6;--acc:#0a66c2}}
-@media(prefers-color-scheme:dark){{:root{{--bg:#151515;--fg:#eee;--mut:#aaa;--line:#333;--cand:#3a2d10;--acc:#6fb1ff}}}}
-body{{margin:0;padding:16px;font:14px/1.45 -apple-system,system-ui,sans-serif;background:var(--bg);color:var(--fg)}}
-h1{{font-size:20px;margin:0 0 4px}} h2{{font-size:16px;margin:28px 0 6px;padding-top:12px;border-top:1px solid var(--line)}}
-.hint{{color:var(--mut)}} .q{{margin:6px 0 10px;padding:8px 10px;border-left:3px solid var(--acc);background:rgba(10,102,194,.06)}}
-.rec{{display:grid;grid-template-columns:260px 1fr;gap:12px;align-items:start;padding:10px;border:1px solid var(--line);border-radius:8px;margin:8px 0}}
-.rec.candidate{{background:var(--cand)}}
-.meta{{font-size:12.5px}} .meta b{{font-size:14px}} .meta div{{margin:1px 0}} .meta a{{color:var(--acc)}}
-.frames{{display:flex;flex-wrap:wrap;gap:6px}} .frames img{{height:170px;width:auto;border-radius:4px;cursor:zoom-in;border:1px solid var(--line)}} .frames.portrait img{{height:300px}}
-.form{{grid-column:1/3;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:6px}}
-label{{display:block;font-size:12px;color:var(--mut)}} input[type=text],textarea,select{{width:100%;box-sizing:border-box;padding:6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg);font:inherit}}
-.group-answer{{margin:8px 0 0;padding:10px;border:1px dashed var(--line);border-radius:8px}}
-.bar{{position:sticky;top:0;background:var(--bg);padding:8px 0;border-bottom:1px solid var(--line);z-index:2;display:flex;gap:8px;flex-wrap:wrap;align-items:center}}
-button{{padding:7px 12px;border:1px solid var(--acc);background:var(--acc);color:#fff;border-radius:6px;font:inherit;cursor:pointer}} button.sec{{background:transparent;color:var(--acc)}}
-#lb{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9;align-items:center;justify-content:center;flex-direction:column;gap:8px}} #lb img{{max-width:96vw;max-height:88vh}} #lb div{{color:#ddd;font-size:13px}}
-.role{{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;background:var(--line)}}
-</style></head><body>
+CSS = """
+/* layout: one column of review groups; candidate first, neighbours below; sticky status bar */
+:root{--bg:#fbfaf7;--fg:#1c1a16;--mut:#6b655b;--line:#dcd7cc;--cand:#fff1d2;--acc:#1f5fa8;--acc-soft:rgba(31,95,168,.08);--ok:#2f7d4f;--font:"IBM Plex Sans",-apple-system,system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171613;--fg:#ece8df;--mut:#a39c8f;--line:#38352e;--cand:#3a2d10;--acc:#7fb3f0;--acc-soft:rgba(127,179,240,.12);--ok:#7fcf9a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#171613;--fg:#ece8df;--mut:#a39c8f;--line:#38352e;--cand:#3a2d10;--acc:#7fb3f0;--acc-soft:rgba(127,179,240,.12);--ok:#7fcf9a;color-scheme:dark}
+body{margin:0;padding-block:0 32px;padding-inline:16px;font:14px/1.45 var(--font);background:var(--bg);color:var(--fg)}
+h1{font-size:20px;margin:12px 0 4px;text-wrap:balance} h2{font-size:16px;margin:28px 0 6px;padding-top:12px;border-top:1px solid var(--line);text-wrap:balance}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+.hint{color:var(--mut)} .q{margin:6px 0 10px;padding:8px 10px;border-left:3px solid var(--acc);background:var(--acc-soft)}
+.rec{display:grid;grid-template-columns:260px minmax(0,1fr);gap:12px;align-items:start;padding:10px;border:1px solid var(--line);border-radius:8px;margin:8px 0}
+.rec.candidate{background:var(--cand)}
+.meta{font-size:12.5px;min-width:0;overflow-wrap:anywhere} .meta b{font-size:14px} .meta div{margin:1px 0} .meta a{color:var(--acc)}
+.frames{display:flex;flex-wrap:wrap;gap:6px;min-width:0} .frames img{height:170px;width:auto;max-width:100%;border-radius:4px;cursor:zoom-in;border:1px solid var(--line)} .frames.portrait img{height:300px}
+.form{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:6px}
+label{display:block;font-size:12px;color:var(--mut)} input[type=text],textarea,select{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg);font:inherit;font-size:16px}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.group-answer{margin:8px 0 0;padding:10px;border:1px dashed var(--line);border-radius:8px}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);padding:8px 0;border-bottom:1px solid var(--line);z-index:2;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{padding:7px 12px;border:1px solid var(--acc);background:var(--acc);color:#fff;border-radius:6px;font:inherit;cursor:pointer} button.sec{background:transparent;color:var(--acc)}
+#lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9;align-items:center;justify-content:center;flex-direction:column;gap:8px} #lb img{max-width:96vw;max-height:88vh} #lb div{color:#ddd;font-size:13px}
+.role{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;background:var(--line)}
+.saved{color:var(--ok)}
+@media(max-width:640px){.rec{grid-template-columns:1fr}.frames img{height:150px}.frames.portrait img{height:260px}}
+@media(prefers-reduced-motion:no-preference){.frames img{transition:transform .15s}.frames img:hover{transform:scale(1.02)}}
+"""
+
+INTRO = """<p class="hint">Frames are from RallyLab's 960-px review proxies of each recording; tap a frame to enlarge. Nothing on this page is pre-filled or inferred: every field starts empty and <em>unknown</em> is always acceptable. Only answers with status <em>confirmed</em> will ever be written to the project, with <code>--set-provenance</code> in a reviewed PR; <em>unsure</em> and <em>unknown</em> are recorded as such and never confirm anything.</p>"""
+
+LOCAL_HEAD = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scratch Provenance Review</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono&display=swap">
+<style>{css}</style></head><body>
 <div class="bar"><strong>Provenance review — Task B.1</strong>
 <button class="sec" onclick="save()">Save draft (browser)</button>
 <button onclick="exportAnswers()">Download answers JSON</button>
 <button class="sec" onclick="document.getElementById('f').click()">Load answers JSON</button><input id="f" type="file" accept="application/json" style="display:none" onchange="loadAnswers(this)">
 <span id="status" class="hint"></span></div>
 <h1>Visual provenance review</h1>
-<p class="hint">Frames are from RallyLab's 960-px review proxies of each recording; click a frame to enlarge. Nothing on this page is pre-filled or inferred: every field starts empty and <em>unknown</em> is always acceptable. Your answers stay in this browser until you download them; the downloaded file is what the implementer applies with <code>--set-provenance</code>, after you confirm it.</p>
-<p class="hint">Project: <code>{esc(str(project))}</code>. Candidates are shaded. Split and exposure are from the current manifest.</p>
-<div id="lb" onclick="this.style.display='none'"><img id="lbi" src=""><div id="lbc"></div></div>
-""")
+{intro}
+<p class="hint">Your answers stay in this browser until you download them. Project: <code>{project}</code>. Candidates are shaded. Split and exposure are from the current manifest.</p>
+"""
+
+ARTIFACT_HEAD = """<title>Scratch Provenance Review</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono&display=swap">
+<style>{css}</style>
+<div class="bar"><strong>Provenance review — Task B.1</strong>
+<button class="sec" onclick="copyAnswers()">Copy answers as JSON</button>
+<span id="status" class="hint">loading saved answers…</span></div>
+<h1>Visual provenance review</h1>
+{intro}
+<p class="hint">Answers save to this page's private store as you type (the status line confirms each save) and are read back by Claude Code; nothing else sees them. Project on the Mac: <code>{project}</code>. Candidates are shaded. Split and exposure are from the current manifest.</p>
+"""
+
+LOCAL_SCRIPT = """
+<h2>Export</h2><p class="hint">Download answers JSON writes <code>provenance-answers.json</code> with every field as you left it (empty = not answered). Keep it outside the frames folder, e.g. <code>answers/</code> next to this page, and hand it over.</p>
+<script>
+const KEY='bumpsetcut.provenance.answers.v1';
+function fields(){return [...document.querySelectorAll('[data-k]')]}
+function collect(){const a={};for(const f of fields()){a[f.dataset.k]=f.value}return a}
+function apply(a){for(const f of fields()){if(a[f.dataset.k]!==undefined)f.value=a[f.dataset.k]}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(collect()));st('draft saved in this browser')}catch(e){st('could not save draft: '+e)}}
+function exportAnswers(){const a=collect();const out={schema:'provenance-answers/1',exportedAt:new Date().toISOString(),answers:a};const b=new Blob([JSON.stringify(out,null,1)],{type:'application/json'});const u=URL.createObjectURL(b);const l=document.createElement('a');l.href=u;l.download='provenance-answers.json';l.click();URL.revokeObjectURL(u);save();st('downloaded provenance-answers.json')}
+function loadAnswers(inp){const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);apply(j.answers||j);st('answers loaded')}catch(e){st('not a valid answers file')}};r.readAsText(inp.files[0])}
+function zoom(img,cap){document.getElementById('lbi').src=img.src;document.getElementById('lbc').textContent=cap;document.getElementById('lb').style.display='flex'}
+function st(m){document.getElementById('status').textContent=m}
+try{const d=localStorage.getItem(KEY);if(d){apply(JSON.parse(d));st('draft restored from this browser')}}catch(e){}
+for(const f of fields()){f.addEventListener('change',save)}
+</script></body></html>"""
+
+# Artifact store layout: one document per recording at answers/<video> and one per group at groups/<groupId>,
+# each holding its fields plus updatedAt. Claude reads them with the ArtifactData tool.
+ARTIFACT_SCRIPT = """
+<script>
+function fields(){return [...document.querySelectorAll('[data-k]')]}
+function collect(){const a={};for(const f of fields()){a[f.dataset.k]=f.value}return a}
+function apply(a){for(const f of fields()){if(a[f.dataset.k]!==undefined)f.value=a[f.dataset.k]}}
+function zoom(img,cap){document.getElementById('lbi').src=img.src;document.getElementById('lbc').textContent=cap;document.getElementById('lb').style.display='flex'}
+function st(m,ok){const s=document.getElementById('status');s.textContent=m;s.className=ok?'saved':'hint'}
+function copyAnswers(){const out={schema:'provenance-answers/1',exportedAt:new Date().toISOString(),answers:collect()};const t=JSON.stringify(out,null,1);navigator.clipboard.writeText(t).then(()=>st('answers copied to the clipboard',true)).catch(()=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();st('select and copy the text below');});}
+function docKey(k){if(k.startsWith('group.')){const [,gid,field]=k.split('.',3);return ['groups/'+gid,field]}const i=k.lastIndexOf('.');return ['answers/'+k.slice(0,i),k.slice(i+1)]}
+function docFields(path){const o={};for(const f of fields()){const [p,field]=docKey(f.dataset.k);if(p===path)o[field]=f.value}return o}
+let db=null;const queue={};const timers={};
+function flush(path){const data={...docFields(path),updatedAt:new Date().toISOString()};queue[path]=(queue[path]||Promise.resolve()).then(()=>db.doc(path).set(data)).then(()=>st('saved '+path.split('/')[1]+' · '+new Date().toLocaleTimeString(),true)).catch(e=>st('not saved ('+(e.code||e)+'); keep the page open and retry, or copy answers as JSON'))}
+function scheduleSave(path){clearTimeout(timers[path]);timers[path]=setTimeout(()=>flush(path),700)}
+function setReadOnly(msg){for(const f of fields()){f.disabled=true}st(msg)}
+(async()=>{db=await window.claude?.use?.('db');if(!db){setReadOnly('this view cannot save answers; open the page from your claude.ai account');return}
+ const user=await window.claude.use('user');const w=user?await user.can('data.write'):null;if(w===false){setReadOnly('read-only view: only the owner can answer');return}
+ try{const a={};for(const col of ['answers','groups']){const snap=await db.collection(col).get();for(const d of snap.docs){const body=d.data()||{};for(const [k,v] of Object.entries(body)){if(k==='updatedAt')continue;a[col==='groups'?'group.'+d.id+'.'+k:d.id+'.'+k]=v}}}
+  apply(a);const n=Object.values(a).filter(Boolean).length;st(n?('loaded '+n+' saved values'):'no answers saved yet',n>0)}catch(e){st('could not load saved answers ('+(e.code||e)+')')}
+ for(const f of fields()){f.addEventListener('input',()=>scheduleSave(docKey(f.dataset.k)[0]));f.addEventListener('change',()=>scheduleSave(docKey(f.dataset.k)[0]))}
+})();
+</script>"""
+
+
+def write_html(out, built, n_frames, project, artifact=False):
+    esc = html.escape
+    head = (ARTIFACT_HEAD if artifact else LOCAL_HEAD).format(css=CSS, intro=INTRO, project=esc(str(project)))
+    parts = [head, '<div id="lb" onclick="this.style.display=\'none\'"><img id="lbi" src="" alt=""><div id="lbc"></div></div>']
     for g in built:
         title = g.get("title") or f"{g['question']} — candidate {g['candidate']}"
         ask = g.get("ask") or QUESTION_TEXT.get(g["question"], "")
@@ -226,7 +294,7 @@ button{{padding:7px 12px;border:1px solid var(--acc);background:var(--acc);color
             probe = r["probe"] or {}
             parts.append(f'<div class="rec {"candidate" if r["role"] == "candidate" else ""}" data-video="{esc(r["video"])}">')
             parts.append('<div class="meta">')
-            parts.append(f'<b>{esc(r["video"])}</b> <span class="role">{esc(r["role"])}</span>')
+            parts.append(f'<b class="mono">{esc(r["video"])}</b> <span class="role">{esc(r["role"])}</span>')
             parts.append(f'<div>split: <b>{esc(r["split"] or "?")}</b> · card: {esc(m.get("card") or "—")} ({esc(m.get("surface") or "?")}, {esc(m.get("camera_card") or "?")}, {esc(m.get("lighting") or "?")})</div>')
             parts.append(f'<div>source file: {esc(os.path.basename(m.get("clipFile") or "") or "—")}</div>')
             parts.append(f'<div>origin: {origin_html}</div>')
@@ -248,34 +316,20 @@ button{{padding:7px 12px;border:1px solid var(--acc);background:var(--acc);color
             parts.append('</div>')
             v = esc(r["video"])
             parts.append(f'''<div class="form">
-<div><label>venueId (your stable name, e.g. beach-huntington-pier)</label><input type="text" data-k="{v}.venueId"></div>
-<div><label>sessionId (outing: date + tag, e.g. 2026-07-14-pm)</label><input type="text" data-k="{v}.sessionId"></div>
-<div><label>camera / mount</label><input type="text" data-k="{v}.camera"></div>
-<div><label>status</label><select data-k="{v}.status"><option value="">—</option><option value="confirmed">confirmed (I know this)</option><option value="unsure">unsure</option><option value="unknown">unknown</option></select></div>
-<div style="grid-column:1/-1"><label>notes</label><input type="text" data-k="{v}.notes"></div>
+<div><label for="{v}-venue">venueId (your stable name, e.g. beach-huntington-pier)</label><input id="{v}-venue" type="text" autocapitalize="none" autocorrect="off" data-k="{v}.venueId"></div>
+<div><label for="{v}-session">sessionId (outing: date + tag, e.g. 2026-07-14-pm)</label><input id="{v}-session" type="text" autocapitalize="none" autocorrect="off" data-k="{v}.sessionId"></div>
+<div><label for="{v}-camera">camera / mount</label><input id="{v}-camera" type="text" data-k="{v}.camera"></div>
+<div><label for="{v}-status">status</label><select id="{v}-status" data-k="{v}.status"><option value="">—</option><option value="confirmed">confirmed (I know this)</option><option value="unsure">unsure</option><option value="unknown">unknown</option></select></div>
+<div style="grid-column:1/-1"><label for="{v}-notes">notes</label><input id="{v}-notes" type="text" data-k="{v}.notes"></div>
 </div></div>''')
         gid = esc(g["id"])
-        parts.append(f'''<div class="group-answer"><label><b>Same outing?</b> Do the recordings in this group come from the same venue and session?</label>
-<select data-k="group.{gid}.sameOuting"><option value="">—</option><option value="same">yes — same venue and session</option><option value="same-venue">same venue, different session</option><option value="different">different venues</option><option value="unknown">unknown</option></select>
-<label style="margin-top:6px">If the candidate is not independent, what would you prefer?</label>
-<select data-k="group.{gid}.preference"><option value="">—</option><option value="drop-candidate">drop the candidate (stays protected, never final test)</option><option value="move-training">move the training recordings out of train (needs their own exposure review)</option><option value="n/a">not applicable</option></select>
-<label style="margin-top:6px">group notes</label><textarea rows="2" data-k="group.{gid}.notes"></textarea></div>''')
-    parts.append("""
-<h2>Export</h2><p class="hint">Download answers JSON writes <code>provenance-answers.json</code> with every field as you left it (empty = not answered). Keep it outside the frames folder, e.g. <code>answers/</code> next to this page, and hand it over for application via <code>--set-provenance</code>. Values with status <em>confirmed</em> are the only ones that will be written; <em>unsure</em>/<em>unknown</em> are recorded as such and never confirm anything.</p>
-<script>
-const KEY='bumpsetcut.provenance.answers.v1';
-function fields(){return [...document.querySelectorAll('[data-k]')]}
-function collect(){const a={};for(const f of fields()){a[f.dataset.k]=f.value}return a}
-function apply(a){for(const f of fields()){if(a[f.dataset.k]!==undefined)f.value=a[f.dataset.k]}}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(collect()));st('draft saved in this browser')}catch(e){st('could not save draft: '+e)}}
-function exportAnswers(){const a=collect();const out={schema:'provenance-answers/1',exportedAt:new Date().toISOString(),answers:a};const b=new Blob([JSON.stringify(out,null,1)],{type:'application/json'});const u=URL.createObjectURL(b);const l=document.createElement('a');l.href=u;l.download='provenance-answers.json';l.click();URL.revokeObjectURL(u);save();st('downloaded provenance-answers.json')}
-function loadAnswers(inp){const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);apply(j.answers||j);st('answers loaded')}catch(e){st('not a valid answers file')}};r.readAsText(inp.files[0])}
-function zoom(img,cap){document.getElementById('lbi').src=img.src;document.getElementById('lbc').textContent=cap;document.getElementById('lb').style.display='flex'}
-function st(m){document.getElementById('status').textContent=m}
-try{const d=localStorage.getItem(KEY);if(d){apply(JSON.parse(d));st('draft restored from this browser')}}catch(e){}
-for(const f of fields()){f.addEventListener('change',save)}
-</script></body></html>""")
-    (out / "index.html").write_text("\n".join(parts))
+        parts.append(f'''<div class="group-answer"><label for="{gid}-same"><b>Same outing?</b> Do the recordings in this group come from the same venue and session?</label>
+<select id="{gid}-same" data-k="group.{gid}.sameOuting"><option value="">—</option><option value="same">yes — same venue and session</option><option value="same-venue">same venue, different session</option><option value="different">different venues</option><option value="unknown">unknown</option></select>
+<label for="{gid}-pref" style="margin-top:6px">If the candidate is not independent, what would you prefer?</label>
+<select id="{gid}-pref" data-k="group.{gid}.preference"><option value="">—</option><option value="drop-candidate">drop the candidate (stays protected, never final test)</option><option value="move-training">move the training recordings out of train (needs their own exposure review)</option><option value="n/a">not applicable</option></select>
+<label for="{gid}-notes" style="margin-top:6px">group notes</label><textarea id="{gid}-notes" rows="2" data-k="group.{gid}.notes"></textarea></div>''')
+    parts.append(ARTIFACT_SCRIPT if artifact else LOCAL_SCRIPT)
+    (out / ("artifact.html" if artifact else "index.html")).write_text("\n".join(parts))
 
 
 def print_answer_plan(answers_path, project):
