@@ -6,9 +6,11 @@ Paired comparison of two models scored on the same val windows.
 
 Each metrics.json comes from train_heatmap_model.py (a run's `best`, or a
 checkpoint scored with --score-only, whose `scored` block is used first) and
-carries the 4 px tallies per val video (`per_clip`). The two must have been
-scored on the same videos; anything else is refused, since a difference
-between models is only meaningful on identical data.
+carries the 4 px tallies per val video (`per_clip`) and the digest of the
+val windows it was scored on (`val_digest`: every window record and every
+frame's bytes). The two must carry the same digest; anything else is
+refused, since a difference between models is only meaningful on identical
+data, and the same clip names don't prove that.
 
 ΔF1 = F1(A) − F1(B) on balls in play at 4 px, with a 90% interval from
 resampling whole val videos 1000 times — the *same* draw of videos for both
@@ -38,12 +40,18 @@ def f1(t: dict[str, int]) -> float:
     return 2 * p * r / max(1e-9, p + r)
 
 
-def tallies(path: Path, group: str) -> tuple[dict[str, dict[str, int]], str]:
+def tallies(path: Path, group: str) -> tuple[dict[str, dict[str, int]], str, str]:
+    """The per-video tallies, which block they came from, and the digest of
+    the val windows they were scored on."""
     m = json.loads(path.read_text())
+    digest = m.get("val_digest")
+    if not digest:
+        sys.exit(f"{path}: no val-windows digest — scored with a trainer that didn't record one; "
+                 f"score the checkpoint again with --score-only.")
     for key in ("scored", "best", "baseline"):
         block = m.get(key)
         if block and block.get("per_clip", {}).get(group):
-            return block["per_clip"][group], key
+            return block["per_clip"][group], key, digest
     sys.exit(f"{path}: no per-video tallies for group '{group}' — scored with a trainer older than --score-only, "
              f"or the package has no such windows.")
 
@@ -70,8 +78,11 @@ def main() -> None:
     p.add_argument("--group", default="tracked", choices=("tracked", "all", "sampled"))
     p.add_argument("--out", type=Path, default=None, help="Write the result as JSON here too")
     args = p.parse_args()
-    a, key_a = tallies(args.a, args.group)
-    b, key_b = tallies(args.b, args.group)
+    a, key_a, digest_a = tallies(args.a, args.group)
+    b, key_b, digest_b = tallies(args.b, args.group)
+    if digest_a != digest_b:
+        sys.exit(f"Not the same val windows: digest {digest_a[:16]}… vs {digest_b[:16]}… (the records or frames differ, "
+                 f"even if the clip names agree). Score both on one package.")
     if set(a) != set(b):
         only_a, only_b = sorted(set(a) - set(b)), sorted(set(b) - set(a))
         sys.exit(f"Not the same val videos: only in A {only_a}; only in B {only_b}. Score both on one package.")
@@ -79,7 +90,8 @@ def main() -> None:
     if len(clips) < 2:
         sys.exit("Fewer than two val videos — nothing to resample.")
     result = {"a": {"path": str(args.a), "block": key_a}, "b": {"path": str(args.b), "block": key_b},
-              "group": args.group, "draws": DRAWS, "seed": 0, "all": compare(a, b, clips), "by_surface": {}}
+              "val_digest": digest_a, "group": args.group, "draws": DRAWS, "seed": 0,
+              "all": compare(a, b, clips), "by_surface": {}}
     for prefix, surface in SURFACES.items():
         subset = [c for c in clips if c.startswith(prefix)]
         if len(subset) >= 2:

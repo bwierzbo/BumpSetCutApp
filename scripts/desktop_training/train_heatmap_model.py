@@ -516,6 +516,22 @@ def rates(t: dict[str, int]) -> dict:
             "occluded_recall": round(t["occluded_hit"] / max(1, t["occluded_hit"] + t["occluded_missed"]), 4), **t}
 
 
+def val_digest(root: Path, windows: list[dict]) -> str:
+    """SHA-256 of the val windows as scored: every record in a fixed order
+    (clip, frames, labels, occluded — all of it), then the bytes of every
+    frame they reference. Two metrics files are set against each other
+    (paired_compare.py) only when this matches: the same clip names are not
+    enough, since windows and labels change between exports."""
+    h = hashlib.sha256()
+    for w in sorted(windows, key=lambda w: (w["clip"], w["time"], w["frames"][0])):
+        h.update(json.dumps(w, sort_keys=True, separators=(",", ":")).encode())
+        h.update(b"\n")
+    for path in sorted({f for w in windows for f in w["frames"]}):
+        h.update(path.encode())
+        h.update((root / path).read_bytes())
+    return h.hexdigest()
+
+
 def score(model, loader, val_windows, device, width: int, dead_loader=None) -> dict:
     """Balls in play: recall, precision, F1 (overall, per surface, tracked
     vs sampled), with a 90% range from resampling whole videos — how much
@@ -652,6 +668,8 @@ def main() -> None:
     train_w, val_w, dead_w = load_windows(root, pseudo=args.pseudo)
     say(f"{len(train_w)} train · {len(val_w)} val windows "
         f"({sum(1 for w in val_w if w['balls'])} val with a ball) from {root.name}")
+    digest = val_digest(root, val_w)
+    say(f"val windows digest {digest[:16]}… (records and frame bytes; paired_compare.py needs it equal)")
     tracked = sum(1 for w in train_w + val_w if "labels" in w)
     rallies = len({(w["clip"], w["split"]) for w in train_w + val_w if "labels" in w})
     say(f"{tracked} windows from tracked rallies in {rallies} videos"
@@ -696,7 +714,7 @@ def main() -> None:
     run.mkdir(parents=True, exist_ok=True)
     metrics = {"package": root.name, "size": list(size), "from_scratch": args.from_scratch, "color": args.color,
                "aug": args.aug, "occluded": args.occluded, "qfl": args.qfl, "mine": args.mine, "pseudo": args.pseudo, "seed": args.seed,
-               "baseline": None, "best": None, "best_epoch": None}
+               "val_windows": len(val_w), "val_digest": digest, "baseline": None, "best": None, "best_epoch": None}
 
     if args.score_only:
         saved = torch.load(args.score_only, map_location=device)
@@ -709,7 +727,8 @@ def main() -> None:
         back = HERE / "bring_back" / args.name
         back.mkdir(parents=True, exist_ok=True)
         shutil.copy(run / "metrics.json", back / "metrics.json")
-        say(f"\n✅ Scored, nothing trained. Copy {back} back to the Mac.")
+        # The same closing line as a training run: desktop.sh waits for it.
+        say(f"\n✅ Done. Copy {back} back to the Mac. (Scored only — nothing trained, no model to add.)")
         return
 
     if not args.from_scratch and not resume:
