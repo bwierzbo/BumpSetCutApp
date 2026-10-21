@@ -247,6 +247,37 @@ final class LineagePackageTests: XCTestCase {
         }
     }
 
+    func testExportRefusesAPackageNameThatAlreadyExists() async throws {
+        // Two exports in one minute get the same name; the second must not touch the first's folder or zip.
+        let store = DatasetStore(root: root)
+        try write("not a video, but present", to: "footage/v.mp4")
+        let frame = FrameRecord(id: UUID(), file: "images/val/v_0001_000.jpg", time: 1, source: "random", boxes: [], keep: true, reviewed: true)
+        let v = VideoSession(name: "v", sourcePath: root.appendingPathComponent("footage/v.mp4").path, split: "val", addedAt: F.day, frames: [frame])
+        let now = ISO8601DateFormatter().date(from: "2026-10-21T20:00:00Z")!
+        let stamp = DateFormatter(); stamp.dateFormat = "yyyyMMdd-HHmm"
+        let name = "Fixture-L2-multiframe-\(stamp.string(from: now))"
+        try write("older package", to: "exports/\(name)/windows.jsonl")
+        var hookRan = false
+        do {
+            _ = try await MultiFramePackage.export(sessions: [v], store: store, name: "Fixture-L2", beforeZip: { _ in hookRan = true }, now: now) { _, _ in }
+            XCTFail("exported over an existing package")
+        } catch MultiFramePackage.PackageError.nameTaken(let taken) {
+            XCTAssertEqual(taken, name)
+        }
+        XCTAssertFalse(hookRan)
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("exports/\(name)/windows.jsonl"), encoding: .utf8), "older package", "the existing folder is untouched")
+        // The same with only the zip left behind.
+        try FileManager.default.removeItem(at: root.appendingPathComponent("exports/\(name)"))
+        try write("zip", to: "exports/\(name).zip")
+        do {
+            _ = try await MultiFramePackage.export(sessions: [v], store: store, name: "Fixture-L2", now: now) { _, _ in }
+            XCTFail("exported next to an existing zip")
+        } catch MultiFramePackage.PackageError.nameTaken(let taken) {
+            XCTAssertEqual(taken, name)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("exports/\(name)").path), "no folder was created")
+    }
+
     func testProtectedFrameHashesCoverKeptAndParkedFrames() throws {
         let store = DatasetStore(root: root)
         try write("kept", to: "images/val/w_0001_000.jpg")

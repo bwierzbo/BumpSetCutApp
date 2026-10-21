@@ -783,13 +783,18 @@ enum HeadlessProjects {
         do { withheldClosure = try ReservedVideos.lineageWithheldNames(in: dir) } catch { log("❌ \(error.localizedDescription)"); return false }
         let now = Date()
         let stamp = DateFormatter()
-        stamp.dateFormat = "yyyyMMdd-HHmm"
+        stamp.dateFormat = "yyyyMMdd-HHmmss"
         let l2 = manifests.appendingPathComponent("l2", isDirectory: true)
         let plan: LineagePackage.Plan
         do {
             plan = try LineagePackage.plan(manifest: built.manifest, audit: audit, withheldClosure: withheldClosure, generator: generator(), now: now)
             try FileManager.default.createDirectory(at: l2, withIntermediateDirectories: true)
             let base = l2.appendingPathComponent("\(stamp.string(from: now))-plan")
+            // Records are never overwritten: a second run in the same second waits.
+            guard !FileManager.default.fileExists(atPath: base.appendingPathExtension("json").path) else {
+                log("❌ \(base.path).json already exists; run again.")
+                return false
+            }
             try LineagePackage.write(plan, to: base.appendingPathExtension("json"))
             try LineagePackage.markdown(plan).write(to: base.appendingPathExtension("md"), atomically: true, encoding: .utf8)
             // The project's data.yaml carries the header that says it is not a lineage dataset.
@@ -813,6 +818,7 @@ enum HeadlessProjects {
         do {
             let result = try await Task.detached(priority: .userInitiated) {
                 try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, beforeZip: { folder in
+                    // The package name is unique (export refuses an existing name), so this record is this package's alone.
                     let preflight = try LineagePackage.preflight(packageDir: folder, plan: plan, protectedHashes: protected)
                     let record = LineagePackage.Record(plan: plan, preflight: preflight)
                     // manifests/l2 gets the record first, so a failed preflight is still on record after the folder is removed.
