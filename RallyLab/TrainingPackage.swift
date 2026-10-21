@@ -53,6 +53,9 @@ enum TrainingPackage {
 
     /// Write the package and its zip. Returns the zip's URL and the summary.
     static func export(sessions: [VideoSession], store: DatasetStore, name: String) async throws -> (zip: URL, summary: Summary) {
+        // Final-test recordings (D-002) never enter a package, train or val.
+        let finalTest = try PipelineTuner.ValidationSet.finalTestNames(in: store.root)
+        let sessions = sessions.filter { !finalTest.contains($0.name) }
         let frames = sessions.flatMap { session in
             session.frames.filter { $0.keep && $0.reviewed }.map { (session, $0) }
         }
@@ -125,6 +128,9 @@ enum TrainingPackage {
         let zip = exports.appendingPathComponent("\(packageName).zip")
         try? fm.removeItem(at: zip)
         guard try zipFolder(dir, to: zip) else { throw PackageError.zipFailed }
+        // Exposure is logged at export time so it survives the package being deleted.
+        try ExposureLog.record(videos: Set(frames.map { $0.0.name }), kind: .trainingPackage, ref: packageName,
+                           note: "single-frame (YOLO) package", in: store.root)
         return (zip, summary)
     }
 

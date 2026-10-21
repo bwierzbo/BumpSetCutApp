@@ -20,6 +20,8 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 - [Roadmap (revised 2026-10-20)](ml-roadmap/ROADMAP_REVISED_2026-10-20.md) — the plan Claude Code executes, **as amended by the decision log**. The copy carries a "superseded passages" banner and inline `[Superseded by D-001]` / `[Amended by D-007]` notes where the owner's later decisions override it (learned classifier is a production candidate, not research-only; tuner objective is constrained recall).
 - [Phase 0 baseline](ml-roadmap/BASELINE.md) — repo state, claim-by-claim audit of the roadmap against the code, data/model inventory with hashes, frozen Oct 17 score table, the ten questions that became D-001 … D-010.
 - [Experiment registry](ml-roadmap/EXPERIMENT_REGISTRY.md) — links issues ↔ experiments ↔ dataset/split versions ↔ model versions ↔ test results ↔ PRs. Historical rows recovered from memory notes.
+- [Provenance audit, 2026-10-21](ml-roadmap/PROVENANCE_AUDIT_2026-10-21.md) — Task B.1 result on Scratch: split manifest, exposure history, the one hard leak, final-test candidates, and the five decisions for the owner.
+- `ml-roadmap/manifests/<project>/` — committed `manifest.json` / `audit.json` (+ `.md`) per project, regenerated with `RallyLab --project <name> --audit-dataset`.
 - [Experiment template](templates/EXPERIMENT.md).
 - `ml-roadmap/experiments/` — one record per experiment (created as experiments run).
 - `ml-roadmap/manifests/` — footage and dataset manifests by hash (created when the transfer workflow lands).

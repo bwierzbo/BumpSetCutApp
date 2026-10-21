@@ -935,10 +935,12 @@ final class RallyLabModel {
     /// so this is heavier than the live re-score in the Pipeline tab.
     func runComparison() async {
         guard let url = videoURL, !isComparing else { return }
+        if let refusal = Self.finalTestRefusal(for: url) { compareStatus = refusal; return }
         guard !labels.isEmpty else {
             compareStatus = "Add ground-truth labels in the Pipeline tab to score against."
             return
         }
+        do { try Self.recordRallyScoring(url, ref: "RallyLab Compare tab") } catch { compareStatus = "❌ \(error.localizedDescription)"; return }   // only once a comparison will actually run
         isComparing = true
         defer { isComparing = false }
         comparisonA = nil
@@ -970,12 +972,35 @@ final class RallyLabModel {
 
     // MARK: - Pipeline
 
+    /// Why this video must not be run: it is reserved as final_test in the
+    /// open project (D-002), or the reservations can't be read. nil = go ahead.
+    static func finalTestRefusal(for url: URL) -> String? {
+        guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return nil }
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        do {
+            // Matched by path, name or content, so a copy of a reserved recording is refused too.
+            guard let match = try ReservedVideos.match(url, root: root), match.reserved else { return nil }
+            return "⛔ \(match.session) is reserved as final_test (D-002) — not scored until promotion."
+        } catch { return "❌ \(error.localizedDescription)" }
+    }
+
+    /// Running the pipeline on a project video and scoring it is a use the
+    /// split manifest must know about (D-002); logged as the run starts.
+    static func recordRallyScoring(_ url: URL, ref: String) throws {
+        guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return }
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        guard let match = try ReservedVideos.match(url, root: root) else { return }   // not a project video
+        try ExposureLog.record(videos: [match.session], kind: .rallyScoring, ref: ref, note: nil, in: root)
+    }
+
     /// Runs the real VideoProcessor (YOLO → Kalman → ballistics → decider →
     /// segments) on the loaded video with the current config, capturing
     /// per-frame evidence for replays.
     func runPipeline() async {
         guard let url = videoURL else { return }
         guard !isProcessing, !exportingDebugVideo else { return }
+        if let refusal = Self.finalTestRefusal(for: url) { status = refusal; return }
+        do { try Self.recordRallyScoring(url, ref: "RallyLab Pipeline tab") } catch { status = "❌ \(error.localizedDescription)"; return }
 
         let processor = VideoProcessor()
         processor.config = currentConfig()

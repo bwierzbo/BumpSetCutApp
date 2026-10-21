@@ -79,6 +79,19 @@ extension PlannedClip: Codable {
     }
 }
 
+extension ClipSource {
+    /// A re-recorded video (moved to another card) keeps what the owner
+    /// confirmed about it: the three provenance IDs are copied from the
+    /// source it was rebuilt from; nothing else changes.
+    static func carryingProvenance(_ fresh: ClipSource, from provenance: ClipSource?) -> ClipSource {
+        var out = fresh
+        out.sourceId = provenance?.sourceId ?? out.sourceId
+        out.sessionId = provenance?.sessionId ?? out.sessionId
+        out.venueId = provenance?.venueId ?? out.venueId
+        return out
+    }
+}
+
 struct ClipSource: Codable, Equatable, Hashable {
     enum Kind: String, Codable { case link, file }
     var kind: Kind
@@ -101,6 +114,14 @@ struct ClipSource: Codable, Equatable, Hashable {
     /// video reused on any card is recognised. nil for older videos; it's
     /// worked out from `origin` instead.
     var fingerprint: String?
+    /// Provenance the owner confirmed (decision D-009); nil means unknown, and
+    /// nothing in RallyLab fills these in on its own. `sourceId` names the
+    /// original recording, `sessionId` the outing it was filmed in (one camera,
+    /// one day), `venueId` the court. The split manifest reports them and
+    /// `--set-provenance` writes them.
+    var sourceId: String?
+    var sessionId: String?
+    var venueId: String?
 }
 
 struct Project: Codable, Equatable {
@@ -797,16 +818,26 @@ final class ProjectsModel {
               let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }),
               project?.clips.contains(where: { $0.id == targetId }) == true else { return }
         moving.insert(videoId)
+        var newId: String?   // set below; the completion runs later on the main actor
         let started = addVideo(to: targetId, source: video.clipFile, start: 0, length: video.length + 1,
                                license: video.license, frames: video.frames, allowDuplicate: true,
                                provenance: video) { [weak self] worked in
             guard let self else { return }
             self.moving.remove(videoId)
             if worked {
+                // The video's exposure history follows it to its new session name (D-002).
+                // If that can't be done the old entry stays, so its history is never orphaned.
+                if let newId, let dir = self.projectDir {
+                    do { try ExposureLog.rename(videoId, to: DatasetStore.safeName(newId), in: dir) } catch {
+                        self.status = "Copied \(videoId) to \(targetId) but couldn't carry its exposure history, so the original is kept: \(error.localizedDescription)"
+                        return
+                    }
+                }
                 self.removeVideo(videoId, from: clipId)
                 self.status = "Moved \(videoId) to \(targetId)."
             }
         }
+        newId = started
         if started == nil { moving.remove(videoId) }
     }
 
@@ -918,14 +949,15 @@ final class ProjectsModel {
                              origin: String, license: String, frames: Int?, fingerprint: String?,
                              provenance: ClipSource?) {
         guard let i = project?.clips.firstIndex(where: { $0.id == clipId }) else { return }
-        project?.clips[i].videos.append(ClipSource(
+        let fresh = ClipSource(
             kind: provenance?.kind ?? kind,
             origin: provenance?.origin ?? (kind == .link ? result.url : origin),
             start: provenance?.start ?? result.start, length: result.duration, license: license,
             title: provenance?.title ?? result.title, uploader: provenance?.uploader ?? result.uploader,
             clipFile: result.file, fetchedAt: provenance?.fetchedAt ?? Date(),
             videoId: videoId == clipId ? nil : videoId, frames: frames, fingerprint: fingerprint
-        ))
+        )
+        project?.clips[i].videos.append(ClipSource.carryingProvenance(fresh, from: provenance))
         save()
     }
 
@@ -976,6 +1008,28 @@ final class ProjectsModel {
         video.fingerprint ?? fingerprint(of: video.origin)
     }
 
+    /// Record owner-confirmed provenance on one video (D-009). A nil argument
+    /// leaves that field as it is; an empty string clears it. Returns false
+    /// when no video has that ID.
+    func setProvenance(videoId: String, sourceId: String?, sessionId: String?, venueId: String?) -> Bool {
+        guard var project else { return false }
+        for c in project.clips.indices {
+            for v in project.clips[c].videos.indices where project.clips[c].videoId(of: project.clips[c].videos[v]) == videoId {
+                func apply(_ new: String?, to field: inout String?) {
+                    guard let new else { return }
+                    field = new.isEmpty ? nil : new
+                }
+                apply(sourceId, to: &project.clips[c].videos[v].sourceId)
+                apply(sessionId, to: &project.clips[c].videos[v].sessionId)
+                apply(venueId, to: &project.clips[c].videos[v].venueId)
+                self.project = project
+                save()
+                return true
+            }
+        }
+        return false
+    }
+
     @ObservationIgnored private var fingerprintCache: [String: String] = [:]
 
     /// A link's video ID (YouTube links in any of their forms come out the
@@ -988,6 +1042,14 @@ final class ProjectsModel {
         let path = (trimmed as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: path) else { return Self.linkFingerprint(trimmed) }
         if let cached = fingerprintCache[path] { return cached }
+        guard let print = Self.fileFingerprint(atPath: path) else { return nil }
+        fingerprintCache[path] = print
+        return print
+    }
+
+    /// A file's identity wherever it is copied: its size plus a hash of its
+    /// first and last 4 MB, as `"file:<sha256>"`. nil when it can't be read.
+    nonisolated static func fileFingerprint(atPath path: String) -> String? {
         guard let handle = FileHandle(forReadingAtPath: path),
               let size = try? handle.seekToEnd() else { return nil }
         defer { try? handle.close() }
@@ -1000,12 +1062,10 @@ final class ProjectsModel {
             try? handle.seek(toOffset: size - min(chunk, size - chunk))
             if let tail = try? handle.readToEnd() { hasher.update(data: tail) }
         }
-        let print = "file:" + hasher.finalize().map { String(format: "%02x", $0) }.joined()
-        fingerprintCache[path] = print
-        return print
+        return "file:" + hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    static func linkFingerprint(_ link: String) -> String? {
+    nonisolated static func linkFingerprint(_ link: String) -> String? {
         guard var parts = URLComponents(string: link), let host = parts.host?.lowercased() else { return nil }
         let path = parts.path.split(separator: "/").map(String.init)
         if host == "youtu.be", let id = path.first {
@@ -1162,7 +1222,7 @@ enum ProjectLayout {
             + envs.map { "footage/raw/online/\($0)" }
             + ["footage/raw/negatives", "footage/meta",
                "images/train", "images/val", "labels/train", "labels/val",
-               "sessions", "excluded", "runs", "models", "exports"]
+               "sessions", "excluded", "runs", "models", "exports", "manifests"]
     }()
 
     static func create(at dir: URL) throws {

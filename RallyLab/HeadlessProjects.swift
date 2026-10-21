@@ -28,6 +28,9 @@
 //             from the frames)
 //    RallyLab --project v3 --move ind_ele_bright_land_self_01_v2 bch_ele_sun_land_self_01
 //    RallyLab --project v3 --status
+//    RallyLab --project v3 --manifest [--out <dir>]          (dataset split manifest → manifests/manifest.{json,md})
+//    RallyLab --project v3 --audit-dataset [--out <dir>]     (manifest + leakage audit → audit.{json,md}; exit 1 on a hard leak)
+//    RallyLab --project v3 --set-provenance <video id> [--source-id X] [--session-id Y] [--venue-id Z]   ("" clears)
 //    RallyLab --project v3 --location /Volumes/Footage   (new project, somewhere else)
 //
 //    RallyLab --project v3 --package                       (training package zip)
@@ -103,6 +106,14 @@ enum HeadlessProjects {
                 projects.create(name: name, in: location)
             }
             log("Project: \(projects.project?.name ?? name) → \(projects.projectDir?.path ?? "?")")
+            // Final-test reservations (D-002): read once, fail closed, honoured by every scoring command below.
+            let projectRoot = projects.projectDir ?? URL(fileURLWithPath: "/nonexistent")
+            let reserved: Set<String>
+            do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: projectRoot) } catch {
+                log("❌ \(error.localizedDescription)")
+                exit(1)
+            }
+            if !reserved.isEmpty { log("Reserved final-test videos (never packaged, scored, tuned or pre-tracked): \(reserved.sorted().joined(separator: ", "))") }
 
             var ok = true
             if let i = args.firstIndex(of: "--get") {
@@ -159,6 +170,19 @@ enum HeadlessProjects {
             if args.contains("--status") || args.contains("--get") || args.contains("--add-extras") || args.contains("--move") || args.contains("--repull-all")
                 || args.contains("--pull-tester-footage") {
                 printStatus(projects)
+            }
+
+            // Dataset provenance (D-002, D-009): the split manifest, its leakage audit,
+            // and the owner's confirmations of where a video came from.
+            if ok, args.contains("--manifest") || args.contains("--audit-dataset") {
+                ok = datasetManifest(projects, audit: args.contains("--audit-dataset"), args: args)
+            }
+            if ok, let videoId = value(after: "--set-provenance", in: args) {
+                ok = projects.setProvenance(videoId: videoId,
+                                            sourceId: value(after: "--source-id", in: args),
+                                            sessionId: value(after: "--session-id", in: args),
+                                            venueId: value(after: "--venue-id", in: args))
+                log(ok ? "✅ Provenance saved for \(videoId)." : "❌ No video \(videoId) in the project.")
             }
 
             let library = ModelLibrary(sampler: projects.sampler)
@@ -256,7 +280,9 @@ enum HeadlessProjects {
                 if let name = value(after: "--ball-model", in: args), let model = BallModel(rawValue: name) { config.ballModel = model }
                 log("ball model \(config.ballModel.rawValue) · rotation \(config.applyVideoRotation ? "applied" : "not applied")")
                 for clip in args[(i + 1)...].prefix(while: { !$0.hasPrefix("--") }) {
+                    guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not scored."); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
+                    guard recorded([session.name], .rallyScoring, ref: "--diagnose-rallies", note: "ball model \(config.ballModel.rawValue)", in: projectRoot) else { ok = false; break }
                     log("\(clip):")
                     guard let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) else { log("   no rally times or couldn't process"); continue }
                     var t = RallyCutScore.Tally()
@@ -267,8 +293,9 @@ enum HeadlessProjects {
             }
             if ok, let i = args.firstIndex(of: "--score-rallies") {
                 let named = args[(i + 1)...].prefix { !$0.hasPrefix("--") }
-                let sessions = projects.sampler.sessions.filter {
-                    named.isEmpty ? ($0.ralliesMarked ?? false) : named.contains($0.name)
+                for n in named where reserved.contains(n) { log("⛔ \(n) is reserved as final_test (D-002) — not scored.") }
+                var sessions = projects.sampler.sessions.filter {
+                    (named.isEmpty ? ($0.ralliesMarked ?? false) : named.contains($0.name)) && !reserved.contains($0.name)
                 }
                 var config = ProcessorConfig()
                 config.applyVideoRotation = args.contains("--rotate")
@@ -284,10 +311,17 @@ enum HeadlessProjects {
                     config.heatmapOnly = false
                     log("ball finder: YOLO only")
                 }
+                // Exposure is recorded before the first pipeline runs, so an interrupted run is still on record (D-002).
+                if !recorded(Set(sessions.map(\.name)), .rallyScoring, ref: "--score-rallies",
+                             note: "ball model \(config.ballModel.rawValue)\(config.heatmapModel == nil ? "" : " + multi-frame")", in: projectRoot) {
+                    ok = false
+                    sessions = []
+                }
                 var videos: [RallyCutScore.Video] = []
                 for session in sessions {
                     log("\(session.name) (\(session.split))…")
-                    if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) { videos.append(v) } else { log("   no rally times or couldn't process") }
+                    if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) { videos.append(v) }
+                    else { log("   no rally times or couldn't process") }
                 }
                 if videos.isEmpty { log("❌ No fully marked videos (Track tab → Rally times → Whole video marked).") }
                 else { RallyCutScore.report(videos, log: log) }
@@ -300,6 +334,7 @@ enum HeadlessProjects {
                     log("usage: --render-pipeline <clip> <start s> <length s> [<start s> <length s>…] [--heat <model> [--heat-only]] [--rotate]")
                     exit(2)
                 }
+                guard !reserved.contains(session.name) else { log("⛔ \(session.name) is reserved as final_test (D-002) — not rendered."); exit(1) }
                 var config = ProcessorConfig()
                 config.applyVideoRotation = args.contains("--rotate")
                 var finder = "YOLO"
@@ -310,6 +345,7 @@ enum HeadlessProjects {
                     finder = config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame"
                 }
                 log("\(session.name): pipeline (\(finder))…")
+                guard recorded([session.name], .rallyScoring, ref: "--render-pipeline", note: finder, in: projectRoot) else { ok = false; exit(1) }
                 if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) {
                     let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
                     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -329,10 +365,12 @@ enum HeadlessProjects {
             }
             if ok, let i = args.firstIndex(of: "--compare-color") {
                 for clip in args[(i + 1)...] where !clip.hasPrefix("--") {
+                    guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not compared."); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     var sdr = ProcessorConfig()
                     sdr.standardColorFrames = true
                     log("\(clip)…")
+                    guard recorded([session.name], .rallyScoring, ref: "--compare-color", note: nil, in: projectRoot) else { ok = false; break }
                     guard let (raw, std) = await PipelineCompare.run(session: session, a: ProcessorConfig(), b: sdr) else { log("   couldn't process"); continue }
                     log("   raw frames     : " + PipelineCompare.describe(raw))
                     log("   standard colour: " + PipelineCompare.describe(std))
@@ -341,8 +379,10 @@ enum HeadlessProjects {
             if ok, let i = args.firstIndex(of: "--pipeline-compare"), args.indices.contains(i + 2) {
                 let model = heatModel(args[i + 1], in: library)
                 for clip in args[(i + 2)...] where !clip.hasPrefix("--") {
+                    guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not compared."); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     log("\(clip) (\(session.split), \((session.tracks ?? []).filter(\.done).count) done tracked rallies)…")
+                    guard recorded([session.name], .rallyScoring, ref: "--pipeline-compare " + model.deletingPathExtension().lastPathComponent, note: nil, in: projectRoot) else { ok = false; break }
                     guard let (off, on) = await PipelineCompare.run(session: session, heatModel: model) else { log("   couldn't process"); continue }
                     log("   YOLO only        : " + PipelineCompare.describe(off))
                     log("   YOLO + multi-frame: " + PipelineCompare.describe(on))
@@ -353,7 +393,9 @@ enum HeadlessProjects {
             if ok, let i = args.firstIndex(of: "--render-heat"), args.indices.contains(i + 2) {
                 let lab = library.heatmaps
                 lab.reload()
-                if let item = lab.trackedRallies.first(where: { $0.session == args[i + 1] && abs($0.rally.start - (Double(args[i + 2]) ?? -1)) < 1 }) {
+                if reserved.contains(args[i + 1]) {
+                    log("⛔ \(args[i + 1]) is reserved as final_test (D-002) — not rendered.")
+                } else if let item = lab.trackedRallies.first(where: { $0.session == args[i + 1] && abs($0.rally.start - (Double(args[i + 2]) ?? -1)) < 1 }) {
                     lab.renderVideo(session: item.session, rally: item.rally)
                     while lab.isBusy { try? await Task.sleep(nanoseconds: 300_000_000) }
                     log(lab.status)
@@ -583,6 +625,87 @@ enum HeadlessProjects {
             for (env, c) in score.byEnv { log(line(env, c)) }
         }
         return true
+    }
+
+    /// `--manifest` writes <project>/manifests/manifest.{json,md} (or --out <dir>);
+    /// `--audit-dataset` also writes audit.{json,md} and fails on a hard leak.
+    @MainActor
+    private static func datasetManifest(_ projects: ProjectsModel, audit: Bool, args: [String]) -> Bool {
+        guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
+        let out = value(after: "--out", in: args)
+            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+            ?? dir.appendingPathComponent("manifests", isDirectory: true)
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let manifestURL = out.appendingPathComponent("manifest.json")
+        let info = Bundle.main.infoDictionary
+        let generator = "RallyLab \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+        let hashes = DatasetSplitManifest.Hashes(
+            projectJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("project.json")),
+            sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: dir.appendingPathComponent("sessions", isDirectory: true)),
+            validationJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("pipeline_tuning/validation.json")))
+        var validation: PipelineTuner.ValidationSet?
+        do {
+            validation = try PipelineTuner.ValidationSet.loadStrict(from: dir)
+            // Aliases of a reserved recording (same file or confirmed identity) are reserved with it.
+            if validation != nil { validation?.finalTest = Array(try ReservedVideos.reservedNames(in: dir)).sorted() }
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
+        let previous: DatasetSplitManifest?
+        let discovered: [String: [ExposureRecord]]
+        do {
+            previous = try DatasetSplitManifest.readStrict(from: manifestURL)
+            discovered = try DatasetSplitManifest.discoverExposure(in: dir)
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
+        let inputs = DatasetSplitManifest.Inputs(
+            project: projects.project, sessions: projects.sampler.sessions,
+            validation: validation,
+            fingerprint: { projects.fingerprint(of: $0) },
+            previous: previous,
+            discovered: discovered,
+            hashes: hashes, generator: generator, now: Date())
+        let manifest: DatasetSplitManifest
+        do { manifest = try DatasetSplitManifest.build(inputs) } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
+        do {
+            try manifest.write(to: manifestURL)
+            try manifest.markdownSummary().write(to: out.appendingPathComponent("manifest.md"), atomically: true, encoding: .utf8)
+        } catch {
+            log("❌ Couldn't write the manifest: \(error.localizedDescription)")
+            return false
+        }
+        let counts = Dictionary(grouping: manifest.videos, by: \.split).mapValues(\.count)
+        log("✅ Manifest: \(manifest.videos.count) videos — "
+            + DatasetSplit.allCases.map { "\($0.rawValue) \(counts[$0] ?? 0)" }.joined(separator: " · ") + " → \(out.path)")
+        guard audit else { return true }
+
+        let result = DatasetAudit.run(manifest: manifest)
+        do {
+            try result.write(to: out.appendingPathComponent("audit.json"))
+            try result.markdown(manifest: manifest).write(to: out.appendingPathComponent("audit.md"), atomically: true, encoding: .utf8)
+        } catch {
+            log("❌ Couldn't write the audit: \(error.localizedDescription)")
+            return false
+        }
+        for f in result.findings where f.severity != .info { log("  [\(f.severity.rawValue)] \(f.code): \(f.message)") }
+        let hard = result.findings.filter { $0.severity == .hard }.count
+        log(hard == 0 ? "✅ Audit: no hard leak (\(result.findings.count) findings → audit.md)"
+                      : "❌ Audit: \(hard) hard leak(s) → audit.md")
+        return hard == 0
+    }
+
+    /// Record a use, or say why it couldn't be and report failure (the command then fails).
+    private static func recorded(_ videos: Set<String>, _ kind: ExposureRecord.Kind, ref: String, note: String?, in root: URL) -> Bool {
+        do { try ExposureLog.record(videos: videos, kind: kind, ref: ref, note: note, in: root); return true } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
     }
 
     @MainActor

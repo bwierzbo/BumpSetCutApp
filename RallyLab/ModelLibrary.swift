@@ -220,8 +220,11 @@ final class ModelLibrary {
 
     /// The reviewed frames the models are scored on.
     private var evaluationFrames: [ModelEvaluation.Frame] {
-        sampler.sessions
+        // Fails closed: when the reservations can't be read, nothing is evaluated (D-002).
+        guard let finalTest = try? PipelineTuner.ValidationSet.finalTestNames(in: sampler.store.root) else { return [] }
+        return sampler.sessions
             .filter { !evaluateValOnly || $0.split == "val" }
+            .filter { !finalTest.contains($0.name) }   // reserved until promotion (D-002)
             .flatMap { session in
                 session.frames.filter { $0.keep && $0.reviewed }.map {
                     ModelEvaluation.Frame(session: session.name, record: $0,
@@ -234,6 +237,10 @@ final class ModelLibrary {
 
     func evaluate() {
         guard !isBusy else { return }
+        if (try? PipelineTuner.ValidationSet.finalTestNames(in: sampler.store.root)) == nil {
+            status = "❌ pipeline_tuning/validation.json exists but can't be read — final-test reservations unknown, so nothing is evaluated (D-002)."
+            return
+        }
         let frames = evaluationFrames
         guard !frames.isEmpty else {
             status = evaluateValOnly
@@ -243,6 +250,15 @@ final class ModelLibrary {
         }
         let entries = [baseline] + (candidate.map { $0 == baseline ? [] : [$0] } ?? [])
         let letterboxAll = alwaysLetterbox
+        // Model selection on these frames is exposure (D-002); logged as the run starts.
+        do {
+            try ExposureLog.record(videos: Set(frames.map(\.session)), kind: .detectorEvaluation,
+                                   ref: "ModelLibrary evaluate: " + entries.map(\.name).joined(separator: ", "),
+                                   note: evaluateValOnly ? "val clips" : "all reviewed frames", in: sampler.store.root)
+        } catch {
+            status = "❌ \(error.localizedDescription)"
+            return
+        }
         isBusy = true
         results = [:]
         Task {

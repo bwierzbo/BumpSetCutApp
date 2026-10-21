@@ -1,0 +1,660 @@
+[
+ {
+  "video": "bch_ele_ovc_land_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_ele_ovc_land_self_02_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_ele_ovc_land_self_02_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_ele_ovc_land_self_02_v4",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_ele_ovc_land_self_02_v5",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_ele_sun_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_ele_sun_port_self_03",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_gnd_ovc_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_gnd_ovc_land_self_01_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_gnd_ovc_land_self_03",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_gnd_sun_land_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_gnd_sun_land_self_02_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_gnd_sun_land_self_02_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_gnd_sun_land_self_02_v4",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_gnd_sun_land_self_02_v5",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_gnd_sun_land_self_02_v6",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_hnd_ovc_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_onl_ovc_land_onl_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_onl_ovc_land_onl_02_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_onl_ovc_land_onl_02_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_onl_ovc_land_onl_02_v4",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_onl_sun_land_onl_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_onl_sun_land_onl_01_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_onl_sun_land_onl_03",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_onl_sun_land_onl_03_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_onl_sun_land_onl_04",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_sid_ovc_land_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_sid_ovc_land_self_02_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_sid_sun_land_self_03",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_tri_sun_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_tri_sun_land_self_01_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_tri_sun_land_self_01_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "bch_tri_sun_land_self_01_v4",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_ele_dusk_port_self_03",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_ele_dusk_port_self_03_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_ele_shade_land_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_ele_sun_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_ele_sun_land_self_01_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_ele_sun_land_self_01_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_ele_sun_land_self_01_v4",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_02_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_03",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_03_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_03_v4",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_03_v5",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_03_v6",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_03_v7",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_03_v9",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_extra_tester_04",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_gnd_dusk_land_self_03",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_gnd_shade_land_self_02_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_gnd_sun_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_gnd_sun_land_self_01_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_gnd_sun_land_self_01_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_gnd_sun_land_self_01_v4",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_gnd_sun_land_self_01_v5",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_gnd_sun_land_self_01_v6",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_hnd_shade_port_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_hnd_sun_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_hnd_sun_land_self_01_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_onl_dusk_land_onl_03",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_onl_shade_land_onl_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_onl_sun_land_onl_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_onl_sun_land_onl_01_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_onl_sun_land_onl_04",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_onl_sun_land_onl_04_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_sid_shade_land_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_sid_shade_land_self_02_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_sid_sun_port_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_sid_sun_port_self_01_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_tri_shade_port_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "grs_tri_sun_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_ele_bright_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_ele_dim_land_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_ele_dim_land_self_02_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_ele_dim_land_self_02_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_ele_dim_land_self_04",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_gnd_bright_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_gnd_bright_land_self_01_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_gnd_bright_land_self_01_v4",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_gnd_bright_port_self_03",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_hnd_dim_land_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_onl_bright_land_onl_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_onl_bright_land_onl_01_v2",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_onl_bright_land_onl_01_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_onl_bright_land_onl_01_v4",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_onl_bright_land_onl_04",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_sid_bright_land_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=val; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_sid_dim_land_self_01",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_tri_bright_land_self_01_v3",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_tri_bright_land_self_01_v4",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ },
+ {
+  "video": "ind_tri_dim_port_self_02",
+  "kind": "training_package",
+  "ref": "Scratch-multiframe-20261016-2018",
+  "date": "2026-10-17",
+  "note": "windows.jsonl split=train; read from the zip on 2026-10-21 (zip members are not scanned by RallyLab)"
+ }
+]

@@ -35,7 +35,7 @@ Build rules:
 - The unit suite is green (377/377 on 2026-10-04) — a failing test is most likely yours; confirm with the **preexisting** skill before debugging.
 
 ### Testing
-Two XCTest targets exist: **BumpSetCutTests** (unit) and **BumpSetCutUITests** (UI).
+Three XCTest targets exist: **BumpSetCutTests** (unit), **BumpSetCutUITests** (UI) and **RallyLabTests** (unit, macOS, hosted in RallyLab.app — run with `xcodebuild test -project BumpSetCut.xcodeproj -scheme RallyLab -destination 'platform=macOS'`; covers project/session decoding, the dataset split manifest and the leakage audit).
 Strongest coverage is the processing/CV domain (Kalman, ballistics, parabolic,
 rally decider, segment builder) and storage/models. Networking, uploads, and most
 view models are under-tested — use the existing `StubAPIClient` to add VM tests.
