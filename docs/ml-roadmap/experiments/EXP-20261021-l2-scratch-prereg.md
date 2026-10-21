@@ -25,7 +25,7 @@ Establish the first model of lineage L2 ([MODEL_LINEAGES.md](../MODEL_LINEAGES.m
 | Field | Value |
 |---|---|
 | Split manifest hashes | project.json `65243bca59895a7e` · sessions `06ed23f06ccd23ce` · validation.json `6d160a1ac00254a0` (the D-017 cut-over state) |
-| Lineage plan | `manifests/l2/20261021-1415-plan.json`, SHA-256 `e1f3f05b7147f1af…` (committed under [`manifests/Scratch/l2/`](../manifests/Scratch/l2/20261021-1415-plan.md)) |
+| Lineage plan | `manifests/l2/20261021-145541-plan.json`, SHA-256 `11d13b3843345c18…` (committed under [`manifests/Scratch/l2/`](../manifests/Scratch/l2/20261021-145541-plan.md)) |
 | Package name | `Scratch-L2-multiframe-<stamp>` — **not written yet** (`RallyLab --project Scratch --package-l2`; needs the footage on the Mac) |
 | Package digest · windows.jsonl SHA-256 | not fixed (from `l2-manifest.json` after export) |
 | Preflight | not run (11 checks: windows-clips-eligible, windows-clips-not-withheld, frame-paths-eligible, no-machine-labels, frame-files-exist, no-stray-files, frame-dirs-have-windows, no-protected-content, **sources-not-protected** (the video file behind every packaged clip fingerprinted and compared with every identity a withheld recording's video can carry — project fingerprint, cut file, session file — over the full withheld closure, sessionless project videos included), **sources-disjoint-across-splits** (no video file on both the train and the val side), both-splits-present; plus the plan's hard-leak, reservation-agreement and identity-closure checks) |
