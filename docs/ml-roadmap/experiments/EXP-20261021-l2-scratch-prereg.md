@@ -3,7 +3,7 @@ id: EXP-20261021-l2-scratch-prereg
 lineage: L2
 status: proposed
 created: 2026-10-21T20:19:11Z
-updated: 2026-10-21T20:19:11Z
+updated: 2026-10-21T20:44:30Z
 approved_by: not yet
 decision: D-017, D-018
 pr: data/l2-dataset-isolation
@@ -33,7 +33,7 @@ Establish the first model of lineage L2 ([MODEL_LINEAGES.md](../MODEL_LINEAGES.m
 | Val recordings / windows | 13 eligible (dev_val 4 + tune 9): `bch_ele_sun_port_self_03`, `bch_onl_ovc_land_onl_02`(+v2,v3,v4), `grs_hnd_shade_port_self_02`, `grs_onl_shade_land_onl_02`, `grs_onl_sun_land_onl_01`(+v2), `ind_ele_bright_land_self_01`, `ind_ele_dim_land_self_02`(+v2,v3); 12 have labels today: **4,778 labeled val windows** (the Oct 16 package's val minus the 1,549 windows of the five legacy-holdout clips) |
 | Withheld | 21: `lineage_holdout` 16 (D-017; all 16 have **0 reviewed frames** and never entered a package) + `legacy_holdout` 5 (`bch_onl_sun_land_onl_03`, `_03_v2`, `grs_onl_dusk_land_onl_03`, `ind_onl_bright_land_onl_04`, `ind_sid_bright_land_self_02`, which **were** val clips of every L1 package); final test 0, candidates 0 |
 | Provenance summary | audit 0 hard / 8 soft / 21 info; 144 train/dev recordings have neither confirmed venue nor session (`LINEAGE-UNKNOWN-RELATIONS`): their relation to the holdout is unknown, not cleared |
-| Label sets | tracks: every labeled window comes from a rally tracked frame by frame and checked by a person (the Oct 16 package: 33,394 tracked windows, 0 machine frames); rally marks: 22 eligible recordings fully marked (dead-time windows only). No versioned label-set IDs exist yet (D-004/D-009 work) |
+| Label sets | **Ball tracks (human-verified, complete-rally).** Annotation process, as stated by the owner on 2026-10-21: an L1 model first proposed ball tracks for a rally; the owner then personally reviewed and corrected every track and ensured the *entire* rally was tracked, including the portions the model had initially missed. The resulting labels are human-verified, complete-rally ball-tracking annotations — not unreviewed machine labels and not pseudo-labels (the Oct 16 package: 33,394 tracked windows, 0 machine frames). **Approved by the owner for L2 detector training.** Rally marks: 22 eligible recordings fully marked (used for dead-time windows only). Independently reviewed **serve-contact and dead-ball boundaries are a separate label set** that does not exist yet; Task B.2 produces it (D-004). No versioned label-set IDs exist yet (D-009 work) |
 | Exposure ledger | the export adds `training_package Scratch-L2-multiframe-<stamp>` for every packaged recording; nothing for the withheld |
 
 ## 3. Model and initialisation
@@ -83,9 +83,10 @@ The 16 lineage-holdout recordings have **no reviewed ball labels and no rally ma
 
 - **Success (candidate):** H1 holds on dev_val+tune; the exposure ledger shows only `training_package Scratch-L2-…` for the 76+12 packaged recordings and nothing for the 21 withheld; `l2-manifest.json` preflight passed.
 - **Failure:** H1 falsified → the recipe is re-examined on L2 data before any other L2 experiment; a failed preflight or a ledger row on a withheld recording → the run is void and the package is deleted.
-- **Limitations:** (1) L2's val is smaller than L1's and not the same set, so L1–L2 numbers are indicative; (2) the holdout cannot be evaluated until labels exist; (3) 144 train/dev recordings have unknown venue/session relations to the holdout; (4) tracks were initially proposed by L1 models (pre-tracking) and then checked frame by frame by a person — the labels are human-verified, but the *choice of which rallies were tracked* was model-assisted; stated here so the owner can accept or reject it; (5) broad generalisation claims still need the planned new-footage final test.
+- **Limitations:** (1) L2's val is smaller than L1's and not the same set, so L1–L2 numbers are indicative; (2) the holdout cannot be evaluated until labels exist; (3) 144 train/dev recordings have unknown venue/session relations to the holdout; (4) the ball labels are human-verified and complete per rally (§2), but the *selection* of which rallies were tracked started from L1 proposals, so a rally the L1 model never proposed may be under-represented — a possible model-assisted rally-selection bias, noted, not a label-quality limitation; (5) broad generalisation claims still need the planned new-footage final test.
 
 ## Approval
+- [x] Owner approved the ball-tracking annotations for L2 detector training on 2026-10-21 ("These are human-verified, complete-rally tracking annotations … The annotations are approved for L2 detector training.").
 - [ ] Owner approved this preregistration on <date> (quote the authorisation).
 - [ ] Dataset preflight passed (package name, digest).
 - [ ] Training started on <date>; holdout not yet evaluated.
