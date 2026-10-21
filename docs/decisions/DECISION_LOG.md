@@ -2,7 +2,7 @@
 name: decision-log
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-10-20T22:12:44Z
+updated: 2026-10-21T14:22:38Z
 ---
 
 # Decision log
@@ -30,6 +30,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-013](#d-013) | 2026-10-06 | accepted (amended by D-001) | From-scratch multi-frame ball model + learned decision layer, all on-device |
 | [D-014](#d-014) | 2026-10-20 | accepted (amends D-005) | Review tiers: PR review by default for ML/data/architecture; streamlined path only with explicit owner authorisation; Codex is the reviewer |
 | [D-015](#d-015) | 2026-10-21 | accepted | Task B.1 decisions: holdout sibling moved; seven provisional final-test candidates protected; tune/dev_val cards kept; CLI provenance now, UI in B.2; YouTube IDs confirmed as sourceId |
+| [D-016](#d-016) | 2026-10-21 | accepted | Pre-tracking counts as exposure (strict); machine tracks kept; none of the seven candidates is promoted; provenance confirmed by visual review, never inferred |
 
 ---
 
@@ -185,3 +186,15 @@ The authoritative record of product, architecture, data and process decisions fo
 5. YouTube video IDs may be confirmed as `sourceId` when independently verifiable, by a deterministic, reversible, previewed procedure; venueId/sessionId are never inferred from YouTube IDs, uploaders or cards; ambiguous entries stay unconfirmed.
 
 **Consequences.** `validation.json` gains `finalTestCandidates`; split `final_test_candidate` (reserved like `final_test`, reported apart); `--confirm-youtube-source-ids [--apply]`; pre-logging uses are discovered from session machine tracks and the tuner evidence cache. Applied to Scratch on 2026-10-21: holdout 4→5, dev_val 12→4, candidates 0→7, 73 YouTube `sourceId`s confirmed, hard 0→0, soft 8→8. All seven candidates are `CANDIDATE-BLOCKED` (pre-tracking exposure; venue/session unconfirmed) pending the owner's answers in [PROVENANCE_QUESTIONS_2026-10-21.md](../ml-roadmap/PROVENANCE_QUESTIONS_2026-10-21.md). Task B.2 does not start until those are addressed and this work is reviewed.
+
+### D-016
+
+**Pre-tracking counts as exposure; candidates stay protected; provenance by visual review only** — 2026-10-21 — accepted — owner (answer to Q0 of [PROVENANCE_QUESTIONS_2026-10-21.md](../ml-roadmap/PROVENANCE_QUESTIONS_2026-10-21.md)).
+
+**Decision.** Option (a), strict. A pre-tracking run that wrote machine tracks into a session is model exposure like any other, even when nothing was trained, tuned or selected on those tracks and no human reviewed them. Consequently: (1) the seven provisional candidates of D-015 §2 keep their `pre_tracking` exposure and remain `CANDIDATE-BLOCKED`; none is promoted to `final_test`; (2) the machine tracks are **not** deleted from the seven sessions (deleting them would not undo the exposure and would discard evidence of it); (3) the seven remain protected candidates — reserved against any further training, tuning, evaluation or scoring use — and the independent final test waits for new footage collected after the ledger existed; (4) venue, session and camera for the candidates, their neighbouring training imports and the Dianne Gan recordings are established by the owner looking at frames in a local review page ([PROVENANCE_REVIEW_2026-10-21.md](../ml-roadmap/PROVENANCE_REVIEW_2026-10-21.md)); nothing is pre-filled or inferred from file numbers, uploaders, YouTube metadata or visual similarity, and every answer may be "unknown". Q4 (tune/dev_val uploader venues) stays deferred to the D-007 tuning work.
+
+**Context.** The ledger did not exist on 2026-10-18 when `--pretrack --val` ran over the dev_val sessions; the audit now discovers that use from the session files. Clearing it would set a precedent that unlogged uses can be argued away.
+
+**Consequences.** No code or data change: the audit already reports the seven as blocked by `pre_tracking`. Their status is "protected candidate, not promotable"; the roadmap's final-test collection plan (new venues, sessions, cameras, all three surfaces) is the only path to a verified `final_test`. Owner answers from the review page are applied by `--set-provenance` in a reviewed PR with the before/after report; only answers marked *confirmed* are written.
+
+**Source.** Owner instruction to Claude Code, 2026-10-21 ("Task B.1 — Visual Provenance Review": "Treat Q0 as strict … do not delete machine tracks, do not promote any candidate to final_test").

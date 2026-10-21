@@ -1,14 +1,16 @@
 ---
 name: provenance-questions-2026-10-21
-status: awaiting owner answers
+status: Q0 answered (D-016); Q1–Q3 answered on the review page; Q4 deferred
 created: 2026-10-21T05:20:00Z
-updated: 2026-10-21T05:20:00Z
-decisions: D-015
+updated: 2026-10-21T14:22:38Z
+decisions: D-015, D-016
 ---
 
 # Provenance questions for the owner (Task B.1, after D-015)
 
-Everything D-015 asked for that does not need your answer is done (see [PROVENANCE_AUDIT_2026-10-21.md](PROVENANCE_AUDIT_2026-10-21.md) § "Decisions applied"). What remains needs facts only you have. Answer in any form; the implementer writes them with `--set-provenance` and nothing is inferred.
+Everything D-015 asked for that does not need your answer is done (see [PROVENANCE_AUDIT_2026-10-21.md](PROVENANCE_AUDIT_2026-10-21.md) § "Decisions applied"). What remains needs facts only you have.
+
+**Status 2026-10-21.** Q0 is decided: [D-016](../decisions/DECISION_LOG.md#d-016), option (a) strict. Q1–Q3 are answered by looking at frames on the local review page described in [PROVENANCE_REVIEW_2026-10-21.md](PROVENANCE_REVIEW_2026-10-21.md) (`scripts/provenance_review.py`); the exported answer file is applied with `--set-provenance` in a reviewed PR and nothing is inferred. Q4 stays deferred.
 
 ## Q0 — A ruling first: does pre-tracking count as exposure?
 
@@ -22,6 +24,8 @@ Options:
 - **(c) Keep as an "evaluation resource"** with the exposure noted, never called `final_test`.
 
 Your choice becomes a decision-log entry (D-016). Until then the seven stay protected either way.
+
+**Answered:** (a) strict — [D-016](../decisions/DECISION_LOG.md#d-016). The machine tracks stay in the sessions; no candidate is promoted; the final test waits for new footage.
 
 ## Q1 — Venue and session for each candidate
 
@@ -59,6 +63,6 @@ Cards whose uploader spans tune and dev_val: Grace Qian (`grs_hnd_shade_port_sel
 
 ## What happens with your answers
 
-- Q0 → D-016 in the decision log; (b) also removes the machine tracks from the seven sessions in a reviewed PR.
+- Q0 → D-016 in the decision log: strict; nothing removed, nothing promoted.
 - Q1–Q3 → `--set-provenance` per video (reviewed PR with the before/after report), audit re-run, and only candidates that come out `CANDIDATE-READY` are moved to `finalTest`.
 - Independent of all of the above: the stronger final-test collection (new venues, sessions, cameras, all three surfaces) stays planned as new footage.
