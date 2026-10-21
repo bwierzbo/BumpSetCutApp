@@ -9,8 +9,8 @@ Additional guidance for Claude Code in this repository.
 - Point out better approaches when they exist
 - No flattery or unnecessary compliments
 - **Default to momentum**: when work items are enumerated (sprints, findings, optimizations), batch and do all of them rather than asking which to do — the user's answer is consistently "keep going / do all". Reserve questions for genuine product decisions, and give the design rationale/trade-offs when asking.
-- **Fix ALL review findings** (code review, cloud review, advisors) — never triage some as deferred/not-mine without asking first.
-- **Push after every commit chunk**, before starting the next work item. Work sometimes spans two repos (BumpSetCut + BumpSetCutWebApp) — confirm which repo(s) to push when both changed; the user sometimes pushes the webapp himself.
+- **Fix ALL review findings** (code review, cloud review, advisors, Codex/ChatGPT PR review) — never triage some as deferred/not-mine without asking first. A blocking finding is fixed or the owner explicitly accepts it; never accept one on his behalf.
+- **Branch, then the tier the owner chose** (D-005 + D-014, `docs/workflow/WORKING_AGREEMENT.md`): work on a scoped feature branch cut from the latest approved `main`, push that branch after every commit chunk. Default is a PR with the template filled in (`--body-file`, never `--fill`), then **stop at the review gate**. The streamlined tier (minor UI, cosmetic, doc fixes, low-risk bugs) applies only when the owner explicitly authorises it for that change. Never push to `main`; never merge — unless the owner's authorisation for that specific change says so. Work sometimes spans two repos (BumpSetCut + BumpSetCutWebApp) — confirm which repo(s) to push when both changed; the user sometimes pushes the webapp himself.
 - **Security warnings about user-pasted secrets: state once, then proceed.** Don't repeat the warning in later turns.
 - Commit a checkpoint before risky bulk changes (dead-code sweeps, large deletions).
 

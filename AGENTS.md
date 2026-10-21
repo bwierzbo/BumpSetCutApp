@@ -10,7 +10,7 @@ For current decisions and review workflow, consult `docs/decisions/DECISION_LOG.
 
 - Review the actual diff, its surrounding implementation, and supplied test or experiment evidence. Distinguish observed behavior from assumptions; do not claim tests ran or results were verified without evidence.
 - When coding, implement only the authorized scope. Preserve existing behavior unless a change is explicitly intended. Do not change production behavior solely to make an experiment pass.
-- Use a feature branch and a reviewable pull request. Never push directly to `main` or merge without explicit owner approval. A clean automated review is not merge authorization.
+- Use a feature branch and a reviewable pull request. Never push directly to `main` or merge without explicit owner approval. A clean automated review is not merge authorization. The owner decides the review tier per `docs/workflow/WORKING_AGREEMENT.md`: changes to ML models, datasets, training pipelines, evaluation methodology, architecture, or significant production behavior require PR review by default; minor UI, cosmetic, documentation, and low-risk fixes may use a streamlined path only when the owner explicitly authorizes it. Blocking findings must be resolved or explicitly accepted by the owner before merge.
 - Do not install tools, modify security/network settings, deploy services, or alter remote data without explicit authorization. Never expose credentials or private footage in logs, PRs, or documentation.
 - Keep generated reports, footage, large training artifacts, and local credentials out of Git unless intentionally approved and appropriately managed. Model files referenced by the Xcode project must be present in the intended target's reproducible build inputs.
 

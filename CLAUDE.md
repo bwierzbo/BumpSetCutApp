@@ -109,7 +109,8 @@ YOLODetector → KalmanBallTracker → BallisticsGate → RallyDecider → Segme
 - Clean up AVPlayer instances in `onDisappear`
 
 ## CoreML Model
-- **Default ball model**: `ball_v2_small.mlpackage` in `Resources/ML/` (yolo26 raw export; fallbacks: bestv3, bestv2). Net model: `net.mlpackage`. Both apps share `YOLODetector()`.
+- **Processing default is multi-frame only** (`BallFinder.current` → `.multiFrameOnly`): the bundled `ball_heat.mlpackage` (9-frame heatmap, `HeatmapBallDetector`) finds the ball. `YOLODetector()` (default `ball_v2_small.mlpackage`; fallbacks bestv3, bestv2; net model `net.mlpackage`) remains for the debug picker and RallyLab pre-labeling.
+- **Licensing (decision 2026-10-09):** every YOLO/Ultralytics-derived `.mlpackage` (ball_v2_small, bestv2, bestv3, ball_rallylab_*, net) must leave the public iOS bundle before launch. RallyLab and the internal Labeler build may keep them. Flag any change that would ship Ultralytics-derived weights.
 - App functions without model but AI features are disabled
 - **New models must be**: (1) added to `Resources/ML/`, (2) added to RallyLab's `membershipExceptions` in project.pbxproj, (3) **committed to git in the same commit that references them** — a pbxproj reference to an uncommitted mlpackage builds locally but breaks Xcode Cloud. Large blobs may need `git config http.postBuffer 524288000` to push.
 
@@ -123,12 +124,18 @@ After ANY DDL applied to the live project (`apply_migration`/`execute_sql`):
 3. Storage uploads with `upsert: true` need an UPDATE policy on the bucket, not just INSERT.
 4. Re-run `get_advisors` (security + performance). Explicit grants survive default-privilege revokes — re-check `anon` execute grants after hardening.
 
+## Development Workflow (decisions D-005 and D-014, 2026-10-20)
+- Work goes on a scoped feature branch. **Never push to `main` and never merge without explicit owner authorisation.** Pushing intermediate commits to the feature branch is fine.
+- Two tiers; the owner decides which applies. **PR with independent review (default)** for ML models, datasets/labels/splits, training pipelines, evaluation methodology, architecture, the shared processing pipeline and significant production behaviour: open the PR with the template filled in (`gh pr create … --body-file`, not `--fill`), Codex reviews it, blocking findings are fixed or explicitly accepted by the owner, the owner merges. **Streamlined** only when the owner explicitly authorises it for that change (minor UI, cosmetic, doc corrections, low-risk fixes).
+- Full cycle, tiers, evidence requirements and review hand-off: `docs/workflow/WORKING_AGREEMENT.md`, `docs/workflow/CHATGPT_REVIEW.md`, `.github/PULL_REQUEST_TEMPLATE.md`. Codex's own instructions: `AGENTS.md`.
+- Decisions live in `docs/decisions/DECISION_LOG.md`; experiments, datasets and model versions are linked through `docs/ml-roadmap/EXPERIMENT_REGISTRY.md`. Documentation index: `docs/README.md`. Update these as part of the change they describe, in the same PR.
+
 ## Product Invariants (each cost a real correction round-trip — don't re-learn them)
 - Processing produces **metadata only**; never create a copy of the original video. Processed output lives with the original.
-- Pipeline philosophy: deterministic rules + FSM + court geometry + ball continuity. NO ML rally classification, NO weighted scoring as the primary mechanism, NO player tracking/pose. Camera is assumed at the endline. Keep physics validation conservative; when touching tracking, sanity-check up/down trajectory direction (historical inversion bug).
+- Pipeline: multi-frame heatmap ball detector → tracker → physics/court-geometry gates → rally decision → segment builder. The deterministic FSM (`RallyDecider`) is the **benchmark and fallback**; a **learned temporal rally classifier over detector/tracker features is an approved production candidate** (decision D-001, 2026-10-20; supersedes the former "no ML rally classification" rule). Production adoption requires independent validation evidence on unseen recordings. Still out of scope: end-to-end video→rally models, player tracking/pose. Camera is assumed at the endline. Keep physics validation conservative; when touching tracking, sanity-check up/down trajectory direction (historical inversion bug).
 - RallyLab and the iOS app are ONE shared pipeline — a tuning/config change in one must be applied to the other.
 - Lifetime stats (e.g. "time cut") are cumulative and must survive rally/file deletion — never derive them from file existence.
-- Displayed detection confidence = raw YOLO model confidence, never a derived/binary value. Debug overlays must reflect actual algorithm state and be toggleable.
+- Displayed detection confidence = the raw model confidence (YOLO score or heatmap peak), never a derived/binary value. Calibrated or gating scores need distinct names. Debug overlays must reflect actual algorithm state and be toggleable.
 - The user verifies features on a **physical iPhone**, not the simulator — don't build simulator UI-automation flows for manual verification; add temporary tagged debug logging instead and strip it before commit (see the **device-logs** skill for triaging pasted console output).
 
 ## Sub-Agent Usage
