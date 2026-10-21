@@ -214,7 +214,7 @@ enum LineagePackage {
 
         var errorDescription: String? {
             switch self {
-            case .protectedSourceUnknown(let name): return "Withheld recording \(name) has no file identity (no stored fingerprint, no cut file, no session video here), so a copy of it could not be recognised. Nothing is packaged."
+            case .protectedSourceUnknown(let name): return "Withheld recording \(name) has no content fingerprint: neither its cut file nor its session video is on this Mac (a link identity such as youtube:… cannot match an exported file). Bring its video back before packaging; nothing is packaged."
             case .sourceUnreadable(let clip, let path): return "\(clip)'s video can't be fingerprinted: \(path). Nothing is packaged."
             }
         }
@@ -222,8 +222,10 @@ enum LineagePackage {
 
     /// Every identity under which a withheld recording's video can appear on disk: the
     /// project's stored or derived fingerprint, the cut file's fingerprint and the session
-    /// video's fingerprint when those files are here. Throws when a withheld recording yields
-    /// none — its copies could not be recognised, so the check would prove nothing.
+    /// video's fingerprint when those files are here. Exported videos carry `file:` content
+    /// fingerprints, so every withheld recording must yield at least one `file:` fingerprint
+    /// — a link identity alone (`youtube:…`) can match nothing. Otherwise it throws: the
+    /// recording's copies could not be recognised and the check would prove nothing.
     static func protectedSourceFingerprints(sessions: [VideoSession], withheld: Set<String>, sources: [String: ClipSource]) throws -> Set<String> {
         let fm = FileManager.default
         let byName = Dictionary(sessions.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
@@ -236,7 +238,7 @@ enum LineagePackage {
             }
             if let session = byName[name], fm.fileExists(atPath: session.sourcePath),
                let f = ProjectsModel.fileFingerprint(atPath: session.sourcePath) { mine.insert(f) }
-            guard !mine.isEmpty else { throw SourceError.protectedSourceUnknown(name) }
+            guard mine.contains(where: { $0.hasPrefix("file:") }) else { throw SourceError.protectedSourceUnknown(name) }
             out.formUnion(mine)
         }
         return out

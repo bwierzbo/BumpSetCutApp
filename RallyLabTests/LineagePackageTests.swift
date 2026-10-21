@@ -325,6 +325,12 @@ final class LineagePackageTests: XCTestCase {
         let protected = try LineagePackage.protectedSourceFingerprints(sessions: [w, t, v], withheld: ["w"], sources: ["w": wSource])
         let cut = ProjectsModel.fileFingerprint(atPath: root.appendingPathComponent("footage/w_cut.mp4").path)!
         XCTAssertEqual(protected, ["youtube:W", cut], "the link identity and the cut file's content identity")
+        // With the cut file gone there is no content identity left for w: the check cannot be established.
+        try FileManager.default.removeItem(at: root.appendingPathComponent("footage/w_cut.mp4"))
+        XCTAssertThrowsError(try LineagePackage.protectedSourceFingerprints(sessions: [w, t, v], withheld: ["w"], sources: ["w": wSource])) {
+            XCTAssertEqual($0 as? LineagePackage.SourceError, .protectedSourceUnknown("w"))
+        }
+        try FileManager.default.copyItem(at: root.appendingPathComponent("footage/t.mp4"), to: root.appendingPathComponent("footage/w_cut.mp4"))
         let sources = try LineagePackage.sourceFingerprints(of: [t, v, w])
         XCTAssertEqual(sources["t"], cut, "the copy has the cut file's fingerprint")
         XCTAssertNotEqual(sources["v"], cut)
@@ -366,6 +372,13 @@ final class LineagePackageTests: XCTestCase {
         // A withheld recording with no identity at all cannot be checked for copies.
         let ghost = VideoSession(name: "w", sourcePath: "/gone/w.mp4", split: "val", addedAt: F.day, frames: [])
         XCTAssertThrowsError(try LineagePackage.protectedSourceFingerprints(sessions: [ghost], withheld: ["w"], sources: [:])) {
+            XCTAssertEqual($0 as? LineagePackage.SourceError, .protectedSourceUnknown("w"))
+        }
+        // A link identity alone is not enough: it can never equal an exported file's `file:` fingerprint.
+        let linkOnly = ClipSource(kind: .link, origin: "https://youtu.be/W", start: 0, length: 300, license: "permission", title: "t", uploader: "",
+                                  clipFile: "/gone/w_cut.mp4", fetchedAt: F.day, videoId: "w", frames: nil,
+                                  fingerprint: "youtube:W", sourceId: nil, sessionId: nil, venueId: nil)
+        XCTAssertThrowsError(try LineagePackage.protectedSourceFingerprints(sessions: [ghost], withheld: ["w"], sources: ["w": linkOnly])) {
             XCTAssertEqual($0 as? LineagePackage.SourceError, .protectedSourceUnknown("w"))
         }
         // An eligible session whose video is present but unreadable (a folder) is not skipped.
