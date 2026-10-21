@@ -286,7 +286,7 @@ enum MultiFramePackage {
         summaryEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try summaryEncoder.encode(summary).write(to: dir.appendingPathComponent("summary.json"))
         // Exposure is logged at export time so it survives the package being deleted.
-        ExposureLog.record(videos: Set(usable.map { $0.0.name }), kind: .trainingPackage, ref: packageName,
+        try ExposureLog.record(videos: Set(usable.map { $0.0.name }), kind: .trainingPackage, ref: packageName,
                            note: valOnly ? "val-only multi-frame export (test set)" : "multi-frame package", in: store.root)
         if valOnly { return (dir, summary) }
 

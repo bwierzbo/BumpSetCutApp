@@ -940,7 +940,7 @@ final class RallyLabModel {
             compareStatus = "Add ground-truth labels in the Pipeline tab to score against."
             return
         }
-        Self.recordRallyScoring(url, ref: "RallyLab Compare tab")   // only once a comparison will actually run
+        do { try Self.recordRallyScoring(url, ref: "RallyLab Compare tab") } catch { compareStatus = "❌ \(error.localizedDescription)"; return }   // only once a comparison will actually run
         isComparing = true
         defer { isComparing = false }
         comparisonA = nil
@@ -987,11 +987,11 @@ final class RallyLabModel {
 
     /// Running the pipeline on a project video and scoring it is a use the
     /// split manifest must know about (D-002); logged as the run starts.
-    static func recordRallyScoring(_ url: URL, ref: String) {
+    static func recordRallyScoring(_ url: URL, ref: String) throws {
         guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return }
         let root = URL(fileURLWithPath: rootPath, isDirectory: true)
         guard let name = DatasetStore(root: root).loadSessions().first(where: { $0.sourcePath == url.path })?.name else { return }
-        ExposureLog.record(videos: [name], kind: .rallyScoring, ref: ref, note: nil, in: root)
+        try ExposureLog.record(videos: [name], kind: .rallyScoring, ref: ref, note: nil, in: root)
     }
 
     /// Runs the real VideoProcessor (YOLO → Kalman → ballistics → decider →
@@ -1001,7 +1001,7 @@ final class RallyLabModel {
         guard let url = videoURL else { return }
         guard !isProcessing, !exportingDebugVideo else { return }
         if let refusal = Self.finalTestRefusal(for: url) { status = refusal; return }
-        Self.recordRallyScoring(url, ref: "RallyLab Pipeline tab")
+        do { try Self.recordRallyScoring(url, ref: "RallyLab Pipeline tab") } catch { status = "❌ \(error.localizedDescription)"; return }
 
         let processor = VideoProcessor()
         processor.config = currentConfig()

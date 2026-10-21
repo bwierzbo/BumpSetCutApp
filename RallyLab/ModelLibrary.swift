@@ -251,9 +251,14 @@ final class ModelLibrary {
         let entries = [baseline] + (candidate.map { $0 == baseline ? [] : [$0] } ?? [])
         let letterboxAll = alwaysLetterbox
         // Model selection on these frames is exposure (D-002); logged as the run starts.
-        ExposureLog.record(videos: Set(frames.map(\.session)), kind: .detectorEvaluation,
-                           ref: "ModelLibrary evaluate: " + entries.map(\.name).joined(separator: ", "),
-                           note: evaluateValOnly ? "val clips" : "all reviewed frames", in: sampler.store.root)
+        do {
+            try ExposureLog.record(videos: Set(frames.map(\.session)), kind: .detectorEvaluation,
+                                   ref: "ModelLibrary evaluate: " + entries.map(\.name).joined(separator: ", "),
+                                   note: evaluateValOnly ? "val clips" : "all reviewed frames", in: sampler.store.root)
+        } catch {
+            status = "❌ \(error.localizedDescription)"
+            return
+        }
         isBusy = true
         results = [:]
         Task {

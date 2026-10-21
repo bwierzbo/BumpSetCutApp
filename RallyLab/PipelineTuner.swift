@@ -478,8 +478,13 @@ enum PipelineTuner {
         let file = dir.appendingPathComponent("report-\(stamp).md")
         try? report.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
         log("Report: \(file.path)")
-        ExposureLog.record(videos: Set(tune.map(\.session.name)), kind: .pipelineTune, ref: file.lastPathComponent, note: "settings searched on", in: sampler.datasetRoot)
-        ExposureLog.record(videos: Set(holdout.map(\.session.name)), kind: .pipelineHoldout, ref: file.lastPathComponent, note: "reported, not searched on", in: sampler.datasetRoot)
+        do {
+            try ExposureLog.record(videos: Set(tune.map(\.session.name)), kind: .pipelineTune, ref: file.lastPathComponent, note: "settings searched on", in: sampler.datasetRoot)
+            try ExposureLog.record(videos: Set(holdout.map(\.session.name)), kind: .pipelineHoldout, ref: file.lastPathComponent, note: "reported, not searched on", in: sampler.datasetRoot)
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
         return true
     }
 

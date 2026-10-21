@@ -129,7 +129,7 @@ enum TrainingPackage {
         try? fm.removeItem(at: zip)
         guard try zipFolder(dir, to: zip) else { throw PackageError.zipFailed }
         // Exposure is logged at export time so it survives the package being deleted.
-        ExposureLog.record(videos: Set(frames.map { $0.0.name }), kind: .trainingPackage, ref: packageName,
+        try ExposureLog.record(videos: Set(frames.map { $0.0.name }), kind: .trainingPackage, ref: packageName,
                            note: "single-frame (YOLO) package", in: store.root)
         return (zip, summary)
     }

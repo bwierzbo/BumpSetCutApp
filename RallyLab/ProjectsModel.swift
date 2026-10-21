@@ -826,7 +826,13 @@ final class ProjectsModel {
             self.moving.remove(videoId)
             if worked {
                 // The video's exposure history follows it to its new session name (D-002).
-                if let newId, let dir = self.projectDir { ExposureLog.rename(videoId, to: DatasetStore.safeName(newId), in: dir) }
+                // If that can't be done the old entry stays, so its history is never orphaned.
+                if let newId, let dir = self.projectDir {
+                    do { try ExposureLog.rename(videoId, to: DatasetStore.safeName(newId), in: dir) } catch {
+                        self.status = "Copied \(videoId) to \(targetId) but couldn't carry its exposure history, so the original is kept: \(error.localizedDescription)"
+                        return
+                    }
+                }
                 self.removeVideo(videoId, from: clipId)
                 self.status = "Moved \(videoId) to \(targetId)."
             }

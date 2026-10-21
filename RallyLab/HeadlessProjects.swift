@@ -284,7 +284,7 @@ enum HeadlessProjects {
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     log("\(clip):")
                     guard let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) else { log("   no rally times or couldn't process"); continue }
-                    ExposureLog.record(videos: [session.name], kind: .rallyScoring, ref: "--diagnose-rallies", note: "ball model \(config.ballModel.rawValue)", in: projectRoot)
+                    guard recorded([session.name], .rallyScoring, ref: "--diagnose-rallies", note: "ball model \(config.ballModel.rawValue)", in: projectRoot) else { ok = false; break }
                     var t = RallyCutScore.Tally()
                     t.add(clips: v.clips, truth: v.truth)
                     log("   " + t.line)
@@ -316,8 +316,8 @@ enum HeadlessProjects {
                     log("\(session.name) (\(session.split))…")
                     if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) {
                         videos.append(v)
-                        ExposureLog.record(videos: [session.name], kind: .rallyScoring, ref: "--score-rallies",
-                                           note: "ball model \(config.ballModel.rawValue)\(config.heatmapModel == nil ? "" : " + multi-frame")", in: projectRoot)
+                        guard recorded([session.name], .rallyScoring, ref: "--score-rallies",
+                                       note: "ball model \(config.ballModel.rawValue)\(config.heatmapModel == nil ? "" : " + multi-frame")", in: projectRoot) else { ok = false; break }
                     } else { log("   no rally times or couldn't process") }
                 }
                 if videos.isEmpty { log("❌ No fully marked videos (Track tab → Rally times → Whole video marked).") }
@@ -343,7 +343,7 @@ enum HeadlessProjects {
                 }
                 log("\(session.name): pipeline (\(finder))…")
                 if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) {
-                    ExposureLog.record(videos: [session.name], kind: .rallyScoring, ref: "--render-pipeline", note: finder, in: projectRoot)
+                    guard recorded([session.name], .rallyScoring, ref: "--render-pipeline", note: finder, in: projectRoot) else { ok = false; exit(1) }
                     let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
                     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     for (start, length) in stretches {
@@ -368,7 +368,7 @@ enum HeadlessProjects {
                     sdr.standardColorFrames = true
                     log("\(clip)…")
                     guard let (raw, std) = await PipelineCompare.run(session: session, a: ProcessorConfig(), b: sdr) else { log("   couldn't process"); continue }
-                    ExposureLog.record(videos: [session.name], kind: .rallyScoring, ref: "--compare-color", note: nil, in: projectRoot)
+                    guard recorded([session.name], .rallyScoring, ref: "--compare-color", note: nil, in: projectRoot) else { ok = false; break }
                     log("   raw frames     : " + PipelineCompare.describe(raw))
                     log("   standard colour: " + PipelineCompare.describe(std))
                 }
@@ -380,7 +380,7 @@ enum HeadlessProjects {
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     log("\(clip) (\(session.split), \((session.tracks ?? []).filter(\.done).count) done tracked rallies)…")
                     guard let (off, on) = await PipelineCompare.run(session: session, heatModel: model) else { log("   couldn't process"); continue }
-                    ExposureLog.record(videos: [session.name], kind: .rallyScoring, ref: "--pipeline-compare " + model.deletingPathExtension().lastPathComponent, note: nil, in: projectRoot)
+                    guard recorded([session.name], .rallyScoring, ref: "--pipeline-compare " + model.deletingPathExtension().lastPathComponent, note: nil, in: projectRoot) else { ok = false; break }
                     log("   YOLO only        : " + PipelineCompare.describe(off))
                     log("   YOLO + multi-frame: " + PipelineCompare.describe(on))
                 }
@@ -691,6 +691,14 @@ enum HeadlessProjects {
         log(hard == 0 ? "✅ Audit: no hard leak (\(result.findings.count) findings → audit.md)"
                       : "❌ Audit: \(hard) hard leak(s) → audit.md")
         return hard == 0
+    }
+
+    /// Record a use, or say why it couldn't be and report failure (the command then fails).
+    private static func recorded(_ videos: Set<String>, _ kind: ExposureRecord.Kind, ref: String, note: String?, in root: URL) -> Bool {
+        do { try ExposureLog.record(videos: videos, kind: kind, ref: ref, note: note, in: root); return true } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
     }
 
     @MainActor

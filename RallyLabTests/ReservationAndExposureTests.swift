@@ -70,7 +70,7 @@ final class ReservationAndExposureTests: XCTestCase {
         try fm.createDirectory(at: yolo, withIntermediateDirectories: true)
         try "image,clip,split,source,time,boxes\na.jpg,v_yolo,val,rally:0,1.000,1\nb.jpg,v_yolo,val,rally:0,2.000,0\n".write(to: yolo.appendingPathComponent("manifest.csv"), atomically: true, encoding: .utf8)
         // exposure-log.json via the API, and a hand-written seed
-        ExposureLog.record(videos: ["v_logged"], kind: .pipelineTune, ref: "report-1.md", note: nil, in: root)
+        try ExposureLog.record(videos: ["v_logged"], kind: .pipelineTune, ref: "report-1.md", note: nil, in: root)
         try fm.createDirectory(at: root.appendingPathComponent("manifests"), withIntermediateDirectories: true)
         try #"[{"video":"v_seed","kind":"training_package","ref":"Old.zip","date":"2026-10-17","note":"from zip"}]"#
             .write(to: ExposureLog.seedURL(in: root), atomically: true, encoding: .utf8)
@@ -86,9 +86,9 @@ final class ReservationAndExposureTests: XCTestCase {
     }
 
     func testExposureLogAppendsWithoutDuplicates() throws {
-        ExposureLog.record(videos: ["a", "b"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
-        ExposureLog.record(videos: ["b", "c"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
-        ExposureLog.record(videos: ["a"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
+        try ExposureLog.record(videos: ["a", "b"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
+        try ExposureLog.record(videos: ["b", "c"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
+        try ExposureLog.record(videos: ["a"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
         let rows = ExposureLog.read(in: root)
         XCTAssertEqual(rows.count, 4)
         XCTAssertEqual(rows.filter { $0.video == "b" }.count, 1)
@@ -100,7 +100,7 @@ final class ReservationAndExposureTests: XCTestCase {
         let log = ExposureLog.url(in: root)
         try "[{\"video\":\"old\",\"kind\":\"training_package\",\"ref\":\"P0\"".write(to: log, atomically: true, encoding: .utf8)   // truncated
         let before = try String(contentsOf: log, encoding: .utf8)
-        ExposureLog.record(videos: ["new"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
+        try ExposureLog.record(videos: ["new"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
         XCTAssertEqual(try String(contentsOf: log, encoding: .utf8), before, "a damaged log is left untouched")
         let parked = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("manifests").path)
             .filter { $0.hasPrefix("exposure-log.unmerged-") }
@@ -113,12 +113,12 @@ final class ReservationAndExposureTests: XCTestCase {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("manifests"), withIntermediateDirectories: true)
         let log = ExposureLog.url(in: root)
         try "{broken".write(to: log, atomically: true, encoding: .utf8)
-        ExposureLog.record(videos: ["parked"], kind: .rallyScoring, ref: "R1", note: nil, in: root)
+        try ExposureLog.record(videos: ["parked"], kind: .rallyScoring, ref: "R1", note: nil, in: root)
         XCTAssertEqual(ExposureLog.sidecarURLs(in: root).count, 1)
         // Repair the log: discovery must now see the parked use, and the next record folds it in.
         try "[]".write(to: log, atomically: true, encoding: .utf8)
         XCTAssertEqual(try DatasetSplitManifest.discoverExposure(in: root)["parked"]?.map(\.kind), [.rallyScoring])
-        ExposureLog.record(videos: ["later"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
+        try ExposureLog.record(videos: ["later"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
         XCTAssertEqual(ExposureLog.sidecarURLs(in: root).count, 0, "sidecar merged and removed")
         XCTAssertEqual(Set(try ExposureLog.readStrict(in: root).map(\.video)), ["parked", "later"])
     }
@@ -134,17 +134,17 @@ final class ReservationAndExposureTests: XCTestCase {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("manifests"), withIntermediateDirectories: true)
         try "{broken".write(to: ExposureLog.url(in: root), atomically: true, encoding: .utf8)
         let now = Date()
-        ExposureLog.record(videos: ["a"], kind: .pipelineTune, ref: "report-1.md", note: nil, in: root, now: now)
-        ExposureLog.record(videos: ["b"], kind: .pipelineHoldout, ref: "report-1.md", note: nil, in: root, now: now)
+        try ExposureLog.record(videos: ["a"], kind: .pipelineTune, ref: "report-1.md", note: nil, in: root, now: now)
+        try ExposureLog.record(videos: ["b"], kind: .pipelineHoldout, ref: "report-1.md", note: nil, in: root, now: now)
         XCTAssertEqual(ExposureLog.sidecarURLs(in: root).count, 2, "same-second records get their own sidecars")
         try "[]".write(to: ExposureLog.url(in: root), atomically: true, encoding: .utf8)
         XCTAssertEqual(Set(try ExposureLog.readStrict(in: root).map(\.video)), ["a", "b"])
     }
 
     func testRenameCarriesLogHistoryToTheNewName() throws {
-        ExposureLog.record(videos: ["old_name"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
-        ExposureLog.record(videos: ["old_name"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
-        ExposureLog.rename("old_name", to: "new_name", in: root)
+        try ExposureLog.record(videos: ["old_name"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
+        try ExposureLog.record(videos: ["old_name"], kind: .testSetScoring, ref: "S1", note: nil, in: root)
+        try ExposureLog.rename("old_name", to: "new_name", in: root)
         let rows = try ExposureLog.readStrict(in: root)
         XCTAssertEqual(Set(rows.filter { $0.video == "new_name" }.map(\.kind)), [.trainingPackage, .testSetScoring])
         XCTAssertEqual(rows.filter { $0.video == "old_name" }.count, 2, "old rows stay for older manifests")
@@ -155,7 +155,7 @@ final class ReservationAndExposureTests: XCTestCase {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("manifests"), withIntermediateDirectories: true)
         try #"[{"video":"old_name","kind":"training_package","ref":"Old.zip","date":"2026-10-17","note":"from zip"}]"#
             .write(to: ExposureLog.seedURL(in: root), atomically: true, encoding: .utf8)
-        ExposureLog.rename("old_name", to: "new_name", in: root)
+        try ExposureLog.rename("old_name", to: "new_name", in: root)
         XCTAssertEqual(try DatasetSplitManifest.discoverExposure(in: root)["new_name"]?.map(\.ref), ["Old.zip"])
     }
 
@@ -178,8 +178,22 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertThrowsError(try DatasetSplitManifest.build(inputs))
     }
 
+    func testRecordThrowsWhenTheLogCannotBeWritten() throws {
+        // A file where the manifests/ folder should be: nothing under it can be created.
+        try "x".write(to: root.appendingPathComponent("manifests"), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try ExposureLog.record(videos: ["a"], kind: .rallyScoring, ref: "R", note: nil, in: root)) { error in
+            guard case ExposureLog.LogError.notWritten = error else { return XCTFail("\(error)") }
+        }
+    }
+
+    func testRenameThrowsWhenHistoryIsUnreadable() throws {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("manifests"), withIntermediateDirectories: true)
+        try "{broken".write(to: ExposureLog.url(in: root), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try ExposureLog.rename("old", to: "new", in: root))
+    }
+
     func testLoggedExposureBlocksFinalTestReservation() throws {
-        ExposureLog.record(videos: ["bch_a_v3"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
+        try ExposureLog.record(videos: ["bch_a_v3"], kind: .trainingPackage, ref: "P1", note: nil, in: root)
         var inputs = DatasetSplitManifestTests.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: ["bch_a_v3"]))
         inputs.discovered = try DatasetSplitManifest.discoverExposure(in: root)
         XCTAssertThrowsError(try DatasetSplitManifest.build(inputs))

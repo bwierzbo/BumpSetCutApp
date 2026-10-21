@@ -66,8 +66,13 @@ enum PreTracker {
                 && !reserved.contains($0.name)
         }
         // Machine tracks written by a model are exposure (D-002); logged as the run starts.
-        ExposureLog.record(videos: Set(sessions.map(\.name)), kind: .preTracking,
-                           ref: heat.deletingPathExtension().lastPathComponent, note: val ? "--pretrack --val" : "--pretrack", in: sampler.datasetRoot)
+        do {
+            try ExposureLog.record(videos: Set(sessions.map(\.name)), kind: .preTracking,
+                                   ref: heat.deletingPathExtension().lastPathComponent, note: val ? "--pretrack --val" : "--pretrack", in: sampler.datasetRoot)
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return report
+        }
         for (n, session) in sessions.enumerated() {
             let video = AVURLAsset(url: URL(fileURLWithPath: session.sourcePath))
             guard let track = try? await video.loadTracks(withMediaType: .video).first,
@@ -176,8 +181,13 @@ enum PreTracker {
         }
         let yolo = sampler.prelabelModel
         let checked = sampler.sessions.filter { $0.split == "val" && FileManager.default.fileExists(atPath: $0.sourcePath) && !reserved.contains($0.name) }
-        ExposureLog.record(videos: Set(checked.map(\.name)), kind: .detectorEvaluation,
-                           ref: "--pretrack-check " + heat.deletingPathExtension().lastPathComponent, note: nil, in: sampler.datasetRoot)
+        do {
+            try ExposureLog.record(videos: Set(checked.map(\.name)), kind: .detectorEvaluation,
+                                   ref: "--pretrack-check " + heat.deletingPathExtension().lastPathComponent, note: nil, in: sampler.datasetRoot)
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return []
+        }
         for session in checked {
             let people = (session.tracks ?? []).filter { $0.done && !$0.isMachine }
             guard !people.isEmpty else { continue }

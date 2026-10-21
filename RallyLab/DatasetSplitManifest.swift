@@ -436,10 +436,13 @@ enum ExposureLog {
 
     enum LogError: LocalizedError {
         case unreadable(URL)
+        case notWritten(URL, String)
         var errorDescription: String? {
             switch self {
             case .unreadable(let file):
                 return "\(file.path) exists but can't be decoded. It holds exposure history that must not be lost: restore it (git, Time Machine) or repair it by hand before anything is packaged, scored or reserved."
+            case .notWritten(let file, let why):
+                return "Exposure could not be recorded in \(file.path) (\(why)). The operation is treated as failed so no use goes unrecorded; free space or fix permissions and run it again."
             }
         }
     }
@@ -472,23 +475,25 @@ enum ExposureLog {
     /// A video renamed (moved to another card) keeps its history: every row
     /// under the old name is duplicated under the new one. Old rows stay, so
     /// an older manifest still joins. Fails the same way `record` does.
-    static func rename(_ old: String, to new: String, in projectDir: URL, now: Date = Date()) {
-        guard old != new, let logged = try? readStrict(in: projectDir), let seeded = try? readSeedStrict(in: projectDir) else { return }
-        let rows = logged + seeded
+    /// Throws when the history can't be read or written; the caller must then
+    /// keep the old session rather than lose its record.
+    static func rename(_ old: String, to new: String, in projectDir: URL, now: Date = Date()) throws {
+        guard old != new else { return }
+        let rows = try readStrict(in: projectDir) + readSeedStrict(in: projectDir)
         let grouped = Dictionary(grouping: rows.filter { $0.video == old }, by: \.kind)
         for (kind, group) in grouped {
             for row in group {
-                record(videos: [new], kind: kind, ref: row.ref, note: (row.note.map { $0 + "; " } ?? "") + "carried from \(old)", in: projectDir, now: now)
+                try record(videos: [new], kind: kind, ref: row.ref, note: (row.note.map { $0 + "; " } ?? "") + "carried from \(old)", in: projectDir, now: now)
             }
         }
     }
 
     /// Append one use for each video (duplicates of an identical row are dropped).
-    /// Failures are reported on stderr, never thrown: the export or score run
-    /// must not fail because the bookkeeping did. An unreadable existing log is
-    /// never overwritten — the new rows are written to a sidecar instead so
-    /// nothing is lost either way.
-    static func record(videos: Set<String>, kind: ExposureRecord.Kind, ref: String, note: String?, in projectDir: URL, now: Date = Date()) {
+    /// An unreadable existing log is never overwritten — the new rows go to a
+    /// sidecar instead, so nothing is lost either way. A write failure throws:
+    /// a use that can't be recorded must fail the operation that caused it,
+    /// or the video could later pass as unseen.
+    static func record(videos: Set<String>, kind: ExposureRecord.Kind, ref: String, note: String?, in projectDir: URL, now: Date = Date()) throws {
         guard !videos.isEmpty else { return }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
@@ -523,7 +528,7 @@ enum ExposureLog {
             try encoder.encode(all).write(to: target, options: .atomic)
             for sidecar in mergedSidecars { try? FileManager.default.removeItem(at: sidecar) }
         } catch {
-            FileHandle.standardError.write(Data("⚠️ exposure log not written (\(error.localizedDescription)); run --manifest after fixing manifests/\n".utf8))
+            throw LogError.notWritten(target, error.localizedDescription)
         }
     }
 }

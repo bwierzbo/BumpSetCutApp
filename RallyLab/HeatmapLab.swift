@@ -193,8 +193,14 @@ final class HeatmapLab {
             log("❌ Couldn't write the scores: \(error.localizedDescription)")
         }
         // Every clip in this test set has now been used for model selection (D-002 exposure).
-        ExposureLog.record(videos: Set(jobs.map(\.clip)), kind: .testSetScoring, ref: export.lastPathComponent,
-                           note: "\(results.count) model(s) compared", in: sampler.datasetRoot)
+        do {
+            try ExposureLog.record(videos: Set(jobs.map(\.clip)), kind: .testSetScoring, ref: export.lastPathComponent,
+                                   note: "\(results.count) model(s) compared", in: sampler.datasetRoot)
+        } catch {
+            scoringLine = error.localizedDescription
+            log("❌ " + scoringLine)
+            return false
+        }
         if export == testSets.first { leaderboard = scores }
         TestSetScore.lines(scores).forEach(log)
         scoringLine = "Scored \(results.count) models on \(export.lastPathComponent)"
@@ -239,6 +245,17 @@ final class HeatmapLab {
     func renderVideo(session name: String, rally: TrackedRally) {
         guard !isBusy, let model = selected,
               let session = sampler.sessions.first(where: { $0.name == name }) else { return }
+        // Running a model over reserved footage is exposure (D-002): refuse, fail closed, log the use.
+        do {
+            if try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot).contains(name) {
+                status = "⛔ \(name) is reserved as final_test (D-002) — not rendered."
+                return
+            }
+            try ExposureLog.record(videos: [name], kind: .detectorEvaluation, ref: "render " + model.name, note: nil, in: sampler.datasetRoot)
+        } catch {
+            status = "❌ \(error.localizedDescription)"
+            return
+        }
         isBusy = true
         let out = sampler.datasetRoot.appendingPathComponent("exports/videos", isDirectory: true)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
