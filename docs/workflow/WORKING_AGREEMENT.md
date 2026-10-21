@@ -49,7 +49,7 @@ A PR is ready for review when every applicable row has evidence pasted or linked
 
 | Change touches | Required evidence |
 |---|---|
-| Code or build inputs (Swift, Python, scripts, `project.pbxproj`, assets, models) | `scripts/build.sh auto` succeeded on the branch head — both targets when shared-pipeline files changed, otherwise only the affected target (untouched targets need not rebuild, per `CLAUDE.md`); unit suite result with counts, or "not run" with the reason |
+| Code or build inputs (Swift, Python, scripts, `project.pbxproj`, assets, models) | A build on the branch head whose target choice comes from the **whole PR diff**, not the last commit: list it with `git diff --name-only $(git merge-base origin/main HEAD) HEAD`; if any file in RallyLab's `membershipExceptions` (shared pipeline) or any `.mlpackage` appears anywhere in that list, run `scripts/build.sh both`; if only `RallyLab/` files, `scripts/build.sh mac`; otherwise `scripts/build.sh ios`. `scripts/build.sh auto` inspects only the working tree or `HEAD~1..HEAD`, so on a multi-commit branch it is not sufficient evidence by itself. Untouched targets need not rebuild (`CLAUDE.md`). Unit suite result with counts, or "not run" with the reason |
 | Documentation or agent-instruction files only | Build and tests recorded as "not run — no code changed"; relative-link check passes |
 | Scoring, replay, `SegmentBuilder`, `RallyDecider`, tuner | Scorer fixture tests and replay-vs-`VideoProcessor` parity test pass |
 | Dataset, labels, manifests, splits | Leakage audit output; label provenance counts (reviewed vs legacy); hashes of the manifest/split used |

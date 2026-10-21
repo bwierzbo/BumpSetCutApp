@@ -134,8 +134,18 @@ And from the Mac on the LAN: `scripts/desktop_training/desktop.sh status` (read-
 
 Versioned, checksummed, one direction at a time.
 
-- **Footage manifest.** `D:\RallyLabFootage\<project>\footage\manifest.json` (relative path, size, SHA-256, `addedAt`, `sourceId`), generated on the desktop, committed under `docs/ml-roadmap/manifests/` so every evaluation names its footage version by hash.
-- **Pull to the Mac** for evaluations that need video: `scp -r` or rsync over `bens-desktop` (rsync needs an rsync binary on Windows), then `shasum -a 256 -c` against the manifest. Copies are transient unless the owner says otherwise.
+- **Footage manifest.** Two files generated together on the desktop and committed under `docs/ml-roadmap/manifests/<project>-footage-<date>/`: `manifest.json` (relative path, size, SHA-256, `addedAt`, `sourceId`) for tooling, and `SHA256SUMS` in `shasum` format (`<sha256 lower-case>  <relative path>`, two spaces, forward slashes) so the copy can be verified with the standard tool. PowerShell to produce both:
+  ```powershell
+  $root = 'D:\RallyLabFootage\Scratch\footage'
+  $rows = Get-ChildItem $root -File -Recurse | ForEach-Object {
+    $rel = $_.FullName.Substring($root.Length + 1) -replace '\\','/'
+    [pscustomobject]@{ path = $rel; size = $_.Length; sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); addedAt = $_.CreationTimeUtc.ToString('o') }
+  }
+  $rows | ConvertTo-Json -Depth 2 | Set-Content "$root\manifest.json"
+  $rows | ForEach-Object { "$($_.sha256)  $($_.path)" } | Set-Content -Encoding ascii "$root\SHA256SUMS"
+  ```
+  Every evaluation names its footage version by the SHA-256 of `manifest.json`.
+- **Pull to the Mac** for evaluations that need video: `scp -r` or rsync over `bens-desktop` (rsync needs an rsync binary on Windows), then verify from inside the destination folder with `shasum -a 256 -c SHA256SUMS` (the `shasum -c` input must be `shasum` output format, which `SHA256SUMS` is; `manifest.json` is not consumable by `shasum`). Copies are transient unless the owner says otherwise.
 - **Push to the desktop** (training packages, val exports): `desktop.sh train/queue` as today, plus a SHA-256 check on arrival recorded in the experiment record.
 - **Fetch results**: `desktop.sh fetch NAME --no-score`, hash on arrival, register in the [experiment registry](../ml-roadmap/EXPERIMENT_REGISTRY.md).
 - **Never** two editable copies of annotations. The desktop receives label exports with a hash, read-only.
