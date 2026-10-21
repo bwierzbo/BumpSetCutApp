@@ -76,7 +76,7 @@ The 16 lineage-holdout recordings have **no reviewed ball labels and no rally ma
 | Code SHA · trainer SHA-256 · model source commit | not fixed (filled at approval: repo SHA, `shasum -a 256 scripts/desktop_training/train_heatmap_model.py`, `VBALLNET_COMMIT`) |
 | Hardware | `bens-desktop` (Windows, NVIDIA GPU — model and driver recorded by `desktop.sh status` at start) |
 | Versions | python, torch, CUDA, opencv, numpy, onnx, coremltools: recorded from the training machine's `.venv` at start; not fixed |
-| Package transfer | zip sent by `desktop.sh`; **the digest in `l2-manifest.json` is recomputed on the desktop before training** (`find prepared/<pkg> -type f \| sort \| sha256sum`-equivalent) and must match |
+| Package transfer | zip sent by `desktop.sh`; **the digest in `l2-manifest.json` is recomputed on the desktop before training and must match.** The digest covers every file except `l2-manifest.json` itself (a record cannot hold its own hash): in the unpacked folder, `find . -type f ! -name l2-manifest.json -print0 \| LC_ALL=C sort -z \| xargs -0 shasum -a 256 \| shasum -a 256` (PowerShell equivalent on the desktop), compared with `preflight.digest`; each payload file's SHA-256 is also in `preflight.files` |
 | Artefacts | `bring_back/<name>/{best.pt,best.onnx,metrics.json}` hashed; the converted `.mlpackage` canonical digest (`pkgdigest`) recorded at `--add-heat` |
 
 ## 10. Success, failure and limitations

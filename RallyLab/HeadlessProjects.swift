@@ -804,7 +804,11 @@ enum HeadlessProjects {
 
         let store = projects.sampler.store
         let sessions = projects.sampler.sessions.filter { plan.eligibleNames.contains($0.name) }
-        let protected = LineagePackage.protectedFrameHashes(sessions: projects.sampler.sessions, withheld: plan.withheldNames, store: store)
+        let protected: Set<String>
+        do { protected = try LineagePackage.protectedFrameHashes(sessions: projects.sampler.sessions, withheld: plan.withheldNames, store: store) } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
         let name = "\(dir.lastPathComponent)-\(LineagePackage.lineage)"
         do {
             let result = try await Task.detached(priority: .userInitiated) {

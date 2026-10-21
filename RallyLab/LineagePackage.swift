@@ -9,7 +9,10 @@
 //  provisional candidate, lineage holdout, legacy holdout) or shares a
 //  confirmed identity with one is absent from the package — no frame, no
 //  window, no folder — and a preflight audit of the written package proves
-//  it before the zip exists. Any failed check removes the package.
+//  it before the zip exists. Any failed check removes the package. The
+//  record's digest and file list cover everything but l2-manifest.json
+//  itself (a record cannot hold its own hash): verify a package by hashing
+//  it with that one file left out.
 //
 //  The project's own data.yaml (images/train, images/val) is NOT a lineage
 //  dataset: it knows nothing of reservations. A lineage trains only from a
@@ -179,9 +182,12 @@ enum LineagePackage {
         var passed: Bool
         var checks: [Check]
         var clips: [ClipRow]
-        /// Every regular file in the package, in canonical order, with its SHA-256.
+        /// Every regular file in the package except `l2-manifest.json` (the record cannot hold its
+        /// own hash), in canonical order, with its SHA-256.
         var files: [FileHash]
-        /// The canonical directory digest of `files` (same formula as the manifest's `sessions` digest).
+        /// The canonical directory digest of `files` (same formula as the manifest's `sessions`
+        /// digest, over the package with `l2-manifest.json` removed). Stable whether or not the
+        /// record has been written: verify with the same exclusion.
         var digest: String
         var windowsSha256: String?
     }
@@ -191,6 +197,7 @@ enum LineagePackage {
         case malformedWindow(Int)
         case failed([String])
         case unreadable(String)
+        case protectedFrameUnreadable(String)
 
         var errorDescription: String? {
             switch self {
@@ -198,6 +205,7 @@ enum LineagePackage {
             case .malformedWindow(let line): return "windows.jsonl line \(line) has no clip, split and frames."
             case .failed(let names): return "Preflight failed: \(names.joined(separator: ", ")). The package was removed."
             case .unreadable(let p): return "Couldn't hash \(p)."
+            case .protectedFrameUnreadable(let p): return "A withheld recording's frame can't be read: \(p). Without every protected frame's hash the content check would be incomplete, so nothing is packaged."
             }
         }
     }
@@ -264,10 +272,11 @@ enum LineagePackage {
         var stray: [String] = [], protected: [String] = [], missing: [String] = []
         var present = Set<String>()
         for (path, sha, bytes) in hashed {
-            files.append(FileHash(path: path, sha256: sha, bytes: bytes))
             present.insert(path)
             let parts = path.split(separator: "/").map(String.init)
             let own = topLevelFiles.contains(path) && parts.count == 1
+            if path == recordFile && parts.count == 1 { continue }   // allowed, never hashed into its own record
+            files.append(FileHash(path: path, sha256: sha, bytes: bytes))
             let frame = parts.count == 3 && parts[0] == "frames" && eligibleBySafe[parts[1]].map { windowsByClip[$0] != nil } == true
                 && !withheldSafe.contains(parts[1])
             if !(own || frame) { stray.append(path) }
@@ -286,7 +295,7 @@ enum LineagePackage {
         check("both-splits-present", splits.isSuperset(of: ["train", "val"]) ? [] : ["have: " + splits.sorted().joined(separator: ",")],
               ok: "train and val windows present")
 
-        let digest = DatasetSplitManifest.canonicalDigest(lines: hashed.map { ($0.path, $0.sha256) })
+        let digest = DatasetSplitManifest.canonicalDigest(lines: files.map { ($0.path, $0.sha256) })
         let clips = windowsByClip.keys.sorted().map { clip in
             ClipRow(clip: clip, packageSplit: windowsByClip[clip]!.split.sorted().joined(separator: "+"),
                     windows: windowsByClip[clip]!.windows, frames: windowsByClip[clip]!.frames.count)
@@ -297,11 +306,15 @@ enum LineagePackage {
     }
 
     /// SHA-256 of every frame image the dataset holds for the withheld recordings, kept or parked.
-    static func protectedFrameHashes(sessions: [VideoSession], withheld: Set<String>, store: DatasetStore) -> Set<String> {
+    /// Throws when any of them can't be read: an incomplete reference set would let the content
+    /// check pass without proving anything.
+    static func protectedFrameHashes(sessions: [VideoSession], withheld: Set<String>, store: DatasetStore) throws -> Set<String> {
         var hashes = Set<String>()
         for session in sessions where withheld.contains(session.name) {
             for frame in session.frames {
-                if let h = DatasetSplitManifest.sha256(of: store.currentImageURL(for: frame)) { hashes.insert(h) }
+                let url = store.currentImageURL(for: frame)
+                guard let h = DatasetSplitManifest.sha256(of: url) else { throw PreflightError.protectedFrameUnreadable(url.path) }
+                hashes.insert(h)
             }
         }
         return hashes

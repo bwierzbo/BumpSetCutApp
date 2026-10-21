@@ -82,7 +82,7 @@ is never done (selection, tuning, repeated looks). How the exposure ledger row i
 | Code SHA (repo) · trainer script SHA-256 · model source commit | |
 | Hardware (machine, GPU, driver) · OS | |
 | Python · torch · CUDA · opencv · numpy · onnx · coremltools versions | |
-| Package transfer and verification (digest re-checked on the training machine) | |
+| Package transfer and verification (digest re-checked on the training machine: canonical digest of the unpacked folder **with `l2-manifest.json` left out**, compared with `preflight.digest`) | |
 | Run folder and artefact hashes (best.pt, best.onnx, metrics.json, .mlpackage canonical digest) | |
 
 ## 10. Success, failure and limitations
