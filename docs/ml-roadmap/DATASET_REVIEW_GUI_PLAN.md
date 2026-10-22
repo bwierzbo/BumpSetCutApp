@@ -73,7 +73,7 @@ Shared by C3/C4: side-by-side preview (legacy vs proposed mark on the timeline; 
 |---|---|---|---|
 | G0 | protocol/plan docs (this page, #80) | no | now |
 | G1 | C1 event review tool + `rallyevents.json` + refusal + tests | yes | export done |
-| G1b | protected-holdout refusal for routine scoring commands (`lineageWithheldNames` + auditable exception flag) | yes | export done; small, independent of G1 |
+| G1b | protected-holdout refusal for routine scoring commands (`lineageWithheldNames` + auditable exception flag), **including `--score-heat` / `HeatmapLab.scoreTestSet` and `desktop.sh fetch`, which today scores every model on the newest validation export (it holds the five legacy-holdout clips) unless `--no-score` is passed** | yes | export done; small, independent of G1; **before any L2 artefact is fetched without `--no-score`** |
 | G2 | C2 health queue (read-only) + `--dataset-health` | yes | G1 |
 | G3 | C4 correction log + apply with backups; first type = dangling records (H-1) | yes | G2; owner approves the first apply explicitly |
 | G4 | C5 identity/leakage view + what-if | yes | G2 |
