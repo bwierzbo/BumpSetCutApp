@@ -2,7 +2,7 @@
 name: decision-log
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-10-21T20:19:11Z
+updated: 2026-10-22T02:29:29Z
 ---
 
 # Decision log
@@ -34,7 +34,8 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-017](#d-017) | 2026-10-21 | accepted | Model-lineage holdout: the seven candidates and their nine related recordings (16) are withheld from all future training as `lineageHoldout`; historical exposure kept; never the final test; new lineages preregister before evaluating on it |
 | [D-018](#d-018) | 2026-10-21 | accepted | L2 dataset isolation: a manifest-generated lineage package with preflight audit and file hashes (`--package-l2`), the project `data.yaml` unsupported for L2; mandatory preregistration from a fixed template, independent initialisation, no holdout use in selection |
 | [D-019](#d-019) | 2026-10-21 | accepted | PR #73 merged; L2 recipe approved (768, colour, 60 epochs, seed 20261021) with amendments: H1 becomes a paired comparison with the L1 checkpoint on the same val windows, label provenance stated, one seed only; legacy holdout confirmed out of L2; training and holdout evaluation still need separate authorisation |
-| [D-020](#d-020) | 2026-10-22 | accepted | Scoring contract v1 accepted: excluded time masked with separate diagnostics, false clips per exported segment with delivered dead/excluded time split, no dead-time claims on partially marked footage, 0.98 completeness provisional, merged rallies tracked; Dataset Review & Repair GUI approved (C1 first; explicit logged backed-up applies; trim = derived recording inheriting its parent's restrictions; protected recordings refused by default, legacy-holdout exceptions authorised + ledgered, lineage holdout separately gated); 54 dangling records not cleaned up |
+| [D-020](#d-020) | 2026-10-22 | proposed | Configuration management: controlled documents and records are registered configuration items (living / append-only / frozen), checked on every PR by a read-only `ci-impact` workflow; approval stays the owner's explicit authorisation and merge |
+| [D-021](#d-021) | 2026-10-22 | accepted | Scoring contract v1 accepted: excluded time masked with separate diagnostics, false clips per exported segment with delivered dead/excluded time split, no dead-time claims on partially marked footage, 0.98 completeness provisional, merged rallies tracked; Dataset Review & Repair GUI approved (C1 first; explicit logged backed-up applies; trim = derived recording inheriting its parent's restrictions; protected recordings refused by default, legacy-holdout exceptions authorised + ledgered, lineage holdout separately gated); 54 dangling records not cleaned up |
 
 ---
 
@@ -246,8 +247,19 @@ The authoritative record of product, architecture, data and process decisions fo
 
 **Amendment (owner, via independent review, 2026-10-22).** (a) **H1 is exploratory for this first experiment**: "paired 90 % interval not entirely below zero" is not a non-inferiority test; ΔF1 and its interval are reported, an interval that includes zero is *not* evidence of equivalence, and a non-inferiority margin may only be used if justified and preregistered before any L2 result is seen. The L1 checkpoint's selection exposure and the small sample stay explicit. (b) Resampling must not treat related video variants as independent: `paired_compare.py --manifest` also resamples **recording groups** (one clip card, alias group, confirmed session or venue, or uploader → one unit); among the 13 val recordings there are 5 such groups. (c) Dangling protected frame records are documented, not fatal; unreadable existing content stays fatal (as merged in PR #76). (d) `ProjectsModel.fileFingerprint` (size + first/last 4 MB, optional reads) is a weaker guarantee than the rest of the preflight: a **strict full-file source verification** is proposed as a separate reviewed change — [L2_SOURCE_VERIFICATION_PROPOSAL.md](../ml-roadmap/L2_SOURCE_VERIFICATION_PROPOSAL.md), which also reconciles the protected-content inventory (closure 21 = recomputed; 452 files = 425 record files + 27 orphans; 54 dangling). (e) The running export is not changed or restarted; the training gate is unchanged.
 
-
 ### D-020
+
+**Configuration management of engineering documents and records** — 2026-10-22 — proposed — implementer, from the owner's approved proposal and decisions of 2026-10-22; acceptance is the owner's.
+
+**Decision.** Controlled documents, records and product artefacts are configuration items registered in `docs/config-items.toml` (TOML, schema 1, standard-library parsing): individual items for important records, families for recurring artefacts. Each has a stable id, type, lifecycle, change class (`living`, `append-only`, `frozen`), approval policy, source dependencies and update triggers; revision metadata is derived from git, never stored. Frozen records are never edited and are corrected by superseding records; decision-log entries are append-only with controlled status transitions. `scripts/ci_check.py` enforces this from the base revision's rules, run by a read-only `pull_request` workflow. Errors: invalid registry, frozen-record changes, unauthorised historical entry edits. Warnings to start: watched paths without an update, unregistered documents; promotion after about five representative PRs. The PR's approval-request list is a request; approval is the owner's explicit authorisation and merge, never inferred from a passing check or review.
+
+**Context.** Decisions, lineages, manifests and audits accumulated quickly (D-001 … D-019) with history protected only by review attention; read-only dashboards need a machine-readable inventory.
+
+**Consequences.** New: the registry, the checker and its tests, `.github/workflows/ci-impact.yml`, [CONFIGURATION_MANAGEMENT.md](../workflow/CONFIGURATION_MANAGEMENT.md), [ROADMAP_AMENDMENTS.md](../ml-roadmap/ROADMAP_AMENDMENTS.md) (the 2026-10-20 roadmap is frozen with its existing notes). Updated: PR template, working agreement (step 9, review gate, sources of truth), `AGENTS.md` rule 9, `CLAUDE.md`, docs index. No app, pipeline, dataset or training change.
+
+**Source.** Owner decisions on the configuration-management proposal, 2026-10-22 (delivered to Claude Code; decisions 1–8 and amendments A–F).
+
+### D-021
 
 **Scoring contract v1 accepted; Dataset Review & Repair GUI approved for implementation planning** — 2026-10-22 — accepted — owner (via independent review). Source: [owner note, verbatim](2026-10-22-scoring-and-gui-decisions.md).
 

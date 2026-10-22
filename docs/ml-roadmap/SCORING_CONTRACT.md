@@ -1,6 +1,6 @@
 ---
 name: scoring-contract
-status: accepted v1 (owner decisions 2026-10-22, D-020); Swift implementation and tests follow after the L2 export
+status: accepted v1 (owner decisions 2026-10-22, D-021); Swift implementation and tests follow after the L2 export
 created: 2026-10-22T02:30:00Z
 updated: 2026-10-22T02:30:00Z
 ---

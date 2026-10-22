@@ -42,12 +42,36 @@ Dataset / split / model versions used (if any): <!-- manifest sha, split id, mod
 
 <!-- Behaviour changes a user or the pipeline could see; how to revert. "None" needs a sentence of why. -->
 
-## Documentation
+## Documentation and configuration items
+
+<!-- docs/workflow/CONFIGURATION_MANAGEMENT.md. Frozen records are never edited; historical decision entries change only by a status transition. -->
 
 - [ ] Decision log updated (`docs/decisions/DECISION_LOG.md`) or n/a
 - [ ] Experiment registry updated (`docs/ml-roadmap/EXPERIMENT_REGISTRY.md`) or n/a
 - [ ] `CLAUDE.md` / rules updated or n/a
 - [ ] Docs index (`docs/README.md`) links any new document
+- [ ] New controlled documents registered in `docs/config-items.toml` (or covered by a family)
+
+| CI / family member | Change (updated · new · superseded · waived) | Owner approval needed |
+|---|---|---|
+| | | |
+
+Waivers, one per line, with a reason: `CI-BSC-NNN: no update needed — <reason>`
+
+### Owner approval requested
+
+<!-- CI ids, family-member paths in backticks, and D-NNN status transitions this PR asks the owner to authorise. A request, not an authorisation. "none" if none. -->
+
+-
+
+`scripts/ci_check.py` output (`python3 scripts/ci_check.py --base origin/main --pr-body-file <this body>`):
+
+<details><summary>ci_check</summary>
+
+```
+```
+
+</details>
 
 ## Outstanding issues
 

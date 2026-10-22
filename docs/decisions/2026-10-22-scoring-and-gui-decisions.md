@@ -6,7 +6,7 @@ updated: 2026-10-22T04:54:05Z
 source: owner, via independent review, delivered to Claude Code on 2026-10-22
 ---
 
-> Verbatim record of the owner's decisions on the scoring contract (PR #79) and the Dataset Review & Repair GUI (PR #82). The normalised entry is [D-020](DECISION_LOG.md#d-020). This file is the primary source; do not edit it.
+> Verbatim record of the owner's decisions on the scoring contract (PR #79) and the Dataset Review & Repair GUI (PR #82). The normalised entry is [D-021](DECISION_LOG.md#d-021). This file is the primary source; do not edit it.
 
 Independent review — BumpSetCut scoring and RallyLab GUI
 

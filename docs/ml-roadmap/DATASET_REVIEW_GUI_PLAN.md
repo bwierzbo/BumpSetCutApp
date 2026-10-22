@@ -1,6 +1,6 @@
 ---
 name: dataset-review-gui-plan
-status: approved for implementation planning (owner decisions 2026-10-22, D-020): C1 first, then the health queue, then controlled corrections; no code until the L2 export completes
+status: approved for implementation planning (owner decisions 2026-10-22, D-021): C1 first, then the health queue, then controlled corrections; no code until the L2 export completes
 created: 2026-10-22T03:30:00Z
 updated: 2026-10-22T03:30:00Z
 ---

@@ -1,0 +1,603 @@
+# Configuration-item registry — BumpSetCut / RallyLab (schema 1)
+#
+# Lists the documents, records and assets whose changes are controlled.
+# Procedure: docs/workflow/CONFIGURATION_MANAGEMENT.md. Check: scripts/ci_check.py.
+#
+# Revision metadata (last commit, PR, blob id, SHA-256, freshness) is never
+# stored here; it is derived from git history. Do not add machine paths,
+# credentials or private notes: this repository is public.
+#
+# Fields
+#   id             stable, never reused or renumbered (CI-BSC-NNN items, CF-BSC-NNN families)
+#   type           see TYPES in scripts/ci_check.py
+#   lifecycle      planned | draft | active | historical | superseded | retired
+#   change_class   living (edited as the work changes) | append-only (new entries only;
+#                  status transitions are controlled) | frozen (never edited; superseded instead)
+#   approval       owner (each change needs the owner's explicit authorisation) | none
+#   maintainer     owner | implementer (who keeps it current)
+#   sources        what it is derived from: CI/CF ids or repository paths/globs
+#   triggers       globs whose change should prompt a review of this item (update triggers)
+#   generated_by   the command that regenerates it; hand edits are flagged
+#   frozen_sha256  SHA-256 of the file's bytes (not the git blob id), pinned at registration
+#   decisions / experiments   D-NNN / EXP-YYYYMMDD-slug references
+# Families govern every file matching `patterns` that no item registers.
+# A family's `freeze_when` freezes a member once its frontmatter field matches.
+
+schema = 1
+project = "BumpSetCut"
+item_prefix = "CI-BSC"
+family_prefix = "CF-BSC"
+controlled_roots = ["docs/", "legal/", "marketing/"]
+
+# ---------------------------------------------------------------- process
+
+[[item]]
+id = "CI-BSC-001"
+name = "Configuration-item registry"
+type = "registry"
+path = "docs/config-items.toml"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+decisions = []
+triggers = []
+notes = "Changing a record's class, pin or coverage is checked against the base revision."
+
+[[item]]
+id = "CI-BSC-002"
+name = "Configuration management procedure"
+type = "process"
+path = "docs/workflow/CONFIGURATION_MANAGEMENT.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+sources = ["CI-BSC-001", "scripts/ci_check.py"]
+triggers = ["scripts/ci_check.py", ".github/workflows/ci-impact.yml"]
+
+[[item]]
+id = "CI-BSC-003"
+name = "Working agreement"
+type = "process"
+path = "docs/workflow/WORKING_AGREEMENT.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+decisions = ["D-005", "D-014"]
+
+[[item]]
+id = "CI-BSC-004"
+name = "Independent review procedure (Codex, ChatGPT fallback)"
+type = "process"
+path = "docs/workflow/CHATGPT_REVIEW.md"
+lifecycle = "active"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+decisions = ["D-014"]
+triggers = ["AGENTS.md"]
+
+[[item]]
+id = "CI-BSC-005"
+name = "Pull request template"
+type = "template"
+path = ".github/PULL_REQUEST_TEMPLATE.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+sources = ["CI-BSC-003"]
+triggers = ["docs/workflow/WORKING_AGREEMENT.md"]
+
+[[item]]
+id = "CI-BSC-006"
+name = "Agent instructions — Codex (AGENTS.md)"
+type = "agent-instructions"
+path = "AGENTS.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+sources = ["CI-BSC-003"]
+triggers = ["docs/workflow/WORKING_AGREEMENT.md"]
+
+[[item]]
+id = "CI-BSC-007"
+name = "Agent instructions — Claude Code (CLAUDE.md)"
+type = "agent-instructions"
+path = "CLAUDE.md"
+lifecycle = "active"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+sources = ["CI-BSC-003"]
+triggers = ["docs/workflow/WORKING_AGREEMENT.md", "scripts/build.sh"]
+
+[[item]]
+id = "CI-BSC-008"
+name = "Documentation index"
+type = "index"
+path = "docs/README.md"
+lifecycle = "active"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+
+# ---------------------------------------------------------------- decisions
+
+[[item]]
+id = "CI-BSC-010"
+name = "Decision log"
+type = "decision-log"
+path = "docs/decisions/DECISION_LOG.md"
+lifecycle = "active"
+change_class = "append-only"
+approval = "owner"
+maintainer = "implementer"
+entry_pattern = '^### (D-\d{3})\s*$'
+status_pattern = '^\*\*.+?\*\* — \d{4}-\d{2}-\d{2} — (?P<status>.+?) — '
+status_note_pattern = '^\*\*(?:Status \d{4}-\d{2}-\d{2}|Amendment \([^)]*\d{4}-\d{2}-\d{2}\))\.\*\*'
+triggers = ["docs/decisions/????-??-??-*.md"]
+notes = "The preamble and index table are living; entries are append-only. A status change on an entry's title line, or an appended dated '**Status YYYY-MM-DD.**' or '**Amendment (…, YYYY-MM-DD).**' paragraph, is a controlled change that must be listed under 'Owner approval requested'."
+
+[[item]]
+id = "CI-BSC-011"
+name = "Owner decisions 2026-10-20, Phase 0 (verbatim)"
+type = "decision-record"
+path = "docs/decisions/2026-10-20-phase0-owner-decisions.md"
+lifecycle = "historical"
+change_class = "frozen"
+approval = "owner"
+maintainer = "owner"
+decisions = ["D-001", "D-002", "D-003", "D-004", "D-005", "D-006", "D-007", "D-008", "D-009", "D-010"]
+frozen_sha256 = "f95ab69905d0b09ce47dd68e1c80fd5ec715bbf21b851bb9c9264a63ae75e3ec"
+
+[[item]]
+id = "CI-BSC-012"
+name = "Owner decisions 2026-10-21, Task B.1 (verbatim)"
+type = "decision-record"
+path = "docs/decisions/2026-10-21-task-b1-owner-decisions.md"
+lifecycle = "historical"
+change_class = "frozen"
+approval = "owner"
+maintainer = "owner"
+decisions = ["D-015"]
+frozen_sha256 = "3a1a58777b485946bad971ed40f055dca8f5502d08ee08e55c8133bd5006f00c"
+
+[[item]]
+id = "CI-BSC-013"
+name = "Owner decisions 2026-10-21, L2 isolation (verbatim)"
+type = "decision-record"
+path = "docs/decisions/2026-10-21-l2-owner-decisions.md"
+lifecycle = "historical"
+change_class = "frozen"
+approval = "owner"
+maintainer = "owner"
+decisions = ["D-018"]
+frozen_sha256 = "8e5eaf7c967f9d2a9b390cb4752918c2003312dd7f594fd106b32ade1bc4579a"
+
+[[item]]
+id = "CI-BSC-014"
+name = "Owner decisions 2026-10-21, PR #73 and L2 recipe (verbatim)"
+type = "decision-record"
+path = "docs/decisions/2026-10-21-l2-approval-decisions.md"
+lifecycle = "historical"
+change_class = "frozen"
+approval = "owner"
+maintainer = "owner"
+decisions = ["D-019"]
+frozen_sha256 = "606f4be730e5b41641bfe811d5d6a017778d6d6316e248f941505abca3697e54"
+
+[[item]]
+id = "CI-BSC-052"
+name = "Owner decisions 2026-10-22, scoring contract and Dataset Review GUI (verbatim)"
+type = "decision-record"
+path = "docs/decisions/2026-10-22-scoring-and-gui-decisions.md"
+lifecycle = "historical"
+change_class = "frozen"
+approval = "owner"
+maintainer = "owner"
+decisions = ["D-021"]
+frozen_sha256 = "5dee6a8ffdda5b8edffa509efd13fff1150fd43c23264ae885389778b26e6dc2"
+
+[[item]]
+id = "CI-BSC-015"
+name = "Decision entry template"
+type = "template"
+path = "docs/templates/DECISION.md"
+lifecycle = "active"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+
+# ---------------------------------------------------------------- plan and baseline
+
+[[item]]
+id = "CI-BSC-020"
+name = "Revised roadmap 2026-10-20 (owner's wording, with the original inline notes)"
+type = "roadmap"
+path = "docs/ml-roadmap/ROADMAP_REVISED_2026-10-20.md"
+lifecycle = "active"
+change_class = "frozen"
+approval = "owner"
+maintainer = "owner"
+decisions = ["D-001", "D-007"]
+frozen_sha256 = "a2428d45de2e3d4c2e708cc84f0f6d65ed2ef3b35c74ff8507f12a9382d40dc1"
+notes = "Committed once (2c5bdca, PR #65) as the owner's text plus the bracketed [Superseded/Amended by D-NNN] notes. Further amendments go to CI-BSC-021, never into this file."
+
+[[item]]
+id = "CI-BSC-021"
+name = "Roadmap amendments"
+type = "roadmap-amendments"
+path = "docs/ml-roadmap/ROADMAP_AMENDMENTS.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+sources = ["CI-BSC-020", "CI-BSC-010"]
+triggers = ["docs/decisions/DECISION_LOG.md"]
+
+[[item]]
+id = "CI-BSC-022"
+name = "Phase 0 baseline"
+type = "baseline"
+path = "docs/ml-roadmap/BASELINE.md"
+lifecycle = "historical"
+change_class = "frozen"
+approval = "owner"
+maintainer = "implementer"
+decisions = ["D-001", "D-002", "D-003", "D-004", "D-005", "D-006", "D-007", "D-008", "D-009", "D-010"]
+experiments = ["EXP-20261020-phase0-baseline"]
+frozen_sha256 = "d5e1f50e01341cc551ef52d4fd61b14b083a326950580c7a20bebcc34b4398ed"
+
+[[item]]
+id = "CI-BSC-023"
+name = "Hybrid Mac/Windows plan"
+type = "plan"
+path = "docs/workflow/HYBRID_MAC_WINDOWS_PLAN.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+decisions = ["D-003"]
+triggers = ["scripts/desktop_training/desktop.sh", "scripts/desktop_training/queue_runner.ps1"]
+
+[[item]]
+id = "CI-BSC-024"
+name = "Footage share proposal"
+type = "plan"
+path = "docs/workflow/FOOTAGE_SHARE.md"
+lifecycle = "draft"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+decisions = ["D-003", "D-019"]
+triggers = ["scripts/footage_share/**"]
+
+# ---------------------------------------------------------------- models, experiments, data
+
+[[item]]
+id = "CI-BSC-030"
+name = "Model lineages (L1 historical, L2 planned)"
+type = "model-lineage"
+path = "docs/ml-roadmap/MODEL_LINEAGES.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+decisions = ["D-016", "D-017", "D-018", "D-019"]
+experiments = ["EXP-20261021-lineage-cut"]
+triggers = ["RallyLab/LineagePackage.swift", "BumpSetCut/Resources/ML/**", "scripts/desktop_training/train_heatmap_model.py"]
+
+[[item]]
+id = "CI-BSC-031"
+name = "Experiment registry"
+type = "experiment-registry"
+path = "docs/ml-roadmap/EXPERIMENT_REGISTRY.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+triggers = ["docs/ml-roadmap/experiments/**", "scripts/desktop_training/**", "scripts/train_rally_classifier.py"]
+notes = "Rows change status (planned → done); a done row's measured values are not rewritten (review rule, not yet machine-checked)."
+
+[[item]]
+id = "CI-BSC-032"
+name = "Experiment record template"
+type = "template"
+path = "docs/templates/EXPERIMENT.md"
+lifecycle = "active"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+
+[[item]]
+id = "CI-BSC-033"
+name = "Lineage preregistration template"
+type = "template"
+path = "docs/templates/PREREGISTRATION_L2.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+decisions = ["D-017", "D-018"]
+
+[[item]]
+id = "CI-BSC-034"
+name = "Provenance audit 2026-10-21 (Task B.1)"
+type = "audit"
+path = "docs/ml-roadmap/PROVENANCE_AUDIT_2026-10-21.md"
+lifecycle = "historical"
+change_class = "frozen"
+approval = "owner"
+maintainer = "implementer"
+decisions = ["D-002", "D-009", "D-015"]
+experiments = ["EXP-20261021-provenance-manifest", "EXP-20261021-b1-decisions"]
+frozen_sha256 = "09415750abde506de6f833c6269e1222ac8f30eaa030ee93197f85e5892181a8"
+notes = "Its five decisions were answered by D-015; its frontmatter status still reads 'awaiting owner decisions' and is kept as written. Newer audits are new files (CF-BSC-004)."
+
+[[item]]
+id = "CI-BSC-035"
+name = "Provenance questions 2026-10-21"
+type = "owner-questions"
+path = "docs/ml-roadmap/PROVENANCE_QUESTIONS_2026-10-21.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+decisions = ["D-015", "D-016"]
+notes = "Living while Q4 stays deferred to the D-007 tuning work."
+
+[[item]]
+id = "CI-BSC-036"
+name = "Visual provenance review procedure"
+type = "process"
+path = "docs/ml-roadmap/PROVENANCE_REVIEW_2026-10-21.md"
+lifecycle = "active"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+decisions = ["D-016", "D-017"]
+triggers = ["scripts/provenance_review.py"]
+
+# ---------------------------------------------------------------- product and release (milestone 4 groundwork)
+
+[[item]]
+id = "CI-BSC-040"
+name = "Privacy policy"
+type = "legal-disclosure"
+path = "legal/PRIVACY_POLICY.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "owner"
+sources = ["CI-BSC-044"]
+triggers = ["BumpSetCut/PrivacyInfo.xcprivacy", "BumpSetCut/Info.plist", "supabase/migrations/**"]
+
+[[item]]
+id = "CI-BSC-041"
+name = "Terms of service"
+type = "legal-disclosure"
+path = "legal/TERMS_OF_SERVICE.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "owner"
+triggers = ["BumpSetCut/Resources/Configuration.storekit"]
+
+[[item]]
+id = "CI-BSC-042"
+name = "Community guidelines"
+type = "legal-disclosure"
+path = "legal/COMMUNITY_GUIDELINES.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "owner"
+
+[[item]]
+id = "CI-BSC-043"
+name = "Legal documents deployment instructions"
+type = "process"
+path = "legal/DEPLOYMENT_INSTRUCTIONS.md"
+lifecycle = "active"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+triggers = ["legal/PRIVACY_POLICY.md", "legal/TERMS_OF_SERVICE.md"]
+
+[[item]]
+id = "CI-BSC-044"
+name = "App privacy manifest"
+type = "privacy-manifest"
+path = "BumpSetCut/PrivacyInfo.xcprivacy"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+
+[[item]]
+id = "CI-BSC-045"
+name = "Website marketing copy"
+type = "marketing-copy"
+path = "marketing/WEBSITE_CONTENT.md"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "owner"
+triggers = ["BumpSetCut/Resources/Configuration.storekit"]
+
+[[item]]
+id = "CI-BSC-046"
+name = "Subscription configuration (StoreKit)"
+type = "subscription-config"
+path = "BumpSetCut/Resources/Configuration.storekit"
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "owner"
+
+[[item]]
+id = "CI-BSC-047"
+name = "Subscription configuration, UI-test copy"
+type = "subscription-config"
+path = "BumpSetCutUITests/TestData/Configuration.storekit"
+lifecycle = "active"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+sources = ["CI-BSC-046"]
+triggers = ["BumpSetCut/Resources/Configuration.storekit"]
+
+[[item]]
+id = "CI-BSC-048"
+name = "App Store screenshot set"
+type = "app-store-screenshot-set"
+lifecycle = "planned"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+sources = ["BumpSetCutUITests/Tests/ScreenshotTests.swift", "TestPlans/Screenshots.xctestplan"]
+triggers = ["BumpSetCut/Features/**", "BumpSetCut/DesignSystem/**"]
+notes = "Milestone 4: where the generated set lives is decided then; inactive until it has a path."
+
+[[item]]
+id = "CI-BSC-049"
+name = "Release assets (TestFlight and App Store)"
+type = "release-asset"
+lifecycle = "planned"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+sources = ["scripts/rallylab_ios_release.sh", "TESTFLIGHT_GUIDE.md"]
+
+# ---------------------------------------------------------------- visualisation (milestone 3 groundwork)
+
+[[item]]
+id = "CI-BSC-050"
+name = "Roadmap timeline"
+type = "timeline"
+lifecycle = "planned"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+sources = ["CI-BSC-020", "CI-BSC-021", "CI-BSC-010"]
+notes = "Milestone 3: generated from the roadmap, its amendments and the decision log."
+
+[[item]]
+id = "CI-BSC-051"
+name = "Model performance chart"
+type = "model-performance-chart"
+lifecycle = "planned"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+sources = ["CI-BSC-031", "CI-BSC-030"]
+notes = "Milestone 3: generated from measured registry rows only; unmeasured values stay 'not measured'."
+
+# ---------------------------------------------------------------- families
+
+[[family]]
+id = "CF-BSC-001"
+name = "Owner decision notes (verbatim)"
+type = "decision-record"
+patterns = ["docs/decisions/????-??-??-*.md"]
+lifecycle = "active"
+change_class = "frozen"
+approval = "owner"
+maintainer = "owner"
+notes = "A new dated owner note is protected from the moment it merges; important ones are also registered individually with a pinned hash."
+
+[[family]]
+id = "CF-BSC-002"
+name = "Experiment records"
+type = "experiment-record"
+patterns = ["docs/ml-roadmap/experiments/EXP-*.md"]
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+freeze_when = { field = "status", pattern = '^(done|abandoned)\b' }
+triggers = []
+notes = "Living while planned or running; frozen once its frontmatter status is done or abandoned."
+
+[[family]]
+id = "CF-BSC-003"
+name = "Dated dataset records (validation snapshots, source-ID reports, L2 plans, owner answers, exposure seed)"
+type = "validation-record"
+patterns = [
+  "docs/ml-roadmap/manifests/*/validation.*.json",
+  "docs/ml-roadmap/manifests/*/youtube-source-ids-*",
+  "docs/ml-roadmap/manifests/*/l2/**",
+  "docs/ml-roadmap/manifests/*/provenance-review/answers-*.json",
+  "docs/ml-roadmap/manifests/*/exposure-seed.json",
+]
+lifecycle = "active"
+change_class = "frozen"
+approval = "owner"
+maintainer = "implementer"
+
+[[family]]
+id = "CF-BSC-004"
+name = "Current split manifests and dataset audits (generated)"
+type = "dataset-manifest"
+patterns = [
+  "docs/ml-roadmap/manifests/*/manifest.json",
+  "docs/ml-roadmap/manifests/*/manifest.md",
+  "docs/ml-roadmap/manifests/*/audit.json",
+  "docs/ml-roadmap/manifests/*/audit.md",
+]
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+generated_by = "--audit-dataset"
+decisions = ["D-002", "D-009"]
+triggers = ["RallyLab/DatasetAudit.swift", "RallyLab/DatasetSplitManifest.swift", "RallyLab/DatasetStore.swift"]
+
+[[family]]
+id = "CF-BSC-005"
+name = "Provenance review page inputs (generated)"
+type = "validation-record"
+patterns = [
+  "docs/ml-roadmap/manifests/*/provenance-review/mapping.*",
+  "docs/ml-roadmap/manifests/*/provenance-review/groups.json",
+]
+lifecycle = "active"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
+generated_by = "scripts/provenance_review.py"
+
+[[family]]
+id = "CF-BSC-006"
+name = "ML roadmap working documents"
+type = "plan"
+patterns = ["docs/ml-roadmap/*.md"]
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+notes = "Catches proposals and reports not registered individually."
+
+[[family]]
+id = "CF-BSC-007"
+name = "Workflow documents"
+type = "process"
+patterns = ["docs/workflow/*.md"]
+lifecycle = "active"
+change_class = "living"
+approval = "owner"
+maintainer = "implementer"
+
+[[family]]
+id = "CF-BSC-008"
+name = "Templates"
+type = "template"
+patterns = ["docs/templates/*.md"]
+lifecycle = "active"
+change_class = "living"
+approval = "none"
+maintainer = "implementer"
