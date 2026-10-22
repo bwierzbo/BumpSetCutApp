@@ -1,29 +1,34 @@
 #!/usr/bin/expect -f
 # Runs mount_smbfs for one share and answers its own "Password for <server>:" prompt with the
 # PW environment variable (set by mount_shares.sh from the login Keychain). The password is
-# never an argument, never in a file and never echoed (log_user 0). Exit code = mount_smbfs's.
+# never an argument, never in a file and never echoed (log_user 0). Exit code = mount_smbfs's,
+# whether or not it asked: with an SMB session to the server already open (the other share
+# mounted moments before) mount_smbfs reuses it and mounts without a prompt.
 #
 #   expect mount_prompt.exp <account> <server> <share> <mount point> <mount options or "">
+#
+# MOUNT_SMBFS_BIN replaces /sbin/mount_smbfs (tests stand in a script for it).
 set timeout 60
 log_user 0
 lassign $argv account server share point opts
 if {![info exists env(PW)] || $env(PW) eq ""} { puts "$share: PW is not set"; exit 4 }
+set tool [expr {[info exists env(MOUNT_SMBFS_BIN)] ? $env(MOUNT_SMBFS_BIN) : "/sbin/mount_smbfs"}]
 if {$opts eq ""} {
-    spawn /sbin/mount_smbfs "//$account@$server/$share" $point
+    spawn $tool "//$account@$server/$share" $point
 } else {
-    spawn /sbin/mount_smbfs -o $opts "//$account@$server/$share" $point
+    spawn $tool -o $opts "//$account@$server/$share" $point
 }
 # The literal prompt text: a case-insensitive regex did not match it as expect sees it.
+set asked 0
 expect {
-    "Password for" { send -- "$env(PW)\r" }
+    "Password for" { set asked 1; send -- "$env(PW)\r"; exp_continue }
     timeout { puts "$share: no password prompt within $timeout s"; exit 2 }
-    eof { puts "$share: mount_smbfs ended before a prompt"; exit 3 }
+    eof { }
 }
-expect eof
 catch wait result
 set code [lindex $result 3]
 if {$code == 0} {
-    puts "$share: mounted at $point"
+    puts "$share: mounted at $point[expr {$asked ? "" : " (no prompt: an open session was reused)"}]"
 } else {
     # mount_smbfs's own message (the prompt does not echo what was typed; redacted anyway).
     set said [string map [list $env(PW) "<redacted>"] [string trim $expect_out(buffer)]]
