@@ -369,6 +369,64 @@ class FrozenRecords(Base):
         self.assertCode(r, "attention", "SUPERSEDED")
 
 
+class UnfreezeAttempts(Base):
+    """Codex review of PR #81: protections must not be bypassable by registry layering or stale branches."""
+
+    OVERRIDE = textwrap.dedent("""\
+        [[item]]
+        id = "CI-T-020"
+        name = "Older note, re-registered"
+        type = "decision-record"
+        path = "{path}"
+        lifecycle = "active"
+        change_class = "living"
+        approval = "none"
+        """)
+
+    def test_living_item_over_frozen_family_member_is_rejected(self):
+        r = self.check({"docs/config-items.toml": registry(self.OVERRIDE.format(path="docs/decisions/2026-10-19-older.md"))})
+        self.assertCode(r, "error", "REGISTRY-UNFREEZE")
+
+    def test_living_item_over_done_experiment_is_rejected(self):
+        r = self.check({"docs/config-items.toml": registry(self.OVERRIDE.format(path="docs/experiments/EXP-20261020-b.md"))})
+        self.assertCode(r, "error", "REGISTRY-UNFREEZE")
+
+    def test_member_stays_frozen_even_if_such_an_item_was_merged(self):
+        merged = self.repo.commit({"docs/config-items.toml": registry(self.OVERRIDE.format(path="docs/decisions/2026-10-19-older.md"))})
+        self.repo.commit({"docs/decisions/2026-10-19-older.md": "# rewritten\n"})
+        r = ci_check.run_check(self.repo.path, merged, "HEAD", "")
+        self.assertCode(r, "error", "FROZEN-CHANGED")
+
+    def test_stale_branch_cannot_edit_a_record_frozen_on_main_after_it_branched(self):
+        self.repo.git("checkout", "-q", "main")
+        frozen_lineages = registry().replace(
+            'change_class = "living"\n        approval = "owner"\n        triggers = ["src/train.py"]',
+            f'change_class = "frozen"\n        approval = "owner"\n        frozen_sha256 = "{sha("# Lineages\n")}"\n        triggers = ["src/train.py"]')
+        self.assertNotEqual(frozen_lineages, registry())
+        tip = self.repo.commit({"docs/config-items.toml": frozen_lineages}, "freeze lineages on main")
+        self.repo.git("checkout", "-q", "pr")
+        self.repo.commit({"docs/LINEAGES.md": "# Lineages\n\nrewritten on a stale branch\n"})
+        r = ci_check.run_check(self.repo.path, tip, "HEAD", "### Owner approval requested\n- CI-T-004\n")
+        self.assertCode(r, "error", "FROZEN-CHANGED")
+
+    def test_stale_branch_cannot_edit_an_experiment_marked_done_on_main(self):
+        self.repo.git("checkout", "-q", "main")
+        tip = self.repo.commit({"docs/experiments/EXP-20261020-a.md": EXP_RUNNING.replace("running", "done")}, "done on main")
+        self.repo.git("checkout", "-q", "pr")
+        self.repo.commit({"docs/experiments/EXP-20261020-a.md": EXP_RUNNING + "edited later\n"})
+        r = ci_check.run_check(self.repo.path, tip, "HEAD", "")
+        self.assertCode(r, "error", "FROZEN-CHANGED")
+
+    def test_stale_branch_untouched_by_main_changes_is_clean(self):
+        self.repo.git("checkout", "-q", "main")
+        log = LOG + "\n### D-003\n\n**Third** — 2026-10-22 — proposed — implementer.\n\n**Decision.** Later.\n"
+        tip = self.repo.commit({"docs/decisions/DECISION_LOG.md": log}, "main moves on")
+        self.repo.git("checkout", "-q", "pr")
+        self.repo.commit({"docs/README.md": "# Index\n\nmore\n"})
+        r = ci_check.run_check(self.repo.path, tip, "HEAD", "")
+        self.assertEqual(r.codes("error"), [], ci_check.render(r, "t"))
+
+
 class AppendOnly(Base):
     def test_new_proposed_entry_is_fine(self):
         log = LOG + "\n### D-003\n\n**Third** — 2026-10-22 — proposed — implementer.\n\n**Decision.** Maybe.\n"

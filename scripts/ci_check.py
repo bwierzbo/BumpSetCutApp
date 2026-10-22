@@ -15,8 +15,9 @@ anything:
   warnings   watched paths changed without an update or waiver; new
              unregistered documents; hand edits to generated artefacts.
 
-Protections are taken from the BASE registry, so a PR cannot relax the rules
-it is checked against. Standard library only (Python 3.11+). Never writes
+Protections are the union of the rules at the merge-base and at the base tip,
+so a PR cannot relax the rules it is checked against and a stale branch cannot
+edit a record frozen after it branched. Standard library only (Python 3.11+). Never writes
 files, never posts anything. Exit 0 = no errors, 1 = errors, 2 = could not run.
 
   python3 scripts/ci_check.py --base origin/main [--pr-body-file body.md]
@@ -358,6 +359,20 @@ def validate_against_tree(reg: Registry, git: Git, rev: str, tree: set[str], rep
                     report.add("error", "REGISTRY-REF", f"{rid}: source {src} is not registered", rid)
             elif not any(glob_regex(src).match(p) for p in tree):
                 report.add("warning", "SOURCE-MISSING", f"{rid}: source {src} matches no file", rid)
+    # an individual item cannot be weaker than a frozen family covering its path
+    for rid, item in reg.items.items():
+        path = item.get("path")
+        if not path or item.get("change_class") == "frozen" or path not in tree:
+            continue
+        for fam in reg.families_for(path):
+            frozen_now = fam.get("change_class") == "frozen"
+            if not frozen_now and fam.get("freeze_when"):
+                value = frontmatter_field(git.read(rev, path, tree) or b"", fam["freeze_when"]["field"])
+                frozen_now = value is not None and bool(re.search(fam["freeze_when"]["pattern"], value))
+            if frozen_now:
+                report.add("error", "REGISTRY-UNFREEZE",
+                           f"{rid} registers {path} as {item.get('change_class')}, but {fam['id']} freezes it; "
+                           f"a frozen record stays frozen", rid, fam["id"])
     # one family per file; files registered individually are exempt
     for path in sorted(tree):
         if path in paths:
@@ -530,13 +545,19 @@ def parse_body(body: str | None):
 # ---------------------------------------------------------------- the check
 
 def protected_frozen_paths(reg: Registry, git: Git, rev: str, tree: set[str]) -> dict[str, str]:
-    """path -> governing id for every file frozen at `rev` according to `reg`."""
+    """path -> governing id for every file frozen at `rev` according to `reg`.
+
+    Frozen wins: a family's protection holds even where an item also registers
+    the path, so registering a frozen family member as a living item cannot
+    unfreeze it."""
     out: dict[str, str] = {}
+    if reg is None:
+        return out
     for rid, item in reg.items.items():
         if item.get("change_class") == "frozen" and item.get("path") in tree:
             out[item["path"]] = rid
     for path in tree:
-        if path in out or reg.item_at(path) is not None:
+        if path in out:
             continue
         for fam in reg.families_for(path):
             if fam.get("change_class") == "frozen":
@@ -552,69 +573,100 @@ def run_check(repo: str, base: str, head: str, body: str | None) -> Report:
     git = Git(repo)
     report = Report()
     head_sha = git.rev(head)
-    base_sha = git.merge_base(git.rev(base), head_sha)
+    tip_sha = git.rev(base)
+    # What the PR changes is measured from the merge-base; what is protected is
+    # the union of the rules at the merge-base and at the base tip, so a stale
+    # branch cannot edit a record frozen on the base after it branched.
+    base_sha = git.merge_base(tip_sha, head_sha)
     base_tree, head_tree = set(git.files(base_sha)), set(git.files(head_sha))
+    tip_tree = base_tree if tip_sha == base_sha else set(git.files(tip_sha))
     changes = git.changes(base_sha, head_sha)
     declared, waivers, unregistered = parse_body(body)
     if body is None:
         report.add("note", "BODY-ABSENT", "no PR body supplied: declarations and waivers were not checked")
 
     base_reg = parse_registry(git.read(base_sha, REGISTRY_PATH, base_tree), f"base {REGISTRY_PATH}", None)
+    tip_reg = base_reg if tip_sha == base_sha else \
+        parse_registry(git.read(tip_sha, REGISTRY_PATH, tip_tree), f"base tip {REGISTRY_PATH}", None)
     head_reg = parse_registry(git.read(head_sha, REGISTRY_PATH, head_tree), REGISTRY_PATH, report)
+    rule_regs = [r for r in (base_reg, tip_reg) if r is not None]
     if head_reg is None:
-        if base_reg is not None:
+        if rule_regs:
             report.add("error", "REGISTRY-REMOVED", f"{REGISTRY_PATH} was deleted")
         else:
             report.add("note", "REGISTRY-ABSENT", f"no {REGISTRY_PATH} on either side; nothing to check")
         return report
     validate_against_tree(head_reg, git, head_sha, head_tree, report)
 
-    # ---- immutable records: rules come from the base registry (amendment A)
-    if base_reg is not None:
-        for rid, b in base_reg.items.items():
-            h = head_reg.items.get(rid)
-            cls = b.get("change_class")
-            if cls == "frozen":
-                if h is None:
-                    report.add("error", "FROZEN-UNREGISTERED", f"{rid} (frozen) was removed from the registry", rid)
-                    continue
-                for key in FROZEN_PROTECTED:
-                    if b.get(key) != h.get(key):
-                        report.add("error", "FROZEN-REGISTRY",
-                                   f"{rid}: frozen record's {key} changed ({b.get(key)!r} → {h.get(key)!r}); "
-                                   f"supersede it with a new record instead", rid)
-                if h.get("lifecycle") != b.get("lifecycle") and h.get("lifecycle") not in ("superseded", "historical"):
+    # ---- immutable records (amendment A). Field changes are the PR's own
+    # (merge-base → head); which records are protected comes from both rule sets.
+    if rule_regs:
+        frozen_ids = {rid for r in rule_regs for rid, i in r.items.items() if i.get("change_class") == "frozen"}
+        append_ids = {rid for r in rule_regs for rid, i in r.items.items() if i.get("change_class") == "append-only"}
+        protected_fams = {fid for r in rule_regs for fid, f in r.families.items()
+                          if f.get("change_class") == "frozen" or f.get("freeze_when")}
+        before = base_reg.items if base_reg else {}
+        for rid in sorted(frozen_ids):
+            b, h = before.get(rid), head_reg.items.get(rid)
+            if b is None:
+                continue  # added on the base after this branch; protected by path below
+            if h is None:
+                report.add("error", "FROZEN-UNREGISTERED", f"{rid} (frozen) was removed from the registry", rid)
+                continue
+            for key in FROZEN_PROTECTED:
+                if b.get(key) != h.get(key):
                     report.add("error", "FROZEN-REGISTRY",
-                               f"{rid}: frozen record's lifecycle may only move to superseded or historical", rid)
-                if h.get("superseded_by") and h.get("superseded_by") != b.get("superseded_by"):
-                    report.add("attention", "SUPERSEDED",
-                               f"{rid} is superseded by {h['superseded_by']}", rid, h["superseded_by"])
-            elif cls == "append-only":
-                if h is None:
-                    report.add("error", "APPEND-UNREGISTERED", f"{rid} (append-only) was removed from the registry", rid)
-                    continue
-                for key in APPEND_PROTECTED:
-                    if b.get(key) != h.get(key):
-                        report.add("error", "APPEND-REGISTRY",
-                                   f"{rid}: append-only record's {key} changed; its history rules are fixed", rid)
-            elif h is None:
+                               f"{rid}: frozen record's {key} changed ({b.get(key)!r} → {h.get(key)!r}); "
+                               f"supersede it with a new record instead", rid)
+            if h.get("lifecycle") != b.get("lifecycle") and h.get("lifecycle") not in ("superseded", "historical"):
+                report.add("error", "FROZEN-REGISTRY",
+                           f"{rid}: frozen record's lifecycle may only move to superseded or historical", rid)
+            if h.get("superseded_by") and h.get("superseded_by") != b.get("superseded_by"):
+                report.add("attention", "SUPERSEDED",
+                           f"{rid} is superseded by {h['superseded_by']}", rid, h["superseded_by"])
+        for rid in sorted(append_ids):
+            b, h = before.get(rid), head_reg.items.get(rid)
+            if b is None:
+                continue
+            if h is None:
+                report.add("error", "APPEND-UNREGISTERED", f"{rid} (append-only) was removed from the registry", rid)
+                continue
+            for key in APPEND_PROTECTED:
+                if b.get(key) != h.get(key):
+                    report.add("error", "APPEND-REGISTRY",
+                               f"{rid}: append-only record's {key} changed; its history rules are fixed", rid)
+        for rid, b in before.items():
+            h = head_reg.items.get(rid)
+            if rid in frozen_ids or rid in append_ids:
+                continue
+            if h is None:
                 report.add("attention", "ITEM-REMOVED",
                            f"{rid} was removed from the registry (prefer lifecycle = retired)", rid)
             elif b.get("approval") == "owner" and h.get("approval") != "owner":
                 report.add("attention", "APPROVAL-RELAXED", f"{rid}: approval relaxed from owner to none", rid)
-        for fid, b in base_reg.families.items():
-            h = head_reg.families.get(fid)
-            if b.get("change_class") == "frozen" or b.get("freeze_when"):
-                if h is None:
-                    report.add("error", "FROZEN-UNREGISTERED", f"{fid} (protected family) was removed", fid)
-                    continue
-                if h.get("change_class") != b.get("change_class") or h.get("freeze_when") != b.get("freeze_when"):
-                    report.add("error", "FROZEN-REGISTRY", f"{fid}: protected family's freeze rule changed", fid)
-                if not set(b.get("patterns", [])) <= set(h.get("patterns", [])) or \
-                        not set(h.get("exclude", [])) <= set(b.get("exclude", [])):
-                    report.add("error", "FROZEN-REGISTRY",
-                               f"{fid}: protected family's coverage was narrowed (patterns removed or excludes added)", fid)
-        frozen = protected_frozen_paths(base_reg, git, base_sha, base_tree)
+        before_fams = base_reg.families if base_reg else {}
+        for fid in sorted(protected_fams):
+            b, h = before_fams.get(fid), head_reg.families.get(fid)
+            if b is None:
+                continue
+            if h is None:
+                report.add("error", "FROZEN-UNREGISTERED", f"{fid} (protected family) was removed", fid)
+                continue
+            if h.get("change_class") != b.get("change_class") or h.get("freeze_when") != b.get("freeze_when"):
+                report.add("error", "FROZEN-REGISTRY", f"{fid}: protected family's freeze rule changed", fid)
+            if not set(b.get("patterns", [])) <= set(h.get("patterns", [])) or \
+                    not set(h.get("exclude", [])) <= set(b.get("exclude", [])):
+                report.add("error", "FROZEN-REGISTRY",
+                           f"{fid}: protected family's coverage was narrowed (patterns removed or excludes added)", fid)
+
+        frozen = protected_frozen_paths(tip_reg, git, tip_sha, tip_tree)
+        frozen.update(protected_frozen_paths(base_reg, git, base_sha, base_tree))
+        # a registry edit must not leave a previously frozen file unprotected
+        still = protected_frozen_paths(head_reg, git, base_sha, base_tree)
+        for path, gid in sorted(protected_frozen_paths(base_reg, git, base_sha, base_tree).items()):
+            if path in head_tree and path not in still:
+                report.add("error", "FROZEN-REGISTRY",
+                           f"{path} is frozen ({gid}) and the head registry no longer protects it", gid.split()[0], path)
         for path, gid in sorted(frozen.items()):
             status = changes.get(path)
             if status:
@@ -622,16 +674,18 @@ def run_check(repo: str, base: str, head: str, body: str | None) -> Report:
                 report.add("error", "FROZEN-CHANGED",
                            f"{path} is frozen ({gid}) and was {verb}. Historical records are corrected "
                            f"by a new superseding record, never edited", gid.split()[0], path)
-        for rid, b in base_reg.items.items():
-            h = head_reg.items.get(rid)
-            if b.get("change_class") != "append-only" or h is None or b.get("path") not in changes:
+        for rid in sorted(append_ids):
+            rule = next((r.items[rid] for r in (tip_reg, base_reg)
+                         if r is not None and r.items.get(rid, {}).get("change_class") == "append-only"), None)
+            path = rule.get("path") if rule else None
+            if not path or path not in changes or path not in base_tree:
                 continue
-            if b["path"] not in head_tree:
-                report.add("error", "APPEND-DELETED", f"{rid}: {b['path']} was deleted", rid)
+            if path not in head_tree:
+                report.add("error", "APPEND-DELETED", f"{rid}: {path} was deleted", rid)
                 continue
-            check_append_only(rid, b,
-                              git.read(base_sha, b["path"], base_tree).decode("utf-8", "replace"),
-                              git.read(head_sha, b["path"], head_tree).decode("utf-8", "replace"),
+            check_append_only(rid, rule,
+                              git.read(base_sha, path, base_tree).decode("utf-8", "replace"),
+                              git.read(head_sha, path, head_tree).decode("utf-8", "replace"),
                               report, declared)
 
     # ---- touched items, owner attention, generated artefacts
