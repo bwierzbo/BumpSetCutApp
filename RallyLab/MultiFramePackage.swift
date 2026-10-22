@@ -177,7 +177,7 @@ enum MultiFramePackage {
             case .notResumable(let p, let found): return "\(p) is not an unfinished package (found \(found.joined(separator: ", "))): only a folder holding frames/ alone — an export cut short — can be resumed. A finished package is never written into."
             case .strayClipFolder(let p): return "\(p) is not a clip this export packages. Nothing is removed; nothing is written."
             case .unexpectedFile(let p): return "\(p) is not a frame this export writes. Nothing is removed; nothing is written."
-            case .tooManyInvalid(let clip, let n, let limit): return "\(clip): \(n) retained frames are not whole, planned and identical to their regeneration (an interruption leaves at most \(limit)); the folder is not trusted. Nothing is reused, nothing is changed."
+            case .tooManyInvalid(let clip, let n, let limit): return "\(clip): more than \(limit) retained frames (\(n) found before stopping) are not whole, planned and identical to their regeneration; an interruption leaves at most \(limit), so the folder is not trusted. Nothing is reused, nothing is changed."
             case .identityMismatch(let d): return "The journal's run is not this export: \(d.prefix(8).joined(separator: "; "))\(d.count > 8 ? " … (\(d.count) differences)" : ""). Nothing is reused, nothing is changed."
             case .wrongState(let st): return "The journal says the export reached \(st); only an interrupted export is resumed. Nothing is changed."
             }
@@ -359,8 +359,14 @@ enum MultiFramePackage {
         let dir = exports.appendingPathComponent(packageName, isDirectory: true)
         let zip = exports.appendingPathComponent("\(packageName).zip")
         let journalURL = ExportJournal.url(forPackage: dir)
+        // The journal is read first: it says whether the run ever reached "finished", which decides what the folder may hold.
+        var journaled: ExportJournal.Contents?
+        if resume != nil, fm.fileExists(atPath: journalURL.path) { journaled = try ExportJournal.read(journalURL, forPackage: packageName) }
+        let unfinished = journaled.map { $0.state == .interrupted || $0.state == .preflightFailed } ?? false
         if resume != nil {
-            try Self.checkResumable(dir, zip: zip, clipFolders: Set(usable.map { DatasetStore.safeName($0.0.name) }))
+            try await Self.checkResumable(dir, zip: zip, clipFolders: Set(usable.map { DatasetStore.safeName($0.0.name) }),
+                                          unfinishedByJournal: unfinished, repair: !inspectOnly)
+            if let journaled, !unfinished { throw ResumeError.wrongState(journaled.state.rawValue) }
         } else {
             guard !fm.fileExists(atPath: dir.path), !fm.fileExists(atPath: zip.path), !fm.fileExists(atPath: journalURL.path)
             else { throw PackageError.nameTaken(packageName) }
@@ -375,16 +381,12 @@ enum MultiFramePackage {
 
         // The journal: read and matched when resuming, started otherwise. An interrupted export
         // from before journals (a "legacy" folder) has none: nothing in it is trusted without regeneration.
-        var journaled: ExportJournal.Contents?
         var resumed = ResumeReport(from: packageName, journal: "none", legacy: resume != nil, identityVerified: false, framesRetained: 0,
                                    retainedByJournal: 0, retainedByRegeneration: 0, framesReplaced: 0, replaced: [], framesWritten: 0,
                                    partialFilesRemoved: 0, clips: [])
-        if resume != nil, fm.fileExists(atPath: journalURL.path) {
-            let contents = try ExportJournal.read(journalURL, forPackage: packageName)
+        if let contents = journaled {
             let differences = identity.differences(from: contents.identity)
             guard differences.isEmpty else { throw ResumeError.identityMismatch(differences) }
-            guard contents.state == .interrupted || contents.state == .preflightFailed else { throw ResumeError.wrongState(contents.state.rawValue) }
-            journaled = contents
             resumed.journal = "version \(contents.version), started \(contents.startedAt), state \(contents.state.rawValue), \(contents.frames.values.reduce(0) { $0 + $1.count }) frames journaled"
                 + (contents.tornTail ? ", last line torn" : "")
             resumed.legacy = false
@@ -595,7 +597,7 @@ enum MultiFramePackage {
             do { try beforeZip(dir) } catch {
                 if resume != nil {
                     // The folder was preserved for resumption; it stays so: frames kept, only what says "finished" goes.
-                    for f in ["windows.jsonl", "README.txt", "summary.json"] { try? fm.removeItem(at: dir.appendingPathComponent(f)) }
+                    for f in completionFiles { try? fm.removeItem(at: dir.appendingPathComponent(f)) }
                     try? writer?.state(.preflightFailed, note: error.localizedDescription)
                 } else {
                     try? fm.removeItem(at: dir)
@@ -622,15 +624,27 @@ enum MultiFramePackage {
 
     // MARK: - Writing, resuming, verifying
 
+    /// The files an export writes once its frames are complete; rebuilt from the plan every time.
+    static let completionFiles = ["windows.jsonl", "README.txt", "summary.json"]
+
     /// A folder can be resumed into only when it is an export cut short: `frames/` and nothing
     /// else (no windows.jsonl, summary, README, record or zip — a finished package is never
-    /// written into), and every clip folder in it is one this export packages.
-    private static func checkResumable(_ dir: URL, zip: URL, clipFolders: Set<String>) throws {
+    /// written into), and every clip folder in it is one this export packages. One exception,
+    /// only when the journal confirms the run never reached its preflight: completion files a
+    /// run was cut short while writing are shed (with `repair`; tolerated without), since they are
+    /// regenerated from the plan — the record and the zip, which only a finished run writes, never.
+    private static func checkResumable(_ dir: URL, zip: URL, clipFolders: Set<String>, unfinishedByJournal: Bool, repair: Bool) async throws {
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { throw ResumeError.notAFolder(dir.path) }
         var entries = try fm.contentsOfDirectory(atPath: dir.path).filter { $0 != ".DS_Store" }
         if fm.fileExists(atPath: zip.path) { entries.append(zip.lastPathComponent) }
+        if unfinishedByJournal {
+            for leftover in entries.filter(completionFiles.contains) {
+                if repair { try fm.removeItem(at: dir.appendingPathComponent(leftover)) }
+                entries.removeAll { $0 == leftover }
+            }
+        }
         guard entries == ["frames"] else { throw ResumeError.notResumable(dir.path, found: entries.sorted()) }
         let frames = dir.appendingPathComponent("frames", isDirectory: true)
         guard fm.fileExists(atPath: frames.path, isDirectory: &isDir), isDir.boolValue else { throw ResumeError.notResumable(dir.path, found: ["frames (a file)"]) }
@@ -735,9 +749,10 @@ enum MultiFramePackage {
                 try writer?.append(.frame(clip: p.safeName, key: key, sha256: ExportJournal.sha256(data), bytes: data.count))
             } else {
                 invalid.append((key, fresh))
+                // Judged as they are found: a folder that is not this export's is refused before the rest is decoded.
+                guard invalid.count <= maxInvalidPerClip else { throw ResumeError.tooManyInvalid(clip: p.session.name, count: invalid.count, limit: maxInvalidPerClip) }
             }
         }
-        guard invalid.count <= maxInvalidPerClip else { throw ResumeError.tooManyInvalid(clip: p.session.name, count: invalid.count, limit: maxInvalidPerClip) }
         for (key, fresh) in invalid {
             result.replaced.append(key)
             guard repair else { continue }

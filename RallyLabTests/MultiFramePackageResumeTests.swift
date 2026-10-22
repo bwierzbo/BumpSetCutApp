@@ -356,7 +356,7 @@ final class MultiFramePackageResumeTests: XCTestCase {
         try FileManager.default.removeItem(at: ExportJournal.url(forPackage: dir))
         do { _ = try await export(sessions, resume: dir); XCTFail("reused frames of another video") }
         catch MultiFramePackage.ResumeError.tooManyInvalid(let clip, let count, let limit) {
-            XCTAssertEqual(clip, "a"); XCTAssertEqual(count, 32); XCTAssertEqual(limit, MultiFramePackage.maxInvalidPerClip)
+            XCTAssertEqual(clip, "a"); XCTAssertEqual(count, limit + 1); XCTAssertEqual(limit, MultiFramePackage.maxInvalidPerClip)
         }
         XCTAssertEqual(try hashes(dir), before, "nothing touched")
         // The same from a legacy folder written at another size: every frame differs from its regeneration.
@@ -379,7 +379,7 @@ final class MultiFramePackageResumeTests: XCTestCase {
         }
         do { _ = try await export(sessions, resume: dir); XCTFail("trusted a folder full of torn frames") }
         catch MultiFramePackage.ResumeError.tooManyInvalid(let clip, let count, let limit) {
-            XCTAssertEqual(clip, "a"); XCTAssertEqual(count, limit + 1); XCTAssertEqual(limit, MultiFramePackage.maxInvalidPerClip)
+            XCTAssertEqual(clip, "a"); XCTAssertEqual(count, limit + 1, "refused as soon as the limit is passed, not after the whole folder"); XCTAssertEqual(limit, MultiFramePackage.maxInvalidPerClip)
         }
         // The torn files are still there, untouched: the folder was refused, not repaired.
         XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("frames/a/\(names[0])")).count, 500)
@@ -403,6 +403,39 @@ final class MultiFramePackageResumeTests: XCTestCase {
         let (_, summary) = try await export(sessions, resume: dir)
         XCTAssertEqual(summary.resume?.framesRetained, 49); XCTAssertEqual(summary.resume?.framesWritten, 0)
         XCTAssertEqual(try ledgerRows(ref: dir.lastPathComponent).count, 2)
+    }
+
+    func testResumeRecoversARunCutShortWhileFinalizingButNotAFinishedOne() async throws {
+        // windows.jsonl written, then the run died before summary.json: the journal never reached a finished state.
+        let sessions = try await sessions()
+        let (dir, _) = try await export(sessions)
+        let freshPayload = try payload(dir)
+        let fm = FileManager.default
+        try interrupt(dir)
+        try Data("stale".utf8).write(to: dir.appendingPathComponent("windows.jsonl"))
+        try Data("stale".utf8).write(to: dir.appendingPathComponent("README.txt"))
+        // Read-only inspection tolerates the leftovers and removes nothing.
+        let inspection = try await MultiFramePackage.inspectResume(sessions: sessions, store: DatasetStore(root: root), resume: dir)
+        XCTAssertEqual(inspection.framesRetained, 49)
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("windows.jsonl")), Data("stale".utf8))
+        // The resume sheds them and rebuilds them from the plan.
+        let (_, summary) = try await export(sessions, resume: dir)
+        XCTAssertEqual(summary.resume?.framesRetained, 49)
+        XCTAssertEqual(try payload(dir), freshPayload)
+        // Without a journal the same leftovers cannot be told from a finished package: refused.
+        try interrupt(dir, journal: false)
+        try Data("stale".utf8).write(to: dir.appendingPathComponent("windows.jsonl"))
+        do { _ = try await export(sessions, resume: dir); XCTFail("resumed a journal-less folder with completion files") }
+        catch MultiFramePackage.ResumeError.notResumable(_, let found) { XCTAssertEqual(found, ["frames", "windows.jsonl"]) }
+        XCTAssertTrue(fm.fileExists(atPath: dir.appendingPathComponent("windows.jsonl").path), "nothing removed")
+        // A record or a zip is never shed, journal or not.
+        try fm.removeItem(at: dir)
+        let (dir2, _) = try await export(sessions)
+        XCTAssertEqual(dir2.path, dir.path)
+        try interrupt(dir2, keepFrames: 49)   // an unfinished journal again
+        try Data("record".utf8).write(to: dir.appendingPathComponent(LineagePackage.recordFile))
+        do { _ = try await export(sessions, resume: dir); XCTFail("resumed past a record") }
+        catch MultiFramePackage.ResumeError.notResumable(_, let found) { XCTAssertEqual(found, ["frames", LineagePackage.recordFile]) }
     }
 
     func testJournalReadsBackWhatWasWrittenAndRefusesWhatIsNotIts() throws {
