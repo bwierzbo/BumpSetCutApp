@@ -6,7 +6,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 - [Working agreement](workflow/WORKING_AGREEMENT.md) — roles, the nine-step cycle, review gates, what needs the owner first, sources of truth.
 - [Independent review](workflow/CHATGPT_REVIEW.md) — Codex on GitHub (primary): triggers, retrieving and answering findings; manual ChatGPT export (fallback) with a tested, context-preserving export.
-- [Footage share](workflow/FOOTAGE_SHARE.md) — proposed read-only SMB share of the desktop's footage over Tailscale, staging share for L2 packages, file-by-file links on the Mac; exact Windows and macOS steps for owner approval.
+- [Footage share](workflow/FOOTAGE_SHARE.md) — read-only SMB share of the desktop's footage over Tailscale, staging share for L2 packages, file-by-file links on the Mac; exact Windows and macOS steps, applied 2026-10-22, with the working mount commands and what differed.
 - [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md) — scope, acceptance criteria, evidence, risks, docs.
 - [Hybrid Mac/Windows plan](workflow/HYBRID_MAC_WINDOWS_PLAN.md) — Tailscale connection verified 2026-10-20 (`bens-desktop`, 100.107.21.20); proposed read-only footage/GPU inventory; transfer workflow and remote desktop pending owner authorisation.
 
@@ -29,6 +29,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 - [Visual provenance review, 2026-10-21](ml-roadmap/PROVENANCE_REVIEW_2026-10-21.md) — how to generate and use the local frame-review page (`scripts/provenance_review.py`), the thumbnail → recording mapping, the answer file format, the answers applied on 2026-10-21 and the reservation consequence awaiting D-017.
 - `ml-roadmap/manifests/<project>/` — committed `manifest.json` / `audit.json` (+ `.md`) per project, regenerated with `RallyLab --project <name> --audit-dataset`; also the YouTube source-ID reports and validation.json before/after copies.
 - [Experiment template](templates/EXPERIMENT.md).
+- [Dataset hygiene](ml-roadmap/DATASET_HYGIENE.md) — known session/dataset inconsistencies (H-1: 54 dangling frame records in a legacy-holdout session) and the proposed, not yet approved, cleanup procedure with backup and verification.
 - [Lineage preregistration template](templates/PREREGISTRATION_L2.md) — the ten sections every L2 training run fills and the owner approves before training (D-018).
 - [EXP-20261021-l2-scratch-prereg](ml-roadmap/experiments/EXP-20261021-l2-scratch-prereg.md) — proposed first L2 run (not approved): recipe, data counts, holdout rules.
 - `ml-roadmap/manifests/<project>/l2/` — lineage package plans and records (`RallyLab --package-l2`): what is eligible, what is withheld, preflight results and file hashes.
