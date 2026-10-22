@@ -81,7 +81,7 @@ The two scorers share one interval library (union, intersection, subtraction on 
 | 08 missedServe + other | excluded spans: predictions touching them unscored, no false clips, denominator shrinks |
 | 09 toss-primed start | −1.2 s start error, outside 1.0 s tolerance; export complete |
 | 10 custom tolerance | 0.5 s tolerance; errors inside it |
-| 11 touching rallies | half-open intervals; production merges the touching ranges → raw `[10,18]`: fn 2, fp 1, merged 1; one clip covers both completely |
+| 11 touching rallies | half-open intervals; production merges the touching ranges → raw `[10,18]`, whose IoU with each 4 s rally is exactly 0.5: the tie-break matches the earlier rally (tp 1, end error +4.0 s), fn 1, fp 0, merged 1; one clip covers both completely |
 | 12 one prediction over two rallies | raw: merged 1, fn 2, fp 1; export: both complete |
 
 Still to add once the Swift side exists (they need `FrameEvidence`, not intervals): replay-vs-production equality of raw and padded within 1/600 s on one synthetic evidence stream; the D-008 gate removal; non-integer frame times; a video with no marks at all (no `ralliesMarked`) must refuse dead-time metrics rather than report 0.

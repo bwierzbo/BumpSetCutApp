@@ -1,5 +1,5 @@
 {
- "note": "Touching truth intervals (half-open, no overlap between them). Production merges the two decided ranges (padded clips overlap) into one raw range [10,18]: raw fn 2, fp 1, merged 1. One export clip covers both completely.",
+ "note": "Touching truth intervals (half-open, no overlap between them). Production merges the two decided ranges (padded clips overlap) into one raw range [10,18], whose IoU with each 4 s rally is exactly 0.5: the tie-break matches the earlier rally (tp 1, end error +4.0 s), fn 1, fp 0, merged 1. One export clip covers both completely.",
  "duration": 120.0,
  "truth": [
   {
