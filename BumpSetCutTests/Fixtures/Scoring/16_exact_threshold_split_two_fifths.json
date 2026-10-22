@@ -1,30 +1,32 @@
 {
- "note": "split threshold 0.4 written as a decimal: each piece covers exactly 4/10 of the rally, so split = 1 (a float 0.4 would be slightly above 2/5 and miss it). Neither piece reaches IoU 0.5 -> fn 1, fp 2.",
+ "note": "split threshold 0.4 written as a decimal: each 8 s piece covers exactly 2/5 of the 20 s rally, so split = 1 (a float 0.4 would be slightly above 2/5 and miss it). Pieces 4 s apart survive production's merge (padded gap 1.5 s). IoU 0.4 each -> fn 1, fp 2. Export: retained 0.925 -> clipped.",
  "duration": 120.0,
  "truth": [
   {
    "start": 10.0,
-   "end": 20.0
+   "end": 30.0,
+   "kind": "rally",
+   "contact": 10.0
   }
  ],
  "raw": [
   [
    10.0,
-   14.0
+   18.0
   ],
   [
-   16.0,
-   20.0
+   22.0,
+   30.0
   ]
  ],
  "padded": [
   [
    8.0,
-   14.5
+   18.5
   ],
   [
-   14.0,
-   20.5
+   20.0,
+   30.5
   ]
  ],
  "params": {
@@ -62,26 +64,26 @@
   },
   "paddedExport": {
    "rallies": 1,
-   "clips": 1,
-   "complete": 1,
-   "clipped": 0,
+   "clips": 2,
+   "complete": 0,
+   "clipped": 1,
    "missed": 0,
-   "completeRallyRecall": 1.0,
-   "rallySeconds": 10.0,
-   "exportSeconds": 12.5,
-   "deadSeconds": 110.0,
+   "completeRallyRecall": 0.0,
+   "rallySeconds": 20.0,
+   "exportSeconds": 21.0,
+   "deadSeconds": 100.0,
    "deadSecondsRetained": 2.5,
-   "deadTimeRetention": 0.022727,
+   "deadTimeRetention": 0.025,
    "falseClips": 0,
    "perRally": [
     {
-     "retainedFraction": 1.0,
+     "retainedFraction": 0.925,
      "contactInExport": true,
      "deadBallInExport": true,
-     "status": "complete"
+     "status": "clipped"
     }
    ],
-   "legacyCoveredMinusQuarterDead": 0.9375
+   "legacyCoveredMinusQuarterDead": 0.89375
   }
  }
 }

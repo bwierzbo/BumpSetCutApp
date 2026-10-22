@@ -67,18 +67,18 @@ The two scorers share one interval library (union, intersection, subtraction on 
 
 ## 5. Fixtures (deterministic, pinned)
 
-`BumpSetCutTests/Fixtures/Scoring/*.json`: sixteen cases, each with `truth`, `raw`, `padded`, `duration`, optional `params`, and an `expected` scorecard written by the reference implementation `scripts/scoring/reference_scorecard.py` (pure Python, integer ticks, no dependencies). The Swift scorers must reproduce `expected` exactly; the reference is the independent computation the Phase 2 pass rule asks for.
+`BumpSetCutTests/Fixtures/Scoring/*.json`: sixteen cases, each with `truth`, `raw`, `padded`, `duration`, optional `params`, and an `expected` scorecard written by the reference implementation `scripts/scoring/reference_scorecard.py` (pure Python, integer ticks, no dependencies). The Swift scorers must reproduce `expected` exactly; the reference is the independent computation the Phase 2 pass rule asks for. **Every fixture's `raw` and `padded` are one production run**: the reference re-derives `padded` from `raw` with `SegmentBuilder`'s rules (preroll 2.0 s, 0.5 s when the raw range is under 2.5 s; postroll 0.5 s; clamp; merge when the padded gap ≤ 1.3513 s, unioning the raw ranges; drop padded ranges under 2.6131 s) and refuses to pin or verify a fixture whose lists disagree.
 
 | Fixture | What it pins |
 |---|---|
 | 01 exact raw, padded export `[10,14]` / `[8,14.5]` | the roadmap parity case: 0 raw error, export complete, 2.5 s dead retained |
 | 02 short rally | 0.5 s preroll cap; complete |
 | 03 two rallies 1.0 s apart | production merges on *padded* gaps and unions the raw ranges → raw is one range `[10,19]`: fn 2, fp 1, merged 1 (the merge itself loses the boundary; inconsistency #8 is about replay doing it differently); export: one clip, both complete, not a false clip |
-| 04 split rally | raw: both pieces below IoU 0.5 → fn 1, fp 2, split 1; export: retained 0.95 → clipped |
+| 04 split rally | a 12 s rally decided as two pieces 4 s apart (the padded gap, 1.5 s, survives the merge): IoU 0.25 / 0.42 → fn 1, fp 2, split 1; export: retained 0.875 → clipped |
 | 05 false clip | raw fp 1; export falseClips 1; dead retained grows |
-| 06 zero truth | recall null, everything false, retention over the full video |
+| 06 zero truth | recall null, everything false, retention over the full video (a 2 s raw range gets the 0.5 s preroll) |
 | 07 edges | clamping at 0 and at `T`; both complete |
-| 08 missedServe + other | excluded spans masked: the two predictions lying wholly inside them are unscored; the denominator shrinks; the padded clip around the missed serve delivers 0.8 s of scorable dead time and no rally → 1 false clip |
+| 08 missedServe + other | excluded spans masked: the two predictions lying wholly inside them are unscored; the denominator shrinks; the padded clip around the missed serve delivers 1.8 s of scorable dead time and no rally → 1 false clip |
 | 09 toss-primed start | −1.2 s start error, outside 1.0 s tolerance; export complete |
 | 10 custom tolerance | 0.5 s tolerance; errors inside it |
 | 11 touching rallies | half-open intervals; production merges the touching ranges → raw `[10,18]`, whose IoU with each 4 s rally is exactly 0.5: the tie-break matches the earlier rally (tp 1, end error +4.0 s), fn 1, fp 0, merged 1; one clip covers both completely |
@@ -86,7 +86,7 @@ The two scorers share one interval library (union, intersection, subtraction on 
 | 13 prediction overlapping a missed serve and the next rally | masking keeps the scorable span `[41,45]`: IoU 0.875 with the rally → matched, start error −0.5 s from the first scorable tick; export complete |
 | 14 prediction over a marked non-rally plus ordinary dead time | scorable pieces `[58,60]`, `[62,66]` remain → raw fp 1, export false clip 1; 8.5 s of its dead time retained, the 2 s inside the excluded span not |
 | 15 null / absent kind | both are legacy rallies (§1), never excluded spans: 2 TP, 2 complete |
-| 16 exact threshold | `split: 0.4` written as a decimal; each piece covers exactly 2/5 of the rally → split 1 (thresholds are parsed as the exact decimal written, never the nearest float) |
+| 16 exact threshold | `split: 0.4` written as a decimal; two 8 s pieces of a 20 s rally, 4 s apart, each cover exactly 2/5 → split 1 (thresholds are parsed as the exact decimal written, never the nearest float) |
 
 Still to add once the Swift side exists (they need `FrameEvidence`, not intervals): replay-vs-production equality of raw and padded within 1/600 s on one synthetic evidence stream; the D-008 gate removal; non-integer frame times; a video with no marks at all (no `ralliesMarked`) must refuse dead-time metrics rather than report 0.
 

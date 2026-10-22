@@ -1,5 +1,5 @@
 {
- "note": "No rallies at all: recall undefined (null), everything predicted is false; dead-time retention over the full video.",
+ "note": "No rallies at all: recall undefined (null), everything predicted is false; dead-time retention over the full video. The 2 s raw range gets the short-rally 0.5 s preroll.",
  "duration": 60.0,
  "truth": [],
  "raw": [
@@ -10,7 +10,7 @@
  ],
  "padded": [
   [
-   8.0,
+   9.5,
    12.5
   ]
  ],
@@ -52,10 +52,10 @@
    "missed": 0,
    "completeRallyRecall": null,
    "rallySeconds": 0.0,
-   "exportSeconds": 4.5,
+   "exportSeconds": 3.0,
    "deadSeconds": 60.0,
-   "deadSecondsRetained": 4.5,
-   "deadTimeRetention": 0.075,
+   "deadSecondsRetained": 3.0,
+   "deadTimeRetention": 0.05,
    "falseClips": 1,
    "perRally": [],
    "legacyCoveredMinusQuarterDead": null

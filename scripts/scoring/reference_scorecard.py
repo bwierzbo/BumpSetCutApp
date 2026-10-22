@@ -12,6 +12,10 @@ no dependencies. All times are integer ticks at 600/s (CMTime's timescale
 in the pipeline); seconds in a fixture are rounded to the nearest tick on
 load. Intervals are half-open [start, end).
 
+Every fixture's raw and padded lists must be one production run (raw finalized
+by SegmentBuilder's rules yields exactly the padded list; --write-expected and
+the check refuse a fixture that isn't).
+
 A fixture is one JSON object:
     {"duration": 300.0,
      "truth": [{"start": 10.0, "end": 14.0, "kind": "rally", "contact": 10.0}, ...],   # kind: rally | missedServe | other
@@ -105,6 +109,49 @@ def covers(ivs: list[tuple[int, int]], t: int, duration: int) -> bool:
     if t >= duration:
         return any(e >= duration for _, e in ivs)
     return any(s <= t < e for s, e in ivs)
+
+
+# ----- production finalization (SegmentBuilder.finalizeWithRaw), for fixture self-consistency -----
+
+PREROLL, SHORT_PREROLL, SHORT_RAW, POSTROLL = tick(2.0), tick(0.5), tick(2.5), tick(0.5)
+MIN_GAP, MIN_LEN = tick(1.3513), tick(2.6131)
+
+
+def finalize(raw: list[tuple[int, int]], duration: int) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+    """(raw, padded) as production finalizes decided ranges: preroll 2.0 s (0.5 s when the raw
+    range is under 2.5 s), postroll 0.5 s, clamped to [0, duration], merged when the PADDED gap is
+    at most 1.3513 s (the raw ranges are unioned with them), dropped when the padded range is
+    under 2.6131 s. A fixture's raw and padded must be one such run."""
+    built = []
+    for s_, e_ in sorted(raw):
+        pre = SHORT_PREROLL if e_ - s_ < SHORT_RAW else PREROLL
+        built.append([max(0, s_ - pre), min(duration, e_ + POSTROLL), s_, e_])
+    merged: list[list[int]] = []
+    for b in built:
+        if merged and b[0] - merged[-1][1] <= MIN_GAP:
+            m = merged[-1]
+            m[1] = max(m[1], b[1]); m[2] = min(m[2], b[2]); m[3] = max(m[3], b[3])
+        else:
+            merged.append(b)
+    kept = [m for m in merged if m[1] - m[0] >= MIN_LEN]
+    return [(m[2], m[3]) for m in kept], [(m[0], m[1]) for m in kept]
+
+
+def production_consistency(fixture: dict) -> list[str]:
+    """Why the fixture's raw/padded pair is not one production run (empty when it is). `raw` is
+    taken as the decided ranges before finalization when that reproduces both pinned lists,
+    else as the finalized raw; either way padded must follow from it."""
+    duration = tick(fixture["duration"])
+    raw = [(tick(a), tick(b)) for a, b in fixture.get("raw", [])]
+    padded = [(tick(a), tick(b)) for a, b in fixture.get("padded", [])]
+    f_raw, f_padded = finalize(raw, duration)
+    problems = []
+    if f_padded != normalise(padded):
+        problems.append(f"padded {[(sec(a), sec(b)) for a, b in padded]} is not what production builds from raw: "
+                        f"{[(sec(a), sec(b)) for a, b in f_padded]}")
+    if f_raw != raw:
+        problems.append(f"raw {[(sec(a), sec(b)) for a, b in raw]} would be finalized to {[(sec(a), sec(b)) for a, b in f_raw]}")
+    return problems
 
 
 # ----- the two scorers --------------------------------------------------------------------
@@ -218,6 +265,11 @@ def main() -> None:
     bad = 0
     for path in args.fixtures:
         fixture = json.loads(path.read_text())
+        problems = production_consistency(fixture)
+        if problems:
+            bad += 1
+            print(f"{path.name}: NOT one production run — " + "; ".join(problems))
+            continue
         result = score(fixture)
         if args.write_expected:
             fixture["expected"] = result

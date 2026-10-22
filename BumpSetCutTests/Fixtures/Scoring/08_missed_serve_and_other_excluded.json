@@ -1,5 +1,5 @@
 {
- "note": "missedServe and other spans are MASKED: the two predictions lying wholly inside them are unscored (neither hit nor false); the spans leave the dead-time denominator. Raw: 1 TP, 2 unscored. Export: 1 complete; the padded clip around the missed serve delivers 0.8 s of scorable dead time and no rally, so it is 1 false clip; the clip inside the other span delivers nothing scorable.",
+ "note": "missedServe [40,44] and other [70,80] spans are MASKED: the two predictions lying wholly inside them are unscored (neither hit nor false); the spans leave the dead-time denominator. Raw: 1 TP, 2 unscored. Export: 1 complete; the padded clip around the missed serve delivers 1.8 s of scorable dead time and no rally, so it is 1 false clip; the clip inside the other span delivers nothing scorable.",
  "duration": 120.0,
  "truth": [
   {
@@ -10,7 +10,7 @@
   },
   {
    "start": 40.0,
-   "end": 41.0,
+   "end": 44.0,
    "kind": "missedServe",
    "contact": 40.0
   },
@@ -28,7 +28,7 @@
   ],
   [
    40.2,
-   41.0
+   43.5
   ],
   [
    72.0,
@@ -41,8 +41,8 @@
    14.5
   ],
   [
-   39.7,
-   41.5
+   38.2,
+   44.0
   ],
   [
    70.0,
@@ -94,10 +94,10 @@
    "missed": 0,
    "completeRallyRecall": 1.0,
    "rallySeconds": 4.0,
-   "exportSeconds": 16.8,
-   "deadSeconds": 105.0,
-   "deadSecondsRetained": 3.3,
-   "deadTimeRetention": 0.031429,
+   "exportSeconds": 20.8,
+   "deadSeconds": 102.0,
+   "deadSecondsRetained": 4.3,
+   "deadTimeRetention": 0.042157,
    "falseClips": 1,
    "perRally": [
     {
@@ -107,7 +107,7 @@
      "status": "complete"
     }
    ],
-   "legacyCoveredMinusQuarterDead": 0.2
+   "legacyCoveredMinusQuarterDead": -0.05
   }
  }
 }
