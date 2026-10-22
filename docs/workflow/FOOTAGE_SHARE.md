@@ -1,13 +1,13 @@
 ---
 name: footage-share
-status: proposed (awaiting owner approval of the Windows and macOS steps)
+status: applied 2026-10-22 (owner-authorised); kept as the record of what runs
 created: 2026-10-22T00:09:39Z
-updated: 2026-10-22T00:09:39Z
+updated: 2026-10-22T02:05:00Z
 ---
 
 # Footage over a read-only share: desktop → Mac, over Tailscale
 
-The Scratch footage (106.7 GB, 204 files) lives on the desktop at `D:\RallyLabFootage\Scratch\footage`; the Mac has 28 GB free. The L2 package export (D-018) needs every eligible recording with labels (132 videos, 75.5 GB) and every withheld recording (21, 25.5 GB) readable at once, plus about 21 GB for the package folder and zip. The owner's decision (2026-10-21): no copy to the Mac; a **read-only SMB share** from the desktop, mounted on the Mac over the existing Tailscale link, with the package written to a **separate staging share** on the desktop. This page is the exact configuration; nothing in it has been applied.
+The Scratch footage (106.7 GB, 204 files) lives on the desktop at `D:\RallyLabFootage\Scratch\footage`; the Mac has 28 GB free. The L2 package export (D-018) needs every eligible recording with labels (132 videos, 75.5 GB) and every withheld recording (21, 25.5 GB) readable at once, plus about 21 GB for the package folder and zip. The owner's decision (2026-10-21): no copy to the Mac; a **read-only SMB share** from the desktop, mounted on the Mac over the existing Tailscale link, with the package written to a **separate staging share** on the desktop. This page is the exact configuration. **Steps 1–3 were applied on 2026-10-22 under the owner's authorisation** ("Merge PR #75 and run step 1 over SSH", then "Mount them from here and run step 3"); the "As applied" section at the end records what differed from the proposal.
 
 ## What was verified before proposing (read-only checks, 2026-10-22)
 
@@ -119,3 +119,26 @@ Then the package record and hashes go into `EXP-20261021-l2-scratch-prereg` §2 
 - No change to Tailscale ACLs (the default allows the two machines to talk; the Windows firewall rule is the gate).
 - The Mac stores the share password only in its Keychain, if the owner chooses to remember it.
 - `desktop.sh train` still sends the zip from a Mac path; with the zip already on `D:\RallyLabStaging`, a local copy on the desktop (`D:` → `C:\BallTraining`) is the sensible next change before training, so 10 GB does not cross the network twice. That is a later PR.
+
+## As applied (2026-10-22)
+
+| Step | What happened |
+|---|---|
+| 1a user | Created over SSH from a script file (`scp` + `powershell -File`), the password fed on stdin: the desktop's SSH shell is PowerShell and **expands `$variables` in an inline command before the script runs** — an inline attempt failed at the parser without doing anything. Description shortened to Windows' 48-character limit. The password was generated on the Mac in a shell variable and stored only in the Mac's login Keychain (`security add-internet-password -a rallylab-share -s 100.107.21.20 -r 'smb '`), never printed. Afterwards `net user rallylab-share /passwordreq:yes`. |
+| 1b–1d shares, staging, firewall | Exactly as proposed; verified: `RallyLabFootage` Read, `RallyLabStaging` Change, rule on the Tailscale interface from 100.91.9.5, zero built-in sharing rules enabled. Port 445 reachable from the Mac. |
+| 2 mounts | **`mount_smbfs -N` (Keychain lookup) is refused by the server with "Authentication error"**, although the stored credential is correct: mounting with the Keychain value read into a shell variable works at once. The working form, under the home folder rather than `/Volumes`: |
+
+```bash
+pw=$(security find-internet-password -a rallylab-share -s 100.107.21.20 -r 'smb ' -w | tr -d '\n')
+mkdir -p ~/mnt/RallyLabFootage ~/mnt/RallyLabStaging
+mount_smbfs -o rdonly "//rallylab-share:$pw@100.107.21.20/RallyLabFootage" ~/mnt/RallyLabFootage
+mount_smbfs "//rallylab-share:$pw@100.107.21.20/RallyLabStaging" ~/mnt/RallyLabStaging
+unset pw
+```
+
+| Step | What happened |
+|---|---|
+| 3 links | `--check`: 167 of 167 referenced videos readable, 153 of 153 L2-needed; `--link`: 167 symlinks, none blocked, ledger `footage/.rallylab-links.json`; `--check` again identical; one byte read through every Mac-side path. The 33 sidecars untouched. |
+| Throughput | Bulk read ~37 MB/s (512 MB test). The export is **latency-bound, not bandwidth-bound**: it writes tens of thousands of small JPEGs over SMB, roughly 4 frames/s, so a full package takes many hours, not the hour estimated. Writing the package to the Mac's own disk would be faster but needs ~22 GB free at the 768 long side. |
+| Mounts | do not survive a reboot or a long idle; remount with the commands above. A transient "Device not configured" was seen once right after deleting a folder on the staging share; the mounts recovered on their own. |
+| Training from the staging share | `desktop.sh` reads a package under `~/mnt/RallyLabStaging` in place on the desktop (`D:\RallyLabStaging`, an SSD): an L2 package **folder** is verified first (`verify_package.ps1` recomputes the canonical digest on the desktop against `l2-manifest.json`; mismatch → nothing starts) and the trainer runs straight from the folder; nothing is copied or unzipped onto `C:` (39 GB free). `desktop.sh verify PACKAGE` runs the check alone; `desktop.sh plan …` shows the mapping without starting anything. |
