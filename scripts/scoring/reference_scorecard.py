@@ -24,6 +24,7 @@ A fixture is one JSON object:
      "raw":    [[10.0, 14.0], ...],       # finalized raw boundaries (merge, min length) — derived from decided
      "padded": [[8.0, 14.5], ...],        # exported clips — derived from decided
      "params": {"iou": 0.5, "tolerance": 1.0, "complete": 0.98, "detected": 0.5, "split": 0.25, "merged": 0.5},
+     "fullyMarked": true,                 # every rally of the recording is marked; false or ABSENT -> dead-time metrics are null
      "expected": {...}}                   # written by --write-expected; compared otherwise
 """
 
@@ -195,6 +196,13 @@ def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict) -
             continue
         used_t.add(ti); used_r.add(ri); matched.append((ti, ri))
     tp = len(matched); fn = len(rallies) - tp; fp = len(scored_preds) - tp
+    # Diagnostics only (never part of tp/fp/fn or the errors): how predictions touch excluded time.
+    excluded_overlap = [length(intersect([r], excluded)) for r in raw]
+    partially_masked = sum(1 for (r, pieces) in masked if pieces and length(pieces) < r[1] - r[0])
+    diagnostics = {"predictionsEnteringExcludedTime": sum(1 for x in excluded_overlap if x > 0),
+                   "excludedSecondsOverlapped": sec(sum(excluded_overlap)),
+                   "partiallyMaskedPredictions": partially_masked,
+                   "predictionsWithDisconnectedPieces": sum(1 for _, pieces in scored if len(pieces) > 1)}
     tol = tick(p["tolerance"])
     start_err = [scored_preds[ri][0] - rallies[ti]["s"] for ti, ri in matched]
     end_err = [scored_preds[ri][1] - rallies[ti]["e"] for ti, ri in matched]
@@ -216,41 +224,54 @@ def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict) -
             "tp": tp, "fp": fp, "fn": fn, "precision": round(float(prec), 6), "recall": round(float(rec), 6), "f1": round(float(f1), 6),
             "startMAE": mae(start_err), "endMAE": mae(end_err), "startMedianSigned": med(start_err), "endMedianSigned": med(end_err),
             "startWithinTolerance": within(start_err), "endWithinTolerance": within(end_err),
-            "split": split, "merged": merged,
+            "split": split, "merged": merged, "excludedTimeDiagnostics": diagnostics,
             "matches": [{"truth": ti, "prediction": ri, "startError": sec(se), "endError": sec(ee)} for (ti, ri), se, ee in zip(matched, start_err, end_err)]}
 
 
-def padded_export_score(truth: list[dict], padded: list[tuple[int, int]], duration: int, p: dict) -> dict:
-    """Event truth against exported (padded) clips: what the viewer gets and what dead time remains."""
+def padded_export_score(truth: list[dict], padded: list[tuple[int, int]], duration: int, p: dict, fully_marked: bool = False) -> dict:
+    """Event truth against exported (padded) clips: what the viewer gets and what dead time remains.
+    `fully_marked`: every rally of the recording is marked (`ralliesMarked`), stated explicitly.
+    Unknown counts as not marked: time outside the marked rallies is then unknown, not dead, and
+    dead-time retention, false clips and the legacy score are null."""
     rallies = [t for t in truth if t["kind"] == "rally"]
     excluded = normalise([(t["s"], t["e"]) for t in truth if t["kind"] != "rally"])
     G = normalise([(t["s"], t["e"]) for t in rallies])
-    P = normalise(padded)
+    segments = sorted(padded)                               # the exported segments as production wrote them
+    P = normalise(segments)
     per = []
     for t in rallies:
         r = (t["s"], t["e"])
         retained = Fraction(length(intersect([r], P)), r[1] - r[0])
         complete = retained >= ratio(p["complete"]) and covers(P, t["contact"], duration) and covers(P, t["e"], duration)
         status = "complete" if complete else ("clipped" if retained >= ratio(p["detected"]) else "missed")
+        # The rally shares its exported segment with another rally (a merged export), complete or not.
+        sharing = any(length(intersect([r], [c])) > 0 and any(length(intersect([(u["s"], u["e"])], [c])) > 0 for u in rallies if u is not t)
+                      for c in segments)
         per.append({"retainedFraction": round(float(retained), 6), "contactInExport": covers(P, t["contact"], duration),
-                    "deadBallInExport": covers(P, t["e"], duration), "status": status})
+                    "deadBallInExport": covers(P, t["e"], duration), "status": status, "inMergedExport": sharing})
     complete = sum(1 for x in per if x["status"] == "complete")
     clipped = sum(1 for x in per if x["status"] == "clipped")
     missed = sum(1 for x in per if x["status"] == "missed")
+    merged_rallies = sum(1 for x in per if x["inMergedExport"])
     scorable = subtract([(0, duration)], excluded)          # the dead-time denominator never counts excluded spans
     dead = subtract(scorable, G)
     dead_kept = intersect(P, dead)
-    # A false clip is a clip with no rally in it that still delivers scorable (non-excluded) time; a clip
-    # lying wholly inside excluded time is neither a rally nor false.
-    false_clips = sum(1 for c in P if length(intersect([c], G)) == 0 and length(subtract([c], excluded)) > 0)
-    return {"rallies": len(rallies), "clips": len(P), "complete": complete, "clipped": clipped, "missed": missed,
+    excluded_delivered = intersect(P, excluded)
+    # A false clip is an exported SEGMENT (counted as production wrote it, not by masked pieces) with no
+    # rally in it that still delivers scorable time; a segment lying wholly inside excluded time is neither.
+    false_clips = sum(1 for c in segments if length(intersect([c], G)) == 0 and length(subtract([c], excluded)) > 0)
+    return {"rallies": len(rallies), "clips": len(segments), "complete": complete, "clipped": clipped, "missed": missed,
             "completeRallyRecall": round(complete / len(rallies), 6) if rallies else None,
+            "mergedRallies": merged_rallies,
             "rallySeconds": sec(length(G)), "exportSeconds": sec(length(P)),
-            "deadSeconds": sec(length(dead)), "deadSecondsRetained": sec(length(dead_kept)),
-            "deadTimeRetention": round(float(Fraction(length(dead_kept), length(dead))), 6) if length(dead) else None,
-            "falseClips": false_clips, "perRally": per,
+            "excludedSecondsDelivered": sec(length(excluded_delivered)),
+            "scorableDeadSecondsDelivered": sec(length(dead_kept)) if fully_marked else None,
+            "deadSeconds": sec(length(dead)) if fully_marked else None,
+            "deadSecondsRetained": sec(length(dead_kept)) if fully_marked else None,
+            "deadTimeRetention": (round(float(Fraction(length(dead_kept), length(dead))), 6) if length(dead) else None) if fully_marked else None,
+            "falseClips": false_clips if fully_marked else None, "fullyMarked": fully_marked, "perRally": per,
             # The historical diagnostic (PipelineTuner.Score.value, D-011), on the same inputs, under its own name.
-            "legacyCoveredMinusQuarterDead": round(float(Fraction(length(intersect(G, P)), length(G)) - Fraction(1, 4) * Fraction(length(subtract(P, G)), length(G))), 6) if length(G) else None}
+            "legacyCoveredMinusQuarterDead": (round(float(Fraction(length(intersect(G, P)), length(G)) - Fraction(1, 4) * Fraction(length(subtract(P, G)), length(G))), 6) if length(G) else None) if fully_marked else None}
 
 
 def score(fixture: dict) -> dict:
@@ -263,7 +284,7 @@ def score(fixture: dict) -> dict:
     padded = [(tick(s), tick(e)) for s, e in fixture.get("padded", [])]
     return {"contract": "SCORING_CONTRACT v1", "params": p,
             "rawBoundary": raw_boundary_score(truth, raw, p),
-            "paddedExport": padded_export_score(truth, padded, tick(fixture["duration"]), p)}
+            "paddedExport": padded_export_score(truth, padded, tick(fixture["duration"]), p, fixture.get("fullyMarked") is True)}
 
 
 def main() -> None:

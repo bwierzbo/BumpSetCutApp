@@ -191,6 +191,18 @@ decisions = ["D-019"]
 frozen_sha256 = "606f4be730e5b41641bfe811d5d6a017778d6d6316e248f941505abca3697e54"
 
 [[item]]
+id = "CI-BSC-052"
+name = "Owner decisions 2026-10-22, scoring contract and Dataset Review GUI (verbatim)"
+type = "decision-record"
+path = "docs/decisions/2026-10-22-scoring-and-gui-decisions.md"
+lifecycle = "historical"
+change_class = "frozen"
+approval = "owner"
+maintainer = "owner"
+decisions = ["D-021"]
+frozen_sha256 = "5dee6a8ffdda5b8edffa509efd13fff1150fd43c23264ae885389778b26e6dc2"
+
+[[item]]
 id = "CI-BSC-015"
 name = "Decision entry template"
 type = "template"

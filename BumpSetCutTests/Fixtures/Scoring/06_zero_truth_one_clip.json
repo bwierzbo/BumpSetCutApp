@@ -20,6 +20,7 @@
    12.5
   ]
  ],
+ "fullyMarked": true,
  "expected": {
   "contract": "SCORING_CONTRACT v1",
   "params": {
@@ -48,6 +49,12 @@
    "endWithinTolerance": null,
    "split": 0,
    "merged": 0,
+   "excludedTimeDiagnostics": {
+    "predictionsEnteringExcludedTime": 0,
+    "excludedSecondsOverlapped": 0.0,
+    "partiallyMaskedPredictions": 0,
+    "predictionsWithDisconnectedPieces": 0
+   },
    "matches": []
   },
   "paddedExport": {
@@ -57,12 +64,16 @@
    "clipped": 0,
    "missed": 0,
    "completeRallyRecall": null,
+   "mergedRallies": 0,
    "rallySeconds": 0.0,
    "exportSeconds": 3.0,
+   "excludedSecondsDelivered": 0.0,
+   "scorableDeadSecondsDelivered": 3.0,
    "deadSeconds": 60.0,
    "deadSecondsRetained": 3.0,
    "deadTimeRetention": 0.05,
    "falseClips": 1,
+   "fullyMarked": true,
    "perRally": [],
    "legacyCoveredMinusQuarterDead": null
   }

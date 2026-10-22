@@ -35,6 +35,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-018](#d-018) | 2026-10-21 | accepted | L2 dataset isolation: a manifest-generated lineage package with preflight audit and file hashes (`--package-l2`), the project `data.yaml` unsupported for L2; mandatory preregistration from a fixed template, independent initialisation, no holdout use in selection |
 | [D-019](#d-019) | 2026-10-21 | accepted | PR #73 merged; L2 recipe approved (768, colour, 60 epochs, seed 20261021) with amendments: H1 becomes a paired comparison with the L1 checkpoint on the same val windows, label provenance stated, one seed only; legacy holdout confirmed out of L2; training and holdout evaluation still need separate authorisation |
 | [D-020](#d-020) | 2026-10-22 | proposed | Configuration management: controlled documents and records are registered configuration items (living / append-only / frozen), checked on every PR by a read-only `ci-impact` workflow; approval stays the owner's explicit authorisation and merge |
+| [D-021](#d-021) | 2026-10-22 | accepted | Scoring contract v1 accepted: excluded time masked with separate diagnostics, false clips per exported segment with delivered dead/excluded time split, no dead-time claims on partially marked footage, 0.98 completeness provisional, merged rallies tracked; Dataset Review & Repair GUI approved (C1 first; explicit logged backed-up applies; trim = derived recording inheriting its parent's restrictions; protected recordings refused by default, legacy-holdout exceptions authorised + ledgered, lineage holdout separately gated); 54 dangling records not cleaned up |
 
 ---
 
@@ -257,3 +258,18 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** New: the registry, the checker and its tests, `.github/workflows/ci-impact.yml`, [CONFIGURATION_MANAGEMENT.md](../workflow/CONFIGURATION_MANAGEMENT.md), [ROADMAP_AMENDMENTS.md](../ml-roadmap/ROADMAP_AMENDMENTS.md) (the 2026-10-20 roadmap is frozen with its existing notes). Updated: PR template, working agreement (step 9, review gate, sources of truth), `AGENTS.md` rule 9, `CLAUDE.md`, docs index. No app, pipeline, dataset or training change.
 
 **Source.** Owner decisions on the configuration-management proposal, 2026-10-22 (delivered to Claude Code; decisions 1–8 and amendments A–F).
+
+### D-021
+
+**Scoring contract v1 accepted; Dataset Review & Repair GUI approved for implementation planning** — 2026-10-22 — accepted — owner (via independent review). Source: [owner note, verbatim](2026-10-22-scoring-and-gui-decisions.md).
+
+**Context.** PR #79 ([SCORING_CONTRACT.md](../ml-roadmap/SCORING_CONTRACT.md)) and PR #82 ([DATASET_REVIEW_GUI_PLAN.md](../ml-roadmap/DATASET_REVIEW_GUI_PLAN.md)) were merged under the owner's "merge the ones that are technically ready"; the reviewer then settled the open contract questions and the GUI principles.
+
+**Decision.**
+1. **Masking accepted.** Boundary errors use scorable prediction boundaries. Separate diagnostics — predictions entering excluded time, excluded seconds overlapped, partially masked predictions — never affect primary detection scores. Disconnected scorable pieces are preserved for matching, with regression tests.
+2. **False clips** are counted per original exported segment, not per masked piece; a segment with no rally and 1.8 s of scorable dead time is one false clip. Scorable dead time and excluded time delivered are reported separately. Verified dead time is never inferred from unknown or partially annotated footage.
+3. **Complete rally** = retained fraction ≥ 0.98 **and** serve contact and ball dead inside the actual exported interval, with the half-open containment convention and the video-end exception; merged rallies tracked separately even when fully retained. 0.98 is provisional, to be revisited with Phase 1A evidence.
+4. **GUI.** C1 (event review) first, then the health queue, then controlled corrections. Every applied repair is explicit, logged, backed up or source-preserving, and validated. Trimming yields a separately identified derived recording linked to the original, which stays untouched; split and holdout restrictions carry through the parent–source relationship. All GUI and headless operations refuse protected recordings by default; legacy-holdout diagnostic exceptions need separate owner authorisation and an exposure-ledger entry; lineage-holdout access remains separately gated. The 54 dangling frame records are not cleaned up yet.
+5. The running L2 export is not interrupted; after a successful preflight: desktop verification, completed preregistration with hashes and reproducibility, final training approval. No training or protected-holdout evaluation is authorised.
+
+**Consequences.** Reference scorer and fixtures updated (`excludedTimeDiagnostics`; `falseClips` per segment; `scorableDeadSecondsDelivered` / `excludedSecondsDelivered`; `fullyMarked` gating with null dead-time metrics otherwise; `mergedRallies` / `inMergedExport`; fixtures 21 and 22; 22 pinned fixtures). Post-export implementation continues as separate scoped PRs with Codex review: G1 event-review tool, G1b protected-holdout refusal for routine scoring with the auditable exception, scoring PRs A–C, strict source verification.

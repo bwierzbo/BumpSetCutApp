@@ -37,6 +37,7 @@
    19.5
   ]
  ],
+ "fullyMarked": true,
  "expected": {
   "contract": "SCORING_CONTRACT v1",
   "params": {
@@ -65,6 +66,12 @@
    "endWithinTolerance": null,
    "split": 0,
    "merged": 1,
+   "excludedTimeDiagnostics": {
+    "predictionsEnteringExcludedTime": 0,
+    "excludedSecondsOverlapped": 0.0,
+    "partiallyMaskedPredictions": 0,
+    "predictionsWithDisconnectedPieces": 0
+   },
    "matches": []
   },
   "paddedExport": {
@@ -74,24 +81,30 @@
    "clipped": 0,
    "missed": 0,
    "completeRallyRecall": 1.0,
+   "mergedRallies": 2,
    "rallySeconds": 8.0,
    "exportSeconds": 11.5,
+   "excludedSecondsDelivered": 0.0,
+   "scorableDeadSecondsDelivered": 3.5,
    "deadSeconds": 112.0,
    "deadSecondsRetained": 3.5,
    "deadTimeRetention": 0.03125,
    "falseClips": 0,
+   "fullyMarked": true,
    "perRally": [
     {
      "retainedFraction": 1.0,
      "contactInExport": true,
      "deadBallInExport": true,
-     "status": "complete"
+     "status": "complete",
+     "inMergedExport": true
     },
     {
      "retainedFraction": 1.0,
      "contactInExport": true,
      "deadBallInExport": true,
-     "status": "complete"
+     "status": "complete",
+     "inMergedExport": true
     }
    ],
    "legacyCoveredMinusQuarterDead": 0.890625

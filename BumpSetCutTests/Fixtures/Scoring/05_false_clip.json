@@ -39,6 +39,7 @@
    63.5
   ]
  ],
+ "fullyMarked": true,
  "expected": {
   "contract": "SCORING_CONTRACT v1",
   "params": {
@@ -67,6 +68,12 @@
    "endWithinTolerance": 1.0,
    "split": 0,
    "merged": 0,
+   "excludedTimeDiagnostics": {
+    "predictionsEnteringExcludedTime": 0,
+    "excludedSecondsOverlapped": 0.0,
+    "partiallyMaskedPredictions": 0,
+    "predictionsWithDisconnectedPieces": 0
+   },
    "matches": [
     {
      "truth": 0,
@@ -83,18 +90,23 @@
    "clipped": 0,
    "missed": 0,
    "completeRallyRecall": 1.0,
+   "mergedRallies": 0,
    "rallySeconds": 4.0,
    "exportSeconds": 12.0,
+   "excludedSecondsDelivered": 0.0,
+   "scorableDeadSecondsDelivered": 8.0,
    "deadSeconds": 116.0,
    "deadSecondsRetained": 8.0,
    "deadTimeRetention": 0.068966,
    "falseClips": 1,
+   "fullyMarked": true,
    "perRally": [
     {
      "retainedFraction": 1.0,
      "contactInExport": true,
      "deadBallInExport": true,
-     "status": "complete"
+     "status": "complete",
+     "inMergedExport": false
     }
    ],
    "legacyCoveredMinusQuarterDead": 0.5
