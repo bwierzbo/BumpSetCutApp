@@ -18,6 +18,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 - [Owner decisions, 2026-10-20](decisions/2026-10-20-phase0-owner-decisions.md) — verbatim primary source for D-001 … D-010.
 - [Owner decisions, 2026-10-21 (L2)](decisions/2026-10-21-l2-owner-decisions.md) — verbatim primary source for D-018 (dataset isolation, preregistration).
 - [Owner decisions, 2026-10-21 (PR #73, L2 recipe)](decisions/2026-10-21-l2-approval-decisions.md) — verbatim primary source for D-019 (merge, recipe approved with amendments, one seed, legacy holdout confirmed).
+- [Owner decision, 2026-10-22 (D-007 threshold)](decisions/2026-10-22-d007-threshold-decision.md) — verbatim: no numerical dead-time ceiling or recall target yet; target configurable but unset; no winner declared under D-007 until approved.
 - [Owner decisions, 2026-10-22 (scoring contract, GUI)](decisions/2026-10-22-scoring-and-gui-decisions.md) — verbatim primary source for D-021 (masking diagnostics, false clips per segment, 0.98 provisional, GUI principles, protected-recording refusal).
 - [Decision template](templates/DECISION.md).
 

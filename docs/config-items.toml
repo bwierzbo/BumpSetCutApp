@@ -203,6 +203,18 @@ decisions = ["D-021"]
 frozen_sha256 = "5dee6a8ffdda5b8edffa509efd13fff1150fd43c23264ae885389778b26e6dc2"
 
 [[item]]
+id = "CI-BSC-053"
+name = "Owner decision 2026-10-22, D-007 numerical threshold (verbatim)"
+type = "decision-record"
+path = "docs/decisions/2026-10-22-d007-threshold-decision.md"
+lifecycle = "historical"
+change_class = "frozen"
+approval = "owner"
+maintainer = "owner"
+decisions = ["D-007"]
+frozen_sha256 = "608da78dc5f2db75e4b6bbf9a7f4d25031156baf60890fe7422205d4be74ebd7"
+
+[[item]]
 id = "CI-BSC-015"
 name = "Decision entry template"
 type = "template"
