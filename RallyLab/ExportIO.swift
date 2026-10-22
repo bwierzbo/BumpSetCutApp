@@ -124,26 +124,6 @@ enum ExportIO {
         CGImageSourceCreateWithData(data as CFData, nil).flatMap(decode)
     }
 
-    /// How unlike two images are: the mean absolute difference, 0…255, of their 64×64 grey
-    /// thumbnails. The same frame through one more JPEG round trip scores about 1; a frame of
-    /// another video, or the same video at another scale, scores far above `sameFrame`.
-    static let sameFrame = 6.0
-    static func meanDifference(_ a: CGImage, _ b: CGImage) -> Double {
-        let side = 64
-        func grey(_ image: CGImage) -> [UInt8]? {
-            var pixels = [UInt8](repeating: 0, count: side * side)
-            guard let ctx = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side,
-                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
-            ctx.interpolationQuality = .medium
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-            return pixels
-        }
-        guard let ga = grey(a), let gb = grey(b) else { return 255 }
-        var sum = 0
-        for i in 0..<(side * side) { sum += abs(Int(ga[i]) - Int(gb[i])) }
-        return Double(sum) / Double(side * side)
-    }
-
     /// Writes `data` next to its destination first and moves it into place, so a file at the
     /// final name is either whole or absent. A leftover `.part` is never a frame.
     static let partialSuffix = ".part"

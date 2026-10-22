@@ -215,6 +215,10 @@ final class ProjectsModel {
     init(sampler: SamplerModel) {
         self.sampler = sampler
         loadKnownProjects()
+        // Under XCTest the host app must not open the person's project: its periodic sync
+        // re-saves every session from memory and its tabs run the pipeline on footage (ball
+        // paths, scrub proxies) while the tests run. Tests bring their own fixtures.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
         if let last = UserDefaults.standard.string(forKey: Self.lastProjectKey) {
             let dir = URL(fileURLWithPath: last, isDirectory: true)
             if knownProjects.contains(dir) { open(dir) }

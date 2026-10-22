@@ -5,8 +5,9 @@
 //  A multi-frame export writes every frame its windows need, whole, or
 //  fails naming the frame; an export cut short is completed in place only
 //  from frames proven to be whole, planned, the right size and of the same
-//  video — and a finished package, a stray folder or a foreign file is
-//  refused without touching anything.
+//  video, against the journal written beside it — and a finished package,
+//  another run, a stray folder or a foreign file is refused without
+//  touching anything.
 //
 
 import AVFoundation
@@ -85,32 +86,81 @@ final class MultiFramePackageResumeTests: XCTestCase {
          session("b", split: "train", video: try await video("b", seed: 7), times: [1.0])]
     }
 
-    private func export(_ sessions: [VideoSession], longSide: CGFloat = MultiFramePackage.longSide, resume: URL? = nil) async throws -> (dir: URL, summary: MultiFramePackage.Summary) {
+    private func export(_ sessions: [VideoSession], longSide: CGFloat = MultiFramePackage.longSide, resume: URL? = nil,
+                        identity: [String: String] = [:], beforeZip: ((URL) throws -> Void)? = nil) async throws -> (dir: URL, summary: MultiFramePackage.Summary) {
         let result = try await MultiFramePackage.export(sessions: sessions, store: DatasetStore(root: root), name: "Fixture-L2", longSide: longSide,
-                                                        resume: resume, now: now) { _, _ in }
+                                                        resume: resume, identity: identity, beforeZip: beforeZip, now: now) { _, _ in }
         let dir = result.output.pathExtension == "zip" ? result.output.deletingPathExtension() : result.output
         return (dir, result.summary)
     }
 
-    /// Strips what a finished export has and an interrupted one hasn't: the zip and the top-level files.
-    private func interrupt(_ dir: URL) throws {
+    private func journalLines(_ dir: URL) throws -> [String] {
+        try String(contentsOf: ExportJournal.url(forPackage: dir), encoding: .utf8).split(separator: "\n").map(String.init)
+    }
+
+    /// Turns a finished export into what an interrupted one leaves: no zip, no top-level files,
+    /// and a journal that stops where the run stopped — after `keepFrames` frame lines (all of
+    /// them by default), without its closing states, optionally with a torn last line. With
+    /// `journal: false` the journal is gone: an export from before journals.
+    private func interrupt(_ dir: URL, keepFrames: Int? = nil, tornTail: Bool = false, journal: Bool = true) throws {
         let fm = FileManager.default
         try fm.removeItem(at: dir.deletingPathExtension().appendingPathExtension("zip"))
         for f in ["windows.jsonl", "README.txt", "summary.json"] { try fm.removeItem(at: dir.appendingPathComponent(f)) }
+        let url = ExportJournal.url(forPackage: dir)
+        guard journal else { return try fm.removeItem(at: url) }
+        var lines = try journalLines(dir)
+        var kept: [String] = []
+        var frames = 0
+        for line in lines {
+            if line.contains("\"type\":\"frame\"") {
+                frames += 1
+                if let keepFrames, frames > keepFrames { continue }
+            } else if line.contains("\"type\":\"clip\"") && keepFrames != nil { continue }
+            else if line.contains("\"type\":\"state\"") && !line.contains("in_progress") { continue }
+            kept.append(line)
+        }
+        lines = kept
+        var text = lines.joined(separator: "\n") + "\n"
+        if tornTail { text += "{\"type\":\"frame\",\"clip\":\"a\",\"key\":12" }
+        try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func hashes(_ dir: URL) throws -> [String: String] {
         Dictionary(uniqueKeysWithValues: try XCTUnwrap(DatasetSplitManifest.canonicalFileHashes(ofDirectory: dir)).map { ($0.path, $0.sha256) })
     }
 
+    /// The package's files except the two that carry run metadata (summary.json: createdAt and the resume report; README.txt: the same in words).
+    private func payload(_ dir: URL) throws -> [String: String] { try hashes(dir).filter { $0.key != "summary.json" && $0.key != "README.txt" } }
+
     private func frameNames(_ dir: URL, _ clip: String) throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: dir.appendingPathComponent("frames/\(clip)").path).sorted()
     }
 
+    private func ledgerRows(ref: String) throws -> [DatasetSplitManifest.ExposureLogRow] {
+        let url = ExposureLog.url(in: root)
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try JSONDecoder().decode([DatasetSplitManifest.ExposureLogRow].self, from: Data(contentsOf: url)).filter { $0.ref == ref }
+    }
+
+    private func footageHashes() throws -> [String: String] { try hashes(root.appendingPathComponent("footage")) }
+
+    /// The lineage preflight as `--package-l2` runs it, for the two fixture clips.
+    private func preflight(_ dir: URL) throws -> LineagePackage.Preflight {
+        let plan = LineagePackage.Plan(lineage: "L2", project: "Fixture", createdAt: now, generator: "test",
+                                       manifestHashes: .init(projectJson: "p", sessions: "s", validationJson: "v"), audit: .init(hard: 0, soft: 0, info: 0),
+                                       withheld: [.init(video: "w", split: .lineageHoldout, reservedAs: "listed", aliasGroup: "w", identities: [])], withheldClosure: ["w"],
+                                       eligible: [.init(video: "a", split: .devVal, packageSplit: "val", aliasGroup: "a", identities: [], reviewedFrames: 2, ralliesMarked: false),
+                                                  .init(video: "b", split: .train, packageSplit: "train", aliasGroup: "b", identities: [], reviewedFrames: 1, ralliesMarked: false)])
+        return try LineagePackage.preflight(packageDir: dir, plan: plan, sourceFingerprints: ["a": "file:A", "b": "file:B"], protectedSources: ["file:W"],
+                                            protectedHashes: ["0000"], now: now)
+    }
+
     // MARK: - Fresh export
 
-    func testExportWritesEveryNeededFrameWhole() async throws {
-        let (dir, summary) = try await export(try await sessions())
+    func testExportWritesEveryNeededFrameWholeAndJournalsIt() async throws {
+        let sessions = try await sessions()
+        let before = try footageHashes()
+        let (dir, summary) = try await export(sessions)
         XCTAssertNil(summary.resume)
         XCTAssertEqual(summary.frames, 32 + 17, "a: frames 37…68, b: frames 22…38")
         XCTAssertEqual(try frameNames(dir, "a").count, 32)
@@ -120,50 +170,128 @@ final class MultiFramePackageResumeTests: XCTestCase {
             guard case .valid(let w, let h) = ExportIO.inspectFrame(try Data(contentsOf: dir.appendingPathComponent(path))) else { return XCTFail("\(path) is not a whole JPEG") }
             XCTAssertEqual([w, h], [320, 180])
         }
-        let windows = try String(contentsOf: dir.appendingPathComponent("windows.jsonl"), encoding: .utf8).split(separator: "\n")
-        XCTAssertEqual(windows.count, 3)
+        XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("windows.jsonl"), encoding: .utf8).split(separator: "\n").count, 3)
+        // The journal beside the folder, never inside it: a header with the run identity, every frame with its hash, the states.
+        XCTAssertEqual(Set(try hashes(dir).keys.filter { !$0.hasPrefix("frames/") }), ["README.txt", "summary.json", "windows.jsonl"])
+        let journal = try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent)
+        XCTAssertEqual(journal.state, .finalized)
+        XCTAssertEqual(journal.states, [.inProgress, .finalized])
+        XCTAssertEqual(journal.completedClips, ["a", "b"])
+        XCTAssertEqual(journal.frames["a"]?.count, 32); XCTAssertEqual(journal.frames["b"]?.count, 17)
+        XCTAssertFalse(journal.tornTail)
+        XCTAssertEqual(journal.identity.exporter, MultiFramePackage.exporterVersion)
+        XCTAssertEqual(journal.identity.clips["a"]?.plannedKeys, 32)
+        XCTAssertEqual(journal.identity.clips["a"]?.sourceFingerprint, ProjectsModel.fileFingerprint(atPath: root.appendingPathComponent("footage/a.mp4").path))
+        for (path, sha) in try hashes(dir) where path.hasPrefix("frames/") {
+            let parts = path.split(separator: "/")
+            XCTAssertEqual(journal.frames[String(parts[1])]?[Int64(parts[2].dropLast(4))!]?.sha256, sha, "journal hash of \(path)")
+        }
+        XCTAssertEqual(try ledgerRows(ref: dir.lastPathComponent).map(\.video), ["a", "b"])
+        XCTAssertEqual(try footageHashes(), before, "the footage is untouched")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("footage/a.rallylabels.json").path), "no sidecar was created")
     }
 
     // MARK: - Resume
 
-    func testResumeCompletesAnInterruptedExportWithoutRewritingValidFrames() async throws {
+    func testResumeCompletesAnInterruptedExportReusingOnlyProvenFrames() async throws {
         let sessions = try await sessions()
         let (dir, _) = try await export(sessions)
+        let freshPayload = try payload(dir)
         let windowsBefore = try Data(contentsOf: dir.appendingPathComponent("windows.jsonl"))
-        let before = try hashes(dir)
-        try interrupt(dir)
-        // Clip b lost all but five frames; one of a's frames was torn mid-write; a .part was left behind.
         let fm = FileManager.default
-        let bFrames = try frameNames(dir, "b")
+        // The run stopped after journaling 32 + 3 frames, mid-write of the next line; clip b has only 5 frames on disk;
+        // one of a's journaled frames was torn afterwards; a .part was left behind.
+        try interrupt(dir, keepFrames: 35, tornTail: true)
+        // (Frame names sort as numbers: the journal's first three of b are its earliest moments.)
+        let bFrames = try frameNames(dir, "b").sorted { Int64($0.dropLast(4))! < Int64($1.dropLast(4))! }
         for name in bFrames.dropFirst(5) { try fm.removeItem(at: dir.appendingPathComponent("frames/b/\(name)")) }
         let torn = try frameNames(dir, "a")[3]
         let tornURL = dir.appendingPathComponent("frames/a/\(torn)")
         try Data(contentsOf: tornURL).prefix(1000).write(to: tornURL)
         try Data("half".utf8).write(to: dir.appendingPathComponent("frames/a/1233333.jpg.part"))
+        let ledgerBefore = try ledgerRows(ref: dir.lastPathComponent)
 
-        let (resumedDir, summary) = try await export(sessions, resume: dir)
+        var preflighted: LineagePackage.Preflight?
+        let (resumedDir, summary) = try await export(sessions, resume: dir, beforeZip: { preflighted = try self.preflight($0) })
         XCTAssertEqual(resumedDir.path, dir.path)
         let report = try XCTUnwrap(summary.resume)
         XCTAssertEqual(report.from, dir.lastPathComponent)
-        XCTAssertEqual(report.framesRetained, 31 + 5)
-        XCTAssertEqual(report.framesReplaced, 1)
-        XCTAssertEqual(report.replaced, ["frames/a/\(torn)"])
-        XCTAssertEqual(report.framesWritten, 1 + 12)
+        XCTAssertFalse(report.legacy); XCTAssertTrue(report.identityVerified)
+        XCTAssertTrue(report.journal.contains("35 frames journaled") && report.journal.contains("last line torn") && report.journal.contains("state interrupted"), report.journal)
+        XCTAssertEqual(report.retainedByJournal, 31 + 3, "a's journaled frames but the torn one; b's three journaled ones")
+        XCTAssertEqual(report.retainedByRegeneration, 2, "b's two frames past the journal's end, proven byte-identical to their regeneration")
+        XCTAssertEqual(report.framesRetained, 36)
+        XCTAssertEqual(report.framesReplaced, 1); XCTAssertEqual(report.replaced, ["frames/a/\(torn)"])
+        XCTAssertEqual(report.framesWritten, 12)
         XCTAssertEqual(report.partialFilesRemoved, 1)
-        XCTAssertEqual(report.sourceChecks.map(\.clip), ["a", "b"])
-        XCTAssertEqual(report.sourceChecks.map(\.sampled), [5, 5])
-        XCTAssertLessThanOrEqual(report.sourceChecks.map(\.maxDifference).max()!, ExportIO.sameFrame)
-        XCTAssertEqual(summary.frames, 49)
+        XCTAssertEqual(report.clips.map(\.toWrite), [0, 12])
+        XCTAssertEqual(summary.frames, 49, "the whole package, not only what this run wrote")
 
-        let after = try hashes(dir)
         XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("windows.jsonl")), windowsBefore, "the same windows as the uninterrupted export")
-        for (path, sha) in before where path.hasPrefix("frames/") && path != "frames/a/\(torn)" && (path.hasPrefix("frames/a/") || bFrames.prefix(5).contains(String(path.dropFirst("frames/b/".count)))) {
-            XCTAssertEqual(after[path], sha, "retained frame rewritten: \(path)")
-        }
-        XCTAssertEqual(Set(after.keys.filter { $0.hasPrefix("frames/") }), Set(before.keys.filter { $0.hasPrefix("frames/") }))
-        guard case .valid = ExportIO.inspectFrame(try Data(contentsOf: tornURL)) else { return XCTFail("the torn frame was not replaced by a whole one") }
+        XCTAssertEqual(try payload(dir), freshPayload, "every frame byte-identical to the uninterrupted export's")
         XCTAssertFalse(fm.fileExists(atPath: dir.appendingPathComponent("frames/a/1233333.jpg.part").path))
         XCTAssertTrue(fm.fileExists(atPath: dir.deletingPathExtension().appendingPathExtension("zip").path), "the resumed export finishes like a fresh one")
+        let p = try XCTUnwrap(preflighted)
+        XCTAssertTrue(p.passed, p.checks.filter { !$0.passed }.map { "\($0.name): \($0.detail)" }.joined(separator: "; "))
+        XCTAssertTrue(p.checks.contains { $0.name == "no-stray-files" && $0.passed }, "the journal lives beside the package, not in it")
+        XCTAssertEqual(p.digest, DatasetSplitManifest.canonicalDigest(ofDirectory: dir))
+        // The ledger: one row per video, written once the package passed its checks; the failed run had none, the resumed run adds none twice.
+        XCTAssertEqual(ledgerBefore.map(\.video), ["a", "b"], "the fresh fixture export had recorded its own rows")
+        XCTAssertEqual(try ledgerRows(ref: dir.lastPathComponent).count, 2)
+        let journal = try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent)
+        XCTAssertEqual(journal.state, .finalized)
+        XCTAssertEqual(journal.states, [.inProgress, .inProgress, .preflightPassed, .finalized])
+        XCTAssertEqual(journal.frames["a"]?.count, 32); XCTAssertEqual(journal.frames["b"]?.count, 17)
+        XCTAssertFalse(journal.tornTail, "the torn line was cut off before the resumed run appended")
+    }
+
+    func testResumeOfALegacyFolderProvesEveryFrameByRegeneration() async throws {
+        let sessions = try await sessions()
+        let (dir, _) = try await export(sessions)
+        let freshPayload = try payload(dir)
+        try interrupt(dir, journal: false)
+        for name in try frameNames(dir, "b").dropFirst(10) { try FileManager.default.removeItem(at: dir.appendingPathComponent("frames/b/\(name)")) }
+        // Read-only first: what would be reused, nothing changed.
+        let before = try hashes(dir)
+        let inspection = try await MultiFramePackage.inspectResume(sessions: sessions, store: DatasetStore(root: root), resume: dir)
+        XCTAssertTrue(inspection.legacy); XCTAssertFalse(inspection.identityVerified); XCTAssertEqual(inspection.journal, "none")
+        XCTAssertEqual(inspection.retainedByJournal, 0); XCTAssertEqual(inspection.retainedByRegeneration, 42)
+        XCTAssertEqual(inspection.clips.map(\.toWrite), [0, 7])
+        XCTAssertEqual(try hashes(dir), before, "inspection wrote nothing")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ExportJournal.url(forPackage: dir).path), "inspection started no journal")
+
+        let (_, summary) = try await export(sessions, resume: dir)
+        let report = try XCTUnwrap(summary.resume)
+        XCTAssertTrue(report.legacy)
+        XCTAssertEqual(report.retainedByRegeneration, 42); XCTAssertEqual(report.retainedByJournal, 0)
+        XCTAssertEqual(report.framesWritten, 7); XCTAssertEqual(report.framesReplaced, 0)
+        XCTAssertEqual(try payload(dir), freshPayload)
+        let journal = try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent)
+        XCTAssertEqual(journal.frames["a"]?.count, 32, "frames proven by regeneration are journaled for the next time")
+        XCTAssertEqual(journal.frames["b"]?.count, 17)
+    }
+
+    func testResumeTwiceAddsNothingTwice() async throws {
+        let sessions = try await sessions()
+        let (dir, _) = try await export(sessions)
+        let freshPayload = try payload(dir)
+        try interrupt(dir, keepFrames: 10)
+        for name in try frameNames(dir, "b") { try FileManager.default.removeItem(at: dir.appendingPathComponent("frames/b/\(name)")) }
+        _ = try await export(sessions, resume: dir)
+        // Interrupted again after that, and resumed again.
+        try interrupt(dir, keepFrames: 40)
+        for name in try frameNames(dir, "b").dropFirst(2) { try FileManager.default.removeItem(at: dir.appendingPathComponent("frames/b/\(name)")) }
+        let (_, summary) = try await export(sessions, resume: dir)
+        let report = try XCTUnwrap(summary.resume)
+        XCTAssertEqual(report.framesRetained, 34); XCTAssertEqual(report.framesWritten, 15)
+        XCTAssertEqual(try payload(dir), freshPayload)
+        XCTAssertEqual(try ledgerRows(ref: dir.lastPathComponent).count, 2, "one row per video, however many runs")
+        let journal = try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent)
+        XCTAssertEqual(journal.frames["a"]?.count, 32); XCTAssertEqual(journal.frames["b"]?.count, 17)
+        XCTAssertEqual(journal.states.filter { $0 == .finalized }.count, 1)
+        // A finished package is never resumed into.
+        do { _ = try await export(sessions, resume: dir); XCTFail("resumed a finished package") }
+        catch MultiFramePackage.ResumeError.notResumable { }
     }
 
     func testResumeRefusesAFinishedPackageAStrayFolderAndAForeignFile() async throws {
@@ -195,31 +323,49 @@ final class MultiFramePackageResumeTests: XCTestCase {
         catch MultiFramePackage.ResumeError.unexpectedFile(let p) { XCTAssertEqual(p, "frames/a/999.jpg") }
         XCTAssertTrue(fm.fileExists(atPath: dir.appendingPathComponent("frames/a/999.jpg").path), "the unplanned frame is not removed")
         XCTAssertFalse(fm.fileExists(atPath: dir.appendingPathComponent("windows.jsonl").path), "nothing finished")
+        // A journal that says the run finished, with the folder stripped: refused on the state.
+        try fm.removeItem(at: dir.appendingPathComponent("frames/a/999.jpg"))
+        let url = ExportJournal.url(forPackage: dir)
+        try (try journalLines(dir).joined(separator: "\n") + "\n{\"type\":\"state\",\"state\":\"finalized\",\"at\":\"2026-10-22T20:00:00Z\"}\n").write(to: url, atomically: true, encoding: .utf8)
+        do { _ = try await export(sessions, resume: dir); XCTFail("resumed a finalized journal") }
+        catch MultiFramePackage.ResumeError.wrongState(let st) { XCTAssertEqual(st, "finalized") }
         // Not a folder at all.
         do { _ = try await export(sessions, resume: root.appendingPathComponent("nowhere")); XCTFail("resumed a missing folder") }
         catch MultiFramePackage.ResumeError.notAFolder { }
     }
 
-    func testResumeRefusesFramesOfAnotherSizeOrAnotherVideo() async throws {
-        // Written at --long-side 160 (160×90), resumed at the default (320×180): the retained frames are the wrong size.
+    func testResumeRefusesAnotherRunIdentityAndAnotherVideo() async throws {
+        // The journal's identity: another --long-side, another caller identity, another source file — each named, nothing changed.
         var sessions = try await sessions()
-        let (small, _) = try await export(sessions, longSide: 160)
-        try interrupt(small)
-        do { _ = try await export(sessions, resume: small); XCTFail("reused frames of another size") }
-        catch MultiFramePackage.ResumeError.sizeMismatch(let clip, let retained, let expected) {
-            XCTAssertEqual(clip, "a"); XCTAssertEqual(retained, "160×90"); XCTAssertEqual(expected, "320×180")
-        }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: small.appendingPathComponent("windows.jsonl").path))
-        // Written from one video, resumed with another under the same name: the sample does not match.
-        try FileManager.default.removeItem(at: small)
-        let (dir, _) = try await export(sessions)
+        let (dir, _) = try await export(sessions, identity: ["manifest": "m1"])
         try interrupt(dir)
+        let before = try hashes(dir)
+        do { _ = try await export(sessions, longSide: 160, resume: dir, identity: ["manifest": "m1"]); XCTFail("resumed at another size") }
+        catch MultiFramePackage.ResumeError.identityMismatch(let d) { XCTAssertEqual(d, ["longSide: journal 1024.0, now 160.0"]) }
+        do { _ = try await export(sessions, resume: dir, identity: ["manifest": "m2"]); XCTFail("resumed under another manifest") }
+        catch MultiFramePackage.ResumeError.identityMismatch(let d) { XCTAssertEqual(d, ["extra.manifest: journal m1, now m2"]) }
         sessions = try await self.sessions(seedA: 1)
-        do { _ = try await export(sessions, resume: dir); XCTFail("reused frames of another video") }
-        catch MultiFramePackage.ResumeError.sourceMismatch(let clip, _, let difference) {
-            XCTAssertEqual(clip, "a"); XCTAssertGreaterThan(difference, ExportIO.sameFrame)
+        do { _ = try await export(sessions, resume: dir, identity: ["manifest": "m1"]); XCTFail("resumed with another video") }
+        catch MultiFramePackage.ResumeError.identityMismatch(let d) {
+            XCTAssertTrue(d.contains { $0.hasPrefix("clip a.sourceFingerprint:") }, d.joined(separator: "; "))
+            XCTAssertTrue(d.contains { $0.hasPrefix("clip a.sourceModified:") || $0.hasPrefix("clip a.sourceBytes:") }, d.joined(separator: "; "))
         }
+        XCTAssertEqual(try hashes(dir), before, "nothing touched")
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("windows.jsonl").path))
+        // Without a journal the frames themselves give it away: none is identical to its regeneration from the other video.
+        try FileManager.default.removeItem(at: ExportJournal.url(forPackage: dir))
+        do { _ = try await export(sessions, resume: dir); XCTFail("reused frames of another video") }
+        catch MultiFramePackage.ResumeError.tooManyInvalid(let clip, let count, let limit) {
+            XCTAssertEqual(clip, "a"); XCTAssertEqual(count, 32); XCTAssertEqual(limit, MultiFramePackage.maxInvalidPerClip)
+        }
+        XCTAssertEqual(try hashes(dir), before, "nothing touched")
+        // The same from a legacy folder written at another size: every frame differs from its regeneration.
+        sessions = try await self.sessions()
+        try FileManager.default.removeItem(at: dir); try FileManager.default.removeItem(at: ExportJournal.url(forPackage: dir))
+        let (small, _) = try await export(sessions, longSide: 160)
+        try interrupt(small, journal: false)
+        do { _ = try await export(sessions, resume: small); XCTFail("reused frames of another size") }
+        catch MultiFramePackage.ResumeError.tooManyInvalid(let clip, _, _) { XCTAssertEqual(clip, "a") }
     }
 
     func testResumeReplacesAFewTornFramesButNotAFolderFullOfThem() async throws {
@@ -237,6 +383,64 @@ final class MultiFramePackageResumeTests: XCTestCase {
         }
         // The torn files are still there, untouched: the folder was refused, not repaired.
         XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("frames/a/\(names[0])")).count, 500)
+    }
+
+    func testResumedFolderSurvivesAFailedPreflight() async throws {
+        let sessions = try await sessions()
+        let (dir, _) = try await export(sessions)
+        try interrupt(dir, keepFrames: 20)
+        try FileManager.default.removeItem(at: ExposureLog.url(in: root))   // as after a run that never reached its preflight
+        let framesBefore = try hashes(dir)
+        struct Refused: Error {}
+        do { _ = try await export(sessions, resume: dir, beforeZip: { _ in throw Refused() }); XCTFail("finished past a failed hook") }
+        catch is Refused { }
+        XCTAssertEqual(Set(try hashes(dir).keys.filter { !$0.hasPrefix("frames/") }), [], "frames kept, nothing that says finished")
+        XCTAssertEqual(try hashes(dir).filter { framesBefore[$0.key] != nil }, framesBefore)
+        XCTAssertEqual(try ledgerRows(ref: dir.lastPathComponent).count, 0, "no exposure row for a package that failed its checks")
+        let journal = try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent)
+        XCTAssertEqual(journal.state, .preflightFailed)
+        // …and it can be resumed again, now with every frame on disk.
+        let (_, summary) = try await export(sessions, resume: dir)
+        XCTAssertEqual(summary.resume?.framesRetained, 49); XCTAssertEqual(summary.resume?.framesWritten, 0)
+        XCTAssertEqual(try ledgerRows(ref: dir.lastPathComponent).count, 2)
+    }
+
+    func testJournalReadsBackWhatWasWrittenAndRefusesWhatIsNotIts() throws {
+        let dir = root.appendingPathComponent("P")
+        let url = ExportJournal.url(forPackage: dir)
+        let identity = ExportJournal.Identity(exporter: "2", longSide: 1024, quality: 0.85, span: 8, frameRate: 30, trackStride: 2, deadStep: 3, deadMargin: 1.5,
+                                              unreviewed: false, valOnly: false, extra: ["k": "v"],
+                                              clips: ["a": .init(name: "a", split: "val", sourcePath: "/a.mp4", sourceFingerprint: "file:A", sourceBytes: 10, sourceModified: "t",
+                                                                 sidecarSha256: nil, plannedKeysSha256: "p", plannedKeys: 3)])
+        let w = try ExportJournal.Writer(creating: url, package: "P", identity: identity, now: now)
+        try w.state(.inProgress, now: now)
+        try w.append(.frame(clip: "a", key: 1, sha256: "s1", bytes: 5))
+        try w.append(.frame(clip: "a", key: 2, sha256: "s2", bytes: 6))
+        try w.append(.clipComplete(clip: "a", frames: 2))
+        try w.close()
+        var c = try ExportJournal.read(url, forPackage: "P")
+        XCTAssertEqual(c.identity, identity); XCTAssertEqual(c.state, .interrupted); XCTAssertEqual(c.completedClips, ["a"]); XCTAssertFalse(c.tornTail)
+        XCTAssertEqual(c.frames["a"]?[2]?.sha256, "s2"); XCTAssertEqual(c.frames["a"]?[2]?.bytes, 6)
+        // A torn last line is dropped and reported; damage earlier is not an interruption.
+        let whole = try Data(contentsOf: url).count
+        let handle = try FileHandle(forWritingTo: url); try handle.seekToEnd(); try handle.write(contentsOf: Data("{\"type\":\"fra".utf8)); try handle.close()
+        c = try ExportJournal.read(url, forPackage: "P")
+        XCTAssertTrue(c.tornTail); XCTAssertEqual(c.frames["a"]?.count, 2); XCTAssertEqual(Int(c.validLength), whole)
+        let again = try ExportJournal.Writer(appendingTo: url, after: c.validLength)
+        try again.append(.frame(clip: "a", key: 3, sha256: "s3", bytes: 7)); try again.close()
+        c = try ExportJournal.read(url, forPackage: "P")
+        XCTAssertFalse(c.tornTail); XCTAssertEqual(c.frames["a"]?.count, 3)
+        XCTAssertThrowsError(try ExportJournal.read(url, forPackage: "Q")) { XCTAssertEqual($0 as? ExportJournal.JournalError, .otherPackage(url.path, journal: "P", folder: "Q")) }
+        try "{\"type\":\"frame\"}\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try ExportJournal.read(url, forPackage: "P")) { XCTAssertEqual($0 as? ExportJournal.JournalError, .notAJournal(url.path, detail: "no header line")) }
+        try "not json\n{\"type\":\"state\",\"state\":\"finalized\",\"at\":\"t\"}\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try ExportJournal.read(url, forPackage: "P")) { XCTAssertEqual($0 as? ExportJournal.JournalError, .notAJournal(url.path, detail: "line 1 does not parse")) }
+        XCTAssertThrowsError(try ExportJournal.Writer(creating: url, package: "P", identity: identity, now: now), "never over an existing journal")
+        // Identity differences are named field by field.
+        var other = identity
+        other.longSide = 512; other.extra["k"] = "w"; other.clips["a"]?.plannedKeys = 4; other.clips["b"] = other.clips["a"]
+        XCTAssertEqual(identity.differences(from: other), ["longSide: journal 512.0, now 1024.0", "extra.k: journal w, now v", "clip a.plannedKeys: journal 4, now 3", "clip b: not planned now"])
+        XCTAssertEqual(identity.differences(from: identity), [])
     }
 
     // MARK: - Pieces
@@ -257,11 +461,9 @@ final class MultiFramePackageResumeTests: XCTestCase {
         CGImageDestinationAddImage(dest, image, nil); CGImageDestinationFinalize(dest)
         var dressed = Data([0xFF, 0xD8, 0xFF]); dressed.append(png as Data); dressed.append(contentsOf: [0xFF, 0xD9])
         XCTAssertEqual(ExportIO.inspectFrame(dressed), .invalid("does not decode"))
-        // The same picture through a JPEG round trip is the same frame; a different picture is not.
-        let again = try XCTUnwrap(ExportIO.decodeFrame(jpeg))
-        XCTAssertLessThan(ExportIO.meanDifference(image, again), ExportIO.sameFrame)
-        ctx.setFillColor(CGColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 30))
-        XCTAssertGreaterThan(ExportIO.meanDifference(ctx.makeImage()!, again), ExportIO.sameFrame)
+        // Encoding is deterministic: the same picture gives the same bytes, which is what proves a retained frame.
+        XCTAssertEqual(SamplerImageTools.jpegData(image, quality: 0.85), jpeg)
+        XCTAssertNotNil(ExportIO.decodeFrame(jpeg))
     }
 
     func testRetryingIsBoundedAndNeverRetriesAFinalError() async throws {
