@@ -1,0 +1,32 @@
+#!/usr/bin/expect -f
+# Runs mount_smbfs for one share and answers its own "Password for <server>:" prompt with the
+# PW environment variable (set by mount_shares.sh from the login Keychain). The password is
+# never an argument, never in a file and never echoed (log_user 0). Exit code = mount_smbfs's.
+#
+#   expect mount_prompt.exp <account> <server> <share> <mount point> <mount options or "">
+set timeout 60
+log_user 0
+lassign $argv account server share point opts
+if {![info exists env(PW)] || $env(PW) eq ""} { puts "$share: PW is not set"; exit 4 }
+if {$opts eq ""} {
+    spawn /sbin/mount_smbfs "//$account@$server/$share" $point
+} else {
+    spawn /sbin/mount_smbfs -o $opts "//$account@$server/$share" $point
+}
+# The literal prompt text: a case-insensitive regex did not match it as expect sees it.
+expect {
+    "Password for" { send -- "$env(PW)\r" }
+    timeout { puts "$share: no password prompt within $timeout s"; exit 2 }
+    eof { puts "$share: mount_smbfs ended before a prompt"; exit 3 }
+}
+expect eof
+catch wait result
+set code [lindex $result 3]
+if {$code == 0} {
+    puts "$share: mounted at $point"
+} else {
+    # mount_smbfs's own message (the prompt does not echo what was typed; redacted anyway).
+    set said [string map [list $env(PW) "<redacted>"] [string trim $expect_out(buffer)]]
+    puts "$share: mount_smbfs exit $code: $said"
+}
+exit $code
