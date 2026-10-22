@@ -720,7 +720,9 @@ enum MultiFramePackage {
             if name == ".DS_Store" { continue }
             let values = try entry.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
             if partials, name.hasSuffix(".jpg" + ExportIO.partialSuffix) { out[name] = values.fileSize ?? 0; continue }
-            guard values.isRegularFile == true, name.hasSuffix(".jpg"), Int64(name.dropLast(4)) != nil else {
+            // A frame's name is its key as this export writes it: no other spelling of the same
+            // number (a leading zero, a sign) is a frame, so no two names can mean one moment.
+            guard values.isRegularFile == true, name.hasSuffix(".jpg"), let key = Int64(name.dropLast(4)), String(key) == name.dropLast(4) else {
                 throw ResumeError.unexpectedFile("\(clipDir)/\(name)")
             }
             out[name] = values.fileSize ?? 0

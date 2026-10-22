@@ -418,6 +418,28 @@ final class MultiFramePackageResumeTests: XCTestCase {
         XCTAssertEqual(try hashes(dir), before, "a refused folder is left as it was")
     }
 
+    /// Another spelling of a frame's number (`0123.jpg` beside `123.jpg`) is not a frame of this
+    /// export: refused before anything is judged, so two files can never claim one moment.
+    func testResumeRefusesAnAliasedFrameName() async throws {
+        let sessions = try await sessions()
+        let (dir, _) = try await export(sessions)
+        let fm = FileManager.default
+        for journal in [false, true] {
+            try interrupt(dir, journal: journal)
+            let name = try frameNames(dir, "a")[3]
+            let alias = dir.appendingPathComponent("frames/a/0\(name)")
+            try fm.copyItem(at: dir.appendingPathComponent("frames/a/\(name)"), to: alias)
+            let before = try hashes(dir)
+            do { _ = try await MultiFramePackage.inspectResume(sessions: sessions, store: DatasetStore(root: root), resume: dir); XCTFail("accepted an aliased frame name") }
+            catch MultiFramePackage.ResumeError.unexpectedFile(let path) { XCTAssertEqual(path, "frames/a/0\(name)") }
+            do { _ = try await export(sessions, resume: dir); XCTFail("resumed over an aliased frame name") }
+            catch MultiFramePackage.ResumeError.unexpectedFile(let path) { XCTAssertEqual(path, "frames/a/0\(name)") }
+            XCTAssertEqual(try hashes(dir), before, "refused without touching the folder")
+            try fm.removeItem(at: alias)
+            _ = try await export(sessions, resume: dir)   // whole again, for the next round
+        }
+    }
+
     /// Representative timing, not a pass/fail test: how long regenerating a legacy folder's frames
     /// takes one seek at a time against batched, on a synthetic 1280×720 clip with a key frame
     /// every second — contiguous frames (a tracked rally) and isolated windows (sampled frames).
