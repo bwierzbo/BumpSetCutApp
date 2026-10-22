@@ -396,6 +396,7 @@ enum MultiFramePackage {
             resumed.identityVerified = true
         }
         var writer: ExportJournal.Writer?
+        var createdJournal = false
         if !inspectOnly {
             if resume == nil { try fm.createDirectory(at: dir, withIntermediateDirectories: true) }
             if let journaled {
@@ -403,16 +404,25 @@ enum MultiFramePackage {
                 try writer?.state(.inProgress, note: "resumed", now: now)
             } else {
                 writer = try ExportJournal.Writer(creating: journalURL, package: packageName, identity: identity, now: now)
+                createdJournal = true
                 try writer?.state(.inProgress, note: resume == nil ? nil : "resumed without a journal (legacy partial): every retained frame regenerated and compared", now: now)
             }
         }
         // The package folder as it is now; a vanished mount leaves a different folder at this path.
         let outputAnchor = try ExportIO.Anchor(path: dir.path)
         var closed = false
+        var refused = false
         defer {
-            if let writer, !closed {   // an error on the way out: say so while the journal can still be written
-                try? writer.state(.interrupted)
-                try? writer.close()
+            if let writer, !closed {
+                if createdJournal && refused {
+                    // A refusal changes nothing, so the journal this run started goes too: it would otherwise
+                    // freeze a wrong identity (the wrong --long-side, say) over a folder it never touched.
+                    try? writer.close()
+                    try? fm.removeItem(at: journalURL)
+                } else {   // an error on the way out: say so while the journal can still be written
+                    try? writer.state(.interrupted)
+                    try? writer.close()
+                }
             }
         }
 
@@ -424,7 +434,7 @@ enum MultiFramePackage {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 
-        for p in plans {
+        do { for p in plans {
             let session = p.session, clip = p.clip, clipDir = p.clipDir, needed = p.needed
             let clipURL = dir.appendingPathComponent(clipDir, isDirectory: true)
             counts.edges += p.edges; counts.machineRallies += p.machineRallies; counts.machineFrames += p.machineFrames
@@ -562,6 +572,9 @@ enum MultiFramePackage {
                 counts.balls += balls.count
                 if balls.isEmpty { counts.empty += 1 }
             }
+        } } catch {
+            refused = error is ResumeError
+            throw error
         }
         var summary = Summary(name: packageName, createdAt: now, clips: usable.count,
                               trainWindows: counts.train, valWindows: counts.val, balls: counts.balls,

@@ -359,13 +359,20 @@ final class MultiFramePackageResumeTests: XCTestCase {
             XCTAssertEqual(clip, "a"); XCTAssertEqual(count, limit + 1); XCTAssertEqual(limit, MultiFramePackage.maxInvalidPerClip)
         }
         XCTAssertEqual(try hashes(dir), before, "nothing touched")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ExportJournal.url(forPackage: dir).path), "the refused resume took its new journal with it")
         // The same from a legacy folder written at another size: every frame differs from its regeneration.
         sessions = try await self.sessions()
-        try FileManager.default.removeItem(at: dir); try FileManager.default.removeItem(at: ExportJournal.url(forPackage: dir))
+        try FileManager.default.removeItem(at: dir)
         let (small, _) = try await export(sessions, longSide: 160)
+        let smallPayload = try payload(small)
         try interrupt(small, journal: false)
         do { _ = try await export(sessions, resume: small); XCTFail("reused frames of another size") }
         catch MultiFramePackage.ResumeError.tooManyInvalid(let clip, _, _) { XCTAssertEqual(clip, "a") }
+        // The refusal left no journal behind, so the right size can still resume the folder.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ExportJournal.url(forPackage: small).path), "a refused resume leaves no journal")
+        let (_, summary) = try await export(sessions, longSide: 160, resume: small)
+        XCTAssertEqual(summary.resume?.retainedByRegeneration, 49); XCTAssertEqual(summary.resume?.framesWritten, 0)
+        XCTAssertEqual(try payload(small), smallPayload)
     }
 
     func testResumeReplacesAFewTornFramesButNotAFolderFullOfThem() async throws {
