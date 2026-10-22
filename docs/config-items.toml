@@ -138,9 +138,9 @@ approval = "owner"
 maintainer = "implementer"
 entry_pattern = '^### (D-\d{3})\s*$'
 status_pattern = '^\*\*.+?\*\* — \d{4}-\d{2}-\d{2} — (?P<status>.+?) — '
-status_note_pattern = '^\*\*Status \d{4}-\d{2}-\d{2}\.\*\*'
+status_note_pattern = '^\*\*(?:Status \d{4}-\d{2}-\d{2}|Amendment \([^)]*\d{4}-\d{2}-\d{2}\))\.\*\*'
 triggers = ["docs/decisions/????-??-??-*.md"]
-notes = "The preamble and index table are living; entries are append-only. A status change on an entry's title line, or an appended dated '**Status YYYY-MM-DD.**' paragraph, is a controlled transition that must be listed under 'Owner approval requested'."
+notes = "The preamble and index table are living; entries are append-only. A status change on an entry's title line, or an appended dated '**Status YYYY-MM-DD.**' or '**Amendment (…, YYYY-MM-DD).**' paragraph, is a controlled change that must be listed under 'Owner approval requested'."
 
 [[item]]
 id = "CI-BSC-011"

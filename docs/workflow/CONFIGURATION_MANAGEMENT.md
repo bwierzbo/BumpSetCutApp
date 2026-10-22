@@ -29,7 +29,7 @@ The type vocabulary already covers the later milestones (architecture diagrams, 
 | Class | What may change | How a change is checked |
 |---|---|---|
 | `living` | anything, in a PR | Changes to `approval = "owner"` items are listed for the owner. |
-| `append-only` | new entries; an existing entry only by a **controlled status transition**: its status on the title line (e.g. `accepted` → `superseded by D-NNN`) or an appended dated `**Status YYYY-MM-DD.**` paragraph | Any other edit, removal or reordering of an existing entry is an **error**. A status transition not listed under *Owner approval requested* is an **error**. |
+| `append-only` | new entries; an existing entry only by a **controlled status transition**: its status on the title line (e.g. `accepted` → `superseded by D-NNN`) or an appended dated `**Status YYYY-MM-DD.**` / `**Amendment (…, YYYY-MM-DD).**` paragraph | Any other edit, removal or reordering of an existing entry is an **error**. A status transition not listed under *Owner approval requested* is an **error**. |
 | `frozen` | nothing, ever | Any modification, deletion or rename is an **error**. Correction = a new record with `superseded_by` set on the old one. |
 
 Frozen items pin `frozen_sha256`: the SHA-256 of the file's bytes, which is not the git blob id (a blob id is SHA-1 over a `blob <size>\0` header plus the bytes). Experiment records are living until their frontmatter `status` is `done` or `abandoned`, then frozen (`freeze_when`).

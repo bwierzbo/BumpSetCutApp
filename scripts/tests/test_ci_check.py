@@ -98,7 +98,7 @@ def registry(extra_items: str = "", note_sha: str | None = None, families: str |
         approval = "owner"
         entry_pattern = '^### (D-\\d{{3}})\\s*$'
         status_pattern = '^\\*\\*.+?\\*\\* — \\d{{4}}-\\d{{2}}-\\d{{2}} — (?P<status>.+?) — '
-        status_note_pattern = '^\\*\\*Status \\d{{4}}-\\d{{2}}-\\d{{2}}\\.\\*\\*'
+        status_note_pattern = '^\\*\\*(?:Status \\d{{4}}-\\d{{2}}-\\d{{2}}|Amendment \\([^)]*\\d{{4}}-\\d{{2}}-\\d{{2}}\\))\\.\\*\\*'
 
         [[item]]
         id = "CI-T-003"
@@ -477,6 +477,15 @@ class AppendOnly(Base):
         r = self.check({"docs/decisions/DECISION_LOG.md": log}, "### Owner approval requested\n- D-001\n- CI-T-002\n")
         self.assertNoErrors(r)
         self.assertCode(r, "attention", "STATUS-TRANSITION")
+
+    def test_appended_dated_amendment_is_a_controlled_change(self):
+        log = LOG.replace("**Decision.** Do the first thing.\n",
+                          "**Decision.** Do the first thing.\n\n**Amendment (owner, via independent review, 2026-10-22).** (a) narrower.\n")
+        r = self.check({"docs/decisions/DECISION_LOG.md": log}, "### Owner approval requested\n- CI-T-002 D-001\n")
+        self.assertNoErrors(r)
+        self.assertCode(r, "attention", "STATUS-TRANSITION")
+        r = self.check({"docs/decisions/DECISION_LOG.md": log + ""}, "nothing listed")
+        self.assertCode(r, "error", "STATUS-UNDECLARED")
 
     def test_appended_free_text_is_an_error(self):
         log = LOG.replace("**Decision.** Do the first thing.\n",
