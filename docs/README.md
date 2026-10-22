@@ -29,6 +29,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 - [Visual provenance review, 2026-10-21](ml-roadmap/PROVENANCE_REVIEW_2026-10-21.md) — how to generate and use the local frame-review page (`scripts/provenance_review.py`), the thumbnail → recording mapping, the answer file format, the answers applied on 2026-10-21 and the reservation consequence awaiting D-017.
 - `ml-roadmap/manifests/<project>/` — committed `manifest.json` / `audit.json` (+ `.md`) per project, regenerated with `RallyLab --project <name> --audit-dataset`; also the YouTube source-ID reports and validation.json before/after copies.
 - [Experiment template](templates/EXPERIMENT.md).
+- [Event boundary review protocol](ml-roadmap/EVENT_BOUNDARY_REVIEW_PROTOCOL.md) — Phase 1A / Task B.2: the 24-event serve-contact / dead-ball calibration pilot on development recordings (rubric, uncertainty intervals, blind second review, `rallyevents.json` provenance sidecar, outputs, tooling PRs, blockers).
 - [Lineage preregistration template](templates/PREREGISTRATION_L2.md) — the ten sections every L2 training run fills and the owner approves before training (D-018).
 - [EXP-20261021-l2-scratch-prereg](ml-roadmap/experiments/EXP-20261021-l2-scratch-prereg.md) — proposed first L2 run (not approved): recipe, data counts, holdout rules.
 - `ml-roadmap/manifests/<project>/l2/` — lineage package plans and records (`RallyLab --package-l2`): what is eligible, what is withheld, preflight results and file hashes.
