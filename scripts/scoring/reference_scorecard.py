@@ -130,11 +130,14 @@ def finalize(decided: list[tuple[int, int]], duration: int) -> tuple[list[tuple[
     for s_, e_ in sorted(decided):
         pre = SHORT_PREROLL if Fraction(e_ - s_, TICKS) < SHORT_RAW else PREROLL
         built.append([max(0, s_ - pre), min(duration, e_ + POSTROLL), s_, e_])
+    # Production sorts by PADDED start before merging: a short range's 0.5 s preroll can place it
+    # after a longer neighbour whose 2.0 s preroll starts earlier, whatever the decided order.
+    built.sort(key=lambda b: (b[0], b[1]))
     merged: list[list[int]] = []
     for b in built:
         if merged and Fraction(b[0] - merged[-1][1], TICKS) <= MIN_GAP:
             m = merged[-1]
-            m[1] = max(m[1], b[1]); m[2] = min(m[2], b[2]); m[3] = max(m[3], b[3])
+            m[0] = min(m[0], b[0]); m[1] = max(m[1], b[1]); m[2] = min(m[2], b[2]); m[3] = max(m[3], b[3])
         else:
             merged.append(b)
     kept = [m for m in merged if Fraction(m[1] - m[0], TICKS) >= MIN_LEN]

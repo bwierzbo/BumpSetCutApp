@@ -1,0 +1,95 @@
+{
+ "note": "A 1.2 s decided range followed 0.1 s later by a 3.7 s one: the short one gets the 0.5 s preroll (padded start 9.5), the long one 2.0 s (padded start 9.3) - so the LONG one's padded clip starts first. Production sorts by padded start before merging: the merged clip is [9.3,15.5], raw [10,15]. Truth is one rally [10,15] (a brief lost-track split of a single rally): raw TP 1, no split; export complete.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 15.0,
+   "kind": "rally",
+   "contact": 10.0
+  }
+ ],
+ "decided": [
+  [
+   10.0,
+   11.2
+  ],
+  [
+   11.3,
+   15.0
+  ]
+ ],
+ "raw": [
+  [
+   10.0,
+   15.0
+  ]
+ ],
+ "padded": [
+  [
+   9.3,
+   15.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 1,
+   "predictions": 1,
+   "unscoredPredictions": 0,
+   "tp": 1,
+   "fp": 0,
+   "fn": 0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "startMAE": 0.0,
+   "endMAE": 0.0,
+   "startMedianSigned": 0.0,
+   "endMedianSigned": 0.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 1.0,
+   "split": 0,
+   "merged": 0,
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": 0.0,
+     "endError": 0.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 1,
+   "clips": 1,
+   "complete": 1,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 5.0,
+   "exportSeconds": 6.2,
+   "deadSeconds": 115.0,
+   "deadSecondsRetained": 1.2,
+   "deadTimeRetention": 0.010435,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.94
+  }
+ }
+}
