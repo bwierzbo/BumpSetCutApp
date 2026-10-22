@@ -1,5 +1,5 @@
 {
- "note": "missedServe and other spans are excluded: predictions and clips touching them are neither hits nor false, and the spans leave the dead-time denominator. Raw: 1 TP, 2 unscored. Export: 1 complete, 0 false clips.",
+ "note": "missedServe and other spans are MASKED: the two predictions lying wholly inside them are unscored (neither hit nor false); the spans leave the dead-time denominator. Raw: 1 TP, 2 unscored. Export: 1 complete; the padded clip around the missed serve delivers 0.8 s of scorable dead time and no rally, so it is 1 false clip; the clip inside the other span delivers nothing scorable.",
  "duration": 120.0,
  "truth": [
   {
@@ -98,7 +98,7 @@
    "deadSeconds": 105.0,
    "deadSecondsRetained": 3.3,
    "deadTimeRetention": 0.031429,
-   "falseClips": 0,
+   "falseClips": 1,
    "perRally": [
     {
      "retainedFraction": 1.0,

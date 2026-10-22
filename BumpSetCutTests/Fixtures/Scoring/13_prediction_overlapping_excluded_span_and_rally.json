@@ -1,0 +1,91 @@
+{
+ "note": "A missed serve [40,41] right before a real rally [41.5,45]; the decider fires at 40.2 and runs through the rally. Excluded time is masked: the scorable span is [41,45], IoU with the rally 3.5/4 = 0.875 -> matched, start error -0.5 (measured from the first scorable tick), end error 0. Export: rally complete; the clip's time inside the missed serve is not dead time.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 40.0,
+   "end": 41.0,
+   "kind": "missedServe",
+   "contact": 40.0
+  },
+  {
+   "start": 41.5,
+   "end": 45.0,
+   "kind": "rally",
+   "contact": 41.5
+  }
+ ],
+ "raw": [
+  [
+   40.2,
+   45.0
+  ]
+ ],
+ "padded": [
+  [
+   38.2,
+   45.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 1,
+   "predictions": 1,
+   "unscoredPredictions": 0,
+   "tp": 1,
+   "fp": 0,
+   "fn": 0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "startMAE": 0.5,
+   "endMAE": 0.0,
+   "startMedianSigned": -0.5,
+   "endMedianSigned": 0.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 1.0,
+   "split": 0,
+   "merged": 0,
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": -0.5,
+     "endError": 0.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 1,
+   "clips": 1,
+   "complete": 1,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 3.5,
+   "exportSeconds": 7.3,
+   "deadSeconds": 115.5,
+   "deadSecondsRetained": 2.8,
+   "deadTimeRetention": 0.024242,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.728571
+  }
+ }
+}

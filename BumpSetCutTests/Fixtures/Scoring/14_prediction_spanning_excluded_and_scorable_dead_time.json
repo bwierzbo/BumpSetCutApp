@@ -1,0 +1,99 @@
+{
+ "note": "A second prediction [58,66] covers a marked non-rally [60,62] AND 6 s of ordinary dead time. Masking keeps the scorable pieces [58,60] and [62,66]: it is a false positive in the raw scorer and a false clip in the export scorecard, and its scorable dead time (56-60 and 62-66.5 = 8.5 s) counts as retained; the 2 s inside the excluded span does not.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 14.0,
+   "kind": "rally",
+   "contact": 10.0
+  },
+  {
+   "start": 60.0,
+   "end": 62.0,
+   "kind": "other",
+   "contact": 60.0
+  }
+ ],
+ "raw": [
+  [
+   10.0,
+   14.0
+  ],
+  [
+   58.0,
+   66.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   14.5
+  ],
+  [
+   56.0,
+   66.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 1,
+   "predictions": 2,
+   "unscoredPredictions": 0,
+   "tp": 1,
+   "fp": 1,
+   "fn": 0,
+   "precision": 0.5,
+   "recall": 1.0,
+   "f1": 0.666667,
+   "startMAE": 0.0,
+   "endMAE": 0.0,
+   "startMedianSigned": 0.0,
+   "endMedianSigned": 0.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 1.0,
+   "split": 0,
+   "merged": 0,
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": 0.0,
+     "endError": 0.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 1,
+   "clips": 2,
+   "complete": 1,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 4.0,
+   "exportSeconds": 17.0,
+   "deadSeconds": 114.0,
+   "deadSecondsRetained": 11.0,
+   "deadTimeRetention": 0.096491,
+   "falseClips": 1,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.1875
+  }
+ }
+}

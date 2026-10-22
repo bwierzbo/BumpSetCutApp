@@ -16,10 +16,10 @@ The one rule everything else follows (roadmap §"Critical scoring rule"): **raw 
 | Input | Definition |
 |---|---|
 | Event truth | the recording's rally marks: `startTime` = first serve **contact**, `endTime` = ball dead, `kind ∈ {rally, missedServe, other}`; `contacts[0]` (kind serve) is the contact when present, else `startTime`. Only `kind == rally` are truth rallies. `missedServe` and `other` are **excluded spans**. A mark with `kind == nil` (pre-live-tag) is `rally` for now and gets `legacy_unverified` provenance under Phase 1A. |
-| Raw boundaries | `SegmentBuilder`'s `raw` ranges after merge and minimum-length filtering: the decider's rally start (serve-primed when seen) to its rally end, **no preroll/postroll**. Note the merge is decided on *padded* gaps (`finalizeWithRaw`), so two rallies whose padded clips touch become **one raw range**; the raw scorer then reports a merged prediction, which is the correct account of what production decided |
+| Raw boundaries | `SegmentBuilder`'s `raw` ranges after merge and minimum-length filtering: the decider's rally start (serve-primed when seen) to its rally end, **no preroll/postroll**. Note the merge is decided on *padded* gaps (`finalizeWithRaw`), so two rallies whose padded clips touch become **one raw range**; the raw scorer then reports a merged prediction, which is the correct account of what production decided. The production merge behaviour is the thing being measured; this contract does not change `SegmentBuilder` (owner decision 2026-10-22) |
 | Padded export | the `padded` ranges the app actually exports (`VideoProcessor.rallySegments`): preroll 2.0 s (0.5 s when the raw rally is under 2.5 s), postroll 0.5 s, clamped to `[0, duration]`, merged when gaps ≤ 1.3513 s, dropped under 2.6131 s |
 | Duration `T` | the video's duration |
-| Time base | integer ticks at **600/s** (the pipeline's CMTime timescale). Doubles from marks and metadata are rounded to the nearest tick on load. Intervals are **half-open** `[start, end)`. Containment of a point is inclusive at both ends (the end tick is the last frame shown). |
+| Time base | integer ticks at **600/s** (the pipeline's CMTime timescale). Doubles from marks and metadata are rounded to the nearest tick on load. Intervals are **half-open** `[start, end)`: a rally interval is play time, a clip interval is the frames shown. An **event instant** (serve contact, ball dead) is the first frame at which the event is true, tick `t`; a clip covers it iff `start ≤ t < end`. The one exception is an event at the video's last tick (a rally that runs to the end of the file): it is covered by a clip that reaches the end. So the dead-ball instant is *not* inside the rally's own half-open interval, and an export that ends exactly on the dead-ball tick does **not** show it. |
 | Tie-break | greedy matching by descending IoU; ties by earlier truth start, then earlier prediction start |
 
 Per-rally trim adjustments and flywheel padding are **not** scored (they are user edits after export).
@@ -28,7 +28,7 @@ Per-rally trim adjustments and flywheel padding are **not** scored (they are use
 
 Inputs: truth rallies, excluded spans, raw boundaries, `iou` (default 0.5), `tolerance` (default 1.0 s), `split` 0.25, `merged` 0.5.
 
-- A prediction that overlaps an excluded span at all is **unscored** (neither hit nor false): the decider fired on something a person marked as not a rally. Counted as `unscoredPredictions`.
+- **Excluded time is a mask, not a disqualifier.** Each prediction keeps its scorable pieces (the prediction minus the excluded union) and is scored on those: IoU, split and merged use the pieces; boundary errors use the ends of the scorable span (first to last scorable tick), because a start or end that lies inside excluded time is not a boundary the contract can judge. A prediction with nothing left outside excluded time is **unscored** (`unscoredPredictions`): the decider fired only on something a person marked as not a rally, which is neither a hit nor a false clip. A prediction that straddles excluded and scorable time is scored on the scorable part — a legitimate detection stays a hit, a clip of ordinary dead time stays a false positive.
 - Matching: one-to-one, greedy by descending temporal IoU, accepted when IoU ≥ `iou`. `tp`, `fp` (unmatched scored predictions), `fn` (unmatched rallies); precision, recall, F1.
 - Boundary errors on matched pairs only, **signed** (`prediction − truth`): `startMAE`, `endMAE`, `startMedianSigned`, `endMedianSigned` (conventional median: the mean of the two middle values for an even count), `startWithinTolerance`, `endWithinTolerance` (fraction with |error| ≤ `tolerance`). A serve-primed start that sits at the toss shows as a negative start error; that is a finding, not a padding artefact.
 - `split`: rallies overlapped by ≥ 2 predictions each covering ≥ 25 % of the rally. `merged`: predictions overlapping ≥ 2 rallies each by ≥ 50 % of that rally. Both fractional (today one is fractional and one is 0.5 s absolute).
@@ -42,7 +42,7 @@ Let `G` = union of rally intervals, `P` = union of padded clips, `X` = union of 
 - Per rally: `retainedFraction = |rally ∩ P| / |rally|`; `contactInExport`, `deadBallInExport` (point containment in `P`); status **complete** when retained ≥ 0.98 **and** both events are inside the export, **clipped** when retained ≥ 0.5 but not complete, **missed** otherwise. (0.98 is the roadmap's starting proposal, to be reviewed, not a product standard.)
 - `completeRallyRecall = complete / rallies` (null when there are no rallies).
 - `deadTimeRetention = |P ∩ D| / |D|` (null when `|D| = 0`); `deadSecondsRetained`, `deadSeconds`, `rallySeconds`, `exportSeconds`.
-- `falseClips`: clips of `P` with no overlap with `G` **and** no overlap with `X`.
+- `falseClips`: clips of `P` with no overlap with `G` whose scorable remainder (`clip ∖ X`) is non-empty: a delivered clip that is neither a rally nor purely excluded time. A clip lying wholly inside excluded time is neither. The scorable dead time inside any clip counts in `deadTimeRetention`; time inside `X` never does.
 - `legacyCoveredMinusQuarterDead` = `|G ∩ P| / |G| − 0.25 · |P ∖ G| / |G|`: the D-011 tuner objective on the same inputs, kept under its own name as the historical diagnostic (D-007). Note it counts time inside `X` as dead; the contract metrics do not.
 
 The two scorers share one interval library (union, intersection, subtraction on ticks). No frame counting.
@@ -67,7 +67,7 @@ The two scorers share one interval library (union, intersection, subtraction on 
 
 ## 5. Fixtures (deterministic, pinned)
 
-`BumpSetCutTests/Fixtures/Scoring/*.json`: twelve cases, each with `truth`, `raw`, `padded`, `duration`, optional `params`, and an `expected` scorecard written by the reference implementation `scripts/scoring/reference_scorecard.py` (pure Python, integer ticks, no dependencies). The Swift scorers must reproduce `expected` exactly; the reference is the independent computation the Phase 2 pass rule asks for.
+`BumpSetCutTests/Fixtures/Scoring/*.json`: fourteen cases, each with `truth`, `raw`, `padded`, `duration`, optional `params`, and an `expected` scorecard written by the reference implementation `scripts/scoring/reference_scorecard.py` (pure Python, integer ticks, no dependencies). The Swift scorers must reproduce `expected` exactly; the reference is the independent computation the Phase 2 pass rule asks for.
 
 | Fixture | What it pins |
 |---|---|
@@ -78,11 +78,13 @@ The two scorers share one interval library (union, intersection, subtraction on 
 | 05 false clip | raw fp 1; export falseClips 1; dead retained grows |
 | 06 zero truth | recall null, everything false, retention over the full video |
 | 07 edges | clamping at 0 and at `T`; both complete |
-| 08 missedServe + other | excluded spans: predictions touching them unscored, no false clips, denominator shrinks |
+| 08 missedServe + other | excluded spans masked: the two predictions lying wholly inside them are unscored; the denominator shrinks; the padded clip around the missed serve delivers 0.8 s of scorable dead time and no rally → 1 false clip |
 | 09 toss-primed start | −1.2 s start error, outside 1.0 s tolerance; export complete |
 | 10 custom tolerance | 0.5 s tolerance; errors inside it |
 | 11 touching rallies | half-open intervals; production merges the touching ranges → raw `[10,18]`, whose IoU with each 4 s rally is exactly 0.5: the tie-break matches the earlier rally (tp 1, end error +4.0 s), fn 1, fp 0, merged 1; one clip covers both completely |
 | 12 one prediction over two rallies | raw: merged 1, fn 2, fp 1; export: both complete |
+| 13 prediction overlapping a missed serve and the next rally | masking keeps the scorable span `[41,45]`: IoU 0.875 with the rally → matched, start error −0.5 s from the first scorable tick; export complete |
+| 14 prediction over a marked non-rally plus ordinary dead time | scorable pieces `[58,60]`, `[62,66]` remain → raw fp 1, export false clip 1; 8.5 s of its dead time retained, the 2 s inside the excluded span not |
 
 Still to add once the Swift side exists (they need `FrameEvidence`, not intervals): replay-vs-production equality of raw and padded within 1/600 s on one synthetic evidence stream; the D-008 gate removal; non-integer frame times; a video with no marks at all (no `ralliesMarked`) must refuse dead-time metrics rather than report 0.
 

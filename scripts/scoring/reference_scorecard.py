@@ -93,10 +93,13 @@ def iou(a: tuple[int, int], b: tuple[int, int]) -> Fraction:
     return Fraction(inter, union) if union else Fraction(0)
 
 
-def contains(ivs: list[tuple[int, int]], t: int) -> bool:
-    """A time is inside the union when some interval holds it: start inclusive, end inclusive too
-    (the end tick of an export is the last frame the clip shows)."""
-    return any(s <= t <= e for s, e in ivs)
+def covers(ivs: list[tuple[int, int]], t: int, duration: int) -> bool:
+    """An event instant is the first frame at which the event is true (tick t). A half-open clip
+    [s, e) shows frame t iff s <= t < e. An event at the video's last tick (a rally that runs to the
+    end of the file, a truncated edge) is covered by a clip that reaches the end."""
+    if t >= duration:
+        return any(e >= duration for _, e in ivs)
+    return any(s <= t < e for s, e in ivs)
 
 
 # ----- the two scorers --------------------------------------------------------------------
@@ -105,12 +108,24 @@ def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict) -
     """Event truth (serve contact → ball dead, kind rally) against raw decider boundaries."""
     rallies = [t for t in truth if t["kind"] == "rally"]
     excluded = normalise([(t["s"], t["e"]) for t in truth if t["kind"] != "rally"])
-    # A prediction touching an excluded span (a missed serve, a marked non-rally) is not scored:
-    # the decider fired on something a person marked as not a rally, which is neither a hit nor a false clip.
-    scored_preds = [r for r in raw if length(intersect([r], excluded)) == 0]
-    unscored = len(raw) - len(scored_preds)
-    # Greedy one-to-one matching by descending IoU; ties broken by earlier truth start, then earlier prediction start.
-    pairs = [(iou((t["s"], t["e"]), r), ti, ri) for ti, t in enumerate(rallies) for ri, r in enumerate(scored_preds)]
+    # Excluded time (a missed serve, a marked non-rally) is MASKED, not disqualifying: each prediction
+    # keeps its scorable pieces (prediction minus the excluded union) and is scored on those; a
+    # prediction with nothing left outside excluded time is unscored (neither a hit nor a false clip).
+    masked = [(r, subtract([r], excluded)) for r in raw]
+    scored = [(r, pieces) for r, pieces in masked if pieces]
+    unscored = len(raw) - len(scored)
+    scored_preds = [(pieces[0][0], pieces[-1][1]) for _, pieces in scored]   # scorable span: first to last scorable tick
+    piece_sets = [pieces for _, pieces in scored]
+
+    def masked_iou(t: dict, k: int) -> Fraction:
+        inter = length(intersect([(t["s"], t["e"])], piece_sets[k]))
+        union = (t["e"] - t["s"]) + length(piece_sets[k]) - inter
+        return Fraction(inter, union) if union else Fraction(0)
+
+    # Greedy one-to-one matching by descending IoU on the masked pieces; ties broken by earlier truth
+    # start, then earlier prediction start. Boundary errors use the scorable span's ends: a start
+    # that lies inside excluded time is not a boundary the contract can judge.
+    pairs = [(masked_iou(t, ri), ti, ri) for ti, t in enumerate(rallies) for ri in range(len(scored_preds))]
     pairs = [x for x in pairs if x[0] >= Fraction(p["iou"]).limit_denominator(1000)]
     pairs.sort(key=lambda x: (-x[0], rallies[x[1]]["s"], scored_preds[x[2]][0]))
     used_t, used_r, matched = set(), set(), []
@@ -123,8 +138,9 @@ def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict) -
     start_err = [scored_preds[ri][0] - rallies[ti]["s"] for ti, ri in matched]
     end_err = [scored_preds[ri][1] - rallies[ti]["e"] for ti, ri in matched]
     # Split / merged, fractional on both sides.
-    split = sum(1 for t in rallies if sum(1 for r in scored_preds if overlap((t["s"], t["e"]), r) >= Fraction(p["split"]) * (t["e"] - t["s"])) >= 2)
-    merged = sum(1 for r in scored_preds if sum(1 for t in rallies if overlap((t["s"], t["e"]), r) >= Fraction(p["merged"]) * (t["e"] - t["s"])) >= 2)
+    cover = lambda t, k: length(intersect([(t["s"], t["e"])], piece_sets[k]))
+    split = sum(1 for t in rallies if sum(1 for k in range(len(scored_preds)) if cover(t, k) >= Fraction(p["split"]) * (t["e"] - t["s"])) >= 2)
+    merged = sum(1 for k in range(len(scored_preds)) if sum(1 for t in rallies if cover(t, k) >= Fraction(p["merged"]) * (t["e"] - t["s"])) >= 2)
     prec = Fraction(tp, tp + fp) if tp + fp else Fraction(0)
     rec = Fraction(tp, tp + fn) if tp + fn else Fraction(0)
     f1 = 2 * prec * rec / (prec + rec) if prec + rec else Fraction(0)
@@ -153,17 +169,19 @@ def padded_export_score(truth: list[dict], padded: list[tuple[int, int]], durati
     for t in rallies:
         r = (t["s"], t["e"])
         retained = Fraction(length(intersect([r], P)), r[1] - r[0])
-        complete = retained >= Fraction(p["complete"]).limit_denominator(1000) and contains(P, t["contact"]) and contains(P, t["e"])
+        complete = retained >= Fraction(p["complete"]).limit_denominator(1000) and covers(P, t["contact"], duration) and covers(P, t["e"], duration)
         status = "complete" if complete else ("clipped" if retained >= Fraction(p["detected"]).limit_denominator(1000) else "missed")
-        per.append({"retainedFraction": round(float(retained), 6), "contactInExport": contains(P, t["contact"]),
-                    "deadBallInExport": contains(P, t["e"]), "status": status})
+        per.append({"retainedFraction": round(float(retained), 6), "contactInExport": covers(P, t["contact"], duration),
+                    "deadBallInExport": covers(P, t["e"], duration), "status": status})
     complete = sum(1 for x in per if x["status"] == "complete")
     clipped = sum(1 for x in per if x["status"] == "clipped")
     missed = sum(1 for x in per if x["status"] == "missed")
     scorable = subtract([(0, duration)], excluded)          # the dead-time denominator never counts excluded spans
     dead = subtract(scorable, G)
     dead_kept = intersect(P, dead)
-    false_clips = sum(1 for c in P if length(intersect([c], G)) == 0 and length(intersect([c], excluded)) == 0)
+    # A false clip is a clip with no rally in it that still delivers scorable (non-excluded) time; a clip
+    # lying wholly inside excluded time is neither a rally nor false.
+    false_clips = sum(1 for c in P if length(intersect([c], G)) == 0 and length(subtract([c], excluded)) > 0)
     return {"rallies": len(rallies), "clips": len(P), "complete": complete, "clipped": clipped, "missed": missed,
             "completeRallyRecall": round(complete / len(rallies), 6) if rallies else None,
             "rallySeconds": sec(length(G)), "exportSeconds": sec(length(P)),
