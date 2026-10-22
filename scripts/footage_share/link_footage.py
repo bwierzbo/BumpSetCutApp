@@ -19,9 +19,13 @@ same path on the mount, and the sidecars stay where they are.
          and every withheld one. Nothing is written.
 --link   makes the symlinks (only where no file is in the way; an existing
          real file or a link elsewhere is reported, never replaced).
---unlink removes the symlinks this script makes (real files are never touched).
+--unlink removes only the symlinks this script made: each one is recorded in
+         <project>/footage/.rallylab-links.json with its target, and is removed
+         only while it still points there. A link made by anything else, or
+         re-pointed since, is left alone and reported.
 
-Exit status is non-zero when any needed video is missing or unreadable.
+Exit status is non-zero when any needed video is missing or unreadable, or
+when anything had to be left alone.
 """
 
 from __future__ import annotations
@@ -33,6 +37,21 @@ import sys
 from pathlib import Path
 
 PROJECTS = Path.home() / "Movies/RallyLab/Projects"
+LEDGER = ".rallylab-links.json"
+
+
+def read_ledger(footage: Path) -> dict[str, str]:
+    """{local path: target} of the links this script made, or {} when there is no ledger."""
+    file = footage / LEDGER
+    return json.loads(file.read_text()) if file.exists() else {}
+
+
+def write_ledger(footage: Path, links: dict[str, str]) -> None:
+    file = footage / LEDGER
+    if links:
+        file.write_text(json.dumps(dict(sorted(links.items())), indent=1) + "\n")
+    elif file.exists():
+        file.unlink()
 
 
 def referenced_videos(project: Path) -> dict[str, dict]:
@@ -78,13 +97,14 @@ def readable(path: Path) -> bool:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--project", required=True)
+    p.add_argument("--projects", type=Path, default=PROJECTS, help=f"the RallyLab projects folder (default {PROJECTS})")
     p.add_argument("--mount", type=Path, help="the mounted copy of <project>/footage (required for --check and --link)")
     mode = p.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--link", action="store_true")
     mode.add_argument("--unlink", action="store_true")
     args = p.parse_args()
-    project = PROJECTS / args.project
+    project = args.projects / args.project
     footage = project / "footage"
     if not project.is_dir():
         sys.exit(f"No project at {project}")
@@ -94,16 +114,26 @@ def main() -> None:
     videos = referenced_videos(project)
     needs = l2_needs(project)
     if args.unlink:
-        removed = 0
-        for v in videos.values():
-            local = Path(v["path"])
-            if local.is_symlink():
+        ledger = read_ledger(footage)
+        removed, kept = 0, []
+        for local_path, target in list(ledger.items()):
+            local = Path(local_path)
+            if local.is_symlink() and os.readlink(local) == target:
                 local.unlink()
                 removed += 1
-        print(f"Removed {removed} symlinks under {footage}")
-        return
+                del ledger[local_path]
+            elif local.is_symlink():
+                kept.append(f"{local} now points to {os.readlink(local)}, not {target}; left alone")
+            else:
+                del ledger[local_path]   # already gone, or replaced by a real file: nothing of ours to remove
+        write_ledger(footage, ledger)
+        print(f"Removed {removed} symlinks this script had made under {footage}; {len(kept)} left alone")
+        for why in kept:
+            print(f"   kept  {why}")
+        sys.exit(1 if kept else 0)
 
     present, missing, linked, blocked = [], [], [], []
+    ledger = read_ledger(footage) if args.link else {}
     for name, v in sorted(videos.items()):
         local = Path(v["path"])
         try:
@@ -126,7 +156,10 @@ def main() -> None:
                 continue
             local.parent.mkdir(parents=True, exist_ok=True)
             local.symlink_to(remote)
+            ledger[str(local)] = str(remote)
             linked.append(name)
+    if args.link:
+        write_ledger(footage, ledger)
 
     print(f"{len(videos)} videos referenced by {args.project}: {len(present)} on the mount and readable, {len(missing)} missing")
     for name, path in missing:
