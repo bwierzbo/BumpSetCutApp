@@ -45,6 +45,7 @@
    25.5
   ]
  ],
+ "fullyMarked": true,
  "params": {
   "iou": 0.5,
   "tolerance": 0.5

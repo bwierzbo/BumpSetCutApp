@@ -24,7 +24,7 @@ A fixture is one JSON object:
      "raw":    [[10.0, 14.0], ...],       # finalized raw boundaries (merge, min length) — derived from decided
      "padded": [[8.0, 14.5], ...],        # exported clips — derived from decided
      "params": {"iou": 0.5, "tolerance": 1.0, "complete": 0.98, "detected": 0.5, "split": 0.25, "merged": 0.5},
-     "fullyMarked": true,                 # every rally of the recording is marked; false -> dead-time metrics are null
+     "fullyMarked": true,                 # every rally of the recording is marked; false or ABSENT -> dead-time metrics are null
      "expected": {...}}                   # written by --write-expected; compared otherwise
 """
 
@@ -228,10 +228,11 @@ def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict) -
             "matches": [{"truth": ti, "prediction": ri, "startError": sec(se), "endError": sec(ee)} for (ti, ri), se, ee in zip(matched, start_err, end_err)]}
 
 
-def padded_export_score(truth: list[dict], padded: list[tuple[int, int]], duration: int, p: dict, fully_marked: bool = True) -> dict:
+def padded_export_score(truth: list[dict], padded: list[tuple[int, int]], duration: int, p: dict, fully_marked: bool = False) -> dict:
     """Event truth against exported (padded) clips: what the viewer gets and what dead time remains.
-    `fully_marked`: every rally of the recording is marked (`ralliesMarked`). Without it, time
-    outside the marked rallies is unknown, not dead: dead-time retention and false clips are null."""
+    `fully_marked`: every rally of the recording is marked (`ralliesMarked`), stated explicitly.
+    Unknown counts as not marked: time outside the marked rallies is then unknown, not dead, and
+    dead-time retention, false clips and the legacy score are null."""
     rallies = [t for t in truth if t["kind"] == "rally"]
     excluded = normalise([(t["s"], t["e"]) for t in truth if t["kind"] != "rally"])
     G = normalise([(t["s"], t["e"]) for t in rallies])
@@ -283,7 +284,7 @@ def score(fixture: dict) -> dict:
     padded = [(tick(s), tick(e)) for s, e in fixture.get("padded", [])]
     return {"contract": "SCORING_CONTRACT v1", "params": p,
             "rawBoundary": raw_boundary_score(truth, raw, p),
-            "paddedExport": padded_export_score(truth, padded, tick(fixture["duration"]), p, fixture.get("fullyMarked", True))}
+            "paddedExport": padded_export_score(truth, padded, tick(fixture["duration"]), p, fixture.get("fullyMarked") is True)}
 
 
 def main() -> None:
