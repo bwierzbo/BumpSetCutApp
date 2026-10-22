@@ -67,7 +67,7 @@ The two scorers share one interval library (union, intersection, subtraction on 
 
 ## 5. Fixtures (deterministic, pinned)
 
-`BumpSetCutTests/Fixtures/Scoring/*.json`: sixteen cases, each with `truth`, `raw`, `padded`, `duration`, optional `params`, and an `expected` scorecard written by the reference implementation `scripts/scoring/reference_scorecard.py` (pure Python, integer ticks, no dependencies). The Swift scorers must reproduce `expected` exactly; the reference is the independent computation the Phase 2 pass rule asks for. **Every fixture's `raw` and `padded` are one production run**: the reference re-derives `padded` from `raw` with `SegmentBuilder`'s rules (preroll 2.0 s, 0.5 s when the raw range is under 2.5 s; postroll 0.5 s; clamp; merge when the padded gap ≤ 1.3513 s, unioning the raw ranges; drop padded ranges under 2.6131 s) and refuses to pin or verify a fixture whose lists disagree.
+`BumpSetCutTests/Fixtures/Scoring/*.json`: nineteen cases, each with `truth`, `raw`, `padded`, `duration`, optional `params`, and an `expected` scorecard written by the reference implementation `scripts/scoring/reference_scorecard.py` (pure Python, integer ticks, no dependencies). The Swift scorers must reproduce `expected` exactly; the reference is the independent computation the Phase 2 pass rule asks for. **Every fixture carries `decided`, the decider's ranges before finalization, and its `raw` and `padded` are exactly what production builds from them**: the reference re-derives both with `SegmentBuilder`'s rules (preroll 2.0 s, 0.5 s when the decided range is under 2.5 s; postroll 0.5 s; clamp; merge when the padded gap ≤ 1.3513 s, unioning the raw ranges; drop padded ranges under 2.6131 s — gap and length compared in seconds against the exact decimal thresholds, as production compares Doubles, never rounded to ticks) and refuses to pin or verify a fixture whose lists disagree. Finalized raw alone cannot be re-finalized (a merge of short rallies keeps their 0.5 s prerolls), hence `decided`.
 
 | Fixture | What it pins |
 |---|---|
@@ -87,6 +87,9 @@ The two scorers share one interval library (union, intersection, subtraction on 
 | 14 prediction over a marked non-rally plus ordinary dead time | scorable pieces `[58,60]`, `[62,66]` remain → raw fp 1, export false clip 1; 8.5 s of its dead time retained, the 2 s inside the excluded span not |
 | 15 null / absent kind | both are legacy rallies (§1), never excluded spans: 2 TP, 2 complete |
 | 16 exact threshold | `split: 0.4` written as a decimal; two 8 s pieces of a 20 s rally, 4 s apart, each cover exactly 2/5 → split 1 (thresholds are parsed as the exact decimal written, never the nearest float) |
+| 17 two short rallies merged | each decided range under 2.5 s keeps its 0.5 s preroll before the merge: raw `[10,15]`, padded `[9.5,15.5]`; raw scorer merged 1, fn 2, fp 1; export both complete |
+| 18 padded gap 810 ticks | 1.35 s ≤ 1.3513 s → merged: one raw range, one clip |
+| 19 padded gap 811 ticks | 1.351667 s > 1.3513 s → kept apart (threshold compared in seconds, unrounded): 2 TP, 2 clips |
 
 Still to add once the Swift side exists (they need `FrameEvidence`, not intervals): replay-vs-production equality of raw and padded within 1/600 s on one synthetic evidence stream; the D-008 gate removal; non-integer frame times; a video with no marks at all (no `ralliesMarked`) must refuse dead-time metrics rather than report 0.
 

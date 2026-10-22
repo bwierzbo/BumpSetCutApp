@@ -2,6 +2,12 @@
  "note": "No rallies at all: recall undefined (null), everything predicted is false; dead-time retention over the full video. The 2 s raw range gets the short-rally 0.5 s preroll.",
  "duration": 60.0,
  "truth": [],
+ "decided": [
+  [
+   10.0,
+   12.0
+  ]
+ ],
  "raw": [
   [
    10.0,

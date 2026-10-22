@@ -12,15 +12,17 @@ no dependencies. All times are integer ticks at 600/s (CMTime's timescale
 in the pipeline); seconds in a fixture are rounded to the nearest tick on
 load. Intervals are half-open [start, end).
 
-Every fixture's raw and padded lists must be one production run (raw finalized
-by SegmentBuilder's rules yields exactly the padded list; --write-expected and
-the check refuse a fixture that isn't).
+Every fixture carries `decided`, the decider's ranges before finalization;
+its pinned `raw` and `padded` must be exactly what production's finalization
+(SegmentBuilder rules) builds from them. --write-expected and the check refuse
+a fixture where they are not.
 
 A fixture is one JSON object:
     {"duration": 300.0,
      "truth": [{"start": 10.0, "end": 14.0, "kind": "rally", "contact": 10.0}, ...],   # kind: rally | missedServe | other
-     "raw":    [[10.0, 14.0], ...],       # raw decider boundaries (serve-primed start allowed)
-     "padded": [[8.0, 14.5], ...],        # exported clips
+     "decided": [[10.0, 14.0], ...],      # the decider's ranges before finalization (serve-primed start allowed)
+     "raw":    [[10.0, 14.0], ...],       # finalized raw boundaries (merge, min length) — derived from decided
+     "padded": [[8.0, 14.5], ...],        # exported clips — derived from decided
      "params": {"iou": 0.5, "tolerance": 1.0, "complete": 0.98, "detected": 0.5, "split": 0.25, "merged": 0.5},
      "expected": {...}}                   # written by --write-expected; compared otherwise
 """
@@ -113,44 +115,48 @@ def covers(ivs: list[tuple[int, int]], t: int, duration: int) -> bool:
 
 # ----- production finalization (SegmentBuilder.finalizeWithRaw), for fixture self-consistency -----
 
-PREROLL, SHORT_PREROLL, SHORT_RAW, POSTROLL = tick(2.0), tick(0.5), tick(2.5), tick(0.5)
-MIN_GAP, MIN_LEN = tick(1.3513), tick(2.6131)
+PREROLL, SHORT_PREROLL, POSTROLL = tick(2.0), tick(0.5), tick(0.5)
+# Thresholds production compares in SECONDS against unquantized Double config values; kept exact here.
+SHORT_RAW, MIN_GAP, MIN_LEN = Fraction("2.5"), Fraction("1.3513"), Fraction("2.6131")
 
 
-def finalize(raw: list[tuple[int, int]], duration: int) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
-    """(raw, padded) as production finalizes decided ranges: preroll 2.0 s (0.5 s when the raw
-    range is under 2.5 s), postroll 0.5 s, clamped to [0, duration], merged when the PADDED gap is
-    at most 1.3513 s (the raw ranges are unioned with them), dropped when the padded range is
-    under 2.6131 s. A fixture's raw and padded must be one such run."""
+def finalize(decided: list[tuple[int, int]], duration: int) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+    """(raw, padded) as production finalizes the decider's ranges (SegmentBuilder.finalizeWithRaw):
+    preroll 2.0 s, or 0.5 s when the decided range is under 2.5 s; postroll 0.5 s; clamped to
+    [0, duration]; merged when the PADDED gap is at most 1.3513 s (the raw ranges are unioned with
+    them); dropped when the padded range is under 2.6131 s. Gap and length are compared in seconds
+    against the exact decimal thresholds, as production compares Doubles — never rounded to ticks."""
     built = []
-    for s_, e_ in sorted(raw):
-        pre = SHORT_PREROLL if e_ - s_ < SHORT_RAW else PREROLL
+    for s_, e_ in sorted(decided):
+        pre = SHORT_PREROLL if Fraction(e_ - s_, TICKS) < SHORT_RAW else PREROLL
         built.append([max(0, s_ - pre), min(duration, e_ + POSTROLL), s_, e_])
     merged: list[list[int]] = []
     for b in built:
-        if merged and b[0] - merged[-1][1] <= MIN_GAP:
+        if merged and Fraction(b[0] - merged[-1][1], TICKS) <= MIN_GAP:
             m = merged[-1]
             m[1] = max(m[1], b[1]); m[2] = min(m[2], b[2]); m[3] = max(m[3], b[3])
         else:
             merged.append(b)
-    kept = [m for m in merged if m[1] - m[0] >= MIN_LEN]
+    kept = [m for m in merged if Fraction(m[1] - m[0], TICKS) >= MIN_LEN]
     return [(m[2], m[3]) for m in kept], [(m[0], m[1]) for m in kept]
 
 
 def production_consistency(fixture: dict) -> list[str]:
-    """Why the fixture's raw/padded pair is not one production run (empty when it is). `raw` is
-    taken as the decided ranges before finalization when that reproduces both pinned lists,
-    else as the finalized raw; either way padded must follow from it."""
+    """Why the fixture's pinned raw/padded lists are not what production builds from its `decided`
+    ranges (the decider's output before finalization); empty when they are."""
+    if "decided" not in fixture:
+        return ["no `decided` list (the decider's ranges before finalization) to derive raw and padded from"]
     duration = tick(fixture["duration"])
+    decided = [(tick(a), tick(b)) for a, b in fixture["decided"]]
     raw = [(tick(a), tick(b)) for a, b in fixture.get("raw", [])]
     padded = [(tick(a), tick(b)) for a, b in fixture.get("padded", [])]
-    f_raw, f_padded = finalize(raw, duration)
+    f_raw, f_padded = finalize(decided, duration)
+    show = lambda ivs: [(sec(a), sec(b)) for a, b in ivs]
     problems = []
-    if f_padded != normalise(padded):
-        problems.append(f"padded {[(sec(a), sec(b)) for a, b in padded]} is not what production builds from raw: "
-                        f"{[(sec(a), sec(b)) for a, b in f_padded]}")
     if f_raw != raw:
-        problems.append(f"raw {[(sec(a), sec(b)) for a, b in raw]} would be finalized to {[(sec(a), sec(b)) for a, b in f_raw]}")
+        problems.append(f"raw {show(raw)} is not what production finalizes from decided {show(decided)}: {show(f_raw)}")
+    if f_padded != normalise(padded):
+        problems.append(f"padded {show(padded)} is not what production builds from decided {show(decided)}: {show(f_padded)}")
     return problems
 
 
