@@ -51,6 +51,14 @@ enum SamplerImageTools {
         return ctx.makeImage()
     }
 
+    /// The JPEG bytes of `image`, encoded in memory so the caller can write them whole.
+    static func jpegData(_ image: CGImage, quality: Double) -> Data? {
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        return CGImageDestinationFinalize(dest) ? data as Data : nil
+    }
+
     static func writeJPEG(_ image: CGImage, to url: URL, quality: Double) -> Bool {
         guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
             return false

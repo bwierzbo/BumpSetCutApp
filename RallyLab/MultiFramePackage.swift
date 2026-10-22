@@ -43,6 +43,17 @@
 //     "pseudo": [true or false, …],                    (pre-tracked, when any frame's label is the model's)
 //     "dead": true}                                    (dead-time windows only)
 //
+//  Frames are written whole (a `.part` file moved into place) and every
+//  frame a window needs is written or the export fails naming it: nothing
+//  is skipped quietly. An export cut short — the volume it writes to or
+//  reads from goes away, which is noticed within seconds and is final —
+//  leaves only frames/ behind, and can be completed with `resume:` the same
+//  folder: a frame already there is reused only once it is proven to be a
+//  whole JPEG, at a time the current plan needs, at the size this export
+//  would write, and (on a sample per clip, regenerated from the video) of
+//  this video. windows.jsonl, README.txt and summary.json are written only
+//  after every clip's folder has been listed and found complete.
+//
 
 import AVFoundation
 import CoreGraphics
@@ -89,11 +100,40 @@ enum MultiFramePackage {
         let framesWithoutVideo: Int
         /// Reviewed frames too close to the start or end of their video.
         let framesAtEdges: Int
+        /// Present when the export completed an earlier, interrupted one (`resume:`).
+        var resume: ResumeReport? = nil
     }
 
-    enum PackageError: LocalizedError {
+    /// What a resumed export found in the folder and did with it.
+    struct ResumeReport: Codable, Equatable {
+        /// One clip's retained frames checked against its video: `sampled` frames regenerated and
+        /// compared (ExportIO.meanDifference), the worst of them `maxDifference` (≤ ExportIO.sameFrame).
+        struct SourceCheck: Codable, Equatable {
+            var clip: String
+            var retained: Int
+            var sampled: Int
+            var maxDifference: Double
+        }
+        var from: String
+        /// Frames already in the folder, validated and kept.
+        var framesRetained: Int
+        /// Frames in the folder that were not whole JPEGs; replaced, and listed here (up to 50).
+        var framesReplaced: Int
+        var replaced: [String]
+        /// Frames written by this run.
+        var framesWritten: Int
+        /// Leftover `.part` files (a write cut short) removed; never frames.
+        var partialFilesRemoved: Int
+        var sourceChecks: [SourceCheck]
+    }
+
+    enum PackageError: LocalizedError, ExportIO.Final {
         case nothingReviewed, noVideos, noValidation, zipFailed
         case nameTaken(String)
+        /// A frame a window needs could not be produced (decoded or written) after every retry.
+        case frameFailed(clip: String, frame: String, detail: String)
+        /// After writing, a clip's folder does not hold exactly the frames the plan needs.
+        case folderIncomplete(clip: String, detail: String)
         var errorDescription: String? {
             switch self {
             case .nameTaken(let name): return "A package named \(name) already exists (folder or zip). Nothing is overwritten: wait a minute or move it away."
@@ -101,9 +141,42 @@ enum MultiFramePackage {
             case .noVideos: return "None of the reviewed frames' videos are on this Mac — the frames around each one come from the video."
             case .noValidation: return "No reviewed frames from a val clip whose video is here. Set a clip with its video to Val."
             case .zipFailed: return "The package folder was written, but zipping it failed."
+            case .frameFailed(let clip, let frame, let detail): return "\(clip): frame \(frame) could not be exported (\(detail)). No frame is skipped; nothing is finished. Fix the cause and resume with --resume."
+            case .folderIncomplete(let clip, let detail): return "\(clip): the frames folder is not what the plan needs after writing (\(detail)). Nothing is finished."
             }
         }
     }
+
+    enum ResumeError: LocalizedError, Equatable, ExportIO.Final {
+        case notAFolder(String)
+        /// The folder holds something other than frames/: a finished package, or not a package at all.
+        case notResumable(String, found: [String])
+        case strayClipFolder(String)
+        case unexpectedFile(String)
+        /// A clip's retained frames are not the size this export writes (another --long-side, or another video).
+        case sizeMismatch(clip: String, retained: String, expected: String)
+        /// A retained frame differs from the same moment of the clip's video more than a JPEG round trip allows.
+        case sourceMismatch(clip: String, frame: String, difference: Double)
+        /// More torn frames in one clip than an interruption leaves; the folder is not trusted.
+        case tooManyInvalid(clip: String, count: Int, limit: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .notAFolder(let p): return "--resume \(p) is not a folder."
+            case .notResumable(let p, let found): return "\(p) is not an unfinished package (found \(found.joined(separator: ", "))): only a folder holding frames/ alone — an export cut short — can be resumed. A finished package is never written into."
+            case .strayClipFolder(let p): return "\(p) is not a clip this export packages. Nothing is removed; nothing is written."
+            case .unexpectedFile(let p): return "\(p) is not a frame this export writes. Nothing is removed; nothing is written."
+            case .sizeMismatch(let clip, let retained, let expected): return "\(clip): retained frames are \(retained), this export writes \(expected) (another --long-side, or another video). Nothing is reused."
+            case .sourceMismatch(let clip, let frame, let d): return "\(clip): retained frame \(frame) differs from the video at that moment (mean difference \(String(format: "%.1f", d)) > \(ExportIO.sameFrame)); the folder was not exported from this video. Nothing is reused."
+            case .tooManyInvalid(let clip, let n, let limit): return "\(clip): \(n) retained frames are not whole JPEGs (an interruption leaves at most \(limit)); the folder is not trusted. Nothing is reused."
+            }
+        }
+    }
+
+    /// Torn frames an interruption can leave in one clip folder; more means the folder is not an export's.
+    static let maxInvalidPerClip = 8
+    /// Retained frames regenerated per clip for the source check: first, last and three between.
+    static let sourceSample = 5
 
     private struct Window: Encodable {
         let clip: String
@@ -143,8 +216,12 @@ enum MultiFramePackage {
     }
 
     /// `exportsDir`: where the package folder and zip go; the project's `exports/` when nil.
+    /// `resume`: the folder of an export that was cut short (frames/ and nothing else), to be
+    /// completed in place; its name is the package name and its parent the exports folder.
+    /// `note`: progress lines for the log.
     static func export(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool = false, valOnly: Bool = false,
-                       longSide: CGFloat = longSide, exportsDir: URL? = nil, beforeZip: ((URL) throws -> Void)? = nil, now: Date = Date(),
+                       longSide: CGFloat = longSide, exportsDir: URL? = nil, resume: URL? = nil, beforeZip: ((URL) throws -> Void)? = nil,
+                       now: Date = Date(), note: (@Sendable (String) -> Void)? = nil,
                        progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (output: URL, summary: Summary) {
         let fm = FileManager.default
         // Final-test recordings (D-002) never enter a package, train or val.
@@ -158,26 +235,48 @@ enum MultiFramePackage {
         guard !usable.isEmpty else { throw PackageError.noVideos }
         guard usable.contains(where: { $0.0.split == "val" }) else { throw PackageError.noValidation }
 
-        let stamp = DateFormatter()
-        stamp.dateFormat = "yyyyMMdd-HHmm"
-        let packageName = "\(DatasetStore.safeName(name))\(unreviewed ? "-unreviewed" : "")\(valOnly ? "-val" : "")-multiframe-\(stamp.string(from: now))"
-        let exports = exportsDir ?? store.root.appendingPathComponent("exports", isDirectory: true)
+        let packageName: String
+        let exports: URL
+        if let resume {
+            packageName = resume.lastPathComponent
+            exports = resume.deletingLastPathComponent()
+        } else {
+            let stamp = DateFormatter()
+            stamp.dateFormat = "yyyyMMdd-HHmm"
+            packageName = "\(DatasetStore.safeName(name))\(unreviewed ? "-unreviewed" : "")\(valOnly ? "-val" : "")-multiframe-\(stamp.string(from: now))"
+            exports = exportsDir ?? store.root.appendingPathComponent("exports", isDirectory: true)
+        }
         let dir = exports.appendingPathComponent(packageName, isDirectory: true)
         let zip = exports.appendingPathComponent("\(packageName).zip")
-        guard !fm.fileExists(atPath: dir.path), !fm.fileExists(atPath: zip.path) else { throw PackageError.nameTaken(packageName) }
-        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        if resume != nil {
+            try Self.checkResumable(dir, zip: zip, clipFolders: Set(usable.map { DatasetStore.safeName($0.0.name) }))
+        } else {
+            guard !fm.fileExists(atPath: dir.path), !fm.fileExists(atPath: zip.path) else { throw PackageError.nameTaken(packageName) }
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        // The package folder as it is now; a vanished mount leaves a different folder at this path.
+        let outputAnchor = try ExportIO.Anchor(path: dir.path)
 
         let total = usable.reduce(0) { $0 + $1.1.count }
         var done = 0
         var lines: [String] = []
         var counts = (train: 0, val: 0, balls: 0, empty: 0, frames: 0, edges: 0, tracked: 0, dead: 0, machineRallies: 0, machineFrames: 0)
+        var resumed = ResumeReport(from: packageName, framesRetained: 0, framesReplaced: 0, replaced: [], framesWritten: 0,
+                                   partialFilesRemoved: 0, sourceChecks: [])
+        var expectedFiles: [(folder: URL, keys: Set<Int64>)] = []
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 
         for (session, frames) in usable {
             let clipDir = "frames/\(DatasetStore.safeName(session.name))"
-            try fm.createDirectory(at: dir.appendingPathComponent(clipDir, isDirectory: true), withIntermediateDirectories: true)
+            let clipURL = dir.appendingPathComponent(clipDir, isDirectory: true)
+            try outputAnchor.verify()
+            try await ExportIO.retrying("creating \(clipDir)", anchors: [outputAnchor]) {
+                try fm.createDirectory(at: clipURL, withIntermediateDirectories: true)
+            }
             let clip = try await ClipFrames(video: URL(fileURLWithPath: session.sourcePath), longSide: longSide)
+            // The video file itself (through the dataset's link), so a footage mount that drops is noticed.
+            let anchors = [outputAnchor, try ExportIO.Anchor(path: session.sourcePath)]
 
             var needed: [Int64: CMTime] = [:]
             var windows: [(FrameRecord, [CMTime])] = []
@@ -223,15 +322,60 @@ enum MultiFramePackage {
                 }
             }
 
+            // Frames already in the folder (a resumed export): kept only once proven.
             var written = Set<Int64>()
-            for await result in clip.generator.images(for: needed.values.sorted { $0 < $1 }) {
+            var sizes: [Int64: Int] = [:]
+            if resume != nil {
+                let retained = try await Self.retainedFrames(in: clipURL, clipDir: clipDir, clip: session.name, needed: needed,
+                                                             frames: clip, anchors: anchors)
+                written = retained.kept
+                sizes = retained.sizes
+                resumed.framesRetained += retained.kept.count
+                resumed.framesReplaced += retained.replaced.count
+                resumed.replaced += retained.replaced.prefix(max(0, 50 - resumed.replaced.count)).map { "\(clipDir)/\($0).jpg" }
+                resumed.partialFilesRemoved += retained.partialFilesRemoved
+                if let check = retained.sourceCheck { resumed.sourceChecks.append(check) }
+                note?("  \(session.name): \(retained.kept.count) frames retained"
+                      + (retained.replaced.isEmpty ? "" : ", \(retained.replaced.count) torn frame(s) replaced")
+                      + ", \(needed.count - retained.kept.count) to write")
+            }
+
+            // Every needed frame not yet in the folder is decoded and written whole, or the export fails naming it.
+            let toWrite = needed.filter { !written.contains($0.key) }.values.sorted { $0 < $1 }
+            var undecoded: [CMTime] = []
+            let lost = VolumeWatch(anchors: anchors, generator: clip.generator)
+            defer { lost.stop() }
+            var produced = 0
+            for await result in clip.generator.images(for: toWrite) {
+                if let error = lost.error { throw error }
                 let key = ClipFrames.key(result.requestedTime)
-                guard let image = try? result.image,
-                      SamplerImageTools.writeJPEG(image, to: dir.appendingPathComponent("\(clipDir)/\(key).jpg"), quality: 0.85)
-                else { continue }
+                guard let image = try? result.image else { undecoded.append(result.requestedTime); continue }
+                sizes[key] = try await Self.write(image, key: key, in: clipURL, clip: session.name, anchors: anchors)
+                written.insert(key)
+                produced += 1
+                if produced % 50 == 0 { for a in anchors { try a.verify() } }
+            }
+            if let error = lost.error { throw error }
+            // A frame the batch could not decode is asked for again on its own, a bounded number of times.
+            for time in undecoded {
+                let key = ClipFrames.key(time)
+                let image: CGImage
+                do {
+                    image = try await ExportIO.retrying("decoding \(session.name) frame \(key)", anchors: anchors) {
+                        try await clip.generator.image(at: time).image
+                    }
+                } catch let failure as ExportIO.Failure {
+                    guard case .gaveUp(_, _, let detail) = failure else { throw failure }
+                    throw PackageError.frameFailed(clip: session.name, frame: "\(key).jpg", detail: detail)
+                }
+                sizes[key] = try await Self.write(image, key: key, in: clipURL, clip: session.name, anchors: anchors)
                 written.insert(key)
             }
-            counts.frames += written.count
+            resumed.framesWritten += produced + undecoded.count
+            // The folder must now hold exactly the plan's frames, each the size that was written or validated.
+            try await Self.verifyFolder(clipURL, clipDir: clipDir, clip: session.name, sizes: sizes, anchors: anchors)
+            expectedFiles.append((clipURL, Set(needed.keys)))
+            counts.frames += needed.count
 
             let split = session.split == "val" ? "val" : "train"
             func stored(_ box: CGRect) -> [Double] {
@@ -239,9 +383,14 @@ enum MultiFramePackage {
                 // Vision boxes are bottom-up; the trainer reads top-down.
                 return [s.midX, 1 - s.midY, s.width, s.height].map { Double($0) }
             }
+            func present(_ keys: [Int64]) throws {
+                if let key = keys.first(where: { !written.contains($0) }) {
+                    throw PackageError.frameFailed(clip: session.name, frame: "\(key).jpg", detail: "needed by a window but not written")
+                }
+            }
             for (time, times, labels, occluded, pseudo) in tracked {
                 let keys = times.map(ClipFrames.key)
-                guard keys.allSatisfy(written.contains) else { counts.edges += 1; continue }
+                try present(keys)
                 let perFrame: [[[Double]]?] = labels.map { point in
                     switch point?.state {
                     case .visible: return point?.box.map { [stored($0.rect)] }
@@ -264,7 +413,7 @@ enum MultiFramePackage {
             }
             for (time, times) in dead {
                 let keys = times.map(ClipFrames.key)
-                guard keys.allSatisfy(written.contains) else { continue }
+                try present(keys)
                 var window = Window(clip: session.name, split: split, time: time,
                                     size: [Int(clip.outputSize.width), Int(clip.outputSize.height)],
                                     frames: keys.map { "\(clipDir)/\($0).jpg" }, target: span, balls: [])
@@ -275,7 +424,7 @@ enum MultiFramePackage {
             for (frame, times) in windows {
                 defer { done += 1; progress(done, total) }
                 let keys = times.map(ClipFrames.key)
-                guard keys.allSatisfy(written.contains) else { counts.edges += 1; continue }
+                try present(keys)
                 let balls = frame.boxes.map { stored($0.rect) }
                 let window = Window(clip: session.name, split: split, time: frame.time,
                                     size: [Int(clip.outputSize.width), Int(clip.outputSize.height)],
@@ -288,6 +437,21 @@ enum MultiFramePackage {
         }
         guard counts.val > 0 else { throw PackageError.noValidation }
 
+        // Completion, verified before anything that says "finished" is written: the package
+        // folder is still the one this export started in, and every clip folder — listed again
+        // now, not remembered from when it was written — holds exactly the frames the plan needs.
+        try outputAnchor.verify()
+        for (folder, keys) in expectedFiles {
+            let clip = folder.lastPathComponent
+            let listed = try await ExportIO.retrying("listing frames/\(clip)", anchors: [outputAnchor]) { try Self.frameFiles(in: folder, clipDir: "frames/\(clip)") }
+            let names = Set(listed.keys)
+            let want = Set(keys.map { "\($0).jpg" })
+            guard names == want, listed.values.allSatisfy({ $0 > 0 }) else {
+                throw PackageError.folderIncomplete(clip: clip, detail: "\(want.subtracting(names).count) frame(s) missing, \(names.subtracting(want).count) unexpected, "
+                                                    + "\(listed.values.filter { $0 == 0 }.count) empty")
+            }
+        }
+
         var summary = Summary(name: packageName, createdAt: now, clips: usable.count,
                               trainWindows: counts.train, valWindows: counts.val, balls: counts.balls,
                               noBallWindows: counts.empty, frames: counts.frames,
@@ -298,6 +462,7 @@ enum MultiFramePackage {
         summary.deadWindows = counts.dead
         summary.machineRallies = counts.machineRallies
         summary.machineFrames = counts.machineFrames
+        if resume != nil { summary.resume = resumed }
         try (lines.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("windows.jsonl"), atomically: true, encoding: .utf8)
         try readme(summary).write(to: dir.appendingPathComponent("README.txt"), atomically: true, encoding: .utf8)
         let summaryEncoder = JSONEncoder()
@@ -317,6 +482,178 @@ enum MultiFramePackage {
 
         guard try TrainingPackage.zipFolder(dir, to: zip) else { throw PackageError.zipFailed }
         return (zip, summary)
+    }
+
+    // MARK: - Writing, resuming, verifying
+
+    /// A folder can be resumed into only when it is an export cut short: `frames/` and nothing
+    /// else (no windows.jsonl, summary, README, record or zip — a finished package is never
+    /// written into), and every clip folder in it is one this export packages.
+    private static func checkResumable(_ dir: URL, zip: URL, clipFolders: Set<String>) throws {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { throw ResumeError.notAFolder(dir.path) }
+        var entries = try fm.contentsOfDirectory(atPath: dir.path).filter { $0 != ".DS_Store" }
+        if fm.fileExists(atPath: zip.path) { entries.append(zip.lastPathComponent) }
+        guard entries == ["frames"] else { throw ResumeError.notResumable(dir.path, found: entries.sorted()) }
+        let frames = dir.appendingPathComponent("frames", isDirectory: true)
+        guard fm.fileExists(atPath: frames.path, isDirectory: &isDir), isDir.boolValue else { throw ResumeError.notResumable(dir.path, found: ["frames (a file)"]) }
+        for entry in try fm.contentsOfDirectory(atPath: frames.path) where entry != ".DS_Store" {
+            guard clipFolders.contains(entry) else { throw ResumeError.strayClipFolder("frames/\(entry)") }
+        }
+    }
+
+    /// Encodes `image` and writes it whole as `<key>.jpg`, retrying transient I/O errors while
+    /// the volumes are still there. Returns the bytes written.
+    private static func write(_ image: CGImage, key: Int64, in clipURL: URL, clip: String, anchors: [ExportIO.Anchor]) async throws -> Int {
+        guard let data = SamplerImageTools.jpegData(image, quality: 0.85) else {
+            throw PackageError.frameFailed(clip: clip, frame: "\(key).jpg", detail: "JPEG encoding failed")
+        }
+        do {
+            try await ExportIO.retrying("writing \(clip) frame \(key).jpg", anchors: anchors) {
+                try ExportIO.writeWhole(data, to: clipURL.appendingPathComponent("\(key).jpg"))
+            }
+        } catch let failure as ExportIO.Failure {
+            guard case .gaveUp(_, _, let detail) = failure else { throw failure }
+            throw PackageError.frameFailed(clip: clip, frame: "\(key).jpg", detail: detail)
+        }
+        return data.count
+    }
+
+    /// The frame files of a clip folder by name with their sizes. Anything that is not a frame
+    /// of this export is refused: the folder must be this export's own.
+    private static func frameFiles(in clipURL: URL, clipDir: String, partials: Bool = false) throws -> [String: Int] {
+        let fm = FileManager.default
+        var out: [String: Int] = [:]
+        for entry in try fm.contentsOfDirectory(at: clipURL, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: []) {
+            let name = entry.lastPathComponent
+            if name == ".DS_Store" { continue }
+            let values = try entry.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+            if partials, name.hasSuffix(".jpg" + ExportIO.partialSuffix) { out[name] = values.fileSize ?? 0; continue }
+            guard values.isRegularFile == true, name.hasSuffix(".jpg"), Int64(name.dropLast(4)) != nil else {
+                throw ResumeError.unexpectedFile("\(clipDir)/\(name)")
+            }
+            out[name] = values.fileSize ?? 0
+        }
+        return out
+    }
+
+    private struct Retained {
+        var kept: Set<Int64>
+        var sizes: [Int64: Int]
+        var replaced: [Int64]
+        var partialFilesRemoved: Int
+        var sourceCheck: ResumeReport.SourceCheck?
+    }
+
+    /// What of `needed` is already in the folder and can be trusted. Each file is read and must
+    /// be a whole JPEG that decodes; its name must be a frame the plan needs; every kept frame
+    /// must be one size, the size this export writes (checked against frames regenerated from
+    /// the video); and a sample of them, regenerated, must show the same picture. A torn file
+    /// (an interrupted write) is replaced and reported; more than a few means the folder is not
+    /// trusted. Leftover `.part` files are removed: they were never frames.
+    private static func retainedFrames(in clipURL: URL, clipDir: String, clip: String, needed: [Int64: CMTime],
+                                       frames: ClipFrames, anchors: [ExportIO.Anchor]) async throws -> Retained {
+        let fm = FileManager.default
+        let listed = try await ExportIO.retrying("listing \(clipDir)", anchors: anchors) {
+            try frameFiles(in: clipURL, clipDir: clipDir, partials: true)
+        }
+        var result = Retained(kept: [], sizes: [:], replaced: [], partialFilesRemoved: 0, sourceCheck: nil)
+        var invalid: [(Int64, String)] = []
+        var sizes = Set<String>()
+        var images: [Int64: CGImage] = [:]
+        let keys = listed.keys.sorted()
+        // The source sample: first, last and three between, decided before anything is read.
+        let valid = keys.filter { !$0.hasSuffix(ExportIO.partialSuffix) }.compactMap { Int64($0.dropLast(4)) }.sorted()
+        var sample = Set<Int64>()
+        if !valid.isEmpty {
+            for i in 0..<sourceSample { sample.insert(valid[Int((Double(i) / Double(sourceSample - 1) * Double(valid.count - 1)).rounded())]) }
+        }
+        for name in keys {
+            let url = clipURL.appendingPathComponent(name)
+            if name.hasSuffix(ExportIO.partialSuffix) {
+                try await ExportIO.retrying("removing \(clipDir)/\(name)", anchors: anchors) { try fm.removeItem(at: url) }
+                result.partialFilesRemoved += 1
+                continue
+            }
+            let key = Int64(name.dropLast(4))!
+            guard needed[key] != nil else { throw ResumeError.unexpectedFile("\(clipDir)/\(name)") }
+            let data = try await ExportIO.retrying("reading \(clipDir)/\(name)", anchors: anchors) { try Data(contentsOf: url) }
+            switch ExportIO.inspectFrame(data) {
+            case .invalid(let reason):
+                invalid.append((key, reason))
+            case .valid(let w, let h):
+                sizes.insert("\(w)×\(h)")
+                result.kept.insert(key)
+                result.sizes[key] = data.count
+                if sample.contains(key), let image = ExportIO.decodeFrame(data) { images[key] = image }
+            }
+        }
+        guard invalid.count <= maxInvalidPerClip else { throw ResumeError.tooManyInvalid(clip: clip, count: invalid.count, limit: maxInvalidPerClip) }
+        if sizes.count > 1 {
+            throw ResumeError.sizeMismatch(clip: clip, retained: sizes.sorted().joined(separator: " and "), expected: "one size")
+        }
+        // The sample, regenerated from the video: the same size, and the same picture.
+        var worst = 0.0
+        for key in sample.sorted() where result.kept.contains(key) {
+            guard let time = needed[key], let retained = images[key] else { continue }
+            let fresh = try await ExportIO.retrying("decoding \(clip) frame \(key)", anchors: anchors) { try await frames.generator.image(at: time).image }
+            guard fresh.width == retained.width, fresh.height == retained.height else {
+                throw ResumeError.sizeMismatch(clip: clip, retained: "\(retained.width)×\(retained.height)", expected: "\(fresh.width)×\(fresh.height)")
+            }
+            let difference = ExportIO.meanDifference(fresh, retained)
+            worst = max(worst, difference)
+            guard difference <= ExportIO.sameFrame else { throw ResumeError.sourceMismatch(clip: clip, frame: "\(key).jpg", difference: difference) }
+        }
+        if !result.kept.isEmpty {
+            result.sourceCheck = ResumeReport.SourceCheck(clip: clip, retained: result.kept.count, sampled: images.count, maxDifference: worst)
+        }
+        // Torn frames are replaced by the write that follows; the old bytes go now.
+        for (key, _) in invalid {
+            try await ExportIO.retrying("removing torn \(clipDir)/\(key).jpg", anchors: anchors) { try fm.removeItem(at: clipURL.appendingPathComponent("\(key).jpg")) }
+            result.replaced.append(key)
+        }
+        return result
+    }
+
+    /// After a clip is written: the folder holds exactly the frames in `sizes`, each with the
+    /// size that was written or validated.
+    private static func verifyFolder(_ clipURL: URL, clipDir: String, clip: String, sizes: [Int64: Int], anchors: [ExportIO.Anchor]) async throws {
+        let listed = try await ExportIO.retrying("listing \(clipDir)", anchors: anchors) { try frameFiles(in: clipURL, clipDir: clipDir) }
+        let want = Dictionary(uniqueKeysWithValues: sizes.map { ("\($0.key).jpg", $0.value) })
+        guard listed == want else {
+            let missing = Set(want.keys).subtracting(listed.keys).count
+            let extra = Set(listed.keys).subtracting(want.keys).count
+            let wrong = want.filter { listed[$0.key] != nil && listed[$0.key] != $0.value }.count
+            throw PackageError.folderIncomplete(clip: clip, detail: "\(missing) missing, \(extra) unexpected, \(wrong) with another size than written")
+        }
+    }
+
+    /// Watches the volumes while a clip's frames are generated: checks every few seconds and,
+    /// when one is gone, stops the generator so the export fails within seconds, not when the
+    /// network times out. `error` is set when it tripped.
+    final class VolumeWatch: @unchecked Sendable {
+        private let lock = NSLock()
+        private var failure: Error?
+        private var task: Task<Void, Never>?
+
+        fileprivate init(anchors: [ExportIO.Anchor], generator: AVAssetImageGenerator, every seconds: TimeInterval = 10) {
+            task = Task.detached { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                    if Task.isCancelled { return }
+                    do { for anchor in anchors { try anchor.verify() } } catch {
+                        self?.trip(error)
+                        generator.cancelAllCGImageGeneration()
+                        return
+                    }
+                }
+            }
+        }
+
+        private func trip(_ error: Error) { lock.lock(); failure = error; lock.unlock() }
+        var error: Error? { lock.lock(); defer { lock.unlock() }; return failure }
+        func stop() { task?.cancel() }
     }
 
     /// Hidden frames of `rally` between two sightings at most `occludedGap`
@@ -361,6 +698,7 @@ enum MultiFramePackage {
         \(s.machineRallies) rallies were pre-tracked by the model: \(s.machineFrames) of their frames are the
         model's own labels ("pseudo"), used with --pseudo.
         \(s.missingVideos.isEmpty ? "" : "\(s.framesWithoutVideo) reviewed frames from \(s.missingVideos.count) clips aren't here: their videos weren't on the Mac.\n")
+        \(s.resume.map { "Completed from an export cut short: \($0.framesRetained) frames were already here and validated (whole JPEGs, the planned moments, a sample regenerated and compared), \($0.framesReplaced) torn ones replaced, \($0.framesWritten) written by the resumed run; details in summary.json.\n" } ?? "")
         Train it with scripts/desktop_training/train_heatmap_model.py — it reads windows.jsonl
         directly. See that script's header for the steps.
 

@@ -39,12 +39,13 @@
 //             --unreviewed: every labeled frame, not only reviewed ones — a quick look, not a round;
 //             --val-only: the val clips alone, as a folder (no zip) — the test set for scoring models here;
 //             --long-side: frames this big (default 1024; 512 is enough for 512 training, a quarter the disk))
-//    RallyLab --project v3 --package-l2 [--dry-run] [--long-side 512] [--out DIR]   (lineage package, D-017/D-018: clips chosen
-//             from the split manifest, every reserved recording and its aliases physically absent, preflight audit + file
-//             hashes written into the package (l2-manifest.json) and manifests/l2/; any failed check removes the package;
+//    RallyLab --project v3 --package-l2 [--dry-run] [--long-side 512] [--out DIR | --resume DIR]   (lineage package, D-017/D-018:
+//             clips chosen from the split manifest, every reserved recording and its aliases physically absent, preflight audit +
+//             file hashes written into the package (l2-manifest.json) and manifests/l2/; any failed check removes the package;
 //             refuses when an eligible recording with labels has no video; --dry-run: the plan only; --out: write the
-//             package folder and zip there (a staging volume) instead of exports/. The project's data.yaml is not a
-//             lineage dataset.)
+//             package folder and zip there (a staging volume) instead of exports/; --resume: complete an export that was cut
+//             short, in that package folder (frames/ alone): frames already there are reused only once validated, see
+//             MultiFramePackage. The project's data.yaml is not a lineage dataset.)
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
 //    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo] [--val] [--heat M]   (self-training: the newest multi-frame
@@ -275,7 +276,8 @@ enum HeadlessProjects {
             if ok, args.contains("--package-l2") {
                 let side = value(after: "--long-side", in: args).flatMap(Double.init).map { CGFloat($0) } ?? MultiFramePackage.longSide
                 let out = value(after: "--out", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
-                ok = await packageL2(projects, dryRun: args.contains("--dry-run"), longSide: side, out: out)
+                let resume = value(after: "--resume", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+                ok = await packageL2(projects, dryRun: args.contains("--dry-run"), longSide: side, out: out, resume: resume)
             }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
@@ -780,12 +782,22 @@ enum HeadlessProjects {
     @MainActor
     /// `out`: the folder the package folder and zip are written to (a staging volume, say) instead of
     /// the project's `exports/`; the record still goes to the project's `manifests/l2/`.
-    private static func packageL2(_ projects: ProjectsModel, dryRun: Bool, longSide: CGFloat, out: URL?) async -> Bool {
+    /// `resume`: the folder of an export that was cut short, completed in place (MultiFramePackage
+    /// `resume:`); `out` must then be absent or that folder's parent.
+    private static func packageL2(_ projects: ProjectsModel, dryRun: Bool, longSide: CGFloat, out: URL?, resume: URL?) async -> Bool {
         guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
         if let out, !dryRun {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: out.path, isDirectory: &isDir), isDir.boolValue,
                   FileManager.default.isWritableFile(atPath: out.path) else { log("❌ --out \(out.path) is not a writable folder."); return false }
+        }
+        if let resume {
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: resume.path, isDirectory: &isDir), isDir.boolValue,
+                  FileManager.default.isWritableFile(atPath: resume.path) else { log("❌ --resume \(resume.path) is not a writable folder."); return false }
+            if let out, out.standardizedFileURL.path != resume.deletingLastPathComponent().standardizedFileURL.path {
+                log("❌ --out \(out.path) is not the folder holding --resume \(resume.path); give one or the other."); return false
+            }
         }
         let manifests = dir.appendingPathComponent("manifests", isDirectory: true)
         guard let built = buildManifest(projects, out: manifests, audit: true), let audit = built.audit else { return false }
@@ -834,10 +846,10 @@ enum HeadlessProjects {
             return false
         }
         let name = "\(dir.lastPathComponent)-\(LineagePackage.lineage)"
-        if let out { log("   package goes to \(out.path)") }
+        if let resume { log("   resuming the export in \(resume.path)") } else if let out { log("   package goes to \(out.path)") }
         do {
             let result = try await Task.detached(priority: .userInitiated) {
-                try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, exportsDir: out, beforeZip: { folder in
+                try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, exportsDir: out, resume: resume, beforeZip: { folder in
                     // The package name is unique (export refuses an existing name), so this record is this package's alone.
                     let preflight = try LineagePackage.preflight(packageDir: folder, plan: plan, sourceFingerprints: eligibleSources,
                                                                  protectedSources: protectedSources, protectedHashes: protected.hashes,
@@ -849,11 +861,16 @@ enum HeadlessProjects {
                         .write(to: l2.appendingPathComponent("\(folder.lastPathComponent).md"), atomically: true, encoding: .utf8)
                     guard preflight.passed else { throw LineagePackage.PreflightError.failed(preflight.checks.filter { !$0.passed }.map(\.name)) }
                     try LineagePackage.write(record, to: folder.appendingPathComponent(LineagePackage.recordFile))
-                }) { done, total in
+                }, note: { log($0) }) { done, total in
                     if done % 500 == 0 || done == total { log("  frames \(done)/\(total)") }
                 }
             }.value
             let s = result.summary
+            if let r = s.resume {
+                log("   resumed: \(r.framesRetained) frames retained (validated; \(r.sourceChecks.reduce(0) { $0 + $1.sampled }) regenerated and compared, "
+                    + "worst mean difference \(String(format: "%.2f", r.sourceChecks.map(\.maxDifference).max() ?? 0))), "
+                    + "\(r.framesReplaced) torn frame(s) replaced, \(r.framesWritten) written, \(r.partialFilesRemoved) .part file(s) removed")
+            }
             log("✅ \(LineagePackage.lineage) package: \(s.trainWindows) train + \(s.valWindows) val windows from \(s.clips) clips → \(result.output.path)")
             log("   record: \(l2.appendingPathComponent(s.name).path).{json,md}")
             return true
