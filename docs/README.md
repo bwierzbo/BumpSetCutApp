@@ -6,7 +6,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 - [Working agreement](workflow/WORKING_AGREEMENT.md) — roles, the nine-step cycle, review gates, what needs the owner first, sources of truth.
 - [Independent review](workflow/CHATGPT_REVIEW.md) — Codex on GitHub (primary): triggers, retrieving and answering findings; manual ChatGPT export (fallback) with a tested, context-preserving export.
-- [Footage share](workflow/FOOTAGE_SHARE.md) — proposed read-only SMB share of the desktop's footage over Tailscale, staging share for L2 packages, file-by-file links on the Mac; exact Windows and macOS steps for owner approval.
+- [Footage share](workflow/FOOTAGE_SHARE.md) — read-only SMB share of the desktop's footage over Tailscale, staging share for L2 packages, file-by-file links on the Mac; exact Windows and macOS steps, applied 2026-10-22, with the working mount commands and what differed.
 - [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md) — scope, acceptance criteria, evidence, risks, docs.
 - [Hybrid Mac/Windows plan](workflow/HYBRID_MAC_WINDOWS_PLAN.md) — Tailscale connection verified 2026-10-20 (`bens-desktop`, 100.107.21.20); proposed read-only footage/GPU inventory; transfer workflow and remote desktop pending owner authorisation.
 
@@ -30,6 +30,10 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 - `ml-roadmap/manifests/<project>/` — committed `manifest.json` / `audit.json` (+ `.md`) per project, regenerated with `RallyLab --project <name> --audit-dataset`; also the YouTube source-ID reports and validation.json before/after copies.
 - [Experiment template](templates/EXPERIMENT.md).
 - [Scoring contract v1](ml-roadmap/SCORING_CONTRACT.md) — Phase 2: raw-boundary scorer vs padded-export scorecard (exact definitions, tick time base, excluded spans), 13 inconsistencies found in today's scorers with file:line, 12 pinned fixtures + the Python reference implementation (`scripts/scoring/reference_scorecard.py`), implementation PR plan.
+- [Dataset review & repair GUI plan](ml-roadmap/DATASET_REVIEW_GUI_PLAN.md) — owner milestone 2026-10-22: health queue, original-video frame stepping and trim proposals, independent event annotation, versioned non-destructive corrections, identity/leakage checks, before/after evidence; Phase 1A event-review tool first; PR order G0–G6.
+- [Event boundary review protocol](ml-roadmap/EVENT_BOUNDARY_REVIEW_PROTOCOL.md) — Phase 1A / Task B.2: the 24-event serve-contact / dead-ball calibration pilot on development recordings (rubric, uncertainty intervals, blind second review, `rallyevents.json` provenance sidecar, outputs, tooling PRs, blockers).
+- [L2 source verification proposal](ml-roadmap/L2_SOURCE_VERIFICATION_PROPOSAL.md) — proposed strict full-file SHA-256 of every packaged and withheld source video in the preflight (fail closed, identities and ledgers untouched); reconciliation of the protected-content inventory (closure 21, 452 files, 54 dangling).
+- [Dataset hygiene](ml-roadmap/DATASET_HYGIENE.md) — known session/dataset inconsistencies (H-1: 54 dangling frame records in a legacy-holdout session) and the proposed, not yet approved, cleanup procedure with backup and verification.
 - [Lineage preregistration template](templates/PREREGISTRATION_L2.md) — the ten sections every L2 training run fills and the owner approves before training (D-018).
 - [EXP-20261021-l2-scratch-prereg](ml-roadmap/experiments/EXP-20261021-l2-scratch-prereg.md) — proposed first L2 run (not approved): recipe, data counts, holdout rules.
 - `ml-roadmap/manifests/<project>/l2/` — lineage package plans and records (`RallyLab --package-l2`): what is eligible, what is withheld, preflight results and file hashes.
