@@ -1,0 +1,113 @@
+{
+ "note": "missedServe and other spans are excluded: predictions and clips touching them are neither hits nor false, and the spans leave the dead-time denominator. Raw: 1 TP, 2 unscored. Export: 1 complete, 0 false clips.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 14.0,
+   "kind": "rally",
+   "contact": 10.0
+  },
+  {
+   "start": 40.0,
+   "end": 41.0,
+   "kind": "missedServe",
+   "contact": 40.0
+  },
+  {
+   "start": 70.0,
+   "end": 80.0,
+   "kind": "other",
+   "contact": 70.0
+  }
+ ],
+ "raw": [
+  [
+   10.0,
+   14.0
+  ],
+  [
+   40.2,
+   41.0
+  ],
+  [
+   72.0,
+   78.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   14.5
+  ],
+  [
+   39.7,
+   41.5
+  ],
+  [
+   70.0,
+   78.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 1,
+   "predictions": 3,
+   "unscoredPredictions": 2,
+   "tp": 1,
+   "fp": 0,
+   "fn": 0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "startMAE": 0.0,
+   "endMAE": 0.0,
+   "startMedianSigned": 0.0,
+   "endMedianSigned": 0.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 1.0,
+   "split": 0,
+   "merged": 0,
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": 0.0,
+     "endError": 0.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 1,
+   "clips": 3,
+   "complete": 1,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 4.0,
+   "exportSeconds": 16.8,
+   "deadSeconds": 105.0,
+   "deadSecondsRetained": 3.3,
+   "deadTimeRetention": 0.031429,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.2
+  }
+ }
+}

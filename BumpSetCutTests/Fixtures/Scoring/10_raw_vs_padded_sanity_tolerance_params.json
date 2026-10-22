@@ -1,0 +1,115 @@
+{
+ "note": "Custom tolerance 0.5 s: rally 1 start +0.3 and end -0.4 are within; rally 2 exact. Export covers both rallies fully: both complete.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 14.0,
+   "kind": "rally",
+   "contact": 10.0
+  },
+  {
+   "start": 20.0,
+   "end": 25.0,
+   "kind": "rally",
+   "contact": 20.0
+  }
+ ],
+ "raw": [
+  [
+   10.3,
+   13.6
+  ],
+  [
+   20.0,
+   25.0
+  ]
+ ],
+ "padded": [
+  [
+   8.3,
+   14.1
+  ],
+  [
+   18.0,
+   25.5
+  ]
+ ],
+ "params": {
+  "iou": 0.5,
+  "tolerance": 0.5
+ },
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 0.5,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 2,
+   "predictions": 2,
+   "unscoredPredictions": 0,
+   "tp": 2,
+   "fp": 0,
+   "fn": 0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "startMAE": 0.15,
+   "endMAE": 0.2,
+   "startMedianSigned": 0.3,
+   "endMedianSigned": 0.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 1.0,
+   "split": 0,
+   "merged": 0,
+   "matches": [
+    {
+     "truth": 1,
+     "prediction": 1,
+     "startError": 0.0,
+     "endError": 0.0
+    },
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": 0.3,
+     "endError": -0.4
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 2,
+   "clips": 2,
+   "complete": 2,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 9.0,
+   "exportSeconds": 13.3,
+   "deadSeconds": 111.0,
+   "deadSecondsRetained": 4.3,
+   "deadTimeRetention": 0.038739,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    },
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.880556
+  }
+ }
+}

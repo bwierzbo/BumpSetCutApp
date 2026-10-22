@@ -1,0 +1,111 @@
+{
+ "note": "Rally at t=0 and at the video end: padding clamps to [0, duration]; both complete.",
+ "duration": 30.0,
+ "truth": [
+  {
+   "start": 0.0,
+   "end": 3.0,
+   "kind": "rally",
+   "contact": 0.0
+  },
+  {
+   "start": 27.5,
+   "end": 30.0,
+   "kind": "rally",
+   "contact": 27.5
+  }
+ ],
+ "raw": [
+  [
+   0.0,
+   3.0
+  ],
+  [
+   27.5,
+   30.0
+  ]
+ ],
+ "padded": [
+  [
+   0.0,
+   3.5
+  ],
+  [
+   25.5,
+   30.0
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 2,
+   "predictions": 2,
+   "unscoredPredictions": 0,
+   "tp": 2,
+   "fp": 0,
+   "fn": 0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "startMAE": 0.0,
+   "endMAE": 0.0,
+   "startMedianSigned": 0.0,
+   "endMedianSigned": 0.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 1.0,
+   "split": 0,
+   "merged": 0,
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": 0.0,
+     "endError": 0.0
+    },
+    {
+     "truth": 1,
+     "prediction": 1,
+     "startError": 0.0,
+     "endError": 0.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 2,
+   "clips": 2,
+   "complete": 2,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 5.5,
+   "exportSeconds": 8.0,
+   "deadSeconds": 24.5,
+   "deadSecondsRetained": 2.5,
+   "deadTimeRetention": 0.102041,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    },
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.886364
+  }
+ }
+}

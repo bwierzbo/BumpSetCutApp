@@ -1,0 +1,85 @@
+{
+ "note": "Serve-primed start at the toss, 1.2 s before contact: a raw start error of -1.2 s (early), within the 1.0 s tolerance? No: outside. Export still complete.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 14.0,
+   "kind": "rally",
+   "contact": 10.0
+  }
+ ],
+ "raw": [
+  [
+   8.8,
+   14.0
+  ]
+ ],
+ "padded": [
+  [
+   6.8,
+   14.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 1,
+   "predictions": 1,
+   "unscoredPredictions": 0,
+   "tp": 1,
+   "fp": 0,
+   "fn": 0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "startMAE": 1.2,
+   "endMAE": 0.0,
+   "startMedianSigned": -1.2,
+   "endMedianSigned": 0.0,
+   "startWithinTolerance": 0.0,
+   "endWithinTolerance": 1.0,
+   "split": 0,
+   "merged": 0,
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": -1.2,
+     "endError": 0.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 1,
+   "clips": 1,
+   "complete": 1,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 4.0,
+   "exportSeconds": 7.7,
+   "deadSeconds": 116.0,
+   "deadSecondsRetained": 3.7,
+   "deadTimeRetention": 0.031897,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.76875
+  }
+ }
+}

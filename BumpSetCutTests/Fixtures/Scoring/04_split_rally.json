@@ -1,0 +1,86 @@
+{
+ "note": "Decider split one rally in two. Raw: the larger piece matches by IoU, the other is FP, split=1. Export: retained 0.7 \u2192 clipped; contact in, dead ball in.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 20.0,
+   "kind": "rally",
+   "contact": 10.0
+  }
+ ],
+ "raw": [
+  [
+   10.0,
+   13.0
+  ],
+  [
+   16.0,
+   20.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   13.5
+  ],
+  [
+   14.0,
+   20.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 1,
+   "predictions": 2,
+   "unscoredPredictions": 0,
+   "tp": 0,
+   "fp": 2,
+   "fn": 1,
+   "precision": 0.0,
+   "recall": 0.0,
+   "f1": 0.0,
+   "startMAE": null,
+   "endMAE": null,
+   "startMedianSigned": null,
+   "endMedianSigned": null,
+   "startWithinTolerance": null,
+   "endWithinTolerance": null,
+   "split": 1,
+   "merged": 0,
+   "matches": []
+  },
+  "paddedExport": {
+   "rallies": 1,
+   "clips": 2,
+   "complete": 0,
+   "clipped": 1,
+   "missed": 0,
+   "completeRallyRecall": 0.0,
+   "rallySeconds": 10.0,
+   "exportSeconds": 12.0,
+   "deadSeconds": 110.0,
+   "deadSecondsRetained": 2.5,
+   "deadTimeRetention": 0.022727,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 0.95,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "clipped"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.8875
+  }
+ }
+}
