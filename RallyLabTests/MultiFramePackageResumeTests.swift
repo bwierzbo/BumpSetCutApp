@@ -373,6 +373,18 @@ final class MultiFramePackageResumeTests: XCTestCase {
         let (_, summary) = try await export(sessions, longSide: 160, resume: small)
         XCTAssertEqual(summary.resume?.retainedByRegeneration, 49); XCTAssertEqual(summary.resume?.framesWritten, 0)
         XCTAssertEqual(try payload(small), smallPayload)
+        // Clip by clip is not enough: a's single wrong-size frame would pass as "one torn frame" and be repaired before b's
+        // seventeen refuse the folder. Every clip is judged before anything is touched, so a stays as it was.
+        try interrupt(small, journal: false)
+        for name in try frameNames(small, "a").dropFirst() { try FileManager.default.removeItem(at: small.appendingPathComponent("frames/a/\(name)")) }
+        let untouched = try hashes(small)
+        do { _ = try await export(sessions, resume: small); XCTFail("reused frames of another size") }
+        catch MultiFramePackage.ResumeError.tooManyInvalid(let clip, _, _) { XCTAssertEqual(clip, "b") }
+        XCTAssertEqual(try hashes(small), untouched, "nothing touched in any clip, a included")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ExportJournal.url(forPackage: small).path))
+        let (_, again) = try await export(sessions, longSide: 160, resume: small)
+        XCTAssertEqual(again.resume?.clips.map(\.retainedByRegeneration), [1, 17]); XCTAssertEqual(again.resume?.framesWritten, 31)
+        XCTAssertEqual(try payload(small), smallPayload)
     }
 
     func testResumeReplacesAFewTornFramesButNotAFolderFullOfThem() async throws {

@@ -434,46 +434,70 @@ enum MultiFramePackage {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 
-        do { for p in plans {
+        // Phase 1, resuming: every clip's retained frames are judged before any is repaired or any
+        // frame written, so a refusal — a folder that is not this export's — leaves every clip as it was.
+        var retainedByClip: [String: Retained] = [:]
+        if resume != nil {
+            do {
+                for p in plans {
+                    let clipURL = dir.appendingPathComponent(p.clipDir, isDirectory: true)
+                    try outputAnchor.verify()
+                    let anchors = [outputAnchor, try ExportIO.Anchor(path: p.session.sourcePath)]
+                    let lost = VolumeWatch(anchors: anchors, generator: p.clip.generator)
+                    defer { lost.stop() }
+                    let retained = fm.fileExists(atPath: clipURL.path)
+                        ? try await Self.validateRetained(in: clipURL, plan: p, journal: journaled?.frames[p.safeName] ?? [:], anchors: anchors, watch: lost)
+                        : Retained()
+                    retainedByClip[p.safeName] = retained
+                    resumed.framesRetained += retained.byJournal + retained.byRegeneration
+                    resumed.retainedByJournal += retained.byJournal
+                    resumed.retainedByRegeneration += retained.byRegeneration
+                    resumed.framesReplaced += retained.invalid.count
+                    resumed.replaced += retained.invalid.prefix(max(0, 50 - resumed.replaced.count)).map { "\(p.clipDir)/\($0).jpg" }
+                    resumed.partialFilesRemoved += retained.partials.count
+                    let toWrite = p.needed.count - retained.byJournal - retained.byRegeneration - retained.invalid.count   // absent altogether
+                    resumed.clips.append(.init(clip: p.session.name, planned: p.needed.count, retainedByJournal: retained.byJournal,
+                                               retainedByRegeneration: retained.byRegeneration, replaced: retained.invalid.count, toWrite: toWrite))
+                    note?("  \(p.session.name): \(p.needed.count) planned, \(retained.byJournal) kept by journal, \(retained.byRegeneration) kept after regeneration"
+                          + (retained.invalid.isEmpty ? "" : ", \(retained.invalid.count) to replace") + ", \(toWrite) to write")
+                }
+            } catch {
+                refused = error is ResumeError
+                throw error
+            }
+        }
+        if inspectOnly {
+            var summary = Summary(name: packageName, createdAt: now, clips: usable.count, trainWindows: 0, valWindows: 0, balls: 0, noBallWindows: 0,
+                                  frames: 0, missingVideos: missing.map(\.0.name).sorted(), framesWithoutVideo: missing.reduce(0) { $0 + $1.1.count },
+                                  framesAtEdges: plans.reduce(0) { $0 + $1.edges })
+            summary.resume = resumed
+            closed = true
+            return (dir, summary)
+        }
+
+        // Phase 2: clip by clip, repair what phase 1 judged, write what is missing, verify, journal.
+        for p in plans {
             let session = p.session, clip = p.clip, clipDir = p.clipDir, needed = p.needed
             let clipURL = dir.appendingPathComponent(clipDir, isDirectory: true)
             counts.edges += p.edges; counts.machineRallies += p.machineRallies; counts.machineFrames += p.machineFrames
             try outputAnchor.verify()
-            if !inspectOnly {
-                try await ExportIO.retrying("creating \(clipDir)", anchors: [outputAnchor]) {
-                    try fm.createDirectory(at: clipURL, withIntermediateDirectories: true)
-                }
+            try await ExportIO.retrying("creating \(clipDir)", anchors: [outputAnchor]) {
+                try fm.createDirectory(at: clipURL, withIntermediateDirectories: true)
             }
-            // The video file itself (through the dataset's link), so a footage mount that drops is noticed —
-            // watched from here on, while retained frames are regenerated as much as while new ones are.
+            // The video file itself (through the dataset's link), so a footage mount that drops is noticed.
             let anchors = [outputAnchor, try ExportIO.Anchor(path: session.sourcePath)]
             let lost = VolumeWatch(anchors: anchors, generator: clip.generator)
             defer { lost.stop() }
 
-            // Frames already in the folder (a resumed export): kept only once proven.
             var written = Set<Int64>()
             var sizes: [Int64: Int] = [:]
-            if resume != nil, fm.fileExists(atPath: clipURL.path) {
-                let retained = try await Self.retainedFrames(in: clipURL, plan: p, journal: journaled?.frames[p.safeName] ?? [:],
-                                                             anchors: anchors, watch: lost, writer: writer, repair: !inspectOnly)
+            if let retained = retainedByClip[p.safeName] {
                 written = retained.kept
                 sizes = retained.sizes
-                resumed.framesRetained += retained.byJournal + retained.byRegeneration
-                resumed.retainedByJournal += retained.byJournal
-                resumed.retainedByRegeneration += retained.byRegeneration
-                resumed.framesReplaced += retained.replaced.count
-                resumed.replaced += retained.replaced.prefix(max(0, 50 - resumed.replaced.count)).map { "\(clipDir)/\($0).jpg" }
-                resumed.partialFilesRemoved += retained.partialFilesRemoved
-                resumed.clips.append(.init(clip: session.name, planned: needed.count, retainedByJournal: retained.byJournal,
-                                           retainedByRegeneration: retained.byRegeneration, replaced: retained.replaced.count,
-                                           toWrite: needed.count - retained.kept.count))
-                note?("  \(session.name): \(needed.count) planned, \(retained.byJournal) kept by journal, \(retained.byRegeneration) kept after regeneration"
-                      + (retained.replaced.isEmpty ? "" : ", \(retained.replaced.count) replaced")
-                      + ", \(needed.count - retained.kept.count) to write")
-            } else if resume != nil {
-                resumed.clips.append(.init(clip: session.name, planned: needed.count, retainedByJournal: 0, retainedByRegeneration: 0, replaced: 0, toWrite: needed.count))
+                try await Self.repairRetained(in: clipURL, plan: p, retained: retained, anchors: anchors, writer: writer)
+                written.formUnion(retained.invalid)
+                for key in retained.invalid { sizes[key] = retained.replacementSizes[key] }
             }
-            if inspectOnly { continue }
 
             // Every needed frame not yet in the folder is decoded and written whole, or the export fails naming it.
             let toWrite = needed.filter { !written.contains($0.key) }.values.sorted { $0 < $1 }
@@ -572,9 +596,6 @@ enum MultiFramePackage {
                 counts.balls += balls.count
                 if balls.isEmpty { counts.empty += 1 }
             }
-        } } catch {
-            refused = error is ResumeError
-            throw error
         }
         var summary = Summary(name: packageName, createdAt: now, clips: usable.count,
                               trainWindows: counts.train, valWindows: counts.val, balls: counts.balls,
@@ -587,7 +608,6 @@ enum MultiFramePackage {
         summary.machineRallies = counts.machineRallies
         summary.machineFrames = counts.machineFrames
         if resume != nil { summary.resume = resumed }
-        if inspectOnly { closed = true; return (dir, summary) }
         guard counts.val > 0 else { throw PackageError.noValidation }
 
         // Completion, verified before anything that says "finished" is written: the package
@@ -709,75 +729,89 @@ enum MultiFramePackage {
     }
 
     private struct Retained {
+        /// Frames proven and kept: by the journal's hash, or by byte-identical regeneration.
         var kept: Set<Int64> = []
         var sizes: [Int64: Int] = [:]
         var byJournal = 0
         var byRegeneration = 0
-        var replaced: [Int64] = []
-        var partialFilesRemoved = 0
+        /// Frames proven by regeneration, to be journaled when the run writes.
+        var proven: [Int64: (sha256: String, bytes: Int)] = [:]
+        /// Frames in the folder that were not whole, planned and identical to their regeneration: to be replaced.
+        var invalid: [Int64] = []
+        var replacementSizes: [Int64: Int] = [:]
+        /// Leftover `.part` files: to be removed.
+        var partials: [String] = []
     }
 
-    /// What of the plan is already in the folder and can be trusted. Each file is read; its
-    /// name must be a frame the plan needs; it is kept when its bytes hash to what the journal
-    /// says this run wrote and it is a whole JPEG of the planned size — or, for a frame the
-    /// journal does not know (a legacy folder, or the frames after the journal's last line),
-    /// when its bytes are identical to the frame regenerated now from the video with this
+    /// What of the plan is already in the folder and can be trusted — read-only. Each file is
+    /// read; its name must be a frame the plan needs; it is kept when its bytes hash to what
+    /// the journal says this run wrote and it is a whole JPEG of the planned size — or, for a
+    /// frame the journal does not know (a legacy folder, or the frames after the journal's last
+    /// line), when its bytes are identical to the frame regenerated now from the video with this
     /// export's settings: the strongest proof available that it is this source at this moment,
-    /// scaled and encoded this way. Anything else is a torn or foreign file: with `repair`, it
-    /// is replaced by the regenerated frame and reported; more than a few in one clip means the
-    /// folder is not this export's, and nothing is reused. Leftover `.part` files are removed
-    /// with `repair`: they were never frames. Without `repair` nothing is written or removed.
-    private static func retainedFrames(in clipURL: URL, plan p: ClipPlan, journal: [Int64: (sha256: String, bytes: Int)],
-                                       anchors: [ExportIO.Anchor], watch: VolumeWatch, writer: ExportJournal.Writer?, repair: Bool) async throws -> Retained {
-        let fm = FileManager.default
+    /// scaled and encoded this way. Anything else is a torn or foreign file, judged as found:
+    /// more than a few in one clip means the folder is not this export's, and nothing is reused.
+    private static func validateRetained(in clipURL: URL, plan p: ClipPlan, journal: [Int64: (sha256: String, bytes: Int)],
+                                         anchors: [ExportIO.Anchor], watch: VolumeWatch) async throws -> Retained {
         let clipDir = p.clipDir
         let listed = try await ExportIO.retrying("listing \(clipDir)", anchors: anchors) {
             try frameFiles(in: clipURL, clipDir: clipDir, partials: true)
         }
         var result = Retained()
-        var invalid: [(Int64, Data)] = []   // the frame as regenerated, to be written in place of the bad file
         let expected = (Int(p.clip.outputSize.width), Int(p.clip.outputSize.height))
         for name in listed.keys.sorted() {
             if let error = watch.error { throw error }
-            let url = clipURL.appendingPathComponent(name)
-            if name.hasSuffix(ExportIO.partialSuffix) {
-                if repair { try await ExportIO.retrying("removing \(clipDir)/\(name)", anchors: anchors) { try fm.removeItem(at: url) } }
-                result.partialFilesRemoved += 1
-                continue
-            }
+            if name.hasSuffix(ExportIO.partialSuffix) { result.partials.append(name); continue }
             let key = Int64(name.dropLast(4))!
             guard let time = p.needed[key] else { throw ResumeError.unexpectedFile("\(clipDir)/\(name)") }
-            let data = try await ExportIO.retrying("reading \(clipDir)/\(name)", anchors: anchors) { try Data(contentsOf: url) }
+            let data = try await ExportIO.retrying("reading \(clipDir)/\(name)", anchors: anchors) { try Data(contentsOf: clipURL.appendingPathComponent(name)) }
             let whole: Bool
             if case .valid(let w, let h) = ExportIO.inspectFrame(data), (w, h) == expected { whole = true } else { whole = false }
             if whole, let known = journal[key], known.bytes == data.count, known.sha256 == ExportJournal.sha256(data) {
                 result.kept.insert(key); result.sizes[key] = data.count; result.byJournal += 1
                 continue
             }
-            let fresh = try await ExportIO.retrying("decoding \(p.session.name) frame \(key)", anchors: anchors) { () throws -> Data in
-                guard let image = try? await p.clip.generator.image(at: time).image, let data = SamplerImageTools.jpegData(image, quality: jpegQuality)
-                else { throw CocoaError(.fileReadCorruptFile) }
-                return data
-            }
+            let fresh = try await Self.regenerate(key: key, at: time, plan: p, anchors: anchors)
             if whole, fresh == data {
                 result.kept.insert(key); result.sizes[key] = data.count; result.byRegeneration += 1
-                // A frame proven by regeneration is journaled now, so the next resume need not decode it again.
-                try writer?.append(.frame(clip: p.safeName, key: key, sha256: ExportJournal.sha256(data), bytes: data.count))
+                result.proven[key] = (ExportJournal.sha256(data), data.count)
             } else {
-                invalid.append((key, fresh))
+                result.invalid.append(key)
+                result.replacementSizes[key] = fresh.count
                 // Judged as they are found: a folder that is not this export's is refused before the rest is decoded.
-                guard invalid.count <= maxInvalidPerClip else { throw ResumeError.tooManyInvalid(clip: p.session.name, count: invalid.count, limit: maxInvalidPerClip) }
+                guard result.invalid.count <= maxInvalidPerClip else { throw ResumeError.tooManyInvalid(clip: p.session.name, count: result.invalid.count, limit: maxInvalidPerClip) }
             }
         }
-        for (key, fresh) in invalid {
-            if let error = watch.error { throw error }
-            result.replaced.append(key)
-            guard repair else { continue }
+        return result
+    }
+
+    private static func regenerate(key: Int64, at time: CMTime, plan p: ClipPlan, anchors: [ExportIO.Anchor]) async throws -> Data {
+        try await ExportIO.retrying("decoding \(p.session.name) frame \(key)", anchors: anchors) { () throws -> Data in
+            guard let image = try? await p.clip.generator.image(at: time).image, let data = SamplerImageTools.jpegData(image, quality: jpegQuality)
+            else { throw CocoaError(.fileReadCorruptFile) }
+            return data
+        }
+    }
+
+    /// Applies what `validateRetained` judged, once every clip has been judged: leftover `.part`
+    /// files go, torn or foreign frames are replaced by their regeneration, and frames proven by
+    /// regeneration are journaled so the next resume need not decode them again.
+    private static func repairRetained(in clipURL: URL, plan p: ClipPlan, retained: Retained, anchors: [ExportIO.Anchor], writer: ExportJournal.Writer?) async throws {
+        let fm = FileManager.default
+        for name in retained.partials {
+            try await ExportIO.retrying("removing \(p.clipDir)/\(name)", anchors: anchors) { try fm.removeItem(at: clipURL.appendingPathComponent(name)) }
+        }
+        for (key, proof) in retained.proven.sorted(by: { $0.key < $1.key }) {
+            try writer?.append(.frame(clip: p.safeName, key: key, sha256: proof.sha256, bytes: proof.bytes))
+        }
+        for key in retained.invalid {
+            let fresh = try await Self.regenerate(key: key, at: p.needed[key]!, plan: p, anchors: anchors)
+            guard fresh.count == retained.replacementSizes[key] else {
+                throw PackageError.frameFailed(clip: p.session.name, frame: "\(key).jpg", detail: "regenerated differently twice; the video is not stable")
+            }
             try await Self.put(fresh, key: key, in: clipURL, plan: p, anchors: anchors, writer: writer)
-            result.kept.insert(key); result.sizes[key] = fresh.count
         }
         try writer?.flush()
-        return result
     }
 
     /// After a clip is written: the folder holds exactly the frames in `sizes`, each with the
