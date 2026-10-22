@@ -502,4 +502,32 @@ final class LineagePackageTests: XCTestCase {
         XCTAssertEqual(pre.danglingProtectedRecords, ["images/val/w_0002_000.jpg"])
         XCTAssertTrue(LineagePackage.markdown(pre).contains("1 withheld frame record(s) have no file"))
     }
+
+    func testProtectedFramesAbortWhenAFolderCannotBeReached() throws {
+        // A withheld frame behind a folder without permission is content whose hash would be missing:
+        // fatal, never "dangling" — both for the record's path and for the folder walk.
+        let store = DatasetStore(root: root)
+        try write("kept", to: "images/val/w_0001_000.jpg")
+        try write("orphan", to: "excluded/images/val/w_0009_000.jpg")
+        func frame(_ file: String) -> FrameRecord { FrameRecord(id: UUID(), file: file, time: 1, source: "random", boxes: [], keep: true, reviewed: false) }
+        var w = F.session("w", split: "val"); w.frames = [frame("images/val/w_0001_000.jpg")]
+        let fm = FileManager.default
+        let kept = root.appendingPathComponent("images/val"), parked = root.appendingPathComponent("excluded/images/val")
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: kept.path); try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: parked.path) }
+        // The record's folder is unreachable.
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: kept.path)
+        XCTAssertThrowsError(try LineagePackage.protectedFrames(sessions: [w], withheld: ["w"], store: store)) { error in
+            guard case LineagePackage.PreflightError.protectedFrameUnreadable(let path)? = error as? LineagePackage.PreflightError else { return XCTFail("\(error)") }
+            XCTAssertTrue(path.contains("images/val/w_0001_000.jpg"), path)
+        }
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: kept.path)
+        // Only the walked folder (holding an orphan) is unreachable.
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: parked.path)
+        XCTAssertThrowsError(try LineagePackage.protectedFrames(sessions: [w], withheld: ["w"], store: store)) { error in
+            guard case LineagePackage.PreflightError.protectedFrameUnreadable(let path)? = error as? LineagePackage.PreflightError else { return XCTFail("\(error)") }
+            XCTAssertTrue(path.contains("excluded/images/val"), path)
+        }
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: parked.path)
+        XCTAssertEqual(try LineagePackage.protectedFrames(sessions: [w], withheld: ["w"], store: store).files, 2, "reachable again: both files hashed")
+    }
 }

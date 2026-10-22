@@ -447,6 +447,16 @@ enum LineagePackage {
     /// recording's name without a record (a record can be regenerated while the old file stays).
     /// Throws when a file that exists can't be read: an incomplete reference set would let the
     /// content check pass without proving anything.
+    /// Whether a path exists, told apart from a path that can't be reached: `stat` says ENOENT /
+    /// ENOTDIR for a file that is genuinely absent; any other failure (a parent folder without
+    /// permission, an I/O error) is content whose hash would be missing, so it is fatal.
+    private static func exists(_ url: URL) throws -> Bool {
+        var st = stat()
+        if stat(url.path, &st) == 0 { return true }
+        if errno == ENOENT || errno == ENOTDIR { return false }
+        throw PreflightError.protectedFrameUnreadable("\(url.path) (\(String(cString: strerror(errno))))")
+    }
+
     static func protectedFrames(sessions: [VideoSession], withheld: Set<String>, store: DatasetStore) throws -> ProtectedFrames {
         let fm = FileManager.default
         var hashed: [String: String] = [:]   // path → sha256
@@ -460,8 +470,11 @@ enum LineagePackage {
         }
         for session in sessions where withheld.contains(session.name) {
             for frame in session.frames {
-                let url = store.currentImageURL(for: frame)
-                if fm.fileExists(atPath: url.path) { try hash(url) } else { dangling.append(frame.file) }
+                // Kept or parked, checked here rather than through the store's fallback, which treats
+                // an unreachable kept path like an absent one.
+                let kept = store.root.appendingPathComponent(frame.file)
+                let parked = store.root.appendingPathComponent("excluded").appendingPathComponent(frame.file)
+                if try exists(kept) { try hash(kept) } else if try exists(parked) { try hash(parked) } else { dangling.append(frame.file) }
             }
         }
         // Files named for a withheld recording: <safe name>_<digits and underscores>.<ext>, so a
@@ -476,11 +489,20 @@ enum LineagePackage {
         }
         for folder in ["images", "excluded/images"] {
             let dir = store.root.appendingPathComponent(folder, isDirectory: true)
-            guard fm.fileExists(atPath: dir.path),
-                  let files = fm.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
-            for case let url as URL in files where (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
-                if belongsToWithheld(url.lastPathComponent) { try hash(url) }
+            guard try exists(dir) else { continue }
+            // A folder that can't be listed hides files that may be a withheld recording's: fatal, never skipped.
+            var walkError: (URL, Error)?
+            guard let files = fm.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey], options: [],
+                                            errorHandler: { url, error in walkError = (url, error); return false })
+            else { throw PreflightError.protectedFrameUnreadable("\(dir.path) (can't be listed)") }
+            for case let url as URL in files {
+                let regular: Bool
+                do { regular = try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile ?? false } catch {
+                    throw PreflightError.protectedFrameUnreadable("\(url.path) (\(error.localizedDescription))")
+                }
+                if regular, belongsToWithheld(url.lastPathComponent) { try hash(url) }
             }
+            if let (url, error) = walkError { throw PreflightError.protectedFrameUnreadable("\(url.path) (\(error.localizedDescription))") }
         }
         return ProtectedFrames(hashes: Set(hashed.values), files: hashed.count, danglingRecords: dangling.sorted())
     }
