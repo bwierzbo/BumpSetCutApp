@@ -759,6 +759,28 @@ enum MultiFramePackage {
         }
         var result = Retained()
         let expected = (Int(p.clip.outputSize.width), Int(p.clip.outputSize.height))
+        // Frames the journal cannot vouch for, waiting to be compared with their regeneration —
+        // judged in the order they were found, a batch at a time (`validationBatch`).
+        var pending: [(key: Int64, time: CMTime, data: Data, whole: Bool)] = []
+        func judge() async throws {
+            guard !pending.isEmpty else { return }
+            let fresh = try await Self.regenerate(pending.map { (key: $0.key, time: $0.time) }, plan: p, anchors: anchors, watch: watch)
+            for frame in pending {
+                guard let regenerated = fresh[frame.key] else {   // `regenerate` answers every key or throws
+                    throw PackageError.frameFailed(clip: p.session.name, frame: "\(frame.key).jpg", detail: "not regenerated")
+                }
+                if frame.whole, regenerated == frame.data {
+                    result.kept.insert(frame.key); result.sizes[frame.key] = frame.data.count; result.byRegeneration += 1
+                    result.proven[frame.key] = (ExportJournal.sha256(frame.data), frame.data.count)
+                } else {
+                    result.invalid.append(frame.key)
+                    result.replacementSizes[frame.key] = regenerated.count
+                    // Judged as they are found: a folder that is not this export's is refused before the rest is decoded.
+                    guard result.invalid.count <= maxInvalidPerClip else { throw ResumeError.tooManyInvalid(clip: p.session.name, count: result.invalid.count, limit: maxInvalidPerClip) }
+                }
+            }
+            pending.removeAll(keepingCapacity: true)
+        }
         for name in listed.keys.sorted() {
             if let error = watch.error { throw error }
             if name.hasSuffix(ExportIO.partialSuffix) { result.partials.append(name); continue }
@@ -771,18 +793,45 @@ enum MultiFramePackage {
                 result.kept.insert(key); result.sizes[key] = data.count; result.byJournal += 1
                 continue
             }
-            let fresh = try await Self.regenerate(key: key, at: time, plan: p, anchors: anchors)
-            if whole, fresh == data {
-                result.kept.insert(key); result.sizes[key] = data.count; result.byRegeneration += 1
-                result.proven[key] = (ExportJournal.sha256(data), data.count)
-            } else {
-                result.invalid.append(key)
-                result.replacementSizes[key] = fresh.count
-                // Judged as they are found: a folder that is not this export's is refused before the rest is decoded.
-                guard result.invalid.count <= maxInvalidPerClip else { throw ResumeError.tooManyInvalid(clip: p.session.name, count: result.invalid.count, limit: maxInvalidPerClip) }
+            pending.append((key, time, data, whole))
+            if pending.count == validationBatch { try await judge() }
+        }
+        try await judge()
+        return result
+    }
+
+    /// How many retained frames are regenerated in one request while validating. The frames of
+    /// a window are consecutive, so one request decodes forward from a key frame once instead of
+    /// seeking back to it for every frame; the batch also bounds what is held in memory at once
+    /// (this many stored frames and their regenerations).
+    static let validationBatch = 64
+
+    /// The frames at `moments`, regenerated from the video with this export's settings, by key.
+    /// Asked for together in time order; each answer is matched to its own requested moment by
+    /// that moment, whatever order the answers come in; an answer for a moment not asked for, or
+    /// a second answer for one, stops the export. A moment the request could not decode — or
+    /// did not answer, as after a cancelled generator — is asked for again on its own, with the
+    /// same bounded retries as before. Every key is answered, or an error is thrown.
+    private static func regenerate(_ moments: [(key: Int64, time: CMTime)], plan p: ClipPlan, anchors: [ExportIO.Anchor], watch: VolumeWatch) async throws -> [Int64: Data] {
+        let wanted = Dictionary(uniqueKeysWithValues: moments)
+        var out: [Int64: Data] = [:]
+        var answered = Set<Int64>()
+        if !moments.isEmpty {   // (an empty request would never finish)
+            for await result in p.clip.generator.images(for: moments.map(\.time).sorted { $0 < $1 }) {
+                if let error = watch.error { throw error }
+                let key = ClipFrames.key(result.requestedTime)
+                guard wanted[key] != nil, answered.insert(key).inserted else {
+                    throw PackageError.frameFailed(clip: p.session.name, frame: "\(key).jpg", detail: "the generator answered a moment that was not asked for, or answered one twice")
+                }
+                guard let image = try? result.image, let data = SamplerImageTools.jpegData(image, quality: jpegQuality) else { continue }
+                out[key] = data
             }
         }
-        return result
+        if let error = watch.error { throw error }
+        for (key, time) in moments where out[key] == nil {
+            out[key] = try await Self.regenerate(key: key, at: time, plan: p, anchors: anchors)
+        }
+        return out
     }
 
     private static func regenerate(key: Int64, at time: CMTime, plan p: ClipPlan, anchors: [ExportIO.Anchor]) async throws -> Data {
