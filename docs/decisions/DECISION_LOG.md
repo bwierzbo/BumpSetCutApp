@@ -113,6 +113,8 @@ The authoritative record of product, architecture, data and process decisions fo
 
 **Source.** [Owner decisions §7](2026-10-20-phase0-owner-decisions.md).
 
+**Amendment (owner, 2026-10-22).** No numerical dead-time-retention ceiling or recall target is set yet. The objective stays *minimise dead-time retention subject to complete-rally recall ≥ an approved target*; the target is configurable but unset until the Phase 1A event-boundary review and the corrected scoring provide reliable evidence; no default ceiling or threshold is introduced; the provisional 0.98 complete-rally criterion is not the recall target (it defines whether one rally was preserved, not the required share of rallies). Reports show complete-rally recall, dead-time retention, false clips and the trade-off between candidates; dead-time metrics stay unavailable on partially annotated recordings; diagnostic comparisons are permitted but no configuration is declared the winner under D-007 until the target is approved; `covered − 0.25 × dead time` stays a named diagnostic, never the objective. Source: [verbatim note](2026-10-22-d007-threshold-decision.md).
+
 ### D-008
 
 **Remove `enableRallyScoreGate` from tuning; reconcile replay with production** — 2026-10-20 — accepted — owner.
