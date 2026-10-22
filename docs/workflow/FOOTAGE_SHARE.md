@@ -107,7 +107,11 @@ python3 scripts/footage_share/link_footage.py --project Scratch --mount /Volumes
 ```bash
 mkdir -p /Volumes/RallyLabStaging/Scratch-exports
 RallyLab --project Scratch --package-l2 --out /Volumes/RallyLabStaging/Scratch-exports
+# an export that was cut short (its folder holds frames/ and nothing else) is completed in place, never restarted:
+RallyLab --project Scratch --package-l2 --resume /Volumes/RallyLabStaging/Scratch-exports/Scratch-L2-multiframe-<stamp>
 ```
+
+`--resume` reuses a frame already in the folder only once it is read and proven a whole JPEG at a moment the current plan needs, at the size this export writes, and — on a sample of five per clip regenerated from the video — of this video; a torn file (an interrupted write) is replaced and listed in `summary.json`, a foreign file or folder stops the run without touching anything, and windows.jsonl, summary.json and the record are written only after every clip folder has been listed and found complete (`MultiFramePackage`, D-022). Whether fresh or resumed, a frame the export cannot decode or write stops it, naming the frame; a volume that disappears under it is noticed within seconds and is final.
 
 Writes `Scratch-L2-multiframe-<stamp>/` and its zip on the desktop's `D:\RallyLabStaging\Scratch-exports`; the record `manifests/l2/<package>.{json,md}` on the Mac (committed to `docs/ml-roadmap/manifests/Scratch/l2/`). Expect roughly an hour: the exporter decodes ~100 GB of video over the share, and the preflight reads the written package back to hash every file. The exposure ledger on the Mac records `training_package` for every packaged recording at export time, as always.
 
@@ -142,3 +146,18 @@ unset pw
 | Throughput | Bulk read ~37 MB/s (512 MB test). The export is **latency-bound, not bandwidth-bound**: it writes tens of thousands of small JPEGs over SMB, roughly 4 frames/s, so a full package takes many hours, not the hour estimated. Writing the package to the Mac's own disk would be faster but needs ~22 GB free at the 768 long side. |
 | Mounts | do not survive a reboot or a long idle; remount with the commands above. A transient "Device not configured" was seen once right after deleting a folder on the staging share; the mounts recovered on their own. |
 | Training from the staging share | `desktop.sh` reads a package under `~/mnt/RallyLabStaging` in place on the desktop (`D:\RallyLabStaging`, an SSD): an L2 package **folder** is verified first (`verify_package.ps1` recomputes the canonical digest on the desktop against `l2-manifest.json`; mismatch → nothing starts) and the trainer runs straight from the folder; nothing is copied or unzipped onto `C:` (39 GB free). `desktop.sh verify PACKAGE` runs the check alone; `desktop.sh plan …` shows the mapping without starting anything. |
+
+## LAN path, as applied (2026-10-22, D-022)
+
+The first export over the Tailscale path ran about 16 hours and failed at 10:50 UTC: the desktop's Wi‑Fi retired the temporary IPv6 address Tailscale's direct path was using (Windows rotates these daily; `netsh interface ipv6 show privacy`), both SMB sessions dropped (desktop SMB server events 1033/1034/1040 at 10:39:52Z, the open video handle scavenged at 10:42:56Z), both Mac mounts vanished and the exporter failed on its next read. The owner chose a direct LAN path restricted to the Mac, and a resumable export, keeping the partial folder.
+
+| Change | Exactly what was done |
+|---|---|
+| Desktop firewall | Added `RallyLab SMB from the Mac over LAN`: inbound, allow, TCP 445, profile Private, remote address `10.0.0.113` (the Mac), local address `10.0.0.123` (the desktop), interface `Wi-Fi 2`. **Disabled** the Windows built-in `File and Printer Sharing (Restrictive) (SMB-In)` rule (`{5ABF886E-B18E-4DEC-869C-05206B626892}`), which had been enabled on the Private profile with remote address *Any* — SMB had been open to the whole home network, not only the Mac. The Tailscale rule is unchanged. Enabled inbound TCP 445 rules afterwards: exactly the two RallyLab rules. Reversible: `Enable-NetFirewallRule -Name '{5ABF886E-…}'`, `Remove-NetFirewallRule -DisplayName 'RallyLab SMB from the Mac over LAN'`. |
+| Shares | Unchanged: `RallyLabFootage` Read + SMB encryption, `RallyLabStaging` Change + encryption; SMB server rejects unencrypted access. |
+| Addresses | Both from the router's DHCP (desktop lease 1 day, Mac 2 days), **no reservation yet** — the owner's router (10.0.0.1) is outside the implementer's reach. If either address changes, the LAN rule fails closed (SMB refused) and the export stops on a lost volume; reserve both on the router. The Mac uses a *private Wi‑Fi address* on this network, so its reservation must use that address, not the hardware one, and the network's private-address setting must be "fixed", not "rotating". |
+| Mac Keychain | A second login-Keychain item for the LAN address, same account, copied from the Tailscale item without printing it: `security add-internet-password -a rallylab-share -s 10.0.0.123 -r 'smb ' -l 'RallyLab footage share (bens-desktop, LAN)'`. |
+| Mounts | The Step 2 commands with `10.0.0.123` in place of `100.107.21.20`. `link_footage.py --check` afterwards: 167 of 167 readable, 153 of 153 L2-needed. |
+| Sustained test | Three 2 GB videos read end to end at 23–26 MB/s, a 2 GB random file written to staging at 24 MB/s and read back byte-identical (SHA-256), 40 package frames read; both mounts still present after the test, no error. Both machines are on Wi‑Fi, so about 25 MB/s is the link, not the share. |
+| Stray local folders | When the mounts vanished the exporter's `createDirectory` had made empty folders under `~/mnt/RallyLabStaging/Scratch-exports/…/frames/` on the Mac's own disk (0 files); removed with `rmdir -p` before remounting. The exporter now anchors the package folder's device and inode at start and checks them, so a vanished mount is an error, not a local folder. |
+| Partial package | `D:\RallyLabStaging\Scratch-exports\Scratch-L2-multiframe-20261021-1917`: kept as the owner directed; 87,589 files, 21.2 GB, newest 10:39:50Z; nothing in it was changed. |
