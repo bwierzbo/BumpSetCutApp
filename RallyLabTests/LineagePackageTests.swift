@@ -457,34 +457,49 @@ final class LineagePackageTests: XCTestCase {
         }
     }
 
-    func testProtectedFrameHashesCoverKeptAndParkedFrames() throws {
+    func testProtectedFramesCoverRecordsOrphansAndParkedFilesButNotSiblings() throws {
         let store = DatasetStore(root: root)
         try write("kept", to: "images/val/w_0001_000.jpg")
         try write("parked", to: "excluded/images/val/w_0002_000.jpg")
+        try write("orphan: no record names it", to: "images/val/w_0007_250.jpg")
+        try write("sibling recording", to: "images/val/w_v2_0001_000.jpg")
         try write("other", to: "images/train/t_0001_000.jpg")
         func frame(_ file: String) -> FrameRecord { FrameRecord(id: UUID(), file: file, time: 1, source: "random", boxes: [], keep: true, reviewed: false) }
         var w = F.session("w", split: "val"); w.frames = [frame("images/val/w_0001_000.jpg"), frame("images/val/w_0002_000.jpg")]
         var t = F.session("t", split: "train"); t.frames = [frame("images/train/t_0001_000.jpg")]
-        let hashes = try LineagePackage.protectedFrameHashes(sessions: [w, t], withheld: ["w"], store: store)
-        XCTAssertEqual(hashes, [DatasetSplitManifest.sha256(of: root.appendingPathComponent("images/val/w_0001_000.jpg"))!,
-                                DatasetSplitManifest.sha256(of: root.appendingPathComponent("excluded/images/val/w_0002_000.jpg"))!])
+        let p = try LineagePackage.protectedFrames(sessions: [w, t], withheld: ["w"], store: store)
+        XCTAssertEqual(p.hashes, [DatasetSplitManifest.sha256(of: root.appendingPathComponent("images/val/w_0001_000.jpg"))!,
+                                  DatasetSplitManifest.sha256(of: root.appendingPathComponent("excluded/images/val/w_0002_000.jpg"))!,
+                                  DatasetSplitManifest.sha256(of: root.appendingPathComponent("images/val/w_0007_250.jpg"))!])
+        XCTAssertEqual(p.files, 3)
+        XCTAssertEqual(p.danglingRecords, [])
+        XCTAssertFalse(p.hashes.contains(DatasetSplitManifest.sha256(of: root.appendingPathComponent("images/val/w_v2_0001_000.jpg"))!), "w_v2 is its own recording")
+        // Not withheld: nothing is required or hashed.
+        XCTAssertEqual(try LineagePackage.protectedFrames(sessions: [w], withheld: [], store: store), .init(hashes: [], files: 0, danglingRecords: []))
     }
 
-    func testProtectedFrameHashesAbortWhenAFrameIsMissingOrUnreadable() throws {
+    func testProtectedFramesReportADanglingRecordAndAbortOnAnUnreadableFile() throws {
         let store = DatasetStore(root: root)
         try write("kept", to: "images/val/w_0001_000.jpg")
         func frame(_ file: String) -> FrameRecord { FrameRecord(id: UUID(), file: file, time: 1, source: "random", boxes: [], keep: true, reviewed: false) }
         var w = F.session("w", split: "val"); w.frames = [frame("images/val/w_0001_000.jpg"), frame("images/val/w_0002_000.jpg")]
-        // Missing on both the kept and the parked path.
-        XCTAssertThrowsError(try LineagePackage.protectedFrameHashes(sessions: [w], withheld: ["w"], store: store)) {
-            XCTAssertEqual($0 as? LineagePackage.PreflightError, .protectedFrameUnreadable(root.appendingPathComponent("excluded/images/val/w_0002_000.jpg").path))
-        }
-        // Present but unreadable (a folder where the image should be).
+        // Missing on both the kept and the parked path: no bytes exist, so it is noted, not fatal.
+        let p = try LineagePackage.protectedFrames(sessions: [w], withheld: ["w"], store: store)
+        XCTAssertEqual(p.danglingRecords, ["images/val/w_0002_000.jpg"])
+        XCTAssertEqual(p.files, 1)
+        // Present but unreadable (a folder where the image should be): fatal.
         try FileManager.default.createDirectory(at: root.appendingPathComponent("images/val/w_0002_000.jpg"), withIntermediateDirectories: true)
-        XCTAssertThrowsError(try LineagePackage.protectedFrameHashes(sessions: [w], withheld: ["w"], store: store)) {
+        XCTAssertThrowsError(try LineagePackage.protectedFrames(sessions: [w], withheld: ["w"], store: store)) {
             XCTAssertEqual($0 as? LineagePackage.PreflightError, .protectedFrameUnreadable(root.appendingPathComponent("images/val/w_0002_000.jpg").path))
         }
-        // Not withheld: its frames are not required.
-        XCTAssertEqual(try LineagePackage.protectedFrameHashes(sessions: [w], withheld: [], store: store), [])
+        // The record carries both numbers.
+        let dir = try writeCleanPackage()
+        let pre = try LineagePackage.preflight(packageDir: dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]),
+                                               sourceFingerprints: ["t": "file:T", "v": "file:V"], protectedSources: ["file:W"],
+                                               protectedHashes: p.hashes, protectedFrameFiles: p.files, danglingProtectedRecords: p.danglingRecords, now: F.day)
+        XCTAssertTrue(pre.passed)
+        XCTAssertEqual(pre.protectedFrameFiles, 1)
+        XCTAssertEqual(pre.danglingProtectedRecords, ["images/val/w_0002_000.jpg"])
+        XCTAssertTrue(LineagePackage.markdown(pre).contains("1 withheld frame record(s) have no file"))
     }
 }
