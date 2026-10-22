@@ -26,7 +26,7 @@ Per-rally trim adjustments and flywheel padding are **not** scored (they are use
 
 ## 2. Raw-boundary scorer (event quality)
 
-Inputs: truth rallies, excluded spans, raw boundaries, `iou` (default 0.5), `tolerance` (default 1.0 s), `split` 0.25, `merged` 0.5.
+Inputs: truth rallies, excluded spans, raw boundaries, `iou` (default 0.5), `tolerance` (default 1.0 s), `split` 0.25, `merged` 0.5. Every threshold is the exact decimal written in the parameters (2/5 for `0.4`), compared with exact rational arithmetic — never the nearest binary float.
 
 - **Excluded time is a mask, not a disqualifier.** Each prediction keeps its scorable pieces (the prediction minus the excluded union) and is scored on those: IoU, split and merged use the pieces; boundary errors use the ends of the scorable span (first to last scorable tick), because a start or end that lies inside excluded time is not a boundary the contract can judge. A prediction with nothing left outside excluded time is **unscored** (`unscoredPredictions`): the decider fired only on something a person marked as not a rally, which is neither a hit nor a false clip. A prediction that straddles excluded and scorable time is scored on the scorable part — a legitimate detection stays a hit, a clip of ordinary dead time stays a false positive.
 - Matching: one-to-one, greedy by descending temporal IoU, accepted when IoU ≥ `iou`. `tp`, `fp` (unmatched scored predictions), `fn` (unmatched rallies); precision, recall, F1.
@@ -67,7 +67,7 @@ The two scorers share one interval library (union, intersection, subtraction on 
 
 ## 5. Fixtures (deterministic, pinned)
 
-`BumpSetCutTests/Fixtures/Scoring/*.json`: fourteen cases, each with `truth`, `raw`, `padded`, `duration`, optional `params`, and an `expected` scorecard written by the reference implementation `scripts/scoring/reference_scorecard.py` (pure Python, integer ticks, no dependencies). The Swift scorers must reproduce `expected` exactly; the reference is the independent computation the Phase 2 pass rule asks for.
+`BumpSetCutTests/Fixtures/Scoring/*.json`: sixteen cases, each with `truth`, `raw`, `padded`, `duration`, optional `params`, and an `expected` scorecard written by the reference implementation `scripts/scoring/reference_scorecard.py` (pure Python, integer ticks, no dependencies). The Swift scorers must reproduce `expected` exactly; the reference is the independent computation the Phase 2 pass rule asks for.
 
 | Fixture | What it pins |
 |---|---|
@@ -85,6 +85,8 @@ The two scorers share one interval library (union, intersection, subtraction on 
 | 12 one prediction over two rallies | raw: merged 1, fn 2, fp 1; export: both complete |
 | 13 prediction overlapping a missed serve and the next rally | masking keeps the scorable span `[41,45]`: IoU 0.875 with the rally → matched, start error −0.5 s from the first scorable tick; export complete |
 | 14 prediction over a marked non-rally plus ordinary dead time | scorable pieces `[58,60]`, `[62,66]` remain → raw fp 1, export false clip 1; 8.5 s of its dead time retained, the 2 s inside the excluded span not |
+| 15 null / absent kind | both are legacy rallies (§1), never excluded spans: 2 TP, 2 complete |
+| 16 exact threshold | `split: 0.4` written as a decimal; each piece covers exactly 2/5 of the rally → split 1 (thresholds are parsed as the exact decimal written, never the nearest float) |
 
 Still to add once the Swift side exists (they need `FrameEvidence`, not intervals): replay-vs-production equality of raw and padded within 1/600 s on one synthetic evidence stream; the D-008 gate removal; non-integer frame times; a video with no marks at all (no `ralliesMarked`) must refuse dead-time metrics rather than report 0.
 

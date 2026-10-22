@@ -33,6 +33,11 @@ TICKS = 600
 DEFAULTS = {"iou": 0.5, "tolerance": 1.0, "complete": 0.98, "detected": 0.5, "split": 0.25, "merged": 0.5}
 
 
+def ratio(x) -> Fraction:
+    """A threshold as the exact decimal it was written as (0.4 is 2/5, not the float nearest 0.4)."""
+    return Fraction(str(x))
+
+
 def tick(seconds: float) -> int:
     return int(round(Fraction(seconds).limit_denominator(10**6) * TICKS))
 
@@ -126,7 +131,7 @@ def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict) -
     # start, then earlier prediction start. Boundary errors use the scorable span's ends: a start
     # that lies inside excluded time is not a boundary the contract can judge.
     pairs = [(masked_iou(t, ri), ti, ri) for ti, t in enumerate(rallies) for ri in range(len(scored_preds))]
-    pairs = [x for x in pairs if x[0] >= Fraction(p["iou"]).limit_denominator(1000)]
+    pairs = [x for x in pairs if x[0] >= ratio(p["iou"])]
     pairs.sort(key=lambda x: (-x[0], rallies[x[1]]["s"], scored_preds[x[2]][0]))
     used_t, used_r, matched = set(), set(), []
     for _, ti, ri in pairs:
@@ -139,8 +144,8 @@ def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict) -
     end_err = [scored_preds[ri][1] - rallies[ti]["e"] for ti, ri in matched]
     # Split / merged, fractional on both sides.
     cover = lambda t, k: length(intersect([(t["s"], t["e"])], piece_sets[k]))
-    split = sum(1 for t in rallies if sum(1 for k in range(len(scored_preds)) if cover(t, k) >= Fraction(p["split"]) * (t["e"] - t["s"])) >= 2)
-    merged = sum(1 for k in range(len(scored_preds)) if sum(1 for t in rallies if cover(t, k) >= Fraction(p["merged"]) * (t["e"] - t["s"])) >= 2)
+    split = sum(1 for t in rallies if sum(1 for k in range(len(scored_preds)) if cover(t, k) >= ratio(p["split"]) * (t["e"] - t["s"])) >= 2)
+    merged = sum(1 for k in range(len(scored_preds)) if sum(1 for t in rallies if cover(t, k) >= ratio(p["merged"]) * (t["e"] - t["s"])) >= 2)
     prec = Fraction(tp, tp + fp) if tp + fp else Fraction(0)
     rec = Fraction(tp, tp + fn) if tp + fn else Fraction(0)
     f1 = 2 * prec * rec / (prec + rec) if prec + rec else Fraction(0)
@@ -169,8 +174,8 @@ def padded_export_score(truth: list[dict], padded: list[tuple[int, int]], durati
     for t in rallies:
         r = (t["s"], t["e"])
         retained = Fraction(length(intersect([r], P)), r[1] - r[0])
-        complete = retained >= Fraction(p["complete"]).limit_denominator(1000) and covers(P, t["contact"], duration) and covers(P, t["e"], duration)
-        status = "complete" if complete else ("clipped" if retained >= Fraction(p["detected"]).limit_denominator(1000) else "missed")
+        complete = retained >= ratio(p["complete"]) and covers(P, t["contact"], duration) and covers(P, t["e"], duration)
+        status = "complete" if complete else ("clipped" if retained >= ratio(p["detected"]) else "missed")
         per.append({"retainedFraction": round(float(retained), 6), "contactInExport": covers(P, t["contact"], duration),
                     "deadBallInExport": covers(P, t["e"], duration), "status": status})
     complete = sum(1 for x in per if x["status"] == "complete")
@@ -194,7 +199,9 @@ def padded_export_score(truth: list[dict], padded: list[tuple[int, int]], durati
 
 def score(fixture: dict) -> dict:
     p = {**DEFAULTS, **fixture.get("params", {})}
-    truth = [{"s": tick(t["start"]), "e": tick(t["end"]), "kind": t.get("kind", "rally"), "contact": tick(t.get("contact", t["start"]))}
+    # A missing or null kind is a legacy mark made before live tagging: a rally (SCORING_CONTRACT §1).
+    truth = [{"s": tick(t["start"]), "e": tick(t["end"]), "kind": t.get("kind") or "rally",
+              "contact": tick(t["contact"] if t.get("contact") is not None else t["start"])}
              for t in fixture["truth"]]
     raw = [(tick(s), tick(e)) for s, e in fixture.get("raw", [])]
     padded = [(tick(s), tick(e)) for s, e in fixture.get("padded", [])]

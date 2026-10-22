@@ -1,0 +1,87 @@
+{
+ "note": "split threshold 0.4 written as a decimal: each piece covers exactly 4/10 of the rally, so split = 1 (a float 0.4 would be slightly above 2/5 and miss it). Neither piece reaches IoU 0.5 -> fn 1, fp 2.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 20.0
+  }
+ ],
+ "raw": [
+  [
+   10.0,
+   14.0
+  ],
+  [
+   16.0,
+   20.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   14.5
+  ],
+  [
+   14.0,
+   20.5
+  ]
+ ],
+ "params": {
+  "split": 0.4
+ },
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.4,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 1,
+   "predictions": 2,
+   "unscoredPredictions": 0,
+   "tp": 0,
+   "fp": 2,
+   "fn": 1,
+   "precision": 0.0,
+   "recall": 0.0,
+   "f1": 0.0,
+   "startMAE": null,
+   "endMAE": null,
+   "startMedianSigned": null,
+   "endMedianSigned": null,
+   "startWithinTolerance": null,
+   "endWithinTolerance": null,
+   "split": 1,
+   "merged": 0,
+   "matches": []
+  },
+  "paddedExport": {
+   "rallies": 1,
+   "clips": 1,
+   "complete": 1,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 10.0,
+   "exportSeconds": 12.5,
+   "deadSeconds": 110.0,
+   "deadSecondsRetained": 2.5,
+   "deadTimeRetention": 0.022727,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.9375
+  }
+ }
+}
