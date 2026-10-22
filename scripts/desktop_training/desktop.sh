@@ -4,8 +4,12 @@
 #   scripts/desktop_training/desktop.sh train [package] [--size 512|768|1024] [--from-scratch] [--color] [--epochs N] [--name NAME]
 #                                              [--aug] [--occluded] [--qfl] [--mine] [--pseudo] [--seed N]
 #                                              [--batch N] [--lr X] [--workers N] [--resume]
+#                                              [--score-only C:\BallTraining\runs\heatmap\RUN\best.pt]
 #       send the package (default: the newest multi-frame export) and the
 #       current trainer, start training detached, return right away
+#       (--score-only: score that checkpoint on the package's val windows
+#       instead of training, for paired_compare.py; `wait`, `fetch` and
+#       `run` work as for training — fetch brings the metrics and adds no model)
 #   scripts/desktop_training/desktop.sh queue [same as train]
 #       the same, but the run waits its turn: jobs run one after another
 #       (queue_runner.ps1 on the desktop), after any training already on the GPU
@@ -49,7 +53,7 @@ parse_train() {
             --from-scratch) scratch=--from-scratch; shift ;;
             --color) color=--color; shift ;;
             --aug|--occluded|--qfl|--mine|--pseudo|--resume) opts+=($1); shift ;;
-            --seed|--batch|--lr|--workers) opts+=($1 $2); shift 2 ;;
+            --seed|--batch|--lr|--workers|--score-only) opts+=($1 $2); shift 2 ;;
             --epochs) epochs=$2; shift 2 ;;
             --name) name=$2; shift 2 ;;
             *) package=$1; shift ;;
@@ -151,6 +155,10 @@ cmd_fetch() {
     scp -o BatchMode=yes -o LogLevel=ERROR "$HOST:C:/BallTraining/$name.log" $INCOMING/$name/ 2>/dev/null || true
     say "Brought back $INCOMING/$name"
     tr -d '\r' < $INCOMING/$name/$name.log 2>/dev/null | grep -A8 "^Best" | head -9 || true
+    if [[ ! -f $INCOMING/$name/best.pt ]]; then
+        say "Scored only (--score-only): metrics in $INCOMING/$name/metrics.json, no model to add."
+        return 0
+    fi
     [[ $score != --no-score ]] || return 0
     [[ -x $RALLYLAB ]] || { say "RallyLab isn't built — add $INCOMING/$name in the Models tab."; return 0; }
     local backup=$(mktemp)

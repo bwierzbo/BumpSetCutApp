@@ -47,6 +47,12 @@ rallies' sure frames, the model's own labels, at half weight — without it
 those frames are unlabeled), --seed N (the same randomness, or a second
 seed to see the noise).
 
+Comparing two models on the same windows: --score-only WEIGHTS scores a
+checkpoint on the package's val windows and stops (nothing is trained);
+metrics.json then holds the 4 px tallies per val video, as every run's
+does, and paired_compare.py gives the difference between two such files
+with a paired interval.
+
 Needs: torch with CUDA (same .venv as train_ball_model.py), opencv-python, numpy, onnx.
 """
 
@@ -54,6 +60,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import os
@@ -509,6 +516,22 @@ def rates(t: dict[str, int]) -> dict:
             "occluded_recall": round(t["occluded_hit"] / max(1, t["occluded_hit"] + t["occluded_missed"]), 4), **t}
 
 
+def val_digest(root: Path, windows: list[dict]) -> str:
+    """SHA-256 of the val windows as scored: every record in a fixed order
+    (clip, frames, labels, occluded — all of it), then the bytes of every
+    frame they reference. Two metrics files are set against each other
+    (paired_compare.py) only when this matches: the same clip names are not
+    enough, since windows and labels change between exports."""
+    h = hashlib.sha256()
+    for w in sorted(windows, key=lambda w: (w["clip"], w["time"], w["frames"][0])):
+        h.update(json.dumps(w, sort_keys=True, separators=(",", ":")).encode())
+        h.update(b"\n")
+    for path in sorted({f for w in windows for f in w["frames"]}):
+        h.update(path.encode())
+        h.update((root / path).read_bytes())
+    return h.hexdigest()
+
+
 def score(model, loader, val_windows, device, width: int, dead_loader=None) -> dict:
     """Balls in play: recall, precision, F1 (overall, per surface, tracked
     vs sampled), with a 90% range from resampling whole videos — how much
@@ -533,6 +556,10 @@ def score(model, loader, val_windows, device, width: int, dead_loader=None) -> d
                     for k, v in m.items():
                         t[k] += v
     result = {key: rates(t) for key, t in sorted(tallies.items())}
+    # The 4 px tallies per val video, so two models scored on the same
+    # windows can be compared pairwise (paired_compare.py).
+    result["per_clip"] = {group: {clip: t for (g, clip), t in sorted(per_clip.items()) if g == group}
+                          for group in ("all", "tracked", "sampled") if any(g == group for g, _ in per_clip)}
     rng = np.random.default_rng(0)
     for group in ("all", "tracked", "sampled"):
         clips = [t for (g, _), t in per_clip.items() if g == group]
@@ -602,6 +629,10 @@ def main() -> None:
     p.add_argument("--resume", action="store_true",
                    help="If the run exists, go on from its last finished epoch (last.pt) — after the GPU driver "
                         "dropped out mid-run, say. Without a run of that name it starts one.")
+    p.add_argument("--score-only", type=Path, default=None, metavar="WEIGHTS",
+                   help="Don't train: score this checkpoint (a best.pt) on the package's val windows with the "
+                        "scorer the epochs use, write metrics.json, and stop — so two models can be compared on "
+                        "the same windows (paired_compare.py). --size and --color must match the checkpoint.")
     args = p.parse_args()
     if args.seed is not None:
         random.seed(args.seed)
@@ -637,6 +668,8 @@ def main() -> None:
     train_w, val_w, dead_w = load_windows(root, pseudo=args.pseudo)
     say(f"{len(train_w)} train · {len(val_w)} val windows "
         f"({sum(1 for w in val_w if w['balls'])} val with a ball) from {root.name}")
+    digest = val_digest(root, val_w)
+    say(f"val windows digest {digest[:16]}… (records and frame bytes; paired_compare.py needs it equal)")
     tracked = sum(1 for w in train_w + val_w if "labels" in w)
     rallies = len({(w["clip"], w["split"]) for w in train_w + val_w if "labels" in w})
     say(f"{tracked} windows from tracked rallies in {rallies} videos"
@@ -670,7 +703,7 @@ def main() -> None:
     channels = SEQ * 3 if args.color else SEQ
     say("Colour frames (9 × RGB)." if args.color else "Grey frames.")
     model = color_model(VballNetV4c, size) if args.color else VballNetV4c(height=size[1], width=size[0], in_dim=SEQ, out_dim=SEQ)
-    if not args.from_scratch:
+    if not args.from_scratch and not args.score_only:
         load_author_weights(model)
     model.to(device)
 
@@ -681,7 +714,22 @@ def main() -> None:
     run.mkdir(parents=True, exist_ok=True)
     metrics = {"package": root.name, "size": list(size), "from_scratch": args.from_scratch, "color": args.color,
                "aug": args.aug, "occluded": args.occluded, "qfl": args.qfl, "mine": args.mine, "pseudo": args.pseudo, "seed": args.seed,
-               "baseline": None, "best": None, "best_epoch": None}
+               "val_windows": len(val_w), "val_digest": digest, "baseline": None, "best": None, "best_epoch": None}
+
+    if args.score_only:
+        saved = torch.load(args.score_only, map_location=device)
+        model.load_state_dict(saved["state_dict"])
+        metrics["scored"] = score(model, val_loader, val_w, device, size[0], dead_loader)
+        metrics["scored_weights"] = {"path": str(args.score_only), "epoch": saved.get("epoch"),
+                                     "sha256": hashlib.sha256(args.score_only.read_bytes()).hexdigest()}
+        show(f"{args.score_only} on the val windows of {root.name}:", metrics["scored"])
+        (run / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        back = HERE / "bring_back" / args.name
+        back.mkdir(parents=True, exist_ok=True)
+        shutil.copy(run / "metrics.json", back / "metrics.json")
+        # The same closing line as a training run: desktop.sh waits for it.
+        say(f"\n✅ Done. Copy {back} back to the Mac. (Scored only — nothing trained, no model to add.)")
+        return
 
     if not args.from_scratch and not resume:
         metrics["baseline"] = score(model, val_loader, val_w, device, size[0], dead_loader)
