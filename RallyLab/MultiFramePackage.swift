@@ -431,15 +431,18 @@ enum MultiFramePackage {
                     try fm.createDirectory(at: clipURL, withIntermediateDirectories: true)
                 }
             }
-            // The video file itself (through the dataset's link), so a footage mount that drops is noticed.
+            // The video file itself (through the dataset's link), so a footage mount that drops is noticed —
+            // watched from here on, while retained frames are regenerated as much as while new ones are.
             let anchors = [outputAnchor, try ExportIO.Anchor(path: session.sourcePath)]
+            let lost = VolumeWatch(anchors: anchors, generator: clip.generator)
+            defer { lost.stop() }
 
             // Frames already in the folder (a resumed export): kept only once proven.
             var written = Set<Int64>()
             var sizes: [Int64: Int] = [:]
             if resume != nil, fm.fileExists(atPath: clipURL.path) {
                 let retained = try await Self.retainedFrames(in: clipURL, plan: p, journal: journaled?.frames[p.safeName] ?? [:],
-                                                             anchors: anchors, writer: writer, repair: !inspectOnly)
+                                                             anchors: anchors, watch: lost, writer: writer, repair: !inspectOnly)
                 written = retained.kept
                 sizes = retained.sizes
                 resumed.framesRetained += retained.byJournal + retained.byRegeneration
@@ -462,8 +465,6 @@ enum MultiFramePackage {
             // Every needed frame not yet in the folder is decoded and written whole, or the export fails naming it.
             let toWrite = needed.filter { !written.contains($0.key) }.values.sorted { $0 < $1 }
             var undecoded: [CMTime] = []
-            let lost = VolumeWatch(anchors: anchors, generator: clip.generator)
-            defer { lost.stop() }
             var produced = 0
             // (An empty request would never finish: the generator's sequence ends only after a result.)
             if !toWrite.isEmpty {
@@ -713,7 +714,7 @@ enum MultiFramePackage {
     /// folder is not this export's, and nothing is reused. Leftover `.part` files are removed
     /// with `repair`: they were never frames. Without `repair` nothing is written or removed.
     private static func retainedFrames(in clipURL: URL, plan p: ClipPlan, journal: [Int64: (sha256: String, bytes: Int)],
-                                       anchors: [ExportIO.Anchor], writer: ExportJournal.Writer?, repair: Bool) async throws -> Retained {
+                                       anchors: [ExportIO.Anchor], watch: VolumeWatch, writer: ExportJournal.Writer?, repair: Bool) async throws -> Retained {
         let fm = FileManager.default
         let clipDir = p.clipDir
         let listed = try await ExportIO.retrying("listing \(clipDir)", anchors: anchors) {
@@ -723,6 +724,7 @@ enum MultiFramePackage {
         var invalid: [(Int64, Data)] = []   // the frame as regenerated, to be written in place of the bad file
         let expected = (Int(p.clip.outputSize.width), Int(p.clip.outputSize.height))
         for name in listed.keys.sorted() {
+            if let error = watch.error { throw error }
             let url = clipURL.appendingPathComponent(name)
             if name.hasSuffix(ExportIO.partialSuffix) {
                 if repair { try await ExportIO.retrying("removing \(clipDir)/\(name)", anchors: anchors) { try fm.removeItem(at: url) } }
@@ -754,6 +756,7 @@ enum MultiFramePackage {
             }
         }
         for (key, fresh) in invalid {
+            if let error = watch.error { throw error }
             result.replaced.append(key)
             guard repair else { continue }
             try await Self.put(fresh, key: key, in: clipURL, plan: p, anchors: anchors, writer: writer)

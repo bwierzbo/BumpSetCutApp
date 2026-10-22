@@ -528,8 +528,11 @@ enum LineagePackage {
         return e
     }
 
-    static func write(_ plan: Plan, to url: URL) throws { try encoder.encode(plan).write(to: url) }
-    static func write(_ record: Record, to url: URL) throws { try encoder.encode(record).write(to: url) }
+    /// Written whole or not at all (temporary file, then rename): a write that fails — a full
+    /// staging volume, a dropped mount — never leaves a partial record at the final name, which
+    /// a later resume would have to refuse as a record.
+    static func write(_ plan: Plan, to url: URL) throws { try encoder.encode(plan).write(to: url, options: .atomic) }
+    static func write(_ record: Record, to url: URL) throws { try encoder.encode(record).write(to: url, options: .atomic) }
 
     static func read(from url: URL) throws -> Record {
         let d = JSONDecoder()
