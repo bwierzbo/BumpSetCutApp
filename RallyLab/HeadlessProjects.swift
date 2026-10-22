@@ -39,10 +39,12 @@
 //             --unreviewed: every labeled frame, not only reviewed ones — a quick look, not a round;
 //             --val-only: the val clips alone, as a folder (no zip) — the test set for scoring models here;
 //             --long-side: frames this big (default 1024; 512 is enough for 512 training, a quarter the disk))
-//    RallyLab --project v3 --package-l2 [--dry-run] [--long-side 512]   (lineage package, D-017/D-018: clips chosen from the
-//             split manifest, every reserved recording and its aliases physically absent, preflight audit + file hashes
-//             written into the package (l2-manifest.json) and manifests/l2/; any failed check removes the package;
-//             --dry-run: the plan only. The project's data.yaml is not a lineage dataset.)
+//    RallyLab --project v3 --package-l2 [--dry-run] [--long-side 512] [--out DIR]   (lineage package, D-017/D-018: clips chosen
+//             from the split manifest, every reserved recording and its aliases physically absent, preflight audit + file
+//             hashes written into the package (l2-manifest.json) and manifests/l2/; any failed check removes the package;
+//             refuses when an eligible recording with labels has no video; --dry-run: the plan only; --out: write the
+//             package folder and zip there (a staging volume) instead of exports/. The project's data.yaml is not a
+//             lineage dataset.)
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
 //    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo] [--val] [--heat M]   (self-training: the newest multi-frame
@@ -272,7 +274,8 @@ enum HeadlessProjects {
             }
             if ok, args.contains("--package-l2") {
                 let side = value(after: "--long-side", in: args).flatMap(Double.init).map { CGFloat($0) } ?? MultiFramePackage.longSide
-                ok = await packageL2(projects, dryRun: args.contains("--dry-run"), longSide: side)
+                let out = value(after: "--out", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+                ok = await packageL2(projects, dryRun: args.contains("--dry-run"), longSide: side, out: out)
             }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
@@ -775,8 +778,15 @@ enum HeadlessProjects {
     /// split manifest, reserved recordings physically absent, preflight audit and file hashes
     /// in the package. Always writes the plan to manifests/l2/; `--dry-run` stops there.
     @MainActor
-    private static func packageL2(_ projects: ProjectsModel, dryRun: Bool, longSide: CGFloat) async -> Bool {
+    /// `out`: the folder the package folder and zip are written to (a staging volume, say) instead of
+    /// the project's `exports/`; the record still goes to the project's `manifests/l2/`.
+    private static func packageL2(_ projects: ProjectsModel, dryRun: Bool, longSide: CGFloat, out: URL?) async -> Bool {
         guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
+        if let out, !dryRun {
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: out.path, isDirectory: &isDir), isDir.boolValue,
+                  FileManager.default.isWritableFile(atPath: out.path) else { log("❌ --out \(out.path) is not a writable folder."); return false }
+        }
         let manifests = dir.appendingPathComponent("manifests", isDirectory: true)
         guard let built = buildManifest(projects, out: manifests, audit: true), let audit = built.audit else { return false }
         let withheldClosure: Set<String>
@@ -808,9 +818,11 @@ enum HeadlessProjects {
         if dryRun { return true }
 
         let store = projects.sampler.store
-        let sessions = LineagePackage.exportSessions(projects.sampler.sessions, plan: plan)
+        let sessions: [VideoSession]
         let protected: Set<String>, protectedSources: Set<String>, eligibleSources: [String: String]
         do {
+            // Every eligible recording with labels must have its video, or nothing is packaged.
+            sessions = try LineagePackage.exportSessions(projects.sampler.sessions, plan: plan)
             protected = try LineagePackage.protectedFrameHashes(sessions: projects.sampler.sessions, withheld: plan.withheldNames, store: store)
             protectedSources = try LineagePackage.protectedSourceFingerprints(sessions: projects.sampler.sessions, withheld: plan.protectedNames,
                                                                              sources: ReservedVideos.sources(in: dir))
@@ -820,9 +832,10 @@ enum HeadlessProjects {
             return false
         }
         let name = "\(dir.lastPathComponent)-\(LineagePackage.lineage)"
+        if let out { log("   package goes to \(out.path)") }
         do {
             let result = try await Task.detached(priority: .userInitiated) {
-                try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, beforeZip: { folder in
+                try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, exportsDir: out, beforeZip: { folder in
                     // The package name is unique (export refuses an existing name), so this record is this package's alone.
                     let preflight = try LineagePackage.preflight(packageDir: folder, plan: plan, sourceFingerprints: eligibleSources,
                                                                  protectedSources: protectedSources, protectedHashes: protected)
