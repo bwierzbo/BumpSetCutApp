@@ -363,9 +363,11 @@ enum MultiFramePackage {
         var journaled: ExportJournal.Contents?
         if resume != nil, fm.fileExists(atPath: journalURL.path) { journaled = try ExportJournal.read(journalURL, forPackage: packageName) }
         let unfinished = journaled.map { $0.state == .interrupted || $0.state == .preflightFailed } ?? false
+        // Completion files a run was cut short while writing: shed only once the folder has otherwise
+        // qualified and, below, the run identity has been verified.
+        var stale: [String] = []
         if resume != nil {
-            try await Self.checkResumable(dir, zip: zip, clipFolders: Set(usable.map { DatasetStore.safeName($0.0.name) }),
-                                          unfinishedByJournal: unfinished, repair: !inspectOnly)
+            stale = try Self.checkResumable(dir, zip: zip, clipFolders: Set(usable.map { DatasetStore.safeName($0.0.name) }), unfinishedByJournal: unfinished)
             if let journaled, !unfinished { throw ResumeError.wrongState(journaled.state.rawValue) }
         } else {
             guard !fm.fileExists(atPath: dir.path), !fm.fileExists(atPath: zip.path), !fm.fileExists(atPath: journalURL.path)
@@ -387,6 +389,7 @@ enum MultiFramePackage {
         if let contents = journaled {
             let differences = identity.differences(from: contents.identity)
             guard differences.isEmpty else { throw ResumeError.identityMismatch(differences) }
+            if !inspectOnly { for leftover in stale { try fm.removeItem(at: dir.appendingPathComponent(leftover)) } }
             resumed.journal = "version \(contents.version), started \(contents.startedAt), state \(contents.state.rawValue), \(contents.frames.values.reduce(0) { $0 + $1.count }) frames journaled"
                 + (contents.tornTail ? ", last line torn" : "")
             resumed.legacy = false
@@ -632,26 +635,24 @@ enum MultiFramePackage {
     /// else (no windows.jsonl, summary, README, record or zip — a finished package is never
     /// written into), and every clip folder in it is one this export packages. One exception,
     /// only when the journal confirms the run never reached its preflight: completion files a
-    /// run was cut short while writing are shed (with `repair`; tolerated without), since they are
-    /// regenerated from the plan — the record and the zip, which only a finished run writes, never.
-    private static func checkResumable(_ dir: URL, zip: URL, clipFolders: Set<String>, unfinishedByJournal: Bool, repair: Bool) async throws {
+    /// run was cut short while writing are tolerated and returned, to be shed by the caller once
+    /// the run identity has been verified too (they are regenerated from the plan) — the record
+    /// and the zip, which only a finished run writes, never. Nothing is removed here.
+    private static func checkResumable(_ dir: URL, zip: URL, clipFolders: Set<String>, unfinishedByJournal: Bool) throws -> [String] {
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { throw ResumeError.notAFolder(dir.path) }
         var entries = try fm.contentsOfDirectory(atPath: dir.path).filter { $0 != ".DS_Store" }
         if fm.fileExists(atPath: zip.path) { entries.append(zip.lastPathComponent) }
-        if unfinishedByJournal {
-            for leftover in entries.filter(completionFiles.contains) {
-                if repair { try fm.removeItem(at: dir.appendingPathComponent(leftover)) }
-                entries.removeAll { $0 == leftover }
-            }
-        }
-        guard entries == ["frames"] else { throw ResumeError.notResumable(dir.path, found: entries.sorted()) }
+        let stale = unfinishedByJournal ? entries.filter(completionFiles.contains) : []
+        entries.removeAll(where: stale.contains)
+        guard entries == ["frames"] else { throw ResumeError.notResumable(dir.path, found: (entries + stale).sorted()) }
         let frames = dir.appendingPathComponent("frames", isDirectory: true)
         guard fm.fileExists(atPath: frames.path, isDirectory: &isDir), isDir.boolValue else { throw ResumeError.notResumable(dir.path, found: ["frames (a file)"]) }
         for entry in try fm.contentsOfDirectory(atPath: frames.path) where entry != ".DS_Store" {
             guard clipFolders.contains(entry) else { throw ResumeError.strayClipFolder("frames/\(entry)") }
         }
+        return stale
     }
 
     /// Encodes `image` and writes it whole as `<key>.jpg`, retrying transient I/O errors while

@@ -434,8 +434,15 @@ final class MultiFramePackageResumeTests: XCTestCase {
         XCTAssertEqual(dir2.path, dir.path)
         try interrupt(dir2, keepFrames: 49)   // an unfinished journal again
         try Data("record".utf8).write(to: dir.appendingPathComponent(LineagePackage.recordFile))
+        try Data("stale".utf8).write(to: dir.appendingPathComponent("windows.jsonl"))
         do { _ = try await export(sessions, resume: dir); XCTFail("resumed past a record") }
-        catch MultiFramePackage.ResumeError.notResumable(_, let found) { XCTAssertEqual(found, ["frames", LineagePackage.recordFile]) }
+        catch MultiFramePackage.ResumeError.notResumable(_, let found) { XCTAssertEqual(found, ["frames", LineagePackage.recordFile, "windows.jsonl"]) }
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("windows.jsonl")), Data("stale".utf8), "a refused folder loses nothing, stale files included")
+        // Nor are stale files shed when the identity does not match.
+        try fm.removeItem(at: dir.appendingPathComponent(LineagePackage.recordFile))
+        do { _ = try await export(sessions, longSide: 160, resume: dir); XCTFail("resumed under another identity") }
+        catch MultiFramePackage.ResumeError.identityMismatch { }
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("windows.jsonl")), Data("stale".utf8))
     }
 
     func testJournalReadsBackWhatWasWrittenAndRefusesWhatIsNotIts() throws {

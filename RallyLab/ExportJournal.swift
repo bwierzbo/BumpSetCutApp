@@ -227,12 +227,20 @@ enum ExportJournal {
         let url: URL
         private var handle: FileHandle
 
-        /// Starts a new journal (the file must not exist) with its header line.
+        /// Starts a new journal (the file must not exist) with its header line, published whole:
+        /// written beside the final name first and moved into place, so a header cut short never
+        /// sits at the journal's path where a later resume would have to refuse it.
         init(creating url: URL, package: String, identity: Identity, now: Date) throws {
             self.url = url
-            guard !FileManager.default.fileExists(atPath: url.path) else { throw JournalError.notAJournal(url.path, detail: "already exists") }
+            let fm = FileManager.default
+            guard !fm.fileExists(atPath: url.path) else { throw JournalError.notAJournal(url.path, detail: "already exists") }
+            let part = URL(fileURLWithPath: url.path + ExportIO.partialSuffix)
             try ExportJournal.encode(.header(version: ExportJournal.version, package: package, startedAt: Writer.stamp(now), identity: identity))
-                .write(to: url, options: .withoutOverwriting)
+                .write(to: part, options: .atomic)
+            do { try fm.moveItem(at: part, to: url) } catch {   // the move refuses an existing file: the no-overwrite rule holds
+                try? fm.removeItem(at: part)
+                throw error
+            }
             handle = try FileHandle(forWritingTo: url)
             try handle.seekToEnd()
         }
