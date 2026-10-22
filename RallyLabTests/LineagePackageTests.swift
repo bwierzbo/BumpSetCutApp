@@ -68,7 +68,7 @@ final class LineagePackageTests: XCTestCase {
         try write([window("t", "train", ["frames/t/1000.jpg", "frames/t/2000.jpg"]), window("v", "val", ["frames/v/1000.jpg"])].joined(separator: "\n") + "\n",
                   to: "\(dir.lastPathComponent)/windows.jsonl")
         try write("readme", to: "\(dir.lastPathComponent)/README.txt")
-        try write("{}", to: "\(dir.lastPathComponent)/summary.json")
+        try write("{\"machineFrames\":0,\"missingVideos\":[],\"framesWithoutVideo\":0}", to: "\(dir.lastPathComponent)/summary.json")
         return dir
     }
 
@@ -171,17 +171,72 @@ final class LineagePackageTests: XCTestCase {
         XCTAssertThrowsError(try planned(inputs)) { XCTAssertEqual($0 as? LineagePackage.PlanError, .noVal) }
     }
 
+    /// A session whose video is a (fake) file under the fixture root, or absent.
+    private func session(_ name: String, split: String, marked: Bool = false, videoPresent: Bool) throws -> VideoSession {
+        let path = root.appendingPathComponent("footage/\(name).mp4").path
+        if videoPresent { try write("not a video, but present", to: "footage/\(name).mp4") }
+        return VideoSession(name: name, sourcePath: path, split: split, addedAt: F.day, frames: [], rejected: nil, tracks: nil,
+                            ralliesMarked: marked ? true : nil, syncedTrackIds: nil, notRallies: nil, fittedTracks: nil, netBox: nil)
+    }
+
     func testExportSessionsCarryThePlannedSplitAndDropEverythingElse() throws {
         // A tune recording listed in validation.json whose dataset session still says "train".
-        var tune = F.session("tune_t", split: "train", marked: true)
+        var tune = try session("tune_t", split: "train", marked: true, videoPresent: true)
         tune.notRallies = [3.5]
-        let others = [F.session("bch_x", split: "train"), F.session("w", split: "val")]
+        let others = [try session("bch_x", split: "train", videoPresent: true), F.session("w", split: "val")]
         let thePlan = plan(eligible: [("tune_t", "val"), ("bch_x", "train")], withheld: ["w"])
-        let out = LineagePackage.exportSessions([tune] + others, plan: thePlan)
+        let out = try LineagePackage.exportSessions([tune] + others, plan: thePlan)
         XCTAssertEqual(out.map(\.name), ["tune_t", "bch_x"], "withheld sessions are not handed to the exporter")
         XCTAssertEqual(out[0].split, "val", "the planned side, not the dataset's")
         XCTAssertEqual(out[1].split, "train")
         XCTAssertEqual(out[0].ralliesMarked, true); XCTAssertEqual(out[0].notRallies, [3.5]); XCTAssertEqual(out[0].sourcePath, tune.sourcePath)
+    }
+
+    func testExportSessionsRefuseAnEligibleRecordingWithLabelsButNoVideo() throws {
+        // The exporter would skip `marked` with only a note in the summary; a lineage package never does.
+        let marked = try session("bch_m", split: "train", marked: true, videoPresent: false)
+        let tracked = try session("bch_t", split: "train", videoPresent: false)
+        var withTrack = tracked
+        withTrack.tracks = [TrackedRally(id: UUID(), start: 0, end: 1, points: [], candidates: [], done: true)]
+        let unlabeled = try session("bch_u", split: "train", videoPresent: false)   // nothing to take: no video needed
+        let val = try session("v", split: "val", marked: true, videoPresent: true)
+        let thePlan = plan(eligible: [("bch_m", "train"), ("bch_t", "train"), ("bch_u", "train"), ("v", "val")], withheld: ["w"])
+        XCTAssertThrowsError(try LineagePackage.exportSessions([marked, withTrack, unlabeled, val], plan: thePlan)) { error in
+            XCTAssertEqual(error as? LineagePackage.SourceError, .sourcesMissing(["bch_m", "bch_t"]))
+            XCTAssertTrue(error.localizedDescription.contains("nothing is packaged"))
+        }
+        // With every needed video present the unlabeled one may still be absent.
+        let present = [try session("bch_m", split: "train", marked: true, videoPresent: true), unlabeled, val]
+        XCTAssertEqual(try LineagePackage.exportSessions(present, plan: thePlan).map(\.name), ["bch_m", "bch_u", "v"])
+    }
+
+    func testPreflightFailsWhenTheExporterLeftAClipOutOrCannotSay() throws {
+        let dir = try writeCleanPackage()
+        let thePlan = plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"])
+        try write("{\"machineFrames\":0,\"missingVideos\":[\"u\"],\"framesWithoutVideo\":3}", to: "\(dir.lastPathComponent)/summary.json")
+        let skipped = try preflight(dir, plan: thePlan)
+        XCTAssertEqual(failed(skipped), ["no-missing-videos"])
+        XCTAssertTrue(skipped.checks.first { $0.name == "no-missing-videos" }!.detail.contains("u"))
+        try write("{}", to: "\(dir.lastPathComponent)/summary.json")
+        XCTAssertEqual(failed(try preflight(dir, plan: thePlan)), ["no-missing-videos"], "a summary that cannot say fails too")
+    }
+
+    func testExportWritesThePackageWhereItIsTold() async throws {
+        // The staging folder is used for the name check and the output; the project's exports/ is not touched.
+        let store = DatasetStore(root: root)
+        let v = try session("v", split: "val", marked: true, videoPresent: true)
+        let now = ISO8601DateFormatter().date(from: "2026-10-21T20:00:00Z")!
+        let stamp = DateFormatter(); stamp.dateFormat = "yyyyMMdd-HHmm"
+        let name = "Fixture-L2-multiframe-\(stamp.string(from: now))"
+        let staging = root.appendingPathComponent("staging", isDirectory: true)
+        try write("older package", to: "staging/\(name)/windows.jsonl")
+        do {
+            _ = try await MultiFramePackage.export(sessions: [v], store: store, name: "Fixture-L2", exportsDir: staging, now: now) { _, _ in }
+            XCTFail("exported over an existing package in the staging folder")
+        } catch MultiFramePackage.PackageError.nameTaken(let taken) {
+            XCTAssertEqual(taken, name)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("exports").path), "exports/ was not created")
     }
 
     // MARK: - Preflight
@@ -259,7 +314,7 @@ final class LineagePackageTests: XCTestCase {
         let dir = try writeCleanPackage()
         let pseudo = window("t", "train", ["frames/t/1000.jpg", "frames/t/2000.jpg"]).replacingOccurrences(of: "\"balls\":[]", with: "\"balls\":[],\"pseudo\":[false,true]")
         try write([pseudo, window("v", "val", ["frames/v/1000.jpg"])].joined(separator: "\n") + "\n", to: "\(dir.lastPathComponent)/windows.jsonl")
-        try write("{\"machineFrames\": 3}", to: "\(dir.lastPathComponent)/summary.json")
+        try write("{\"machineFrames\": 3,\"missingVideos\":[],\"framesWithoutVideo\":0}", to: "\(dir.lastPathComponent)/summary.json")
         let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [])
         XCTAssertEqual(failed(p), ["no-machine-labels"])
         XCTAssertTrue(p.checks.first { $0.name == "no-machine-labels" }!.detail.contains("t"))

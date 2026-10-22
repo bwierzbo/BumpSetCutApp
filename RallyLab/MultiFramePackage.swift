@@ -131,16 +131,26 @@ enum MultiFramePackage {
     /// A package name is never reused: an existing folder or zip of the same
     /// name (two exports in one minute) is an error, so a rejected export can
     /// never leave an older zip next to its own failed record.
+    /// The reviewed sampled frames of a session: what the exporter labels from them.
+    static func reviewedFrames(_ session: VideoSession) -> [FrameRecord] {
+        session.frames.filter { $0.keep && $0.reviewed && $0.source != "file" }
+    }
+
+    /// Whether the exporter would take anything from this session: reviewed frames, a
+    /// ready track, or rally marks for dead time. Such a session needs its video.
+    static func contributes(_ session: VideoSession) -> Bool {
+        !reviewedFrames(session).isEmpty || !readyTracks(session).isEmpty || session.ralliesMarked == true
+    }
+
+    /// `exportsDir`: where the package folder and zip go; the project's `exports/` when nil.
     static func export(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool = false, valOnly: Bool = false,
-                       longSide: CGFloat = longSide, beforeZip: ((URL) throws -> Void)? = nil, now: Date = Date(),
+                       longSide: CGFloat = longSide, exportsDir: URL? = nil, beforeZip: ((URL) throws -> Void)? = nil, now: Date = Date(),
                        progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (output: URL, summary: Summary) {
         let fm = FileManager.default
         // Final-test recordings (D-002) never enter a package, train or val.
         let finalTest = try PipelineTuner.ValidationSet.finalTestNames(in: store.root)
         let sessions = sessions.filter { !finalTest.contains($0.name) }
-        let all: [(VideoSession, [FrameRecord])] = sessions.map { session in
-            (session, session.frames.filter { $0.keep && $0.reviewed && $0.source != "file" })
-        }.filter { !$0.1.isEmpty || !Self.readyTracks($0.0).isEmpty || $0.0.ralliesMarked == true }
+        let all: [(VideoSession, [FrameRecord])] = sessions.map { ($0, Self.reviewedFrames($0)) }.filter { Self.contributes($0.0) }
         let reviewed = valOnly ? all.filter { $0.0.split == "val" } : all
         guard !reviewed.isEmpty else { throw PackageError.nothingReviewed }
         let usable = reviewed.filter { fm.fileExists(atPath: $0.0.sourcePath) }
@@ -151,7 +161,7 @@ enum MultiFramePackage {
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyyMMdd-HHmm"
         let packageName = "\(DatasetStore.safeName(name))\(unreviewed ? "-unreviewed" : "")\(valOnly ? "-val" : "")-multiframe-\(stamp.string(from: now))"
-        let exports = store.root.appendingPathComponent("exports", isDirectory: true)
+        let exports = exportsDir ?? store.root.appendingPathComponent("exports", isDirectory: true)
         let dir = exports.appendingPathComponent(packageName, isDirectory: true)
         let zip = exports.appendingPathComponent("\(packageName).zip")
         guard !fm.fileExists(atPath: dir.path), !fm.fileExists(atPath: zip.path) else { throw PackageError.nameTaken(packageName) }

@@ -6,6 +6,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 - [Working agreement](workflow/WORKING_AGREEMENT.md) — roles, the nine-step cycle, review gates, what needs the owner first, sources of truth.
 - [Independent review](workflow/CHATGPT_REVIEW.md) — Codex on GitHub (primary): triggers, retrieving and answering findings; manual ChatGPT export (fallback) with a tested, context-preserving export.
+- [Footage share](workflow/FOOTAGE_SHARE.md) — proposed read-only SMB share of the desktop's footage over Tailscale, staging share for L2 packages, file-by-file links on the Mac; exact Windows and macOS steps for owner approval.
 - [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md) — scope, acceptance criteria, evidence, risks, docs.
 - [Hybrid Mac/Windows plan](workflow/HYBRID_MAC_WINDOWS_PLAN.md) — Tailscale connection verified 2026-10-20 (`bens-desktop`, 100.107.21.20); proposed read-only footage/GPU inventory; transfer workflow and remote desktop pending owner authorisation.
 

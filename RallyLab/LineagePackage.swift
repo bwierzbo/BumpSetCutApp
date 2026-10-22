@@ -211,11 +211,13 @@ enum LineagePackage {
     enum SourceError: LocalizedError, Equatable {
         case protectedSourceUnknown(String)
         case sourceUnreadable(clip: String, path: String)
+        case sourcesMissing([String])
 
         var errorDescription: String? {
             switch self {
             case .protectedSourceUnknown(let name): return "Withheld recording \(name) has no content fingerprint: neither its cut file nor its session video is on this Mac (a link identity such as youtube:… cannot match an exported file). Bring its video back before packaging; nothing is packaged."
             case .sourceUnreadable(let clip, let path): return "\(clip)'s video can't be fingerprinted: \(path). Nothing is packaged."
+            case .sourcesMissing(let names): return "\(names.count) eligible recording(s) with labels have no video here, and a lineage package never skips one: \(names.prefix(12).joined(separator: ", "))\(names.count > 12 ? " …" : ""). Bring every video back (or mount the footage) before packaging; nothing is packaged."
             }
         }
     }
@@ -331,9 +333,18 @@ enum LineagePackage {
         check("frame-paths-eligible", Array(badPaths), ok: "every frame path is frames/<its own eligible clip>/<frame>.jpg")
         // A label written by a model (a pre-tracked rally's "sure" frame) is L1 output; a lineage trains on people's labels only.
         var machine: [String] = Array(pseudoClips)
-        if let summary = try? JSONSerialization.jsonObject(with: Data(contentsOf: packageDir.appendingPathComponent("summary.json"))) as? [String: Any],
-           let frames = summary["machineFrames"] as? Int, frames > 0 { machine.append("summary.json machineFrames \(frames)") }
+        let summary = try? JSONSerialization.jsonObject(with: Data(contentsOf: packageDir.appendingPathComponent("summary.json"))) as? [String: Any]
+        if let frames = summary?["machineFrames"] as? Int, frames > 0 { machine.append("summary.json machineFrames \(frames)") }
         check("no-machine-labels", machine, ok: "no window carries a model-written label (pseudo) and summary.json counts 0 machine frames")
+        // The exporter leaves out a clip whose video is absent with only a note in the summary; the
+        // planned package has every one, so that note (or a summary that can't say) fails the package.
+        var skipped: [String] = []
+        if let missing = summary?["missingVideos"] as? [String], let frames = summary?["framesWithoutVideo"] as? Int {
+            skipped = missing.isEmpty && frames == 0 ? [] : missing + (frames > 0 ? ["framesWithoutVideo \(frames)"] : [])
+        } else {
+            skipped = ["summary.json does not report missingVideos and framesWithoutVideo"]
+        }
+        check("no-missing-videos", skipped, ok: "summary.json: no clip was left out for a missing video")
 
         // Files on disk: hashed, and nothing that isn't the package's own.
         guard let hashed = DatasetSplitManifest.canonicalFileHashes(ofDirectory: packageDir) else { throw PreflightError.unreadable(packageDir.path) }
@@ -397,14 +408,20 @@ enum LineagePackage {
     /// assigned (the manifest can place a `tune` recording on the val side while its dataset
     /// session still says "train"; the exporter reads `session.split`, so the copy carries the
     /// planned side). Everything else about the session is unchanged; the dataset is not written.
-    static func exportSessions(_ sessions: [VideoSession], plan: Plan) -> [VideoSession] {
+    /// Throws when an eligible session the exporter would take labels from has no video on
+    /// disk: the exporter skips such a session with only a note in the summary, and a lineage
+    /// package quietly missing recordings is not the package that was planned.
+    static func exportSessions(_ sessions: [VideoSession], plan: Plan) throws -> [VideoSession] {
         let planned = Dictionary(uniqueKeysWithValues: plan.eligible.map { ($0.video, $0.packageSplit) })
-        return sessions.compactMap { s in
+        let out = sessions.compactMap { s -> VideoSession? in
             guard let split = planned[s.name] else { return nil }
             return VideoSession(name: s.name, sourcePath: s.sourcePath, split: split, addedAt: s.addedAt, frames: s.frames,
                                 rejected: s.rejected, tracks: s.tracks, ralliesMarked: s.ralliesMarked, syncedTrackIds: s.syncedTrackIds,
                                 notRallies: s.notRallies, fittedTracks: s.fittedTracks, netBox: s.netBox)
         }
+        let missing = out.filter { MultiFramePackage.contributes($0) && !FileManager.default.fileExists(atPath: $0.sourcePath) }
+        guard missing.isEmpty else { throw SourceError.sourcesMissing(missing.map(\.name).sorted()) }
+        return out
     }
 
     /// SHA-256 of every frame image the dataset holds for the withheld recordings, kept or parked.
