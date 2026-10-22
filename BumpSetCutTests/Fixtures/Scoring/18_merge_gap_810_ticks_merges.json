@@ -1,0 +1,100 @@
+{
+ "note": "Padded gap exactly 810 ticks = 1.35 s <= 1.3513 s: production merges. Raw becomes one range [10,22] (IoU 4/12 and 4.15/12 -> no match, merged 1, fn 2, fp 1); export one clip, both complete.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 14.0,
+   "kind": "rally",
+   "contact": 10.0
+  },
+  {
+   "start": 17.85,
+   "end": 22.0,
+   "kind": "rally",
+   "contact": 17.85
+  }
+ ],
+ "decided": [
+  [
+   10.0,
+   14.0
+  ],
+  [
+   17.85,
+   22.0
+  ]
+ ],
+ "raw": [
+  [
+   10.0,
+   22.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   22.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 2,
+   "predictions": 1,
+   "unscoredPredictions": 0,
+   "tp": 0,
+   "fp": 1,
+   "fn": 2,
+   "precision": 0.0,
+   "recall": 0.0,
+   "f1": 0.0,
+   "startMAE": null,
+   "endMAE": null,
+   "startMedianSigned": null,
+   "endMedianSigned": null,
+   "startWithinTolerance": null,
+   "endWithinTolerance": null,
+   "split": 0,
+   "merged": 1,
+   "matches": []
+  },
+  "paddedExport": {
+   "rallies": 2,
+   "clips": 1,
+   "complete": 2,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 8.15,
+   "exportSeconds": 14.5,
+   "deadSeconds": 111.85,
+   "deadSecondsRetained": 6.35,
+   "deadTimeRetention": 0.056772,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    },
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.805215
+  }
+ }
+}

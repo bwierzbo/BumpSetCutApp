@@ -1,0 +1,119 @@
+{
+ "note": "A mark with an explicit null kind (and null contact) and one with the key absent: both are legacy rallies, not excluded spans. Raw: 2 TP; export: 2 complete.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 20.0,
+   "kind": null,
+   "contact": null
+  },
+  {
+   "start": 40.0,
+   "end": 44.0
+  }
+ ],
+ "decided": [
+  [
+   10.0,
+   20.0
+  ],
+  [
+   40.0,
+   44.0
+  ]
+ ],
+ "raw": [
+  [
+   10.0,
+   20.0
+  ],
+  [
+   40.0,
+   44.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   20.5
+  ],
+  [
+   38.0,
+   44.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 2,
+   "predictions": 2,
+   "unscoredPredictions": 0,
+   "tp": 2,
+   "fp": 0,
+   "fn": 0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "startMAE": 0.0,
+   "endMAE": 0.0,
+   "startMedianSigned": 0.0,
+   "endMedianSigned": 0.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 1.0,
+   "split": 0,
+   "merged": 0,
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": 0.0,
+     "endError": 0.0
+    },
+    {
+     "truth": 1,
+     "prediction": 1,
+     "startError": 0.0,
+     "endError": 0.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 2,
+   "clips": 2,
+   "complete": 2,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 14.0,
+   "exportSeconds": 19.0,
+   "deadSeconds": 106.0,
+   "deadSecondsRetained": 5.0,
+   "deadTimeRetention": 0.04717,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    },
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.910714
+  }
+ }
+}

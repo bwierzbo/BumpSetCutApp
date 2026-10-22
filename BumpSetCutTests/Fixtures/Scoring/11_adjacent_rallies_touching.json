@@ -1,0 +1,107 @@
+{
+ "note": "Touching truth intervals (half-open, no overlap between them). Production merges the two decided ranges (padded clips overlap) into one raw range [10,18], whose IoU with each 4 s rally is exactly 0.5: the tie-break matches the earlier rally (tp 1, end error +4.0 s), fn 1, fp 0, merged 1. One export clip covers both completely.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 14.0,
+   "kind": "rally",
+   "contact": 10.0
+  },
+  {
+   "start": 14.0,
+   "end": 18.0,
+   "kind": "rally",
+   "contact": 14.0
+  }
+ ],
+ "decided": [
+  [
+   10.0,
+   14.0
+  ],
+  [
+   14.0,
+   18.0
+  ]
+ ],
+ "raw": [
+  [
+   10.0,
+   18.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   18.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 2,
+   "predictions": 1,
+   "unscoredPredictions": 0,
+   "tp": 1,
+   "fp": 0,
+   "fn": 1,
+   "precision": 1.0,
+   "recall": 0.5,
+   "f1": 0.666667,
+   "startMAE": 0.0,
+   "endMAE": 4.0,
+   "startMedianSigned": 0.0,
+   "endMedianSigned": 4.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 0.0,
+   "split": 0,
+   "merged": 1,
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": 0.0,
+     "endError": 4.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 2,
+   "clips": 1,
+   "complete": 2,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "rallySeconds": 8.0,
+   "exportSeconds": 10.5,
+   "deadSeconds": 112.0,
+   "deadSecondsRetained": 2.5,
+   "deadTimeRetention": 0.022321,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    },
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.921875
+  }
+ }
+}

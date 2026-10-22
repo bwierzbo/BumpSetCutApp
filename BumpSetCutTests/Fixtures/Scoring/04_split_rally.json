@@ -1,0 +1,96 @@
+{
+ "note": "Decider split one 12 s rally in two, 4 s apart (far enough that the padded gap, 1.5 s, survives production's 1.3513 s merge). Raw: IoU 0.25 and 0.42, neither matches at 0.5 -> fn 1, fp 2, split 1 (each piece covers >= 25%). Export: retained (3.5+7)/12 = 0.875 -> clipped; contact and dead ball both inside.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 22.0,
+   "kind": "rally",
+   "contact": 10.0
+  }
+ ],
+ "decided": [
+  [
+   10.0,
+   13.0
+  ],
+  [
+   17.0,
+   22.0
+  ]
+ ],
+ "raw": [
+  [
+   10.0,
+   13.0
+  ],
+  [
+   17.0,
+   22.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   13.5
+  ],
+  [
+   15.0,
+   22.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 1,
+   "predictions": 2,
+   "unscoredPredictions": 0,
+   "tp": 0,
+   "fp": 2,
+   "fn": 1,
+   "precision": 0.0,
+   "recall": 0.0,
+   "f1": 0.0,
+   "startMAE": null,
+   "endMAE": null,
+   "startMedianSigned": null,
+   "endMedianSigned": null,
+   "startWithinTolerance": null,
+   "endWithinTolerance": null,
+   "split": 1,
+   "merged": 0,
+   "matches": []
+  },
+  "paddedExport": {
+   "rallies": 1,
+   "clips": 2,
+   "complete": 0,
+   "clipped": 1,
+   "missed": 0,
+   "completeRallyRecall": 0.0,
+   "rallySeconds": 12.0,
+   "exportSeconds": 13.0,
+   "deadSeconds": 108.0,
+   "deadSecondsRetained": 2.5,
+   "deadTimeRetention": 0.023148,
+   "falseClips": 0,
+   "perRally": [
+    {
+     "retainedFraction": 0.875,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "clipped"
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.822917
+  }
+ }
+}
