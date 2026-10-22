@@ -48,6 +48,10 @@ Do not inadvertently include Ultralytics-derived YOLO packages in the public iOS
 
 Require tests appropriate to the changed behavior and examine what they actually establish. For shared processing changes, verify iOS and RallyLab builds; for scoring, boundaries, replay, annotations, or dataset splits, expect targeted regression fixtures and/or reproducible score reports. Record unrun tests as **not run**, not passed. Prefer stubs or deterministic fixtures for unit tests and separate integration tests for real external services; never demand live credentials for routine unit tests. Do not kill unrelated processes as test cleanup.
 
+### 9. Configuration items
+
+Controlled documents and records are listed in `docs/config-items.toml` (procedure: `docs/workflow/CONFIGURATION_MANAGEMENT.md`). Check that the PR's configuration-item table matches the diff. Flag as blocking any edit to a frozen record (including a re-pinned `frozen_sha256` or a changed path or class) and any edit to an existing decision-log entry other than a listed status transition. Flag watched changes that lack an update or a reasoned waiver, and new documents left unregistered. A passing `ci-impact` check or a clean review is not owner approval of the items listed under "Owner approval requested".
+
 ## Pull-request review output
 
 For each actionable finding, report:

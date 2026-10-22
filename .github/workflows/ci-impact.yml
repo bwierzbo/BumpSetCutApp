@@ -1,0 +1,47 @@
+# Configuration-item impact check (docs/workflow/CONFIGURATION_MANAGEMENT.md).
+# Read-only: no secrets, no write token, no privileged trigger. It reports; it
+# never edits, comments, labels or approves.
+name: ci-impact
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-impact-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ci-impact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the PR head with history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Unit tests for the checker
+        run: python3 -I -m unittest discover -s scripts/tests
+
+      - name: Impact check (the base branch's checker, so a PR cannot weaken its own check)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_CHECK_PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          checker="$RUNNER_TEMP/ci_check.py"
+          if git cat-file -e "$BASE_SHA:scripts/ci_check.py" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/ci_check.py" > "$checker"
+            echo "Using scripts/ci_check.py from the base revision $BASE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          else
+            cp scripts/ci_check.py "$checker"
+            echo "The base revision has no checker yet; using the PR's own copy" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          python3 -I "$checker" --repo . --base "$BASE_SHA" --head "$HEAD_SHA" \
+            --summary-file "$GITHUB_STEP_SUMMARY"

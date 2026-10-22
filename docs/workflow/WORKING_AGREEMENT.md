@@ -2,7 +2,7 @@
 name: working-agreement
 status: accepted (D-005, amended by D-014)
 created: 2026-10-20T22:12:44Z
-updated: 2026-10-21T01:10:00Z
+updated: 2026-10-22T02:29:29Z
 ---
 
 # Working agreement
@@ -41,7 +41,7 @@ The owner can require a PR for any change and can grant an exception for any cha
 6. **Independent review.** Findings arrive as inline PR review comments (Codex) or as a posted comment (manual ChatGPT export). See [CHATGPT_REVIEW.md](CHATGPT_REVIEW.md).
 7. **Address findings.** Every finding gets a fix commit or a written reason in the PR. Blocking findings (Codex P0/P1, or "Blocking defect" per `AGENTS.md`) are resolved, or the owner explicitly accepts them in a PR comment. Further review rounds as needed.
 8. **Merge.** Only after the owner's explicit approval, and only by the owner (or by the implementer when the owner says "merge PR #n" for that PR).
-9. **Documentation is part of the change.** Decision log, experiment registry, `CLAUDE.md`/rules and the docs index are updated in the same PR, not afterwards.
+9. **Documentation is part of the change.** Decision log, experiment registry, `CLAUDE.md`/rules and the docs index are updated in the same PR, not afterwards. Controlled documents and records are configuration items ([CONFIGURATION_MANAGEMENT.md](CONFIGURATION_MANAGEMENT.md)): the PR lists the items it touches and what it asks the owner to authorise, and the `ci-impact` check reports frozen-record changes, edits to historical decision entries, and watched changes without a documentation update. The request list is not an authorisation.
 10. **Lessons are written down once.** If two or more review findings on a PR share a root cause, the implementer adds one concrete, testable rule to `CLAUDE.md` (and, when it is a review question, to `AGENTS.md`) in the next docs PR. Rules say what to grep, list or check, never "be careful"; rules that stop applying are removed.
 
 ## Review gates
@@ -57,6 +57,7 @@ A PR is ready for review when every applicable row has evidence pasted or linked
 | Trainer or converter | Experiment registry entry with hypothesis, control, seeds, dataset hash; Core ML parity on real frames |
 | Processing code shipped in the iOS app | Physical iPhone verification by the owner (noted in the PR); never simulator-only |
 | Models or assets referenced by `project.pbxproj` | Committed in the same commit as the pbxproj change |
+| A registered configuration item, or a file under `docs/`, `legal/`, `marketing/` | `ci-impact` result (or local `scripts/ci_check.py` output) with no errors; every warning updated, waived with a reason, or explained |
 
 Numerical acceptance thresholds come from measured evaluation data, not from the task author's intuition ([D-007](../decisions/DECISION_LOG.md#d-007)).
 
@@ -82,7 +83,8 @@ Numerical acceptance thresholds come from measured evaluation data, not from the
 |---|---|---|
 | Decisions | [`docs/decisions/DECISION_LOG.md`](../decisions/DECISION_LOG.md) | chat history, memory notes |
 | Experiments, datasets, models, results | [`docs/ml-roadmap/EXPERIMENT_REGISTRY.md`](../ml-roadmap/EXPERIMENT_REGISTRY.md) | scattered reports |
-| Plan | [`docs/ml-roadmap/ROADMAP_REVISED_2026-10-20.md`](../ml-roadmap/ROADMAP_REVISED_2026-10-20.md) as amended by the decision log | |
+| Plan | [`docs/ml-roadmap/ROADMAP_REVISED_2026-10-20.md`](../ml-roadmap/ROADMAP_REVISED_2026-10-20.md) (frozen) as amended by the decision log, indexed in [`ROADMAP_AMENDMENTS.md`](../ml-roadmap/ROADMAP_AMENDMENTS.md) | |
+| Which documents and records are controlled, and how | [`docs/config-items.toml`](../config-items.toml), [CONFIGURATION_MANAGEMENT.md](CONFIGURATION_MANAGEMENT.md) | dashboards and read-only mirrors |
 | Agent rules | `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/`, `.claude/skills/` (Claude Code); `AGENTS.md` (Codex) | docs/ |
 | Annotations | The RallyLab project on the Mac (`~/Movies/RallyLab/Projects/<name>`) | copies on the desktop |
 | Source footage and training packages | The desktop `D:\RallyLabFootage` | the Mac, except transient copies |
