@@ -19,6 +19,17 @@
 #       bring back bring_back/NAME, add it to RallyLab and score it (RallyLab's
 #       own Train on Desktop passes --no-score and does that part itself)
 #   scripts/desktop_training/desktop.sh run [args]    train + wait + fetch
+#   scripts/desktop_training/desktop.sh verify PACKAGE
+#       recompute an L2 package's digest on the desktop against its l2-manifest.json
+#   scripts/desktop_training/desktop.sh plan [same as train]
+#       show what train would do (package as the desktop sees it, run name, trainer
+#       arguments) without sending or starting anything
+#
+# A package under the staging mount (~/mnt/RallyLabStaging, the desktop's
+# D:\RallyLabStaging) is not sent: the desktop reads it in place. An L2
+# package folder there (with l2-manifest.json) is verified first — its
+# digest must match the record, or nothing starts — and the trainer runs
+# straight from the folder, so nothing is copied or unzipped onto C:.
 #
 # Needs the "bsc-desktop" host in ~/.ssh/config (key-only SSH to the PC).
 # Old packages on the desktop are removed before a new one is sent (disk).
@@ -34,6 +45,8 @@ PROJECT=${RALLYLAB_PROJECT:-Scratch}
 EXPORTS=~/Movies/RallyLab/Projects/$PROJECT/exports
 INCOMING=~/Movies/RallyLab/Projects/$PROJECT/incoming
 RALLYLAB=~/Library/Developer/Xcode/DerivedData/BumpSetCut-fzkpvtfecvgvhyapswwhkuwgrslu/Build/Products/Debug/RallyLab.app/Contents/MacOS/RallyLab
+STAGING_MOUNT=${RALLYLAB_STAGING_MOUNT:-$HOME/mnt/RallyLabStaging}   # the desktop's D:\RallyLabStaging, mounted here
+STAGING_REMOTE='D:\RallyLabStaging'
 
 say() { print -r -- "$*" }
 die() { print -r -- "❌ $*" >&2; exit 1 }
@@ -60,10 +73,18 @@ parse_train() {
         esac
     done
     [[ -n $package ]] || package=$(newest_package)
-    [[ -f $package ]] || die "No multi-frame package zip (export one in RallyLab's Models tab)."
+    [[ -f $package || -d $package ]] || die "No multi-frame package zip (export one in RallyLab's Models tab)."
     local stem=${package:t:r}
     [[ -n $name ]] || name="heat_${stem##*-multiframe-}_${size}${scratch:+_scratch}${color:+_color}"
     T_package=$package; T_zip=${package:t}; T_name=$name
+    # On the staging mount: the same file as the desktop sees it; nothing to send.
+    T_remote=""
+    if [[ ${package:A} == ${STAGING_MOUNT:A}/* ]]; then
+        T_remote="$STAGING_REMOTE\\${${package:A}#${STAGING_MOUNT:A}/}"
+        T_remote=${T_remote//\//\\}
+    elif [[ -d $package ]]; then
+        die "A package folder is only trained in place from the staging mount ($STAGING_MOUNT); elsewhere pass the zip."
+    fi
     T_args="--size $size --epochs $epochs $scratch $color ${opts[*]}"
     T_summary="${size}, ${epochs} epochs${scratch:+, from scratch}${color:+, colour}${opts:+, ${opts[*]}}"
 }
@@ -71,7 +92,11 @@ parse_train() {
 # The package and the current trainer on the desktop (the package only once).
 send_package() {
     local zip=$T_zip stem=${T_package:t:r}
-    if remote "if (Test-Path '$REMOTE\\$zip') { 'yes' } else { 'no' }" | grep -q yes; then
+    if [[ -n $T_remote ]]; then
+        remote "if (Test-Path -LiteralPath '$T_remote') { 'yes' } else { 'no' }" | grep -q yes || die "$T_remote is not on the desktop (is $STAGING_MOUNT the desktop's D:\\RallyLabStaging?)."
+        say "On the desktop's staging drive: $T_remote (read in place, not sent)."
+        if [[ -d $T_package ]]; then verify_package "$T_remote"; fi
+    elif remote "if (Test-Path '$REMOTE\\$zip') { 'yes' } else { 'no' }" | grep -q yes; then
         say "Already on the desktop."
     else
         say "Freeing space: removing older packages on the desktop…"
@@ -82,21 +107,32 @@ send_package() {
     fi
     scp -o BatchMode=yes -o LogLevel=ERROR $HERE/train_heatmap_model.py "$HOST:C:/BallTraining/train_heatmap_model.py"
     scp -o BatchMode=yes -o LogLevel=ERROR $HERE/queue_runner.ps1 "$HOST:C:/BallTraining/queue_runner.ps1"
+    scp -o BatchMode=yes -o LogLevel=ERROR $HERE/verify_package.ps1 "$HOST:C:/BallTraining/verify_package.ps1"
     # Not `… && die`: under set -e a failed last-command-of-a-list ends the function with 1, which ends the script.
     if remote "if (Test-Path '$REMOTE\\runs\\heatmap\\$T_name') { 'exists' }" | grep -q exists; then
         die "Run \"$T_name\" already exists on the desktop — pass --name."
     fi
 }
 
+cmd_plan() {
+    local T_package T_zip T_name T_args T_summary T_remote
+    parse_train "$@"
+    say "package:  $T_package"
+    if [[ -n $T_remote ]]; then say "desktop:  $T_remote (read in place$([[ -d $T_package ]] && print -n '; L2 folder verified first'))"
+    else say "desktop:  $REMOTE\\$T_zip (sent by scp)"; fi
+    say "run:      $T_name ($T_summary)"
+    say "trainer:  train_heatmap_model.py \"${T_remote:-$T_zip}\" $T_args --name $T_name"
+}
+
 cmd_train() {
-    local T_package T_zip T_name T_args T_summary
+    local T_package T_zip T_name T_args T_summary T_remote
     parse_train "$@"
     say "Package: $T_zip  →  run \"$T_name\" ($T_summary)"
     send_package
     # Started through WMI so it isn't tied to this SSH session: it keeps
     # training after we disconnect (and survives the Mac going to sleep).
     local log="$REMOTE\\$T_name.log"
-    remote "\$cmd = 'cmd /c cd /d $REMOTE && set PYTHONUNBUFFERED=1 && \"$PY\" train_heatmap_model.py $T_zip $T_args --name $T_name > \"$log\" 2>&1';
+    remote "\$cmd = 'cmd /c cd /d $REMOTE && set PYTHONUNBUFFERED=1 && \"$PY\" train_heatmap_model.py \"${T_remote:-$T_zip}\" $T_args --name $T_name > \"$log\" 2>&1';
             \$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = \$cmd; CurrentDirectory = '$REMOTE' };
             if (\$r.ReturnValue -ne 0) { throw \"start failed: \$(\$r.ReturnValue)\" }; 'started pid ' + \$r.ProcessId"
     say "Training on the desktop. Follow it with: $SCRIPT wait $T_name"
@@ -104,17 +140,35 @@ cmd_train() {
 
 # Queue the run: a line for queue_runner.ps1, which is started if it isn't up.
 cmd_queue() {
-    local T_package T_zip T_name T_args T_summary
+    local T_package T_zip T_name T_args T_summary T_remote
     parse_train "$@"
     say "Package: $T_zip  →  run \"$T_name\" ($T_summary), queued"
     send_package
-    remote "Add-Content '$REMOTE\\queue.txt' '$T_name|$T_zip|$T_args';
+    remote "Add-Content '$REMOTE\\queue.txt' '$T_name|${T_remote:-$T_zip}|$T_args';
             \$up = Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | Where-Object { \$_.CommandLine -like '*-File*queue_runner.ps1*' -and \$_.ProcessId -ne \$PID };
             if (\$up) { 'runner already up' } else {
               \$cmd = 'cmd /c powershell -NoProfile -ExecutionPolicy Bypass -File $REMOTE\\queue_runner.ps1 > $REMOTE\\queue_runner.out 2>&1';
               \$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = \$cmd; CurrentDirectory = '$REMOTE' };
               if (\$r.ReturnValue -ne 0) { throw \"runner start failed: \$(\$r.ReturnValue)\" }; 'runner started pid ' + \$r.ProcessId }"
     say "Queued. Follow it with: $SCRIPT wait $T_name   (the queue: $SCRIPT status)"
+}
+
+# An L2 package folder on the desktop must be the one RallyLab preflighted: its canonical digest
+# (every file but l2-manifest.json) is recomputed there and compared with the record (D-018 §9).
+verify_package() {
+    local pkg=$1
+    scp -o BatchMode=yes -o LogLevel=ERROR $HERE/verify_package.ps1 "$HOST:C:/BallTraining/verify_package.ps1"
+    say "Verifying the package digest on the desktop (every file is hashed; a few minutes)…"
+    local out
+    out=$(remote "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\\BallTraining\\verify_package.ps1 -Package '$pkg'; exit \$LASTEXITCODE" 2>&1 | LC_ALL=C tr -d '\r') || { say "$out"; die "Package digest check failed — nothing starts."; }
+    say "$out"
+}
+
+cmd_verify() {
+    local package=${1:?package folder on the staging mount}
+    [[ ${package:A} == ${STAGING_MOUNT:A}/* ]] || die "$package is not under $STAGING_MOUNT."
+    local remote_path="$STAGING_REMOTE\\${${package:A}#${STAGING_MOUNT:A}/}"
+    verify_package "${remote_path//\//\\}"
 }
 
 cmd_status() {
@@ -184,5 +238,7 @@ case ${1:-} in
     wait) shift; cmd_wait "$@" ;;
     fetch) shift; cmd_fetch "$@" ;;
     run) shift; cmd_run "$@" ;;
+    verify) shift; cmd_verify "$@" ;;
+    plan) shift; cmd_plan "$@" ;;
     *) sed -n '2,19p' $SCRIPT; exit 2 ;;
 esac

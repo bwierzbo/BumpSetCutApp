@@ -1,7 +1,7 @@
 # queue_runner.ps1: runs the training jobs queued in C:\BallTraining\queue.txt
 # one after another, then exits. desktop.sh queue appends a job and starts
 # this (detached) when it isn't running; a job is one line:
-#     NAME|PACKAGE.zip|<train_heatmap_model.py arguments>
+#     NAME|PACKAGE.zip or a package folder path|<train_heatmap_model.py arguments>
 # A job starts only when no other training is on the GPU (a chain started
 # some other way included). Done jobs go to queue_done.txt with their exit
 # code; the runner's own log is queue_runner.log.
@@ -35,7 +35,7 @@ while ($true) {
     if (Test-Path "$root\runs\heatmap\$name\best.pt") { Log "skip $name (done before)"; continue }
     $log = "$root\$name.log"
     Log "start $name : $zip $args"
-    & cmd /c "`"$py`" train_heatmap_model.py $zip $args --name $name > `"$log`" 2>&1"
+    & cmd /c "`"$py`" train_heatmap_model.py `"$zip`" $args --name $name > `"$log`" 2>&1"
     Log "exit $name : $LASTEXITCODE"
     "$name|$LASTEXITCODE|$(Get-Date -Format 'yyyy-MM-dd HH:mm')" | Add-Content $done
 }
