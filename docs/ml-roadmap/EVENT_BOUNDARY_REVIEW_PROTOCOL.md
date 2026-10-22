@@ -1,6 +1,6 @@
 ---
 name: event-boundary-review-protocol
-status: proposed (Task B.2 / Phase 1A calibration pilot; for owner review before any reviewing starts)
+status: accepted with clarifications (owner, 2026-10-22); reviewing starts only with the review tool, after the L2 export
 created: 2026-10-22T02:30:00Z
 updated: 2026-10-22T02:30:00Z
 ---
@@ -30,8 +30,8 @@ Decision D-004 and roadmap Phase 1A: before any claim about rally-boundary quali
 ## 3. Sample: 24 events from development recordings
 
 - **Pool:** the 22 development recordings with `ralliesMarked`, minus nothing; every withheld recording (21: lineage holdout 16 + legacy holdout 5, with aliases) is excluded by name through the L2 closure, and the tool refuses them.
-- **Size:** 24 rallies (within the 20–30 of D-004) = 48 events, plus every `missedServe`/`other` mark inside the chosen rallies' neighbourhoods. A calibration pilot, **not** statistically powered: it measures the offset and spread of existing marks and calibrates the uncertainty rubric.
-- **Stratification** (8 per surface, drawn with a fixed seed from a frozen list of candidate rallies written to the pilot record before anyone looks at frames): per surface 2 short rallies (< 4 s), 2 long (> 12 s), 2 with the serve from the far end, 1 whose existing start was auto-from-track, 1 flagged ambiguous by the selector (occlusion, cut, replay). Plus 4 events chosen *because* the pipeline's serve detector and the existing mark disagree by > 1 s (hard cases are over-sampled on purpose and reported separately).
+- **Size:** exactly **24 rallies = 48 primary events** (owner decision 2026-10-22); every `missedServe`/`other` mark inside a chosen rally's window is recorded too but is not one of the 48. Hard cases are **inside** the 24, not added to them. A calibration pilot, **not** statistically powered: it measures the offset and spread of existing marks and calibrates the uncertainty rubric.
+- **Stratification** (8 per surface, drawn with a fixed seed from a frozen list of candidate rallies written to the pilot record before anyone looks at frames): per surface 2 short rallies (< 4 s), 2 long (> 12 s), 1 with the serve from the far end, 1 whose existing start was auto-from-track, 1 flagged ambiguous by the selector (occlusion, cut, replay), and 1 **hard case** chosen because the pipeline's serve detector and the existing mark disagree by > 1 s (hard cases are part of the 24 and are reported both pooled and separately). Within each surface the draw spreads across **independent source groups** (clip card / alias / session / venue / uploader, as the manifest defines them) wherever the pool allows, taking at most 2 rallies from one group before every group of that surface has one.
 - **Freeze first** (D-004, roadmap §131-140): before reviewing, record the hashes of the label files, the split manifest, the model and config, and the pipeline's frozen raw/padded predictions on the pool, so the sensitivity analysis re-scores *identical* predictions against old and corrected marks.
 
 ## 4. Event definitions (the rubric)
@@ -46,7 +46,7 @@ Decision D-004 and roadmap Phase 1A: before any claim about rally-boundary quali
 | Truncated file edge | the recording starts after contact or ends before dead | `edge: start|end`; the missing event is `unresolved`, the rally is excluded from boundary metrics but kept for coverage |
 | UI click delay | n/a for the reviewer (frame stepping); recorded only as a property of the *legacy* mark being compared | — |
 
-Uncertainty rule: an interval wider than **6 frames** (0.2 s at 30 fps) marks the event `ambiguous`; the pilot reports the share of ambiguous events per surface and per event type.
+Uncertainty rule: an interval wider than **0.2 s of video time** (`latest − earliest`, from presentation timestamps, whatever the frame rate; 6 frames at 30 fps, 12 at 60) marks the event `ambiguous`; the pilot reports the share of ambiguous events per surface and per event type.
 
 ## 5. Where reviewed events live (provenance)
 
@@ -73,7 +73,7 @@ A new sidecar next to the legacy one, never written by live tagging or phone syn
 
 1. Open the rally in the review tool at the legacy start − 3 s on the **original** video (mounted footage), playback paused. The tool shows the legacy mark and the pipeline's frozen prediction only **after** the reviewer has committed both events (blind to both).
 2. Step frames to the serve contact; record `earliest`/`latest` per §4. Step to ball dead; record likewise. Choose `kind`. Add flags.
-3. Second review: a random 8 of the 24 plus every `ambiguous` event are reviewed blind by a second pass (a second person if available; otherwise the same reviewer after ≥ 24 h, with the first result hidden). Disagreements > 3 frames go to adjudication and are reported.
+3. **Blind repeat review**: a random 8 of the 24 rallies plus every `ambiguous` event are reviewed again blind — by a second person if available, otherwise by the same reviewer after **at least 24 hours**, with the first result hidden. The report names the method precisely: *blind repeat review (same reviewer, ≥ 24 h)* or *second-reviewer review*; the same-reviewer form is a test-retest consistency measure and is **never** reported as independent inter-rater agreement. Disagreements > 0.1 s of video time go to adjudication and are reported.
 4. The tool writes `rallyevents.json` atomically, logs the review as `event_review` in the exposure ledger (a use of the recording), and refuses any withheld name.
 
 ## 7. Outputs
@@ -92,5 +92,5 @@ A new sidecar next to the legacy one, never written by live tagging or phone syn
 ## 9. Blockers and open questions for the owner
 
 - Approve the 24-event design, the 0.2 s ambiguity rule, the 0.98 completeness cut (contract), and the second-review rule.
-- Whether the reviewer may be the owner alone (then the blind revisit after 24 h stands in for a second person).
-- `legacy_holdout` recordings are reachable by the current scoring tools; the pilot excludes them by rule, and the review tool must refuse them by code. Confirm that `--score-rallies` should also start refusing them (a behaviour change for L1 diagnostics).
+- The reviewer may be the owner alone (decided 2026-10-22): the blind repeat review after ≥ 24 h applies and is labelled as such.
+- **Decided 2026-10-22:** routine scoring of protected lineage **and legacy** holdouts must refuse access by default; any historical L1 diagnostic exception needs a separate, auditable authorisation. Today `--score-rallies`, `--diagnose-rallies`, `--render-pipeline` and the tuner refuse only `reservedNames` (final test, candidates, lineage holdout), so the 3 marked legacy-holdout recordings are reachable. A follow-up RallyLab PR (after the export) moves those commands to the L2 withheld closure (`lineageWithheldNames`) with an explicit `--allow-legacy-holdout <authorisation ref>` flag that writes the authorisation reference into the exposure ledger row; the review tool of §8 refuses by the same closure from the start.
