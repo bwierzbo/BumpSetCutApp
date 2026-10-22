@@ -819,11 +819,13 @@ enum HeadlessProjects {
 
         let store = projects.sampler.store
         let sessions: [VideoSession]
-        let protected: Set<String>, protectedSources: Set<String>, eligibleSources: [String: String]
+        let protected: LineagePackage.ProtectedFrames, protectedSources: Set<String>, eligibleSources: [String: String]
         do {
             // Every eligible recording with labels must have its video, or nothing is packaged.
             sessions = try LineagePackage.exportSessions(projects.sampler.sessions, plan: plan)
-            protected = try LineagePackage.protectedFrameHashes(sessions: projects.sampler.sessions, withheld: plan.withheldNames, store: store)
+            protected = try LineagePackage.protectedFrames(sessions: projects.sampler.sessions, withheld: plan.withheldNames, store: store)
+            log("   protected content: \(protected.files) dataset image files of withheld recordings hashed"
+                + (protected.danglingRecords.isEmpty ? "" : "; \(protected.danglingRecords.count) withheld frame record(s) have no file (noted in the record)"))
             protectedSources = try LineagePackage.protectedSourceFingerprints(sessions: projects.sampler.sessions, withheld: plan.protectedNames,
                                                                              sources: ReservedVideos.sources(in: dir))
             eligibleSources = try LineagePackage.sourceFingerprints(of: sessions)
@@ -838,7 +840,8 @@ enum HeadlessProjects {
                 try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, exportsDir: out, beforeZip: { folder in
                     // The package name is unique (export refuses an existing name), so this record is this package's alone.
                     let preflight = try LineagePackage.preflight(packageDir: folder, plan: plan, sourceFingerprints: eligibleSources,
-                                                                 protectedSources: protectedSources, protectedHashes: protected)
+                                                                 protectedSources: protectedSources, protectedHashes: protected.hashes,
+                                                                 protectedFrameFiles: protected.files, danglingProtectedRecords: protected.danglingRecords)
                     let record = LineagePackage.Record(plan: plan, preflight: preflight)
                     // manifests/l2 gets the record first, so a failed preflight is still on record after the folder is removed.
                     try LineagePackage.write(record, to: l2.appendingPathComponent("\(folder.lastPathComponent).json"))

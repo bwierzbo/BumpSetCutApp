@@ -206,6 +206,10 @@ enum LineagePackage {
         var sourceFingerprints: [String: String]
         /// Every fingerprint a withheld recording's video can carry; no packaged source may match one.
         var protectedSourceFingerprints: [String]
+        /// How many dataset image files of withheld recordings were hashed for `no-protected-content`.
+        var protectedFrameFiles: Int?
+        /// Withheld frame records whose file exists nowhere in the dataset (nothing to hash; noted).
+        var danglingProtectedRecords: [String]?
     }
 
     enum SourceError: LocalizedError, Equatable {
@@ -288,7 +292,8 @@ enum LineagePackage {
     /// byte-identical copy of a dataset frame; the exporter re-extracts frames,
     /// so it cannot stand in for the source check.
     static func preflight(packageDir: URL, plan: Plan, sourceFingerprints: [String: String], protectedSources: Set<String>,
-                          protectedHashes: Set<String>, now: Date = Date()) throws -> Preflight {
+                          protectedHashes: Set<String>, protectedFrameFiles: Int = 0, danglingProtectedRecords: [String] = [],
+                          now: Date = Date()) throws -> Preflight {
         let fm = FileManager.default
         let windowsURL = packageDir.appendingPathComponent("windows.jsonl")
         guard let text = try? String(contentsOf: windowsURL, encoding: .utf8) else { throw PreflightError.noWindows(packageDir.path) }
@@ -401,7 +406,8 @@ enum LineagePackage {
                          checks: checks, clips: clips, files: files, digest: digest,
                          windowsSha256: files.first { $0.path == "windows.jsonl" }?.sha256,
                          sourceFingerprints: sourceFingerprints.filter { windowsByClip[$0.key] != nil },
-                         protectedSourceFingerprints: protectedSources.sorted())
+                         protectedSourceFingerprints: protectedSources.sorted(),
+                         protectedFrameFiles: protectedFrameFiles, danglingProtectedRecords: danglingProtectedRecords)
     }
 
     /// The sessions the exporter is given: the eligible ones, each with the split the plan
@@ -424,19 +430,88 @@ enum LineagePackage {
         return out
     }
 
-    /// SHA-256 of every frame image the dataset holds for the withheld recordings, kept or parked.
-    /// Throws when any of them can't be read: an incomplete reference set would let the content
-    /// check pass without proving anything.
-    static func protectedFrameHashes(sessions: [VideoSession], withheld: Set<String>, store: DatasetStore) throws -> Set<String> {
-        var hashes = Set<String>()
+    /// What the dataset holds for the withheld recordings.
+    struct ProtectedFrames: Equatable {
+        /// SHA-256 of every image file that is a withheld recording's.
+        var hashes: Set<String>
+        /// How many files those are.
+        var files: Int
+        /// Frame records whose file exists neither kept nor parked (dataset path): there are no
+        /// bytes to protect, so they are reported, not fatal. A file that exists but can't be read
+        /// is fatal — that is content whose hash would be missing.
+        var danglingRecords: [String]
+    }
+
+    /// Every image file the dataset holds for the withheld recordings: the files their frame
+    /// records name (kept or parked), plus any file in the image folders that carries a withheld
+    /// recording's name without a record (a record can be regenerated while the old file stays).
+    /// Throws when a file that exists can't be read: an incomplete reference set would let the
+    /// content check pass without proving anything.
+    /// Whether a path exists, told apart from a path that can't be reached: `stat` says ENOENT /
+    /// ENOTDIR for a file that is genuinely absent; any other failure (a parent folder without
+    /// permission, an I/O error) is content whose hash would be missing, so it is fatal.
+    private static func exists(_ url: URL) throws -> Bool {
+        var st = stat()
+        if stat(url.path, &st) == 0 { return true }
+        if errno == ENOENT || errno == ENOTDIR { return false }
+        throw PreflightError.protectedFrameUnreadable("\(url.path) (\(String(cString: strerror(errno))))")
+    }
+
+    static func protectedFrames(sessions: [VideoSession], withheld: Set<String>, store: DatasetStore) throws -> ProtectedFrames {
+        let fm = FileManager.default
+        var hashed: [String: String] = [:]   // path → sha256
+        var dangling: [String] = []
+        func hash(_ url: URL) throws {
+            // One entry per file whichever way it was reached (record path or folder walk, /var vs /private/var).
+            let key = url.standardizedFileURL.resolvingSymlinksInPath().path
+            guard hashed[key] == nil else { return }
+            guard let h = DatasetSplitManifest.sha256(of: url) else { throw PreflightError.protectedFrameUnreadable(url.path) }
+            hashed[key] = h
+        }
         for session in sessions where withheld.contains(session.name) {
             for frame in session.frames {
-                let url = store.currentImageURL(for: frame)
-                guard let h = DatasetSplitManifest.sha256(of: url) else { throw PreflightError.protectedFrameUnreadable(url.path) }
-                hashes.insert(h)
+                // Kept or parked, checked here rather than through the store's fallback, which treats
+                // an unreachable kept path like an absent one.
+                let kept = store.root.appendingPathComponent(frame.file)
+                let parked = store.root.appendingPathComponent("excluded").appendingPathComponent(frame.file)
+                if try exists(kept) { try hash(kept) } else if try exists(parked) { try hash(parked) } else { dangling.append(frame.file) }
             }
         }
-        return hashes
+        // Files named for a withheld recording, in the two shapes the store writes
+        // (DatasetStore.imageRelativePath): a sampled frame `<name>_<SSSS>_<mmm>.jpg` (the time,
+        // %08.3f with the point as an underscore) and a copied file `<name>__<base>.<ext>`. Exact
+        // shapes, so a sibling recording — `name_v2`, or the store's own `name_2` — is never swept in.
+        let safeNames = Set(withheld.map(DatasetStore.safeName))
+        func belongsToWithheld(_ fileName: String) -> Bool {
+            guard let dot = fileName.lastIndex(of: ".") else { return false }
+            let stem = fileName[..<dot]
+            return safeNames.contains { safe in
+                guard stem.hasPrefix(safe + "_") else { return false }
+                let rest = stem.dropFirst(safe.count + 1)
+                if rest.hasPrefix("_") { return rest.count > 1 }   // name__base
+                let parts = rest.split(separator: "_", omittingEmptySubsequences: false)
+                return parts.count == 2 && parts[0].count >= 4 && parts[1].count == 3
+                    && parts.allSatisfy { $0.allSatisfy(\.isNumber) }
+            }
+        }
+        for folder in ["images", "excluded/images"] {
+            let dir = store.root.appendingPathComponent(folder, isDirectory: true)
+            guard try exists(dir) else { continue }
+            // A folder that can't be listed hides files that may be a withheld recording's: fatal, never skipped.
+            var walkError: (URL, Error)?
+            guard let files = fm.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey], options: [],
+                                            errorHandler: { url, error in walkError = (url, error); return false })
+            else { throw PreflightError.protectedFrameUnreadable("\(dir.path) (can't be listed)") }
+            for case let url as URL in files {
+                let regular: Bool
+                do { regular = try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile ?? false } catch {
+                    throw PreflightError.protectedFrameUnreadable("\(url.path) (\(error.localizedDescription))")
+                }
+                if regular, belongsToWithheld(url.lastPathComponent) { try hash(url) }
+            }
+            if let (url, error) = walkError { throw PreflightError.protectedFrameUnreadable("\(url.path) (\(error.localizedDescription))") }
+        }
+        return ProtectedFrames(hashes: Set(hashed.values), files: hashed.count, danglingRecords: dangling.sorted())
     }
 
     // MARK: - Records
@@ -486,7 +561,16 @@ enum LineagePackage {
     static func markdown(_ preflight: Preflight) -> String {
         var md = "## Preflight — \(preflight.package): \(preflight.passed ? "PASSED" : "FAILED")\n\n| Check | Result | Detail |\n|---|---|---|\n"
         for c in preflight.checks { md += "| \(c.name) | \(c.passed ? "pass" : "FAIL") | \(c.detail) |\n" }
-        md += "\nDigest `\(preflight.digest.prefix(16))` over \(preflight.files.count) files; windows.jsonl `\(preflight.windowsSha256?.prefix(16) ?? "?")`.\n\n| Clip | Split | Windows | Frames |\n|---|---|---|---|\n"
+        md += "\nDigest `\(preflight.digest.prefix(16))` over \(preflight.files.count) files; windows.jsonl `\(preflight.windowsSha256?.prefix(16) ?? "?")`.\n"
+        if let n = preflight.protectedFrameFiles {
+            md += "Protected content: \(n) dataset image files of withheld recordings hashed"
+            if let dangling = preflight.danglingProtectedRecords, !dangling.isEmpty {
+                md += "; \(dangling.count) withheld frame record(s) have no file anywhere in the dataset (nothing to hash): "
+                    + dangling.prefix(5).joined(separator: ", ") + (dangling.count > 5 ? " …" : "")
+            }
+            md += ".\n"
+        }
+        md += "\n| Clip | Split | Windows | Frames |\n|---|---|---|---|\n"
         for c in preflight.clips { md += "| \(c.clip) | \(c.packageSplit) | \(c.windows) | \(c.frames) |\n" }
         return md
     }
