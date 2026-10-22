@@ -1,13 +1,13 @@
 ---
 name: scoring-implementation-plan
-status: plan for owner/Codex review; no code until the L2 export completes
+status: plan for owner/Codex review; prerequisite PR #83 (D-021); no code until the L2 export completes
 created: 2026-10-22T05:50:00Z
 updated: 2026-10-22T05:50:00Z
 ---
 
 # Implementing the scoring contract in Swift: plan for PRs A, B and C
 
-Source of truth: [SCORING_CONTRACT.md](SCORING_CONTRACT.md) (accepted v1, D-021), the 23 fixtures under `BumpSetCutTests/Fixtures/Scoring/` with their pinned `expected`, and the Python reference `scripts/scoring/reference_scorecard.py`. The Swift scorers must reproduce every pinned number. Nothing below is implemented or built until the running L2 export finishes.
+Source of truth: [SCORING_CONTRACT.md](SCORING_CONTRACT.md), the fixtures under `BumpSetCutTests/Fixtures/Scoring/` with their pinned `expected`, and the Python reference `scripts/scoring/reference_scorecard.py`. **Prerequisite: PR #83** (D-021 — the owner's acceptance of contract v1 through the decision log; `fullyMarked` gate, excluded-time diagnostics, false clips per segment, delivered-time split, `mergedRallies`/`inMergedExport`; fixtures 21–23, 23 in all). Until PR #83 is merged the contract on `main` is the *proposed* v1 with 20 fixtures, and nothing below starts; this plan is stacked on PR #83's branch so the reviewed tree already contains it. The Swift scorers must reproduce every pinned number of the 23 fixtures. Nothing below is implemented or built until the running L2 export finishes.
 
 ## What exists today (from the 2026-10-22 audit, main at `5739139`)
 
@@ -40,7 +40,7 @@ Source of truth: [SCORING_CONTRACT.md](SCORING_CONTRACT.md) (accepted v1, D-021)
 - `RationalTests.swift` — exact decimal parsing, comparisons at the 810/811-tick boundary, 2/5 split threshold.
 - `IntervalSetTests.swift` — union/intersect/subtract, half-open touching, `covers` at `t == end`, `t == duration`.
 
-**Evidence for the PR:** both targets build (shared files); `BumpSetCutTests` 23 fixture tests + unit tests green; `python3 scripts/scoring/reference_scorecard.py BumpSetCutTests/Fixtures/Scoring/*.json` all `matches expected` on the same commit (parity by construction: one JSON, two implementations).
+**Evidence for the PR:** both targets build (shared files); `BumpSetCutTests` 23 fixture tests + unit tests green; `python3 scripts/scoring/reference_scorecard.py BumpSetCutTests/Fixtures/Scoring/*.json` all `matches expected` on the same commit (parity by construction: one JSON, two implementations). PR A branches from `main` only after PR #83 is merged, so the reference, the contract and the 23 fixtures it validates against are the accepted ones.
 
 **Not in PR A:** no caller changes, no report format, no replay changes; `RallySegmentationScorer` stays as is (its `paddingToSubtract` overload is deleted as dead and wrong).
 
