@@ -9,16 +9,23 @@
 #     <sha256 lowercase>  ./<relative path with forward slashes>
 # followed by a newline, and SHA-256 over all those lines. The same as
 #     find . -type f ! -name l2-manifest.json -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 | shasum -a 256
-# Exit 0 when it matches, 1 when it doesn't, 2 when the package or record is
-# missing or unreadable. Nothing is written.
-param([Parameter(Mandatory = $true)][string]$Package, [switch]$Lines)
+# Besides the digest, every file the record lists (preflight.files: path,
+# sha256, bytes) is reconciled with what is on disk: a missing, extra, or
+# changed file is named. -Report <path> also writes the result as JSON (the
+# only thing this script ever writes, and only where told).
+# Exit 0 when everything matches, 1 when it doesn't, 2 when the package or
+# record is missing or unreadable.
+param([Parameter(Mandatory = $true)][string]$Package, [switch]$Lines, [string]$Report)
 
 $ErrorActionPreference = 'Stop'
 $record = Join-Path $Package 'l2-manifest.json'
 if (-not (Test-Path -LiteralPath $Package -PathType Container)) { Write-Output "no package folder at $Package"; exit 2 }
 if (-not (Test-Path -LiteralPath $record -PathType Leaf)) { Write-Output "no l2-manifest.json in $Package (not a preflighted lineage package)"; exit 2 }
-$expected = (Get-Content -LiteralPath $record -Raw -Encoding UTF8 | ConvertFrom-Json).preflight.digest
+$preflight = (Get-Content -LiteralPath $record -Raw -Encoding UTF8 | ConvertFrom-Json).preflight
+$expected = $preflight.digest
 if (-not $expected) { Write-Output "l2-manifest.json has no preflight.digest"; exit 2 }
+$listed = @{}
+foreach ($f in @($preflight.files)) { $listed[$f.path] = $f }
 
 $root = (Get-Item -LiteralPath $Package).FullName.TrimEnd('\')
 $files = Get-ChildItem -LiteralPath $root -Recurse -File -Force |
@@ -31,21 +38,40 @@ $files = [string[]]@($files)
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $sb = [System.Text.StringBuilder]::new()
 $n = 0
+$changed = @(); $extra = @()
 foreach ($rel in $files) {
-    $stream = [System.IO.File]::OpenRead((Join-Path $root ($rel.Replace('/', '\'))))
-    try { $hash = ($sha.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) -join '' } finally { $stream.Dispose() }
+    $full = Join-Path $root ($rel.Replace('/', '\'))
+    $stream = [System.IO.File]::OpenRead($full)
+    try { $hash = ($sha.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) -join ''; $bytes = $stream.Length } finally { $stream.Dispose() }
     [void]$sb.Append($hash).Append('  ./').Append($rel).Append("`n")
     if ($Lines) { Write-Output "$hash  ./$rel" }
+    if ($listed.ContainsKey($rel)) {
+        if ($listed[$rel].sha256 -ne $hash -or [int64]$listed[$rel].bytes -ne $bytes) { $changed += $rel }
+        $listed.Remove($rel)
+    } else { $extra += $rel }
     $n++
 }
+$missing = @($listed.Keys | Sort-Object)
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($sb.ToString())
 $digest = ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }) -join ''
 $sha.Dispose()
 
-if ($digest -eq $expected) {
-    Write-Output "digest OK: $digest over $n files matches l2-manifest.json"
+$ok = ($digest -eq $expected) -and ($changed.Count -eq 0) -and ($extra.Count -eq 0) -and ($missing.Count -eq 0)
+$result = [ordered]@{
+    package = $root; verifiedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); host = $env:COMPUTERNAME
+    filesOnDisk = $n; filesInRecord = @($preflight.files).Count
+    digestComputed = $digest; digestRecorded = $expected; digestMatches = ($digest -eq $expected)
+    changed = @($changed); extra = @($extra); missing = @($missing); passed = $ok
+}
+if ($Report) { [System.IO.File]::WriteAllText($Report, ($result | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false)) }   # no BOM
+if ($ok) {
+    Write-Output "digest OK: $digest over $n files matches l2-manifest.json; every listed file present with its recorded hash and size"
     exit 0
 } else {
-    Write-Output "digest MISMATCH: computed $digest over $n files, l2-manifest.json says $expected - the package is not the one preflighted; do not train on it"
+    Write-Output "VERIFICATION FAILED - the package is not the one preflighted; do not train on it"
+    if ($digest -ne $expected) { Write-Output "  digest: computed $digest over $n files, l2-manifest.json says $expected" }
+    foreach ($c in $changed) { Write-Output "  changed: $c" }
+    foreach ($e in $extra) { Write-Output "  extra (not in the record): $e" }
+    foreach ($m in $missing) { Write-Output "  missing (in the record, not on disk): $m" }
     exit 1
 }
