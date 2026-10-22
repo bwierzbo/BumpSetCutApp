@@ -1,6 +1,6 @@
 ---
 name: dataset-review-gui-plan
-status: proposed implementation plan (owner milestone 2026-10-22); no code until the L2 export completes
+status: approved for implementation planning (owner decisions 2026-10-22, D-020): C1 first, then the health queue, then controlled corrections; no code until the L2 export completes
 created: 2026-10-22T03:30:00Z
 updated: 2026-10-22T03:30:00Z
 ---
@@ -14,7 +14,7 @@ Owner milestone (2026-10-22): a native RallyLab interface to review and repair d
 1. **Nothing destructive, ever, from the GUI.** No trim, delete, relabel or move of footage or sessions happens as a side effect of review. Every change is a *proposal* written to a versioned sidecar; the original stays. Applying a proposal is a separate, explicit, logged action with a backup, and only for the categories the owner has approved.
 2. **Owner judgment is flagged, not automated.** When a problem needs a decision, the queue item shows the affected recording, the proposed repair, the expected effect (counts, hashes, splits, exposure) and the evidence; the owner approves, amends or rejects it in the GUI, and that decision is recorded with who/when/why.
 3. **Guards live in the shared function** (CLAUDE.md): refusals (withheld recordings, protected content), ledger rows and backups are inside the operation, so the GUI and the headless command cannot bypass them.
-4. **Protected recordings are protected here too.** Every component refuses the L2 withheld closure (`lineageWithheldNames`: lineage holdout, legacy holdout, final test, candidates, with aliases) by default; a historical L1 diagnostic exception is a separate, auditable authorisation (ledger row with the authorisation reference), never a toggle.
+4. **Protected recordings are protected here too.** Every GUI and headless operation refuses the L2 withheld closure (`lineageWithheldNames`: lineage holdout, legacy holdout, final test, candidates, with aliases) by default. A historical **legacy-holdout** diagnostic exception needs a separate owner authorisation and an exposure-ledger entry carrying its reference, never a toggle. **Lineage-holdout** access stays separately gated (D-017: one preregistered evaluation per named candidate) and is not reachable through the exception.
 5. **Evidence first.** Each applied repair produces: a backup path with hashes, a before/after summary, the new manifest/session digests, and an entry in the exposure/repair ledger; nothing is "done" without it.
 
 ## Components and order
@@ -50,7 +50,7 @@ Headless twin `--dataset-health` writes the same queue as JSON/CSV for the recor
 
 ### C3 — Frame stepping and non-destructive trim ranges
 
-Reuses C1's player. A **trim proposal** is `{recording, start, end, reason, author, createdAt}` in `<video>.trimproposals.json`; it changes nothing until applied. Applying (owner action) writes a new *cut* video next to the original with a new name and fingerprint, registers it as a new project video with provenance `derived_from: <fingerprint>, trim: [start, end]`, leaves the original untouched, and the manifest/audit pick it up as an alias of its source (same session/venue) so it can never land on the other side of a split from its parent. Backups: the original is never modified, so the backup is the original itself plus its hash list.
+Reuses C1's player. A **trim proposal** is `{recording, start, end, reason, author, createdAt}` in `<video>.trimproposals.json`; it changes nothing until applied. Applying (explicit owner action, logged, validated) writes a **separately identified derived recording** next to the original with its own name and fingerprint and provenance `derived_from: <parent fingerprint>, trim: [start, end]`; the original remains untouched (it is its own backup, with its hash list). The parent–source relationship carries **every split and holdout restriction**: the derived recording is an alias of its parent in the manifest and audit (same identities, session and venue), so it takes the parent's split, is withheld whenever the parent is, and can never land on the other side of a split from it (decided 2026-10-22).
 
 ### C4 — Versioned, non-destructive label corrections
 
@@ -84,6 +84,6 @@ Each PR: RallyLab-only files (no shared-pipeline changes except where noted), Co
 
 ## Decisions requested from the owner
 
-1. Approve the order (C1 first, then the read-only queue, then corrections) and the rule that every apply is an explicit owner action with backup and ledger.
-2. Confirm the trim design: a trimmed range becomes a **new derived video** aliased to its source, the original untouched.
-3. Confirm that the GUI's withheld-recording lock is absolute by default, with the auditable exception only.
+1. ~~Approve the order (C1 first, then the read-only queue, then corrections) and the rule that every apply is an explicit owner action with backup and ledger.~~ Decided 2026-10-22: approved — C1 first, then the health queue, then controlled corrections; every application of a proposed repair is explicit, logged, backed up or source-preserving, and validated.
+2. ~~Confirm the trim design: a trimmed range becomes a **new derived video** aliased to its source, the original untouched.~~ Decided 2026-10-22: approved as a separately identified derived recording linked to the original, restrictions carried through the parent–source relationship.
+3. ~~Confirm that the GUI's withheld-recording lock is absolute by default, with the auditable exception only.~~ Decided 2026-10-22: yes — refusal by default for every GUI and headless operation; legacy-holdout diagnostic exceptions need separate owner authorisation plus a ledger entry; lineage-holdout access is separately gated. The 54 dangling frame records are **not** cleaned up yet.

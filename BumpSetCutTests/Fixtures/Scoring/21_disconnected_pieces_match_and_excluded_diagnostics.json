@@ -1,0 +1,108 @@
+{
+ "note": "One prediction [10,40] runs through the rally [10,29], a missed serve [30,31] and dead time to 40. Masking leaves two DISCONNECTED scorable pieces [10,30] and [31,40]; matching uses both: IoU = 19 / 29 = 0.655 -> matched; end error +11 from the scorable span's end. Diagnostics: 1 prediction enters excluded time, 1.0 s overlapped, 1 partially masked, 1 with disconnected pieces. Export: rally complete; the clip delivers 1.0 s of excluded time and 12.5 s of scorable dead time (8-10, 29-30, 31-40.5).",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 29.0,
+   "kind": "rally",
+   "contact": 10.0
+  },
+  {
+   "start": 30.0,
+   "end": 31.0,
+   "kind": "missedServe",
+   "contact": 30.0
+  }
+ ],
+ "decided": [
+  [
+   10.0,
+   40.0
+  ]
+ ],
+ "raw": [
+  [
+   10.0,
+   40.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   40.5
+  ]
+ ],
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 1,
+   "predictions": 1,
+   "unscoredPredictions": 0,
+   "tp": 1,
+   "fp": 0,
+   "fn": 0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "startMAE": 0.0,
+   "endMAE": 11.0,
+   "startMedianSigned": 0.0,
+   "endMedianSigned": 11.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 0.0,
+   "split": 0,
+   "merged": 0,
+   "excludedTimeDiagnostics": {
+    "predictionsEnteringExcludedTime": 1,
+    "excludedSecondsOverlapped": 1.0,
+    "partiallyMaskedPredictions": 1,
+    "predictionsWithDisconnectedPieces": 1
+   },
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": 0.0,
+     "endError": 11.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 1,
+   "clips": 1,
+   "complete": 1,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "mergedRallies": 0,
+   "rallySeconds": 19.0,
+   "exportSeconds": 32.5,
+   "excludedSecondsDelivered": 1.0,
+   "scorableDeadSecondsDelivered": 12.5,
+   "deadSeconds": 100.0,
+   "deadSecondsRetained": 12.5,
+   "deadTimeRetention": 0.125,
+   "falseClips": 0,
+   "fullyMarked": true,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete",
+     "inMergedExport": false
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.822368
+  }
+ }
+}
