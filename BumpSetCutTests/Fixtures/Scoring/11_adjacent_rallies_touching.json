@@ -1,5 +1,5 @@
 {
- "note": "Touching truth intervals (half-open): no overlap between them; one export clip covers both completely.",
+ "note": "Touching truth intervals (half-open, no overlap between them). Production merges the two decided ranges (padded clips overlap) into one raw range [10,18]: raw fn 2, fp 1, merged 1. One export clip covers both completely.",
  "duration": 120.0,
  "truth": [
   {
@@ -18,10 +18,6 @@
  "raw": [
   [
    10.0,
-   14.0
-  ],
-  [
-   14.0,
    18.0
   ]
  ],
@@ -43,34 +39,28 @@
   },
   "rawBoundary": {
    "rallies": 2,
-   "predictions": 2,
+   "predictions": 1,
    "unscoredPredictions": 0,
-   "tp": 2,
+   "tp": 1,
    "fp": 0,
-   "fn": 0,
+   "fn": 1,
    "precision": 1.0,
-   "recall": 1.0,
-   "f1": 1.0,
+   "recall": 0.5,
+   "f1": 0.666667,
    "startMAE": 0.0,
-   "endMAE": 0.0,
+   "endMAE": 4.0,
    "startMedianSigned": 0.0,
-   "endMedianSigned": 0.0,
+   "endMedianSigned": 4.0,
    "startWithinTolerance": 1.0,
-   "endWithinTolerance": 1.0,
+   "endWithinTolerance": 0.0,
    "split": 0,
-   "merged": 0,
+   "merged": 1,
    "matches": [
     {
      "truth": 0,
      "prediction": 0,
      "startError": 0.0,
-     "endError": 0.0
-    },
-    {
-     "truth": 1,
-     "prediction": 1,
-     "startError": 0.0,
-     "endError": 0.0
+     "endError": 4.0
     }
    ]
   },

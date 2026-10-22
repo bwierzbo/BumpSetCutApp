@@ -129,7 +129,11 @@ def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict) -
     rec = Fraction(tp, tp + fn) if tp + fn else Fraction(0)
     f1 = 2 * prec * rec / (prec + rec) if prec + rec else Fraction(0)
     mae = lambda xs: sec(Fraction(sum(abs(x) for x in xs), len(xs))) if xs else None
-    med = lambda xs: sec(sorted(xs)[len(xs) // 2]) if xs else None
+    def med(xs):
+        if not xs:
+            return None
+        o = sorted(xs); n = len(o)
+        return sec(o[n // 2]) if n % 2 else sec(Fraction(o[n // 2 - 1] + o[n // 2], 2))   # conventional median, fractional ticks kept
     within = lambda xs: round(sum(1 for x in xs if abs(x) <= tol) / len(xs), 6) if xs else None
     return {"rallies": len(rallies), "predictions": len(raw), "unscoredPredictions": unscored,
             "tp": tp, "fp": fp, "fn": fn, "precision": round(float(prec), 6), "recall": round(float(rec), 6), "f1": round(float(f1), 6),
