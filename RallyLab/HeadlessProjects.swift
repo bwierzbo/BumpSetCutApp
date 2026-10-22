@@ -39,12 +39,15 @@
 //             --unreviewed: every labeled frame, not only reviewed ones — a quick look, not a round;
 //             --val-only: the val clips alone, as a folder (no zip) — the test set for scoring models here;
 //             --long-side: frames this big (default 1024; 512 is enough for 512 training, a quarter the disk))
-//    RallyLab --project v3 --package-l2 [--dry-run] [--long-side 512] [--out DIR]   (lineage package, D-017/D-018: clips chosen
-//             from the split manifest, every reserved recording and its aliases physically absent, preflight audit + file
-//             hashes written into the package (l2-manifest.json) and manifests/l2/; any failed check removes the package;
-//             refuses when an eligible recording with labels has no video; --dry-run: the plan only; --out: write the
-//             package folder and zip there (a staging volume) instead of exports/. The project's data.yaml is not a
-//             lineage dataset.)
+//    RallyLab --project v3 --package-l2 [--dry-run] [--long-side 512] [--out DIR | --resume DIR]   (lineage package, D-017/D-018:
+//             clips chosen from the split manifest, every reserved recording and its aliases physically absent, preflight audit +
+//             file hashes written into the package (l2-manifest.json) and manifests/l2/; any failed check removes a fresh package
+//             (a resumed one keeps its frames); refuses when an eligible recording with labels has no video; --dry-run: the plan
+//             only; --out: write the package folder and zip there (a staging volume) instead of exports/; --resume: complete an
+//             export that was cut short, in that package folder (frames/ alone), against its journal (<folder>.journal.jsonl):
+//             a frame already there is reused only once proven (MultiFramePackage); --resume DIR --dry-run: read-only — the
+//             plan, then what the journal says and what would be reused, regenerated or replaced, nothing written to the folder.
+//             The project's data.yaml is not a lineage dataset.)
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
 //    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo] [--val] [--heat M]   (self-training: the newest multi-frame
@@ -275,7 +278,8 @@ enum HeadlessProjects {
             if ok, args.contains("--package-l2") {
                 let side = value(after: "--long-side", in: args).flatMap(Double.init).map { CGFloat($0) } ?? MultiFramePackage.longSide
                 let out = value(after: "--out", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
-                ok = await packageL2(projects, dryRun: args.contains("--dry-run"), longSide: side, out: out)
+                let resume = value(after: "--resume", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+                ok = await packageL2(projects, dryRun: args.contains("--dry-run"), longSide: side, out: out, resume: resume)
             }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
@@ -780,12 +784,22 @@ enum HeadlessProjects {
     @MainActor
     /// `out`: the folder the package folder and zip are written to (a staging volume, say) instead of
     /// the project's `exports/`; the record still goes to the project's `manifests/l2/`.
-    private static func packageL2(_ projects: ProjectsModel, dryRun: Bool, longSide: CGFloat, out: URL?) async -> Bool {
+    /// `resume`: the folder of an export that was cut short, completed in place (MultiFramePackage
+    /// `resume:`); `out` must then be absent or that folder's parent.
+    private static func packageL2(_ projects: ProjectsModel, dryRun: Bool, longSide: CGFloat, out: URL?, resume: URL?) async -> Bool {
         guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
         if let out, !dryRun {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: out.path, isDirectory: &isDir), isDir.boolValue,
                   FileManager.default.isWritableFile(atPath: out.path) else { log("❌ --out \(out.path) is not a writable folder."); return false }
+        }
+        if let resume {
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: resume.path, isDirectory: &isDir), isDir.boolValue,
+                  FileManager.default.isWritableFile(atPath: resume.path) else { log("❌ --resume \(resume.path) is not a writable folder."); return false }
+            if let out, out.standardizedFileURL.path != resume.deletingLastPathComponent().standardizedFileURL.path {
+                log("❌ --out \(out.path) is not the folder holding --resume \(resume.path); give one or the other."); return false
+            }
         }
         let manifests = dir.appendingPathComponent("manifests", isDirectory: true)
         guard let built = buildManifest(projects, out: manifests, audit: true), let audit = built.audit else { return false }
@@ -815,10 +829,37 @@ enum HeadlessProjects {
             log("❌ \(error.localizedDescription)")
             return false
         }
-        if dryRun { return true }
+        if dryRun, resume == nil { return true }
 
         let store = projects.sampler.store
+        // The lineage's share of the export's run identity: the manifest the plan came from and its closure.
+        let identity = [
+            "lineage": plan.lineage,
+            "manifest.projectJson": plan.manifestHashes.projectJson ?? "?",
+            "manifest.sessions": plan.manifestHashes.sessions ?? "?",
+            "manifest.validationJson": plan.manifestHashes.validationJson ?? "?",
+            "eligible": DatasetSplitManifest.canonicalDigest(lines: plan.eligible.map { ($0.video, $0.packageSplit) }),
+            "withheld": DatasetSplitManifest.canonicalDigest(lines: plan.protectedNames.sorted().map { ($0, "withheld") }),
+        ]
         let sessions: [VideoSession]
+        if dryRun, let resume {
+            // Read-only: what the folder and its journal hold against the plan just written.
+            do {
+                sessions = try LineagePackage.exportSessions(projects.sampler.sessions, plan: plan)
+                let report = try await Task.detached(priority: .userInitiated) {
+                    try await MultiFramePackage.inspectResume(sessions: sessions, store: store, resume: resume, longSide: longSide, identity: identity, note: { log($0) })
+                }.value
+                log("✅ resume inspection of \(resume.path) (nothing written): journal \(report.journal); identity \(report.identityVerified ? "verified" : "not verifiable (legacy folder: every frame proven by regeneration)")")
+                log("   \(report.framesRetained) frames reusable (\(report.retainedByJournal) by journal, \(report.retainedByRegeneration) byte-identical to regeneration), "
+                    + "\(report.framesReplaced) would be replaced, \(report.partialFilesRemoved) .part file(s) would be removed, "
+                    + "\(report.clips.reduce(0) { $0 + $1.toWrite }) frames in \(report.clips.filter { $0.toWrite > 0 }.count) clips still to write")
+                for r in report.clips where r.replaced > 0 { log("   \(r.clip): \(r.replaced) frame(s) would be replaced") }
+                return true
+            } catch {
+                log("❌ \(error.localizedDescription)")
+                return false
+            }
+        }
         let protected: LineagePackage.ProtectedFrames, protectedSources: Set<String>, eligibleSources: [String: String]
         do {
             // Every eligible recording with labels must have its video, or nothing is packaged.
@@ -834,10 +875,10 @@ enum HeadlessProjects {
             return false
         }
         let name = "\(dir.lastPathComponent)-\(LineagePackage.lineage)"
-        if let out { log("   package goes to \(out.path)") }
+        if let resume { log("   resuming the export in \(resume.path)") } else if let out { log("   package goes to \(out.path)") }
         do {
             let result = try await Task.detached(priority: .userInitiated) {
-                try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, exportsDir: out, beforeZip: { folder in
+                try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, exportsDir: out, resume: resume, identity: identity, beforeZip: { folder in
                     // The package name is unique (export refuses an existing name), so this record is this package's alone.
                     let preflight = try LineagePackage.preflight(packageDir: folder, plan: plan, sourceFingerprints: eligibleSources,
                                                                  protectedSources: protectedSources, protectedHashes: protected.hashes,
@@ -849,11 +890,25 @@ enum HeadlessProjects {
                         .write(to: l2.appendingPathComponent("\(folder.lastPathComponent).md"), atomically: true, encoding: .utf8)
                     guard preflight.passed else { throw LineagePackage.PreflightError.failed(preflight.checks.filter { !$0.passed }.map(\.name)) }
                     try LineagePackage.write(record, to: folder.appendingPathComponent(LineagePackage.recordFile))
-                }) { done, total in
+                }, note: { log($0) }) { done, total in
                     if done % 500 == 0 || done == total { log("  frames \(done)/\(total)") }
                 }
             }.value
             let s = result.summary
+            if let r = s.resume {
+                log("   resumed: journal \(r.journal); \(r.framesRetained) frames retained (\(r.retainedByJournal) by the journal's hashes, "
+                    + "\(r.retainedByRegeneration) byte-identical to their regeneration), \(r.framesReplaced) replaced, \(r.framesWritten) written, "
+                    + "\(r.partialFilesRemoved) .part file(s) removed")
+            }
+            // The journal is the record of how the frames came to be; it goes with the plan and preflight record.
+            let folder = result.output.pathExtension == "zip" ? result.output.deletingPathExtension() : result.output
+            let journal = ExportJournal.url(forPackage: folder)
+            if FileManager.default.fileExists(atPath: journal.path) {
+                let copy = l2.appendingPathComponent(journal.lastPathComponent)
+                try? FileManager.default.removeItem(at: copy)
+                try FileManager.default.copyItem(at: journal, to: copy)
+                log("   journal: \(copy.path)")
+            }
             log("✅ \(LineagePackage.lineage) package: \(s.trainWindows) train + \(s.valWindows) val windows from \(s.clips) clips → \(result.output.path)")
             log("   record: \(l2.appendingPathComponent(s.name).path).{json,md}")
             return true

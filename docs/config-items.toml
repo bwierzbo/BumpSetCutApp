@@ -215,6 +215,18 @@ decisions = ["D-007"]
 frozen_sha256 = "608da78dc5f2db75e4b6bbf9a7f4d25031156baf60890fe7422205d4be74ebd7"
 
 [[item]]
+id = "CI-BSC-054"
+name = "Owner decisions 2026-10-22, L2 export recovery (verbatim)"
+type = "decision-record"
+path = "docs/decisions/2026-10-22-l2-export-recovery-decision.md"
+lifecycle = "historical"
+change_class = "frozen"
+approval = "owner"
+maintainer = "owner"
+decisions = ["D-022"]
+frozen_sha256 = "3fb4e2d537daac993b5941cd8ccba1158479d1fc4d29b13c3b157c3554a74d9b"
+
+[[item]]
 id = "CI-BSC-015"
 name = "Decision entry template"
 type = "template"
@@ -285,7 +297,7 @@ lifecycle = "draft"
 change_class = "living"
 approval = "owner"
 maintainer = "implementer"
-decisions = ["D-003", "D-019"]
+decisions = ["D-003", "D-019", "D-022"]
 triggers = ["scripts/footage_share/**"]
 
 # ---------------------------------------------------------------- models, experiments, data
