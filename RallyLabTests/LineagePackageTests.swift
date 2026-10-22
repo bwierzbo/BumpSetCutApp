@@ -463,6 +463,9 @@ final class LineagePackageTests: XCTestCase {
         try write("parked", to: "excluded/images/val/w_0002_000.jpg")
         try write("orphan: no record names it", to: "images/val/w_0007_250.jpg")
         try write("sibling recording", to: "images/val/w_v2_0001_000.jpg")
+        try write("the store's numeric sibling (uniqueName)", to: "images/val/w_2_0001_000.jpg")
+        try write("numeric sibling's copied file", to: "images/val/w_2__clip.png")
+        try write("copied file of w itself", to: "excluded/images/val/w__clip.png")
         try write("other", to: "images/train/t_0001_000.jpg")
         func frame(_ file: String) -> FrameRecord { FrameRecord(id: UUID(), file: file, time: 1, source: "random", boxes: [], keep: true, reviewed: false) }
         var w = F.session("w", split: "val"); w.frames = [frame("images/val/w_0001_000.jpg"), frame("images/val/w_0002_000.jpg")]
@@ -470,10 +473,13 @@ final class LineagePackageTests: XCTestCase {
         let p = try LineagePackage.protectedFrames(sessions: [w, t], withheld: ["w"], store: store)
         XCTAssertEqual(p.hashes, [DatasetSplitManifest.sha256(of: root.appendingPathComponent("images/val/w_0001_000.jpg"))!,
                                   DatasetSplitManifest.sha256(of: root.appendingPathComponent("excluded/images/val/w_0002_000.jpg"))!,
-                                  DatasetSplitManifest.sha256(of: root.appendingPathComponent("images/val/w_0007_250.jpg"))!])
-        XCTAssertEqual(p.files, 3)
+                                  DatasetSplitManifest.sha256(of: root.appendingPathComponent("images/val/w_0007_250.jpg"))!,
+                                  DatasetSplitManifest.sha256(of: root.appendingPathComponent("excluded/images/val/w__clip.png"))!])
+        XCTAssertEqual(p.files, 4)
         XCTAssertEqual(p.danglingRecords, [])
-        XCTAssertFalse(p.hashes.contains(DatasetSplitManifest.sha256(of: root.appendingPathComponent("images/val/w_v2_0001_000.jpg"))!), "w_v2 is its own recording")
+        for sibling in ["images/val/w_v2_0001_000.jpg", "images/val/w_2_0001_000.jpg", "images/val/w_2__clip.png"] {
+            XCTAssertFalse(p.hashes.contains(DatasetSplitManifest.sha256(of: root.appendingPathComponent(sibling))!), "\(sibling) is another recording's")
+        }
         // Not withheld: nothing is required or hashed.
         XCTAssertEqual(try LineagePackage.protectedFrames(sessions: [w], withheld: [], store: store), .init(hashes: [], files: 0, danglingRecords: []))
     }

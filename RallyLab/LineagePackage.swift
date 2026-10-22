@@ -477,14 +477,21 @@ enum LineagePackage {
                 if try exists(kept) { try hash(kept) } else if try exists(parked) { try hash(parked) } else { dangling.append(frame.file) }
             }
         }
-        // Files named for a withheld recording: <safe name>_<digits and underscores>.<ext>, so a
-        // sibling such as `name_v2_…` (its own recording) is not swept in by the prefix.
+        // Files named for a withheld recording, in the two shapes the store writes
+        // (DatasetStore.imageRelativePath): a sampled frame `<name>_<SSSS>_<mmm>.jpg` (the time,
+        // %08.3f with the point as an underscore) and a copied file `<name>__<base>.<ext>`. Exact
+        // shapes, so a sibling recording — `name_v2`, or the store's own `name_2` — is never swept in.
         let safeNames = Set(withheld.map(DatasetStore.safeName))
         func belongsToWithheld(_ fileName: String) -> Bool {
             guard let dot = fileName.lastIndex(of: ".") else { return false }
             let stem = fileName[..<dot]
             return safeNames.contains { safe in
-                stem.hasPrefix(safe + "_") && stem.dropFirst(safe.count + 1).allSatisfy { $0.isNumber || $0 == "_" }
+                guard stem.hasPrefix(safe + "_") else { return false }
+                let rest = stem.dropFirst(safe.count + 1)
+                if rest.hasPrefix("_") { return rest.count > 1 }   // name__base
+                let parts = rest.split(separator: "_", omittingEmptySubsequences: false)
+                return parts.count == 2 && parts[0].count >= 4 && parts[1].count == 3
+                    && parts.allSatisfy { $0.allSatisfy(\.isNumber) }
             }
         }
         for folder in ["images", "excluded/images"] {
