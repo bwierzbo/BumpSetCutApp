@@ -153,6 +153,60 @@ final class MultiFramePackageResumeTests: XCTestCase {
         return (dir, result.summary)
     }
 
+    /// A lineage package takes no label from the model: with `machineLabels: false` a confirmed
+    /// pre-tracked rally gives only the frames a person checked, no window carries `pseudo`, the
+    /// summary counts no machine frame, the choice is in the run identity, and a resume under the
+    /// other setting is refused.
+    func testLineageModeTakesNoLabelFromTheModel() async throws {
+        let clip = try await video("m", seed: 3)
+        // One pre-tracked rally, confirmed: frames 0 and 2 checked by a person, the rest the model's
+        // own picks at confidence 0.9 on a straight path — every interior one a "sure" frame.
+        var points: [TrackPoint] = []
+        for i in 0..<21 {
+            let t = 1.0 + Double(i) / 30
+            let box = TrackCandidate(rect: CGRect(x: 0.3 + 0.01 * Double(i), y: 0.5, width: 0.02, height: 0.03), confidence: i == 0 || i == 2 ? 1 : 0.9)
+            points.append(TrackPoint(time: t, state: .visible, origin: i == 0 || i == 2 ? .user : .auto, box: box, reviewed: i == 0 || i == 2))
+        }
+        var rally = TrackedRally(id: UUID(), start: 1.0, end: points.last!.time, points: points, candidates: [], done: false)
+        rally.machine = true; rally.isRally = true
+        XCTAssertFalse(MachineLabels.trusted(rally).isEmpty, "the fixture must offer sure frames for the test to mean anything")
+        var train = VideoSession(name: "m", sourcePath: clip.path, split: "train", addedAt: now, frames: [])
+        train.tracks = [rally]
+        let val = session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])
+        let store = DatasetStore(root: root)
+
+        let general = try await MultiFramePackage.export(sessions: [train, val], store: store, name: "General", now: now) { _, _ in }
+        XCTAssertGreaterThan(general.summary.machineFrames, 0)
+        XCTAssertEqual(general.summary.machineRallies, 1)
+        let generalWindows = try String(contentsOf: general.output.deletingPathExtension().appendingPathComponent("windows.jsonl"), encoding: .utf8)
+        XCTAssertTrue(generalWindows.contains("\"pseudo\""), "the general package marks the model's labels for --pseudo")
+
+        let lineage = try await MultiFramePackage.export(sessions: [train, val], store: store, name: "Lineage", machineLabels: false, now: now) { _, _ in }
+        XCTAssertEqual(lineage.summary.machineFrames, 0)
+        XCTAssertEqual(lineage.summary.machineRallies, 1, "the rally is still a pre-tracked one; it just lends no label")
+        XCTAssertEqual(lineage.summary.trainWindows, 2, "a window on each checked frame at an even index: 0 and 2")
+        let lineageDir = lineage.output.deletingPathExtension()
+        let lineageWindows = try String(contentsOf: lineageDir.appendingPathComponent("windows.jsonl"), encoding: .utf8)
+        XCTAssertFalse(lineageWindows.contains("\"pseudo\""))
+        let header = try XCTUnwrap(journalLines(lineageDir).first)
+        XCTAssertTrue(header.contains("\"machineLabels\":false"), header)
+        XCTAssertTrue(try XCTUnwrap(journalLines(general.output.deletingPathExtension()).first).contains("\"machineLabels\":true"))
+
+        // Interrupted, then resumed with the model's labels allowed: another export, refused.
+        try interrupt(lineageDir)
+        do {
+            _ = try await MultiFramePackage.export(sessions: [train, val], store: store, name: "Lineage", resume: lineageDir, now: now) { _, _ in }
+            XCTFail("a resume under a different label rule must be refused")
+        } catch let error as MultiFramePackage.ResumeError {
+            guard case .identityMismatch(let differences) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(differences.contains { $0.hasPrefix("machineLabels: journal false, now true") }, "\(differences)")
+        }
+        // Journals from before the field read as "the model's labels allowed".
+        let old = ExportJournal.url(forPackage: lineageDir)
+        try String(contentsOf: old, encoding: .utf8).replacingOccurrences(of: "\"machineLabels\":false,", with: "").write(to: old, atomically: true, encoding: .utf8)
+        XCTAssertTrue(try ExportJournal.read(old, forPackage: lineageDir.lastPathComponent).identity.machineLabels)
+    }
+
     private func journalLines(_ dir: URL) throws -> [String] {
         try String(contentsOf: ExportJournal.url(forPackage: dir), encoding: .utf8).split(separator: "\n").map(String.init)
     }

@@ -234,22 +234,28 @@ enum MultiFramePackage {
     /// completed in place; its name is the package name and its parent the exports folder.
     /// `identity`: what the caller adds to the run identity (a lineage package: manifest hashes,
     /// the eligible and withheld closure). `note`: progress lines for the log.
+    /// `machineLabels`: whether a pre-tracked train rally's sure frames (MachineLabels.trusted) are
+    /// labels, flagged `pseudo` for `--pseudo` training. False for a lineage package: people's
+    /// labels only, so the package carries no model-written label by construction, not only
+    /// by the preflight's refusal.
     static func export(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool = false, valOnly: Bool = false,
-                       longSide: CGFloat = longSide, exportsDir: URL? = nil, resume: URL? = nil, identity: [String: String] = [:],
-                       beforeZip: ((URL) throws -> Void)? = nil, now: Date = Date(), note: (@Sendable (String) -> Void)? = nil,
+                       machineLabels: Bool = true, longSide: CGFloat = longSide, exportsDir: URL? = nil, resume: URL? = nil,
+                       identity: [String: String] = [:], beforeZip: ((URL) throws -> Void)? = nil, now: Date = Date(),
+                       note: (@Sendable (String) -> Void)? = nil,
                        progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (output: URL, summary: Summary) {
-        try await run(sessions: sessions, store: store, name: name, unreviewed: unreviewed, valOnly: valOnly, longSide: longSide,
-                      exportsDir: exportsDir, resume: resume, identity: identity, inspectOnly: false, beforeZip: beforeZip, now: now,
-                      note: note, progress: progress)
+        try await run(sessions: sessions, store: store, name: name, unreviewed: unreviewed, valOnly: valOnly, machineLabels: machineLabels,
+                      longSide: longSide, exportsDir: exportsDir, resume: resume, identity: identity, inspectOnly: false, beforeZip: beforeZip,
+                      now: now, note: note, progress: progress)
     }
 
     /// Reads an interrupted export without changing it: what its journal says, whether the run
     /// identity still holds, and which frames would be reused, regenerated or replaced.
     static func inspectResume(sessions: [VideoSession], store: DatasetStore, resume: URL, unreviewed: Bool = false, valOnly: Bool = false,
-                              longSide: CGFloat = longSide, identity: [String: String] = [:], note: (@Sendable (String) -> Void)? = nil) async throws -> ResumeReport {
+                              machineLabels: Bool = true, longSide: CGFloat = longSide, identity: [String: String] = [:],
+                              note: (@Sendable (String) -> Void)? = nil) async throws -> ResumeReport {
         let result = try await run(sessions: sessions, store: store, name: resume.lastPathComponent, unreviewed: unreviewed, valOnly: valOnly,
-                                   longSide: longSide, exportsDir: nil, resume: resume, identity: identity, inspectOnly: true, beforeZip: nil,
-                                   now: Date(), note: note) { _, _ in }
+                                   machineLabels: machineLabels, longSide: longSide, exportsDir: nil, resume: resume, identity: identity,
+                                   inspectOnly: true, beforeZip: nil, now: Date(), note: note) { _, _ in }
         return result.summary.resume!
     }
 
@@ -270,7 +276,7 @@ enum MultiFramePackage {
         var safeName: String { String(clipDir.dropFirst("frames/".count)) }
     }
 
-    private static func plan(_ session: VideoSession, frames: [FrameRecord], longSide: CGFloat, unreviewed: Bool) async throws -> ClipPlan {
+    private static func plan(_ session: VideoSession, frames: [FrameRecord], longSide: CGFloat, unreviewed: Bool, machineLabels: Bool) async throws -> ClipPlan {
         let video = URL(fileURLWithPath: session.sourcePath)
         let clip = try await ClipFrames(video: video, longSide: longSide)
         let fm = FileManager.default
@@ -290,13 +296,13 @@ enum MultiFramePackage {
         }
         // Tracked rallies: a window on every `trackStride`-th labeled frame.
         for rally in Self.readyTracks(session) {
-            // Only frames checked in annotation review are labels — and a
-            // pre-tracked rally's sure ones, marked as the model's; the
-            // rest are still frames the model sees around them.
+            // Only frames checked in annotation review are labels — and, when
+            // `machineLabels` allows, a pre-tracked rally's sure ones, marked as
+            // the model's; the rest are still frames the model sees around them.
             // In a val video only what a person checked: the score is
             // people's labels, never the model's own.
             let val = session.split == "val"
-            let sure = val ? [] : MachineLabels.trusted(rally)
+            let sure = (val || !machineLabels) ? [] : MachineLabels.trusted(rally)
             let labeled = rally.points.indices.filter { rally.points[$0].isChecked || (!val && unreviewed) || sure.contains($0) }
             let key = { (pt: TrackPoint) in ClipFrames.key(CMTime(seconds: pt.time, preferredTimescale: 600_000)) }
             let byKey = Dictionary(labeled.map { (key(rally.points[$0]), rally.points[$0]) }, uniquingKeysWith: { a, _ in a })
@@ -329,8 +335,8 @@ enum MultiFramePackage {
         return p
     }
 
-    private static func run(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool, valOnly: Bool, longSide: CGFloat,
-                            exportsDir: URL?, resume: URL?, identity extra: [String: String], inspectOnly: Bool, beforeZip: ((URL) throws -> Void)?,
+    private static func run(sessions: [VideoSession], store: DatasetStore, name: String, unreviewed: Bool, valOnly: Bool, machineLabels: Bool,
+                            longSide: CGFloat, exportsDir: URL?, resume: URL?, identity extra: [String: String], inspectOnly: Bool, beforeZip: ((URL) throws -> Void)?,
                             now: Date, note: (@Sendable (String) -> Void)?,
                             progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (output: URL, summary: Summary) {
         let fm = FileManager.default
@@ -376,10 +382,11 @@ enum MultiFramePackage {
 
         // Everything that decides the frame files, settled now: the plan of every clip and the run identity.
         var plans: [ClipPlan] = []
-        for (session, frames) in usable { plans.append(try await Self.plan(session, frames: frames, longSide: longSide, unreviewed: unreviewed)) }
+        for (session, frames) in usable { plans.append(try await Self.plan(session, frames: frames, longSide: longSide, unreviewed: unreviewed, machineLabels: machineLabels)) }
         let identity = ExportJournal.Identity(exporter: exporterVersion, longSide: Double(longSide), quality: jpegQuality, span: span, frameRate: frameRate,
                                               trackStride: trackStride, deadStep: deadStep, deadMargin: deadMargin, unreviewed: unreviewed,
-                                              valOnly: valOnly, extra: extra, clips: Dictionary(uniqueKeysWithValues: plans.map { ($0.safeName, $0.identity) }))
+                                              valOnly: valOnly, machineLabels: machineLabels, extra: extra,
+                                              clips: Dictionary(uniqueKeysWithValues: plans.map { ($0.safeName, $0.identity) }))
 
         // The journal: read and matched when resuming, started otherwise. An interrupted export
         // from before journals (a "legacy" folder) has none: nothing in it is trusted without regeneration.

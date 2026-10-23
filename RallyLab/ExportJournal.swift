@@ -48,9 +48,35 @@ enum ExportJournal {
         var deadMargin: Double
         var unreviewed: Bool
         var valOnly: Bool
+        /// Whether pre-tracked rallies' sure frames were labels (MultiFramePackage `machineLabels`);
+        /// false for a lineage package. Journals from before the field (every one was written
+        /// with the model's labels allowed) read as true.
+        var machineLabels: Bool
         /// The caller's own identity (a lineage package: manifest hashes, eligible and withheld closure).
         var extra: [String: String]
         var clips: [String: Clip]
+
+        init(exporter: String, longSide: Double, quality: Double, span: Int, frameRate: Double, trackStride: Int, deadStep: Double,
+             deadMargin: Double, unreviewed: Bool, valOnly: Bool, machineLabels: Bool = true, extra: [String: String], clips: [String: Clip]) {
+            self.exporter = exporter; self.longSide = longSide; self.quality = quality; self.span = span; self.frameRate = frameRate
+            self.trackStride = trackStride; self.deadStep = deadStep; self.deadMargin = deadMargin; self.unreviewed = unreviewed
+            self.valOnly = valOnly; self.machineLabels = machineLabels; self.extra = extra; self.clips = clips
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case exporter, longSide, quality, span, frameRate, trackStride, deadStep, deadMargin, unreviewed, valOnly, machineLabels, extra, clips
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            exporter = try c.decode(String.self, forKey: .exporter); longSide = try c.decode(Double.self, forKey: .longSide)
+            quality = try c.decode(Double.self, forKey: .quality); span = try c.decode(Int.self, forKey: .span)
+            frameRate = try c.decode(Double.self, forKey: .frameRate); trackStride = try c.decode(Int.self, forKey: .trackStride)
+            deadStep = try c.decode(Double.self, forKey: .deadStep); deadMargin = try c.decode(Double.self, forKey: .deadMargin)
+            unreviewed = try c.decode(Bool.self, forKey: .unreviewed); valOnly = try c.decode(Bool.self, forKey: .valOnly)
+            machineLabels = try c.decodeIfPresent(Bool.self, forKey: .machineLabels) ?? true
+            extra = try c.decode([String: String].self, forKey: .extra); clips = try c.decode([String: Clip].self, forKey: .clips)
+        }
 
         /// Each field that differs, named — for the refusal message and the record.
         func differences(from other: Identity) -> [String] {
@@ -59,7 +85,7 @@ enum ExportJournal {
             cmp("exporter", exporter, other.exporter); cmp("longSide", longSide, other.longSide); cmp("quality", quality, other.quality)
             cmp("span", span, other.span); cmp("frameRate", frameRate, other.frameRate); cmp("trackStride", trackStride, other.trackStride)
             cmp("deadStep", deadStep, other.deadStep); cmp("deadMargin", deadMargin, other.deadMargin)
-            cmp("unreviewed", unreviewed, other.unreviewed); cmp("valOnly", valOnly, other.valOnly)
+            cmp("unreviewed", unreviewed, other.unreviewed); cmp("valOnly", valOnly, other.valOnly); cmp("machineLabels", machineLabels, other.machineLabels)
             for key in Set(extra.keys).union(other.extra.keys).sorted() { cmp("extra.\(key)", extra[key] ?? "—", other.extra[key] ?? "—") }
             for key in Set(clips.keys).union(other.clips.keys).sorted() {
                 guard let a = clips[key], let b = other.clips[key] else { out.append("clip \(key): \(clips[key] == nil ? "not planned now" : "not in the journal")"); continue }

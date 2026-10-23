@@ -47,6 +47,9 @@
 //             export that was cut short, in that package folder (frames/ alone), against its journal (<folder>.journal.jsonl):
 //             a frame already there is reused only once proven (MultiFramePackage); --resume DIR --dry-run: read-only — the
 //             plan, then what the journal says and what would be reused, regenerated or replaced, nothing written to the folder.
+//             Labels are people's only: a rally counts when a person finished it or confirmed a pre-tracked one and checked
+//             at least one frame; a pre-tracked rally nobody has looked at is left out whole, and no sure frame of the model's
+//             is ever a label (LineagePackage.isHumanLabeled, MultiFramePackage machineLabels: false).
 //             The project's data.yaml is not a lineage dataset.)
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
@@ -846,8 +849,10 @@ enum HeadlessProjects {
             // Read-only: what the folder and its journal hold against the plan just written.
             do {
                 sessions = try LineagePackage.exportSessions(projects.sampler.sessions, plan: plan)
+                logLeftOut(LineagePackage.leftOut(projects.sampler.sessions, plan: plan))
                 let report = try await Task.detached(priority: .userInitiated) {
-                    try await MultiFramePackage.inspectResume(sessions: sessions, store: store, resume: resume, longSide: longSide, identity: identity, note: { log($0) })
+                    try await MultiFramePackage.inspectResume(sessions: sessions, store: store, resume: resume, machineLabels: false, longSide: longSide,
+                                                              identity: identity, note: { log($0) })
                 }.value
                 log("✅ resume inspection of \(resume.path) (nothing written): journal \(report.journal); identity \(report.identityVerified ? "verified" : "not verifiable (legacy folder: every frame proven by regeneration)")")
                 log("   \(report.framesRetained) frames reusable (\(report.retainedByJournal) by journal, \(report.retainedByRegeneration) byte-identical to regeneration), "
@@ -875,10 +880,12 @@ enum HeadlessProjects {
             return false
         }
         let name = "\(dir.lastPathComponent)-\(LineagePackage.lineage)"
+        logLeftOut(LineagePackage.leftOut(projects.sampler.sessions, plan: plan))
         if let resume { log("   resuming the export in \(resume.path)") } else if let out { log("   package goes to \(out.path)") }
         do {
             let result = try await Task.detached(priority: .userInitiated) {
-                try await MultiFramePackage.export(sessions: sessions, store: store, name: name, longSide: longSide, exportsDir: out, resume: resume, identity: identity, beforeZip: { folder in
+                try await MultiFramePackage.export(sessions: sessions, store: store, name: name, machineLabels: false, longSide: longSide, exportsDir: out,
+                                                   resume: resume, identity: identity, beforeZip: { folder in
                     // The package name is unique (export refuses an existing name), so this record is this package's alone.
                     let preflight = try LineagePackage.preflight(packageDir: folder, plan: plan, sourceFingerprints: eligibleSources,
                                                                  protectedSources: protectedSources, protectedHashes: protected.hashes,
@@ -916,6 +923,14 @@ enum HeadlessProjects {
             log("❌ \(error.localizedDescription)")
             return false
         }
+    }
+
+    /// What the lineage rule (LineagePackage.isHumanLabeled) left out of the package, on record in the log.
+    private static func logLeftOut(_ left: [LineagePackage.LeftOut]) {
+        guard !left.isEmpty else { log("   labels: people's only — every rally of every eligible recording is human-labeled"); return }
+        let rallies = left.reduce(0) { $0 + $1.rallies }, points = left.reduce(0) { $0 + $1.points }
+        log("   labels: people's only — \(rallies) rallies nobody has checked (\(points) model points) in \(left.count) recording(s) left out: "
+            + left.map { "\($0.video) (\($0.rallies))" }.joined(separator: ", "))
     }
 
     /// Record a use, or say why it couldn't be and report failure (the command then fails).
