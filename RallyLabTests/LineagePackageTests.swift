@@ -192,12 +192,48 @@ final class LineagePackageTests: XCTestCase {
         XCTAssertEqual(out[0].ralliesMarked, true); XCTAssertEqual(out[0].notRallies, [3.5]); XCTAssertEqual(out[0].sourcePath, tune.sourcePath)
     }
 
+    func testExportSessionsKeepOnlyHumanLabeledRalliesAndReportTheRest() throws {
+        func point(_ t: Double, reviewed: Bool = false, hidden: Bool = false) -> TrackPoint {
+            TrackPoint(time: t, state: hidden ? .hidden : .visible, origin: reviewed ? .user : .auto,
+                       box: hidden ? nil : TrackCandidate(rect: CGRect(x: 0.5, y: 0.5, width: 0.02, height: 0.03), confidence: 0.9), reviewed: reviewed)
+        }
+        func rally(_ id: UUID, done: Bool = false, machine: Bool? = nil, isRally: Bool? = nil, points: [TrackPoint]) -> TrackedRally {
+            var r = TrackedRally(id: id, start: points.first?.time ?? 0, end: points.last?.time ?? 0, points: points, candidates: [], done: done)
+            r.machine = machine; r.isRally = isRally
+            return r
+        }
+        let ids = (0..<7).map { _ in UUID() }
+        let persons = rally(ids[0], done: true, points: [point(1, reviewed: true), point(1.1)])                 // a person's finished rally
+        let confirmed = rally(ids[1], machine: true, isRally: true, points: [point(2), point(2.1, hidden: true)]) // confirmed, one hidden mark checked
+        let unchecked = rally(ids[2], machine: true, isRally: nil, points: [point(3), point(3.1), point(3.2)])  // pre-tracked, nobody looked
+        let notRally = rally(ids[3], machine: true, isRally: false, points: [point(4)])
+        let open = rally(ids[4], done: false, points: [point(5, reviewed: true)])                                // a person's, not finished
+        let confirmedUnchecked = rally(ids[5], machine: true, isRally: true, points: [point(6), point(6.1)])    // confirmed, no frame checked
+        let legacy = rally(ids[6], done: true, machine: nil, points: [point(7, hidden: true)])                  // older build: nil machine, hidden counts
+        var mixed = try session("bch_x", split: "train", videoPresent: true)
+        mixed.tracks = [persons, confirmed, unchecked, notRally, open, confirmedUnchecked, legacy]
+        var album = try session("bch_extra", split: "train", videoPresent: false)                              // nothing human in it: no video needed
+        album.tracks = [rally(UUID(), machine: true, isRally: nil, points: [point(1), point(1.1)]), rally(UUID(), machine: true, isRally: nil, points: [point(2)])]
+        let val = try session("v", split: "val", marked: true, videoPresent: true)
+        let thePlan = plan(eligible: [("bch_x", "train"), ("bch_extra", "train"), ("v", "val")], withheld: ["w"])
+        let out = try LineagePackage.exportSessions([mixed, album, val], plan: thePlan)
+        XCTAssertEqual(out.map(\.name), ["bch_x", "bch_extra", "v"])
+        XCTAssertEqual(out[0].tracks?.map(\.id), [ids[0], ids[1], ids[6]], "a person's finished rally, a confirmed pre-tracked one with a checked frame, a legacy one")
+        XCTAssertEqual(out[1].tracks, [], "a recording with only unchecked pre-tracked rallies has nothing to give")
+        XCTAssertFalse(MultiFramePackage.contributes(out[1]), "…so the exporter never opens a folder for it")
+        XCTAssertEqual(LineagePackage.leftOut([mixed, album, val], plan: thePlan),
+                       [.init(video: "bch_extra", rallies: 2, points: 3), .init(video: "bch_x", rallies: 4, points: 7)])
+        // The rule reads the dataset; it writes nothing back.
+        XCTAssertEqual(mixed.tracks?.count, 7); XCTAssertEqual(mixed.tracks?[2].isRally, nil)
+    }
+
     func testExportSessionsRefuseAnEligibleRecordingWithLabelsButNoVideo() throws {
         // The exporter would skip `marked` with only a note in the summary; a lineage package never does.
         let marked = try session("bch_m", split: "train", marked: true, videoPresent: false)
         let tracked = try session("bch_t", split: "train", videoPresent: false)
         var withTrack = tracked
-        withTrack.tracks = [TrackedRally(id: UUID(), start: 0, end: 1, points: [], candidates: [], done: true)]
+        let checked = TrackPoint(time: 0.5, state: .visible, origin: .user, box: TrackCandidate(rect: CGRect(x: 0.5, y: 0.5, width: 0.02, height: 0.03), confidence: 1), reviewed: true)
+        withTrack.tracks = [TrackedRally(id: UUID(), start: 0, end: 1, points: [checked], candidates: [], done: true)]
         let unlabeled = try session("bch_u", split: "train", videoPresent: false)   // nothing to take: no video needed
         let val = try session("v", split: "val", marked: true, videoPresent: true)
         let thePlan = plan(eligible: [("bch_m", "train"), ("bch_t", "train"), ("bch_u", "train"), ("v", "val")], withheld: ["w"])

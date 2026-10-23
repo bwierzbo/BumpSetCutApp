@@ -410,10 +410,39 @@ enum LineagePackage {
                          protectedFrameFiles: protectedFrameFiles, danglingProtectedRecords: danglingProtectedRecords)
     }
 
+    /// The rallies a lineage package takes labels from: a person's finished rally, or a
+    /// pre-tracked one a person confirmed as a rally — and only when someone checked at
+    /// least one of its frames. A pre-tracked rally nobody has looked at (`isRally == nil`,
+    /// which the general exporter still packages) is left out whole: its only labels would
+    /// be the model's own sure frames, which a lineage never trains on. Its recording keeps
+    /// the rally in the dataset untouched; it simply contributes nothing here. (Audit of
+    /// 2026-10-23: 43 recordings pre-tracked on 2026-10-17 and never reviewed would have put
+    /// 284 such rallies — 61,006 unchecked model points — into the L2 package.)
+    static func isHumanLabeled(_ rally: TrackedRally) -> Bool {
+        (rally.done || (rally.isMachine && rally.isRally == true)) && rally.points.contains(where: \.isChecked)
+    }
+
+    static func humanLabeled(_ tracks: [TrackedRally]) -> [TrackedRally] { tracks.filter(isHumanLabeled) }
+
+    /// What the rule leaves out, per recording: for the log and the record.
+    struct LeftOut: Equatable {
+        var video: String
+        var rallies: Int
+        var points: Int
+    }
+
+    static func leftOut(_ sessions: [VideoSession], plan: Plan) -> [LeftOut] {
+        sessions.filter { plan.eligibleNames.contains($0.name) }.compactMap { s in
+            let dropped = (s.tracks ?? []).filter { !isHumanLabeled($0) }
+            return dropped.isEmpty ? nil : LeftOut(video: s.name, rallies: dropped.count, points: dropped.reduce(0) { $0 + $1.points.count })
+        }.sorted { $0.video < $1.video }
+    }
+
     /// The sessions the exporter is given: the eligible ones, each with the split the plan
     /// assigned (the manifest can place a `tune` recording on the val side while its dataset
     /// session still says "train"; the exporter reads `session.split`, so the copy carries the
-    /// planned side). Everything else about the session is unchanged; the dataset is not written.
+    /// planned side) and only its human-labeled rallies (`isHumanLabeled`). Everything else
+    /// about the session is unchanged; the dataset is not written.
     /// Throws when an eligible session the exporter would take labels from has no video on
     /// disk: the exporter skips such a session with only a note in the summary, and a lineage
     /// package quietly missing recordings is not the package that was planned.
@@ -422,8 +451,8 @@ enum LineagePackage {
         let out = sessions.compactMap { s -> VideoSession? in
             guard let split = planned[s.name] else { return nil }
             return VideoSession(name: s.name, sourcePath: s.sourcePath, split: split, addedAt: s.addedAt, frames: s.frames,
-                                rejected: s.rejected, tracks: s.tracks, ralliesMarked: s.ralliesMarked, syncedTrackIds: s.syncedTrackIds,
-                                notRallies: s.notRallies, fittedTracks: s.fittedTracks, netBox: s.netBox)
+                                rejected: s.rejected, tracks: s.tracks.map(Self.humanLabeled), ralliesMarked: s.ralliesMarked,
+                                syncedTrackIds: s.syncedTrackIds, notRallies: s.notRallies, fittedTracks: s.fittedTracks, netBox: s.netBox)
         }
         let missing = out.filter { MultiFramePackage.contributes($0) && !FileManager.default.fileExists(atPath: $0.sourcePath) }
         guard missing.isEmpty else { throw SourceError.sourcesMissing(missing.map(\.name).sorted()) }
