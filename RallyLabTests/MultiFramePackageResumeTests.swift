@@ -31,15 +31,19 @@ final class MultiFramePackageResumeTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    /// A 3 s, 30 fps H.264 clip whose picture depends on `seed` (another seed is another video)
-    /// and changes a little every frame.
-    private func video(_ name: String, seed: Int = 0, width: Int = 320, height: Int = 180) async throws -> URL {
+    /// An H.264 clip — 3 s at 30 fps by default — whose picture depends on `seed` (another seed
+    /// is another video) and changes a little every frame. `irregular`: frames of uneven
+    /// duration (1 and 2 ticks of 1/(2·fps) in turn), as a phone that drops frames leaves.
+    /// `keyFrameEvery`: the encoder's key-frame interval in frames (its default otherwise).
+    private func video(_ name: String, seed: Int = 0, width: Int = 320, height: Int = 180, frames: Int = 90, fps: Int32 = 30,
+                       irregular: Bool = false, keyFrameEvery: Int? = nil) async throws -> URL {
         let url = root.appendingPathComponent("footage/\(name).mp4")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264,
-                                                                            AVVideoWidthKey: width, AVVideoHeightKey: height])
+        var settings: [String: Any] = [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height]
+        if let keyFrameEvery { settings[AVVideoCompressionPropertiesKey] = [AVVideoMaxKeyFrameIntervalKey: keyFrameEvery] }
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = false
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
@@ -47,7 +51,9 @@ final class MultiFramePackageResumeTests: XCTestCase {
         writer.add(input)
         guard writer.startWriting() else { throw writer.error ?? CocoaError(.fileWriteUnknown) }
         writer.startSession(atSourceTime: .zero)
-        for i in 0..<90 {
+        var band = [UInt8](repeating: 255, count: width * 4)   // one row of the picture: rows of a 4-pixel band are alike
+        var ticks: CMTimeValue = 0
+        for i in 0..<frames {
             while !input.isReadyForMoreMediaData { try await Task.sleep(nanoseconds: 2_000_000) }
             var buffer: CVPixelBuffer?
             guard let pool = adaptor.pixelBufferPool, CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess, let pixels = buffer
@@ -57,22 +63,75 @@ final class MultiFramePackageResumeTests: XCTestCase {
             let stride = CVPixelBufferGetBytesPerRow(pixels)
             let left = (i * 3) % (width - 40)
             for y in 0..<height {
-                for x in 0..<width {
-                    let p = base + y * stride + x * 4
-                    let square = x >= left && x < left + 40 && y >= 40 && y < 80
-                    p[0] = square ? 255 : UInt8((seed * 97 + x / 4 + y / 4) % 160)
-                    p[1] = square ? 255 : UInt8((seed * 31 + i) % 200)
-                    p[2] = square ? 255 : UInt8((seed * 53) % 200)
-                    p[3] = 255
+                if y % 4 == 0 {
+                    for x in 0..<width {
+                        band[x * 4] = UInt8((seed * 97 + x / 4 + y / 4) % 160)
+                        band[x * 4 + 1] = UInt8((seed * 31 + i) % 200)
+                        band[x * 4 + 2] = UInt8((seed * 53) % 200)
+                    }
                 }
+                band.withUnsafeBytes { (base + y * stride).update(from: $0.bindMemory(to: UInt8.self).baseAddress!, count: width * 4) }
+                if y >= 40 && y < 80 { (base + y * stride + left * 4).update(repeating: 255, count: 40 * 4) }
             }
             CVPixelBufferUnlockBaseAddress(pixels, [])
-            guard adaptor.append(pixels, withPresentationTime: CMTime(value: CMTimeValue(i), timescale: 30)) else { throw writer.error ?? CocoaError(.fileWriteUnknown) }
+            let time = irregular ? CMTime(value: ticks, timescale: fps * 2) : CMTime(value: CMTimeValue(i), timescale: fps)
+            ticks += i % 3 == 0 ? 1 : 2
+            guard adaptor.append(pixels, withPresentationTime: time) else { throw writer.error ?? CocoaError(.fileWriteUnknown) }
         }
         input.markAsFinished()
         await writer.finishWriting()
         guard writer.status == .completed else { throw writer.error ?? CocoaError(.fileWriteUnknown) }
         return url
+    }
+
+    /// Every frame's presentation time in `video`, by the exporter's file-name key.
+    private func presentationTimes(of video: URL) async throws -> [Int64: CMTime] {
+        let tracks = try await AVURLAsset(url: video).loadTracks(withMediaType: .video)
+        let track = try XCTUnwrap(tracks.first)
+        var times: [Int64: CMTime] = [:]
+        guard let cursor = track.makeSampleCursor(presentationTimeStamp: .zero) else { return times }
+        repeat {
+            let t = cursor.presentationTimeStamp
+            times[Int64((t.seconds * 1_000_000).rounded())] = t
+        } while cursor.stepInPresentationOrder(byCount: 1) == 1
+        return times
+    }
+
+    /// An image generator set up as the exporter's (`ClipFrames`): frames as stored, capped at
+    /// `MultiFramePackage.longSide`, exact moments only.
+    private func generator(for video: URL) async throws -> AVAssetImageGenerator {
+        let asset = AVURLAsset(url: video)
+        let tracks = try await asset.loadTracks(withMediaType: .video)
+        let natural = try await XCTUnwrap(tracks.first).load(.naturalSize)
+        let scale = min(1, MultiFramePackage.longSide / max(natural.width, natural.height))
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = false
+        generator.maximumSize = CGSize(width: (natural.width * scale).rounded(), height: (natural.height * scale).rounded())
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        return generator
+    }
+
+    /// The frames at `times`, each decoded on its own (one seek per frame, what the exporter did
+    /// before batched validation), encoded as the exporter encodes them.
+    private func singleSeek(_ generator: AVAssetImageGenerator, _ times: [CMTime]) async throws -> [Data] {
+        var out: [Data] = []
+        for t in times {
+            let image = try await generator.image(at: t).image
+            out.append(try XCTUnwrap(SamplerImageTools.jpegData(image, quality: MultiFramePackage.jpegQuality)))
+        }
+        return out
+    }
+
+    /// The same frames asked for together, `batch` at a time, each matched to its requested moment.
+    private func batched(_ generator: AVAssetImageGenerator, _ times: [CMTime], batch: Int = MultiFramePackage.validationBatch) async throws -> [Data] {
+        var byKey: [Int64: Data] = [:]
+        for start in stride(from: 0, to: times.count, by: batch) {
+            for await result in generator.images(for: Array(times[start..<min(start + batch, times.count)])) {
+                byKey[Int64((result.requestedTime.seconds * 1_000_000).rounded())] = try XCTUnwrap(SamplerImageTools.jpegData(try result.image, quality: MultiFramePackage.jpegQuality))
+            }
+        }
+        return try times.map { try XCTUnwrap(byKey[Int64(($0.seconds * 1_000_000).rounded())]) }
     }
 
     private func session(_ name: String, split: String, video: URL, times: [Double]) -> VideoSession {
@@ -269,6 +328,149 @@ final class MultiFramePackageResumeTests: XCTestCase {
         let journal = try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent)
         XCTAssertEqual(journal.frames["a"]?.count, 32, "frames proven by regeneration are journaled for the next time")
         XCTAssertEqual(journal.frames["b"]?.count, 17)
+    }
+
+    // MARK: - Batched validation
+
+    /// A frame regenerated in a batch is the frame regenerated on its own, byte for byte — at
+    /// 30 fps, at 60 fps and with frames of uneven duration — so the frames a legacy folder
+    /// holds (written by the batch path) are all proven by the batched validation, and the
+    /// package completed from it is the fresh package.
+    func testBatchedValidationProvesWhatSingleSeeksWouldAt30And60FpsAndWithUnevenFrames() async throws {
+        let variants: [(name: String, frames: Int, fps: Int32, irregular: Bool, moments: [Double])] = [
+            ("thirty", 90, 30, false, [1.5, 2.0]),
+            ("sixty", 180, 60, false, [1.5, 2.0]),
+            ("uneven", 120, 30, true, [1.5, 2.0])
+        ]
+        for v in variants {
+            root = FileManager.default.temporaryDirectory.appendingPathComponent("mfp-\(v.name)-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let a = try await video("a", frames: v.frames, fps: v.fps, irregular: v.irregular)
+            let b = try await video("b", seed: 7, frames: v.frames, fps: v.fps, irregular: v.irregular)
+            let sessions = [session("a", split: "val", video: a, times: v.moments), session("b", split: "train", video: b, times: [1.0])]
+            let (dir, fresh) = try await export(sessions)
+            let freshPayload = try payload(dir)
+            // Every written frame against its single-seek regeneration, and the batch against the single seeks.
+            for (clip, video) in [("a", a), ("b", b)] {
+                let times = try await presentationTimes(of: video)
+                let gen = try await generator(for: video)
+                let names = try frameNames(dir, clip)
+                let moments = try names.map { try XCTUnwrap(times[Int64($0.dropLast(4))!], "\(v.name) \(clip)/\($0): not a frame of the video") }
+                let single = try await singleSeek(gen, moments)
+                let batch = try await batched(gen, moments)
+                for (i, name) in names.enumerated() {
+                    let stored = try Data(contentsOf: dir.appendingPathComponent("frames/\(clip)/\(name)"))
+                    XCTAssertEqual(stored, single[i], "\(v.name) \(clip)/\(name): the written frame is not its single-seek regeneration")
+                    XCTAssertEqual(batch[i], single[i], "\(v.name) \(clip)/\(name): batch and single seek differ")
+                }
+            }
+            try interrupt(dir, journal: false)
+            let before = try hashes(dir)
+            let inspection = try await MultiFramePackage.inspectResume(sessions: sessions, store: DatasetStore(root: root), resume: dir)
+            XCTAssertEqual(inspection.retainedByRegeneration, fresh.frames, v.name)
+            XCTAssertEqual(inspection.framesReplaced, 0, v.name); XCTAssertEqual(inspection.clips.map(\.toWrite), [0, 0], v.name)
+            XCTAssertEqual(try hashes(dir), before, "\(v.name): inspection wrote nothing")
+            let (_, summary) = try await export(sessions, resume: dir)
+            XCTAssertEqual(summary.resume?.retainedByRegeneration, fresh.frames, v.name)
+            XCTAssertEqual(summary.resume?.framesWritten, 0, v.name)
+            XCTAssertEqual(try payload(dir), freshPayload, "\(v.name): the completed package is not the fresh one")
+        }
+    }
+
+    /// With more frames than one batch holds, torn and missing frames in different batches are
+    /// judged in the order found, the invalid limit counts across batches, and a refused folder
+    /// is left as it was.
+    func testBatchedValidationJudgesAcrossBatchesInTheOrderFound() async throws {
+        // 10 s at 30 fps, a window every 0.5 s: 300 frames needed in one clip, several batches.
+        let a = try await video("a", frames: 300)
+        let b = try await video("b", seed: 7)
+        let sessions = [session("a", split: "val", video: a, times: stride(from: 0.5, through: 9.5, by: 0.5).map { $0 }),
+                        session("b", split: "train", video: b, times: [1.0])]
+        let (dir, fresh) = try await export(sessions)
+        let freshPayload = try payload(dir)
+        let names = try frameNames(dir, "a")
+        XCTAssertGreaterThan(names.count, 2 * MultiFramePackage.validationBatch, "the fixture must span several batches")
+        try interrupt(dir, journal: false)
+        let fm = FileManager.default
+        // Three torn frames, one per batch; four missing ones, likewise spread.
+        let torn = [5, MultiFramePackage.validationBatch + 3, 2 * MultiFramePackage.validationBatch + 7].map { names[$0] }
+        let gone = [1, MultiFramePackage.validationBatch - 1, MultiFramePackage.validationBatch, names.count - 1].map { names[$0] }
+        for name in torn { let url = dir.appendingPathComponent("frames/a/\(name)"); try Data(contentsOf: url).prefix(700).write(to: url) }
+        for name in gone { try fm.removeItem(at: dir.appendingPathComponent("frames/a/\(name)")) }
+        let inspection = try await MultiFramePackage.inspectResume(sessions: sessions, store: DatasetStore(root: root), resume: dir)
+        XCTAssertEqual(inspection.retainedByRegeneration, fresh.frames - 7)
+        XCTAssertEqual(inspection.replaced, torn.map { "frames/a/\($0)" }, "replaced frames are listed in the order found")
+        XCTAssertEqual(inspection.clips.map(\.toWrite), [4, 0])
+        let (_, summary) = try await export(sessions, resume: dir)
+        XCTAssertEqual(summary.resume?.framesReplaced, 3); XCTAssertEqual(summary.resume?.framesWritten, 4)
+        XCTAssertEqual(try payload(dir), freshPayload)
+
+        // Too many torn frames, spread over the batches: refused once the limit is passed, nothing touched.
+        try interrupt(dir)
+        let spread = (0...MultiFramePackage.maxInvalidPerClip).map { names[$0 * (names.count / (MultiFramePackage.maxInvalidPerClip + 1))] }
+        for name in spread { let url = dir.appendingPathComponent("frames/a/\(name)"); try Data(contentsOf: url).prefix(700).write(to: url) }
+        let before = try hashes(dir)
+        do { _ = try await export(sessions, resume: dir); XCTFail("trusted a folder with torn frames in every batch") }
+        catch MultiFramePackage.ResumeError.tooManyInvalid(let clip, let count, let limit) {
+            XCTAssertEqual(clip, "a"); XCTAssertEqual(count, limit + 1)
+        }
+        XCTAssertEqual(try hashes(dir), before, "a refused folder is left as it was")
+    }
+
+    /// Another spelling of a frame's number (`0123.jpg` beside `123.jpg`) is not a frame of this
+    /// export: refused before anything is judged, so two files can never claim one moment.
+    func testResumeRefusesAnAliasedFrameName() async throws {
+        let sessions = try await sessions()
+        let (dir, _) = try await export(sessions)
+        let fm = FileManager.default
+        for journal in [false, true] {
+            try interrupt(dir, journal: journal)
+            let name = try frameNames(dir, "a")[3]
+            let alias = dir.appendingPathComponent("frames/a/0\(name)")
+            try fm.copyItem(at: dir.appendingPathComponent("frames/a/\(name)"), to: alias)
+            let before = try hashes(dir)
+            do { _ = try await MultiFramePackage.inspectResume(sessions: sessions, store: DatasetStore(root: root), resume: dir); XCTFail("accepted an aliased frame name") }
+            catch MultiFramePackage.ResumeError.unexpectedFile(let path) { XCTAssertEqual(path, "frames/a/0\(name)") }
+            do { _ = try await export(sessions, resume: dir); XCTFail("resumed over an aliased frame name") }
+            catch MultiFramePackage.ResumeError.unexpectedFile(let path) { XCTAssertEqual(path, "frames/a/0\(name)") }
+            XCTAssertEqual(try hashes(dir), before, "refused without touching the folder")
+            try fm.removeItem(at: alias)
+            _ = try await export(sessions, resume: dir)   // whole again, for the next round
+        }
+    }
+
+    /// Representative timing, not a pass/fail test: how long regenerating a legacy folder's frames
+    /// takes one seek at a time against batched, on a synthetic 1280×720 clip with a key frame
+    /// every second — contiguous frames (a tracked rally) and isolated windows (sampled frames).
+    /// Runs only with RALLYLAB_BENCHMARK set; prints frames per second.
+    func testBenchmarkBatchedAgainstSingleSeekRegeneration() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["RALLYLAB_BENCHMARK"] != nil, "set RALLYLAB_BENCHMARK=1 to run the benchmark")
+        for fps: Int32 in [30, 60] {
+            let frames = Int(fps) * 20
+            let clip = try await video("bench\(fps)", width: 1280, height: 720, frames: frames, fps: fps, keyFrameEvery: Int(fps))
+            let times = try await presentationTimes(of: clip)
+            let gen = try await generator(for: clip)
+            let sorted = times.values.sorted { $0 < $1 }
+            let step = max(1, Int((Double(fps) / MultiFramePackage.frameRate).rounded()))
+            func window(_ seconds: Double) -> [CMTime] {
+                let centre = Int((seconds * Double(fps)).rounded())
+                return (-MultiFramePackage.span...MultiFramePackage.span).map { sorted[centre + $0 * step] }
+            }
+            for (label, moments) in [("contiguous (a window every 0.5 s)", stride(from: 1.0, through: 19.0, by: 0.5).map { $0 }),
+                                     ("isolated (a window every 2 s)", stride(from: 1.0, through: 19.0, by: 2.0).map { $0 })] {
+                let wanted = Array(Set(moments.flatMap(window))).sorted { $0 < $1 }
+                let t0 = Date()
+                let single = try await singleSeek(gen, wanted)
+                let t1 = Date()
+                let batch = try await batched(gen, wanted)
+                let t2 = Date()
+                XCTAssertEqual(single, batch, "\(fps) fps \(label): batch and single seek differ")
+                let s = t1.timeIntervalSince(t0), b = t2.timeIntervalSince(t1)
+                print(String(format: "BENCH %d fps, %@: %d frames — single seek %.1f s (%.1f frames/s), batched %.1f s (%.1f frames/s), ×%.1f",
+                             fps, label, wanted.count, s, Double(wanted.count) / s, b, Double(wanted.count) / b, s / b))
+            }
+        }
     }
 
     func testResumeTwiceAddsNothingTwice() async throws {
