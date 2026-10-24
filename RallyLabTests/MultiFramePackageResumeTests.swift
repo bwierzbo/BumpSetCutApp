@@ -84,6 +84,20 @@ final class MultiFramePackageResumeTests: XCTestCase {
         return url
     }
 
+    /// `video` cut the way Photos trims a clip: every recorded frame stays in the file and an
+    /// edit list shows only `from`…`to` of the recording, so the sample cursor still walks the
+    /// cut-off frames while the generator cannot show them. A reference movie beside the recording.
+    private func trimmed(_ video: URL, from: Double, to: Double) async throws -> URL {
+        let url = video.deletingPathExtension().appendingPathExtension("trimmed.mov")
+        try? FileManager.default.removeItem(at: url)
+        let movie = try AVMutableMovie(url: video, options: nil, error: ())
+        let duration = try await movie.load(.duration)
+        movie.removeTimeRange(CMTimeRange(start: CMTime(seconds: to, preferredTimescale: 600), end: duration))
+        movie.removeTimeRange(CMTimeRange(start: .zero, end: CMTime(seconds: from, preferredTimescale: 600)))
+        try movie.writeHeader(to: url, fileType: .mov, options: [])
+        return url
+    }
+
     /// Every frame's presentation time in `video`, by the exporter's file-name key.
     private func presentationTimes(of video: URL) async throws -> [Int64: CMTime] {
         let tracks = try await AVURLAsset(url: video).loadTracks(withMediaType: .video)
@@ -205,6 +219,40 @@ final class MultiFramePackageResumeTests: XCTestCase {
         let old = ExportJournal.url(forPackage: lineageDir)
         try String(contentsOf: old, encoding: .utf8).replacingOccurrences(of: "\"machineLabels\":false,", with: "").write(to: old, atomically: true, encoding: .utf8)
         XCTAssertTrue(try ExportJournal.read(old, forPackage: lineageDir.lastPathComponent).identity.machineLabels)
+    }
+
+    /// A clip trimmed in Photos keeps its cut-off frames in the file, where the sample cursor
+    /// finds them, but the generator shows no moment at or past the playable end: the resumed
+    /// export of 2026-10-23 stopped on `grs_extra_tester_04` asking for 10.1 s of a 10.067 s clip
+    /// (`Cannot Open`), and the moment at exactly the end had come back as the frame before it
+    /// under another name. A window is planned only from moments the video shows; one that
+    /// would reach past the end is an edge, like one that would reach before the start.
+    func testWindowsReachOnlyMomentsATrimmedClipShows() async throws {
+        let recording = try await video("t", seed: 5)                                  // 90 frames, 3 s
+        let clip = try await trimmed(recording, from: 10.0 / 30, to: 70.0 / 30)         // shows 2 s of it
+        let lastRecordedKey = try await presentationTimes(of: clip).keys.max()
+        XCTAssertGreaterThan(try XCTUnwrap(lastRecordedKey), 2_000_000, "the fixture must keep frames past the playable end for the test to mean anything")
+        // A person's rally over the clip's last second: a checked visible frame every 1/30 s up to the last frame shown.
+        let points = (0...30).map { i in
+            TrackPoint(time: 1.0 + Double(i) / 30, state: .visible, origin: .user,
+                       box: TrackCandidate(rect: CGRect(x: 0.3, y: 0.5, width: 0.02, height: 0.03), confidence: 1), reviewed: true)
+        }
+        var train = VideoSession(name: "t", sourcePath: clip.path, split: "train", addedAt: now, frames: [])
+        train.tracks = [TrackedRally(id: UUID(), start: 1.0, end: 2.0, points: points, candidates: [], done: true)]
+        let val = session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])
+
+        let (dir, summary) = try await export([train, val])
+        // Windows on the checked frames at even indices whose last frame (8 frames on) is still shown: centres 1.0…1.667 s.
+        XCTAssertEqual(summary.trainWindows, 11)
+        XCTAssertEqual(summary.framesAtEdges, 5, "centres 1.733…2.0 s would reach past the end")
+        XCTAssertEqual(summary.valWindows, 1)
+        let keys = try frameNames(dir, "t").map { Int64($0.dropLast(4))! }
+        XCTAssertEqual(keys.count, 37, "frames 0.733…1.933 s")
+        XCTAssertEqual(keys.min(), 733_333); XCTAssertEqual(keys.max(), 1_933_333)
+        XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("windows.jsonl"), encoding: .utf8).split(separator: "\n").count, 12)
+        let journal = try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent)
+        XCTAssertEqual(journal.identity.clips["t"]?.plannedKeys, 37)
+        XCTAssertEqual(journal.state, .finalized)
     }
 
     private func journalLines(_ dir: URL) throws -> [String] {

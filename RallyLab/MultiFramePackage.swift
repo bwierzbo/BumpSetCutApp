@@ -971,6 +971,12 @@ private struct ClipFrames {
     private let track: AVAssetTrack
     /// Video frames between neighbours in a window.
     private let step: Int
+    /// The moments the video shows: the track's range in the asset's timeline. A clip trimmed
+    /// in Photos keeps every frame it was recorded with and shortens it with an edit list; the
+    /// sample cursor still walks the cut-off frames, but the generator gives no picture for a
+    /// moment past this end (`Cannot Open`) and, for the moment at the end itself, the last
+    /// frame's picture again under another name.
+    private let playable: CMTimeRange
 
     init(video: URL, longSide: CGFloat) async throws {
         let asset = AVURLAsset(url: video)
@@ -979,6 +985,7 @@ private struct ClipFrames {
         }
         self.track = track
         duration = try await asset.load(.duration).seconds
+        playable = try await track.load(.timeRange)
         let fps = Double(try await track.load(.nominalFrameRate))
         step = max(1, Int((fps / MultiFramePackage.frameRate).rounded()))
         let natural = try await track.load(.naturalSize)
@@ -997,7 +1004,10 @@ private struct ClipFrames {
 
     /// Presentation times of the window around the frame showing at `seconds`
     /// — the frame the sampler extracted, which is the last one starting at or
-    /// before that time — or nil if the video ends too soon on either side.
+    /// before that time — or nil if the video ends too soon on either side:
+    /// the frames run out, or the window would reach a moment the video does
+    /// not show (`playable`). The cursor's times are the moments the generator
+    /// is then asked for, so they are what is held to that range.
     /// `exact`: `seconds` is a frame's own presentation time (a tracked
     /// rally's), which rounded to the sampler's 1/600 s could land a hair
     /// before the frame (59.94 fps) and centre the window on the one before.
@@ -1009,7 +1019,9 @@ private struct ClipFrames {
         for offset in -MultiFramePackage.span...MultiFramePackage.span {
             let want = Int64(offset * step)
             guard let c = cursor.copy() as? AVSampleCursor, c.stepInPresentationOrder(byCount: want) == want else { return nil }
-            times.append(c.presentationTimeStamp)
+            let time = c.presentationTimeStamp
+            guard time >= playable.start, time < playable.end else { return nil }
+            times.append(time)
         }
         return times
     }
