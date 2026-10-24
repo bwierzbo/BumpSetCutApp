@@ -122,6 +122,10 @@ enum MultiFramePackage {
         var split: String
         /// The frames by file-name key (presentation time in µs), sorted.
         var frames: [Int64]
+        /// The clip's windows as planned, and how many of them were left out. Equal means the clip
+        /// contributes no window: its decodable frames stay in its folder, on record here, and the
+        /// lineage preflight accepts that folder on this record alone.
+        var windowsPlanned: Int
         var windowsLeftOut: Int
         var trackedWindowsLeftOut: Int
         var sampledWindowsLeftOut: Int
@@ -727,15 +731,18 @@ enum MultiFramePackage {
             }
             if !leftOut.isEmpty {
                 let windows = windowsLeftOut.tracked + windowsLeftOut.sampled + windowsLeftOut.dead
-                undecodableReports.append(UndecodableReport(clip: session.name, split: split, frames: leftOut.sorted(), windowsLeftOut: windows,
+                undecodableReports.append(UndecodableReport(clip: session.name, split: split, frames: leftOut.sorted(),
+                                                            windowsPlanned: p.tracked.count + p.windows.count + p.dead.count, windowsLeftOut: windows,
                                                             trackedWindowsLeftOut: windowsLeftOut.tracked, sampledWindowsLeftOut: windowsLeftOut.sampled,
                                                             deadWindowsLeftOut: windowsLeftOut.dead, labelsPlanned: labelsPlanned.count,
                                                             labelsLeftOut: labelsPlanned.subtracting(labelsKept).count, error: leftOutError, reason: leftOutReason))
                 counts.undecodable += leftOut.count
                 counts.windowsLeftOut += windows
-                note?("  ⚠️ \(session.name): \(leftOut.count) frame(s) left out as undecodable with \(windows) window(s) "
+                let planned = p.tracked.count + p.windows.count + p.dead.count
+                note?("  ⚠️ \(session.name): \(leftOut.count) frame(s) left out as undecodable with \(windows) of \(planned) window(s) "
                       + "(\(windowsLeftOut.tracked) tracked, \(windowsLeftOut.sampled) sampled, \(windowsLeftOut.dead) dead-time); "
-                      + "\(labelsPlanned.subtracting(labelsKept).count) of \(labelsPlanned.count) labeled frames now in no window")
+                      + "\(labelsPlanned.subtracting(labelsKept).count) of \(labelsPlanned.count) labeled frames now in no window"
+                      + (windows == planned ? "; the clip contributes no window, its decodable frames stay in its folder on record" : ""))
             }
         }
         var summary = Summary(name: packageName, createdAt: now, clips: usable.count,
