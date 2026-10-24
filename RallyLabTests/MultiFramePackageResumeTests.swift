@@ -98,6 +98,20 @@ final class MultiFramePackageResumeTests: XCTestCase {
         return url
     }
 
+    /// `video` under a movie header that keeps time in milliseconds, as downloaded footage does:
+    /// a 3.0667 s recording ends at 3.067 in the header, a hair past its last frame's start plus
+    /// the frame spacing. A reference movie beside the recording; every frame stays.
+    private func millisecondHeader(_ video: URL) async throws -> URL {
+        let url = video.deletingPathExtension().appendingPathExtension("ms.mov")
+        try? FileManager.default.removeItem(at: url)
+        let movie = AVMutableMovie()
+        movie.timescale = 1000
+        let source = AVURLAsset(url: video)
+        try movie.insertTimeRange(CMTimeRange(start: .zero, duration: try await source.load(.duration)), of: source, at: .zero, copySampleData: false)
+        try movie.writeHeader(to: url, fileType: .mov, options: [])
+        return url
+    }
+
     /// Every frame's presentation time in `video`, by the exporter's file-name key.
     private func presentationTimes(of video: URL) async throws -> [Int64: CMTime] {
         let tracks = try await AVURLAsset(url: video).loadTracks(withMediaType: .video)
@@ -253,6 +267,37 @@ final class MultiFramePackageResumeTests: XCTestCase {
         let journal = try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent)
         XCTAssertEqual(journal.identity.clips["t"]?.plannedKeys, 37)
         XCTAssertEqual(journal.state, .finalized)
+    }
+
+    /// A header that keeps time in milliseconds can put the playable end a hair past the last
+    /// frame's start plus the frame spacing (`grs_extra_tester_04`: last frame 10.0333 s, end
+    /// 10.067). The cursor's next moment, 10.0667, then lies before the end yet shows no frame of
+    /// its own: the generator answers with the frame before it, and the export would write that
+    /// picture twice under two names. A window reaches only frames shown whole, so the moment
+    /// is an edge; no frame file is another's picture under a different name.
+    func testWindowsStopBeforeAnEndRoundedPastTheLastFrame() async throws {
+        let clip = try await millisecondHeader(try await video("r", seed: 11, frames: 92))      // 3.0667 s, header end 3.067
+        let tracks = try await AVURLAsset(url: clip).loadTracks(withMediaType: .video)
+        let playable = try await XCTUnwrap(tracks.first).load(.timeRange)
+        XCTAssertEqual(playable.end, CMTime(value: 3067, timescale: 1000), "the fixture must round the end up for the test to mean anything")
+        // A person's rally over the last second, a checked visible frame every 1/30 s up to the last frame.
+        let points = (0...31).map { i in
+            TrackPoint(time: 2.0 + Double(i) / 30, state: .visible, origin: .user,
+                       box: TrackCandidate(rect: CGRect(x: 0.3, y: 0.5, width: 0.02, height: 0.03), confidence: 1), reviewed: true)
+        }
+        var train = VideoSession(name: "r", sourcePath: clip.path, split: "train", addedAt: now, frames: [])
+        train.tracks = [TrackedRally(id: UUID(), start: 2.0, end: points.last!.time, points: points, candidates: [], done: true)]
+        let val = session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])
+
+        let (dir, summary) = try await export([train, val])
+        // Centres 2.0…2.733 s: their last frame, 8 on, starts by 3.0 s and is shown whole before 3.067.
+        XCTAssertEqual(summary.trainWindows, 12)
+        XCTAssertEqual(summary.framesAtEdges, 4, "centres 2.8…3.0 s would reach the moment at 3.0667 s, which shows no frame of its own")
+        let keys = try frameNames(dir, "r").map { Int64($0.dropLast(4))! }
+        XCTAssertEqual(keys.count, 39, "frames 1.733…3.0 s")
+        XCTAssertEqual(keys.min(), 1_733_333); XCTAssertEqual(keys.max(), 3_000_000)
+        let pictures = try frameNames(dir, "r").map { try Data(contentsOf: dir.appendingPathComponent("frames/r/\($0)")) }
+        XCTAssertEqual(Set(pictures).count, pictures.count, "every frame file is its own picture")
     }
 
     private func journalLines(_ dir: URL) throws -> [String] {
