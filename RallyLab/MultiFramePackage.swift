@@ -45,7 +45,11 @@
 //
 //  Frames are written whole (a `.part` file moved into place) and every
 //  frame a window needs is written or the export fails naming it: nothing
-//  is skipped quietly. An export cut short — the volume it writes to or
+//  is skipped quietly. One exception, on record rather than fatal: an HEVC
+//  leading picture the decoder cannot produce however it is asked
+//  (`Undecodable`) is journaled with its error and left out together with
+//  every window that needed it, counted in summary.json; no frame stands in
+//  for it. An export cut short — the volume it writes to or
 //  reads from goes away, which is noticed within seconds and is final —
 //  leaves only frames/ behind, and can be completed with `resume:` the same
 //  folder: the run's identity (settings, sources, planned moments) must
@@ -103,8 +107,95 @@ enum MultiFramePackage {
         let framesWithoutVideo: Int
         /// Reviewed frames too close to the start or end of their video.
         let framesAtEdges: Int
+        /// Planned frames the decoder could not produce — HEVC leading pictures (`Undecodable`;
+        /// D-024) — left out, each with every window that needed it. Which, per clip: `undecodable`.
+        var undecodableFrames: Int = 0
+        var windowsLeftOutUndecodable: Int = 0
+        var undecodable: [UndecodableReport] = []
         /// Present when the export completed an earlier, interrupted one (`resume:`).
         var resume: ResumeReport? = nil
+    }
+
+    /// One clip's frames the decoder could not produce, and what went with them.
+    struct UndecodableReport: Codable, Equatable {
+        var clip: String
+        var split: String
+        /// The frames by file-name key (presentation time in µs), sorted.
+        var frames: [Int64]
+        var windowsLeftOut: Int
+        var trackedWindowsLeftOut: Int
+        var sampledWindowsLeftOut: Int
+        var deadWindowsLeftOut: Int
+        /// Frames carrying a person's label that the clip's windows would have shown, and how many of
+        /// those are now in no window at all (a label in a left-out window is still trained on when
+        /// another window shows the frame).
+        var labelsPlanned: Int
+        var labelsLeftOut: Int
+        var error: String
+        var reason: String
+    }
+
+    /// A planned frame the decoder cannot produce. One kind is left out of the package — on
+    /// record in the journal and the summary, with every window that needed it — instead of
+    /// stopping the export: an HEVC *leading picture*. In a recording with open groups of
+    /// pictures (iPhone HEVC), the few frames displayed just before a key frame are coded after
+    /// it and predicted from the group before it; asked for one on its own, the frame-accurate
+    /// image generator answers `Cannot Decode` (AVFoundation −11821) every time, from a shared
+    /// or a fresh decoder, from a local or a mounted copy (`bch_ele_sun_land_self_01`,
+    /// 2026-10-24; reproduced on a synthetic x265 clip, RallyLabTests/Fixtures). Nothing else
+    /// is left out: another codec, another error, a fresh decoder that fails differently, a run
+    /// of undecodable frames longer than leading pictures come in, or one not bounded on both
+    /// sides by frames that decode (a damaged clip loses the rest of its group of pictures) all
+    /// stop the export as before, naming the frame. D-022 as amended by D-024.
+    enum Undecodable {
+        /// Leading pictures per key frame: three, sometimes four, in iPhone HEVC recordings; the
+        /// x265 fixture gives four. A longer run is not that.
+        static let maxRun = 4
+        static let decodeFailed = AVError.Code.decodeFailed.rawValue   // −11821, "Cannot Decode"
+
+        enum Verdict: Equatable {
+            case leftOut(reason: String)
+            case fatal(String)
+        }
+
+        static func describe(_ error: NSError) -> String { "\(error.domain) \(error.code) \(error.localizedDescription)" }
+        static func isDecodeFailure(_ error: NSError) -> Bool { error.domain == AVFoundationErrorDomain && error.code == decodeFailed }
+
+        /// Why the frame is not even a candidate, before its neighbours are looked at; nil when it is.
+        /// `error`: what the export's decoder said after its bounded retries; `fresh`: what a decoder
+        /// created for this one question said.
+        static func refusal(codec: CMVideoCodecType, error: NSError, fresh: NSError) -> String? {
+            guard codec == kCMVideoCodecType_HEVC else { return "the clip is \(fourCC(codec)), not HEVC; only HEVC leading pictures are left out" }
+            guard isDecodeFailure(error) else { return "not a decode failure: \(describe(error))" }
+            guard isDecodeFailure(fresh) else { return "a fresh decoder failed differently: \(describe(fresh))" }
+            return nil
+        }
+
+        /// `run`: consecutive video frames the fresh decoder cannot produce, this one included;
+        /// `boundedBefore` / `boundedAfter`: the frame right before / after that run decodes.
+        static func verdict(run: Int, boundedBefore: Bool, boundedAfter: Bool, fresh: NSError) -> Verdict {
+            guard run <= maxRun else {
+                return .fatal("\(run) consecutive frames cannot be decoded; leading pictures come at most \(maxRun) before a key frame, so the clip is damaged or not supported")
+            }
+            guard boundedBefore, boundedAfter else {
+                return .fatal("the run of undecodable frames is not bounded by frames that decode on both sides (it reaches the clip's \(boundedBefore ? "end" : "start"))")
+            }
+            return .leftOut(reason: "HEVC leading picture: one of \(run) consecutive frame(s) before a key frame that the frame-accurate decoder cannot produce "
+                            + "(\(describe(fresh))), bounded by frames that decode; left out with every window that needs it (D-024)")
+        }
+
+        static func fourCC(_ codec: CMVideoCodecType) -> String {
+            let bytes = [24, 16, 8, 0].map { UInt8((codec >> $0) & 0xFF) }
+            return String(decoding: bytes, as: UTF8.self)
+        }
+    }
+
+    /// What `judgeUndecodable` found for a frame the export's decoder gave up on.
+    private enum Judgement {
+        /// A fresh decoder produced it after all: written like any other frame.
+        case decoded(CGImage)
+        case leftOut(reason: String, fresh: String, run: Int)
+        case fatal(String)
     }
 
     /// What a resumed export found in the folder and did with it.
@@ -436,7 +527,9 @@ enum MultiFramePackage {
         let total = plans.reduce(0) { $0 + $1.windows.count }
         var done = 0
         var lines: [String] = []
-        var counts = (train: 0, val: 0, balls: 0, empty: 0, frames: 0, edges: 0, tracked: 0, dead: 0, machineRallies: 0, machineFrames: 0)
+        var counts = (train: 0, val: 0, balls: 0, empty: 0, frames: 0, edges: 0, tracked: 0, dead: 0, machineRallies: 0, machineFrames: 0,
+                      undecodable: 0, windowsLeftOut: 0)
+        var undecodableReports: [UndecodableReport] = []
         var expectedFiles: [(folder: URL, keys: Set<Int64>)] = []
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -523,28 +616,45 @@ enum MultiFramePackage {
                 }
             }
             if let error = lost.error { throw error }
-            // A frame the batch could not decode is asked for again on its own, a bounded number of times.
+            // A frame the batch could not decode is asked for again on its own, a bounded number of
+            // times. One that still fails is judged (`judgeUndecodable`): an HEVC leading picture is
+            // left out on record; anything else stops the export, naming the frame.
+            var leftOut = Set<Int64>()
+            var leftOutError = "", leftOutReason = ""
             for time in undecoded {
                 let key = ClipFrames.key(time)
-                let image: CGImage
+                var image: CGImage?
+                var lastError: NSError?
                 do {
                     image = try await ExportIO.retrying("decoding \(session.name) frame \(key)", anchors: anchors) {
-                        try await clip.generator.image(at: time).image
+                        do { return try await clip.generator.image(at: time).image } catch { lastError = error as NSError; throw error }
                     }
                 } catch let failure as ExportIO.Failure {
-                    guard case .gaveUp(_, _, let detail) = failure else { throw failure }
-                    throw PackageError.frameFailed(clip: session.name, frame: "\(key).jpg", detail: detail)
+                    guard case .gaveUp(_, let attempts, let detail) = failure, let error = lastError else { throw failure }
+                    switch try await Self.judgeUndecodable(at: time, error: error, plan: p, anchors: anchors) {
+                    case .decoded(let fresh):
+                        image = fresh
+                    case .fatal(let why):
+                        throw PackageError.frameFailed(clip: session.name, frame: "\(key).jpg", detail: "\(detail); \(why)")
+                    case .leftOut(let reason, let fresh, let run):
+                        leftOut.insert(key); leftOutError = fresh; leftOutReason = reason
+                        try writer?.append(.undecodable(clip: p.safeName, key: key, time: time.seconds, error: fresh, attempts: attempts + 1, run: run,
+                                                        reason: reason, at: ExportJournal.Writer.stamp(Date())))
+                        try writer?.flush()
+                        note?("  ⚠️ \(session.name): frame \(key).jpg left out — \(reason)")
+                    }
                 }
+                guard let image else { continue }
                 sizes[key] = try await Self.write(image, key: key, in: clipURL, plan: p, anchors: anchors, writer: writer)
                 written.insert(key)
             }
-            resumed.framesWritten += produced + undecoded.count
-            // The folder must now hold exactly the plan's frames, each the size that was written or validated.
+            resumed.framesWritten += produced + undecoded.count - leftOut.count
+            // The folder must now hold exactly the plan's frames but the ones left out, each the size that was written or validated.
             try await Self.verifyFolder(clipURL, clipDir: clipDir, clip: session.name, sizes: sizes, anchors: anchors)
-            try writer?.append(.clipComplete(clip: p.safeName, frames: needed.count))
+            try writer?.append(.clipComplete(clip: p.safeName, frames: needed.count - leftOut.count))
             try writer?.flush()
-            expectedFiles.append((clipURL, Set(needed.keys)))
-            counts.frames += needed.count
+            expectedFiles.append((clipURL, Set(needed.keys).subtracting(leftOut)))
+            counts.frames += needed.count - leftOut.count
 
             let split = session.split == "val" ? "val" : "train"
             func stored(_ box: CGRect) -> [Double] {
@@ -552,14 +662,20 @@ enum MultiFramePackage {
                 // Vision boxes are bottom-up; the trainer reads top-down.
                 return [s.midX, 1 - s.midY, s.width, s.height].map { Double($0) }
             }
-            func present(_ keys: [Int64]) throws {
+            // Whether every frame of a window is in the folder. A window needing a frame left out as
+            // undecodable is left out itself (no frame stands in for another); a frame neither
+            // written nor on record is a plan violation and stops the export.
+            var windowsLeftOut = (tracked: 0, sampled: 0, dead: 0)
+            var labelsPlanned = Set<Int64>(), labelsKept = Set<Int64>()
+            func shown(_ keys: [Int64]) throws -> Bool {
+                if keys.contains(where: leftOut.contains) { return false }
                 if let key = keys.first(where: { !written.contains($0) }) {
                     throw PackageError.frameFailed(clip: session.name, frame: "\(key).jpg", detail: "needed by a window but not written")
                 }
+                return true
             }
             for (time, times, labels, occluded, pseudo) in p.tracked {
                 let keys = times.map(ClipFrames.key)
-                try present(keys)
                 let perFrame: [[[Double]]?] = labels.map { point in
                     switch point?.state {
                     case .visible: return point?.box.map { [stored($0.rect)] }
@@ -567,6 +683,10 @@ enum MultiFramePackage {
                     default: return nil
                     }
                 }
+                let labeled = Swift.zip(keys, perFrame).filter { $0.1 != nil }.map(\.0)   // (`zip` here is the package's zip file)
+                labelsPlanned.formUnion(labeled)
+                guard try shown(keys) else { windowsLeftOut.tracked += 1; continue }
+                labelsKept.formUnion(labeled)
                 let balls = perFrame[span] ?? []
                 var window = Window(clip: session.name, split: split, time: time,
                                     size: [Int(clip.outputSize.width), Int(clip.outputSize.height)],
@@ -582,7 +702,7 @@ enum MultiFramePackage {
             }
             for (time, times) in p.dead {
                 let keys = times.map(ClipFrames.key)
-                try present(keys)
+                guard try shown(keys) else { windowsLeftOut.dead += 1; continue }
                 var window = Window(clip: session.name, split: split, time: time,
                                     size: [Int(clip.outputSize.width), Int(clip.outputSize.height)],
                                     frames: keys.map { "\(clipDir)/\($0).jpg" }, target: span, balls: [])
@@ -593,7 +713,9 @@ enum MultiFramePackage {
             for (frame, times) in p.windows {
                 defer { done += 1; progress(done, total) }
                 let keys = times.map(ClipFrames.key)
-                try present(keys)
+                labelsPlanned.insert(keys[span])
+                guard try shown(keys) else { windowsLeftOut.sampled += 1; continue }
+                labelsKept.insert(keys[span])
                 let balls = frame.boxes.map { stored($0.rect) }
                 let window = Window(clip: session.name, split: split, time: frame.time,
                                     size: [Int(clip.outputSize.width), Int(clip.outputSize.height)],
@@ -602,6 +724,18 @@ enum MultiFramePackage {
                 if split == "val" { counts.val += 1 } else { counts.train += 1 }
                 counts.balls += balls.count
                 if balls.isEmpty { counts.empty += 1 }
+            }
+            if !leftOut.isEmpty {
+                let windows = windowsLeftOut.tracked + windowsLeftOut.sampled + windowsLeftOut.dead
+                undecodableReports.append(UndecodableReport(clip: session.name, split: split, frames: leftOut.sorted(), windowsLeftOut: windows,
+                                                            trackedWindowsLeftOut: windowsLeftOut.tracked, sampledWindowsLeftOut: windowsLeftOut.sampled,
+                                                            deadWindowsLeftOut: windowsLeftOut.dead, labelsPlanned: labelsPlanned.count,
+                                                            labelsLeftOut: labelsPlanned.subtracting(labelsKept).count, error: leftOutError, reason: leftOutReason))
+                counts.undecodable += leftOut.count
+                counts.windowsLeftOut += windows
+                note?("  ⚠️ \(session.name): \(leftOut.count) frame(s) left out as undecodable with \(windows) window(s) "
+                      + "(\(windowsLeftOut.tracked) tracked, \(windowsLeftOut.sampled) sampled, \(windowsLeftOut.dead) dead-time); "
+                      + "\(labelsPlanned.subtracting(labelsKept).count) of \(labelsPlanned.count) labeled frames now in no window")
             }
         }
         var summary = Summary(name: packageName, createdAt: now, clips: usable.count,
@@ -614,6 +748,9 @@ enum MultiFramePackage {
         summary.deadWindows = counts.dead
         summary.machineRallies = counts.machineRallies
         summary.machineFrames = counts.machineFrames
+        summary.undecodableFrames = counts.undecodable
+        summary.windowsLeftOutUndecodable = counts.windowsLeftOut
+        summary.undecodable = undecodableReports
         if resume != nil { summary.resume = resumed }
         guard counts.val > 0 else { throw PackageError.noValidation }
 
@@ -843,6 +980,46 @@ enum MultiFramePackage {
         return out
     }
 
+    /// Judges a planned frame the export's decoder could not produce after its bounded retries
+    /// (`Undecodable`). The volumes are checked first — a lost mount is never "undecodable". A
+    /// decoder created for this one question is asked for the frame: an answer is the frame.
+    /// Otherwise the frame is a candidate only for an HEVC clip and a decode failure from both
+    /// decoders, and only when the run of consecutive undecodable frames it sits in (walked frame
+    /// by frame with the fresh decoder) is short enough for leading pictures and bounded on both
+    /// sides by frames that decode. A neighbour that fails with anything but a decode failure stops
+    /// the export. Verdicts that keep the export going are fatal errors named for the frame.
+    private static func judgeUndecodable(at time: CMTime, error: NSError, plan p: ClipPlan, anchors: [ExportIO.Anchor]) async throws -> Judgement {
+        for anchor in anchors { try anchor.verify() }
+        let fresh = try await p.clip.freshGenerator()
+        let freshError: NSError
+        do { return .decoded(try await fresh.image(at: time).image) } catch { freshError = error as NSError }
+        if let why = Undecodable.refusal(codec: p.clip.codec, error: error, fresh: freshError) { return .fatal(why) }
+        func decodes(_ t: CMTime) async throws -> Bool {
+            do { _ = try await fresh.image(at: t).image; return true } catch {
+                let e = error as NSError
+                guard Undecodable.isDecodeFailure(e) else {
+                    throw PackageError.frameFailed(clip: p.session.name, frame: "\(ClipFrames.key(t)).jpg", detail: "a neighbouring frame failed differently: \(Undecodable.describe(e))")
+                }
+                return false
+            }
+        }
+        var run = 1, boundedBefore = false, boundedAfter = false
+        var t = time
+        while run <= Undecodable.maxRun, let previous = p.clip.adjacent(to: t, by: -1) {
+            if try await decodes(previous) { boundedBefore = true; break }
+            run += 1; t = previous
+        }
+        t = time
+        while run <= Undecodable.maxRun, let next = p.clip.adjacent(to: t, by: 1) {
+            if try await decodes(next) { boundedAfter = true; break }
+            run += 1; t = next
+        }
+        switch Undecodable.verdict(run: run, boundedBefore: boundedBefore, boundedAfter: boundedAfter, fresh: freshError) {
+        case .fatal(let why): return .fatal(why)
+        case .leftOut(let reason): return .leftOut(reason: reason, fresh: Undecodable.describe(freshError), run: run)
+        }
+    }
+
     private static func regenerate(key: Int64, at time: CMTime, plan p: ClipPlan, anchors: [ExportIO.Anchor]) async throws -> Data {
         try await ExportIO.retrying("decoding \(p.session.name) frame \(key)", anchors: anchors) { () throws -> Data in
             guard let image = try? await p.clip.generator.image(at: time).image, let data = SamplerImageTools.jpegData(image, quality: jpegQuality)
@@ -955,6 +1132,7 @@ enum MultiFramePackage {
         model's own labels ("pseudo"), used with --pseudo.
         \(s.missingVideos.isEmpty ? "" : "\(s.framesWithoutVideo) reviewed frames from \(s.missingVideos.count) clips aren't here: their videos weren't on the Mac.\n")
         \(s.resume.map { "Completed from an export cut short: \($0.framesRetained) frames were already here and proven (\($0.retainedByJournal) by the journal's hashes, \($0.retainedByRegeneration) byte-identical to their regeneration), \($0.framesReplaced) replaced, \($0.framesWritten) written by the resumed run; details in summary.json.\n" } ?? "")
+        \(s.undecodableFrames == 0 ? "" : "\(s.undecodableFrames) planned frames in \(s.undecodable.count) clips could not be decoded (HEVC leading pictures, which the frame-accurate decoder cannot produce on their own); they and the \(s.windowsLeftOutUndecodable) windows that needed them are left out — no frame stands in for another — and listed per clip in summary.json (\"undecodable\"; D-024).\n")
         Train it with scripts/desktop_training/train_heatmap_model.py — it reads windows.jsonl
         directly. See that script's header for the steps.
 
@@ -968,6 +1146,9 @@ private struct ClipFrames {
     let rotation: StoredRotation?
     let outputSize: CGSize
     let duration: Double
+    /// The video's codec (`kCMVideoCodecType_HEVC`, `_H264`, …), from the track's format description.
+    let codec: CMVideoCodecType
+    private let video: URL
     private let track: AVAssetTrack
     /// Video frames between neighbours in a window.
     private let step: Int
@@ -986,23 +1167,56 @@ private struct ClipFrames {
             throw CocoaError(.fileReadCorruptFile)
         }
         self.track = track
+        self.video = video
         duration = try await asset.load(.duration).seconds
         playable = try await track.load(.timeRange)
+        guard let format = try await track.load(.formatDescriptions).first else { throw CocoaError(.fileReadCorruptFile) }
+        codec = CMFormatDescriptionGetMediaSubType(format)
         let fps = Double(try await track.load(.nominalFrameRate))
         step = max(1, Int((fps / MultiFramePackage.frameRate).rounded()))
         let natural = try await track.load(.naturalSize)
         let scale = min(1, longSide / max(natural.width, natural.height))
         outputSize = CGSize(width: (natural.width * scale).rounded(), height: (natural.height * scale).rounded())
         rotation = await StoredRotation.of(video: video)
-        generator = AVAssetImageGenerator(asset: asset)
+        generator = Self.makeGenerator(asset: asset, outputSize: outputSize)
+    }
+
+    private static func makeGenerator(asset: AVAsset, outputSize: CGSize) -> AVAssetImageGenerator {
+        let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = false   // as stored, like the app's pipeline
         generator.maximumSize = outputSize
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
+        return generator
+    }
+
+    /// A generator of this clip's frames with the export's settings on a new asset object:
+    /// nothing shared with `generator`, so an answer or a refusal is the decoder's, not a state's.
+    func freshGenerator() async throws -> AVAssetImageGenerator {
+        let asset = AVURLAsset(url: video)
+        guard try await asset.loadTracks(withMediaType: .video).first != nil else { throw CocoaError(.fileReadCorruptFile) }
+        return Self.makeGenerator(asset: asset, outputSize: outputSize)
     }
 
     /// File-name key for a frame: its presentation time in microseconds.
     static func key(_ time: CMTime) -> Int64 { Int64((time.seconds * 1_000_000).rounded()) }
+
+    /// The moment of the video frame `count` frames from the frame at `time` (a frame's own
+    /// presentation time) in presentation order, when the video shows it whole; nil at the
+    /// clip's ends.
+    func adjacent(to time: CMTime, by count: Int) -> CMTime? {
+        guard let cursor = track.makeSampleCursor(presentationTimeStamp: time), cursor.presentationTimeStamp == time,
+              cursor.stepInPresentationOrder(byCount: Int64(count)) == Int64(count), shownWhole(cursor) else { return nil }
+        return cursor.presentationTimeStamp
+    }
+
+    /// Whether the cursor's frame is shown whole: its end, in the header's own timescale (rounded
+    /// towards the start, as a header rounds a duration), no later than the playable end.
+    private func shownWhole(_ cursor: AVSampleCursor) -> Bool {
+        let time = cursor.presentationTimeStamp
+        let shown = CMTimeConvertScale(time + cursor.currentSampleDuration, timescale: playable.end.timescale, method: .roundTowardZero)
+        return time >= playable.start && shown <= playable.end
+    }
 
     /// Presentation times of the window around the frame showing at `seconds`
     /// — the frame the sampler extracted, which is the last one starting at or
@@ -1021,13 +1235,8 @@ private struct ClipFrames {
         var times: [CMTime] = []
         for offset in -MultiFramePackage.span...MultiFramePackage.span {
             let want = Int64(offset * step)
-            guard let c = cursor.copy() as? AVSampleCursor, c.stepInPresentationOrder(byCount: want) == want else { return nil }
-            let time = c.presentationTimeStamp
-            // The frame's end, in the header's own timescale (rounded towards the start, as a
-            // header rounds a duration), no later than the playable end: the frame is shown whole.
-            let shown = CMTimeConvertScale(time + c.currentSampleDuration, timescale: playable.end.timescale, method: .roundTowardZero)
-            guard time >= playable.start, shown <= playable.end else { return nil }
-            times.append(time)
+            guard let c = cursor.copy() as? AVSampleCursor, c.stepInPresentationOrder(byCount: want) == want, shownWhole(c) else { return nil }
+            times.append(c.presentationTimeStamp)
         }
         return times
     }

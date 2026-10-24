@@ -180,6 +180,10 @@ enum LineagePackage {
         var packageSplit: String
         var windows: Int
         var frames: Int
+        /// Planned frames the exporter left out as undecodable (HEVC leading pictures; D-024) and
+        /// the windows that went with them, from summary.json; absent in records from before.
+        var undecodableFrames: Int? = nil
+        var windowsLeftOut: Int? = nil
     }
 
     struct Check: Codable, Equatable {
@@ -396,11 +400,41 @@ enum LineagePackage {
         let splits = Set(windowsByClip.values.flatMap(\.split))
         check("both-splits-present", splits.isSuperset(of: ["train", "val"]) ? [] : ["have: " + splits.sorted().joined(separator: ",")],
               ok: "train and val windows present")
+        // Frames the exporter left out as undecodable (D-024) are on record in summary.json, each for the
+        // one accepted reason, and each absent: no file for it, no window that names it. Anything the
+        // summary lists otherwise, or cannot say, fails the package.
+        var undecodableBad: [String] = []
+        var undecodableByClip: [String: (frames: Int, windows: Int)] = [:]
+        if let listed = summary?["undecodable"] as? [[String: Any]], let total = summary?["undecodableFrames"] as? Int {
+            var counted = 0
+            for entry in listed {
+                guard let clip = entry["clip"] as? String, let frames = entry["frames"] as? [Any], let reason = entry["reason"] as? String,
+                      let windows = entry["windowsLeftOut"] as? Int
+                else { undecodableBad.append("summary.json undecodable entry is malformed"); continue }
+                counted += frames.count
+                undecodableByClip[clip] = (frames.count, windows)
+                if !reason.hasPrefix("HEVC leading picture") { undecodableBad.append("\(clip): left out for another reason (\(reason.prefix(60)))") }
+                for frame in frames {
+                    let key = (frame as? NSNumber).map { "\($0.int64Value)" } ?? "\(frame)"
+                    let path = "frames/\(DatasetStore.safeName(clip))/\(key).jpg"
+                    if present.contains(path) { undecodableBad.append("\(path) is recorded undecodable but exists") }
+                    if referenced.contains(path) { undecodableBad.append("\(path) is recorded undecodable but a window names it") }
+                }
+            }
+            if counted != total { undecodableBad.append("summary.json undecodableFrames \(total) but \(counted) frames listed") }
+        } else {
+            undecodableBad.append("summary.json does not report undecodableFrames and undecodable")
+        }
+        check("undecodable-frames-recorded", undecodableBad,
+              ok: undecodableByClip.isEmpty ? "no frame was left out as undecodable"
+                : "\(undecodableByClip.values.reduce(0) { $0 + $1.frames }) frame(s) in \(undecodableByClip.count) clip(s) left out as HEVC leading pictures, "
+                  + "each absent from the folder and from every window (D-024)")
 
         let digest = DatasetSplitManifest.canonicalDigest(lines: files.map { ($0.path, $0.sha256) })
         let clips = windowsByClip.keys.sorted().map { clip in
             ClipRow(clip: clip, packageSplit: windowsByClip[clip]!.split.sorted().joined(separator: "+"),
-                    windows: windowsByClip[clip]!.windows, frames: windowsByClip[clip]!.frames.count)
+                    windows: windowsByClip[clip]!.windows, frames: windowsByClip[clip]!.frames.count,
+                    undecodableFrames: undecodableByClip[clip]?.frames, windowsLeftOut: undecodableByClip[clip]?.windows)
         }
         return Preflight(createdAt: now, package: packageDir.lastPathComponent, passed: checks.allSatisfy(\.passed),
                          checks: checks, clips: clips, files: files, digest: digest,
@@ -602,8 +636,8 @@ enum LineagePackage {
             }
             md += ".\n"
         }
-        md += "\n| Clip | Split | Windows | Frames |\n|---|---|---|---|\n"
-        for c in preflight.clips { md += "| \(c.clip) | \(c.packageSplit) | \(c.windows) | \(c.frames) |\n" }
+        md += "\n| Clip | Split | Windows | Frames | Undecodable frames left out | Windows left out |\n|---|---|---|---|---|---|\n"
+        for c in preflight.clips { md += "| \(c.clip) | \(c.packageSplit) | \(c.windows) | \(c.frames) | \(c.undecodableFrames ?? 0) | \(c.windowsLeftOut ?? 0) |\n" }
         return md
     }
 }
