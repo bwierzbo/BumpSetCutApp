@@ -108,7 +108,7 @@ enum MultiFramePackage {
         /// Reviewed frames too close to the start or end of their video.
         let framesAtEdges: Int
         /// Planned frames the decoder could not produce — HEVC leading pictures (`Undecodable`;
-        /// D-024) — left out, each with every window that needed it. Which, per clip: `undecodable`.
+        /// D-025) — left out, each with every window that needed it. Which, per clip: `undecodable`.
         var undecodableFrames: Int = 0
         var windowsLeftOutUndecodable: Int = 0
         var undecodable: [UndecodableReport] = []
@@ -150,7 +150,7 @@ enum MultiFramePackage {
     /// is left out: another codec, another error, a fresh decoder that fails differently, a run
     /// of undecodable frames longer than leading pictures come in, or one not bounded on both
     /// sides by frames that decode (a damaged clip loses the rest of its group of pictures) all
-    /// stop the export as before, naming the frame. D-022 as amended by D-024.
+    /// stop the export as before, naming the frame. D-022 as amended by D-025.
     enum Undecodable {
         /// Leading pictures per key frame: three, sometimes four, in iPhone HEVC recordings; the
         /// x265 fixture gives four. A longer run is not that.
@@ -185,7 +185,7 @@ enum MultiFramePackage {
                 return .fatal("the run of undecodable frames is not bounded by frames that decode on both sides (it reaches the clip's \(boundedBefore ? "end" : "start"))")
             }
             return .leftOut(reason: "HEVC leading picture: one of \(run) consecutive frame(s) before a key frame that the frame-accurate decoder cannot produce "
-                            + "(\(describe(fresh))), bounded by frames that decode; left out with every window that needs it (D-024)")
+                            + "(\(describe(fresh))), bounded by frames that decode; left out with every window that needs it (D-025)")
         }
 
         static func fourCC(_ codec: CMVideoCodecType) -> String {
@@ -1145,7 +1145,7 @@ enum MultiFramePackage {
         model's own labels ("pseudo"), used with --pseudo.
         \(s.missingVideos.isEmpty ? "" : "\(s.framesWithoutVideo) reviewed frames from \(s.missingVideos.count) clips aren't here: their videos weren't on the Mac.\n")
         \(s.resume.map { "Completed from an export cut short: \($0.framesRetained) frames were already here and proven (\($0.retainedByJournal) by the journal's hashes, \($0.retainedByRegeneration) byte-identical to their regeneration), \($0.framesReplaced) replaced, \($0.framesWritten) written by the resumed run; details in summary.json.\n" } ?? "")
-        \(s.undecodableFrames == 0 ? "" : "\(s.undecodableFrames) planned frames in \(s.undecodable.count) clips could not be decoded (HEVC leading pictures, which the frame-accurate decoder cannot produce on their own); they and the \(s.windowsLeftOutUndecodable) windows that needed them are left out — no frame stands in for another — and listed per clip in summary.json (\"undecodable\"; D-024).\n")
+        \(s.undecodableFrames == 0 ? "" : "\(s.undecodableFrames) planned frames in \(s.undecodable.count) clips could not be decoded (HEVC leading pictures, which the frame-accurate decoder cannot produce on their own); they and the \(s.windowsLeftOutUndecodable) windows that needed them are left out — no frame stands in for another — and listed per clip in summary.json (\"undecodable\"; D-025).\n")
         Train it with scripts/desktop_training/train_heatmap_model.py — it reads windows.jsonl
         directly. See that script's header for the steps.
 

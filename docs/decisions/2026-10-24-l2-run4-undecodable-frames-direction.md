@@ -2,11 +2,11 @@
 name: l2-run4-undecodable-frames-direction
 status: accepted
 created: 2026-10-24T17:36:41Z
-updated: 2026-10-24T17:36:41Z
+updated: 2026-10-24T23:50:37Z
 source: owner, delivered to Claude Code on 2026-10-24 after the fourth resumed L2 export stopped on an undecodable HEVC frame
 ---
 
-> Verbatim record of the owner's direction after the fourth resumed L2 export (`Scratch-L2-multiframe-20261021-1917`, run 4, started 2026-10-24T02:49Z from main `6f73cec`) stopped at 11:02Z on `bch_ele_sun_land_self_01/1685000.jpg` (`Cannot Decode`): an HEVC leading picture the frame-accurate decoder cannot produce. Primary source for D-024 (amending D-022). Reproduced as received; the heading is the owner's.
+> Verbatim record of the owner's direction after the fourth resumed L2 export (`Scratch-L2-multiframe-20261021-1917`, run 4, started 2026-10-24T02:49Z from main `6f73cec`) stopped at 11:02Z on `bch_ele_sun_land_self_01/1685000.jpg` (`Cannot Decode`): an HEVC leading picture the frame-accurate decoder cannot produce. Primary source for D-025 (amending D-022). Reproduced as received; the heading is the owner's.
 
 # L2 Run 4 — Owner Direction
 

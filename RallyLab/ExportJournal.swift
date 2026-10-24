@@ -13,7 +13,7 @@
 //  written. A torn last line (the write that was cut short) is ignored.
 //
 //  A frame the decoder could not produce and the export left out (an HEVC
-//  leading picture, MultiFramePackage.Undecodable; D-024) is a line too,
+//  leading picture, MultiFramePackage.Undecodable; D-025) is a line too,
 //  with the error, the attempts and the reason: the omission is on record
 //  where the frames are. The line type is new to this exporter build; a
 //  journal that holds one is refused by an older build (unknown line type),

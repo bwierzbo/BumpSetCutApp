@@ -300,7 +300,7 @@ final class MultiFramePackageResumeTests: XCTestCase {
         XCTAssertEqual(Set(pictures).count, pictures.count, "every frame file is its own picture")
     }
 
-    // MARK: - Undecodable frames (HEVC leading pictures; D-022 as amended by D-024)
+    // MARK: - Undecodable frames (HEVC leading pictures; D-022 as amended by D-025)
 
     /// A committed clip from RallyLabTests/Fixtures, copied under the fixture root as `name.mp4`
     /// (the exporter anchors the video's device and inode, so it must be a file of its own).

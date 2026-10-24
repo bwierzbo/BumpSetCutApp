@@ -180,7 +180,7 @@ enum LineagePackage {
         var packageSplit: String
         var windows: Int
         var frames: Int
-        /// Planned frames the exporter left out as undecodable (HEVC leading pictures; D-024) and
+        /// Planned frames the exporter left out as undecodable (HEVC leading pictures; D-025) and
         /// the windows that went with them, from summary.json; absent in records from before.
         var undecodableFrames: Int? = nil
         var windowsLeftOut: Int? = nil
@@ -355,7 +355,7 @@ enum LineagePackage {
         }
         check("no-missing-videos", skipped, ok: "summary.json: no clip was left out for a missing video")
 
-        // Frames the exporter left out as undecodable (D-024) are on record in summary.json, each for the
+        // Frames the exporter left out as undecodable (D-025) are on record in summary.json, each for the
         // one accepted reason. Read first: a clip every window of which was left out contributes no
         // window, and its folder of decodable frames is the package's own on this record alone — when
         // the clip is eligible and not withheld. Each recorded frame must be absent (checked below).
@@ -456,7 +456,7 @@ enum LineagePackage {
               ok: undecodableByClip.isEmpty ? "no frame was left out as undecodable"
                 : "\(undecodableByClip.values.reduce(0) { $0 + $1.frames.count }) frame(s) in \(undecodableByClip.count) clip(s) left out as HEVC leading pictures, "
                   + "each absent from the folder and from every window"
-                  + (noWindowClips.isEmpty ? "" : "; \(noWindowClips.count) clip(s) contribute no window") + " (D-024)")
+                  + (noWindowClips.isEmpty ? "" : "; \(noWindowClips.count) clip(s) contribute no window") + " (D-025)")
 
         let digest = DatasetSplitManifest.canonicalDigest(lines: files.map { ($0.path, $0.sha256) })
         let clips = packagedClips.sorted().map { clip in
