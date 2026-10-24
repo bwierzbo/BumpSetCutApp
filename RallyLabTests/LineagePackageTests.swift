@@ -68,7 +68,7 @@ final class LineagePackageTests: XCTestCase {
         try write([window("t", "train", ["frames/t/1000.jpg", "frames/t/2000.jpg"]), window("v", "val", ["frames/v/1000.jpg"])].joined(separator: "\n") + "\n",
                   to: "\(dir.lastPathComponent)/windows.jsonl")
         try write("readme", to: "\(dir.lastPathComponent)/README.txt")
-        try write("{\"machineFrames\":0,\"missingVideos\":[],\"framesWithoutVideo\":0}", to: "\(dir.lastPathComponent)/summary.json")
+        try write("{\"machineFrames\":0,\"missingVideos\":[],\"framesWithoutVideo\":0,\"undecodableFrames\":0,\"undecodable\":[]}", to: "\(dir.lastPathComponent)/summary.json")
         return dir
     }
 
@@ -249,12 +249,12 @@ final class LineagePackageTests: XCTestCase {
     func testPreflightFailsWhenTheExporterLeftAClipOutOrCannotSay() throws {
         let dir = try writeCleanPackage()
         let thePlan = plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"])
-        try write("{\"machineFrames\":0,\"missingVideos\":[\"u\"],\"framesWithoutVideo\":3}", to: "\(dir.lastPathComponent)/summary.json")
+        try write("{\"machineFrames\":0,\"missingVideos\":[\"u\"],\"framesWithoutVideo\":3,\"undecodableFrames\":0,\"undecodable\":[]}", to: "\(dir.lastPathComponent)/summary.json")
         let skipped = try preflight(dir, plan: thePlan)
         XCTAssertEqual(failed(skipped), ["no-missing-videos"])
         XCTAssertTrue(skipped.checks.first { $0.name == "no-missing-videos" }!.detail.contains("u"))
         try write("{}", to: "\(dir.lastPathComponent)/summary.json")
-        XCTAssertEqual(failed(try preflight(dir, plan: thePlan)), ["no-missing-videos"], "a summary that cannot say fails too")
+        XCTAssertEqual(failed(try preflight(dir, plan: thePlan)), ["no-missing-videos", "undecodable-frames-recorded"], "a summary that cannot say fails too")
     }
 
     func testExportWritesThePackageWhereItIsTold() async throws {
@@ -350,7 +350,7 @@ final class LineagePackageTests: XCTestCase {
         let dir = try writeCleanPackage()
         let pseudo = window("t", "train", ["frames/t/1000.jpg", "frames/t/2000.jpg"]).replacingOccurrences(of: "\"balls\":[]", with: "\"balls\":[],\"pseudo\":[false,true]")
         try write([pseudo, window("v", "val", ["frames/v/1000.jpg"])].joined(separator: "\n") + "\n", to: "\(dir.lastPathComponent)/windows.jsonl")
-        try write("{\"machineFrames\": 3,\"missingVideos\":[],\"framesWithoutVideo\":0}", to: "\(dir.lastPathComponent)/summary.json")
+        try write("{\"machineFrames\": 3,\"missingVideos\":[],\"framesWithoutVideo\":0,\"undecodableFrames\":0,\"undecodable\":[]}", to: "\(dir.lastPathComponent)/summary.json")
         let p = try preflight(dir, plan: plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"]), protectedHashes: [])
         XCTAssertEqual(failed(p), ["no-machine-labels"])
         XCTAssertTrue(p.checks.first { $0.name == "no-machine-labels" }!.detail.contains("t"))

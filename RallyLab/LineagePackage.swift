@@ -180,6 +180,10 @@ enum LineagePackage {
         var packageSplit: String
         var windows: Int
         var frames: Int
+        /// Planned frames the exporter left out as undecodable (HEVC leading pictures; D-024) and
+        /// the windows that went with them, from summary.json; absent in records from before.
+        var undecodableFrames: Int? = nil
+        var windowsLeftOut: Int? = nil
     }
 
     struct Check: Codable, Equatable {
@@ -351,61 +355,120 @@ enum LineagePackage {
         }
         check("no-missing-videos", skipped, ok: "summary.json: no clip was left out for a missing video")
 
+        // Frames the exporter left out as undecodable (D-024) are on record in summary.json, each for the
+        // one accepted reason. Read first: a clip every window of which was left out contributes no
+        // window, and its folder of decodable frames is the package's own on this record alone — when
+        // the clip is eligible and not withheld. Each recorded frame must be absent (checked below).
+        var undecodableBad: [String] = []
+        var undecodableByClip: [String: (frames: Set<String>, windows: Int, planned: Int)] = [:]
+        var undecodableTotal: Int?
+        if let listed = summary?["undecodable"] as? [[String: Any]], let total = summary?["undecodableFrames"] as? Int {
+            undecodableTotal = total
+            for entry in listed {
+                guard let clip = entry["clip"] as? String, let frames = entry["frames"] as? [Any], let reason = entry["reason"] as? String,
+                      let windows = entry["windowsLeftOut"] as? Int, let planned = entry["windowsPlanned"] as? Int
+                else { undecodableBad.append("summary.json undecodable entry is malformed"); continue }
+                let keys = frames.map { ((($0 as? NSNumber).map { "\($0.int64Value)" }) ?? "\($0)") }
+                undecodableByClip[clip] = (Set(keys.map { "frames/\(DatasetStore.safeName(clip))/\($0).jpg" }), windows, planned)
+                if !reason.hasPrefix("HEVC leading picture") { undecodableBad.append("\(clip): left out for another reason (\(reason.prefix(60)))") }
+                if eligibleSplit[clip] == nil { undecodableBad.append("\(clip): recorded undecodable frames but not an eligible clip") }
+                if withheldNames.contains(clip) || withheldSafe.contains(DatasetStore.safeName(clip)) { undecodableBad.append("\(clip): recorded undecodable frames but withheld") }
+                if windows > planned || planned == 0 { undecodableBad.append("\(clip): \(windows) of \(planned) windows left out") }
+            }
+        } else {
+            undecodableBad.append("summary.json does not report undecodableFrames and undecodable")
+        }
+        /// Eligible clips with every planned window left out (by safe name): their folders are allowed, their frames are not stray.
+        let noWindowClips = Set(undecodableByClip.filter { $0.value.windows == $0.value.planned && $0.value.planned > 0 && eligibleSplit[$0.key] != nil }
+                                    .keys.map(DatasetStore.safeName))
+        for clip in noWindowClips where eligibleBySafe[clip].map({ windowsByClip[$0] != nil }) == true {
+            undecodableBad.append("\(clip): recorded with every window left out, yet windows.jsonl holds its windows")
+        }
+        /// A frames/ folder is a packaged clip's: one with windows, or one on record with every window left out.
+        func packaged(_ safeClip: String) -> Bool {
+            !withheldSafe.contains(safeClip) && (eligibleBySafe[safeClip].map { windowsByClip[$0] != nil } == true || noWindowClips.contains(safeClip))
+        }
+
         // Files on disk: hashed, and nothing that isn't the package's own.
         guard let hashed = DatasetSplitManifest.canonicalFileHashes(ofDirectory: packageDir) else { throw PreflightError.unreadable(packageDir.path) }
         var files: [FileHash] = []
         var stray: [String] = [], protected: [String] = [], missing: [String] = []
         var present = Set<String>()
+        var framesInFolder: [String: Int] = [:]   // by safe clip name
         for (path, sha, bytes) in hashed {
             present.insert(path)
             let parts = path.split(separator: "/").map(String.init)
             let own = topLevelFiles.contains(path) && parts.count == 1
             if path == recordFile && parts.count == 1 { continue }   // allowed, never hashed into its own record
             files.append(FileHash(path: path, sha256: sha, bytes: bytes))
-            let frame = parts.count == 3 && parts[0] == "frames" && eligibleBySafe[parts[1]].map { windowsByClip[$0] != nil } == true
-                && !withheldSafe.contains(parts[1])
+            let frame = parts.count == 3 && parts[0] == "frames" && packaged(parts[1])
+            if frame { framesInFolder[parts[1], default: 0] += 1 }
             if !(own || frame) { stray.append(path) }
             if protectedHashes.contains(sha) { protected.append(path) }
         }
         for path in referenced where !present.contains(path) { missing.append(path) }
         var clipDirs: [String] = []
         if let dirs = try? fm.contentsOfDirectory(at: packageDir.appendingPathComponent("frames"), includingPropertiesForKeys: nil) {
-            for d in dirs where eligibleBySafe[d.lastPathComponent].map({ windowsByClip[$0] != nil }) != true { clipDirs.append("frames/" + d.lastPathComponent) }
+            for d in dirs where !packaged(d.lastPathComponent) { clipDirs.append("frames/" + d.lastPathComponent) }
         }
         check("frame-files-exist", missing, ok: "every referenced frame is in the package")
         check("no-stray-files", stray, ok: "only windows.jsonl, README.txt, summary.json, \(recordFile) and the eligible clips' frames")
-        check("frame-dirs-have-windows", clipDirs, ok: "every frames/ folder belongs to a packaged clip")
+        check("frame-dirs-have-windows", clipDirs,
+              ok: noWindowClips.isEmpty ? "every frames/ folder belongs to a packaged clip"
+                : "every frames/ folder belongs to a packaged clip (\(noWindowClips.count) on record with every window left out: \(noWindowClips.sorted().joined(separator: ", ")))")
         check("no-protected-content", protected, ok: "no file matches a withheld recording's frame by content (\(protectedHashes.count) hashes)")
+        // Every clip whose frames are in the package — with windows or without — is checked against the withheld identities.
+        let packagedClips = Set(windowsByClip.keys).union(noWindowClips.compactMap { eligibleBySafe[$0] })
         var badSources: [String] = []
-        for clip in windowsByClip.keys.sorted() {
+        for clip in packagedClips.sorted() {
             guard let fp = sourceFingerprints[clip] else { badSources.append("\(clip): no source fingerprint"); continue }
             if protectedSources.contains(fp) { badSources.append("\(clip): its video is a withheld recording's (\(fp.prefix(21))…)") }
         }
         check("sources-not-protected", badSources,
               ok: "every packaged clip's video is fingerprinted and matches none of the \(protectedSources.count) withheld identities")
         // The same footage on both sides of the package (two sessions, two project identities, one
-        // file) would let val score what train saw. Grouped by the file actually exported.
+        // file) would let val score what train saw. Grouped by the file actually exported; a clip
+        // without windows counts on its planned side, its frames being in the package all the same.
+        func sides(_ clip: String) -> Set<String> { windowsByClip[clip]?.split ?? eligibleSplit[clip].map { [$0] } ?? [] }
         var byFingerprint: [String: [String]] = [:]
-        for (clip, entry) in windowsByClip { if let fp = sourceFingerprints[clip] { byFingerprint[fp, default: []].append(clip) }; _ = entry }
+        for clip in packagedClips { if let fp = sourceFingerprints[clip] { byFingerprint[fp, default: []].append(clip) } }
         var shared: [String] = []
         for (fp, clips) in byFingerprint {
-            let splits = Set(clips.flatMap { windowsByClip[$0]!.split })
+            let splits = Set(clips.flatMap(sides))
             if splits.isSuperset(of: ["train", "val"]) { shared.append("\(clips.sorted().joined(separator: "+")) share one video (\(fp.prefix(21))…) across train and val") }
         }
         check("sources-disjoint-across-splits", shared, ok: "no video file is packaged on both the train and the val side")
         let splits = Set(windowsByClip.values.flatMap(\.split))
         check("both-splits-present", splits.isSuperset(of: ["train", "val"]) ? [] : ["have: " + splits.sorted().joined(separator: ",")],
               ok: "train and val windows present")
+        // …and each recorded frame is absent: no file for it, no window that names it; the counts agree.
+        for (clip, entry) in undecodableByClip.sorted(by: { $0.key < $1.key }) {
+            for path in entry.frames.sorted() {
+                if present.contains(path) { undecodableBad.append("\(path) is recorded undecodable but exists") }
+                if referenced.contains(path) { undecodableBad.append("\(path) is recorded undecodable but a window names it") }
+            }
+            _ = clip
+        }
+        if let total = undecodableTotal, total != undecodableByClip.values.reduce(0, { $0 + $1.frames.count }) {
+            undecodableBad.append("summary.json undecodableFrames \(total) but \(undecodableByClip.values.reduce(0) { $0 + $1.frames.count }) frames listed")
+        }
+        check("undecodable-frames-recorded", undecodableBad,
+              ok: undecodableByClip.isEmpty ? "no frame was left out as undecodable"
+                : "\(undecodableByClip.values.reduce(0) { $0 + $1.frames.count }) frame(s) in \(undecodableByClip.count) clip(s) left out as HEVC leading pictures, "
+                  + "each absent from the folder and from every window"
+                  + (noWindowClips.isEmpty ? "" : "; \(noWindowClips.count) clip(s) contribute no window") + " (D-024)")
 
         let digest = DatasetSplitManifest.canonicalDigest(lines: files.map { ($0.path, $0.sha256) })
-        let clips = windowsByClip.keys.sorted().map { clip in
-            ClipRow(clip: clip, packageSplit: windowsByClip[clip]!.split.sorted().joined(separator: "+"),
-                    windows: windowsByClip[clip]!.windows, frames: windowsByClip[clip]!.frames.count)
+        let clips = packagedClips.sorted().map { clip in
+            ClipRow(clip: clip, packageSplit: sides(clip).sorted().joined(separator: "+"),
+                    windows: windowsByClip[clip]?.windows ?? 0,
+                    frames: windowsByClip[clip]?.frames.count ?? framesInFolder[DatasetStore.safeName(clip)] ?? 0,
+                    undecodableFrames: undecodableByClip[clip]?.frames.count, windowsLeftOut: undecodableByClip[clip]?.windows)
         }
         return Preflight(createdAt: now, package: packageDir.lastPathComponent, passed: checks.allSatisfy(\.passed),
                          checks: checks, clips: clips, files: files, digest: digest,
                          windowsSha256: files.first { $0.path == "windows.jsonl" }?.sha256,
-                         sourceFingerprints: sourceFingerprints.filter { windowsByClip[$0.key] != nil },
+                         sourceFingerprints: sourceFingerprints.filter { packagedClips.contains($0.key) },
                          protectedSourceFingerprints: protectedSources.sorted(),
                          protectedFrameFiles: protectedFrameFiles, danglingProtectedRecords: danglingProtectedRecords)
     }
@@ -602,8 +665,8 @@ enum LineagePackage {
             }
             md += ".\n"
         }
-        md += "\n| Clip | Split | Windows | Frames |\n|---|---|---|---|\n"
-        for c in preflight.clips { md += "| \(c.clip) | \(c.packageSplit) | \(c.windows) | \(c.frames) |\n" }
+        md += "\n| Clip | Split | Windows | Frames | Undecodable frames left out | Windows left out |\n|---|---|---|---|---|---|\n"
+        for c in preflight.clips { md += "| \(c.clip) | \(c.packageSplit) | \(c.windows) | \(c.frames) | \(c.undecodableFrames ?? 0) | \(c.windowsLeftOut ?? 0) |\n" }
         return md
     }
 }
