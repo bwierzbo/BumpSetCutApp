@@ -3,7 +3,7 @@ id: EXP-20261021-l2-scratch-prereg
 lineage: L2
 status: recipe approved with amendments (D-019); first export failed 2026-10-22 and is being recovered (D-022); provenance audit 2026-10-23 — labels people's only (D-023); second resumed export stopped 2026-10-23 at a trimmed clip's playable end (plan fix PR #91 merged); third resume refused the folder at a retained frame the corrected plan no longer needs, refined end rule in review; package not complete; final approval pending; training not authorised
 created: 2026-10-21T20:19:11Z
-updated: 2026-10-24T02:05:00Z
+updated: 2026-10-24T01:46:53Z
 approved_by: recipe — owner, 2026-10-21 (D-019); completed record — not yet
 decision: D-017, D-018, D-019, D-022, D-023
 pr: data/l2-dataset-isolation (#73, merged), data/l2-package-export (#75, merged), feat/l2-export-resume (#85, merged), docs/l2-prereg-recovery (#87, merged), fix/l2-window-playable-range (#91, merged), fix/l2-window-fits-playable-end
