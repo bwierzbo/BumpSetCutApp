@@ -987,15 +987,21 @@ enum MultiFramePackage {
     /// decoders, and only when the run of consecutive undecodable frames it sits in (walked frame
     /// by frame with the fresh decoder) is short enough for leading pictures and bounded on both
     /// sides by frames that decode. A neighbour that fails with anything but a decode failure stops
-    /// the export. Verdicts that keep the export going are fatal errors named for the frame.
+    /// the export. Verdicts that keep the export going are fatal errors named for the frame. The
+    /// fresh decoder is watched like the export's own (`VolumeWatch`): a mount that goes while it
+    /// is asked is a lost volume within seconds, never an "undecodable" frame or a network timeout.
     private static func judgeUndecodable(at time: CMTime, error: NSError, plan p: ClipPlan, anchors: [ExportIO.Anchor]) async throws -> Judgement {
         for anchor in anchors { try anchor.verify() }
         let fresh = try await p.clip.freshGenerator()
+        let watch = VolumeWatch(anchors: anchors, generator: fresh)
+        defer { watch.stop() }
+        func lost() throws { if let error = watch.error { throw error } }
         let freshError: NSError
-        do { return .decoded(try await fresh.image(at: time).image) } catch { freshError = error as NSError }
+        do { let image = try await fresh.image(at: time).image; try lost(); return .decoded(image) } catch { try lost(); freshError = error as NSError }
         if let why = Undecodable.refusal(codec: p.clip.codec, error: error, fresh: freshError) { return .fatal(why) }
         func decodes(_ t: CMTime) async throws -> Bool {
-            do { _ = try await fresh.image(at: t).image; return true } catch {
+            do { _ = try await fresh.image(at: t).image; try lost(); return true } catch {
+                try lost()
                 let e = error as NSError
                 guard Undecodable.isDecodeFailure(e) else {
                     throw PackageError.frameFailed(clip: p.session.name, frame: "\(ClipFrames.key(t)).jpg", detail: "a neighbouring frame failed differently: \(Undecodable.describe(e))")
