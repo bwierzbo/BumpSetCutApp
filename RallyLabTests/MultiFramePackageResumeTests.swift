@@ -335,15 +335,58 @@ final class MultiFramePackageResumeTests: XCTestCase {
         return session
     }
 
-    /// The lineage preflight for the HEVC fixture clip (train) and clip `a` (val).
-    private func preflightWithFixture(_ dir: URL, clip: String) throws -> LineagePackage.Preflight {
+    /// The lineage preflight for the HEVC fixture clip (train), clip `a` (val) and, when `withB`, clip `b` (train).
+    private func preflightWithFixture(_ dir: URL, clip: String, withB: Bool = false) throws -> LineagePackage.Preflight {
+        var eligible: [LineagePackage.Eligible] = [.init(video: "a", split: .devVal, packageSplit: "val", aliasGroup: "a", identities: [], reviewedFrames: 1, ralliesMarked: false),
+                                                   .init(video: clip, split: .train, packageSplit: "train", aliasGroup: clip, identities: [], reviewedFrames: 0, ralliesMarked: false)]
+        if withB { eligible.append(.init(video: "b", split: .train, packageSplit: "train", aliasGroup: "b", identities: [], reviewedFrames: 1, ralliesMarked: false)) }
         let plan = LineagePackage.Plan(lineage: "L2", project: "Fixture", createdAt: now, generator: "test",
                                        manifestHashes: .init(projectJson: "p", sessions: "s", validationJson: "v"), audit: .init(hard: 0, soft: 0, info: 0),
                                        withheld: [.init(video: "w", split: .lineageHoldout, reservedAs: "listed", aliasGroup: "w", identities: [])], withheldClosure: ["w"],
-                                       eligible: [.init(video: "a", split: .devVal, packageSplit: "val", aliasGroup: "a", identities: [], reviewedFrames: 1, ralliesMarked: false),
-                                                  .init(video: clip, split: .train, packageSplit: "train", aliasGroup: clip, identities: [], reviewedFrames: 0, ralliesMarked: false)])
-        return try LineagePackage.preflight(packageDir: dir, plan: plan, sourceFingerprints: ["a": "file:A", clip: "file:L"], protectedSources: ["file:W"],
+                                       eligible: eligible)
+        return try LineagePackage.preflight(packageDir: dir, plan: plan, sourceFingerprints: ["a": "file:A", "b": "file:B", clip: "file:L"], protectedSources: ["file:W"],
                                             protectedHashes: ["0000"], now: now)
+    }
+
+    /// Every window of a clip can need a leading picture: a short rally around the key frame. The clip
+    /// then contributes no window; its decodable frames stay in its folder, on record in summary.json
+    /// (`windowsPlanned` = `windowsLeftOut`), the exporter's own completion check holds, and the lineage
+    /// preflight accepts the folder on that record — and only on it: an eligible clip, not withheld,
+    /// with no window in windows.jsonl. Train windows come from another clip.
+    func testAClipWhoseEveryWindowIsLeftOutKeepsItsFramesOnRecord() async throws {
+        let clip = try await fixture("open-gop-hevc-leading3")
+        // Checked frames 54…60 (0.9…1.0 s): windows on 54, 56, 58 and 60, each needing frame 56 or 58.
+        // Planned frames: the even ones 38…76 (20); written: 18.
+        let lead = tracked("lead3", video: clip, from: 0.9, to: 1.0, fps: 60)
+        let sessions = [lead, session("b", split: "train", video: try await video("b", seed: 7), times: [1.0]),
+                        session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])]
+        var preflighted: LineagePackage.Preflight?
+        let (dir, summary) = try await export(sessions, beforeZip: { preflighted = try self.preflightWithFixture($0, clip: "lead3", withB: true) })
+        XCTAssertEqual(summary.trainWindows, 1, "b's window only")
+        XCTAssertEqual(summary.undecodableFrames, 2); XCTAssertEqual(summary.windowsLeftOutUndecodable, 4)
+        let report = try XCTUnwrap(summary.undecodable.first)
+        XCTAssertEqual(report.windowsPlanned, 4); XCTAssertEqual(report.windowsLeftOut, 4)
+        XCTAssertEqual(try frameNames(dir, "lead3").count, 18)
+        XCTAssertEqual(summary.frames, 18 + 17 + 17)
+        let windows = try String(contentsOf: dir.appendingPathComponent("windows.jsonl"), encoding: .utf8)
+        XCTAssertFalse(windows.contains("\"clip\":\"lead3\""))
+        let p = try XCTUnwrap(preflighted)
+        XCTAssertTrue(p.passed, p.checks.filter { !$0.passed }.map { "\($0.name): \($0.detail)" }.joined(separator: "; "))
+        XCTAssertTrue(p.checks.first { $0.name == "frame-dirs-have-windows" }!.detail.contains("1 on record with every window left out: lead3"))
+        XCTAssertTrue(p.checks.first { $0.name == "undecodable-frames-recorded" }!.detail.contains("1 clip(s) contribute no window"))
+        let row = try XCTUnwrap(p.clips.first { $0.clip == "lead3" })
+        XCTAssertEqual(row.windows, 0); XCTAssertEqual(row.frames, 18); XCTAssertEqual(row.packageSplit, "train")
+        XCTAssertEqual(row.undecodableFrames, 2); XCTAssertEqual(row.windowsLeftOut, 4)
+        XCTAssertEqual(p.sourceFingerprints["lead3"], "file:L", "a clip without windows is still checked against the withheld identities")
+        // Without the record the folder is a stray one; a withheld or ineligible clip is refused even with it.
+        let summaryURL = dir.appendingPathComponent("summary.json")
+        let original = try String(contentsOf: summaryURL, encoding: .utf8)
+        try original.replacingOccurrences(of: "\"windowsPlanned\" : 4", with: "\"windowsPlanned\" : 5").write(to: summaryURL, atomically: true, encoding: .utf8)
+        var failed = Set(try preflightWithFixture(dir, clip: "lead3", withB: true).checks.filter { !$0.passed }.map(\.name))
+        XCTAssertEqual(failed, ["frame-dirs-have-windows", "no-stray-files"], "a clip with a window still to account for is not a no-window clip")
+        try original.write(to: summaryURL, atomically: true, encoding: .utf8)
+        failed = Set(try preflightWithFixture(dir, clip: "zzz", withB: true).checks.filter { !$0.passed }.map(\.name))
+        XCTAssertTrue(failed.isSuperset(of: ["frame-dirs-have-windows", "no-stray-files", "undecodable-frames-recorded"]), "\(failed)")
     }
 
     /// The three frames before each key frame of an open-GOP HEVC clip cannot be decoded. The export
