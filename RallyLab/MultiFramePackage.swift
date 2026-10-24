@@ -974,8 +974,10 @@ private struct ClipFrames {
     /// The moments the video shows: the track's range in the asset's timeline. A clip trimmed
     /// in Photos keeps every frame it was recorded with and shortens it with an edit list; the
     /// sample cursor still walks the cut-off frames, but the generator gives no picture for a
-    /// moment past this end (`Cannot Open`) and, for the moment at the end itself, the last
-    /// frame's picture again under another name.
+    /// moment past this end (`Cannot Open`) and, for a moment that starts before the end but
+    /// shows no frame of its own — the end is kept in the header's timescale, often 1 ms, and
+    /// can sit a hair past the last frame's start plus its spacing — the last frame's picture
+    /// again under another name. A frame is shown only when all of it fits before the end.
     private let playable: CMTimeRange
 
     init(video: URL, longSide: CGFloat) async throws {
@@ -1005,9 +1007,10 @@ private struct ClipFrames {
     /// Presentation times of the window around the frame showing at `seconds`
     /// — the frame the sampler extracted, which is the last one starting at or
     /// before that time — or nil if the video ends too soon on either side:
-    /// the frames run out, or the window would reach a moment the video does
-    /// not show (`playable`). The cursor's times are the moments the generator
-    /// is then asked for, so they are what is held to that range.
+    /// the frames run out, or the window would reach a moment whose frame the
+    /// video does not show whole (`playable`). The cursor's times are the
+    /// moments the generator is then asked for, so they are what is held to
+    /// that range.
     /// `exact`: `seconds` is a frame's own presentation time (a tracked
     /// rally's), which rounded to the sampler's 1/600 s could land a hair
     /// before the frame (59.94 fps) and centre the window on the one before.
@@ -1020,7 +1023,10 @@ private struct ClipFrames {
             let want = Int64(offset * step)
             guard let c = cursor.copy() as? AVSampleCursor, c.stepInPresentationOrder(byCount: want) == want else { return nil }
             let time = c.presentationTimeStamp
-            guard time >= playable.start, time < playable.end else { return nil }
+            // The frame's end, in the header's own timescale (rounded towards the start, as a
+            // header rounds a duration), no later than the playable end: the frame is shown whole.
+            let shown = CMTimeConvertScale(time + c.currentSampleDuration, timescale: playable.end.timescale, method: .roundTowardZero)
+            guard time >= playable.start, shown <= playable.end else { return nil }
             times.append(time)
         }
         return times
