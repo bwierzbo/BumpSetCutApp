@@ -300,6 +300,320 @@ final class MultiFramePackageResumeTests: XCTestCase {
         XCTAssertEqual(Set(pictures).count, pictures.count, "every frame file is its own picture")
     }
 
+    // MARK: - Undecodable frames (HEVC leading pictures; D-022 as amended by D-025)
+
+    /// A committed clip from RallyLabTests/Fixtures, copied under the fixture root as `name.mp4`
+    /// (the exporter anchors the video's device and inode, so it must be a file of its own).
+    ///   open-gop-hevc-leading3: `ffmpeg -f lavfi -i testsrc2=size=64x36:rate=60:duration=3 -c:v libx265
+    ///     -x265-params open-gop=1:keyint=60:min-keyint=60:bframes=4:b-adapt=0:scenecut=0:no-sao=1 -tag:v hvc1`
+    ///     — key frames at 0, 1 and 2 s; the frame-accurate generator with the exporter's settings cannot decode
+    ///     the four frames before each (0.9333–0.9833 s; −11821), as with iPhone HEVC recordings (`bch_ele_sun_land_self_01`,
+    ///     three or four per key frame).
+    ///   open-gop-hevc-leading5: the same with bframes=8 — five undecodable frames before each key frame (0.9167–0.9833 s).
+    ///   h264-damaged-inter-frame: an H.264 clip (30 fps, key frame every second) with most of one P-frame's
+    ///     bytes zeroed — every frame from 1.4667 s to the end of its group of pictures (1.9667 s) fails with −11821.
+    /// Apple's decoder draws the line, so a future macOS that shows these frames would need new fixtures.
+    private func fixture(_ name: String) throws -> URL {
+        let bundle = Bundle(for: Self.self)
+        let source = try XCTUnwrap(bundle.url(forResource: name, withExtension: "mp4") ?? bundle.url(forResource: name, withExtension: "mp4", subdirectory: "Fixtures"),
+                                   "\(name).mp4 is not in the test bundle")
+        let url = root.appendingPathComponent("footage/\(name).mp4")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: source, to: url)
+        return url
+    }
+
+    /// A person's finished rally over `from`…`to` with a checked visible ball on every frame at `fps`.
+    private func tracked(_ name: String, video: URL, from: Double, to: Double, fps: Double) -> VideoSession {
+        let frames = Int(((to - from) * fps).rounded())
+        let points = (0...frames).map { i in
+            TrackPoint(time: from + Double(i) / fps, state: .visible, origin: .user,
+                       box: TrackCandidate(rect: CGRect(x: 0.3, y: 0.5, width: 0.1, height: 0.15), confidence: 1), reviewed: true)
+        }
+        var session = VideoSession(name: name, sourcePath: video.path, split: "train", addedAt: now, frames: [])
+        session.tracks = [TrackedRally(id: UUID(), start: from, end: to, points: points, candidates: [], done: true)]
+        return session
+    }
+
+    /// The lineage preflight for the HEVC fixture clip (train), clip `a` (val) and, when `withB`, clip `b` (train).
+    private func preflightWithFixture(_ dir: URL, clip: String, withB: Bool = false) throws -> LineagePackage.Preflight {
+        var eligible: [LineagePackage.Eligible] = [.init(video: "a", split: .devVal, packageSplit: "val", aliasGroup: "a", identities: [], reviewedFrames: 1, ralliesMarked: false),
+                                                   .init(video: clip, split: .train, packageSplit: "train", aliasGroup: clip, identities: [], reviewedFrames: 0, ralliesMarked: false)]
+        if withB { eligible.append(.init(video: "b", split: .train, packageSplit: "train", aliasGroup: "b", identities: [], reviewedFrames: 1, ralliesMarked: false)) }
+        let plan = LineagePackage.Plan(lineage: "L2", project: "Fixture", createdAt: now, generator: "test",
+                                       manifestHashes: .init(projectJson: "p", sessions: "s", validationJson: "v"), audit: .init(hard: 0, soft: 0, info: 0),
+                                       withheld: [.init(video: "w", split: .lineageHoldout, reservedAs: "listed", aliasGroup: "w", identities: [])], withheldClosure: ["w"],
+                                       eligible: eligible)
+        return try LineagePackage.preflight(packageDir: dir, plan: plan, sourceFingerprints: ["a": "file:A", "b": "file:B", clip: "file:L"], protectedSources: ["file:W"],
+                                            protectedHashes: ["0000"], now: now)
+    }
+
+    /// Every window of a clip can need a leading picture: a short rally around the key frame. The clip
+    /// then contributes no window; its decodable frames stay in its folder, on record in summary.json
+    /// (`windowsPlanned` = `windowsLeftOut`), the exporter's own completion check holds, and the lineage
+    /// preflight accepts the folder on that record — and only on it: an eligible clip, not withheld,
+    /// with no window in windows.jsonl. Train windows come from another clip.
+    func testAClipWhoseEveryWindowIsLeftOutKeepsItsFramesOnRecord() async throws {
+        let clip = try await fixture("open-gop-hevc-leading3")
+        // Checked frames 54…60 (0.9…1.0 s): windows on 54, 56, 58 and 60, each needing frame 56 or 58.
+        // Planned frames: the even ones 38…76 (20); written: 18.
+        let lead = tracked("lead3", video: clip, from: 0.9, to: 1.0, fps: 60)
+        let sessions = [lead, session("b", split: "train", video: try await video("b", seed: 7), times: [1.0]),
+                        session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])]
+        var preflighted: LineagePackage.Preflight?
+        let (dir, summary) = try await export(sessions, beforeZip: { preflighted = try self.preflightWithFixture($0, clip: "lead3", withB: true) })
+        XCTAssertEqual(summary.trainWindows, 1, "b's window only")
+        XCTAssertEqual(summary.undecodableFrames, 2); XCTAssertEqual(summary.windowsLeftOutUndecodable, 4)
+        let report = try XCTUnwrap(summary.undecodable.first)
+        XCTAssertEqual(report.windowsPlanned, 4); XCTAssertEqual(report.windowsLeftOut, 4)
+        XCTAssertEqual(try frameNames(dir, "lead3").count, 18)
+        XCTAssertEqual(summary.frames, 18 + 17 + 17)
+        let windows = try String(contentsOf: dir.appendingPathComponent("windows.jsonl"), encoding: .utf8)
+        XCTAssertFalse(windows.contains("\"clip\":\"lead3\""))
+        let p = try XCTUnwrap(preflighted)
+        XCTAssertTrue(p.passed, p.checks.filter { !$0.passed }.map { "\($0.name): \($0.detail)" }.joined(separator: "; "))
+        XCTAssertTrue(p.checks.first { $0.name == "frame-dirs-have-windows" }!.detail.contains("1 on record with every window left out: lead3"))
+        XCTAssertTrue(p.checks.first { $0.name == "undecodable-frames-recorded" }!.detail.contains("1 clip(s) contribute no window"))
+        let row = try XCTUnwrap(p.clips.first { $0.clip == "lead3" })
+        XCTAssertEqual(row.windows, 0); XCTAssertEqual(row.frames, 18); XCTAssertEqual(row.packageSplit, "train")
+        XCTAssertEqual(row.undecodableFrames, 2); XCTAssertEqual(row.windowsLeftOut, 4)
+        XCTAssertEqual(p.sourceFingerprints["lead3"], "file:L", "a clip without windows is still checked against the withheld identities")
+        // Without the record the folder is a stray one; a withheld or ineligible clip is refused even with it.
+        let summaryURL = dir.appendingPathComponent("summary.json")
+        let original = try String(contentsOf: summaryURL, encoding: .utf8)
+        try original.replacingOccurrences(of: "\"windowsPlanned\" : 4", with: "\"windowsPlanned\" : 5").write(to: summaryURL, atomically: true, encoding: .utf8)
+        var failed = Set(try preflightWithFixture(dir, clip: "lead3", withB: true).checks.filter { !$0.passed }.map(\.name))
+        XCTAssertEqual(failed, ["frame-dirs-have-windows", "no-stray-files"], "a clip with a window still to account for is not a no-window clip")
+        try original.write(to: summaryURL, atomically: true, encoding: .utf8)
+        failed = Set(try preflightWithFixture(dir, clip: "zzz", withB: true).checks.filter { !$0.passed }.map(\.name))
+        XCTAssertTrue(failed.isSuperset(of: ["frame-dirs-have-windows", "no-stray-files", "undecodable-frames-recorded"]), "\(failed)")
+    }
+
+    /// A clip can lose some of its windows and keep others whose frames do not overlap the lost ones.
+    /// The decodable frames the lost windows needed stay in the folder (every planned frame that decodes
+    /// is written), so the folder holds more files than the surviving windows name; the record's frame
+    /// count is the folder's, as the digest covers it — not the windows' (Codex P2 on PR #93).
+    func testAPartlyExcludedClipsRecordCountsEveryFrameInItsFolder() async throws {
+        let clip = try await fixture("open-gop-hevc-leading3")
+        // Rally 1 over 0.9…1.0 s: four windows, each needing frame 56 or 58 — all four left out; its 18
+        // decodable planned frames (the even ones 38…76 but 56 and 58) are written and named by no window.
+        // Rally 2 over 2.4…2.5 s: four windows on frames 144…150 over the even frames 128…166 (20), all decodable.
+        var lead = tracked("lead3", video: clip, from: 0.9, to: 1.0, fps: 60)
+        lead.tracks! += tracked("lead3", video: clip, from: 2.4, to: 2.5, fps: 60).tracks!
+        let val = session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])
+        var preflighted: LineagePackage.Preflight?
+        let (dir, summary) = try await export([lead, val], beforeZip: { preflighted = try self.preflightWithFixture($0, clip: "lead3") })
+        XCTAssertEqual(summary.trainWindows, 4, "rally 2's windows only")
+        XCTAssertEqual(summary.undecodableFrames, 2); XCTAssertEqual(summary.windowsLeftOutUndecodable, 4)
+        let report = try XCTUnwrap(summary.undecodable.first)
+        XCTAssertEqual(report.windowsPlanned, 8); XCTAssertEqual(report.windowsLeftOut, 4)
+        XCTAssertEqual(try frameNames(dir, "lead3").count, 38)
+        XCTAssertEqual(summary.frames, 38 + 17)
+        let windows = try String(contentsOf: dir.appendingPathComponent("windows.jsonl"), encoding: .utf8).split(separator: "\n").map(String.init)
+        var named = Set<String>()
+        for line in windows where line.contains("\"clip\":\"lead3\"") {
+            named.formUnion(try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])?["frames"] as? [String]))
+        }
+        XCTAssertEqual(named.count, 20, "the surviving windows name rally 2's frames only")
+        let p = try XCTUnwrap(preflighted)
+        XCTAssertTrue(p.passed, p.checks.filter { !$0.passed }.map { "\($0.name): \($0.detail)" }.joined(separator: "; "))
+        let row = try XCTUnwrap(p.clips.first { $0.clip == "lead3" })
+        XCTAssertEqual(row.windows, 4); XCTAssertEqual(row.frames, 38, "the folder's frames, not the windows'")
+        XCTAssertEqual(row.undecodableFrames, 2); XCTAssertEqual(row.windowsLeftOut, 4)
+        XCTAssertEqual(p.clips.first { $0.clip == "a" }?.frames, 17)
+        XCTAssertTrue(LineagePackage.markdown(p).contains("| lead3 | train | 4 | 38 | 2 | 4 |"))
+        XCTAssertEqual(p.files.filter { $0.path.hasPrefix("frames/lead3/") }.count, 38, "the digest covers every one")
+    }
+
+    /// The three frames before each key frame of an open-GOP HEVC clip cannot be decoded. The export
+    /// records each planned one in the journal with the decoder's error, leaves out every window that
+    /// needed it, writes no frame in its place, counts all of it in summary.json, and finishes; the
+    /// lineage preflight checks the record against the folder and the windows.
+    func testUndecodableLeadingPicturesAreRecordedAndTheirWindowsLeftOut() async throws {
+        let clip = try await fixture("open-gop-hevc-leading3")
+        // A rally over 0.5…1.5 s at 60 fps: windows on every other checked frame (frames 30, 32, … 90),
+        // each of 17 frames two video frames apart — only even-numbered frames are planned: 14…106, 47 in all.
+        // Of the undecodable frames 56…59, two are planned: 56 (0.9333 s) and 58 (0.9667 s); the 18 windows
+        // centred on frames 40…74 need one or both. Labeled frames: the even ones 30…90 whose label time, kept
+        // in the labeler's 1/600000 s, rounds to the frame's microsecond key — 27 of the 31 at 60 fps (frames
+        // 46, 50, 62 and 70 round a microsecond off; a labeler-side matter outside this change). Frames 56
+        // and 58 are the two labeled frames left in no window.
+        let train = tracked("lead3", video: clip, from: 0.5, to: 1.5, fps: 60)
+        let val = session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])
+        var preflighted: LineagePackage.Preflight?
+        let (dir, summary) = try await export([train, val], beforeZip: { preflighted = try self.preflightWithFixture($0, clip: "lead3") })
+
+        XCTAssertEqual(summary.undecodableFrames, 2)
+        XCTAssertEqual(summary.windowsLeftOutUndecodable, 18)
+        XCTAssertEqual(summary.trainWindows, 13, "31 windows planned, 18 left out")
+        XCTAssertEqual(summary.valWindows, 1)
+        XCTAssertEqual(summary.frames, 45 + 17, "47 planned for lead3 but the two left out; 17 for a")
+        XCTAssertEqual(summary.framesAtEdges, 0, "an undecodable frame is not an edge")
+        let report = try XCTUnwrap(summary.undecodable.first)
+        XCTAssertEqual(summary.undecodable.count, 1)
+        XCTAssertEqual(report.clip, "lead3"); XCTAssertEqual(report.split, "train")
+        XCTAssertEqual(report.frames, [933_333, 966_667])
+        XCTAssertEqual(report.windowsLeftOut, 18); XCTAssertEqual(report.trackedWindowsLeftOut, 18)
+        XCTAssertEqual(report.sampledWindowsLeftOut, 0); XCTAssertEqual(report.deadWindowsLeftOut, 0)
+        XCTAssertEqual(report.labelsPlanned, 27); XCTAssertEqual(report.labelsLeftOut, 2)
+        XCTAssertTrue(report.error.contains("AVFoundationErrorDomain -11821"), report.error)
+        XCTAssertTrue(report.reason.hasPrefix("HEVC leading picture: one of 4 consecutive frame(s)"), report.reason)
+
+        // The folder: every planned frame but the two, and nothing in their place.
+        let names = try frameNames(dir, "lead3")
+        XCTAssertEqual(names.count, 45)
+        XCTAssertFalse(names.contains("933333.jpg") || names.contains("966667.jpg"))
+        XCTAssertTrue(names.contains("900000.jpg") && names.contains("1000000.jpg"), "the decodable frames around the run are there")
+        // The windows: none names the frames; every window's 17 frames are distinct files that exist.
+        let windows = try String(contentsOf: dir.appendingPathComponent("windows.jsonl"), encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertEqual(windows.count, 14)
+        XCTAssertFalse(windows.contains { $0.contains("933333.jpg") || $0.contains("966667.jpg") })
+        for line in windows {
+            let frames = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])?["frames"] as? [String])
+            XCTAssertEqual(Set(frames).count, 17, "no frame stands in for another")
+            for f in frames { XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent(f).path), f) }
+        }
+        XCTAssertTrue(try String(contentsOf: dir.appendingPathComponent("README.txt"), encoding: .utf8).contains("2 planned frames in 1 clips could not be decoded"))
+        // The journal: each frame on record with its error, the clip complete with 45 frames, the run finished.
+        let undecodableLines = try journalLines(dir).filter { $0.contains("\"type\":\"undecodable\"") }
+        XCTAssertEqual(undecodableLines.count, 2)
+        XCTAssertTrue(undecodableLines[0].contains("\"key\":933333") && undecodableLines[0].contains("-11821") && undecodableLines[0].contains("\"run\":4")
+                      && undecodableLines[0].contains("\"attempts\":5"), undecodableLines[0])
+        XCTAssertTrue(undecodableLines[1].contains("\"key\":966667") && undecodableLines[1].contains("\"time\":0.9666"), undecodableLines[1])
+        let journal = try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent)
+        XCTAssertEqual(journal.undecodable["lead3"], [933_333, 966_667])
+        XCTAssertEqual(journal.frames["lead3"]?.count, 45)
+        XCTAssertEqual(journal.completedClips, ["a", "lead3"])
+        XCTAssertEqual(journal.state, .finalized)
+        XCTAssertEqual(journal.identity.clips["lead3"]?.plannedKeys, 47, "the plan, and so the run identity, still names the frames")
+        // The lineage preflight: passes, with the omission on record per clip.
+        let p = try XCTUnwrap(preflighted)
+        XCTAssertTrue(p.passed, p.checks.filter { !$0.passed }.map { "\($0.name): \($0.detail)" }.joined(separator: "; "))
+        XCTAssertEqual(p.checks.count, 13)
+        let recorded = try XCTUnwrap(p.checks.first { $0.name == "undecodable-frames-recorded" })
+        XCTAssertTrue(recorded.detail.hasPrefix("2 frame(s) in 1 clip(s) left out as HEVC leading pictures"), recorded.detail)
+        XCTAssertEqual(p.clips.first { $0.clip == "lead3" }?.undecodableFrames, 2)
+        XCTAssertEqual(p.clips.first { $0.clip == "lead3" }?.windowsLeftOut, 18)
+        XCTAssertNil(p.clips.first { $0.clip == "a" }?.undecodableFrames)
+        XCTAssertEqual(p.clips.first { $0.clip == "lead3" }?.frames, 45)
+        XCTAssertTrue(LineagePackage.markdown(p).contains("| lead3 | train | 13 | 45 | 2 | 18 |"))
+
+        // The check reads the record against the folder: a file for a recorded frame, a window naming it,
+        // another reason, disagreeing counts, or a summary that cannot say each fail the package.
+        let fm = FileManager.default
+        let planted = dir.appendingPathComponent("frames/lead3/966667.jpg")
+        try fm.copyItem(at: dir.appendingPathComponent("frames/lead3/900000.jpg"), to: planted)
+        XCTAssertTrue(try preflightWithFixture(dir, clip: "lead3").checks.first { $0.name == "undecodable-frames-recorded" }!.detail.contains("exists"))
+        try fm.removeItem(at: planted)
+        let summaryURL = dir.appendingPathComponent("summary.json")
+        let original = try String(contentsOf: summaryURL, encoding: .utf8)
+        try original.replacingOccurrences(of: "HEVC leading picture", with: "something else").write(to: summaryURL, atomically: true, encoding: .utf8)
+        XCTAssertTrue(try preflightWithFixture(dir, clip: "lead3").checks.first { $0.name == "undecodable-frames-recorded" }!.detail.contains("another reason"))
+        XCTAssertTrue(original.contains("\"undecodableFrames\" : 2"), original)
+        try original.replacingOccurrences(of: "\"undecodableFrames\" : 2", with: "\"undecodableFrames\" : 3").write(to: summaryURL, atomically: true, encoding: .utf8)
+        XCTAssertTrue(try preflightWithFixture(dir, clip: "lead3").checks.first { $0.name == "undecodable-frames-recorded" }!.detail.contains("undecodableFrames 3 but 2"))
+        try "{\"machineFrames\":0,\"missingVideos\":[],\"framesWithoutVideo\":0}".write(to: summaryURL, atomically: true, encoding: .utf8)
+        XCTAssertTrue(try preflightWithFixture(dir, clip: "lead3").checks.first { $0.name == "undecodable-frames-recorded" }!.detail.contains("does not report"))
+        try original.write(to: summaryURL, atomically: true, encoding: .utf8)
+        XCTAssertTrue(try preflightWithFixture(dir, clip: "lead3").passed)
+    }
+
+    /// A resumed export asks the decoder again for a frame an earlier run left out, and leaves it out
+    /// again on its own evidence — with a journal, and from a folder without one — so the completed
+    /// package is the uninterrupted one, byte for byte, windows included.
+    func testResumeReattemptsAnUndecodableFrameAndLeavesItOutAgain() async throws {
+        let clip = try await fixture("open-gop-hevc-leading3")
+        let sessions = [tracked("lead3", video: clip, from: 0.5, to: 1.5, fps: 60),
+                        session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])]
+        let (dir, fresh) = try await export(sessions)
+        let freshPayload = try payload(dir)
+        let windowsBefore = try Data(contentsOf: dir.appendingPathComponent("windows.jsonl"))
+        XCTAssertEqual(fresh.undecodableFrames, 2)
+
+        try interrupt(dir)
+        let (_, resumed) = try await export(sessions, resume: dir)
+        XCTAssertEqual(resumed.undecodableFrames, 2); XCTAssertEqual(resumed.windowsLeftOutUndecodable, 18)
+        XCTAssertEqual(resumed.resume?.framesRetained, 62); XCTAssertEqual(resumed.resume?.framesWritten, 0, "a frame left out is not written and not counted as written")
+        XCTAssertEqual(try payload(dir), freshPayload)
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("windows.jsonl")), windowsBefore)
+        XCTAssertEqual(try journalLines(dir).filter { $0.contains("\"type\":\"undecodable\"") }.count, 4, "judged by each run, on record each time")
+
+        try interrupt(dir, journal: false)
+        let (_, legacy) = try await export(sessions, resume: dir)
+        XCTAssertTrue(legacy.resume?.legacy == true)
+        XCTAssertEqual(legacy.undecodableFrames, 2)
+        XCTAssertEqual(legacy.resume?.retainedByRegeneration, 62); XCTAssertEqual(legacy.resume?.framesWritten, 0)
+        XCTAssertEqual(try payload(dir), freshPayload)
+        XCTAssertEqual(try journalLines(dir).filter { $0.contains("\"type\":\"undecodable\"") }.count, 2)
+    }
+
+    /// Five consecutive undecodable frames are more than leading pictures come in: the export stops on
+    /// the first planned one, naming it and the run, finishing nothing and recording no omission.
+    func testAnUndecodableRunLongerThanLeadingPicturesStopsTheExport() async throws {
+        let clip = try await fixture("open-gop-hevc-leading5")
+        let sessions = [tracked("lead5", video: clip, from: 0.5, to: 1.5, fps: 60),
+                        session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])]
+        do { _ = try await export(sessions); XCTFail("left out a run of five") }
+        catch MultiFramePackage.PackageError.frameFailed(let name, let frame, let detail) {
+            XCTAssertEqual(name, "lead5"); XCTAssertEqual(frame, "933333.jpg", "the first planned frame of the run, in time order")
+            XCTAssertTrue(detail.contains("5 consecutive frames cannot be decoded"), detail)
+            XCTAssertTrue(detail.contains("Cannot Decode"), "the decoder's own error is kept: \(detail)")
+        }
+        let dir = root.appendingPathComponent("exports/Fixture-L2-multiframe-20261022-1400")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("windows.jsonl").path), "nothing finished")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("frames/lead5/933333.jpg").path))
+        XCTAssertTrue(try journalLines(dir).allSatisfy { !$0.contains("\"type\":\"undecodable\"") }, "no omission is recorded for a frame that stopped the export")
+        XCTAssertEqual(try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent).state, .interrupted)
+        XCTAssertEqual(try ledgerRows(ref: dir.lastPathComponent).count, 0)
+    }
+
+    /// A frame of an H.264 clip the decoder cannot produce — here a damaged inter frame, which takes
+    /// the rest of its group of pictures with it — is fatal as before: the codec alone refuses the
+    /// exception, before the run is even measured.
+    func testAnUndecodableFrameOfAnotherCodecStopsTheExport() async throws {
+        let clip = try await fixture("h264-damaged-inter-frame")
+        let sessions = [tracked("damaged", video: clip, from: 1.0, to: 2.0, fps: 30),
+                        session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])]
+        do { _ = try await export(sessions); XCTFail("left out a damaged H.264 frame") }
+        catch MultiFramePackage.PackageError.frameFailed(let name, let frame, let detail) {
+            XCTAssertEqual(name, "damaged")
+            let key = try XCTUnwrap(Int64(frame.dropLast(4)))
+            XCTAssertTrue((1_433_333...1_966_667).contains(key), "the first planned frame the damage reaches, in time order: \(frame)")
+            XCTAssertTrue(detail.contains("the clip is avc1, not HEVC"), detail)
+        }
+        let dir = root.appendingPathComponent("exports/Fixture-L2-multiframe-20261022-1400")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("windows.jsonl").path))
+        XCTAssertTrue(try journalLines(dir).allSatisfy { !$0.contains("\"type\":\"undecodable\"") })
+    }
+
+    /// The rule itself, branch by branch: only HEVC, only a decode failure from the export's decoder and
+    /// from a fresh one, only a run no longer than leading pictures come in, bounded on both sides by
+    /// frames that decode. Everything else is fatal.
+    func testUndecodableRuleIsNarrow() {
+        typealias U = MultiFramePackage.Undecodable
+        let decode = NSError(domain: AVFoundationErrorDomain, code: U.decodeFailed, userInfo: [NSLocalizedDescriptionKey: "Cannot Decode"])
+        let open = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.fileFailedToParse.rawValue, userInfo: [NSLocalizedDescriptionKey: "Cannot Open"])
+        let io = NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
+        XCTAssertEqual(U.decodeFailed, -11821)
+        XCTAssertNil(U.refusal(codec: kCMVideoCodecType_HEVC, error: decode, fresh: decode))
+        XCTAssertEqual(U.refusal(codec: kCMVideoCodecType_H264, error: decode, fresh: decode), "the clip is avc1, not HEVC; only HEVC leading pictures are left out")
+        XCTAssertTrue(try XCTUnwrap(U.refusal(codec: kCMVideoCodecType_HEVC, error: open, fresh: decode)).hasPrefix("not a decode failure: AVFoundationErrorDomain -11829"))
+        XCTAssertTrue(try XCTUnwrap(U.refusal(codec: kCMVideoCodecType_HEVC, error: io, fresh: decode)).hasPrefix("not a decode failure: NSPOSIXErrorDomain 5"))
+        XCTAssertTrue(try XCTUnwrap(U.refusal(codec: kCMVideoCodecType_HEVC, error: decode, fresh: open)).hasPrefix("a fresh decoder failed differently"))
+        XCTAssertEqual(U.maxRun, 4)
+        for run in 1...4 {
+            guard case .leftOut(let reason) = U.verdict(run: run, boundedBefore: true, boundedAfter: true, fresh: decode) else { return XCTFail("run of \(run) refused") }
+            XCTAssertTrue(reason.hasPrefix("HEVC leading picture: one of \(run) consecutive frame(s)"), reason)
+        }
+        guard case .fatal(let long) = U.verdict(run: 5, boundedBefore: true, boundedAfter: true, fresh: decode) else { return XCTFail("run of 5 accepted") }
+        XCTAssertTrue(long.hasPrefix("5 consecutive frames cannot be decoded"), long)
+        guard case .fatal(let start) = U.verdict(run: 2, boundedBefore: false, boundedAfter: true, fresh: decode) else { return XCTFail("unbounded run accepted") }
+        XCTAssertTrue(start.contains("reaches the clip's start"), start)
+        guard case .fatal(let end) = U.verdict(run: 2, boundedBefore: true, boundedAfter: false, fresh: decode) else { return XCTFail("unbounded run accepted") }
+        XCTAssertTrue(end.contains("reaches the clip's end"), end)
+        XCTAssertEqual(U.fourCC(kCMVideoCodecType_HEVC), "hvc1")
+    }
+
     private func journalLines(_ dir: URL) throws -> [String] {
         try String(contentsOf: ExportJournal.url(forPackage: dir), encoding: .utf8).split(separator: "\n").map(String.init)
     }
@@ -824,11 +1138,15 @@ final class MultiFramePackageResumeTests: XCTestCase {
         try w.state(.inProgress, now: now)
         try w.append(.frame(clip: "a", key: 1, sha256: "s1", bytes: 5))
         try w.append(.frame(clip: "a", key: 2, sha256: "s2", bytes: 6))
+        try w.append(.undecodable(clip: "a", key: 3, time: 0.05, error: "AVFoundationErrorDomain -11821 Cannot Decode", attempts: 5, run: 3,
+                                  reason: "HEVC leading picture: …", at: "2026-10-24T12:00:00Z"))
         try w.append(.clipComplete(clip: "a", frames: 2))
         try w.close()
         var c = try ExportJournal.read(url, forPackage: "P")
         XCTAssertEqual(c.identity, identity); XCTAssertEqual(c.state, .interrupted); XCTAssertEqual(c.completedClips, ["a"]); XCTAssertFalse(c.tornTail)
         XCTAssertEqual(c.frames["a"]?[2]?.sha256, "s2"); XCTAssertEqual(c.frames["a"]?[2]?.bytes, 6)
+        XCTAssertEqual(c.undecodable, ["a": [3]]); XCTAssertEqual(c.frames["a"]?.count, 2, "a frame left out is no frame")
+        XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("{\"at\":\"2026-10-24T12:00:00Z\",\"attempts\":5,\"clip\":\"a\",\"error\":\"AVFoundationErrorDomain -11821 Cannot Decode\",\"key\":3,\"reason\":\"HEVC leading picture: …\",\"run\":3,\"time\":0.05,\"type\":\"undecodable\"}"))
         // A torn last line is dropped and reported; damage earlier is not an interruption.
         let whole = try Data(contentsOf: url).count
         let handle = try FileHandle(forWritingTo: url); try handle.seekToEnd(); try handle.write(contentsOf: Data("{\"type\":\"fra".utf8)); try handle.close()

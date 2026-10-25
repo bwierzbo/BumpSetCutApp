@@ -12,6 +12,14 @@
 //  frame the journal names only after the file's bytes hash to what was
 //  written. A torn last line (the write that was cut short) is ignored.
 //
+//  A frame the decoder could not produce and the export left out (an HEVC
+//  leading picture, MultiFramePackage.Undecodable; D-025) is a line too,
+//  with the error, the attempts and the reason: the omission is on record
+//  where the frames are. The line type is new to this exporter build; a
+//  journal that holds one is refused by an older build (unknown line type),
+//  never resumed half-understood. The version stays 1: no existing line
+//  changed, and a frame that decodes is written exactly as before.
+//
 
 import CryptoKit
 import Foundation
@@ -110,10 +118,17 @@ enum ExportJournal {
     enum Line: Codable, Equatable {
         case header(version: Int, package: String, startedAt: String, identity: Identity)
         case frame(clip: String, key: Int64, sha256: String, bytes: Int)
+        /// A planned frame the decoder could not produce, left out with every window that needed it
+        /// (MultiFramePackage.Undecodable): its moment in seconds, the decoder's error, how many
+        /// times it was asked for before a fresh decoder was tried, how many consecutive frames the
+        /// run of undecodable frames holds, and why that is accepted. `at`: when it was judged.
+        case undecodable(clip: String, key: Int64, time: Double, error: String, attempts: Int, run: Int, reason: String, at: String)
         case clipComplete(clip: String, frames: Int)
         case state(State, at: String, note: String?)
 
-        private enum CodingKeys: String, CodingKey { case type, version, package, startedAt, identity, clip, key, sha256, bytes, frames, state, at, note }
+        private enum CodingKeys: String, CodingKey {
+            case type, version, package, startedAt, identity, clip, key, sha256, bytes, frames, state, at, note, time, error, attempts, run, reason
+        }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -124,6 +139,11 @@ enum ExportJournal {
             case "frame":
                 self = .frame(clip: try c.decode(String.self, forKey: .clip), key: try c.decode(Int64.self, forKey: .key),
                               sha256: try c.decode(String.self, forKey: .sha256), bytes: try c.decode(Int.self, forKey: .bytes))
+            case "undecodable":
+                self = .undecodable(clip: try c.decode(String.self, forKey: .clip), key: try c.decode(Int64.self, forKey: .key),
+                                    time: try c.decode(Double.self, forKey: .time), error: try c.decode(String.self, forKey: .error),
+                                    attempts: try c.decode(Int.self, forKey: .attempts), run: try c.decode(Int.self, forKey: .run),
+                                    reason: try c.decode(String.self, forKey: .reason), at: try c.decode(String.self, forKey: .at))
             case "clip":
                 self = .clipComplete(clip: try c.decode(String.self, forKey: .clip), frames: try c.decode(Int.self, forKey: .frames))
             case "state":
@@ -142,6 +162,10 @@ enum ExportJournal {
             case .frame(let clip, let key, let sha256, let bytes):
                 try c.encode("frame", forKey: .type); try c.encode(clip, forKey: .clip); try c.encode(key, forKey: .key)
                 try c.encode(sha256, forKey: .sha256); try c.encode(bytes, forKey: .bytes)
+            case .undecodable(let clip, let key, let time, let error, let attempts, let run, let reason, let at):
+                try c.encode("undecodable", forKey: .type); try c.encode(clip, forKey: .clip); try c.encode(key, forKey: .key)
+                try c.encode(time, forKey: .time); try c.encode(error, forKey: .error); try c.encode(attempts, forKey: .attempts)
+                try c.encode(run, forKey: .run); try c.encode(reason, forKey: .reason); try c.encode(at, forKey: .at)
             case .clipComplete(let clip, let frames):
                 try c.encode("clip", forKey: .type); try c.encode(clip, forKey: .clip); try c.encode(frames, forKey: .frames)
             case .state(let state, let at, let note):
@@ -158,6 +182,8 @@ enum ExportJournal {
         var startedAt: String
         var identity: Identity
         var frames: [String: [Int64: (sha256: String, bytes: Int)]]
+        /// Frames a run judged undecodable and left out, by clip. On record; a resumed run asks the decoder again.
+        var undecodable: [String: Set<Int64>] = [:]
         var completedClips: Set<String>
         var states: [State]
         var tornTail: Bool
@@ -167,6 +193,7 @@ enum ExportJournal {
         static func == (a: Contents, b: Contents) -> Bool {
             a.version == b.version && a.package == b.package && a.startedAt == b.startedAt && a.identity == b.identity
                 && a.completedClips == b.completedClips && a.states == b.states && a.tornTail == b.tornTail && a.validLength == b.validLength
+                && a.undecodable == b.undecodable
                 && a.frames.keys == b.frames.keys && a.frames.allSatisfy { clip, map in
                     let o = b.frames[clip] ?? [:]
                     return map.keys == o.keys && map.allSatisfy { o[$0.key]?.sha256 == $0.value.sha256 && o[$0.key]?.bytes == $0.value.bytes }
@@ -236,6 +263,7 @@ enum ExportJournal {
             switch line {
             case .header: throw JournalError.notAJournal(url.path, detail: "a second header")
             case .frame(let clip, let key, let sha, let bytes): contents.frames[clip, default: [:]][key] = (sha, bytes)
+            case .undecodable(let clip, let key, _, _, _, _, _, _): contents.undecodable[clip, default: []].insert(key)
             case .clipComplete(let clip, _): contents.completedClips.insert(clip)
             case .state(let s, _, _): contents.states.append(s)
             }

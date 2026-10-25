@@ -907,6 +907,14 @@ enum HeadlessProjects {
                     + "\(r.retainedByRegeneration) byte-identical to their regeneration), \(r.framesReplaced) replaced, \(r.framesWritten) written, "
                     + "\(r.partialFilesRemoved) .part file(s) removed")
             }
+            if s.undecodableFrames > 0 {
+                log("   ⚠️ left out as undecodable (HEVC leading pictures, D-025): \(s.undecodableFrames) frame(s) in \(s.undecodable.count) clip(s) "
+                    + "with \(s.windowsLeftOutUndecodable) window(s); per clip in summary.json \"undecodable\" and the record")
+                for u in s.undecodable {
+                    log("     \(u.clip) (\(u.split)): \(u.frames.count) frame(s), \(u.windowsLeftOut) window(s) (\(u.trackedWindowsLeftOut) tracked, "
+                        + "\(u.sampledWindowsLeftOut) sampled, \(u.deadWindowsLeftOut) dead-time); \(u.labelsLeftOut) of \(u.labelsPlanned) labeled frames in no window")
+                }
+            }
             // The journal is the record of how the frames came to be; it goes with the plan and preflight record.
             let folder = result.output.pathExtension == "zip" ? result.output.deletingPathExtension() : result.output
             let journal = ExportJournal.url(forPackage: folder)
