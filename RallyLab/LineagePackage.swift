@@ -179,6 +179,9 @@ enum LineagePackage {
         var clip: String
         var packageSplit: String
         var windows: Int
+        /// Frame files in the clip's folder — what the digest covers. Every one is a planned frame; a
+        /// window left out as needing an undecodable frame (D-025) leaves its decodable frames in the
+        /// folder all the same, so this can exceed the frames the clip's windows name.
         var frames: Int
         /// Planned frames the exporter left out as undecodable (HEVC leading pictures; D-025) and
         /// the windows that went with them, from summary.json; absent in records from before.
@@ -462,7 +465,7 @@ enum LineagePackage {
         let clips = packagedClips.sorted().map { clip in
             ClipRow(clip: clip, packageSplit: sides(clip).sorted().joined(separator: "+"),
                     windows: windowsByClip[clip]?.windows ?? 0,
-                    frames: windowsByClip[clip]?.frames.count ?? framesInFolder[DatasetStore.safeName(clip)] ?? 0,
+                    frames: framesInFolder[DatasetStore.safeName(clip)] ?? 0,
                     undecodableFrames: undecodableByClip[clip]?.frames.count, windowsLeftOut: undecodableByClip[clip]?.windows)
         }
         return Preflight(createdAt: now, package: packageDir.lastPathComponent, passed: checks.allSatisfy(\.passed),

@@ -389,6 +389,42 @@ final class MultiFramePackageResumeTests: XCTestCase {
         XCTAssertTrue(failed.isSuperset(of: ["frame-dirs-have-windows", "no-stray-files", "undecodable-frames-recorded"]), "\(failed)")
     }
 
+    /// A clip can lose some of its windows and keep others whose frames do not overlap the lost ones.
+    /// The decodable frames the lost windows needed stay in the folder (every planned frame that decodes
+    /// is written), so the folder holds more files than the surviving windows name; the record's frame
+    /// count is the folder's, as the digest covers it — not the windows' (Codex P2 on PR #93).
+    func testAPartlyExcludedClipsRecordCountsEveryFrameInItsFolder() async throws {
+        let clip = try await fixture("open-gop-hevc-leading3")
+        // Rally 1 over 0.9…1.0 s: four windows, each needing frame 56 or 58 — all four left out; its 18
+        // decodable planned frames (the even ones 38…76 but 56 and 58) are written and named by no window.
+        // Rally 2 over 2.4…2.5 s: four windows on frames 144…150 over the even frames 128…166 (20), all decodable.
+        var lead = tracked("lead3", video: clip, from: 0.9, to: 1.0, fps: 60)
+        lead.tracks! += tracked("lead3", video: clip, from: 2.4, to: 2.5, fps: 60).tracks!
+        let val = session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])
+        var preflighted: LineagePackage.Preflight?
+        let (dir, summary) = try await export([lead, val], beforeZip: { preflighted = try self.preflightWithFixture($0, clip: "lead3") })
+        XCTAssertEqual(summary.trainWindows, 4, "rally 2's windows only")
+        XCTAssertEqual(summary.undecodableFrames, 2); XCTAssertEqual(summary.windowsLeftOutUndecodable, 4)
+        let report = try XCTUnwrap(summary.undecodable.first)
+        XCTAssertEqual(report.windowsPlanned, 8); XCTAssertEqual(report.windowsLeftOut, 4)
+        XCTAssertEqual(try frameNames(dir, "lead3").count, 38)
+        XCTAssertEqual(summary.frames, 38 + 17)
+        let windows = try String(contentsOf: dir.appendingPathComponent("windows.jsonl"), encoding: .utf8).split(separator: "\n").map(String.init)
+        var named = Set<String>()
+        for line in windows where line.contains("\"clip\":\"lead3\"") {
+            named.formUnion(try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])?["frames"] as? [String]))
+        }
+        XCTAssertEqual(named.count, 20, "the surviving windows name rally 2's frames only")
+        let p = try XCTUnwrap(preflighted)
+        XCTAssertTrue(p.passed, p.checks.filter { !$0.passed }.map { "\($0.name): \($0.detail)" }.joined(separator: "; "))
+        let row = try XCTUnwrap(p.clips.first { $0.clip == "lead3" })
+        XCTAssertEqual(row.windows, 4); XCTAssertEqual(row.frames, 38, "the folder's frames, not the windows'")
+        XCTAssertEqual(row.undecodableFrames, 2); XCTAssertEqual(row.windowsLeftOut, 4)
+        XCTAssertEqual(p.clips.first { $0.clip == "a" }?.frames, 17)
+        XCTAssertTrue(LineagePackage.markdown(p).contains("| lead3 | train | 4 | 38 | 2 | 4 |"))
+        XCTAssertEqual(p.files.filter { $0.path.hasPrefix("frames/lead3/") }.count, 38, "the digest covers every one")
+    }
+
     /// The three frames before each key frame of an open-GOP HEVC clip cannot be decoded. The export
     /// records each planned one in the journal with the decoder's error, leaves out every window that
     /// needed it, writes no frame in its place, counts all of it in summary.json, and finishes; the
