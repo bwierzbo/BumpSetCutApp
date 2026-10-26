@@ -401,15 +401,14 @@ final class LabelingSync {
     /// takes it for the recording it has open. Set by RallyLabApp.
     var onRecordSynced: ((_ session: String, _ record: EventReview.File) -> Void)?
 
-    /// The withheld closure as RallyLab computes it, with the project's identities read strictly first
-    /// (EventReview.projectSourcesStrict): an unreadable project.json or validation.json gives nil, and nothing is
-    /// published or uploaded then — the server keeps the list it has (fail closed).
+    /// The withheld closure as the Stage 1 review refuses it: the named closure (lineage holdout, legacy holdout,
+    /// final test, candidates and their metadata aliases) **plus every session that EventReview.refusal refuses by
+    /// path or content** — a session over a withheld recording's file or a byte-identical copy — with the project's
+    /// identities and sessions read strictly first. Anything unreadable gives nil, and nothing is published or
+    /// uploaded then; the server keeps the list it has (fail closed).
     private func withheldClosure() -> Set<String>? {
         guard let root = projects.projectDir else { return nil }
-        do {
-            _ = try EventReview.projectSourcesStrict(in: root)
-            return try ReservedVideos.lineageWithheldNames(in: root)
-        } catch { return nil }
+        return try? EventReview.publishedWithheldNames(in: root)
     }
 
     /// Publishes the project's withheld list (the server refuses events for a project without one), then reconciles

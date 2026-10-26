@@ -286,6 +286,24 @@ final class EventReviewTests: XCTestCase {
         XCTAssertEqual(try ledgerRows().map(\.video), ["z"], "only the earlier, permitted open is on the ledger")
     }
 
+    /// What the sync publishes as withheld is what `open` refuses: the named closure plus the sessions refused
+    /// by path or content, and nothing at all when the identities cannot be read.
+    func testThePublishedWithheldListCarriesPathAndContentAliases() throws {
+        let w = try fixture("open-gop-hevc-leading3", as: "w")
+        _ = try session("w", split: "val", video: w)
+        _ = try session("x", video: w)                                              // another session over w's file
+        _ = try session("y", video: try fixture("open-gop-hevc-leading3", as: "y"))  // a byte copy under another name
+        _ = try session("z", video: try fixture("h264-damaged-inter-frame", as: "z"))
+        try writeValidation(#"{"tune":[],"holdout":[],"lineageHoldout":["w"]}"#)
+        XCTAssertEqual(try EventReview.withheldNames(in: root), ["w"], "the named closure alone")
+        XCTAssertEqual(try EventReview.publishedWithheldNames(in: root), ["w", "x", "y"], "the published list refuses the aliases too")
+        try writeValidation("{not json")
+        XCTAssertThrowsError(try EventReview.publishedWithheldNames(in: root), "unreadable identities: nothing is published")
+        try writeValidation(#"{"tune":[],"holdout":[],"lineageHoldout":["w"]}"#)
+        try FileManager.default.removeItem(at: w)
+        XCTAssertThrowsError(try EventReview.publishedWithheldNames(in: root), "w's content unknown: the list cannot be established")
+    }
+
     /// A withheld recording the project knows only from project.json (no session file) still protects
     /// its cut file: a session over that file, or over a byte copy of it, is refused — even though the
     /// recording's own fingerprint is its YouTube link, not the file's content.

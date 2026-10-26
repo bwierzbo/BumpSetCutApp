@@ -31,6 +31,20 @@ extension EventReview {
         try ReservedVideos.lineageWithheldNames(in: root)
     }
 
+    /// What the sync publishes as withheld, so the server refuses exactly what `open` refuses: the named closure
+    /// plus every session `refusal` refuses by path or content (a session over a withheld recording's file, or a
+    /// byte-identical copy). Identities and sessions are read strictly; anything unreadable throws, and the caller
+    /// publishes nothing then (fail closed).
+    static func publishedWithheldNames(in root: URL) throws -> Set<String> {
+        _ = try projectSourcesStrict(in: root)
+        var names = try withheldNames(in: root)
+        let sessions = try DatasetStore(root: root).loadSessionsStrict()
+        for s in sessions where !names.contains(s.name) {
+            if try refusal(of: s, root: root, sessions: sessions) != nil { names.insert(s.name) }
+        }
+        return names
+    }
+
     /// The project's videos by session name, strictly: a project.json that exists but can't be decoded
     /// throws, since the withheld recordings' cut files and fingerprints would otherwise vanish from
     /// the guard. No project.json (a project from before the Projects tab) is an empty map.

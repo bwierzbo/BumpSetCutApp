@@ -289,7 +289,11 @@ struct BoundaryEditor: Equatable {
             draft = Draft(); selected = nil
             return Outcome(message: "rally withdrawn (kept on record)", changed: true)
         case .undo:
-            guard let previous = history.popLast() else { return Outcome(message: "nothing to undo", changed: false, refused: true) }
+            guard var previous = history.popLast() else { return Outcome(message: "nothing to undo", changed: false, refused: true) }
+            // The revision is sync bookkeeping, not content: an undo restores the content at the revision the
+            // record has now, so the next sync pushes it as a change, never as a stale copy.
+            previous.revision = file.revision
+            previous.frameTimesDigest = file.frameTimesDigest ?? previous.frameTimesDigest
             file = previous
             draft = Draft(); openSpan = nil; selected = nil
             return Outcome(message: "undone", changed: true)

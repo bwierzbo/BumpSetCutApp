@@ -144,6 +144,20 @@ final class RallyEventsSyncTests: XCTestCase {
         XCTAssertNil(e.selected); XCTAssertNil(e.draft.rallyId)
     }
 
+    func testUndoKeepsTheSynchronisedRevision() {
+        var e = BoundaryEditor(file: file(revision: 0), annotator: "BW", tool: "t")
+        _ = e.apply(.mark(.contact, .earliest), at: 1, now: now)
+        _ = e.apply(.mark(.dead, .earliest), at: 2, now: now)
+        XCTAssertTrue(e.apply(.commit, at: 2, now: now).changed)
+        // The push came back: revision 1.
+        var saved = e.file; saved.revision = 1
+        XCTAssertFalse(e.adopt(saved)); XCTAssertEqual(e.file.revision, 1)
+        XCTAssertTrue(e.apply(.undo, at: 2, now: now).changed)
+        XCTAssertTrue(e.file.rallies.isEmpty, "the content is undone")
+        XCTAssertEqual(e.file.revision, 1, "the revision is bookkeeping, kept")
+        XCTAssertEqual(RallyEventsSync.decide(local: e.file, shadow: saved, server: row(saved, revision: 1)), .push(expected: 1), "a change at the current revision, not a conflict")
+    }
+
     func testShadowAndConflictFilesSitBesideTheRecordNeverOverIt() {
         let record = EventReview.url(forVideo: URL(fileURLWithPath: "/footage/clip.mp4"))
         XCTAssertEqual(record.lastPathComponent, "clip.rallyevents.json")
