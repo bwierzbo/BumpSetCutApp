@@ -518,4 +518,20 @@ final class BoundaryEditorTests: XCTestCase {
         _ = e.apply(.select(id), at: 0, now: now)
         XCTAssertNil(e.draftConflict); XCTAssertNil(e.draft.contact)
     }
+
+    func testTakingTheServersRecordDuringABlindRepeatKeepsItBlind() {
+        // The phone resolves a full-record conflict ("take the server's") by adopting the server's record into the
+        // same editor: the repeat stays a repeat and shows nothing of the primary events.
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        e.setMode(.secondReview)
+        _ = e.apply(.select(id), at: 0, now: now)
+        _ = e.apply(.mark(.dead, .earliest), at: 19.9, now: now)
+        var server = e.file; server.revision = 7; server.rallies[0].dead = .init(earliest: 21, latest: 21)
+        e.adopt(server)
+        XCTAssertEqual(e.mode, .secondReview)
+        XCTAssertNil(e.draft.contact); XCTAssertEqual(e.draft.dead?.earliest, 19.9, "the reviewer's own marks, not the primary's")
+        XCTAssertNil(e.draftConflict)
+        XCTAssertEqual(e.file.revision, 7)
+    }
 }

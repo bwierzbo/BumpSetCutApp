@@ -299,8 +299,13 @@ final class PhoneBoundaryModel {
     /// The person decided a conflict: take the server's version (and reload it) or keep mine on top of it.
     func resolveConflict(takeServer: Bool) {
         model.resolveEventConflict(video, takeServer: takeServer)
-        if takeServer, let existing = model.rallyEvents(for: video) {
-            editor = BoundaryEditor(file: existing.record, annotator: annotator, tool: tool)
+        if takeServer, let existing = model.rallyEvents(for: video), var e = editor {
+            // The same editor takes the server's record (adopt), so its mode, legacy links and — in a blind repeat —
+            // the reviewer's own marks stay; a fresh editor would reopen in the first review and show the primary times.
+            e.adopt(existing.record)
+            // In the first review, taking the server's version also drops a local draft built on the replaced record.
+            if e.mode == .first { _ = e.apply(.cancel, at: 0, now: Date()) }
+            editor = e
             revision = existing.revision
         } else if let existing = model.rallyEvents(for: video) {
             revision = existing.revision
