@@ -112,8 +112,11 @@
 			membershipExceptions = (
 				Shared/AnnotationReview.swift,
 				Shared/BallPathFile.swift,
+				Shared/BoundaryEditor.swift,
 				Shared/BoxFitter.swift,
+				Shared/EventReviewRecord.swift,
 				Shared/FinalCheckView.swift,
+				Shared/FrameIdentity.swift,
 				Shared/LabelingClient.swift,
 				Shared/LabelingLive.swift,
 				Shared/LabelingModels.swift,

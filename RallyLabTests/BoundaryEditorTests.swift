@@ -51,6 +51,8 @@ final class BoundaryEditorTests: XCTestCase {
         let bundle = Bundle(for: Self.self)
         let url = try XCTUnwrap(bundle.url(forResource: "open-gop-hevc-leading3", withExtension: "mp4") ?? bundle.url(forResource: "open-gop-hevc-leading3", withExtension: "mp4", subdirectory: "Fixtures"))
         let clock = await RallyBoundariesModel.frameClock(of: url, frameRate: 60)
+        let shared = try await FrameIdentity.allFrameTimes(of: url)
+        XCTAssertEqual(clock.digest, FrameIdentity.digest(of: shared), "the Mac's clock is the shared enumerator's")
         // The x265 fixture shows its first frame at 1/30 s (a one-frame encoder delay): 179 frames, 0.0333…3.0 s.
         XCTAssertEqual(clock.times.count, 179)
         XCTAssertEqual(clock.times.first ?? -1, 1.0 / 30, accuracy: 1e-6)
