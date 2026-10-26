@@ -249,7 +249,9 @@ final class PhoneBoundaryModel {
     /// Legacy marks the timeline may draw: none inside the window of a pilot rally whose first review is not
     /// committed — enforced here, whatever the legacy toggle says.
     var visibleLegacyMarks: [(start: Double, end: Double)] {
-        PilotBlind.filter(model.rallyTimes(for: video).rallies.map { ($0.start, $0.end) }, windows: pilotWindows, record: file)
+        // Until the project's pilot status is known, no legacy mark is drawn: an unknown draw must not unblind.
+        guard model.pilotStatusKnown(for: video) else { return [] }
+        return PilotBlind.filter(model.rallyTimes(for: video).rallies.map { ($0.start, $0.end) }, windows: pilotWindows, record: file)
     }
 
     func pilotCommitted(_ w: PilotWindow) -> Bool { PilotBlind.firstReviewCommitted(w, in: file) }

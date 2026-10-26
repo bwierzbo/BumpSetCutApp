@@ -41,14 +41,25 @@ struct PilotPublication: Codable, Equatable {
 }
 
 enum PilotBlind {
-    /// The reviewed rally that answers this selected rally: the one overlapping its legacy interval most.
+    /// The reviewed rally that answers this selected rally: one whose extent touches the legacy interval (closed
+    /// intervals, so a rally with a single event on one frame — truncated at the recording's edge — still counts),
+    /// the longest overlap first, then the one whose legacy link names this mark.
     static func answer(to w: PilotWindow, in file: EventReview.File?) -> EventReview.Rally? {
         guard let file else { return nil }
-        func overlap(_ r: EventReview.Rally) -> Double {
-            guard let a = r.contact?.earliest ?? r.dead?.earliest, let b = r.dead?.latest ?? r.contact?.latest else { return 0 }
+        func extent(_ r: EventReview.Rally) -> (Double, Double)? {
+            guard let a = r.contact?.earliest ?? r.dead?.earliest, let b = r.dead?.latest ?? r.contact?.latest else { return nil }
+            return (a, b)
+        }
+        func overlap(_ r: EventReview.Rally) -> Double? {
+            guard let (a, b) = extent(r), a <= w.legacyEnd + 1e-9, b >= w.legacyStart - 1e-9 else { return nil }
             return min(b, w.legacyEnd) - max(a, w.legacyStart)
         }
-        return file.rallies.filter { $0.reviewState == .reviewed && overlap($0) > 0 }.max { overlap($0) < overlap($1) }
+        let candidates = file.rallies.filter { $0.reviewState == .reviewed && overlap($0) != nil }
+        return candidates.max { l, r in
+            let lo = overlap(l)!, ro = overlap(r)!
+            if abs(lo - ro) > 1e-9 { return lo < ro }
+            return (l.legacyIndex == w.legacyIndex ? 1 : 0) < (r.legacyIndex == w.legacyIndex ? 1 : 0)
+        }
     }
 
     static func firstReviewCommitted(_ w: PilotWindow, in file: EventReview.File?) -> Bool { answer(to: w, in: file) != nil }

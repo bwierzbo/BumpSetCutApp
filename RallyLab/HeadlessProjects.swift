@@ -1083,7 +1083,8 @@ enum HeadlessProjects {
             modelDigests[config.ballModel.rawValue] = yolo.flatMap(PilotDraw.digest(ofModel:)) ?? "not found"
         }
         let snapshot = PilotDraw.snapshot(of: config)
-        let record = PilotDraw.Record(id: "EXP-\(day)-b2-boundary-pilot", createdAt: EventReview.stamp(now), project: root.lastPathComponent, seed: seed,
+        // Unique per draw: a replacement drawn the same day, or another project's draw, never reuses an id.
+        let record = PilotDraw.Record(id: "EXP-\(day)-b2-boundary-pilot-\(DatasetStore.safeName(root.lastPathComponent))-\(stamp)", createdAt: EventReview.stamp(now), project: root.lastPathComponent, seed: seed,
                                       status: dryRun ? "dry run" : "frozen", manifestHashes: hashes, model: model,
                                       modelDigests: modelDigests, configSnapshot: snapshot, configSHA256: PilotDraw.sha256(snapshot), pool: videos, candidates: candidates,
                                       selection: selection, unfilled: unfilled, supersedes: existing.last?.lastPathComponent,

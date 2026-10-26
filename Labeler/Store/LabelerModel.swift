@@ -144,8 +144,13 @@ final class LabelerModel: ReviewStore {
                 if listed { loaded.withheld[project] = names.sorted() }
                 // The frozen pilot draw, if one is published: the blind rule depends on it, so a draw known before
                 // stays when it cannot be fetched now (never silently dropped).
-                if let pilot = try? await client.pilot(project: project) { loaded.pilots[project] = pilot }
-                else if let known = snapshot.pilots[project] { loaded.pilots[project] = known }
+                do {
+                    if let pilot = try await client.pilot(project: project) { loaded.pilots[project] = pilot }
+                    loaded.pilotsChecked.insert(project)
+                } catch {
+                    if let known = snapshot.pilots[project] { loaded.pilots[project] = known }
+                    if snapshot.pilotsChecked.contains(project) { loaded.pilotsChecked.insert(project) }
+                }
             }
             account = await client.email
             guard try await client.isLabeler() else { phase = .notLabeler; return }
@@ -277,6 +282,9 @@ final class LabelerModel: ReviewStore {
     }
 
     func pilot(for video: LabelVideo) -> PilotPublication? { video.project.flatMap { snapshot.pilots[$0] } }
+
+    /// Whether this recording's pilot status has been read from the server (a draw, or none). Unknown → blind.
+    func pilotStatusKnown(for video: LabelVideo) -> Bool { video.project.map { snapshot.pilotsChecked.contains($0) } ?? false }
 
     /// Whether the recording may be reviewed here: the project has a published withheld list and the recording is not on it.
     func isReviewable(_ video: LabelVideo) -> Bool {

@@ -237,4 +237,27 @@ final class PilotDrawTests: XCTestCase {
         let p = PilotPublication(id: "EXP-1", project: "Scratch", recordSha256: String(repeating: "a", count: 64), selectionDigest: "d", selection: [w], publishedAt: nil)
         XCTAssertEqual(p.windows(for: "v"), [w]); XCTAssertEqual(p.windows(for: "other"), [])
     }
+
+    func testAnEdgeTruncatedRallyWithOneEventOnOneFrameAnswersItsPilotRally() {
+        let now = ISO8601DateFormatter().date(from: "2026-10-26T20:00:00Z")!
+        // Selected legacy mark at the recording's start; the reviewed rally has only its dead ball (start edge), on one frame.
+        let w = PilotWindow(video: "v", legacyIndex: 0, legacyStart: 0, legacyEnd: 4, window: [0, 9], stratum: "short", repeatReview: false)
+        var f = EventReview.File(video: "v", sourceFingerprint: "file:x", frameRate: 30, durationSec: 60, tool: "t")
+        var edge = EventReview.Rally(rallyId: UUID(), legacyIndex: 0, kind: .rally, contact: nil, dead: .init(earliest: 3.5, latest: 3.5), annotator: "BW", reviewedAt: EventReview.stamp(now))
+        edge.edge = .start
+        EventReview.Mutation.upsert(edge, in: &f)
+        XCTAssertEqual(PilotBlind.answer(to: w, in: f)?.rallyId, edge.rallyId, "a point event inside the legacy interval answers it")
+        // A point exactly on the legacy end still touches it; one outside does not.
+        let w2 = PilotWindow(video: "v", legacyIndex: 1, legacyStart: 20, legacyEnd: 23.5, window: [15, 28], stratum: "short", repeatReview: false)
+        EventReview.Mutation.upsert(EventReview.Rally(rallyId: UUID(), kind: .rally, contact: .init(earliest: 23.5, latest: 23.5), dead: nil, annotator: "BW", reviewedAt: EventReview.stamp(now)), in: &f)
+        XCTAssertNotNil(PilotBlind.answer(to: w2, in: f))
+        let w3 = PilotWindow(video: "v", legacyIndex: 2, legacyStart: 40, legacyEnd: 44, window: [35, 49], stratum: "short", repeatReview: false)
+        XCTAssertNil(PilotBlind.answer(to: w3, in: f))
+        // Equal overlaps: the rally whose legacy link names this mark wins.
+        let w4 = PilotWindow(video: "v", legacyIndex: 9, legacyStart: 50, legacyEnd: 52, window: [45, 57], stratum: "short", repeatReview: false)
+        let a = EventReview.Rally(rallyId: UUID(), legacyIndex: 8, kind: .rally, contact: .init(earliest: 50, latest: 50), dead: .init(earliest: 52, latest: 52), annotator: "BW", reviewedAt: EventReview.stamp(now))
+        let b = EventReview.Rally(rallyId: UUID(), legacyIndex: 9, kind: .rally, contact: .init(earliest: 50, latest: 50), dead: .init(earliest: 52, latest: 52), annotator: "BW", reviewedAt: EventReview.stamp(now))
+        EventReview.Mutation.upsert(a, in: &f); EventReview.Mutation.upsert(b, in: &f)
+        XCTAssertEqual(PilotBlind.answer(to: w4, in: f)?.rallyId, b.rallyId)
+    }
 }
