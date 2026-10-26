@@ -51,6 +51,11 @@
 //             at least one frame; a pre-tracked rally nobody has looked at is left out whole, and no sure frame of the model's
 //             is ever a label (LineagePackage.isHumanLabeled, MultiFramePackage machineLabels: false).
 //             The project's data.yaml is not a lineage dataset.)
+//    RallyLab --project v3 --event-inventory | --review-status   (Stage 1 rally-boundary review, D-024, read-only:
+//             per recording the legacy marks in <video>.rallylabels.json (all legacy_unverified) and the reviewed
+//             rallies, spans, coverage and completion in <video>.rallyevents.json; withheld recordings named, not
+//             read. --event-inventory writes manifests/event-inventory-<stamp>.{json,csv}; --review-status prints
+//             the coverage table only. Neither writes a sidecar or a ledger row.)
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
 //    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo] [--val] [--heat M]   (self-training: the newest multi-frame
@@ -189,6 +194,11 @@ enum HeadlessProjects {
             // and the owner's confirmations of where a video came from.
             if ok, args.contains("--manifest") || args.contains("--audit-dataset") {
                 ok = datasetManifest(projects, audit: args.contains("--audit-dataset"), args: args)
+            }
+            // Stage 1 rally-boundary review (D-024), read-only: the inventory of legacy marks and
+            // reviewed events per recording, or the coverage table alone.
+            if ok, args.contains("--event-inventory") || args.contains("--review-status") {
+                ok = eventInventory(projects, write: args.contains("--event-inventory"))
             }
             if ok, args.contains("--confirm-youtube-source-ids") {
                 ok = confirmYouTubeSourceIDs(projects, apply: args.contains("--apply"))
@@ -939,6 +949,35 @@ enum HeadlessProjects {
         let rallies = left.reduce(0) { $0 + $1.rallies }, points = left.reduce(0) { $0 + $1.points }
         log("   labels: people's only — \(rallies) rallies nobody has checked (\(points) model points) in \(left.count) recording(s) left out: "
             + left.map { "\($0.video) (\($0.rallies))" }.joined(separator: ", "))
+    }
+
+    /// `--event-inventory` / `--review-status`: the Stage 1 review inventory (EventInventory), read-only.
+    /// With `write`, the report goes to manifests/event-inventory-<stamp>.{json,csv}; either way the
+    /// coverage table is printed. Withheld recordings are named, not read. No sidecar or ledger row is written.
+    @MainActor
+    private static func eventInventory(_ projects: ProjectsModel, write: Bool) -> Bool {
+        guard let root = projects.projectDir else { log("❌ No project folder."); return false }
+        let now = Date()
+        let report: EventInventory.Report
+        do { report = try EventInventory.build(root: root, now: now) } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
+        if write {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.timeZone = TimeZone(identifier: "UTC")
+            f.dateFormat = "yyyyMMdd-HHmmss"
+            do {
+                let out = try EventInventory.write(report, in: root, stamp: f.string(from: now))
+                log("✅ Event inventory: \(report.recordings.count) recordings → \(out.json.path) and \(out.csv.lastPathComponent)")
+            } catch {
+                log("❌ \(error.localizedDescription)")
+                return false
+            }
+        }
+        for line in EventInventory.statusLines(report) { log(line) }
+        return true
     }
 
     /// Record a use, or say why it couldn't be and report failure (the command then fails).
