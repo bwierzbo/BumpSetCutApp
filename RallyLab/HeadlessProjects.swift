@@ -67,7 +67,7 @@
 //             Never overwrites: a second draw needs --new-draw and names the record it supersedes. --dry-run runs
 //             no pipeline and writes nothing (the prediction strata are then unjudged).)
 //    RallyLab --project v3 --pilot-publish             (publishes the latest FROZEN pilot record for the phone, read-only
-//             there (migration 049): its id, the record file's SHA-256 and the selection. Leads only; an id is
+//             there (migration 050): its id, the record file's SHA-256 and the selection. Leads only; an id is
 //             published once. A dry run is never published.)
 //    RallyLab --project v3 --boundary-audit            (reads the latest pilot record and the pool's rallyevents.json:
 //             manifests/pilot/<stamp>-boundary_audit.csv, one row per event, with the offsets, ambiguity and repeat

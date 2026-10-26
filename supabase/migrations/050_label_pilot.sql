@@ -1,4 +1,4 @@
--- 049_label_pilot.sql
+-- 050_label_pilot.sql
 --
 -- The frozen 24-rally pilot draw (D-004; RallyLab `--pilot-freeze`), delivered to the phone read-only so the formal
 -- Mac/iPhone comparison never depends on copying windows by hand. A draw is published once by a lead, as frozen:

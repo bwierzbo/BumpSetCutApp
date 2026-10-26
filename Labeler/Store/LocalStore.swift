@@ -22,7 +22,7 @@ struct LabelSnapshot: Codable {
     var events: [LabelRallyEvents] = []
     /// The project's withheld recordings as published; nil = no list published for that project (nothing reviewable).
     var withheld: [String: [String]] = [:]
-    /// The frozen pilot draw published for each project (migration 049), read-only; absent when none is.
+    /// The frozen pilot draw published for each project (migration 050), read-only; absent when none is.
     var pilots: [String: PilotPublication] = [:]
     /// Projects whose pilot status has been read from the server at least once (with or without a draw). Until a
     /// project is here, its pilot status is unknown and the phone shows no legacy marks for it (blind).

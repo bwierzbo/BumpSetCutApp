@@ -13,11 +13,11 @@ psql() { "$bin/psql" -h "$tmp" -p 55448 -U postgres -d postgres -v ON_ERROR_STOP
 psql -f "$here/048_stubs.sql"
 psql -f "${MIGRATION_048:-$here/../migrations/048_label_rally_events.sql}"
 psql -At -f "$here/048_tests.sql" | grep -v '^$' | tail -1
-# 049 (the published pilot draw) on a fresh database of the same cluster: stubs, 048, 049, its tests.
-[[ -f "$here/../migrations/049_label_pilot.sql" ]] || exit 0
-psql -c "CREATE DATABASE t049" >/dev/null
-psql49() { "$bin/psql" -h "$tmp" -p 55448 -U postgres -d t049 -v ON_ERROR_STOP=1 -q "$@"; }
-psql49 -f "$here/048_stubs.sql"
-psql49 -f "$here/../migrations/048_label_rally_events.sql"
-psql49 -f "$here/../migrations/049_label_pilot.sql"
-psql49 -At -f "$here/049_tests.sql" | grep -v '^$' | tail -1
+# 050 (the published pilot draw) on a fresh database of the same cluster: stubs, 048, 050, its tests.
+[[ -f "$here/../migrations/050_label_pilot.sql" ]] || exit 0
+psql -c "CREATE DATABASE t050" >/dev/null
+psql50() { "$bin/psql" -h "$tmp" -p 55448 -U postgres -d t050 -v ON_ERROR_STOP=1 -q "$@"; }
+psql50 -f "$here/048_stubs.sql"
+psql50 -f "$here/../migrations/048_label_rally_events.sql"
+psql50 -f "$here/../migrations/050_label_pilot.sql"
+psql50 -At -f "$here/050_pilot_tests.sql" | grep -v '^$' | tail -1

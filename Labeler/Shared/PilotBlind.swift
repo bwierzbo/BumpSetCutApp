@@ -25,7 +25,7 @@ struct PilotWindow: Codable, Equatable {
     var repeatReview: Bool
 }
 
-/// A frozen pilot draw as published for the phone (migration 049): read-only, identified by the record's id, the
+/// A frozen pilot draw as published for the phone (migration 050): read-only, identified by the record's id, the
 /// SHA-256 of the frozen record file, and the server's digest of the selection it stores.
 struct PilotPublication: Codable, Equatable {
     var id: String

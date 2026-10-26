@@ -1,4 +1,4 @@
--- Tests for migration 049 (the published pilot draw), run after 048 and its tests' data are gone: a fresh cluster.
+-- Tests for migration 050 (the published pilot draw), run after 048 and its tests' data are gone: a fresh cluster.
 \set ON_ERROR_STOP on
 SET client_min_messages = warning;
 INSERT INTO auth.users VALUES ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b'), ('00000000-0000-0000-0000-00000000000c');
@@ -46,4 +46,4 @@ SET ROLE anon;
 SELECT pg_temp.expect($q$SELECT count(*) FROM public.label_pilot_records$q$, '42501', 'permission denied');
 RESET ROLE;
 SELECT pg_temp.check(NOT has_function_privilege('anon', 'public.label_pilot_publish(text, text, text, jsonb)', 'EXECUTE'), 'anon cannot publish');
-SELECT 'ALL 049 TESTS PASSED' AS result;
+SELECT 'ALL 050 PILOT TESTS PASSED' AS result;

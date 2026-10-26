@@ -286,7 +286,7 @@ actor LabelingClient {
         return Int(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) ?? names.count
     }
 
-    /// The latest frozen pilot draw published for a project (migration 049), or nil when none is. Read-only here.
+    /// The latest frozen pilot draw published for a project (migration 050), or nil when none is. Read-only here.
     func pilot(project: String) async throws -> PilotPublication? {
         let rows: [PilotPublication] = try await get("label_pilot_records",
             query: "select=id,project,record_sha256,selection,selection_digest,published_at&project=eq.\(Self.encoded(project))&order=published_at.desc&limit=1")
