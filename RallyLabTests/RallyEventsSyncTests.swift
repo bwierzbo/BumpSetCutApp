@@ -249,6 +249,24 @@ final class RallyEventsSyncTests: XCTestCase {
         XCTAssertEqual(known.file.sourceFingerprint, "file:abc")
     }
 
+    func testWithdrawingTheSelectedRallyElsewhereKeepsAnUnrelatedNewDraft() {
+        var e = BoundaryEditor(file: file(revision: 1), annotator: "BW", tool: "t")
+        _ = e.apply(.mark(.contact, .earliest), at: 1, now: now)
+        _ = e.apply(.mark(.dead, .earliest), at: 3, now: now)
+        XCTAssertTrue(e.apply(.commit, at: 3, now: now).changed)
+        let a = e.selected!
+        // Marking rally B: a new draft while A stays selected.
+        _ = e.apply(.mark(.contact, .earliest), at: 5, now: now)
+        XCTAssertNil(e.draft.rallyId); XCTAssertEqual(e.draft.contact?.earliest, 5)
+        var theirs = e.file; theirs.revision = 2
+        XCTAssertTrue(EventReview.Mutation.withdraw(a, in: &theirs, at: now, annotator: "KD"))
+        XCTAssertTrue(e.adopt(theirs))
+        XCTAssertNil(e.selected, "the withdrawn rally is deselected")
+        XCTAssertEqual(e.draft.contact?.earliest, 5, "B's marks are kept")
+        _ = e.apply(.mark(.dead, .earliest), at: 7, now: now)
+        XCTAssertTrue(e.apply(.commit, at: 7, now: now).changed)
+    }
+
     func testShadowAndConflictFilesSitBesideTheRecordNeverOverIt() {
         let record = EventReview.url(forVideo: URL(fileURLWithPath: "/footage/clip.mp4"))
         XCTAssertEqual(record.lastPathComponent, "clip.rallyevents.json")

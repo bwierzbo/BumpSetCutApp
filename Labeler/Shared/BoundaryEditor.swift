@@ -156,7 +156,12 @@ struct BoundaryEditor: Equatable {
         file = synced
         // A selected rally that the other side withdrew (or that is gone) can no longer be edited: deselect it.
         guard let id = selected, let now = file.rallies.first(where: { $0.rallyId == id && $0.reviewState != .withdrawn }) else {
-            if selected != nil { selected = nil; draft = Draft(); draftConflict = nil }
+            // Deselect the withdrawn rally; a draft is dropped only when it is that rally's (a new rally being built
+            // after a commit — rallyId nil — is the reviewer's work and stays).
+            if let gone = selected {
+                selected = nil
+                if draft.rallyId == gone { draft = Draft(); draftConflict = nil }
+            }
             return changed
         }
         // The rally under the draft changed on the other side: an untouched draft follows it; an edited draft
