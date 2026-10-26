@@ -66,6 +66,9 @@
 //             manifest hashes and the frozen raw/padded predictions to manifests/pilot/<stamp>-pilot.{json,md}.
 //             Never overwrites: a second draw needs --new-draw and names the record it supersedes. --dry-run runs
 //             no pipeline and writes nothing (the prediction strata are then unjudged).)
+//    RallyLab --project v3 --pilot-publish             (publishes the latest FROZEN pilot record for the phone, read-only
+//             there (migration 049): its id, the record file's SHA-256 and the selection. Leads only; an id is
+//             published once. A dry run is never published.)
 //    RallyLab --project v3 --boundary-audit            (reads the latest pilot record and the pool's rallyevents.json:
 //             manifests/pilot/<stamp>-boundary_audit.csv, one row per event, with the offsets, ambiguity and repeat
 //             agreement by platform pair. Reads only.)
@@ -106,6 +109,7 @@
 //  standard clip plan.
 //
 
+import CryptoKit
 import Foundation
 
 enum HeadlessProjects {
@@ -222,6 +226,9 @@ enum HeadlessProjects {
             // The 24-rally pilot (D-004): the frozen draw, and the audit of its results.
             if ok, args.contains("--pilot-freeze") {
                 ok = await pilotFreeze(projects, args: args)
+            }
+            if ok, args.contains("--pilot-publish") {
+                ok = await pilotPublish(projects)
             }
             if ok, args.contains("--boundary-audit") {
                 ok = boundaryAudit(projects)
@@ -1089,6 +1096,24 @@ enum HeadlessProjects {
         do {
             let out = try PilotDraw.write(record, in: root, stamp: stamp)
             log("✅ Pilot draw frozen: \(selection.count) rallies (\(selection.filter(\.repeatReview).count) in the repeat set)\(unfilled.isEmpty ? "" : "; unfilled: " + unfilled.joined(separator: ", ")) → \(out.json.path) and \(out.md.lastPathComponent)")
+            return true
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// `--pilot-publish`: the latest frozen pilot record, published for the phone (read-only there). Refuses a dry run.
+    @MainActor
+    private static func pilotPublish(_ projects: ProjectsModel) async -> Bool {
+        guard let root = projects.projectDir, let project = projects.project?.name else { log("❌ No project."); return false }
+        guard let url = PilotDraw.existing(in: root).last, let data = try? Data(contentsOf: url),
+              let record = try? JSONDecoder().decode(PilotDraw.Record.self, from: data) else { log("❌ No readable pilot record under manifests/pilot."); return false }
+        guard !record.dryRun, record.status == "frozen" else { log("❌ \(url.lastPathComponent) is not a frozen draw; nothing is published."); return false }
+        let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        do {
+            let published = try await LabelingClient.shared.publishPilot(id: record.id, project: project, recordSha256: sha, selection: record.selection.map(\.pilotWindow))
+            log("✅ \(published.id) published for the phone: \(published.selection.count) rallies, record sha256 \(sha.prefix(16))…, selection digest \(published.selectionDigest.prefix(16))…")
             return true
         } catch {
             log("❌ \(error.localizedDescription)")

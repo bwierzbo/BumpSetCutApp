@@ -1,0 +1,67 @@
+//
+//  PilotBlind.swift
+//  Labeler/Shared — compiled by RallyLab (macOS) and the Labeler iPhone app
+//
+//  The 24-rally pilot (D-004) as both apps see it, and the one blind-review rule they both
+//  enforce (protocol §6): while a selected rally's first review is not committed, no
+//  legacy mark inside its frozen window is shown — whatever a toggle says, wherever the
+//  playhead is. A rally counts as committed when a reviewed rally of the record overlaps
+//  the selected legacy interval (the same pairing the boundary audit uses), so the rule
+//  does not depend on how either device numbers its legacy marks. Neither app shows a
+//  model prediction during review.
+//
+
+import Foundation
+
+/// One selected rally of a frozen pilot draw, as the apps need it.
+struct PilotWindow: Codable, Equatable {
+    var video: String
+    var legacyIndex: Int
+    var legacyStart: Double
+    var legacyEnd: Double
+    /// [start, end] of the evaluation window, frozen from legacy information alone.
+    var window: [Double]
+    var stratum: String
+    var repeatReview: Bool
+}
+
+/// A frozen pilot draw as published for the phone (migration 049): read-only, identified by the record's id, the
+/// SHA-256 of the frozen record file, and the server's digest of the selection it stores.
+struct PilotPublication: Codable, Equatable {
+    var id: String
+    var project: String
+    var recordSha256: String
+    var selectionDigest: String
+    var selection: [PilotWindow]
+    var publishedAt: Date?
+
+    func windows(for session: String) -> [PilotWindow] {
+        selection.filter { $0.video == session }.sorted { $0.window[0] < $1.window[0] }
+    }
+}
+
+enum PilotBlind {
+    /// The reviewed rally that answers this selected rally: the one overlapping its legacy interval most.
+    static func answer(to w: PilotWindow, in file: EventReview.File?) -> EventReview.Rally? {
+        guard let file else { return nil }
+        func overlap(_ r: EventReview.Rally) -> Double {
+            guard let a = r.contact?.earliest ?? r.dead?.earliest, let b = r.dead?.latest ?? r.contact?.latest else { return 0 }
+            return min(b, w.legacyEnd) - max(a, w.legacyStart)
+        }
+        return file.rallies.filter { $0.reviewState == .reviewed && overlap($0) > 0 }.max { overlap($0) < overlap($1) }
+    }
+
+    static func firstReviewCommitted(_ w: PilotWindow, in file: EventReview.File?) -> Bool { answer(to: w, in: file) != nil }
+
+    /// Which of these legacy marks may be drawn: none that falls inside the window of a selected rally whose first
+    /// review is not committed yet.
+    static func visible(_ marks: [(start: Double, end: Double)], windows: [PilotWindow], record: EventReview.File?) -> [Bool] {
+        let blind = windows.filter { !firstReviewCommitted($0, in: record) }
+        return marks.map { m in !blind.contains { w in m.end > w.window[0] && m.start < w.window[1] } }
+    }
+
+    /// The marks that may be drawn.
+    static func filter(_ marks: [(start: Double, end: Double)], windows: [PilotWindow], record: EventReview.File?) -> [(start: Double, end: Double)] {
+        zip(marks, visible(marks, windows: windows, record: record)).filter(\.1).map(\.0)
+    }
+}

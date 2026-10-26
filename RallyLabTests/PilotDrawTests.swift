@@ -203,4 +203,38 @@ final class PilotDrawTests: XCTestCase {
         XCTAssertTrue(audit.summary.contains { $0.hasPrefix("beach contact") && $0.contains("legacy − reviewed median -0.41") && $0.contains("ambiguous 0/1") }, "\(audit.summary)")
         XCTAssertTrue(audit.summary.contains { $0.hasPrefix("beach dead") && $0.contains("ambiguous 1/1") }, "\(audit.summary)")
     }
+
+    // MARK: - The blind rule both apps enforce (PilotBlind)
+
+    func testLegacyMarksInsideAnUncommittedPilotWindowAreNeverShown() {
+        let w = PilotWindow(video: "v", legacyIndex: 7, legacyStart: 10, legacyEnd: 13, window: [5, 18], stratum: "short", repeatReview: false)
+        // The device's own numbering of legacy marks does not matter: the rule works on times.
+        let marks: [(start: Double, end: Double)] = [(1, 3), (4, 6), (10, 13), (17, 20), (30, 33)]
+        var f = EventReview.File(video: "v", sourceFingerprint: "file:x", frameRate: 30, durationSec: 60, tool: "t")
+        XCTAssertEqual(PilotBlind.visible(marks, windows: [w], record: f), [true, false, false, false, true], "every mark touching the window is hidden before the first review")
+        XCTAssertEqual(PilotBlind.visible(marks, windows: [w], record: nil), [true, false, false, false, true], "no record yet: blind")
+        // A reviewed rally elsewhere does not unblind it; one overlapping the legacy interval does.
+        let now = ISO8601DateFormatter().date(from: "2026-10-26T20:00:00Z")!
+        EventReview.Mutation.upsert(EventReview.Rally(rallyId: UUID(), kind: .rally, contact: .init(earliest: 40, latest: 40), dead: .init(earliest: 42, latest: 42), annotator: "BW", reviewedAt: EventReview.stamp(now)), in: &f)
+        XCTAssertFalse(PilotBlind.firstReviewCommitted(w, in: f))
+        let answer = EventReview.Rally(rallyId: UUID(), kind: .rally, contact: .init(earliest: 10.4, latest: 10.4), dead: .init(earliest: 12.9, latest: 12.9), annotator: "BW", reviewedAt: EventReview.stamp(now))
+        EventReview.Mutation.upsert(answer, in: &f)
+        XCTAssertTrue(PilotBlind.firstReviewCommitted(w, in: f))
+        XCTAssertEqual(PilotBlind.answer(to: w, in: f)?.rallyId, answer.rallyId)
+        XCTAssertEqual(PilotBlind.visible(marks, windows: [w], record: f), [true, true, true, true, true], "committed: the marks may be compared")
+        // Withdrawn answers do not count.
+        _ = EventReview.Mutation.withdraw(answer.rallyId, in: &f, at: now, annotator: "BW")
+        XCTAssertFalse(PilotBlind.firstReviewCommitted(w, in: f))
+    }
+
+    func testThePublishedDrawCarriesTheFrozenSelection() throws {
+        let s = PilotDraw.Selected(video: "v", legacyIndex: 2, surface: "beach", group: "g", stratum: "long", substitutedFor: nil, legacyStart: 30, legacyEnd: 45, window: [25, 50], repeatReview: true)
+        let w = s.pilotWindow
+        XCTAssertEqual(w, PilotWindow(video: "v", legacyIndex: 2, legacyStart: 30, legacyEnd: 45, window: [25, 50], stratum: "long", repeatReview: true))
+        // The selection travels with camelCase keys (what the server's shape check reads).
+        let json = String(decoding: try JSONEncoder().encode([w]), as: UTF8.self)
+        XCTAssertTrue(json.contains("\"legacyIndex\":2") && json.contains("\"window\":[25,50]"), json)
+        let p = PilotPublication(id: "EXP-1", project: "Scratch", recordSha256: String(repeating: "a", count: 64), selectionDigest: "d", selection: [w], publishedAt: nil)
+        XCTAssertEqual(p.windows(for: "v"), [w]); XCTAssertEqual(p.windows(for: "other"), [])
+    }
 }

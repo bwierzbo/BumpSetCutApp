@@ -86,9 +86,9 @@ final class RallyBoundariesModel {
 
     func pilotCount(for name: String) -> Int { pilot?.selection.filter { $0.video == name }.count ?? 0 }
 
-    /// Whether the selected rally has been reviewed (by its legacy link), and whether a second review exists.
+    /// Whether the selected rally's first review is committed (the shared pairing), and whether a second review exists.
     func pilotState(of s: PilotDraw.Selected) -> (reviewed: Bool, second: Bool) {
-        guard let r = file?.rallies.first(where: { $0.reviewState == .reviewed && $0.legacyIndex == s.legacyIndex }) else { return (false, false) }
+        guard let r = PilotBlind.answer(to: s.pilotWindow, in: file) else { return (false, false) }
         return (true, r.secondReview != nil)
     }
 
@@ -103,10 +103,10 @@ final class RallyBoundariesModel {
     /// first result is shown either.
     var legacyHidden: Bool { secondReview }
 
-    /// The legacy marks the timeline may draw: all of them, less the uncommitted pilot rallies' marks.
+    /// The legacy marks the timeline may draw: the shared blind rule (PilotBlind) — none inside the window of a
+    /// selected rally whose first review is not committed.
     var visibleLegacyMarks: [(start: Double, end: Double)] {
-        let hidden = Set(pilotWindows.filter { !pilotState(of: $0).reviewed }.map(\.legacyIndex))
-        return legacyMarks.enumerated().filter { !hidden.contains($0.offset) }.map { ($0.element.startTime, $0.element.endTime) }
+        PilotBlind.filter(legacyMarks.map { ($0.startTime, $0.endTime) }, windows: pilotWindows.map(\.pilotWindow), record: file)
     }
 
     var secondReview: Bool { editor?.mode == .secondReview }

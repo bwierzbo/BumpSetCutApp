@@ -142,6 +142,10 @@ final class LabelerModel: ReviewStore {
             for project in Set(loaded.videos.compactMap(\.project)) {
                 let (listed, names) = try await client.withheld(project: project)
                 if listed { loaded.withheld[project] = names.sorted() }
+                // The frozen pilot draw, if one is published: the blind rule depends on it, so a draw known before
+                // stays when it cannot be fetched now (never silently dropped).
+                if let pilot = try? await client.pilot(project: project) { loaded.pilots[project] = pilot }
+                else if let known = snapshot.pilots[project] { loaded.pilots[project] = known }
             }
             account = await client.email
             guard try await client.isLabeler() else { phase = .notLabeler; return }
@@ -265,6 +269,14 @@ final class LabelerModel: ReviewStore {
         for id in blocked where outbox.events[id] != nil { eventIdentityProblems[id] = "withheld: this recording is not reviewable now; the edit is kept on this phone and not sent" }
         if snapshot.events.count != before { LocalStore.save(snapshot, "snapshot.json") }
     }
+
+    /// The frozen pilot's selected rallies in this recording (empty when there is no published draw).
+    func pilotWindows(for video: LabelVideo) -> [PilotWindow] {
+        guard let project = video.project, let session = video.sessionName else { return [] }
+        return snapshot.pilots[project]?.windows(for: session) ?? []
+    }
+
+    func pilot(for video: LabelVideo) -> PilotPublication? { video.project.flatMap { snapshot.pilots[$0] } }
 
     /// Whether the recording may be reviewed here: the project has a published withheld list and the recording is not on it.
     func isReviewable(_ video: LabelVideo) -> Bool {

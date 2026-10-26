@@ -107,6 +107,11 @@ enum PilotDraw {
         /// [start, end] of the evaluation window, frozen from legacy information alone.
         var window: [Double]
         var repeatReview: Bool
+
+        /// What the apps need of it (the shared blind rule, the phone's copy of the draw).
+        var pilotWindow: PilotWindow {
+            PilotWindow(video: video, legacyIndex: legacyIndex, legacyStart: legacyStart, legacyEnd: legacyEnd, window: window, stratum: stratum, repeatReview: repeatReview)
+        }
     }
 
     struct Record: Codable, Equatable {
@@ -454,13 +459,9 @@ enum PilotDraw {
                 files[s.video] = FileManager.default.fileExists(atPath: url.path) ? (try? EventReview.read(url)) : nil
             }
             guard let file = files[s.video]! else { rows.append(blank(s, status: FileManager.default.fileExists(atPath: EventReview.url(forVideo: session.sourceURL).path) ? "record_unreadable" : "not_reviewed")); continue }
-            let reviewed = file.rallies.filter { $0.reviewState == .reviewed }
-            let rally = reviewed.first { $0.legacyIndex == s.legacyIndex }
-                ?? reviewed.filter { r in
-                    guard let a = r.contact?.earliest ?? r.dead?.earliest, let b = r.dead?.latest ?? r.contact?.latest else { return false }
-                    return min(b, s.legacyEnd) - max(a, s.legacyStart) > 0
-                }.max { overlap($0, s) < overlap($1, s) }
-            guard let r = rally else { rows.append(blank(s, status: "not_reviewed")); continue }
+            // The same pairing the blind rule uses on both devices: the reviewed rally overlapping the legacy interval most
+            // (independent of how either device numbered its legacy marks).
+            guard let r = PilotBlind.answer(to: s.pilotWindow, in: file) else { rows.append(blank(s, status: "not_reviewed")); continue }
             for (event, legacy, first, second) in [("contact", s.legacyStart, r.contact, r.secondReview?.contact), ("dead", s.legacyEnd, r.dead, r.secondReview?.dead)] {
                 let mid = first.map { ($0.earliest + $0.latest) / 2 }
                 let mid2 = second.map { ($0.earliest + $0.latest) / 2 }
@@ -479,10 +480,6 @@ enum PilotDraw {
         return Audit(rows: rows, summary: summarise(rows, record: record))
     }
 
-    private static func overlap(_ r: EventReview.Rally, _ s: Selected) -> Double {
-        guard let a = r.contact?.earliest ?? r.dead?.earliest, let b = r.dead?.latest ?? r.contact?.latest else { return 0 }
-        return min(b, s.legacyEnd) - max(a, s.legacyStart)
-    }
 
     private static func blank(_ s: Selected, status: String) -> AuditRow {
         AuditRow(video: s.video, surface: s.surface, stratum: s.stratum, legacyIndex: s.legacyIndex, rallyId: "", kind: "", event: "", legacyTime: s.legacyStart,

@@ -242,6 +242,24 @@ final class PhoneBoundaryModel {
 
     var secondReview: Bool { editor?.mode == .secondReview }
 
+    // MARK: - Pilot (blind first review, the same rule as the Mac: PilotBlind)
+
+    var pilotWindows: [PilotWindow] { model.pilotWindows(for: video) }
+
+    /// Legacy marks the timeline may draw: none inside the window of a pilot rally whose first review is not
+    /// committed — enforced here, whatever the legacy toggle says.
+    var visibleLegacyMarks: [(start: Double, end: Double)] {
+        PilotBlind.filter(model.rallyTimes(for: video).rallies.map { ($0.start, $0.end) }, windows: pilotWindows, record: file)
+    }
+
+    func pilotCommitted(_ w: PilotWindow) -> Bool { PilotBlind.firstReviewCommitted(w, in: file) }
+
+    /// Opens a pilot window as the protocol says: paused, 3 s before the legacy start (inside the window).
+    func jump(to w: PilotWindow) {
+        if isPlaying { togglePlay() }
+        seek(to: max(w.window[0], w.legacyStart - 3))
+    }
+
     /// The blind repeat (protocol §6), the same rule as the Mac: the first result hidden, S and D marked again.
     func setSecondReview(_ on: Bool) {
         guard var e = editor else { return }
@@ -307,6 +325,7 @@ struct RallyBoundariesPhoneView: View {
             timeline.frame(height: 44).padding(.horizontal).padding(.top, 4)
             transport.padding(.vertical, 6)
             gateBanner
+            if !m.pilotWindows.isEmpty { pilotStrip }
             if let c = m.conflict { conflictBanner(c) }
             if let why = m.identityProblem {
                 Label(why, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red)
@@ -349,8 +368,8 @@ struct RallyBoundariesPhoneView: View {
             return (a, b)
         }()
         return BoundaryTimelineView(file: m.file, duration: m.duration, playhead: m.playhead,
-                                    legacyMarks: m.model.rallyTimes(for: m.video).rallies.map { ($0.start, $0.end) }, showLegacy: showLegacy && !m.secondReview,
-                                    draft: draft, openSpanStart: e?.openSpan?.start, selected: e?.selected, hideRallyTimes: m.secondReview,
+                                    legacyMarks: m.visibleLegacyMarks, showLegacy: showLegacy && !m.secondReview,
+                                    draft: draft, openSpanStart: e?.openSpan?.start, selected: e?.selected, hideRallyTimes: m.secondReview, windows: m.pilotWindows.map { ($0.window[0], $0.window[1]) },
                                     seek: { t, exact in m.seek(to: t, exact: exact) }, select: { t in m.selectRally(at: t) })
     }
 
@@ -391,6 +410,24 @@ struct RallyBoundariesPhoneView: View {
             .buttonStyle(.bordered).controlSize(.small)
         }
         .padding(8).background(Color.red.opacity(0.12)).padding(.horizontal)
+    }
+
+    /// The published pilot draw's rallies in this recording: tap to open a window (blind until committed).
+    private var pilotStrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Pilot \(m.model.pilot(for: m.video)?.id ?? "") · \(m.pilotWindows.count) here · blind until committed").font(.caption.bold())
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(m.pilotWindows.enumerated()), id: \.offset) { _, w in
+                        Button { m.jump(to: w) } label: {
+                            Text("\(w.stratum) \(BoundaryEditor.clock(w.window[0]))\(w.repeatReview ? " ↻" : "")\(m.pilotCommitted(w) ? " ✓" : "")").font(.system(.caption2, design: .monospaced))
+                        }
+                        .buttonStyle(.bordered).controlSize(.small).tint(m.pilotCommitted(w) ? .blue : .yellow)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
     }
 
     private func draftConflictBanner(_ d: BoundaryEditor.DraftConflict) -> some View {

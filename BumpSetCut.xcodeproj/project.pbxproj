@@ -114,6 +114,7 @@
 				Shared/BallPathFile.swift,
 				Shared/BoundaryEditor.swift,
 				Shared/BoundaryTimelineView.swift,
+				Shared/PilotBlind.swift,
 				Shared/BoxFitter.swift,
 				Shared/EventReviewRecord.swift,
 				Shared/FinalCheckView.swift,
