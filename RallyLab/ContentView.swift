@@ -47,6 +47,8 @@ struct ContentView: View {
                 tab = .label
             }
             library.reload()
+            // The review tab holds a recording of the old project: nothing of it stays open.
+            boundaries.projectChanged()
         }
     }
 

@@ -144,6 +144,29 @@ final class BoundaryEditorTests: XCTestCase {
         XCTAssertTrue(e.draft.isEmpty, "selecting an unknown id selects nothing")
     }
 
+    func testAdjacentRalliesWalkTheRecordingInOrder() {
+        var e = editor(duration: 10, frameRate: 30)
+        _ = e.apply(.reviewedThrough, at: 10, now: now)
+        let c = commitRally(&e, contact: 7, dead: 8)
+        let a = commitRally(&e, contact: 1, dead: 2)
+        let b = commitRally(&e, contact: 4, dead: 5)
+        _ = e.apply(.cancel, at: 0, now: now)
+        XCTAssertEqual(e.reviewedRallies.map(\.rallyId), [a, b, c], "ordered by start, not by commit")
+        XCTAssertEqual(e.adjacentRally(to: 0, forward: true), a)
+        XCTAssertEqual(e.adjacentRally(to: 4.5, forward: true), c, "the next rally starting after the playhead")
+        XCTAssertEqual(e.adjacentRally(to: 4.5, forward: false), b, "the last rally starting before it")
+        XCTAssertNil(e.adjacentRally(to: 0, forward: false))
+        XCTAssertNil(e.adjacentRally(to: 9, forward: true))
+        _ = e.apply(.select(b), at: 0, now: now)
+        XCTAssertEqual(e.adjacentRally(to: 0, forward: true), c, "with one selected, the next in order regardless of the playhead")
+        XCTAssertEqual(e.adjacentRally(to: 0, forward: false), a)
+        _ = e.apply(.select(c), at: 0, now: now)
+        _ = e.apply(.withdraw, at: 0, now: now)
+        XCTAssertEqual(e.reviewedRallies.map(\.rallyId), [a, b], "a withdrawn rally is not walked")
+        _ = e.apply(.select(b), at: 0, now: now)
+        XCTAssertNil(e.adjacentRally(to: 0, forward: true))
+    }
+
     func testSpansLieInsideCoverageAndNeedTwoPresses() {
         var e = editor()
         let first = e.apply(.span(.nonRallyActivity), at: 0.2, now: now)

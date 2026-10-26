@@ -36,6 +36,10 @@ final class RallyBoundariesModel {
     private var seekTarget: Double?
     private var seekExact = true
     private var framesTask: Task<Void, Never>?
+    /// Bumped by every open and close: an open that finishes after a newer one (or after a close) is stale and changes nothing.
+    private var generation = 0
+    /// The dataset root the open recording belongs to; a project change closes it.
+    private var openedRoot: URL?
     let annotator: String
     let tool: String
 
@@ -70,8 +74,14 @@ final class RallyBoundariesModel {
         guard name != sessionName else { return }
         guard let video = sampler.sessions.first(where: { $0.name == name }) else { status = "\(name) is not in the project."; return }
         close()
+        generation += 1
+        let mine = generation
+        let root = self.root
         do {
             let opened = try await EventReview.open(video, root: root, tool: tool)
+            // Another recording was chosen, or the project changed, while this one was opening: it is stale.
+            guard mine == generation else { return }
+            openedRoot = root
             session = opened
             editor = BoundaryEditor(file: opened.file, annotator: annotator, tool: tool)
             legacyMarks = (try? Data(contentsOf: RallyMarkModel.labelsURL(for: video.sourceURL))).flatMap { try? JSONDecoder().decode([RallyMarkRecord].self, from: $0) } ?? []
@@ -96,16 +106,26 @@ final class RallyBoundariesModel {
             status = opened.isNew ? "New record for \(name): review from the start; R marks reviewed through the playhead."
                 : (resume.map { "Resumed at \(BoundaryEditor.clock($0)), the first unknown stretch." } ?? "\(name) is fully reviewed.")
         } catch {
+            guard mine == generation else { return }
             status = error.localizedDescription
             lastRefused = true
         }
     }
 
+    /// The project (dataset root) changed or closed: nothing of the old one stays open, and an open in flight is discarded.
+    func projectChanged() {
+        close()
+        recordings = []
+        inventoryProblem = nil
+        status = "Pick a recording."
+    }
+
     func close() {
+        generation += 1
         if let player, let timeObserver { player.removeTimeObserver(timeObserver) }
         player?.pause()
         framesTask?.cancel()
-        player = nil; timeObserver = nil; session = nil; editor = nil; legacyMarks = []
+        player = nil; timeObserver = nil; session = nil; editor = nil; legacyMarks = []; openedRoot = nil
         frames = FrameClock(times: [], frameRate: 30)
         playhead = 0; duration = 0; isPlaying = false; lastRefused = false
     }
@@ -174,6 +194,8 @@ final class RallyBoundariesModel {
     @discardableResult
     func perform(_ action: BoundaryEditor.Action) -> Bool {
         guard var e = editor, let session else { return false }
+        // The project moved under an open recording (no project-change signal reached us): refuse to write into the old one.
+        guard openedRoot == root else { projectChanged(); status = "The project changed; pick a recording again."; lastRefused = true; return false }
         if isPlaying, action != .select(nil) { togglePlay() }
         let outcome = e.apply(action, at: now, now: Date())
         if outcome.changed {
@@ -197,5 +219,21 @@ final class RallyBoundariesModel {
     func select(_ id: UUID?) {
         perform(.select(id))
         if let r = editor?.selectedRally, let t = r.contact?.earliest ?? r.dead?.earliest { seek(to: t) }
+    }
+
+    /// `[` / `]`: the reviewed rally before or after the playhead (by its start), selected and shown.
+    func selectAdjacent(forward: Bool) {
+        guard let e = editor, let id = e.adjacentRally(to: now, forward: forward) else { status = forward ? "no rally after here" : "no rally before here"; lastRefused = true; return }
+        select(id)
+    }
+
+    /// A click on the timeline: the reviewed rally under that moment, if any, else nothing selected.
+    func selectRally(at t: Double) {
+        guard let e = editor else { return }
+        let hit = e.file.rallies.first { r in
+            guard r.reviewState == .reviewed, let a = r.contact?.earliest ?? r.dead?.earliest, let b = r.dead?.latest ?? r.contact?.latest else { return false }
+            return a <= t && t <= b
+        }
+        if hit?.rallyId != e.selected { perform(.select(hit?.rallyId)) }
     }
 }

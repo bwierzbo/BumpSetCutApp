@@ -127,6 +127,24 @@ struct BoundaryEditor: Equatable {
     var unknownGaps: [(start: Double, end: Double)] { EventReview.gaps(in: file) }
     var selectedRally: EventReview.Rally? { selected.flatMap { id in file.rallies.first { $0.rallyId == id } } }
 
+    /// The reviewed rallies in order of their start (serve contact, else ball dead).
+    var reviewedRallies: [EventReview.Rally] {
+        file.rallies.filter { $0.reviewState == .reviewed }.sorted { Self.start(of: $0) < Self.start(of: $1) }
+    }
+
+    static func start(of r: EventReview.Rally) -> Double { r.contact?.earliest ?? r.dead?.earliest ?? .infinity }
+
+    /// The reviewed rally starting after `t` (forward) or before it (backward); with one selected, the next
+    /// or previous one in order, so repeated presses walk the recording.
+    func adjacentRally(to t: Double, forward: Bool) -> UUID? {
+        let ordered = reviewedRallies
+        if let id = selected, let i = ordered.firstIndex(where: { $0.rallyId == id }) {
+            let j = forward ? i + 1 : i - 1
+            return ordered.indices.contains(j) ? ordered[j].rallyId : nil
+        }
+        return forward ? ordered.first { Self.start(of: $0) > t + 1e-9 }?.rallyId : ordered.last { Self.start(of: $0) < t - 1e-9 }?.rallyId
+    }
+
     /// One frame of video time: events marked on one press are this wide at most.
     private var frame: Double { file.frameDuration }
 

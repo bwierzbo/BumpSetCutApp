@@ -121,22 +121,29 @@ struct RallyBoundariesView: View {
                     if let s = e.openSpan { Text("\(s.kind.rawValue) open from \(BoundaryEditor.clock(s.start))").font(.caption).foregroundStyle(.orange) }
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    let reviewed = e.file.rallies.filter { $0.reviewState == .reviewed }
-                    Text("\(reviewed.count) rallies · \(e.file.rallies.count - reviewed.count) withdrawn · \(e.file.spans.count) spans").font(.caption.bold())
-                    ForEach(reviewed.sorted { ($0.contact?.earliest ?? $0.dead?.earliest ?? 0) < ($1.contact?.earliest ?? $1.dead?.earliest ?? 0) }.suffix(6), id: \.rallyId) { r in
-                        Button {
-                            model.select(r.rallyId)
-                        } label: {
-                            Text("\(r.kind.rawValue) \(r.contact.map { BoundaryEditor.clock($0.earliest) } ?? "?") → \(r.dead.map { BoundaryEditor.clock($0.earliest) } ?? "?")" + (r.flags.isEmpty ? "" : " ⚑"))
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(r.rallyId == e.selected ? Color.accentColor : .primary)
-                        }.buttonStyle(.plain)
+                    let reviewed = e.reviewedRallies
+                    Text("\(reviewed.count) rallies · \(e.file.rallies.count - reviewed.count) withdrawn · \(e.file.spans.count) spans · [ ] previous / next · click the timeline to select").font(.caption.bold())
+                    // Every reviewed rally, in order, each selectable for correction or withdrawal.
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            ForEach(reviewed, id: \.rallyId) { r in
+                                Button { model.select(r.rallyId) } label: { Text(Self.line(for: r)).font(.system(.caption, design: .monospaced)).foregroundStyle(r.rallyId == e.selected ? Color.accentColor : Color.primary) }
+                                    .buttonStyle(.plain)
+                            }
+                        }
                     }
+                    .frame(maxHeight: 96)
                 }
                 Spacer()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private static func line(for r: EventReview.Rally) -> String {
+        let a = r.contact.map { BoundaryEditor.clock($0.earliest) } ?? "?"
+        let b = r.dead.map { BoundaryEditor.clock($0.earliest) } ?? "?"
+        return "\(r.kind.rawValue) \(a) → \(b)" + (r.flags.isEmpty ? "" : " ⚑")
     }
 
     private func describe(_ e: EventReview.EventTime?) -> String {
@@ -172,6 +179,8 @@ struct RallyBoundariesView: View {
         case "u": model.perform(.span(.uncertain))
         case "r": model.perform(.reviewedThrough)
         case "z": model.perform(.undo)
+        case "[": model.selectAdjacent(forward: false)
+        case "]": model.selectAdjacent(forward: true)
         default: return false
         }
         return true
@@ -187,7 +196,7 @@ private struct KeyHelp: View {
                 Text("O occluded (last event) · A flag ambiguous · K kind · E edge")
                 Text("N / T / U non-rally activity / transition / uncertain span (press at start and end)")
                 Text("R reviewed through the playhead · ⏎ commit rally · ⌘⏎ recording complete")
-                Text("⌫ withdraw selected · Z undo · ⎋ cancel")
+                Text("[ ] previous / next rally (click the timeline selects the rally there) · ⌫ withdraw selected · Z undo · ⎋ cancel")
             }.font(.caption)
         }
     }
@@ -262,7 +271,12 @@ private struct BoundaryTimeline: View {
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { drag in model.seek(to: Double(min(max(0, drag.location.x), w) / w) * d, exact: false) }
-                .onEnded { drag in model.seek(to: Double(min(max(0, drag.location.x), w) / w) * d) })
+                .onEnded { drag in
+                    let t = Double(min(max(0, drag.location.x), w) / w) * d
+                    model.seek(to: t)
+                    // A click (no real drag) selects the rally under it for correction.
+                    if abs(drag.translation.width) < 3 { model.selectRally(at: t) }
+                })
         }
     }
 }
