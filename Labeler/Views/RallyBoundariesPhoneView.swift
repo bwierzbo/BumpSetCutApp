@@ -189,12 +189,15 @@ final class PhoneBoundaryModel {
         default: writes = false
         }
         if writes, !canCommit { status = "commit refused: " + gate.reason; lastRefused = true; return false }
-        // An event is a frame of the copy that proved itself: the action lands on the presentation time of the
-        // frame being shown, never on the player's clock between frames; without verified frame times (streamed
-        // or unverified copy) nothing is marked.
-        let shown = frames.snap(now)
-        if case .mark = action, shown == nil { status = "marking needs the downloaded, verified copy: " + gate.reason; lastRefused = true; return false }
-        let outcome = e.apply(action, at: shown ?? now, now: Date())
+        // An event is a frame of the copy that proved itself: a mark lands on the presentation time of the frame
+        // being shown, never on the player's clock between frames; without verified frame times (streamed or
+        // unverified copy) nothing is marked. Coverage and spans take the playhead itself.
+        var at = now
+        if action.landsOnFrame {
+            guard let shown = frames.snap(now) else { status = "marking needs the downloaded, verified copy: " + gate.reason; lastRefused = true; return false }
+            at = shown
+        }
+        let outcome = e.apply(action, at: at, now: Date())
         if outcome.changed {
             do { try EventReview.validate(e.file) } catch { status = error.localizedDescription; lastRefused = true; return false }
             guard model.saveRallyEvents(e.file, for: video, expected: revision) else { status = "not reviewable here"; lastRefused = true; return false }

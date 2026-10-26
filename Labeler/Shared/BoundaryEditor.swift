@@ -112,6 +112,11 @@ struct BoundaryEditor: Equatable {
         case undo                           // Z
         case select(UUID?)
         case cancel                         // ⎋: drop the draft and an open span
+
+        /// Whether the action names a frame: an event mark lands on the presentation time of the frame being
+        /// shown. Coverage, spans and the rest take the playhead as it is — "reviewed through here" at the
+        /// recording's end must reach the end, which can lie past the last frame's start.
+        var landsOnFrame: Bool { if case .mark = self { return true } else { return false } }
     }
 
     /// The rally being edited changed on the other side while the draft was open: the draft's base and what

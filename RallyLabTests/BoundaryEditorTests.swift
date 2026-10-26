@@ -341,4 +341,22 @@ final class BoundaryEditorTests: XCTestCase {
         XCTAssertEqual(e.draft.contact?.earliest, times[30]); XCTAssertEqual(e.draft.contact?.latest, times[30])
     }
 
+    func testOnlyMarksLandOnFramesSoCoverageCanReachTheRecordingsEnd() {
+        // The last frame starts at 0.1 s but the recording lasts 0.3 s (a long final frame, an audio tail):
+        // "reviewed through here" at the end must reach 0.3, which no frame start can give.
+        let clock = FrameClock(times: [0, 0.0333, 0.0667, 0.1], frameRate: 30)
+        XCTAssertEqual(clock.snap(0.3), 0.1, "the shown frame at the end is the last one")
+        XCTAssertTrue(BoundaryEditor.Action.mark(.contact, .earliest).landsOnFrame)
+        for action in [BoundaryEditor.Action.reviewedThrough, .span(.transition), .commit, .complete, .select(nil), .cancel, .undo, .withdraw] {
+            XCTAssertFalse(action.landsOnFrame, "\(action) takes the playhead itself")
+        }
+        var e = editor(duration: 0.3, frameRate: 30)
+        _ = e.apply(.reviewedThrough, at: clock.snap(0.3)!, now: now)
+        XCTAssertFalse(e.unknownGaps.isEmpty, "snapped to the last frame's start, the end stays unknown")
+        var f = editor(duration: 0.3, frameRate: 30)
+        _ = f.apply(.reviewedThrough, at: 0.3, now: now)
+        XCTAssertTrue(f.unknownGaps.isEmpty)
+        XCTAssertTrue(f.apply(.complete, at: 0.3, now: now).changed, "the recording completes")
+    }
+
 }
