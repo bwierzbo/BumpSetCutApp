@@ -76,9 +76,10 @@ final class BoundaryEditorTests: XCTestCase {
             let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
             generator.requestedTimeToleranceBefore = .zero; generator.requestedTimeToleranceAfter = .zero
             // (The H.264 fixture is damaged near its end on purpose; the generator substitutes there, so only
-            // frames before the damage are asked for.)
+            // frames before the damage are asked for.) Every request must succeed: a time the generator cannot
+            // produce is a failure of this test, not a frame to skip.
             for i in [0, 1, 2, 30, 60] {
-                guard let shown = try? await generator.image(at: CMTime(seconds: times[i], preferredTimescale: 600_000)).actualTime.seconds else { continue }
+                let shown = try await generator.image(at: CMTime(seconds: times[i], preferredTimescale: 600_000)).actualTime.seconds
                 XCTAssertEqual(shown, times[i], accuracy: 1e-4, "\(name) frame \(i)")
             }
         }
