@@ -299,6 +299,7 @@ final class LabelingSync {
             if video.frameTimesDigest == nil, let times = try? await FrameIdentity.allFrameTimes(of: source) {
                 video.frameTimesDigest = FrameIdentity.digest(of: times)
             }
+            if video.sourceFingerprint == nil { video.sourceFingerprint = ProjectsModel.fileFingerprint(atPath: source.path) }
             // A copy RallyLab made with an older encoding is made again when
             // asked (the new name tells the phone to fetch it); the old one is
             // removed. Remaking them all takes hours, so it isn't automatic.

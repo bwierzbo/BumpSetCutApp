@@ -60,8 +60,11 @@ BEGIN
 END $$;
 
 -- The frame identity of the copy's original (FrameIdentity.digest), published by the Mac with the copy; the
--- phone compares its downloaded copy's own frames with it before any event commit.
+-- phone compares its downloaded copy's own frames with it before any event commit. The original's content
+-- fingerprint (ProjectsModel.fileFingerprint, `file:<sha256>`) travels with it so a record started on the phone
+-- names the original exactly as one started on the Mac does.
 ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS frame_times_digest text;
+ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS source_fingerprint text;
 
 -- Publish a project's withheld list whole (leads only). Replaces the previous list in one transaction.
 CREATE OR REPLACE FUNCTION public.label_withheld_publish(p_project text, p_names text[]) RETURNS integer

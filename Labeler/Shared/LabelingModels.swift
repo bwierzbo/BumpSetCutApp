@@ -79,6 +79,8 @@ struct LabelVideo: Codable, Identifiable, Hashable {
     var updatedAt: Date?
     /// The original's frame identity (FrameIdentity.digest), published with the copy; nil until the Mac read it.
     var frameTimesDigest: String?
+    /// The original's content fingerprint (`file:<sha256>`, ProjectsModel.fileFingerprint), published with the copy.
+    var sourceFingerprint: String?
 
     var name: String { sessionName ?? (title.isEmpty ? "Phone video" : title) }
 }
