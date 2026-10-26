@@ -82,6 +82,9 @@ struct ExposureRecord: Codable, Equatable, Hashable {
         /// The pipeline ran over the whole video to save where it saw the ball (BallPathBuilder,
         /// for marking in the Label / Live-tag tabs).
         case ballPath = "ball_path"
+        /// A person opened the video for Stage 1 rally-boundary review (EventReview, D-024): an
+        /// annotation use, written on open, never a training or scoring use.
+        case eventReview = "event_review"
     }
 
     var kind: Kind
