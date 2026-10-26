@@ -37,6 +37,13 @@ struct FrameClock: Equatable {
         return lo
     }
 
+    /// The presentation time of the frame shown at `t` — what an event is marked at, never the player's clock
+    /// between frames; nil until the frame times are known.
+    func snap(_ t: Double) -> Double? {
+        guard !times.isEmpty else { return nil }
+        return times[index(at: t)]
+    }
+
     /// The frame's start time, `count` frames from the one shown at `t`, clamped to the video.
     func step(from t: Double, by count: Int) -> Double {
         guard !times.isEmpty else { return max(0, t + Double(count) / max(frameRate, 1)) }

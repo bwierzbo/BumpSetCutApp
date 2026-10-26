@@ -206,7 +206,12 @@ final class RallyBoundariesModel {
         // The project moved under an open recording (no project-change signal reached us): refuse to write into the old one.
         guard openedRoot == root else { projectChanged(); status = "The project changed; pick a recording again."; lastRefused = true; return false }
         if isPlaying, action != .select(nil) { togglePlay() }
-        let outcome = e.apply(action, at: now, now: Date())
+        // An event is a frame: the action lands on the presentation time of the frame being shown, never on the
+        // player's clock between frames (a scrub or a pause lands anywhere). Until the frame times are read,
+        // nothing is marked.
+        let shown = frames.snap(now)
+        if case .mark = action, shown == nil { status = "frame times not read yet — wait a moment, then mark"; lastRefused = true; return false }
+        let outcome = e.apply(action, at: shown ?? now, now: Date())
         if outcome.changed {
             do {
                 try EventReview.write(e.file, to: session.fileURL)

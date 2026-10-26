@@ -327,4 +327,18 @@ final class BoundaryEditorTests: XCTestCase {
         commitRally(&e, contact: 1, dead: 2)
         XCTAssertNoThrow(try EventReview.validate(e.file))
     }
+    func testEventsLandOnTheDisplayedFramesPresentationTimeNotThePlayersClock() {
+        // 29.97 fps-like times: a scrub or a pause leaves the player's clock between frames.
+        let times = (0..<90).map { Double($0) * 1001 / 30000 }
+        let clock = FrameClock(times: times, frameRate: 29.97)
+        XCTAssertEqual(clock.snap(1.02), times[30], "between frames 30 and 31: frame 30 is shown")
+        XCTAssertEqual(clock.snap(times[31] - 1e-9), times[31], "a hair before a frame's start is that frame")
+        XCTAssertEqual(clock.snap(-0.5), times[0]); XCTAssertEqual(clock.snap(10), times[89])
+        XCTAssertNil(FrameClock(times: [], frameRate: 30).snap(1), "no frame times: nothing to land on")
+        // The editor, given the snapped time, records exactly that frame.
+        var e = editor(duration: 3, frameRate: 29.97)
+        _ = e.apply(.mark(.contact, .earliest), at: clock.snap(1.02)!, now: now)
+        XCTAssertEqual(e.draft.contact?.earliest, times[30]); XCTAssertEqual(e.draft.contact?.latest, times[30])
+    }
+
 }
