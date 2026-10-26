@@ -79,7 +79,7 @@ Steps 1–3 happen after approval. None of them change any existing table except
    SELECT has_function_privilege('anon', 'public.rally_events_save(uuid, integer, jsonb)', 'EXECUTE'),
           has_function_privilege('anon', 'public.label_withheld_publish(text, text[])', 'EXECUTE');  -- both false
    ```
-4. **First Mac sync** (RallyLab built from merged `main`, signed in as the lead). It publishes the Scratch withheld list, which should contain the 21 names RallyLab computes today. It also fills `source_fingerprint` and `frame_times_digest` for every non-withheld recording; reading each original's frames once takes minutes over the share. Then verify:
+4. **Publish the list and the identities:** `RallyLab --project Scratch --publish-identities` (RallyLab built from merged `main`, signed in as the lead). It publishes the Scratch withheld list, which should contain the 21 names RallyLab computes today. It also fills `source_fingerprint` and `frame_times_digest` for every non-withheld recording that already has a row. It **uploads nothing**; a normal `--sync-phone` would also upload copies for recordings without one, which is a bulk upload that is not authorised. Then verify:
    ```sql
    SELECT names FROM public.label_withheld_lists WHERE project = 'Scratch';                       -- 21
    SELECT count(*) FILTER (WHERE source_fingerprint IS NULL) AS no_fp, count(*) FILTER (WHERE frame_times_digest IS NULL) AS no_digest

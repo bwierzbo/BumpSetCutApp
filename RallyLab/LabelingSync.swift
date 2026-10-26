@@ -271,6 +271,49 @@ final class LabelingSync {
 
     // MARK: - 2. Project videos to the phone
 
+    /// The original's identities on a video row that lacks them, published once with the copy: its frame digest (the
+    /// phone proves its copy against it) and its content fingerprint (the server checks every record's footage
+    /// against it). A row that has them keeps them.
+    private static func withIdentities(_ video: LabelVideo, source: URL) async -> LabelVideo {
+        var v = video
+        if v.frameTimesDigest == nil, let times = try? await FrameIdentity.allFrameTimes(of: source) { v.frameTimesDigest = FrameIdentity.digest(of: times) }
+        if v.sourceFingerprint == nil { v.sourceFingerprint = await Task.detached(priority: .utility) { ProjectsModel.fileFingerprint(atPath: source.path) }.value }
+        return v
+    }
+
+    /// `--publish-identities`: what migration 048 needs before any record is accepted, and nothing else — the project's
+    /// withheld list (leads only), then the identities of the recordings that already have a row on the server. No
+    /// copy is uploaded, no row created, no withheld row touched; a recording whose original is not on disk is
+    /// reported, not guessed.
+    func publishIdentities() async -> Bool {
+        guard let project = projects.project?.name, let root = projects.projectDir else { status = "No project."; return false }
+        do {
+            guard let withheld = await withheldClosure(root: root), projects.projectDir == root else {
+                status = "The withheld closure cannot be read: nothing published."; return false
+            }
+            let listed = try await client.publishWithheld(project: project, names: Array(withheld))
+            let sessions = try DatasetStore(root: root).loadSessionsStrict()
+            var filled = 0, kept = 0
+            var missing: [String] = []
+            for var video in try await client.videos().filter({ $0.project == project }) {
+                guard let name = video.sessionName, !withheld.contains(name) else { continue }
+                guard let session = sessions.first(where: { $0.name == name }), FileManager.default.fileExists(atPath: session.sourcePath) else { missing.append(name); continue }
+                if video.frameTimesDigest != nil, video.sourceFingerprint != nil { kept += 1; continue }
+                guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
+                video = await Self.withIdentities(video, source: URL(fileURLWithPath: session.sourcePath))
+                guard video.frameTimesDigest != nil, video.sourceFingerprint != nil else { missing.append(name); continue }
+                _ = try await client.save(video)
+                filled += 1
+            }
+            status = "Withheld list published (\(listed) names); identities published for \(filled) recordings, \(kept) already had them"
+                + (missing.isEmpty ? "." : "; not published (original not readable): \(missing.sorted().joined(separator: ", ")).")
+            return true
+        } catch {
+            status = "Not published: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     private func publishVideos(project: String, root: URL, remaking: (String) -> Bool) async throws -> (listed: Int, uploaded: Int, failed: [String]) {
         let remote = try await client.videos().filter { $0.project == project }
         var listed = 0, uploaded = 0
@@ -296,11 +339,7 @@ final class LabelingSync {
             if video.duration <= 0 {
                 video.duration = (try? await AVURLAsset(url: source).load(.duration).seconds) ?? 0
             }
-            // The original's frame identity, published once with the copy: the phone proves its copy against it.
-            if video.frameTimesDigest == nil, let times = try? await FrameIdentity.allFrameTimes(of: source) {
-                video.frameTimesDigest = FrameIdentity.digest(of: times)
-            }
-            if video.sourceFingerprint == nil { video.sourceFingerprint = ProjectsModel.fileFingerprint(atPath: source.path) }
+            video = await Self.withIdentities(video, source: source)
             // A copy RallyLab made with an older encoding is made again when
             // asked (the new name tells the phone to fetch it); the old one is
             // removed. Remaking them all takes hours, so it isn't automatic.

@@ -8,6 +8,9 @@
 //    RallyLab --project v3 --get grs_onl_sun_land_onl_01 "https://youtube.com/…" \
 //             --license "permission: Jake R., DM 2026-09-26" [--start 2:00] [--length 5:00] [--frames 4]
 //             [--allow-duplicate]   (add a stretch of a video already used; --frames is per rally)
+//    RallyLab --project v3 --publish-identities          (after migration 048, signed in as the lead: publishes the
+//                                                           withheld list and the frame digest + content fingerprint of
+//                                                           every recording already on the server; uploads nothing)
 //    RallyLab --project v3 --sync-phone [--labels-only]    (sync with the Labeler iPhone app — sign in once in the
 //                                                           app, or --phone-sign-in <email> with RALLYLAB_PASSWORD set;
 //                                                           --labels-only: rally times, tracks, reviews, plan — no videos;
@@ -167,6 +170,12 @@ enum HeadlessProjects {
                 await sync.signIn(email: email, password: ProcessInfo.processInfo.environment["RALLYLAB_PASSWORD"] ?? "")
                 log(sync.status)
                 ok = sync.signedIn
+            }
+            // After migration 048: the withheld list and the originals' identities, no upload (see LabelingSync).
+            if ok, args.contains("--publish-identities") {
+                let sync = LabelingSync(projects: projects)
+                ok = await sync.publishIdentities()
+                log((ok ? "✅ " : "❌ ") + sync.status)
             }
             if ok, args.contains("--sync-phone") {
                 let sync = LabelingSync(projects: projects)
