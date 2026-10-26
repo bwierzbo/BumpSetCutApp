@@ -131,6 +131,7 @@ enum EventReview {
         case sourceChanged(recorded: String, current: String)
         case ledgerNotWritten(String)
         case sessionsUnreadable(String)
+        case projectUnreadable(String)
         case incomplete([String])
 
         var errorDescription: String? {
@@ -145,6 +146,7 @@ enum EventReview {
             case .sourceChanged(let recorded, let current): return "The video's content changed since its events were recorded (\(recorded.prefix(21))… → \(current.prefix(21))…)."
             case .ledgerNotWritten(let why): return "The exposure ledger could not record this review, so it does not open: \(why)"
             case .sessionsUnreadable(let why): return "The project's sessions can't all be read, so the withheld recordings' files are unknown; nothing opens: \(why)"
+            case .projectUnreadable(let why): return "project.json exists but can't be read, so the withheld recordings' identities are unknown; nothing opens: \(why)"
             case .incomplete(let gaps): return "The recording is not fully reviewed: " + gaps.joined(separator: "; ")
             }
         }
@@ -315,6 +317,18 @@ enum EventReview {
         try ReservedVideos.lineageWithheldNames(in: root)
     }
 
+    /// The project's videos by session name, strictly: a project.json that exists but can't be decoded
+    /// throws, since the withheld recordings' cut files and fingerprints would otherwise vanish from
+    /// the guard. No project.json (a project from before the Projects tab) is an empty map.
+    static func projectSourcesStrict(in root: URL) throws -> [String: ClipSource] {
+        let url = root.appendingPathComponent("project.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        do { _ = try decoder.decode(Project.self, from: Data(contentsOf: url)) } catch { throw Failure.projectUnreadable(error.localizedDescription) }
+        return ReservedVideos.sources(in: root)
+    }
+
     /// Why `session` is withheld, or nil when it may be reviewed. By name (the closure); by path (its
     /// file is a withheld recording's session file, cut file or local origin); and by content (its
     /// fingerprint is a withheld recording's — the recording's stored or derived fingerprint, its
@@ -328,7 +342,7 @@ enum EventReview {
         let fm = FileManager.default
         func standard(_ path: String) -> String { URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path }
         let path = standard(session.sourcePath)
-        let sources = ReservedVideos.sources(in: root)
+        let sources = try projectSourcesStrict(in: root)
         // Files that belong to withheld recordings, and whose they are.
         var files: [(path: String, owner: String, what: String)] = []
         for w in sessions where withheld.contains(w.name) && w.name != session.name { files.append((standard(w.sourcePath), w.name, "file")) }

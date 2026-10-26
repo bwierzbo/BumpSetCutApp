@@ -262,6 +262,18 @@ final class EventReviewTests: XCTestCase {
         XCTAssertEqual(report.recordings.map { ($0.name, $0.withheld) }.map { "\($0.0):\($0.1)" }, ["r:true", "t:true", "u:false"])
         XCTAssertNil(report.recordings[0].legacyMarks, "a withheld alias's sidecars are not read")
         XCTAssertFalse(report.recordings[0].legacyFile)
+        // The identities live only in project.json here: when it can't be read, nothing opens and the inventory refuses.
+        try "{not json".write(to: root.appendingPathComponent("project.json"), atomically: true, encoding: .utf8)
+        for s in [overCut, eligible] {
+            do {
+                _ = try await EventReview.open(s, root: root, tool: "t", now: now)
+                XCTFail("\(s.name) must be refused while project.json is unreadable")
+            } catch let failure as EventReview.Failure {
+                guard case .projectUnreadable = failure else { return XCTFail("\(failure)") }
+            }
+        }
+        XCTAssertThrowsError(try EventInventory.build(root: root, now: now))
+        XCTAssertEqual(try ledgerRows().map(\.video), ["u"], "no new row since the refused opens")
     }
 
     /// A withheld recording's file identity may live only in its session file. When that file can't be
