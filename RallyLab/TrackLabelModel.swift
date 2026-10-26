@@ -606,14 +606,7 @@ final class TrackLabelModel {
     /// Presentation times from `start` to `end`, every `step`-th of
     /// `track`'s frames.
     nonisolated static func frameTimes(track videoTrack: AVAssetTrack, step: Int, start: Double, end: Double) -> [Double]? {
-        guard end > start, let cursor = videoTrack.makeSampleCursor(presentationTimeStamp: TrackFrameStore.request(start))
-        else { return nil }
-        var times: [Double] = []
-        while cursor.presentationTimeStamp.seconds <= end {
-            times.append(cursor.presentationTimeStamp.seconds)
-            if cursor.stepInPresentationOrder(byCount: Int64(step)) != Int64(step) { break }
-        }
-        return times
+        FrameIdentity.frameTimes(track: videoTrack, step: step, start: start, end: end)
     }
 
     // MARK: - Saving

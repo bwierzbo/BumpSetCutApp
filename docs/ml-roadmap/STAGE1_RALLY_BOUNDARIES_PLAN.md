@@ -1,8 +1,8 @@
 ---
 name: stage1-rally-boundaries-plan
-status: read-only implementation plan for owner review (D-024 Stage 1); nothing here is built, no dataset file is written, no annotation is collected
+status: living plan for the Stage 1 review (D-024); S1-a (PR #97) and S1-b (PR #98) merged on the Mac; §8 is the Mac + iPhone plan of 2026-10-26 (owner direction, verbatim in docs/decisions/2026-10-26-stage1-mac-iphone-direction.md)
 created: 2026-10-25T06:09:28Z
-updated: 2026-10-25T06:09:28Z
+updated: 2026-10-26T18:34:12Z
 decision: D-024 (accepted), D-021 (C1 first), D-004 (24-rally pilot), D-010 (rally activity ≠ ball visibility)
 ---
 
@@ -92,7 +92,24 @@ Schema round trip and version refusal; persistent id across edit/delete; coverag
 
 G1b (protected-holdout refusal for routine scoring, `--score-heat`, `desktop.sh fetch`) stays as planned in [DATASET_REVIEW_GUI_PLAN.md](DATASET_REVIEW_GUI_PLAN.md) and is independent of this work.
 
-## 8. Decisions requested from the owner
+## 8. Mac + iPhone: one annotation system (owner direction of 2026-10-26, [verbatim](../decisions/2026-10-26-stage1-mac-iphone-direction.md))
+
+**What the survey found (2026-10-26).** The Labeler iPhone app (target `Labeler`, iOS 18, bundle `app.BumpSetCut.RallyLab`) plays a **re-encoded copy** of each recording, not the original: the Mac's `LabelingSync.publishVideos` runs ffmpeg (`-fps_mode passthrough -enc_time_base demux`, H.264, long side ≤ 1280, no audio; `copyVersion` 3 "frame times kept exactly") and uploads `rallylab/<project>/<session>-v3.mp4` to the private `labeling` bucket; the phone streams it through a signed URL or plays the downloaded file. The encoder is meant to keep every presentation timestamp, but nothing verifies it, and the phone's "frame" buttons move a fixed 1/30 s with zero-tolerance seeks, not from frame to frame. The phone knows nothing of withheld recordings: the Mac uploads every session and the server's only rule is `is_labeler()`. Rally times sync newer-wins on `updated_at` set by the client, and a pull overwrites `rallylabels.json` whole. `Labeler/Shared/` is compiled by both apps (RallyLab lists each file in its membership exceptions); `AVSampleCursor` is available on iOS 16+ for local files.
+
+**Frame identity (the rule).** A Stage 1 event is a frame of the original recording. On the Mac the review runs on the original. On the phone, a copy may stand for the original only when its frames prove it: the Mac records the original's **frame-times digest** (`FrameIdentity.digest`: SHA-256 over every frame's presentation time in microseconds) in the record (`frameTimesDigest`) and publishes it with the copy; the phone enumerates the downloaded copy's frames with the sample cursor and compares. Match → commits enabled, events recorded against the original's `sourceFingerprint`; no match or no digest → playback allowed, commits refused with the reason. Nothing rounds a time, substitutes a frame or trusts an unverified copy. A streamed item (no cursor) is playback only.
+
+**PRs and dependencies.**
+
+| PR | Scope | Depends on |
+|---|---|---|
+| **1 — shared logic** (`feat/stage1-shared-record`) | `EventReview` record, rules and mutations, `BoundaryEditor`, `FrameClock`, `SeekClock` and `FrameIdentity` moved to `Labeler/Shared/` (one schema, one set of rules, compiled by both apps); the record gains `frameTimesDigest` and `revision` (decoded with defaults from older files); the Mac records the original's digest on open; Mac-only open/refusal/ledger stay in `RallyLab/EventReview.swift` | S1-b (merged) |
+| **2 — sync and storage** | Supabase: `label_rally_events(video_id, project, session_name, record jsonb, annotation_version, revision, updated_by, updated_at)` with a server-side trigger that bumps `revision` and sets `updated_at`, an RPC `rally_events_save(video_id, expected_revision, record)` that refuses a stale `expected_revision` (optimistic concurrency, the conflict returned to the client, never last-write-wins), RLS `is_labeler()` plus a server-side **withheld list** (`label_withheld(project, session_name)` written by the Mac from `lineageWithheldNames`; the RPC and a policy refuse events for a withheld recording), Realtime broadcast as today; Mac `LabelingSync` publishes the frame digest with the copy, pushes and pulls `rallyevents.json` with the revision, surfaces conflicts (both versions kept, the user chooses) and never touches `rallylabels.json`; phone client methods; offline outbox entries for events. Migration numbered after `047`. | 1 |
+| **3 — iPhone UI and frame-accurate playback** | `Labeler/Views/RallyBoundariesView` (touch): recording list with coverage, player on the downloaded copy, frame step buttons driven by `FrameClock` from the copy's real frame times, a scrubber, hold-to-step, large buttons for S / ⇧S / D / ⇧D / occluded / kind / edge / spans / reviewed-through / commit / complete / withdraw / undo, previous/next rally, the same `BoundaryEditor`; the frame-identity gate before any commit; resume at the first unknown stretch | 1, 2 |
+| **4 — pilot** | the frozen 24-rally draw (selector, hashes, windows, record), blind mode, second review with the 24-h gate, `boundary_audit.csv`, and the Mac-vs-iPhone comparison on identical source frames | 1, 3 |
+
+**TestFlight (fastest safe route).** PRs 1–3 merged → `scripts/rallylab_ios_release.sh` (archive scheme `Labeler`, upload to App Store Connect app 6820196175, internal group only, no App Review) — owner-only, no external testers. Pre-upload checks: both targets built and tested, record round trip and schema compatibility, withheld refusal on client and server, offline edits and a concurrent-edit conflict, frame identity against known recordings, clean Codex reviews, no protected footage in the bucket.
+
+## 9. Decisions requested from the owner
 
 1. Eligibility: confirm that **val-side development recordings** are reviewable in Stage 1 (boundary truth is not model exposure); the alternative is train only.
 2. Confirm the span kinds `nonRallyActivity | transition | uncertain` and that `nonRallyActivity` needs only a start and an end, no per-throw frames.

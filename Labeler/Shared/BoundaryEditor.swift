@@ -1,9 +1,9 @@
 //
 //  BoundaryEditor.swift
-//  RallyLab
+//  Labeler/Shared — compiled by RallyLab (macOS) and the Labeler iPhone app
 //
-//  The editing logic of the Rally Boundaries tab (Stage 1, D-024; S1-b), kept apart
-//  from the window so it can be tested: a key press becomes an `Action`, an action
+//  The editing logic of the Rally Boundaries review (Stage 1, D-024), the same on both
+//  platforms and kept apart from any window so it can be tested: a key press becomes an `Action`, an action
 //  changes the draft rally, the spans, the coverage or the record through
 //  `EventReview.Mutation`, and the record is written only on a commit. Nothing here
 //  touches the player, the ledger or the legacy marks; nothing here writes a file.
@@ -136,6 +136,12 @@ struct BoundaryEditor: Equatable {
     }
 
     var canUndo: Bool { !history.isEmpty }
+
+    /// The original's frame identity, recorded once (the next commit writes it); never overwritten.
+    mutating func recordFrameTimesDigest(_ digest: String) {
+        guard file.frameTimesDigest == nil else { return }
+        file.frameTimesDigest = digest
+    }
     var reviewedUntil: Double { EventReview.union(file.coverage).last?.end ?? 0 }
 
     /// Where "reviewed through `t`" starts: the beginning of the unknown stretch `t` is in — the end of

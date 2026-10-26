@@ -102,6 +102,9 @@ final class RallyBoundariesModel {
                 let clock = await Self.frameClock(of: video.sourceURL, frameRate: opened.file.frameRate)
                 guard let self, !Task.isCancelled, self.sessionName == name else { return }
                 self.frames = clock
+                // The original's frame identity, recorded once so a copy elsewhere can prove it shows the same
+                // frames; written with the next commit (nothing is written on open).
+                if !clock.isEmpty, self.editor?.file.frameTimesDigest == nil { self.editor?.recordFrameTimesDigest(clock.digest) }
             }
             let resume = EventReview.firstUnknown(in: opened.file)
             if let resume, resume > 0 { seek(to: resume) }
@@ -135,13 +138,7 @@ final class RallyBoundariesModel {
 
     /// Every frame's presentation time, from the video track's sample cursor (the original footage).
     nonisolated static func frameClock(of url: URL, frameRate: Double) async -> FrameClock {
-        let asset = AVURLAsset(url: url)
-        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-              let duration = try? await asset.load(.duration).seconds,
-              // The cursor starts at the first sample at or after the request, and a request of 0 s is a hair after
-              // the first frame (TrackFrameStore.request): start before it so frame 0 is in the list.
-              let times = TrackLabelModel.frameTimes(track: track, step: 1, start: -1, end: duration) else { return FrameClock(times: [], frameRate: frameRate) }
-        return FrameClock(times: times, frameRate: frameRate)
+        FrameClock(times: (try? await FrameIdentity.allFrameTimes(of: url)) ?? [], frameRate: frameRate)
     }
 
     // MARK: - Playback

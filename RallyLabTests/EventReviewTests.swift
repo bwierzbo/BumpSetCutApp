@@ -99,6 +99,50 @@ final class EventReviewTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "{}", "the previous file is untouched by a refused write")
     }
 
+    /// A record written before the cross-platform fields existed reads with their defaults; a record with them
+    /// round-trips; the Mac and the phone read one schema.
+    func testRecordReadsWithoutTheCrossPlatformFieldsAndKeepsThem() throws {
+        let url = root.appendingPathComponent("footage/old.rallyevents.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {"annotationVersion":"rally_event_truth_v1","video":"old","sourceFingerprint":"file:abc","frameRate":30,"durationSec":10,"tool":"t",
+         "coverage":[{"start":0,"end":10,"state":"reviewed","at":"2026-10-26T00:00:00Z","annotator":"BW"}],"spans":[],"rallies":[],"stage1Complete":null}
+        """.write(to: url, atomically: true, encoding: .utf8)
+        let old = try EventReview.read(url)
+        XCTAssertNil(old.frameTimesDigest); XCTAssertEqual(old.revision, 0)
+        var f = old
+        f.frameTimesDigest = FrameIdentity.digest(of: [0, 1.0 / 30, 2.0 / 30]); f.revision = 7
+        try EventReview.write(f, to: url)
+        let back = try EventReview.read(url)
+        XCTAssertEqual(back, f)
+        XCTAssertEqual(back.revision, 7); XCTAssertEqual(back.frameTimesDigest?.count, 64)
+        XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("\"revision\" : 7"))
+    }
+
+    func testFrameTimesDigestIsStableAndSensitive() {
+        let times = (0..<90).map { Double($0) / 30 }
+        let d = FrameIdentity.digest(of: times)
+        XCTAssertEqual(d.count, 64)
+        XCTAssertEqual(FrameIdentity.digest(of: times.map { $0 + 1e-8 }), d, "a billionth of a second is below the microsecond resolution")
+        XCTAssertNotEqual(FrameIdentity.digest(of: Array(times.dropLast())), d, "one frame fewer")
+        XCTAssertNotEqual(FrameIdentity.digest(of: times.map { ($0 * 30).rounded() / 30 + (($0 * 30).rounded() == 10 ? 0.001 : 0) }), d, "one frame moved by a millisecond")
+        XCTAssertNotEqual(FrameIdentity.digest(of: [0] + times), d, "one frame more")
+        XCTAssertTrue(FrameIdentity.matches(copy: times, original: d))
+        XCTAssertEqual(FrameClock(times: times, frameRate: 30).digest, d)
+    }
+
+    func testFrameIdentityOfAFixtureAndItsByteCopy() async throws {
+        let a = try fixture("open-gop-hevc-leading3", as: "a")
+        let b = try fixture("open-gop-hevc-leading3", as: "b")
+        let ta = try await FrameIdentity.allFrameTimes(of: a), tb = try await FrameIdentity.allFrameTimes(of: b)
+        XCTAssertEqual(ta.count, 179)
+        XCTAssertEqual(FrameIdentity.digest(of: ta), FrameIdentity.digest(of: tb), "a byte copy shows the same frames")
+        let other = try await FrameIdentity.allFrameTimes(of: try fixture("h264-damaged-inter-frame", as: "c"))
+        XCTAssertNotEqual(FrameIdentity.digest(of: other), FrameIdentity.digest(of: ta))
+        let facts = try await FrameIdentity.videoFacts(a)
+        XCTAssertEqual(facts.frameRate, 60, accuracy: 0.01); XCTAssertEqual(facts.duration, 3, accuracy: 0.05)
+    }
+
     func testPersistentIdsAcrossEditAndWithdraw() throws {
         var f = file()
         EventReview.Mutation.markReviewed(from: 0, to: 3, in: &f, at: now, annotator: "BW")
