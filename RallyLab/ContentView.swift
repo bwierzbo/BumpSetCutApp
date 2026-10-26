@@ -15,6 +15,7 @@ struct ContentView: View {
     @Bindable var library: ModelLibrary
     let tracker: TrackLabelModel
     let marker: RallyMarkModel
+    let boundaries: RallyBoundariesModel
     let phone: LabelingSync
     @State private var showingImporter = false
     /// The tab you were on last time, so RallyLab reopens where you left off.
@@ -22,7 +23,7 @@ struct ContentView: View {
     /// Set by "Continue without a project" on the welcome window.
     @State private var workingWithoutProject = false
 
-    enum Tab: String, Hashable { case label, projects, sampler, track, models, pipeline, net, compare, fsm }
+    enum Tab: String, Hashable { case label, projects, sampler, track, review, models, pipeline, net, compare, fsm }
 
     var body: some View {
         Group {
@@ -78,6 +79,16 @@ struct ContentView: View {
             TrackTabView(tracker: tracker, marker: marker, isActive: tab == .track)
                 .tabItem { Label("Track", systemImage: "slider.horizontal.below.rectangle") }
                 .tag(Tab.track)
+            // Stage 1 rally-boundary review (D-024): the original footage, frame by frame, into <video>.rallyevents.json.
+            Group {
+                if projects.project != nil {
+                    RallyBoundariesView(model: boundaries, isActive: tab == .review)
+                } else {
+                    ProjectWelcomeView(projects: projects) { tab = .pipeline }
+                }
+            }
+            .tabItem { Label("Review", systemImage: "flag.checkered") }
+            .tag(Tab.review)
             ModelsTabView(library: library) { sessionName, frame in
                 if let session = sampler.sessions.first(where: { $0.name == sessionName }) {
                     SamplerTabView.showStills(session, frame: frame, in: sampler)

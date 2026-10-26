@@ -1,0 +1,235 @@
+//
+//  BoundaryEditor.swift
+//  RallyLab
+//
+//  The editing logic of the Rally Boundaries tab (Stage 1, D-024; S1-b), kept apart
+//  from the window so it can be tested: a key press becomes an `Action`, an action
+//  changes the draft rally, the spans, the coverage or the record through
+//  `EventReview.Mutation`, and the record is written only on a commit. Nothing here
+//  touches the player, the ledger or the legacy marks; nothing here writes a file.
+//
+
+import Foundation
+
+/// The video's frame times, for stepping frame by frame on the original footage.
+struct FrameClock: Equatable {
+    /// Presentation times in seconds, ascending, from the video track's sample cursor.
+    let times: [Double]
+    let frameRate: Double
+
+    init(times: [Double], frameRate: Double) {
+        self.times = times
+        self.frameRate = frameRate
+    }
+
+    var isEmpty: Bool { times.isEmpty }
+
+    /// The index of the frame shown at `t`: the last frame starting at or before it (a hair of
+    /// tolerance, since seconds round), or 0 before the first.
+    func index(at t: Double) -> Int {
+        guard !times.isEmpty else { return 0 }
+        var lo = 0, hi = times.count - 1
+        if t + 1e-6 < times[0] { return 0 }
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if times[mid] <= t + 1e-6 { lo = mid } else { hi = mid - 1 }
+        }
+        return lo
+    }
+
+    /// The frame's start time, `count` frames from the one shown at `t`, clamped to the video.
+    func step(from t: Double, by count: Int) -> Double {
+        guard !times.isEmpty else { return max(0, t + Double(count) / max(frameRate, 1)) }
+        let i = min(max(0, index(at: t) + count), times.count - 1)
+        return times[i]
+    }
+
+    /// `m:ss.mmm · frame N` for the readout.
+    func label(at t: Double) -> String {
+        let m = Int(t) / 60, s = t - Double(m * 60)
+        let frame = times.isEmpty ? Int((t * frameRate).rounded(.down)) : index(at: t)
+        return String(format: "%d:%06.3f · frame %d", m, s, frame)
+    }
+}
+
+struct BoundaryEditor: Equatable {
+    /// The rally being built or edited: the selected rally's copy, or a fresh one.
+    struct Draft: Equatable {
+        var rallyId: UUID?
+        var kind: EventReview.RallyKind = .rally
+        var contact: EventReview.EventTime?
+        var dead: EventReview.EventTime?
+        var edge: EventReview.Edge?
+        var flags: [String] = []
+        var legacyIndex: Int?
+        var legacyStart: Double?
+        var legacyEnd: Double?
+
+        var isEmpty: Bool { contact == nil && dead == nil && edge == nil && flags.isEmpty }
+
+        static func of(_ r: EventReview.Rally) -> Draft {
+            Draft(rallyId: r.rallyId, kind: r.kind, contact: r.contact, dead: r.dead, edge: r.edge,
+                  flags: r.flags.filter { $0 != "ambiguous_contact" && $0 != "ambiguous_dead" },
+                  legacyIndex: r.legacyIndex, legacyStart: r.legacyStart, legacyEnd: r.legacyEnd)
+        }
+    }
+
+    enum Event: Equatable { case contact, dead }
+    enum Bound: Equatable { case earliest, latest }
+
+    enum Action: Equatable {
+        /// `S` / `⇧S`, `D` / `⇧D`: one press sets both bounds; the shifted press widens to an interval.
+        case mark(Event, Bound)
+        case cycleKind                      // K
+        case toggleOccluded                 // O: the last event marked
+        case toggleFlag(String)             // A: `ambiguous` (the rubric's own flags are derived on commit)
+        case cycleEdge                      // E: none → start → end → none
+        case span(EventReview.SpanKind)     // N / T / U: start, then end, a span of that kind
+        case reviewedThrough                // R: coverage from the last reviewed end (or 0) to here
+        case commit                         // ⏎
+        case complete                       // ⌘⏎
+        case withdraw                       // ⌫ the selected rally
+        case undo                           // Z
+        case select(UUID?)
+        case cancel                         // ⎋: drop the draft and an open span
+    }
+
+    struct Outcome: Equatable {
+        var message: String
+        /// The record changed: write it.
+        var changed: Bool
+        var refused: Bool = false
+    }
+
+    private(set) var file: EventReview.File
+    private(set) var draft = Draft()
+    private(set) var openSpan: (kind: EventReview.SpanKind, start: Double)?
+    private(set) var selected: UUID?
+    private(set) var lastMarked: Event?
+    private var history: [EventReview.File] = []
+    let annotator: String
+    let tool: String
+    /// How many records the undo stack keeps.
+    static let undoDepth = 50
+
+    static func == (a: BoundaryEditor, b: BoundaryEditor) -> Bool {
+        a.file == b.file && a.draft == b.draft && a.selected == b.selected && a.openSpan?.kind == b.openSpan?.kind && a.openSpan?.start == b.openSpan?.start
+    }
+
+    init(file: EventReview.File, annotator: String, tool: String) {
+        self.file = file
+        self.annotator = annotator
+        self.tool = tool
+    }
+
+    var canUndo: Bool { !history.isEmpty }
+    var reviewedUntil: Double { EventReview.union(file.coverage).last?.end ?? 0 }
+    var unknownGaps: [(start: Double, end: Double)] { EventReview.gaps(in: file) }
+    var selectedRally: EventReview.Rally? { selected.flatMap { id in file.rallies.first { $0.rallyId == id } } }
+
+    /// One frame of video time: events marked on one press are this wide at most.
+    private var frame: Double { file.frameDuration }
+
+    mutating func apply(_ action: Action, at t: Double, now: Date) -> Outcome {
+        switch action {
+        case .mark(let event, let bound):
+            let existing = event == .contact ? draft.contact : draft.dead
+            var e: EventReview.EventTime
+            switch (existing, bound) {
+            case (nil, _): e = EventReview.EventTime(earliest: t, latest: t)                      // one press: the frame itself
+            case (let old?, .earliest): e = EventReview.EventTime(earliest: min(t, old.latest), latest: old.latest, visibility: old.visibility)
+            case (let old?, .latest): e = EventReview.EventTime(earliest: min(old.earliest, t), latest: max(t, old.earliest), visibility: old.visibility)
+            }
+            if bound == .earliest, existing != nil, t > existing!.latest { e = EventReview.EventTime(earliest: t, latest: t, visibility: existing!.visibility) }
+            if event == .contact { draft.contact = e } else { draft.dead = e }
+            lastMarked = event
+            let name = event == .contact ? "serve contact" : "ball dead"
+            return Outcome(message: e.earliest == e.latest ? "\(name) at \(Self.clock(t))" : "\(name) between \(Self.clock(e.earliest)) and \(Self.clock(e.latest))" + (e.isAmbiguous ? " (ambiguous: wider than 0.2 s)" : ""), changed: false)
+        case .cycleKind:
+            draft.kind = draft.kind == .rally ? .missedServe : draft.kind == .missedServe ? .other : .rally
+            return Outcome(message: "kind: \(draft.kind.rawValue)", changed: false)
+        case .toggleOccluded:
+            guard let last = lastMarked else { return Outcome(message: "mark an event first (S or D)", changed: false, refused: true) }
+            func flip(_ e: inout EventReview.EventTime?) { let v = e?.visibility; e?.visibility = v == .occluded ? .clear : .occluded }
+            if last == .contact { flip(&draft.contact) } else { flip(&draft.dead) }
+            let v = (last == .contact ? draft.contact : draft.dead)?.visibility.rawValue ?? "?"
+            return Outcome(message: "\(last == .contact ? "serve contact" : "ball dead"): \(v)", changed: false)
+        case .toggleFlag(let flag):
+            if let i = draft.flags.firstIndex(of: flag) { draft.flags.remove(at: i); return Outcome(message: "flag \(flag) off", changed: false) }
+            draft.flags.append(flag)
+            return Outcome(message: "flag \(flag)", changed: false)
+        case .cycleEdge:
+            draft.edge = draft.edge == nil ? .start : draft.edge == .start ? .end : nil
+            return Outcome(message: draft.edge.map { "edge: the recording is cut at its \($0.rawValue)" } ?? "edge: none", changed: false)
+        case .span(let kind):
+            if let open = openSpan, open.kind == kind {
+                guard t > open.start else { return Outcome(message: "a span ends after it starts", changed: false, refused: true) }
+                let (s, e) = (open.start, t)
+                let within = EventReview.covered(s, e, by: EventReview.union(file.coverage), tolerance: frame)
+                guard within else { return Outcome(message: "mark the stretch reviewed first (R): a span lies inside reviewed coverage", changed: false, refused: true) }
+                push()
+                file.spans.append(EventReview.Span(id: UUID(), kind: kind, start: s, end: e, note: nil))
+                openSpan = nil
+                return Outcome(message: "\(kind.rawValue) \(Self.clock(s))–\(Self.clock(e))", changed: true)
+            }
+            openSpan = (kind, t)
+            return Outcome(message: "\(kind.rawValue) from \(Self.clock(t)) — press the same key at its end", changed: false)
+        case .reviewedThrough:
+            let from = reviewedUntil
+            guard t > from + frame * 0.5 else { return Outcome(message: "reviewed through \(Self.clock(from)) already — move past it", changed: false, refused: true) }
+            push()
+            EventReview.Mutation.markReviewed(from: from, to: t, in: &file, at: now, annotator: annotator)
+            return Outcome(message: "reviewed through \(Self.clock(t)) (\(Int((EventReview.union(file.coverage).reduce(0) { $0 + $1.end - $1.start }) / file.durationSec * 100)) %)", changed: true)
+        case .commit:
+            guard !draft.isEmpty || draft.rallyId != nil else { return Outcome(message: "nothing to commit: mark the serve contact (S) and the ball dead (D)", changed: false, refused: true) }
+            if draft.kind != .other, draft.contact == nil, draft.edge != .start { return Outcome(message: "no serve contact: mark it (S) or an edge (E) when the recording starts after it", changed: false, refused: true) }
+            if draft.kind != .other, draft.dead == nil, draft.edge != .end { return Outcome(message: "no ball dead: mark it (D) or an edge (E) when the recording ends before it", changed: false, refused: true) }
+            if let c = draft.contact, let d = draft.dead, d.latest < c.earliest { return Outcome(message: "the rally ends before it starts", changed: false, refused: true) }
+            push()
+            let stamp = EventReview.stamp(now)
+            let rally = EventReview.Rally(rallyId: draft.rallyId ?? UUID(), legacyIndex: draft.legacyIndex, legacyStart: draft.legacyStart, legacyEnd: draft.legacyEnd,
+                                          kind: draft.kind, contact: draft.contact, dead: draft.dead, flags: draft.flags, edge: draft.edge,
+                                          annotator: annotator, reviewedAt: stamp)
+            let id = EventReview.Mutation.upsert(rally, in: &file)
+            let wasEdit = draft.rallyId != nil
+            draft = Draft(); lastMarked = nil; selected = id
+            return Outcome(message: wasEdit ? "rally updated" : "rally \(file.rallies.filter { $0.reviewState == .reviewed }.count) committed", changed: true)
+        case .complete:
+            var copy = file
+            do { try EventReview.Mutation.complete(&copy, at: now, annotator: annotator, tool: tool) } catch let EventReview.Failure.incomplete(why) {
+                return Outcome(message: "not complete: " + why.prefix(3).joined(separator: "; ") + (why.count > 3 ? "; …" : ""), changed: false, refused: true)
+            } catch { return Outcome(message: error.localizedDescription, changed: false, refused: true) }
+            push()
+            file = copy
+            return Outcome(message: "recording fully reviewed", changed: true)
+        case .withdraw:
+            guard let id = selected, file.rallies.contains(where: { $0.rallyId == id && $0.reviewState == .reviewed }) else { return Outcome(message: "select a rally to withdraw", changed: false, refused: true) }
+            push()
+            _ = EventReview.Mutation.withdraw(id, in: &file, at: now, annotator: annotator)
+            draft = Draft(); selected = nil
+            return Outcome(message: "rally withdrawn (kept on record)", changed: true)
+        case .undo:
+            guard let previous = history.popLast() else { return Outcome(message: "nothing to undo", changed: false, refused: true) }
+            file = previous
+            draft = Draft(); openSpan = nil; selected = nil
+            return Outcome(message: "undone", changed: true)
+        case .select(let id):
+            selected = id
+            if let r = selectedRally { draft = Draft.of(r); lastMarked = r.dead != nil ? .dead : (r.contact != nil ? .contact : nil) } else { draft = Draft() }
+            return Outcome(message: selectedRally.map { "editing rally \($0.rallyId.uuidString.prefix(8))" } ?? "", changed: false)
+        case .cancel:
+            draft = Draft(); openSpan = nil; selected = nil; lastMarked = nil
+            return Outcome(message: "cancelled", changed: false)
+        }
+    }
+
+    private mutating func push() {
+        history.append(file)
+        if history.count > Self.undoDepth { history.removeFirst() }
+    }
+
+    static func clock(_ t: Double) -> String {
+        let m = Int(t) / 60
+        return String(format: "%d:%06.3f", m, t - Double(m * 60))
+    }
+}

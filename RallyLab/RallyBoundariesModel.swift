@@ -1,0 +1,201 @@
+//
+//  RallyBoundariesModel.swift
+//  RallyLab
+//
+//  The Rally Boundaries tab's state (Stage 1, D-024; S1-b): the eligible recordings
+//  with their coverage (EventInventory, read-only), the open recording's record
+//  (through EventReview.open — the one guard, which refuses the withheld closure and
+//  writes the ledger row), an AVPlayer on the ORIGINAL footage (never the scrub
+//  proxy: commits need the exact frame), the video's frame times for stepping, the
+//  legacy marks for display only, and the editor. Every commit validates and writes
+//  the record atomically through EventReview.write, then reloads what it wrote.
+//
+
+import AVFoundation
+import Foundation
+import Observation
+
+@MainActor @Observable
+final class RallyBoundariesModel {
+    let sampler: SamplerModel
+    private(set) var recordings: [EventInventory.Recording] = []
+    private(set) var inventoryProblem: String?
+    private(set) var session: EventReview.Session?
+    private(set) var editor: BoundaryEditor?
+    private(set) var player: AVPlayer?
+    private(set) var frames = FrameClock(times: [], frameRate: 30)
+    private(set) var legacyMarks: [RallyMarkRecord] = []
+    var showLegacy = true
+    private(set) var playhead = 0.0
+    private(set) var duration = 0.0
+    private(set) var isPlaying = false
+    private(set) var status = "Pick a recording."
+    private(set) var lastRefused = false
+    private var timeObserver: Any?
+    private var seeking = false
+    private var seekTarget: Double?
+    private var seekExact = true
+    private var framesTask: Task<Void, Never>?
+    let annotator: String
+    let tool: String
+
+    init(sampler: SamplerModel, annotator: String = NSUserName(), tool: String = "RallyLab " + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")) {
+        self.sampler = sampler
+        self.annotator = annotator
+        self.tool = tool
+    }
+
+    var root: URL { sampler.datasetRoot }
+    var sessionName: String? { session?.session.name }
+    var file: EventReview.File? { editor?.file }
+
+    // MARK: - Recordings
+
+    /// The inventory, read-only: eligible recordings with their coverage; withheld ones are listed as such and never opened.
+    func refreshRecordings() {
+        do {
+            recordings = try EventInventory.build(root: root).recordings
+            inventoryProblem = nil
+        } catch {
+            recordings = []
+            inventoryProblem = error.localizedDescription
+        }
+    }
+
+    var eligible: [EventInventory.Recording] { recordings.filter { !$0.withheld } }
+
+    // MARK: - Opening
+
+    func open(_ name: String) async {
+        guard name != sessionName else { return }
+        guard let video = sampler.sessions.first(where: { $0.name == name }) else { status = "\(name) is not in the project."; return }
+        close()
+        do {
+            let opened = try await EventReview.open(video, root: root, tool: tool)
+            session = opened
+            editor = BoundaryEditor(file: opened.file, annotator: annotator, tool: tool)
+            legacyMarks = (try? Data(contentsOf: RallyMarkModel.labelsURL(for: video.sourceURL))).flatMap { try? JSONDecoder().decode([RallyMarkRecord].self, from: $0) } ?? []
+            duration = opened.file.durationSec
+            let player = AVPlayer(url: video.sourceURL)
+            player.isMuted = false
+            self.player = player
+            timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 20), queue: .main) { [weak self] t in
+                MainActor.assumeIsolated {
+                    guard let self, !self.seeking else { return }
+                    self.playhead = t.seconds
+                }
+            }
+            frames = FrameClock(times: [], frameRate: opened.file.frameRate)
+            framesTask = Task { [weak self] in
+                let clock = await Self.frameClock(of: video.sourceURL, frameRate: opened.file.frameRate)
+                guard let self, !Task.isCancelled, self.sessionName == name else { return }
+                self.frames = clock
+            }
+            let resume = EventReview.firstUnknown(in: opened.file)
+            if let resume, resume > 0 { seek(to: resume) }
+            status = opened.isNew ? "New record for \(name): review from the start; R marks reviewed through the playhead."
+                : (resume.map { "Resumed at \(BoundaryEditor.clock($0)), the first unknown stretch." } ?? "\(name) is fully reviewed.")
+        } catch {
+            status = error.localizedDescription
+            lastRefused = true
+        }
+    }
+
+    func close() {
+        if let player, let timeObserver { player.removeTimeObserver(timeObserver) }
+        player?.pause()
+        framesTask?.cancel()
+        player = nil; timeObserver = nil; session = nil; editor = nil; legacyMarks = []
+        frames = FrameClock(times: [], frameRate: 30)
+        playhead = 0; duration = 0; isPlaying = false; lastRefused = false
+    }
+
+    /// Every frame's presentation time, from the video track's sample cursor (the original footage).
+    nonisolated static func frameClock(of url: URL, frameRate: Double) async -> FrameClock {
+        let asset = AVURLAsset(url: url)
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let duration = try? await asset.load(.duration).seconds,
+              // The cursor starts at the first sample at or after the request, and a request of 0 s is a hair after
+              // the first frame (TrackFrameStore.request): start before it so frame 0 is in the list.
+              let times = TrackLabelModel.frameTimes(track: track, step: 1, start: -1, end: duration) else { return FrameClock(times: [], frameRate: frameRate) }
+        return FrameClock(times: times, frameRate: frameRate)
+    }
+
+    // MARK: - Playback
+
+    /// Where playback is this instant: a key press wants the frame it was pressed on.
+    var now: Double {
+        guard let t = player?.currentTime().seconds, t.isFinite else { return playhead }
+        return t
+    }
+
+    func togglePlay() {
+        guard let player else { return }
+        if isPlaying { player.pause() } else { player.rate = 1 }
+        isPlaying.toggle()
+    }
+
+    func seek(to t: Double, exact: Bool = true) {
+        let clamped = max(0, duration > 0 ? min(t, duration) : t)
+        playhead = clamped
+        seekTarget = clamped
+        seekExact = exact
+        chaseSeek()
+    }
+
+    private func chaseSeek() {
+        guard !seeking, let target = seekTarget, let player else { return }
+        seeking = true
+        seekTarget = nil
+        let tolerance = seekExact ? CMTime.zero : CMTime(value: 1, timescale: 10)
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600_000), toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.seeking = false
+                self.chaseSeek()
+            }
+        }
+    }
+
+    func step(frames count: Int) {
+        if isPlaying { togglePlay() }
+        seek(to: frames.step(from: now, by: count))
+    }
+
+    func skip(seconds: Double) {
+        if isPlaying { togglePlay() }
+        seek(to: now + seconds)
+    }
+
+    var readout: String { frames.label(at: playhead) }
+
+    // MARK: - Editing
+
+    @discardableResult
+    func perform(_ action: BoundaryEditor.Action) -> Bool {
+        guard var e = editor, let session else { return false }
+        if isPlaying, action != .select(nil) { togglePlay() }
+        let outcome = e.apply(action, at: now, now: Date())
+        if outcome.changed {
+            do {
+                try EventReview.write(e.file, to: session.fileURL)
+                let written = try EventReview.read(session.fileURL)
+                guard written == e.file else { status = "the record read back differs from what was written"; lastRefused = true; return false }
+            } catch {
+                status = "not saved: \(error.localizedDescription)"
+                lastRefused = true
+                return false
+            }
+        }
+        editor = e
+        status = outcome.message
+        lastRefused = outcome.refused
+        if outcome.changed { refreshRecordings() }
+        return !outcome.refused
+    }
+
+    func select(_ id: UUID?) {
+        perform(.select(id))
+        if let r = editor?.selectedRally, let t = r.contact?.earliest ?? r.dead?.earliest { seek(to: t) }
+    }
+}
