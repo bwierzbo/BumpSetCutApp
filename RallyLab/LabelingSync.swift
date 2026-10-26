@@ -400,7 +400,7 @@ final class LabelingSync {
 
     /// A Stage 1 record of the open project was written by the sync (a push's reply or a pull): the Review tab
     /// takes it for the recording it has open. Set by RallyLabApp.
-    var onRecordSynced: ((_ session: String, _ record: EventReview.File) -> Void)?
+    var onRecordSynced: ((_ root: URL, _ session: String, _ record: EventReview.File) -> Void)?
 
     /// The withheld closure as the Stage 1 review refuses it: the named closure (lineage holdout, legacy holdout,
     /// final test, candidates and their metadata aliases) **plus every session that EventReview.refusal refuses by
@@ -458,11 +458,14 @@ final class LabelingSync {
                 guard let local else { continue }
                 do {
                     let saved = try await client.saveRallyEvents(videoId: video.id, expected: expected, record: local)
+                    // The project may have been switched while the save was in flight: nothing is written or handed
+                    // to an editor then (the server has the record; the next sync of this project reconciles it).
+                    guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
                     // The reviewer may have committed again while the save was in flight: keep the newer content.
                     let (keep, shadowRecord) = RallyEventsSync.afterPush(sent: local, current: RallyEventsSync.localState(at: url).record, saved: saved.record)
                     try EventReview.write(keep, to: url)
                     try EventReview.write(shadowRecord, to: shadowURL)
-                    onRecordSynced?(name, keep)
+                    onRecordSynced?(root, name, keep)
                     pushed += 1
                 } catch let conflict as RallyEventsConflict {
                     if let server = try? await client.rallyEvents().first(where: { $0.videoId == video.id }) {
@@ -474,7 +477,7 @@ final class LabelingSync {
                 guard let server = remote[video.id] else { continue }
                 try EventReview.write(server.record, to: url)
                 try EventReview.write(server.record, to: shadowURL)
-                onRecordSynced?(name, server.record)
+                onRecordSynced?(root, name, server.record)
                 pulled += 1
             case .conflict(_, let serverRevision):
                 if let server = remote[video.id] {

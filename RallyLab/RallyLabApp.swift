@@ -48,7 +48,7 @@ struct RallyLabApp: App {
         let phone = LabelingSync(projects: projects)
         phone.onTracksChanged = { tracker.reloadRallies(session: $0) }
         phone.onTimesChanged = { marker.reloadMarks(session: $0) }
-        phone.onRecordSynced = { boundaries.recordSynced($0, $1) }
+        phone.onRecordSynced = { boundaries.recordSynced(root: $0, $1, $2) }
         // A rally finished here or on the phone gets its boxes fitted to the
         // ball before it's reviewed.
         let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker, sync: phone)
