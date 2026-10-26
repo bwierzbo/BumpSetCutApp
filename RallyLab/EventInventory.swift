@@ -6,8 +6,9 @@
 //  marks in `<video>.rallylabels.json` (every one `legacy_unverified`, its origin
 //  `legacy_unknown` — the file keeps no annotator, method or time), the reviewed
 //  rallies, spans and coverage in `<video>.rallyevents.json`, and whether Stage 1 is
-//  complete. Withheld recordings (the L2 closure) are listed as withheld with no
-//  times: their sidecars are not even read. Nothing here writes a sidecar or a
+//  complete. Withheld recordings (the L2 closure, by name, path and content — the
+//  same refusal as opening one) are listed as withheld with no times: their
+//  sidecars are not even read. Nothing here writes a sidecar or a
 //  ledger row; `--event-inventory` writes its report under manifests/, `--review-status`
 //  prints the coverage table alone.
 //
@@ -52,7 +53,10 @@ enum EventInventory {
             validationJson: DatasetSplitManifest.sha256(of: root.appendingPathComponent("pipeline_tuning/validation.json")))
         var rows: [Recording] = []
         for s in sessions.sorted(by: { $0.name < $1.name }) {
-            if withheld.contains(s.name) {
+            // The same guard as opening a recording: a session over a withheld recording's file or
+            // content is withheld here too, and its sidecars are not read.
+            let refused = try EventReview.refusal(of: s, root: root, sessions: sessions)
+            if withheld.contains(s.name) || refused != nil {
                 rows.append(Recording(name: s.name, split: s.split, withheld: true, durationSec: nil, legacyMarks: nil, legacyFile: false, eventsFile: false,
                                       reviewedRallies: 0, withdrawnRallies: 0, spans: 0, coverageSec: 0, coverageFraction: nil, unknownGaps: 0, stage1Complete: false))
                 continue

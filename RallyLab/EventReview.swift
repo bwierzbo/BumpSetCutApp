@@ -281,12 +281,12 @@ enum EventReview {
             return true
         }
 
-        /// "Reviewed through here": the interval joins the coverage (merged with what it touches).
+        /// "Reviewed through here": one more coverage record, with this reviewer and time. Records are
+        /// history and are never merged or rewritten; `union` gives the reviewed intervals for any calculation.
         static func markReviewed(from start: Double, to end: Double, in file: inout File, at: Date, annotator: String) {
             let s = max(0, start), e = min(file.durationSec, end)
             guard e > s else { return }
             file.coverage.append(Coverage(start: s, end: e, at: stamp(at), annotator: annotator))
-            file.coverage = union(file.coverage).map { Coverage(start: $0.start, end: $0.end, at: stamp(at), annotator: annotator) }
         }
 
         /// Marks the recording fully reviewed, or says why it cannot be (nothing changes then).
@@ -313,27 +313,35 @@ enum EventReview {
         try ReservedVideos.lineageWithheldNames(in: root)
     }
 
-    /// Why `session` is withheld, or nil when it may be reviewed. By name (the closure), by path
-    /// (its file is a withheld recording's), and by content (its fingerprint is a withheld recording's).
+    /// Why `session` is withheld, or nil when it may be reviewed. By name (the closure); by path (its
+    /// file is a withheld recording's session file, cut file or local origin); and by content (its
+    /// fingerprint is a withheld recording's — the recording's stored or derived fingerprint, its
+    /// session file's, or its cut file's). Every withheld recording the project knows counts, whether
+    /// or not it has a session: a YouTube source's effective fingerprint is its link, so its cut file
+    /// is compared by content as well.
     static func refusal(of session: VideoSession, root: URL, sessions: [VideoSession]) throws -> String? {
         let withheld = try withheldNames(in: root)
         guard !withheld.isEmpty else { return nil }
         if withheld.contains(session.name) { return "listed, or aliased to a listed recording" }
-        let path = session.sourceURL.standardizedFileURL.path
+        let fm = FileManager.default
+        func standard(_ path: String) -> String { URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path }
+        let path = standard(session.sourcePath)
         let sources = ReservedVideos.sources(in: root)
-        let others = sessions.filter { withheld.contains($0.name) && $0.name != session.name }
-        for w in others {
-            if w.sourceURL.standardizedFileURL.path == path { return "its video is \(w.name)'s file" }
-            if let cut = sources[w.name]?.clipFile, URL(fileURLWithPath: cut).standardizedFileURL.path == path { return "its video is \(w.name)'s cut file" }
+        // Files that belong to withheld recordings, and whose they are.
+        var files: [(path: String, owner: String, what: String)] = []
+        for w in sessions where withheld.contains(w.name) && w.name != session.name { files.append((standard(w.sourcePath), w.name, "file")) }
+        for (name, s) in sources where withheld.contains(name) && name != session.name {
+            if !s.clipFile.isEmpty { files.append((standard(s.clipFile), name, "cut file")) }
+            let origin = s.origin.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !origin.isEmpty, origin.hasPrefix("/") || origin.hasPrefix("~") { files.append((standard(origin), name, "original file")) }
         }
-        guard FileManager.default.fileExists(atPath: session.sourcePath),
-              let mine = ProjectsModel.fileFingerprint(atPath: session.sourcePath) else { return nil }
-        for w in others {
-            if let s = sources[w.name], ReservedVideos.effectiveFingerprint(s) == mine { return "its content is \(w.name)'s" }
-            if FileManager.default.fileExists(atPath: w.sourcePath), ProjectsModel.fileFingerprint(atPath: w.sourcePath) == mine { return "its content is \(w.name)'s" }
-        }
+        if let hit = files.first(where: { $0.path == path }) { return "its video is \(hit.owner)'s \(hit.what)" }
+        guard fm.fileExists(atPath: session.sourcePath), let mine = ProjectsModel.fileFingerprint(atPath: session.sourcePath) else { return nil }
         for (name, s) in sources where withheld.contains(name) && name != session.name {
             if ReservedVideos.effectiveFingerprint(s) == mine { return "its content is \(name)'s" }
+        }
+        for f in files where fm.fileExists(atPath: f.path) {
+            if ProjectsModel.fileFingerprint(atPath: f.path) == mine { return "its content is \(f.owner)'s" }
         }
         return nil
     }

@@ -125,7 +125,7 @@ final class EventReviewTests: XCTestCase {
             let frame = 1 / rate
             EventReview.Mutation.markReviewed(from: 0, to: 1.5, in: &f, at: now, annotator: "BW")
             EventReview.Mutation.markReviewed(from: 1.5 + 0.9 * frame, to: duration, in: &f, at: now, annotator: "BW")
-            XCTAssertEqual(f.coverage.count, 2)
+            XCTAssertEqual(f.coverage.count, 2); XCTAssertEqual(EventReview.union(f.coverage).count, 2)
             XCTAssertTrue(EventReview.gaps(in: f).isEmpty, "a gap narrower than one frame at \(rate) fps is not unknown time")
             XCTAssertNil(EventReview.firstUnknown(in: f))
             XCTAssertNoThrow(try EventReview.Mutation.complete(&f, at: now, annotator: "BW", tool: "t"))
@@ -143,9 +143,20 @@ final class EventReviewTests: XCTestCase {
             XCTAssertNil(g.stage1Complete, "a refused completion changes nothing")
             // Overlapping and touching intervals merge; the union is what counts.
             EventReview.Mutation.markReviewed(from: 1.2, to: 1.5 + 3 * frame, in: &g, at: now, annotator: "BW")
-            XCTAssertEqual(g.coverage.count, 1)
+            XCTAssertEqual(g.coverage.count, 3, "records are history; nothing is merged away")
+            XCTAssertEqual(EventReview.union(g.coverage).count, 1)
             XCTAssertTrue(EventReview.gaps(in: g).isEmpty)
         }
+        // Each coverage record keeps who reviewed it and when; a later review never rewrites an earlier one.
+        var p = file(duration: 30)
+        EventReview.Mutation.markReviewed(from: 0, to: 10, in: &p, at: now, annotator: "A")
+        let later = now.addingTimeInterval(3600)
+        EventReview.Mutation.markReviewed(from: 20, to: 30, in: &p, at: later, annotator: "B")
+        EventReview.Mutation.markReviewed(from: 5, to: 25, in: &p, at: later, annotator: "B")
+        XCTAssertEqual(p.coverage.map(\.annotator), ["A", "B", "B"])
+        XCTAssertEqual(p.coverage[0], EventReview.Coverage(start: 0, end: 10, at: EventReview.stamp(now), annotator: "A"))
+        XCTAssertEqual(EventReview.union(p.coverage).count, 1)
+        XCTAssertTrue(EventReview.gaps(in: p).isEmpty)
         // A gap at the start or the end counts too.
         var h = file()
         EventReview.Mutation.markReviewed(from: 0.5, to: 2.5, in: &h, at: now, annotator: "BW")
@@ -214,6 +225,43 @@ final class EventReviewTests: XCTestCase {
         // An unreadable validation.json means the reserved set is unknown: refused, not assumed empty.
         try writeValidation("{not json")
         await XCTAssertThrowsErrorAsync(try await EventReview.open(other, root: root, tool: "t", now: now))
+    }
+
+    /// A withheld recording the project knows only from project.json (no session file) still protects
+    /// its cut file: a session over that file, or over a byte copy of it, is refused — even though the
+    /// recording's own fingerprint is its YouTube link, not the file's content.
+    func testSessionlessWithheldSourcesAreRefusedByCutFileAndContent() async throws {
+        let cut = try fixture("h264-damaged-inter-frame", as: "q")
+        let source = ClipSource(kind: .link, origin: "https://www.youtube.com/watch?v=abcdefghijk", start: 0, length: 3, license: "permission: test", title: "q",
+                                uploader: "test", clipFile: cut.path, fetchedAt: now, videoId: nil, frames: nil, fingerprint: nil, sourceId: nil, sessionId: nil, venueId: nil)
+        let project = Project(name: "evr", createdAt: now, framesPerRally: 4,
+                              clips: [PlannedClip(id: "q", number: 1, environment: "indoor", camera: "ele", lighting: "bright", orientation: "land", ball: "", notes: "", split: "train", videos: [source])])
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(project).write(to: root.appendingPathComponent("project.json"))
+        try writeValidation(#"{"tune":[],"holdout":[],"lineageHoldout":["q"]}"#)
+        XCTAssertEqual(try EventReview.withheldNames(in: root), ["q"])
+        let overCut = try session("r", video: cut)
+        let copy = try fixture("h264-damaged-inter-frame", as: "t")
+        let sameContent = try session("t", video: copy)
+        let eligible = try session("u", video: try fixture("open-gop-hevc-leading3", as: "u"))
+        for (s, reason) in [(overCut, "q's cut file"), (sameContent, "content is q's")] {
+            do {
+                _ = try await EventReview.open(s, root: root, tool: "t", now: now)
+                XCTFail("\(s.name) must be refused")
+            } catch let failure as EventReview.Failure {
+                guard case .withheld(let name, let why) = failure else { return XCTFail("\(failure)") }
+                XCTAssertEqual(name, s.name); XCTAssertTrue(why.contains(reason), why)
+            }
+        }
+        XCTAssertEqual(try ledgerRows(), [])
+        let opened = try await EventReview.open(eligible, root: root, tool: "t", now: now)
+        XCTAssertEqual(opened.file.video, "u")
+        // The inventory applies the same guard: the aliases are withheld rows without annotation details.
+        try "[{\"startTime\":0.5,\"endTime\":1.0}]".write(to: RallyMarkModel.labelsURL(for: cut), atomically: true, encoding: .utf8)
+        let report = try EventInventory.build(root: root, now: now)
+        XCTAssertEqual(report.recordings.map { ($0.name, $0.withheld) }.map { "\($0.0):\($0.1)" }, ["r:true", "t:true", "u:false"])
+        XCTAssertNil(report.recordings[0].legacyMarks, "a withheld alias's sidecars are not read")
+        XCTAssertFalse(report.recordings[0].legacyFile)
     }
 
     func testOpenRecordsTheUseAndRefusesWhenTheLedgerCannotBeWritten() async throws {
@@ -330,10 +378,12 @@ final class EventReviewTests: XCTestCase {
     // MARK: - Inventory
 
     func testEventInventoryAndStatusAreReadOnly() async throws {
-        let a = try fixture("open-gop-hevc-leading3", as: "a")
+        // a and b share the H.264 fixture (neither withheld); w is the HEVC fixture — a copy of it would be withheld by content.
+        let a = try fixture("h264-damaged-inter-frame", as: "a")
         let b = try fixture("h264-damaged-inter-frame", as: "b")
         let w = try fixture("open-gop-hevc-leading3", as: "w")
         _ = try session("a", video: a); _ = try session("b", split: "val", video: b); _ = try session("w", video: w)
+        _ = try session("x", video: w)   // another session over the withheld recording's file
         try writeValidation(#"{"tune":[],"holdout":[],"lineageHoldout":["w"]}"#)
         try "[{\"startTime\":0.5,\"endTime\":1.0},{\"startTime\":1.5,\"endTime\":2.0}]".write(to: RallyMarkModel.labelsURL(for: a), atomically: true, encoding: .utf8)
         try "[{\"startTime\":0.5,\"endTime\":1.0}]".write(to: RallyMarkModel.labelsURL(for: w), atomically: true, encoding: .utf8)
@@ -346,8 +396,9 @@ final class EventReviewTests: XCTestCase {
         try EventReview.write(f, to: EventReview.url(forVideo: a))
         let before = try FileManager.default.subpathsOfDirectory(atPath: root.path).sorted()
         let report = try EventInventory.build(root: root, now: now)
-        XCTAssertEqual(report.recordings.map(\.name), ["a", "b", "w"])
-        let ra = report.recordings[0], rb = report.recordings[1], rw = report.recordings[2]
+        XCTAssertEqual(report.recordings.map(\.name), ["a", "b", "w", "x"])
+        let ra = report.recordings[0], rb = report.recordings[1], rw = report.recordings[2], rx = report.recordings[3]
+        XCTAssertTrue(rx.withheld, "the same guard as open: a session over a withheld recording's file is withheld"); XCTAssertNil(rx.legacyMarks); XCTAssertFalse(rx.eventsFile)
         XCTAssertEqual(ra.legacyMarks, 2); XCTAssertTrue(ra.eventsFile); XCTAssertEqual(ra.reviewedRallies, 1); XCTAssertEqual(ra.withdrawnRallies, 1)
         XCTAssertEqual(ra.spans, 1); XCTAssertEqual(ra.coverageSec, 1.5, accuracy: 1e-9); XCTAssertEqual(ra.coverageFraction ?? 0, 0.5, accuracy: 1e-9)
         XCTAssertEqual(ra.unknownGaps, 1); XCTAssertFalse(ra.stage1Complete)
@@ -355,17 +406,17 @@ final class EventReviewTests: XCTestCase {
         XCTAssertTrue(rw.withheld); XCTAssertNil(rw.legacyMarks, "a withheld recording's sidecars are not read"); XCTAssertNil(rw.durationSec)
         XCTAssertNotNil(report.manifestHashes.sessions); XCTAssertNotNil(report.manifestHashes.validationJson)
         let lines = EventInventory.statusLines(report)
-        XCTAssertEqual(lines.first, "Stage 1 review: 0 of 2 eligible recordings complete, 1 started, 1 not started; 1 withheld (not reviewed)")
+        XCTAssertEqual(lines.first, "Stage 1 review: 0 of 2 eligible recordings complete, 1 started, 1 not started; 2 withheld (not reviewed)")
         XCTAssertTrue(lines.contains { $0.hasPrefix("  a (train):  50 % reviewed · 1 rallies reviewed · 1 span(s) · in progress, 1 unknown gap(s) · 2 legacy mark(s), unverified") }, "\(lines)")
-        XCTAssertTrue(lines.contains("  w: withheld"))
+        XCTAssertTrue(lines.contains("  w: withheld")); XCTAssertTrue(lines.contains("  x: withheld"))
         XCTAssertEqual(try FileManager.default.subpathsOfDirectory(atPath: root.path).sorted(), before, "building the inventory writes nothing")
         XCTAssertEqual(try ledgerRows(), [], "and records no use")
         let out = try EventInventory.write(report, in: root, stamp: "20261026-060000")
         XCTAssertEqual(out.json.lastPathComponent, "event-inventory-20261026-060000.json")
         let csv = try String(contentsOf: out.csv, encoding: .utf8).split(separator: "\n").map(String.init)
-        XCTAssertEqual(csv.count, 4)
+        XCTAssertEqual(csv.count, 5)
         XCTAssertTrue(csv[1].hasPrefix("a,train,no,2,2,legacy_unknown,yes,1,1,1,1.500,0.5000,1,no"), csv[1])
-        XCTAssertEqual(csv[3], "w,train,yes,,,,no,0,0,0,0.000,,0,no")
+        XCTAssertEqual(csv[3], "w,train,yes,,,,no,0,0,0,0.000,,0,no"); XCTAssertEqual(csv[4], "x,train,yes,,,,no,0,0,0,0.000,,0,no")
         XCTAssertEqual(try JSONDecoder().decode(EventInventory.Report.self, from: Data(contentsOf: out.json)), report)
     }
 }
