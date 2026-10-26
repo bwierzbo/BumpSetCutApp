@@ -451,7 +451,22 @@ final class LabelingSync {
             if case .unreadable(let why) = localState { conflicts.append("\(name) (local record unreadable, left untouched: \(why))"); continue }
             let local = localState.record
             let shadow = RallyEventsSync.localState(at: shadowURL).record
-            switch RallyEventsSync.decide(local: local, shadow: shadow, server: remote[video.id]) {
+            let action = RallyEventsSync.decide(local: local, shadow: shadow, server: remote[video.id])
+            if action == .upToDate { continue }
+            // Every other action reads or writes this recording's record: both the local and the server record must
+            // describe the original footage on disk now (its content fingerprint, computed off the main actor).
+            // A mismatch leaves both records exactly as they are and says why.
+            let path = session.sourcePath
+            let original = await Task.detached(priority: .utility) { ProjectsModel.fileFingerprint(atPath: path) }.value
+            if let local, let why = RallyEventsSync.identityMismatch(of: local, session: name, originalFingerprint: original) {
+                conflicts.append("\(name) (local record not sent: \(why) — open it in the Review tab to check it)")
+                continue
+            }
+            if let server = remote[video.id], let why = RallyEventsSync.identityMismatch(of: server, project: project, session: name, originalFingerprint: original) {
+                conflicts.append("\(name) (server record not adopted, both kept: \(why))")
+                continue
+            }
+            switch action {
             case .upToDate:
                 continue
             case .push(let expected):
@@ -472,15 +487,13 @@ final class LabelingSync {
                         try? EventReview.write(server.record, to: RallyEventsSync.conflictURL(for: url, serverRevision: server.revision))
                     }
                     conflicts.append("\(name) (\(conflict.message))")
+                } catch LabelingClient.Failure.server(_, let message) where RallyEventsSync.isIdentityRefusal(message) || RallyEventsSync.isWithheld(message) {
+                    // The server refused this recording's record (footage identity, or withheld): nothing is written.
+                    conflicts.append("\(name) (refused by the server: \(message))")
                 }
             case .pull:
+                // Identity was checked above, before anything is written, replaced or handed to the editor.
                 guard let server = remote[video.id] else { continue }
-                // The same checks as opening the recording: a server record for another recording, or for footage
-                // that has since been replaced, is not this recording's — it is reported, never written or adopted.
-                if let problem = EventReview.identityProblem(of: server.record, for: session) {
-                    conflicts.append("\(name) (server record not adopted: \(problem.localizedDescription))")
-                    continue
-                }
                 try EventReview.write(server.record, to: url)
                 try EventReview.write(server.record, to: shadowURL)
                 onRecordSynced?(root, name, server.record)

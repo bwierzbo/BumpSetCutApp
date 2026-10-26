@@ -135,6 +135,9 @@ final class LabelerModel: ReviewStore {
             async let s = client.projectStates()
             async let e = client.rallyEvents()
             var loaded = try await LabelSnapshot(videos: v, times: t, tracks: k, states: s, events: e)
+            // A record is taken only for the recording and original footage it describes (identity checked first).
+            eventIdentityProblems = [:]
+            loaded.events = admit(loaded.events, videos: loaded.videos, keeping: snapshot.events)
             // The withheld list of every project seen: a project without one makes its recordings unreviewable here.
             for project in Set(loaded.videos.compactMap(\.project)) {
                 let (listed, names) = try await client.withheld(project: project)
@@ -188,7 +191,8 @@ final class LabelerModel: ReviewStore {
             }
             // Stage 1 records have their own cursor: a failed fetch leaves it, so nothing is skipped past the overlap.
             do {
-                let events = try await client.rallyEvents(since: (lastEventsPull ?? last).addingTimeInterval(-Self.pullOverlap))
+                let fetched = try await client.rallyEvents(since: (lastEventsPull ?? last).addingTimeInterval(-Self.pullOverlap))
+                let events = admit(fetched, videos: snapshot.videos, keeping: [])
                 for row in events where outbox.events[row.videoId] == nil {
                     snapshot.events.removeAll { $0.videoId == row.videoId }
                     snapshot.events.append(row)
@@ -226,6 +230,10 @@ final class LabelerModel: ReviewStore {
     /// Conflicts the server reported for records edited here: the server's row, kept beside the local edit until
     /// the person decides (never merged over, never dropped).
     private(set) var eventConflicts: [UUID: LabelRallyEvents] = [:]
+    /// Records refused because they do not describe this recording's original footage (from the server on a pull,
+    /// or by the server on a save): the reason, shown to the person. Both records are kept; nothing is adopted or
+    /// re-sent until a reload clears it.
+    private(set) var eventIdentityProblems: [UUID: String] = [:]
     /// When the Stage 1 records were last fetched in full or incrementally (advances only on success).
     @ObservationIgnored private var lastEventsPull: Date?
 
@@ -242,11 +250,37 @@ final class LabelerModel: ReviewStore {
         return !list.contains(session)
     }
 
+    /// The server rows that describe their recording's published original; every other row is left out (the
+    /// snapshot keeps the previous one, `keeping`) and its reason recorded.
+    private func admit(_ rows: [LabelRallyEvents], videos: [LabelVideo], keeping: [LabelRallyEvents]) -> [LabelRallyEvents] {
+        var out: [LabelRallyEvents] = []
+        for row in rows {
+            guard let video = videos.first(where: { $0.id == row.videoId }), let project = video.project, let session = video.sessionName else {
+                eventIdentityProblems[row.videoId] = "a boundary record for a recording this phone does not know"
+                continue
+            }
+            if let why = RallyEventsSync.identityMismatch(of: row, project: project, session: session, originalFingerprint: video.sourceFingerprint) {
+                eventIdentityProblems[row.videoId] = "server record not taken: " + why
+                if let previous = keeping.first(where: { $0.videoId == row.videoId }) { out.append(previous) }
+                continue
+            }
+            out.append(row)
+        }
+        return out
+    }
+
+    /// Why a Stage 1 record may not be saved for this recording here, or nil: not reviewable (withheld, or no
+    /// published list), or not this recording's original footage.
+    func saveRefusal(_ record: EventReview.File, for video: LabelVideo) -> String? {
+        guard isReviewable(video), let session = video.sessionName else { return "this recording is not reviewable here (withheld, or the Mac has not published its list)" }
+        return RallyEventsSync.identityMismatch(of: record, session: session, originalFingerprint: video.sourceFingerprint)
+    }
+
     /// Queues a Stage 1 record for saving at the revision it was loaded from. Refused for a recording that is not
-    /// reviewable here, so nothing is even queued for a withheld one.
+    /// reviewable here, or for a record that does not describe its original footage — nothing is even queued then.
     @discardableResult
     func saveRallyEvents(_ record: EventReview.File, for video: LabelVideo, expected: Int) -> Bool {
-        guard isReviewable(video), record.video == video.sessionName else { return false }
+        guard saveRefusal(record, for: video) == nil else { return false }
         outbox.events[video.id] = PendingRallyEvents(videoId: video.id, expected: expected, record: record)
         queueFlush()
         return true
@@ -578,7 +612,7 @@ final class LabelerModel: ReviewStore {
         }
         // Stage 1 records: each at the revision it was loaded from. A stale revision is a conflict the person
         // decides; a withheld refusal drops the edit (it should never have been possible) and says so.
-        for (id, pending) in outbox.events where eventConflicts[id] == nil {
+        for (id, pending) in outbox.events where eventConflicts[id] == nil && eventIdentityProblems[id] == nil {
             do {
                 let saved = try await client.saveRallyEvents(videoId: id, expected: pending.expected, record: pending.record)
                 // The person may have committed again while the save was in flight: the newer edit stays queued,
@@ -594,8 +628,16 @@ final class LabelerModel: ReviewStore {
                 snapshot.events.removeAll { $0.videoId == id }
                 snapshot.events.append(saved)
             } catch let conflict as RallyEventsConflict {
-                if let server = try? await client.rallyEvents().first(where: { $0.videoId == id }) { eventConflicts[id] = server }
+                // The server's version is shown for a decision only when it describes this recording's original.
+                if let server = try? await client.rallyEvents().first(where: { $0.videoId == id }) {
+                    let checked = admit([server], videos: snapshot.videos, keeping: [])
+                    if let ok = checked.first { eventConflicts[id] = ok }
+                }
                 syncProblem = conflict.errorDescription
+            } catch LabelingClient.Failure.server(_, let message) where RallyEventsSync.isIdentityRefusal(message) {
+                // The edit stays queued (nothing lost); it is not re-sent until a reload brings the identity back in line.
+                eventIdentityProblems[id] = "refused by the server: " + message
+                syncProblem = message
             } catch LabelingClient.Failure.server(let code, let message) where RallyEventsSync.isWithheld(message) || code == 403 {
                 outbox.events[id] = nil
                 syncProblem = message

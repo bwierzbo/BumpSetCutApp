@@ -6,9 +6,14 @@
 -- through `rally_events_save` only: it refuses a stale revision (optimistic
 -- concurrency — the conflict comes back to the client, nothing is merged over),
 -- refuses any recording on the project's withheld list (the L2 withheld
--- closure, published by the Mac), and refuses a project whose list has never
--- been published (unknown = withheld). The legacy label_rally_times rows are
--- untouched.
+-- closure, published by the Mac), refuses a project whose list has never
+-- been published (unknown = withheld), and refuses a record whose footage
+-- identity (sourceFingerprint, and frameTimesDigest when both sides have one)
+-- is not the recording's published original — missing identity fails closed.
+-- Reads are protected the same way: a labeler sees a record only while its
+-- project has a published list and the recording is not on it, judged at read
+-- time, so a recording withheld after publication disappears from reads at once.
+-- The legacy label_rally_times rows are untouched.
 
 -- The withheld closure per project, as RallyLab computes it (ReservedVideos.lineageWithheldNames):
 -- lineage holdout, legacy holdout, final test, candidates and every alias. Published whole by a lead.
@@ -48,16 +53,29 @@ ALTER TABLE public.label_rally_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.label_rally_events FROM anon;
 CREATE INDEX IF NOT EXISTS label_rally_events_updated_at_idx ON public.label_rally_events (updated_at);
 
--- Labelers read all three tables; no direct write policy exists — writes go through the functions below.
+-- Labelers read the withheld list (names only: the clients need them to refuse locally too). No direct write
+-- policy exists on any of the three tables — writes go through the functions below.
 DO $$
 DECLARE t text;
 BEGIN
-    FOREACH t IN ARRAY ARRAY['label_withheld', 'label_withheld_lists', 'label_rally_events'] LOOP
+    FOREACH t IN ARRAY ARRAY['label_withheld', 'label_withheld_lists'] LOOP
         EXECUTE format('DROP POLICY IF EXISTS "%1$s_labelers_read" ON public.%1$I', t);
         EXECUTE format('CREATE POLICY "%1$s_labelers_read" ON public.%1$I FOR SELECT TO authenticated
                         USING ((SELECT private.is_labeler()))', t);
     END LOOP;
 END $$;
+
+-- A record is readable only while its project has a published withheld list and the recording is not on it —
+-- checked at read time, so a recording (or alias) added to the list later is hidden from every read at once.
+-- Leads are held to the same rule: a protected record is protected from everyone through the API.
+DROP POLICY IF EXISTS "label_rally_events_labelers_read" ON public.label_rally_events;
+CREATE POLICY "label_rally_events_labelers_read" ON public.label_rally_events FOR SELECT TO authenticated
+    USING (
+        (SELECT private.is_labeler())
+        AND EXISTS (SELECT 1 FROM public.label_withheld_lists l WHERE l.project = label_rally_events.project)
+        AND NOT EXISTS (SELECT 1 FROM public.label_withheld w
+                         WHERE w.project = label_rally_events.project AND w.session_name = label_rally_events.session_name)
+    );
 
 -- The frame identity of the copy's original (FrameIdentity.digest), published by the Mac with the copy; the
 -- phone compares its downloaded copy's own frames with it before any event commit. The original's content
@@ -91,6 +109,8 @@ $$;
 -- Save a recording's record at an expected revision. Returns the row as saved (new revision inside and out).
 --   stale revision  → P0001 'conflict: …'   (the client keeps both versions and asks the person)
 --   withheld        → 42501 'withheld: …'   (also when the project has no published list)
+--   identity        → 22023 'identity: …'  (no published original fingerprint, a record without one, a record
+--                                            for other footage, or a frame digest that differs from the published one)
 --   wrong record    → 22023                (version, or a record naming another recording)
 CREATE OR REPLACE FUNCTION public.rally_events_save(p_video uuid, p_expected integer, p_record jsonb)
     RETURNS SETOF public.label_rally_events
@@ -99,13 +119,16 @@ AS $$
 DECLARE
     v_project text;
     v_session text;
+    v_fingerprint text;
+    v_digest text;
     v_current integer;
     v_next integer;
 BEGIN
     IF NOT (SELECT private.is_labeler()) THEN
         RAISE EXCEPTION 'rally_events_save: labelers only' USING ERRCODE = '42501';
     END IF;
-    SELECT project, session_name INTO v_project, v_session FROM public.label_videos WHERE id = p_video;
+    SELECT project, session_name, source_fingerprint, frame_times_digest INTO v_project, v_session, v_fingerprint, v_digest
+      FROM public.label_videos WHERE id = p_video;
     IF NOT FOUND OR v_project IS NULL OR v_session IS NULL THEN
         RAISE EXCEPTION 'rally_events_save: no such recording' USING ERRCODE = '22023';
     END IF;
@@ -120,6 +143,16 @@ BEGIN
     END IF;
     IF coalesce(p_record->>'video', '') <> v_session THEN
         RAISE EXCEPTION 'rally_events_save: the record names %, not %', coalesce(p_record->>'video', '(none)'), v_session USING ERRCODE = '22023';
+    END IF;
+    -- The footage the record describes must be the recording's published original: unknown fails closed.
+    IF v_fingerprint IS NULL OR v_fingerprint = '' THEN
+        RAISE EXCEPTION 'identity: % has no published original fingerprint; nothing is accepted until RallyLab publishes it', v_session USING ERRCODE = '22023';
+    END IF;
+    IF coalesce(p_record->>'sourceFingerprint', '') <> v_fingerprint THEN
+        RAISE EXCEPTION 'identity: the record describes footage %, but % is %', coalesce(p_record->>'sourceFingerprint', '(none)'), v_session, v_fingerprint USING ERRCODE = '22023';
+    END IF;
+    IF v_digest IS NOT NULL AND v_digest <> '' AND coalesce(p_record->>'frameTimesDigest', '') <> '' AND p_record->>'frameTimesDigest' <> v_digest THEN
+        RAISE EXCEPTION 'identity: the record''s frame digest % is not the published original''s %', p_record->>'frameTimesDigest', v_digest USING ERRCODE = '22023';
     END IF;
     SELECT revision INTO v_current FROM public.label_rally_events WHERE video_id = p_video FOR UPDATE;
     IF NOT FOUND THEN

@@ -119,6 +119,29 @@ enum RallyEventsSync {
     /// Whether a server message is the withheld refusal.
     static func isWithheld(_ message: String) -> Bool { message.hasPrefix("withheld:") }
 
+    /// Whether a server message is the footage-identity refusal (migration 048: no published original fingerprint,
+    /// a record without one, or a record for other footage or frames).
+    static func isIdentityRefusal(_ message: String) -> Bool { message.hasPrefix("identity:") }
+
+    // MARK: - Identity (a record is adopted, written or saved only for the recording it describes)
+
+    /// Why `record` cannot be this recording's: another recording's name, another annotation version, no footage
+    /// identity on either side (fail closed), or other footage. nil when it is this recording's record.
+    static func identityMismatch(of record: EventReview.File, session: String, originalFingerprint: String?) -> String? {
+        guard record.annotationVersion == EventReview.annotationVersion else { return "annotation version \(record.annotationVersion) is not \(EventReview.annotationVersion)" }
+        guard record.video == session else { return "the record is for \(record.video), not \(session)" }
+        guard let original = originalFingerprint, !original.isEmpty else { return "\(session)'s original footage has no known fingerprint, so the record cannot be matched to it" }
+        guard let recorded = record.sourceFingerprint, !recorded.isEmpty else { return "the record names no footage (no source fingerprint)" }
+        guard recorded == original else { return "the record describes footage \(recorded), but \(session) is now \(original) (replaced footage, or another recording)" }
+        return nil
+    }
+
+    /// The same for a server row, with the row's own project and session as well.
+    static func identityMismatch(of row: LabelRallyEvents, project: String, session: String, originalFingerprint: String?) -> String? {
+        guard row.project == project, row.sessionName == session else { return "the server row is for \(row.project)/\(row.sessionName), not \(project)/\(session)" }
+        return identityMismatch(of: row.record, session: session, originalFingerprint: originalFingerprint)
+    }
+
     /// The record encoded as the apps write it (camelCase keys): what travels inside the RPC and what the
     /// server stores. Never the client's snake-case encoder.
     static func encodeRecord(_ file: EventReview.File) throws -> Data {

@@ -175,6 +175,13 @@ struct BoundaryEditor: Equatable {
         draftConflict = nil
     }
 
+    /// The original's content fingerprint for a record from before it was kept, recorded once (the next commit
+    /// writes it); a record that has one is never changed.
+    mutating func recordSourceFingerprint(_ fingerprint: String) {
+        guard file.sourceFingerprint == nil else { return }
+        file.sourceFingerprint = fingerprint
+    }
+
     /// The original's frame identity, recorded once (the next commit writes it); never overwritten.
     mutating func recordFrameTimesDigest(_ digest: String) {
         guard file.frameTimesDigest == nil else { return }

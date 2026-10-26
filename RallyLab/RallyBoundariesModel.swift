@@ -85,7 +85,11 @@ final class RallyBoundariesModel {
             guard mine == generation else { return }
             openedRoot = root
             session = opened
-            editor = BoundaryEditor(file: opened.file, annotator: annotator, tool: tool)
+            var e = BoundaryEditor(file: opened.file, annotator: annotator, tool: tool)
+            // A record from before the footage fingerprint was kept: open has just checked the name, so the footage
+            // on disk is recorded as its original (written with the next commit; never overwrites one that exists).
+            if opened.file.sourceFingerprint == nil, let current = ProjectsModel.fileFingerprint(atPath: video.sourcePath) { e.recordSourceFingerprint(current) }
+            editor = e
             legacyMarks = (try? Data(contentsOf: RallyMarkModel.labelsURL(for: video.sourceURL))).flatMap { try? JSONDecoder().decode([RallyMarkRecord].self, from: $0) } ?? []
             duration = opened.file.durationSec
             let player = AVPlayer(url: video.sourceURL)

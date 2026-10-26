@@ -213,6 +213,42 @@ final class RallyEventsSyncTests: XCTestCase {
         }
     }
 
+    func testARecordIsTakenOnlyForTheRecordingAndFootageItDescribes() {
+        let mine = file("v", revision: 2, rallies: 1)   // sourceFingerprint file:abc
+        XCTAssertNil(RallyEventsSync.identityMismatch(of: mine, session: "v", originalFingerprint: "file:abc"))
+        // Replaced footage (a deleted session name reused, or a new cut): refused, both kept.
+        XCTAssertTrue(RallyEventsSync.identityMismatch(of: mine, session: "v", originalFingerprint: "file:new")?.contains("replaced footage") == true)
+        // Another recording's record.
+        XCTAssertTrue(RallyEventsSync.identityMismatch(of: mine, session: "w", originalFingerprint: "file:abc")?.contains("for v, not w") == true)
+        // Missing identity on either side fails closed.
+        XCTAssertNotNil(RallyEventsSync.identityMismatch(of: mine, session: "v", originalFingerprint: nil), "original unknown")
+        XCTAssertNotNil(RallyEventsSync.identityMismatch(of: mine, session: "v", originalFingerprint: ""), "original unknown")
+        var anonymous = mine; anonymous.sourceFingerprint = nil
+        XCTAssertTrue(RallyEventsSync.identityMismatch(of: anonymous, session: "v", originalFingerprint: "file:abc")?.contains("no source fingerprint") == true)
+        var other = mine; other.annotationVersion = "rally_event_truth_v0"
+        XCTAssertNotNil(RallyEventsSync.identityMismatch(of: other, session: "v", originalFingerprint: "file:abc"))
+        // A server row also names its project and session.
+        let r = row(mine, revision: 2)   // Scratch / v
+        XCTAssertNil(RallyEventsSync.identityMismatch(of: r, project: "Scratch", session: "v", originalFingerprint: "file:abc"))
+        XCTAssertTrue(RallyEventsSync.identityMismatch(of: r, project: "Other", session: "v", originalFingerprint: "file:abc")?.contains("Scratch/v, not Other/v") == true)
+        // The server's footage refusal is recognised apart from conflicts and withholding.
+        XCTAssertTrue(RallyEventsSync.isIdentityRefusal("identity: the record describes footage file:x, but v is file:y"))
+        XCTAssertNil(RallyEventsSync.conflict(in: "identity: no published original fingerprint"))
+        XCTAssertFalse(RallyEventsSync.isWithheld("identity: …"))
+    }
+
+    func testAnOlderRecordGetsItsFingerprintOnceAndNeverLosesOne() {
+        var anonymous = file(); anonymous.sourceFingerprint = nil
+        var e = BoundaryEditor(file: anonymous, annotator: "BW", tool: "t")
+        e.recordSourceFingerprint("file:now")
+        XCTAssertEqual(e.file.sourceFingerprint, "file:now")
+        e.recordSourceFingerprint("file:other")
+        XCTAssertEqual(e.file.sourceFingerprint, "file:now", "a recorded fingerprint is never replaced")
+        var known = BoundaryEditor(file: file(), annotator: "BW", tool: "t")
+        known.recordSourceFingerprint("file:other")
+        XCTAssertEqual(known.file.sourceFingerprint, "file:abc")
+    }
+
     func testShadowAndConflictFilesSitBesideTheRecordNeverOverIt() {
         let record = EventReview.url(forVideo: URL(fileURLWithPath: "/footage/clip.mp4"))
         XCTAssertEqual(record.lastPathComponent, "clip.rallyevents.json")
