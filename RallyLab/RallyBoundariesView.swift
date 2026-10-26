@@ -43,6 +43,7 @@ struct RallyBoundariesView: View {
                 Spacer()
                 Button { model.refreshRecordings() } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.borderless)
             }
+            if let problem = model.pilotProblem { Text(problem).font(.caption).foregroundStyle(.red) }
             if let problem = model.inventoryProblem {
                 Text(problem).font(.caption).foregroundStyle(.red)
             }

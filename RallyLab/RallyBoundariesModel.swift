@@ -24,6 +24,8 @@ final class RallyBoundariesModel {
     /// on the timeline and listed for the open recording, and the legacy marks stay hidden inside a window
     /// until its rally is committed (blind review, protocol §6).
     private(set) var pilot: PilotDraw.Record?
+    /// Why the frozen pilot record could not be read, when it could not (blind until it can).
+    private(set) var pilotProblem: String?
     private(set) var session: EventReview.Session?
     private(set) var editor: BoundaryEditor?
     private(set) var player: AVPlayer?
@@ -74,7 +76,14 @@ final class RallyBoundariesModel {
             recordings = []
             inventoryProblem = error.localizedDescription
         }
-        pilot = (try? PilotDraw.latest(in: root)).flatMap { $0.dryRun ? nil : $0 }
+        // An unreadable frozen record is not an absent one: the draw loaded before is kept, and until the record
+        // reads again no legacy mark is drawn (the blind rule cannot be applied to a draw it cannot see).
+        do {
+            pilot = try PilotDraw.latest(in: root).flatMap { $0.dryRun ? nil : $0 }
+            pilotProblem = nil
+        } catch {
+            pilotProblem = "the pilot record cannot be read (\(error.localizedDescription)): legacy marks are hidden until it can"
+        }
     }
 
     // MARK: - Pilot and blind review
@@ -106,7 +115,8 @@ final class RallyBoundariesModel {
     /// The legacy marks the timeline may draw: the shared blind rule (PilotBlind) — none inside the window of a
     /// selected rally whose first review is not committed.
     var visibleLegacyMarks: [(start: Double, end: Double)] {
-        PilotBlind.filter(legacyMarks.map { ($0.startTime, $0.endTime) }, windows: pilotWindows.map(\.pilotWindow), record: file)
+        guard pilotProblem == nil else { return [] }
+        return PilotBlind.filter(legacyMarks.map { ($0.startTime, $0.endTime) }, windows: pilotWindows.map(\.pilotWindow), record: file)
     }
 
     var secondReview: Bool { editor?.mode == .secondReview }

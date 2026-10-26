@@ -424,17 +424,20 @@ enum PilotDraw {
         /// Midpoint of the second review minus the first's, seconds.
         var secondDelta: Double?
         var adjudication: Bool
+        /// The primary review was edited after this second review (`second_review_before_edit`): kept as evidence
+        /// in the CSV, left out of every agreement figure until a new repeat is recorded against the current review.
+        var secondStale: Bool = false
         var windowExceeded: Bool
         var status: String
 
-        static let header = "video,surface,stratum,legacy_index,rally_id,kind,event,legacy_time,reviewed_earliest,reviewed_latest,width,visibility,flags,edge,annotator,tool,reviewed_at,second_annotator,second_method,second_tool,second_earliest,second_latest,second_delta,adjudication,window_exceeded,status"
+        static let header = "video,surface,stratum,legacy_index,rally_id,kind,event,legacy_time,reviewed_earliest,reviewed_latest,width,visibility,flags,edge,annotator,tool,reviewed_at,second_annotator,second_method,second_tool,second_earliest,second_latest,second_delta,adjudication,second_review_stale,window_exceeded,status"
 
         var csv: String {
             func f(_ v: Double?) -> String { v.map { String(format: "%.3f", $0) } ?? "" }
             func q(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
             return [video, surface, stratum, String(legacyIndex), rallyId, kind, event, f(legacyTime), f(earliest), f(latest), f(width), visibility, q(flags), edge,
                     q(annotator), q(tool), reviewedAt, q(secondAnnotator), secondMethod, q(secondTool), f(secondEarliest), f(secondLatest), f(secondDelta),
-                    adjudication ? "1" : "0", windowExceeded ? "1" : "0", status].joined(separator: ",")
+                    adjudication ? "1" : "0", secondStale ? "1" : "0", windowExceeded ? "1" : "0", status].joined(separator: ",")
         }
     }
 
@@ -473,7 +476,8 @@ enum PilotDraw {
                                      annotator: r.annotator, tool: r.tool ?? "", reviewedAt: r.reviewedAt,
                                      secondAnnotator: r.secondReview?.annotator ?? "", secondMethod: r.secondReview?.method ?? "", secondTool: r.secondReview?.tool ?? "",
                                      secondEarliest: second?.earliest, secondLatest: second?.latest, secondDelta: delta,
-                                     adjudication: delta.map { abs($0) > adjudicationGap } ?? false, windowExceeded: exceeded,
+                                     adjudication: delta.map { abs($0) > adjudicationGap } ?? false,
+                                     secondStale: r.secondReview != nil && r.flags.contains("second_review_before_edit"), windowExceeded: exceeded,
                                      status: first == nil ? "unresolved" : "reviewed"))
             }
         }
@@ -509,7 +513,11 @@ enum PilotDraw {
                 out.append("\(surface) \(event): legacy − reviewed \(stats(offsets)) · ambiguous \(ambiguous)/\(e.count)")
             }
         }
-        let repeats = reviewed.filter { $0.secondDelta != nil }
+        // A second review that predates an edit of the primary review compares two different annotations: it stays
+        // in the CSV, not in agreement.
+        let stale = reviewed.filter { $0.secondDelta != nil && $0.secondStale }
+        if !stale.isEmpty { out.append("\(stale.count) event(s) with a second review older than an edit of the primary review: kept in the CSV, left out of agreement") }
+        let repeats = reviewed.filter { $0.secondDelta != nil && !$0.secondStale }
         let pairs = Dictionary(grouping: repeats) { r in "\(r.secondMethod) · \(platform(r.tool)) → \(platform(r.secondTool))" }
         for (pair, rs) in pairs.sorted(by: { $0.key < $1.key }) {
             let deltas = rs.map { abs($0.secondDelta!) }

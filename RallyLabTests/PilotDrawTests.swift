@@ -260,4 +260,27 @@ final class PilotDrawTests: XCTestCase {
         EventReview.Mutation.upsert(a, in: &f); EventReview.Mutation.upsert(b, in: &f)
         XCTAssertEqual(PilotBlind.answer(to: w4, in: f)?.rallyId, b.rallyId)
     }
+
+    func testASecondReviewOlderThanAnEditStaysInTheCSVButNotInAgreement() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("pilot-stale-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = ISO8601DateFormatter().date(from: "2026-10-26T20:00:00Z")!
+        let video = root.appendingPathComponent("bch_s.mp4")
+        let session = VideoSession(name: "bch_s", sourcePath: video.path, split: "train", addedAt: now, frames: [])
+        let sel = PilotDraw.Selected(video: "bch_s", legacyIndex: 0, surface: "beach", group: "g", stratum: "short", substitutedFor: nil, legacyStart: 10, legacyEnd: 13, window: [5, 18], repeatReview: true)
+        let record = PilotDraw.Record(id: "EXP-y", createdAt: EventReview.stamp(now), project: "T", seed: 1, manifestHashes: .init(), model: "m", pool: [], candidates: [],
+                                      selection: [sel], unfilled: [], supersedes: nil, dryRun: false, note: nil)
+        var file = EventReview.File(video: "bch_s", sourceFingerprint: "file:x", frameRate: 30, durationSec: 60, tool: "RallyLab 1")
+        var r = EventReview.Rally(rallyId: UUID(), legacyIndex: 0, kind: .rally, contact: .init(earliest: 11, latest: 11), dead: .init(earliest: 13, latest: 13), flags: ["second_review_before_edit"],
+                                  annotator: "BW", reviewedAt: EventReview.stamp(now), tool: "RallyLab 1")
+        r.secondReview = .init(annotator: "BW", reviewedAt: EventReview.stamp(now), method: EventReview.SecondReview.sameReviewer, contact: .init(earliest: 10, latest: 10), dead: .init(earliest: 13, latest: 13), tool: "Labeler 1")
+        EventReview.Mutation.upsert(r, in: &file)
+        try EventReview.write(file, to: EventReview.url(forVideo: video))
+        let audit = try PilotDraw.audit(record, root: root, sessions: [session])
+        XCTAssertTrue(audit.rows.allSatisfy(\.secondStale), "kept as evidence, flagged")
+        XCTAssertTrue(audit.csv.contains("second_review_stale"))
+        XCTAssertFalse(audit.summary.contains { $0.hasPrefix("repeat [") }, "no agreement figure from a stale repeat: \(audit.summary)")
+        XCTAssertTrue(audit.summary.contains { $0.contains("left out of agreement") })
+    }
 }
