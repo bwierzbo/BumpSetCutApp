@@ -234,6 +234,7 @@ final class RallyBoundariesModel {
             guard r.reviewState == .reviewed, let a = r.contact?.earliest ?? r.dead?.earliest, let b = r.dead?.latest ?? r.contact?.latest else { return false }
             return a <= t && t <= b
         }
-        if hit?.rallyId != e.selected { perform(.select(hit?.rallyId)) }
+        // Select unless the draft already holds this rally (a repeat click must not discard edits in progress).
+        if hit?.rallyId != e.draft.rallyId || hit == nil && e.selected != nil { perform(.select(hit?.rallyId)) }
     }
 }

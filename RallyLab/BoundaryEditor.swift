@@ -124,6 +124,19 @@ struct BoundaryEditor: Equatable {
 
     var canUndo: Bool { !history.isEmpty }
     var reviewedUntil: Double { EventReview.union(file.coverage).last?.end ?? 0 }
+
+    /// Where "reviewed through `t`" starts: the beginning of the unknown stretch `t` is in — the end of
+    /// the last reviewed interval before it, or 0 — so a gap between two reviewed stretches can be filled.
+    /// nil when `t` already lies inside reviewed coverage.
+    func unknownStart(before t: Double) -> Double? {
+        var start = 0.0
+        for r in EventReview.union(file.coverage) {
+            // Inside a reviewed stretch — except at its very start, where "reviewed through here" closes the gap before it.
+            if r.start + frame * 0.5 < t && t <= r.end + frame * 0.5 { return nil }
+            if r.end <= t + frame * 0.5 { start = max(start, r.end) }
+        }
+        return start
+    }
     var unknownGaps: [(start: Double, end: Double)] { EventReview.gaps(in: file) }
     var selectedRally: EventReview.Rally? { selected.flatMap { id in file.rallies.first { $0.rallyId == id } } }
 
@@ -193,8 +206,8 @@ struct BoundaryEditor: Equatable {
             openSpan = (kind, t)
             return Outcome(message: "\(kind.rawValue) from \(Self.clock(t)) — press the same key at its end", changed: false)
         case .reviewedThrough:
-            let from = reviewedUntil
-            guard t > from + frame * 0.5 else { return Outcome(message: "reviewed through \(Self.clock(from)) already — move past it", changed: false, refused: true) }
+            guard let from = unknownStart(before: t) else { return Outcome(message: "\(Self.clock(t)) is reviewed already — move into an unknown stretch", changed: false, refused: true) }
+            guard t > from + frame * 0.5 else { return Outcome(message: "move past \(Self.clock(from)) first", changed: false, refused: true) }
             push()
             EventReview.Mutation.markReviewed(from: from, to: t, in: &file, at: now, annotator: annotator)
             return Outcome(message: "reviewed through \(Self.clock(t)) (\(Int((EventReview.union(file.coverage).reduce(0) { $0 + $1.end - $1.start }) / file.durationSec * 100)) %)", changed: true)
@@ -233,7 +246,11 @@ struct BoundaryEditor: Equatable {
             return Outcome(message: "undone", changed: true)
         case .select(let id):
             selected = id
-            if let r = selectedRally { draft = Draft.of(r); lastMarked = r.dead != nil ? .dead : (r.contact != nil ? .contact : nil) } else { draft = Draft() }
+            if let r = selectedRally {
+                // The draft already holds this rally's edits: keep them. Otherwise load the rally (also right
+                // after a commit, which leaves the rally selected but the draft empty).
+                if draft.rallyId != r.rallyId { draft = Draft.of(r); lastMarked = r.dead != nil ? .dead : (r.contact != nil ? .contact : nil) }
+            } else { draft = Draft() }
             return Outcome(message: selectedRally.map { "editing rally \($0.rallyId.uuidString.prefix(8))" } ?? "", changed: false)
         case .cancel:
             draft = Draft(); openSpan = nil; selected = nil; lastMarked = nil

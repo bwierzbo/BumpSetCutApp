@@ -126,6 +126,14 @@ final class BoundaryEditorTests: XCTestCase {
         let a = commitRally(&e, contact: 0.5, dead: 1.0)
         let b = commitRally(&e, contact: 1.5, dead: 2.0)
         XCTAssertEqual(e.file.rallies.map(\.rallyId), [a, b])
+        // Right after a commit the rally stays selected with an empty draft: selecting it again loads it for editing.
+        XCTAssertEqual(e.selected, b); XCTAssertTrue(e.draft.isEmpty)
+        _ = e.apply(.select(b), at: 0, now: now)
+        XCTAssertEqual(e.draft.rallyId, b, "the just-committed rally is loaded, not a new one started")
+        _ = e.apply(.mark(.dead, .earliest), at: 2.2, now: now)
+        _ = e.apply(.select(b), at: 0, now: now)
+        XCTAssertEqual(e.draft.dead?.earliest, 2.2, "selecting the rally in the draft again keeps the edits")
+        _ = e.apply(.cancel, at: 0, now: now)
         _ = e.apply(.select(a), at: 0, now: now)
         XCTAssertEqual(e.draft.rallyId, a); XCTAssertEqual(e.draft.contact?.earliest, 0.5)
         _ = e.apply(.mark(.dead, .earliest), at: 1.1, now: now)
@@ -185,11 +193,32 @@ final class BoundaryEditorTests: XCTestCase {
         XCTAssertNil(e.openSpan)
     }
 
+    func testReviewedThroughFillsGapsBetweenReviewedStretches() {
+        var e = editor(duration: 40, frameRate: 30)
+        _ = e.apply(.reviewedThrough, at: 10, now: now)
+        _ = e.apply(.reviewedThrough, at: 30, now: now)   // 10–30 in one go, then the record is edited to leave a gap
+        var f = e.file
+        f.coverage = [EventReview.Coverage(start: 0, end: 10, at: "t", annotator: "A"), EventReview.Coverage(start: 20, end: 30, at: "t", annotator: "A")]
+        e = BoundaryEditor(file: f, annotator: "BW", tool: "t")
+        XCTAssertEqual(e.unknownGaps.map { "\($0.start)-\($0.end)" }, ["10.0-20.0", "30.0-40.0"])
+        XCTAssertEqual(e.unknownStart(before: 15), 10, "the gap the playhead is in starts where the last reviewed stretch ended")
+        XCTAssertNil(e.unknownStart(before: 25), "inside reviewed coverage")
+        XCTAssertEqual(e.unknownStart(before: 35), 30)
+        XCTAssertTrue(e.apply(.reviewedThrough, at: 25, now: now).refused)
+        XCTAssertTrue(e.apply(.reviewedThrough, at: 15, now: now).changed)
+        XCTAssertEqual(EventReview.union(e.file.coverage).map { "\($0.start)-\($0.end)" }, ["0.0-15.0", "20.0-30.0"])
+        XCTAssertTrue(e.apply(.reviewedThrough, at: 20, now: now).changed, "closing the gap merges the stretches")
+        XCTAssertEqual(EventReview.union(e.file.coverage).map { "\($0.start)-\($0.end)" }, ["0.0-30.0"])
+        XCTAssertTrue(e.apply(.reviewedThrough, at: 40, now: now).changed)
+        XCTAssertTrue(e.unknownGaps.isEmpty)
+        XCTAssertTrue(e.apply(.complete, at: 0, now: now).changed)
+    }
+
     func testReviewedThroughCompletionAndUndo() {
         var e = editor(duration: 10, frameRate: 30)
         XCTAssertTrue(e.apply(.reviewedThrough, at: 4, now: now).changed)
         XCTAssertEqual(e.reviewedUntil, 4)
-        XCTAssertTrue(e.apply(.reviewedThrough, at: 3, now: now).refused, "already reviewed through 4 s")
+        XCTAssertTrue(e.apply(.reviewedThrough, at: 3, now: now).refused, "3 s is inside reviewed coverage")
         XCTAssertEqual(e.unknownGaps.count, 1)
         let incomplete = e.apply(.complete, at: 0, now: now)
         XCTAssertTrue(incomplete.refused); XCTAssertTrue(incomplete.message.contains("unknown 4.000–10.000"), incomplete.message)
