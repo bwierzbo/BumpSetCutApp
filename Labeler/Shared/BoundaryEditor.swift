@@ -137,6 +137,22 @@ struct BoundaryEditor: Equatable {
 
     var canUndo: Bool { !history.isEmpty }
 
+    /// A synchronised version of this record arrived (a push's reply or a pull): take it, keeping the draft and
+    /// an open span — a draft is not in the record — and the selection when its rally still exists. Equal content
+    /// only updates the revision bookkeeping. Returns whether the content changed.
+    @discardableResult
+    mutating func adopt(_ synced: EventReview.File) -> Bool {
+        let changed = !RallyEventsSync.sameContent(file, synced)
+        if changed { push() }
+        file = synced
+        // A selected rally that the other side withdrew (or that is gone) can no longer be edited: deselect it.
+        if let id = selected, !file.rallies.contains(where: { $0.rallyId == id && $0.reviewState != .withdrawn }) {
+            selected = nil
+            if draft.rallyId == id { draft = Draft() }
+        }
+        return changed
+    }
+
     /// The original's frame identity, recorded once (the next commit writes it); never overwritten.
     mutating func recordFrameTimesDigest(_ digest: String) {
         guard file.frameTimesDigest == nil else { return }

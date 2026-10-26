@@ -221,6 +221,15 @@ final class RallyBoundariesModel {
         return !outcome.refused
     }
 
+    /// The sync wrote this recording's record (a push's reply or a pull): take it, keeping the draft, so the next
+    /// commit carries the server's revision and shows what the server has.
+    func recordSynced(_ name: String, _ record: EventReview.File) {
+        guard name == sessionName, var e = editor else { return }
+        let changed = e.adopt(record)
+        editor = e
+        if changed { status = "record updated from the sync (revision \(record.revision))" }
+    }
+
     func select(_ id: UUID?) {
         perform(.select(id))
         if let r = editor?.selectedRally, let t = r.contact?.earliest ?? r.dead?.earliest { seek(to: t) }

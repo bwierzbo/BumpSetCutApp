@@ -43,10 +43,12 @@ struct RallyLabApp: App {
         let tracker = TrackLabelModel(sampler: sampler), marker = RallyMarkModel(sampler: sampler)
         _tracker = State(initialValue: tracker)
         _marker = State(initialValue: marker)
-        _boundaries = State(initialValue: RallyBoundariesModel(sampler: sampler))
+        let boundaries = RallyBoundariesModel(sampler: sampler)
+        _boundaries = State(initialValue: boundaries)
         let phone = LabelingSync(projects: projects)
         phone.onTracksChanged = { tracker.reloadRallies(session: $0) }
         phone.onTimesChanged = { marker.reloadMarks(session: $0) }
+        phone.onRecordSynced = { boundaries.recordSynced($0, $1) }
         // A rally finished here or on the phone gets its boxes fitted to the
         // ball before it's reviewed.
         let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker, sync: phone)

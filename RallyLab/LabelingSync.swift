@@ -397,10 +397,19 @@ final class LabelingSync {
 
     // MARK: - Stage 1 rally-boundary records (migration 048)
 
-    /// The withheld closure as RallyLab computes it, or nil when it cannot be read (fail closed: nothing is sent then).
+    /// A Stage 1 record of the open project was written by the sync (a push's reply or a pull): the Review tab
+    /// takes it for the recording it has open. Set by RallyLabApp.
+    var onRecordSynced: ((_ session: String, _ record: EventReview.File) -> Void)?
+
+    /// The withheld closure as RallyLab computes it, with the project's identities read strictly first
+    /// (EventReview.projectSourcesStrict): an unreadable project.json or validation.json gives nil, and nothing is
+    /// published or uploaded then — the server keeps the list it has (fail closed).
     private func withheldClosure() -> Set<String>? {
         guard let root = projects.projectDir else { return nil }
-        return try? ReservedVideos.lineageWithheldNames(in: root)
+        do {
+            _ = try EventReview.projectSourcesStrict(in: root)
+            return try ReservedVideos.lineageWithheldNames(in: root)
+        } catch { return nil }
     }
 
     /// Publishes the project's withheld list (the server refuses events for a project without one), then reconciles
@@ -425,8 +434,11 @@ final class LabelingSync {
             guard let name = video.sessionName, !withheld.contains(name), let session = projects.session(named: name) else { continue }
             let url = EventReview.url(forVideo: URL(fileURLWithPath: session.sourcePath))
             let shadowURL = RallyEventsSync.shadowURL(for: url)
-            let local = FileManager.default.fileExists(atPath: url.path) ? try? EventReview.read(url) : nil
-            let shadow = FileManager.default.fileExists(atPath: shadowURL.path) ? try? EventReview.read(shadowURL) : nil
+            // A record that is present but cannot be read is left exactly as it is, and said so; never taken as absent.
+            let localState = RallyEventsSync.localState(at: url)
+            if case .unreadable(let why) = localState { conflicts.append("\(name) (local record unreadable, left untouched: \(why))"); continue }
+            let local = localState.record
+            let shadow = RallyEventsSync.localState(at: shadowURL).record
             switch RallyEventsSync.decide(local: local, shadow: shadow, server: remote[video.id]) {
             case .upToDate:
                 continue
@@ -434,8 +446,11 @@ final class LabelingSync {
                 guard let local else { continue }
                 do {
                     let saved = try await client.saveRallyEvents(videoId: video.id, expected: expected, record: local)
-                    try EventReview.write(saved.record, to: url)
-                    try EventReview.write(saved.record, to: shadowURL)
+                    // The reviewer may have committed again while the save was in flight: keep the newer content.
+                    let (keep, shadowRecord) = RallyEventsSync.afterPush(sent: local, current: RallyEventsSync.localState(at: url).record, saved: saved.record)
+                    try EventReview.write(keep, to: url)
+                    try EventReview.write(shadowRecord, to: shadowURL)
+                    onRecordSynced?(name, keep)
                     pushed += 1
                 } catch let conflict as RallyEventsConflict {
                     if let server = try? await client.rallyEvents().first(where: { $0.videoId == video.id }) {
@@ -447,6 +462,7 @@ final class LabelingSync {
                 guard let server = remote[video.id] else { continue }
                 try EventReview.write(server.record, to: url)
                 try EventReview.write(server.record, to: shadowURL)
+                onRecordSynced?(name, server.record)
                 pulled += 1
             case .conflict(_, let serverRevision):
                 if let server = remote[video.id] {

@@ -140,6 +140,7 @@ final class LabelerModel: ReviewStore {
             guard try await client.isLabeler() else { phase = .notLabeler; return }
             snapshot = loaded
             lastPull = started
+            lastEventsPull = started
             syncProblem = nil
             LocalStore.pruneClips(keeping: loaded.videos)
             LocalStore.save(snapshot, "snapshot.json")
@@ -181,12 +182,17 @@ final class LabelerModel: ReviewStore {
                 snapshot.times.removeAll { $0.videoId == r.videoId }
                 snapshot.times.append(r)
             }
-            if let events = try? await client.rallyEvents(since: last.addingTimeInterval(-Self.pullOverlap)) {
+            // Stage 1 records have their own cursor: a failed fetch leaves it, so nothing is skipped past the overlap.
+            do {
+                let events = try await client.rallyEvents(since: (lastEventsPull ?? last).addingTimeInterval(-Self.pullOverlap))
                 for row in events where outbox.events[row.videoId] == nil {
                     snapshot.events.removeAll { $0.videoId == row.videoId }
                     snapshot.events.append(row)
                 }
                 if !events.isEmpty { LocalStore.save(snapshot, "snapshot.json") }
+                lastEventsPull = started
+            } catch {
+                syncProblem = Self.describe("Couldn't fetch the boundary records", error)
             }
             for r in tracks {
                 snapshot.tracks.removeAll { $0.id == r.id }
@@ -216,6 +222,8 @@ final class LabelerModel: ReviewStore {
     /// Conflicts the server reported for records edited here: the server's row, kept beside the local edit until
     /// the person decides (never merged over, never dropped).
     private(set) var eventConflicts: [UUID: LabelRallyEvents] = [:]
+    /// When the Stage 1 records were last fetched in full or incrementally (advances only on success).
+    @ObservationIgnored private var lastEventsPull: Date?
 
     /// The record as last loaded from the server for this recording, or the pending local edit.
     func rallyEvents(for video: LabelVideo) -> (record: EventReview.File, revision: Int)? {
@@ -550,7 +558,16 @@ final class LabelerModel: ReviewStore {
         for (id, pending) in outbox.events where eventConflicts[id] == nil {
             do {
                 let saved = try await client.saveRallyEvents(videoId: id, expected: pending.expected, record: pending.record)
-                if outbox.events[id] == pending { outbox.events[id] = nil }
+                // The person may have committed again while the save was in flight: the newer edit stays queued,
+                // now on top of the revision the server just assigned (never dropped, never sent at a stale one).
+                if let newer = outbox.events[id], newer != pending {
+                    var carried = newer
+                    carried.expected = saved.revision
+                    carried.record.revision = saved.revision
+                    outbox.events[id] = carried
+                } else {
+                    outbox.events[id] = nil
+                }
                 snapshot.events.removeAll { $0.videoId == id }
                 snapshot.events.append(saved)
             } catch let conflict as RallyEventsConflict {

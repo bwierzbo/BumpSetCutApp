@@ -66,6 +66,31 @@ enum RallyEventsSync {
         }
     }
 
+    /// A record file as found on disk: absent, readable, or present but unreadable (which is never treated as
+    /// absent — nothing is written over it).
+    enum LocalState: Equatable {
+        case absent
+        case record(EventReview.File)
+        case unreadable(String)
+
+        var record: EventReview.File? { if case .record(let f) = self { return f } else { return nil } }
+    }
+
+    static func localState(at url: URL) -> LocalState {
+        guard FileManager.default.fileExists(atPath: url.path) else { return .absent }
+        do { return .record(try EventReview.read(url)) } catch { return .unreadable(error.localizedDescription) }
+    }
+
+    /// After a push came back: what to write locally and as the shadow. If the local file changed while the save
+    /// was in flight (`current` differs from `sent`), the newer content is kept with the server's revision as its
+    /// bookkeeping — the next sync pushes it; the shadow is always the server's state.
+    static func afterPush(sent: EventReview.File, current: EventReview.File?, saved: EventReview.File) -> (local: EventReview.File, shadow: EventReview.File) {
+        guard let current, !sameContent(current, sent) else { return (saved, saved) }
+        var newer = current
+        newer.revision = saved.revision
+        return (newer, saved)
+    }
+
     /// Equal but for the revision and the digest bookkeeping, which the server and the open set.
     static func sameContent(_ a: EventReview.File, _ b: EventReview.File) -> Bool {
         var x = a, y = b

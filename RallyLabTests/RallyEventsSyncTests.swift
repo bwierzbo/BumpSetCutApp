@@ -92,6 +92,58 @@ final class RallyEventsSyncTests: XCTestCase {
         XCTAssertFalse(RallyEventsSync.isWithheld("rally_events_save: labelers only"))
     }
 
+    func testAnUnreadableLocalRecordIsNeverTakenAsAbsent() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rallyevents-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = EventReview.url(forVideo: dir.appendingPathComponent("clip.mp4"))
+        XCTAssertEqual(RallyEventsSync.localState(at: url), .absent)
+        let f = file(revision: 2, rallies: 1)
+        try EventReview.write(f, to: url)
+        XCTAssertEqual(RallyEventsSync.localState(at: url), .record(f))
+        try Data("{not json".utf8).write(to: url)
+        guard case .unreadable = RallyEventsSync.localState(at: url) else { return XCTFail("a present but unreadable record is neither absent nor a record") }
+        XCTAssertNil(RallyEventsSync.localState(at: url).record, "the sync has nothing to decide on, so nothing is written over it")
+    }
+
+    func testAnEditMadeWhileTheSaveWasInFlightIsKeptOnTheNewRevision() {
+        let sent = file(revision: 3, rallies: 1)
+        var saved = sent; saved.revision = 4
+        // Nothing changed meanwhile: the saved copy is both the record and the shadow.
+        var r = RallyEventsSync.afterPush(sent: sent, current: sent, saved: saved)
+        XCTAssertEqual(r.local, saved); XCTAssertEqual(r.shadow, saved)
+        r = RallyEventsSync.afterPush(sent: sent, current: nil, saved: saved)
+        XCTAssertEqual(r.local, saved)
+        // A commit landed during the save: that newer content stays, carrying the server's revision so the next sync
+        // pushes it at 4; the shadow is what the server holds.
+        let newer = file(revision: 3, rallies: 2)
+        r = RallyEventsSync.afterPush(sent: sent, current: newer, saved: saved)
+        XCTAssertEqual(r.local.rallies.count, 2); XCTAssertEqual(r.local.revision, 4); XCTAssertEqual(r.shadow, saved)
+        XCTAssertEqual(RallyEventsSync.decide(local: r.local, shadow: r.shadow, server: row(saved, revision: 4)), .push(expected: 4))
+    }
+
+    func testTheOpenEditorAdoptsASyncedRecordKeepingTheDraft() {
+        var e = BoundaryEditor(file: file(revision: 3, rallies: 2), annotator: "BW", tool: "t")
+        let id = e.file.rallies[0].rallyId
+        _ = e.apply(.select(id), at: 0, now: now)
+        _ = e.apply(.mark(.contact, .earliest), at: 0.2, now: now)
+        XCTAssertEqual(e.draft.rallyId, id)
+        // Same content at a newer revision: bookkeeping only, the draft and selection stand.
+        var synced = e.file; synced.revision = 4
+        XCTAssertFalse(e.adopt(synced))
+        XCTAssertEqual(e.file.revision, 4); XCTAssertEqual(e.selected, id); XCTAssertEqual(e.draft.contact?.earliest, 0.2)
+        // Different content from the other side: taken, undoable, the draft kept while its rally still exists.
+        var other = synced; other.revision = 5
+        EventReview.Mutation.upsert(EventReview.Rally(rallyId: UUID(), kind: .rally, contact: .init(earliest: 5, latest: 5), dead: .init(earliest: 6, latest: 6), annotator: "MAC", reviewedAt: EventReview.stamp(now)), in: &other)
+        XCTAssertTrue(e.adopt(other))
+        XCTAssertEqual(e.file.rallies.count, 3); XCTAssertEqual(e.file.revision, 5); XCTAssertEqual(e.selected, id); XCTAssertTrue(e.canUndo)
+        // The selected rally withdrawn elsewhere: the selection and its draft go, nothing else.
+        var withdrawn = other; withdrawn.revision = 6
+        EventReview.Mutation.withdraw(id, in: &withdrawn, at: now, annotator: "MAC")
+        XCTAssertTrue(e.adopt(withdrawn))
+        XCTAssertNil(e.selected); XCTAssertNil(e.draft.rallyId)
+    }
+
     func testShadowAndConflictFilesSitBesideTheRecordNeverOverIt() {
         let record = EventReview.url(forVideo: URL(fileURLWithPath: "/footage/clip.mp4"))
         XCTAssertEqual(record.lastPathComponent, "clip.rallyevents.json")
