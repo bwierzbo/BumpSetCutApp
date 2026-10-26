@@ -475,6 +475,12 @@ final class LabelingSync {
                 }
             case .pull:
                 guard let server = remote[video.id] else { continue }
+                // The same checks as opening the recording: a server record for another recording, or for footage
+                // that has since been replaced, is not this recording's — it is reported, never written or adopted.
+                if let problem = EventReview.identityProblem(of: server.record, for: session) {
+                    conflicts.append("\(name) (server record not adopted: \(problem.localizedDescription))")
+                    continue
+                }
                 try EventReview.write(server.record, to: url)
                 try EventReview.write(server.record, to: shadowURL)
                 onRecordSynced?(root, name, server.record)
