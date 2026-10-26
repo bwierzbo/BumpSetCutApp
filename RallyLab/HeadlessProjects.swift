@@ -1044,15 +1044,17 @@ enum HeadlessProjects {
                     log("❌ \(name) could not be processed: nothing is frozen")
                     return false
                 }
-                let raw = EvidenceReplayer.decidedRanges(evidence: v.evidence, duration: v.duration, config: config, minRallySec: 1.1653, padded: false)
-                let predictions = PilotDraw.Predictions(clipsRaw: raw.map { [$0.start, $0.end] }, clipsPadded: v.clips.map { [$0.start, $0.end] },
+                // Raw and padded boundaries of the SAME retained segments, from the production run itself.
+                let predictions = PilotDraw.Predictions(clipsRaw: v.raw.map { [$0.start, $0.end] }, clipsPadded: v.clips.map { [$0.start, $0.end] },
                                                         serves: v.serves.map { PilotDraw.Serve(toss: $0.toss, contact: $0.contact, end: $0.end, approaching: $0.approaching) })
                 evidence = PilotDraw.Evidence(duration: v.duration, predictions: predictions, ball: v.evidence.map { ($0.time, $0.hasBall) })
                 duration = v.duration
             }
             if let d = duration { durations[name] = d }
+            let effective = config.withCamera(of: entry.session)
             videos.append(PilotDraw.PoolVideo(name: name, split: entry.session.split, surface: ClipID.surface(of: name)?.rawValue ?? "unknown", group: entry.group,
-                                              durationSec: duration, marks: entry.marks.count, labelsSHA256: entry.labelsSHA256, predictions: evidence?.predictions))
+                                              durationSec: duration, marks: entry.marks.count, labelsSHA256: entry.labelsSHA256, predictions: evidence?.predictions,
+                                              cameraSetup: effective.camera.map { String(describing: $0) }, effectiveConfigSHA256: PilotDraw.sha256(PilotDraw.snapshot(of: effective))))
             candidates += PilotDraw.candidates(entry, evidence: evidence)
         }
         let (selection, unfilled) = PilotDraw.draw(candidates, durations: durations, seed: seed)
@@ -1066,8 +1068,17 @@ enum HeadlessProjects {
             projectJson: DatasetSplitManifest.sha256(of: root.appendingPathComponent("project.json")),
             sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: root.appendingPathComponent("sessions", isDirectory: true)),
             validationJson: DatasetSplitManifest.sha256(of: root.appendingPathComponent("pipeline_tuning/validation.json")))
+        // The models actually used, by content; the configuration as a snapshot (the freeze-first gate).
+        var modelDigests: [String: String] = [:]
+        if let heat = config.heatmapModel { modelDigests[heat.lastPathComponent] = PilotDraw.digest(ofModel: heat) ?? "unreadable" }
+        if !config.heatmapOnly || config.heatmapModel == nil {
+            let yolo = Bundle.main.url(forResource: config.ballModel.rawValue, withExtension: "mlmodelc") ?? Bundle.main.url(forResource: config.ballModel.rawValue, withExtension: "mlpackage")
+            modelDigests[config.ballModel.rawValue] = yolo.flatMap(PilotDraw.digest(ofModel:)) ?? "not found"
+        }
+        let snapshot = PilotDraw.snapshot(of: config)
         let record = PilotDraw.Record(id: "EXP-\(day)-b2-boundary-pilot", createdAt: EventReview.stamp(now), project: root.lastPathComponent, seed: seed,
-                                      status: dryRun ? "dry run" : "frozen", manifestHashes: hashes, model: model, pool: videos, candidates: candidates,
+                                      status: dryRun ? "dry run" : "frozen", manifestHashes: hashes, model: model,
+                                      modelDigests: modelDigests, configSnapshot: snapshot, configSHA256: PilotDraw.sha256(snapshot), pool: videos, candidates: candidates,
                                       selection: selection, unfilled: unfilled, supersedes: existing.last?.lastPathComponent,
                                       dryRun: dryRun, note: dryRun ? "no pipeline run: the farEnd / ambiguous / hardCase strata are unjudged" : nil)
         if dryRun {

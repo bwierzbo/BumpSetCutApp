@@ -72,6 +72,9 @@ enum PilotDraw {
         var marks: Int
         var labelsSHA256: String
         var predictions: Predictions?
+        /// The recording's camera setup applied to the configuration, and the SHA-256 of the effective config.
+        var cameraSetup: String?
+        var effectiveConfigSHA256: String?
     }
 
     struct Candidate: Codable, Equatable {
@@ -115,6 +118,12 @@ enum PilotDraw {
         var annotationVersion: String = EventReview.annotationVersion
         var manifestHashes: DatasetSplitManifest.Hashes
         var model: String
+        /// Content identities of the models actually used (name → digest of the model file or package), and the
+        /// effective configuration as a reproducible snapshot with its SHA-256; per-recording camera overrides are
+        /// on each pool video. Nothing here is implied by the split-manifest hashes.
+        var modelDigests: [String: String] = [:]
+        var configSnapshot: String = ""
+        var configSHA256: String = ""
         var pool: [PoolVideo]
         var candidates: [Candidate]
         var selection: [Selected]
@@ -304,6 +313,27 @@ enum PilotDraw {
         return (selection, unfilled)
     }
 
+    // MARK: - Identities (the freeze-first gate)
+
+    /// A model's content digest: a package or compiled model directory canonically, a single file by SHA-256.
+    static func digest(ofModel url: URL) -> String? {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
+        return isDir.boolValue ? DatasetSplitManifest.canonicalDigest(ofDirectory: url) : DatasetSplitManifest.sha256(of: url)
+    }
+
+    /// Every stored property of the configuration as `label=value`, sorted: the same settings give the same text.
+    static func snapshot(of config: ProcessorConfig) -> String {
+        Mirror(reflecting: config).children.compactMap { child -> String? in
+            guard let label = child.label else { return nil }
+            return "\(label)=\(String(describing: child.value))"
+        }.sorted().joined(separator: "\n")
+    }
+
+    static func sha256(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
     // MARK: - Files
 
     static func directory(in root: URL) -> URL { root.appendingPathComponent("manifests/pilot", isDirectory: true) }
@@ -338,11 +368,13 @@ enum PilotDraw {
         md += "- created: \(r.createdAt) · project: \(r.project) · seed: \(r.seed) · status: \(r.status)\n"
         md += "- manifest hashes: project.json `\(r.manifestHashes.projectJson ?? "?")` · sessions `\(r.manifestHashes.sessions ?? "?")` · validation.json `\(r.manifestHashes.validationJson ?? "?")`\n"
         md += "- model: \(r.model)\n"
+        for (name, digest) in r.modelDigests.sorted(by: { $0.key < $1.key }) { md += "- model digest: \(name) `\(digest)`\n" }
+        md += "- effective config sha256 `\(r.configSHA256)` (\(r.configSnapshot.split(separator: "\n").count) settings; per-recording camera overrides in the pool table)\n"
         if let s = r.supersedes { md += "- supersedes: \(s)\n" }
         if let n = r.note { md += "- note: \(n)\n" }
-        md += "\n## Pool (\(r.pool.count) recordings, \(r.candidates.count) candidate rallies)\n\n| Recording | Split | Surface | Group | Marks | Duration | labels sha256 | Predictions |\n|---|---|---|---|---|---|---|---|\n"
+        md += "\n## Pool (\(r.pool.count) recordings, \(r.candidates.count) candidate rallies)\n\n| Recording | Split | Surface | Group | Marks | Duration | labels sha256 | Predictions | Camera | config sha256 |\n|---|---|---|---|---|---|---|---|---|---|\n"
         for v in r.pool {
-            md += "| \(v.name) | \(v.split) | \(v.surface) | \(v.group) | \(v.marks) | \(v.durationSec.map { String(format: "%.1f s", $0) } ?? "?") | `\(v.labelsSHA256.prefix(16))` | \(v.predictions.map { "\($0.clipsRaw.count) raw / \($0.clipsPadded.count) padded clips, \($0.serves.count) serves" } ?? "none") |\n"
+            md += "| \(v.name) | \(v.split) | \(v.surface) | \(v.group) | \(v.marks) | \(v.durationSec.map { String(format: "%.1f s", $0) } ?? "?") | `\(v.labelsSHA256.prefix(16))` | \(v.predictions.map { "\($0.clipsRaw.count) raw / \($0.clipsPadded.count) padded clips, \($0.serves.count) serves" } ?? "none") | \(v.cameraSetup ?? "—") | `\(v.effectiveConfigSHA256?.prefix(16) ?? "—")` |\n"
         }
         md += "\n## Selection (\(r.selection.count) of \(size); \(r.selection.filter(\.repeatReview).count) in the blind-repeat set)\n\n| # | Recording | Legacy # | Surface | Group | Stratum | Legacy start → end | Window | Repeat |\n|---|---|---|---|---|---|---|---|---|\n"
         for (i, s) in r.selection.enumerated() {
@@ -437,7 +469,7 @@ enum PilotDraw {
                 rows.append(AuditRow(video: s.video, surface: s.surface, stratum: s.stratum, legacyIndex: s.legacyIndex, rallyId: r.rallyId.uuidString, kind: r.kind.rawValue,
                                      event: event, legacyTime: legacy, earliest: first?.earliest, latest: first?.latest, width: first.map { $0.latest - $0.earliest },
                                      visibility: first?.visibility.rawValue ?? "", flags: r.flags.joined(separator: " "), edge: r.edge?.rawValue ?? "",
-                                     annotator: r.annotator, tool: file.tool, reviewedAt: r.reviewedAt,
+                                     annotator: r.annotator, tool: r.tool ?? "", reviewedAt: r.reviewedAt,
                                      secondAnnotator: r.secondReview?.annotator ?? "", secondMethod: r.secondReview?.method ?? "", secondTool: r.secondReview?.tool ?? "",
                                      secondEarliest: second?.earliest, secondLatest: second?.latest, secondDelta: delta,
                                      adjudication: delta.map { abs($0) > adjudicationGap } ?? false, windowExceeded: exceeded,
@@ -490,7 +522,8 @@ enum PilotDraw {
         return out
     }
 
+    /// The platform a review was committed on; "unknown" for a record that kept no per-rally tool.
     static func platform(_ tool: String) -> String {
-        tool.hasPrefix("Labeler") ? "iPhone" : tool.hasPrefix("RallyLab") ? "Mac" : (tool.isEmpty ? "?" : tool)
+        tool.hasPrefix("Labeler") ? "iPhone" : tool.hasPrefix("RallyLab") ? "Mac" : (tool.isEmpty ? "unknown" : tool)
     }
 }

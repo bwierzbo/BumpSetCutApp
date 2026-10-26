@@ -367,14 +367,14 @@ struct BoundaryEditor: Equatable {
                     || (existing.secondReview != nil && (existing.contact != draft.contact || existing.dead != draft.dead))
                 if predates, !flags.contains("second_review_before_edit") { flags.append("second_review_before_edit") }
                 rally.kind = draft.kind; rally.contact = draft.contact; rally.dead = draft.dead; rally.edge = draft.edge; rally.flags = flags
-                rally.reviewState = .reviewed; rally.annotator = annotator; rally.reviewedAt = stamp
+                rally.reviewState = .reviewed; rally.annotator = annotator; rally.reviewedAt = stamp; rally.tool = tool
             } else {
                 // A new rally keeps the legacy mark it stands for, when there is one.
                 var link = draft.legacyIndex.map { LegacyMark(index: $0, start: draft.legacyStart ?? 0, end: draft.legacyEnd ?? 0) }
                 if link == nil, let a = draft.contact?.earliest ?? draft.dead?.earliest, let b = draft.dead?.latest ?? draft.contact?.latest { link = legacyLink(for: a, b) }
                 rally = EventReview.Rally(rallyId: UUID(), legacyIndex: link?.index, legacyStart: link?.start, legacyEnd: link?.end,
                                           kind: draft.kind, contact: draft.contact, dead: draft.dead, flags: draft.flags, edge: draft.edge,
-                                          annotator: annotator, reviewedAt: stamp)
+                                          annotator: annotator, reviewedAt: stamp, tool: tool)
             }
             let id = EventReview.Mutation.upsert(rally, in: &file)
             let wasEdit = draft.rallyId != nil

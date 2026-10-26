@@ -94,11 +94,15 @@ final class RallyBoundariesModel {
         seek(to: max(s.window[0], s.legacyStart - 3))
     }
 
-    /// Blind: inside a pilot window whose rally is not committed yet, the legacy marks are not shown
-    /// whatever the toggle says; in a second review nothing of the first result is shown either.
-    var legacyHidden: Bool {
-        if secondReview { return true }
-        return pilotWindows.contains { s in s.window[0] <= playhead && playhead <= s.window[1] && !pilotState(of: s).reviewed }
+    /// Blind: a pilot rally's legacy mark is never drawn until that rally is committed, wherever the playhead
+    /// is (seeing it anywhere on the timeline would give the answer away); in a second review nothing of the
+    /// first result is shown either.
+    var legacyHidden: Bool { secondReview }
+
+    /// The legacy marks the timeline may draw: all of them, less the uncommitted pilot rallies' marks.
+    var visibleLegacyMarks: [(start: Double, end: Double)] {
+        let hidden = Set(pilotWindows.filter { !pilotState(of: $0).reviewed }.map(\.legacyIndex))
+        return legacyMarks.enumerated().filter { !hidden.contains($0.offset) }.map { ($0.element.startTime, $0.element.endTime) }
     }
 
     var secondReview: Bool { editor?.mode == .secondReview }

@@ -131,6 +131,18 @@ final class PilotDrawTests: XCTestCase {
         XCTAssertEqual(PilotDraw.card(of: "bch_ele_ovc_land_self_02"), "bch_ele_ovc_land_self_02")
     }
 
+    func testTheFreezeIdentifiesTheConfigurationByContent() {
+        let a = PilotDraw.snapshot(of: ProcessorConfig())
+        XCTAssertEqual(a, PilotDraw.snapshot(of: ProcessorConfig()), "the same settings give the same text")
+        XCTAssertTrue(a.contains("preroll=") && a.contains("heatmapHop="), a.prefix(200).description)
+        var changed = ProcessorConfig(); changed.preroll += 0.5
+        XCTAssertNotEqual(PilotDraw.sha256(PilotDraw.snapshot(of: changed)), PilotDraw.sha256(a), "one knob moved: another identity")
+        let camera = ProcessorConfig().withCamera(of: VideoSession(name: "bch_ele_ovc_land_self_02", sourcePath: "/x.mp4", split: "train", addedAt: now, frames: []))
+        XCTAssertNotEqual(PilotDraw.snapshot(of: camera), a, "the recording's camera setup is part of the effective configuration")
+        XCTAssertEqual(PilotDraw.sha256("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        XCTAssertNil(PilotDraw.digest(ofModel: URL(fileURLWithPath: "/nonexistent/model.mlmodelc")))
+    }
+
     func testTheRecordIsNeverOverwrittenAndTheLatestIsRead() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("pilot-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -164,11 +176,12 @@ final class PilotDrawTests: XCTestCase {
         let record = PilotDraw.Record(id: "EXP-x", createdAt: EventReview.stamp(now), project: "T", seed: 1, manifestHashes: .init(), model: "m", pool: [], candidates: [],
                                       selection: selection, unfilled: [], supersedes: nil, dryRun: false, note: nil)
         var file = EventReview.File(video: "bch_a", sourceFingerprint: "file:x", frameRate: 30, durationSec: 60, tool: "RallyLab 1")
+        // The file was created on the Mac, but this rally's review was committed on the phone: the row says so.
         var rally = EventReview.Rally(rallyId: UUID(), legacyIndex: 0, legacyStart: 10, legacyEnd: 13, kind: .rally,
                                       contact: .init(earliest: 10.4, latest: 10.433), dead: .init(earliest: 12.8, latest: 13.1, visibility: .occluded),
-                                      annotator: "BW", reviewedAt: EventReview.stamp(now))
+                                      annotator: "BW", reviewedAt: EventReview.stamp(now), tool: "Labeler 1")
         rally.secondReview = .init(annotator: "BW", reviewedAt: EventReview.stamp(now.addingTimeInterval(90000)), method: EventReview.SecondReview.sameReviewer,
-                                   contact: .init(earliest: 10.433, latest: 10.433), dead: .init(earliest: 12.6, latest: 12.6), tool: "Labeler 1")
+                                   contact: .init(earliest: 10.433, latest: 10.433), dead: .init(earliest: 12.6, latest: 12.6), tool: "RallyLab 1")
         EventReview.Mutation.upsert(rally, in: &file)
         EventReview.Mutation.markReviewed(from: 0, to: 20, in: &file, at: now, annotator: "BW")
         try EventReview.write(file, to: EventReview.url(forVideo: video))
@@ -177,7 +190,7 @@ final class PilotDrawTests: XCTestCase {
         XCTAssertEqual(audit.rows.count, 3, "two events for the reviewed rally, one row for the unreviewed one")
         let contact = audit.rows[0], dead = audit.rows[1], missing = audit.rows[2]
         XCTAssertEqual(contact.event, "contact"); XCTAssertEqual(contact.legacyTime, 10); XCTAssertEqual(contact.earliest, 10.4)
-        XCTAssertEqual(contact.width!, 0.033, accuracy: 1e-9); XCTAssertEqual(contact.tool, "RallyLab 1"); XCTAssertEqual(contact.secondTool, "Labeler 1")
+        XCTAssertEqual(contact.width!, 0.033, accuracy: 1e-9); XCTAssertEqual(contact.tool, "Labeler 1", "the rally's own tool, not the file's"); XCTAssertEqual(contact.secondTool, "RallyLab 1")
         XCTAssertEqual(contact.secondDelta!, 10.433 - 10.4165, accuracy: 1e-9); XCTAssertFalse(contact.adjudication)
         XCTAssertEqual(dead.flags, "ambiguous_dead"); XCTAssertEqual(dead.visibility, "occluded")
         XCTAssertEqual(dead.secondDelta!, 12.6 - 12.95, accuracy: 1e-9); XCTAssertTrue(dead.adjudication, "0.35 s apart: adjudication")
@@ -185,7 +198,8 @@ final class PilotDrawTests: XCTestCase {
         XCTAssertEqual(missing.status, "not_reviewed"); XCTAssertEqual(missing.legacyIndex, 1)
         XCTAssertTrue(audit.csv.hasPrefix(PilotDraw.AuditRow.header + "\n"))
         XCTAssertEqual(audit.csv.split(separator: "\n").count, 4)
-        XCTAssertTrue(audit.summary.contains { $0.contains("Mac → iPhone") }, "the Mac-vs-iPhone pair is reported: \(audit.summary)")
+        XCTAssertTrue(audit.summary.contains { $0.contains("iPhone → Mac") }, "the platform pair comes from the rallies' own tools: \(audit.summary)")
+        XCTAssertEqual(PilotDraw.platform(""), "unknown", "a record that kept no per-rally tool reports no platform")
         XCTAssertTrue(audit.summary.contains { $0.hasPrefix("beach contact") && $0.contains("legacy − reviewed median -0.41") && $0.contains("ambiguous 0/1") }, "\(audit.summary)")
         XCTAssertTrue(audit.summary.contains { $0.hasPrefix("beach dead") && $0.contains("ambiguous 1/1") }, "\(audit.summary)")
     }

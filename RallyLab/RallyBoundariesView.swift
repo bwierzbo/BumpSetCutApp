@@ -103,13 +103,13 @@ struct RallyBoundariesView: View {
                 }
                 Toggle("legacy marks", isOn: Binding(get: { model.showLegacy }, set: { model.showLegacy = $0 })).toggleStyle(.checkbox).controlSize(.small)
                     .disabled(model.legacyHidden)
-                    .help(model.legacyHidden ? "hidden: blind review inside a pilot window until its rally is committed" : "")
+                    .help(model.pilotWindows.isEmpty ? "" : "pilot rallies' marks stay hidden until each is committed (blind)")
                 Toggle("second review (blind)", isOn: Binding(get: { model.secondReview }, set: { model.setSecondReview($0) })).toggleStyle(.checkbox).controlSize(.small)
                     .disabled(model.editor == nil)
                 Button("Keys") { showHelp.toggle() }.controlSize(.small).popover(isPresented: $showHelp) { KeyHelp().padding() }
             }
             BoundaryTimelineView(file: model.file, duration: model.duration, playhead: model.playhead,
-                                 legacyMarks: model.legacyMarks.map { ($0.startTime, $0.endTime) }, showLegacy: model.showLegacy && !model.legacyHidden,
+                                 legacyMarks: model.visibleLegacyMarks, showLegacy: model.showLegacy && !model.legacyHidden,
                                  draft: draftBar, openSpanStart: model.editor?.openSpan?.start, selected: model.editor?.selected,
                                  hideRallyTimes: model.secondReview, windows: model.pilotWindows.map { ($0.window[0], $0.window[1]) },
                                  seek: { t, exact in model.seek(to: t, exact: exact) }, select: { t in model.selectRally(at: t) })

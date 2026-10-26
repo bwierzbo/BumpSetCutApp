@@ -97,6 +97,9 @@ enum EventReview {
         var annotator: String
         var reviewedAt: String
         var secondReview: SecondReview?
+        /// The app that committed this review (`RallyLab …` or `Labeler …`); nil from records before it was kept
+        /// (the file's `tool` is where the record was created, not where a rally was reviewed).
+        var tool: String?
     }
 
     struct Completion: Codable, Equatable {
