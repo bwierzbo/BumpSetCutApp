@@ -29,6 +29,8 @@ The check runs at access time, so a recording withheld later is protected at onc
 | Storage, bucket `labeling`: read, list, download | every object | only objects referenced by a readable `label_videos` row |
 | Storage: create a signed URL | every object | same as read |
 | Storage: replace, delete | every object | same as read |
+| Storage: ball-path sidecar (`<clip>.ballpath.json`) | every object | follows its clip |
+| `label_videos`: creating rows and changing identities | anything | an ordinary labeler may create only a phone upload's own row (no project, recording or identities; a `phone/` object nobody else claims) and may never change a row's project, recording, copy path or identities (trigger `label_videos_guard`); no labeler-made row can point at a RallyLab copy or the unreferenced object |
 | Storage: upload | allowed | unchanged |
 
 Signed URLs: the storage API checks the caller's SELECT access on the object before it signs. Supabase's documentation shows that signed URLs serve private buckets and that object access is governed by `storage.objects` policies, but it gives no per-operation table. After deployment this is checked live (§4 step 4).
@@ -51,7 +53,7 @@ Run without the fix, the same tests fail at the first check: an ordinary labeler
 
 **What the tests cover**, for an ordinary labeler:
 - **Reads:** sees only the eligible recording and the phone upload. The withheld recording, its alias and the unlisted project's recording are hidden. The copies of protected recordings and the unreferenced object cannot be listed or read by name, so they cannot be signed. Rally times, tracks and the labeler's own frame log on protected recordings are hidden.
-- **Writes:** cannot update, delete or recreate a protected row, track, copy or the unreferenced object. Can still edit an eligible row and still upload from the phone.
+- **Writes:** cannot update, delete or recreate a protected row, track, copy or the unreferenced object. Cannot forge a reference: a new row pointing at a protected copy or the unreferenced object, a second claim on a phone upload, a row with a project, or rewriting a row's copy path, project or identities are all refused. Can still edit an eligible row's status, add its own phone upload's row and upload from the phone. A protected clip's sidecar is refused and an eligible clip's is readable.
 - **Later withholding:** a recording withheld later is hidden at once, together with its copy.
 
 For other callers:
