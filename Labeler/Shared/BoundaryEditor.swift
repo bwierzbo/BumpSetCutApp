@@ -309,7 +309,7 @@ struct BoundaryEditor: Equatable {
             guard let id = selected, file.rallies.contains(where: { $0.rallyId == id && $0.reviewState == .reviewed }) else { return Outcome(message: "select a rally to withdraw", changed: false, refused: true) }
             push()
             _ = EventReview.Mutation.withdraw(id, in: &file, at: now, annotator: annotator)
-            draft = Draft(); selected = nil
+            draft = Draft(); selected = nil; draftConflict = nil
             return Outcome(message: "rally withdrawn (kept on record)", changed: true)
         case .undo:
             guard var previous = history.popLast() else { return Outcome(message: "nothing to undo", changed: false, refused: true) }
@@ -318,7 +318,7 @@ struct BoundaryEditor: Equatable {
             previous.revision = file.revision
             previous.frameTimesDigest = file.frameTimesDigest ?? previous.frameTimesDigest
             file = previous
-            draft = Draft(); openSpan = nil; selected = nil
+            draft = Draft(); openSpan = nil; selected = nil; draftConflict = nil
             return Outcome(message: "undone", changed: true)
         case .select(let id):
             selected = id

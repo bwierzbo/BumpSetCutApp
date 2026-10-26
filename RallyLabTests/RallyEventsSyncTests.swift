@@ -194,6 +194,25 @@ final class RallyEventsSyncTests: XCTestCase {
         XCTAssertNil(e.draftConflict); XCTAssertEqual(e.draft.dead?.earliest, 3.25)
     }
 
+    func testDiscardingAConflictedDraftClearsTheConflict() {
+        for discard in [BoundaryEditor.Action.withdraw, .undo] {
+            var e = BoundaryEditor(file: file(revision: 1), annotator: "BW", tool: "t")
+            _ = e.apply(.mark(.contact, .earliest), at: 1, now: now)
+            _ = e.apply(.mark(.dead, .earliest), at: 3, now: now)
+            XCTAssertTrue(e.apply(.commit, at: 3, now: now).changed)
+            let id = e.selected!
+            _ = e.apply(.select(id), at: 0, now: now)
+            _ = e.apply(.toggleFlag("ambiguous"), at: 0, now: now)
+            var theirs = e.file; theirs.revision = 2; theirs.rallies[0].contact = .init(earliest: 2, latest: 2)
+            XCTAssertTrue(e.adopt(theirs)); XCTAssertNotNil(e.draftConflict)
+            XCTAssertTrue(e.apply(discard, at: 0, now: now).changed, "\(discard)")
+            XCTAssertNil(e.draftConflict, "\(discard) discards the draft and its conflict")
+            _ = e.apply(.mark(.contact, .earliest), at: 5, now: now)
+            _ = e.apply(.mark(.dead, .earliest), at: 7, now: now)
+            XCTAssertTrue(e.apply(.commit, at: 7, now: now).changed, "an unrelated new rally commits after \(discard)")
+        }
+    }
+
     func testShadowAndConflictFilesSitBesideTheRecordNeverOverIt() {
         let record = EventReview.url(forVideo: URL(fileURLWithPath: "/footage/clip.mp4"))
         XCTAssertEqual(record.lastPathComponent, "clip.rallyevents.json")
