@@ -283,4 +283,19 @@ final class PilotDrawTests: XCTestCase {
         XCTAssertFalse(audit.summary.contains { $0.hasPrefix("repeat [") }, "no agreement figure from a stale repeat: \(audit.summary)")
         XCTAssertTrue(audit.summary.contains { $0.contains("left out of agreement") })
     }
+
+    func testALinkedCorrectionOffAShortLegacyMarkStillAnswersIt() {
+        let now = ISO8601DateFormatter().date(from: "2026-10-26T20:00:00Z")!
+        let w = PilotWindow(video: "v", legacyIndex: 4, legacyStart: 10, legacyEnd: 11, window: [5, 16], stratum: "short", repeatReview: false)
+        var f = EventReview.File(video: "v", sourceFingerprint: "file:x", frameRate: 30, durationSec: 60, tool: "t")
+        let corrected = EventReview.Rally(rallyId: UUID(), legacyIndex: 4, legacyStart: 10, legacyEnd: 11, kind: .rally,
+                                          contact: .init(earliest: 12, latest: 12), dead: .init(earliest: 14, latest: 14), annotator: "BW", reviewedAt: EventReview.stamp(now))
+        EventReview.Mutation.upsert(corrected, in: &f)
+        XCTAssertEqual(PilotBlind.answer(to: w, in: f)?.rallyId, corrected.rallyId, "the recorded link answers it although the times no longer overlap")
+        // A link with the same index but other legacy times (another device's numbering) does not.
+        var g = EventReview.File(video: "v", sourceFingerprint: "file:x", frameRate: 30, durationSec: 60, tool: "t")
+        EventReview.Mutation.upsert(EventReview.Rally(rallyId: UUID(), legacyIndex: 4, legacyStart: 30, legacyEnd: 33, kind: .rally,
+                                                      contact: .init(earliest: 12, latest: 12), dead: .init(earliest: 14, latest: 14), annotator: "BW", reviewedAt: EventReview.stamp(now)), in: &g)
+        XCTAssertNil(PilotBlind.answer(to: w, in: g))
+    }
 }

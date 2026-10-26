@@ -41,9 +41,10 @@ struct PilotPublication: Codable, Equatable {
 }
 
 enum PilotBlind {
-    /// The reviewed rally that answers this selected rally: one whose extent touches the legacy interval (closed
-    /// intervals, so a rally with a single event on one frame — truncated at the recording's edge — still counts),
-    /// the longest overlap first, then the one whose legacy link names this mark.
+    /// The reviewed rally that answers this selected rally: first one linked to this exact legacy mark (index and
+    /// recorded times) inside the window; otherwise one whose extent touches the legacy interval (closed intervals,
+    /// so a single event on one frame — truncated at the recording's edge — still counts), the longest overlap
+    /// first, then the one whose legacy link names this mark.
     static func answer(to w: PilotWindow, in file: EventReview.File?) -> EventReview.Rally? {
         guard let file else { return nil }
         func extent(_ r: EventReview.Rally) -> (Double, Double)? {
@@ -54,6 +55,15 @@ enum PilotBlind {
             guard let (a, b) = extent(r), a <= w.legacyEnd + 1e-9, b >= w.legacyStart - 1e-9 else { return nil }
             return min(b, w.legacyEnd) - max(a, w.legacyStart)
         }
+        // Reliable provenance first: a rally whose legacy link names this mark by its index AND its recorded legacy
+        // times (so another device's numbering cannot pair it wrongly), lying within the frozen window — a correction
+        // may move well off a short legacy mark.
+        let linked = file.rallies.filter { r in
+            guard r.reviewState == .reviewed, r.legacyIndex == w.legacyIndex, let ls = r.legacyStart, let le = r.legacyEnd,
+                  abs(ls - w.legacyStart) < 1e-3, abs(le - w.legacyEnd) < 1e-3, let (a, b) = extent(r) else { return false }
+            return a <= w.window[1] + 1e-9 && b >= w.window[0] - 1e-9
+        }
+        if let r = linked.first { return r }
         let candidates = file.rallies.filter { $0.reviewState == .reviewed && overlap($0) != nil }
         return candidates.max { l, r in
             let lo = overlap(l)!, ro = overlap(r)!
