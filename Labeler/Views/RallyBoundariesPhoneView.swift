@@ -33,6 +33,9 @@ final class PhoneBoundaryModel {
     private(set) var loadError: String?
     private(set) var isLocal = false
     private(set) var downloading = false
+    /// How much of the original lies past the copy's end (a shorter final frame, a lost audio tail): that stretch
+    /// cannot be reviewed from this copy and stays unknown here — the Mac reviews it on the original.
+    private(set) var unreachableTail = 0.0
     private var observer: Any?
     private var seekClock = SeekClock()
     private var seeking = false
@@ -60,7 +63,9 @@ final class PhoneBoundaryModel {
             isLocal = LocalStore.hasClip(video)
             player.replaceCurrentItem(with: AVPlayerItem(url: url))
             let asset = AVURLAsset(url: url)
+            // The player's range is the copy's; the record's duration is the ORIGINAL's (published with the copy).
             duration = (try? await asset.load(.duration).seconds) ?? video.duration
+            if video.duration > duration + 1.0 / 30 { unreachableTail = video.duration - duration }
             let rate = Double((try? await asset.loadTracks(withMediaType: .video).first?.load(.nominalFrameRate)) ?? 30)
             observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] t in
                 MainActor.assumeIsolated {
@@ -74,14 +79,16 @@ final class PhoneBoundaryModel {
                 editor = BoundaryEditor(file: existing.record, annotator: annotator, tool: tool)
                 revision = existing.revision
             } else {
+                // A fresh record names the original: its published duration, never the copy's (a copy can keep
+                // every frame start and still end earlier).
                 let fresh = EventReview.File(video: video.sessionName ?? video.name, sourceFingerprint: video.sourceFingerprint, frameRate: rate > 0 ? rate : 30,
-                                             durationSec: duration > 0 ? duration : video.duration, tool: tool, frameTimesDigest: video.frameTimesDigest)
+                                             durationSec: video.duration > 0 ? video.duration : duration, tool: tool, frameTimesDigest: video.frameTimesDigest)
                 editor = BoundaryEditor(file: fresh, annotator: annotator, tool: tool)
                 revision = 0
             }
             await verifyFrames(local: isLocal ? url : nil)
             if let f = editor?.file, let resume = EventReview.firstUnknown(in: f), resume > 0 { seek(to: resume) }
-            status = gate.reason
+            status = gate.reason + (unreachableTail > 0 ? String(format: " · the copy ends %.2f s before the original: that stretch is reviewed on the Mac", unreachableTail) : "")
         } catch {
             loadError = error.localizedDescription
         }
