@@ -51,6 +51,11 @@ final class PhoneBoundaryModel {
     }
 
     var file: EventReview.File? { editor?.file }
+    /// The original's published identity: its frame digest, counted only together with its content fingerprint
+    /// (the Mac publishes both; a record can be saved only for footage the server knows by fingerprint).
+    private var publishedIdentity: String? { video.sourceFingerprint == nil ? nil : video.frameTimesDigest }
+    /// A record the sync would not take for this recording (another recording's, or other footage), with why.
+    var identityProblem: String? { model.eventIdentityProblems[video.id] }
     var canCommit: Bool { gate.allowed && editor != nil }
     var conflict: LabelRallyEvents? { model.eventConflicts[video.id] }
 
@@ -98,13 +103,13 @@ final class PhoneBoundaryModel {
     private func verifyFrames(local url: URL?) async {
         let reviewable = model.isReviewable(video)
         guard let url else {
-            gate = CommitGate.decide(reviewable: reviewable, publishedDigest: video.frameTimesDigest, copyFrames: nil)
+            gate = CommitGate.decide(reviewable: reviewable, publishedDigest: publishedIdentity, copyFrames: nil)
             return
         }
         let result: Result<[Double], Error>
         do { result = .success(try await FrameIdentity.allFrameTimes(of: url)) } catch { result = .failure(error) }
         if case .success(let times) = result, let rate = editor?.file.frameRate { frames = FrameClock(times: times, frameRate: rate) }
-        gate = CommitGate.decide(reviewable: reviewable, publishedDigest: video.frameTimesDigest, copyFrames: result)
+        gate = CommitGate.decide(reviewable: reviewable, publishedDigest: publishedIdentity, copyFrames: result)
     }
 
     /// Downloads the copy (for frame-exact review), then verifies it and plays it from the file.
@@ -207,7 +212,9 @@ final class PhoneBoundaryModel {
         let outcome = e.apply(action, at: at, now: Date())
         if outcome.changed {
             do { try EventReview.validate(e.file) } catch { status = error.localizedDescription; lastRefused = true; return false }
-            guard model.saveRallyEvents(e.file, for: video, expected: revision) else { status = "not reviewable here"; lastRefused = true; return false }
+            guard model.saveRallyEvents(e.file, for: video, expected: revision) else {
+                status = "not saved: " + (model.saveRefusal(e.file, for: video) ?? "not reviewable here"); lastRefused = true; return false
+            }
         }
         editor = e
         status = outcome.message
@@ -286,6 +293,10 @@ struct RallyBoundariesPhoneView: View {
             transport.padding(.vertical, 6)
             gateBanner
             if let c = m.conflict { conflictBanner(c) }
+            if let why = m.identityProblem {
+                Label(why, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red)
+                    .padding(8).frame(maxWidth: .infinity, alignment: .leading).background(Color.red.opacity(0.12)).padding(.horizontal)
+            }
             if let d = m.editor?.draftConflict { draftConflictBanner(d) }
             ScrollView {
                 VStack(spacing: 10) {

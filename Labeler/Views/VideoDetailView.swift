@@ -37,7 +37,7 @@ struct VideoDetailView: View {
                 NavigationLink {
                     RallyBoundariesPhoneView(model: model, video: video)
                 } label: {
-                    Label(model.isReviewable(video) ? "Rally boundaries" : "Rally boundaries (withheld or not yet published)", systemImage: "flag.checkered")
+                    Label(boundariesTitle, systemImage: "flag.checkered")
                 }
             }
             Section("Tracked rallies (\(tracks.filter(\.done).count) done)") {
@@ -85,5 +85,15 @@ struct VideoDetailView: View {
         }
         .navigationTitle(video.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// The Stage 1 entry with where the review stands, so an unfinished recording is easy to resume.
+    private var boundariesTitle: String {
+        guard model.isReviewable(video) else { return "Rally boundaries (withheld or not yet published)" }
+        guard let f = model.rallyEvents(for: video)?.record else { return "Rally boundaries · not started" }
+        if f.stage1Complete != nil { return "Rally boundaries · fully reviewed" }
+        let reviewed = EventReview.union(f.coverage).reduce(0) { $0 + $1.end - $1.start }
+        let share = f.durationSec > 0 ? Int((reviewed / f.durationSec * 100).rounded(.down)) : 0
+        return "Rally boundaries · \(share) % reviewed · \(f.rallies.filter { $0.reviewState == .reviewed }.count) rallies"
     }
 }
