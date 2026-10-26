@@ -505,4 +505,17 @@ final class BoundaryEditorTests: XCTestCase {
         _ = f.apply(.mark(.dead, .earliest), at: 3.1, now: later)
         XCTAssertTrue(f.apply(.commit, at: 3.1, now: later).changed)
     }
+
+    func testAConflictRaisedBeforeABlindRepeatIsClearedWhenItStarts() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        _ = e.apply(.select(id), at: 0, now: now)
+        _ = e.apply(.toggleFlag("ambiguous"), at: 0, now: now)
+        var theirs = e.file; theirs.revision = 3; theirs.rallies[0].contact = .init(earliest: 9, latest: 9)
+        XCTAssertTrue(e.adopt(theirs)); XCTAssertNotNil(e.draftConflict)
+        e.setMode(.secondReview)
+        XCTAssertNil(e.draftConflict, "no banner with the primary times in a blind repeat")
+        _ = e.apply(.select(id), at: 0, now: now)
+        XCTAssertNil(e.draftConflict); XCTAssertNil(e.draft.contact)
+    }
 }

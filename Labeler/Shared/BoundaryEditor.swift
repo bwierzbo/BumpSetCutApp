@@ -176,7 +176,8 @@ struct BoundaryEditor: Equatable {
     mutating func setMode(_ m: Mode) {
         guard m != mode else { return }
         mode = m
-        draft = Draft(); openSpan = nil; selected = nil; lastMarked = nil
+        // A conflict raised before the switch would show the primary times in a blind repeat: it goes with the draft.
+        draft = Draft(); openSpan = nil; selected = nil; lastMarked = nil; draftConflict = nil
     }
 
     /// The legacy mark a committed interval stands for: the greatest overlap, else the nearest start within 3 s.
