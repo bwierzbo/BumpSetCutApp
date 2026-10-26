@@ -359,4 +359,72 @@ final class BoundaryEditorTests: XCTestCase {
         XCTAssertTrue(f.apply(.complete, at: 0.3, now: now).changed, "the recording completes")
     }
 
+
+    // MARK: - Second review (blind repeat, protocol §6) and the legacy link
+
+    func testANewRallyIsLinkedToTheLegacyMarkItOverlapsMost() {
+        var e = editor(duration: 60)
+        e.legacyMarks = [.init(index: 0, start: 2, end: 6), .init(index: 1, start: 10, end: 20), .init(index: 2, start: 40, end: 45)]
+        commitRally(&e, contact: 11, dead: 19)
+        XCTAssertEqual(e.file.rallies[0].legacyIndex, 1); XCTAssertEqual(e.file.rallies[0].legacyStart, 10); XCTAssertEqual(e.file.rallies[0].legacyEnd, 20)
+        // No overlap: the nearest start within 3 s, else none.
+        commitRally(&e, contact: 38, dead: 39.5)
+        XCTAssertEqual(e.file.rallies[1].legacyIndex, 2)
+        commitRally(&e, contact: 30, dead: 33)
+        XCTAssertNil(e.file.rallies[2].legacyIndex)
+    }
+
+    func testTheSameReviewerMayRepeatBlindOnlyAfter24Hours() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        e.setMode(.secondReview)
+        XCTAssertNil(e.selected, "switching modes drops the selection")
+        _ = e.apply(.select(id), at: 0, now: now)
+        XCTAssertEqual(e.draft.rallyId, id); XCTAssertNil(e.draft.contact, "blind: the first result is not loaded into the draft")
+        _ = e.apply(.mark(.contact, .earliest), at: 10.1, now: now.addingTimeInterval(3600))
+        _ = e.apply(.mark(.dead, .earliest), at: 19.9, now: now.addingTimeInterval(3600))
+        let early = e.apply(.commit, at: 19.9, now: now.addingTimeInterval(3600))
+        XCTAssertTrue(early.refused); XCTAssertTrue(early.message.contains("24 h"), early.message)
+        XCTAssertNil(e.file.rallies[0].secondReview)
+        // A day later it is recorded beside the first result, which is untouched.
+        let later = now.addingTimeInterval(24 * 3600 + 1)
+        let out = e.apply(.commit, at: 19.9, now: later)
+        XCTAssertTrue(out.changed, out.message)
+        let r = e.file.rallies[0]
+        XCTAssertEqual(r.contact?.earliest, 10); XCTAssertEqual(r.dead?.earliest, 20)
+        XCTAssertEqual(r.secondReview?.method, EventReview.SecondReview.sameReviewer)
+        XCTAssertEqual(r.secondReview?.contact?.earliest, 10.1); XCTAssertEqual(r.secondReview?.dead?.earliest, 19.9)
+        XCTAssertEqual(r.secondReview?.tool, "RallyLab test"); XCTAssertEqual(r.secondReview?.annotator, "BW")
+        XCTAssertNil(e.selected); XCTAssertTrue(e.canUndo)
+    }
+
+    func testAnotherReviewerIsASecondReviewerAtOnce() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        var other = BoundaryEditor(file: e.file, annotator: "KD", tool: "Labeler 1.0")
+        other.setMode(.secondReview)
+        _ = other.apply(.select(id), at: 0, now: now)
+        _ = other.apply(.mark(.contact, .earliest), at: 10.05, now: now)
+        _ = other.apply(.mark(.dead, .earliest), at: 20.2, now: now)
+        XCTAssertTrue(other.apply(.commit, at: 20.2, now: now).changed)
+        XCTAssertEqual(other.file.rallies[0].secondReview?.method, EventReview.SecondReview.otherReviewer)
+        XCTAssertEqual(other.file.rallies[0].secondReview?.tool, "Labeler 1.0")
+    }
+
+    func testASecondReviewRecordsTheTwoEventsOnly() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        e.setMode(.secondReview)
+        for action in [BoundaryEditor.Action.withdraw, .complete, .reviewedThrough, .span(.transition), .cycleKind, .cycleEdge, .toggleFlag("ambiguous")] {
+            let out = e.apply(action, at: 30, now: now)
+            XCTAssertTrue(out.refused, "\(action) must be refused in a second review")
+            XCTAssertFalse(out.changed)
+        }
+        XCTAssertTrue(e.apply(.commit, at: 30, now: now).refused, "nothing selected")
+        _ = e.apply(.select(id), at: 0, now: now)
+        XCTAssertTrue(e.apply(.commit, at: 30, now: now).refused, "nothing marked")
+        XCTAssertEqual(e.file.rallies.count, 1); XCTAssertNil(e.file.rallies[0].secondReview)
+        e.setMode(.first)
+        XCTAssertEqual(e.mode, .first); XCTAssertNil(e.selected)
+    }
 }

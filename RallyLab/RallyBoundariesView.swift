@@ -52,6 +52,7 @@ struct RallyBoundariesView: View {
                     HStack {
                         Text(r.name).font(.system(.body, design: .monospaced)).lineLimit(1)
                         Spacer()
+                        if model.pilotCount(for: r.name) > 0 { Text("pilot \(model.pilotCount(for: r.name))").font(.caption).foregroundStyle(.yellow) }
                         Text(r.split).font(.caption).foregroundStyle(.secondary)
                     }
                     CoverageBar(fraction: r.coverageFraction ?? 0, complete: r.stage1Complete, problem: r.recordProblem != nil)
@@ -101,11 +102,16 @@ struct RallyBoundariesView: View {
                         .font(.caption).foregroundStyle(f.stage1Complete != nil ? .green : .secondary)
                 }
                 Toggle("legacy marks", isOn: Binding(get: { model.showLegacy }, set: { model.showLegacy = $0 })).toggleStyle(.checkbox).controlSize(.small)
+                    .disabled(model.legacyHidden)
+                    .help(model.legacyHidden ? "hidden: blind review inside a pilot window until its rally is committed" : "")
+                Toggle("second review (blind)", isOn: Binding(get: { model.secondReview }, set: { model.setSecondReview($0) })).toggleStyle(.checkbox).controlSize(.small)
+                    .disabled(model.editor == nil)
                 Button("Keys") { showHelp.toggle() }.controlSize(.small).popover(isPresented: $showHelp) { KeyHelp().padding() }
             }
             BoundaryTimelineView(file: model.file, duration: model.duration, playhead: model.playhead,
-                                 legacyMarks: model.legacyMarks.map { ($0.startTime, $0.endTime) }, showLegacy: model.showLegacy,
+                                 legacyMarks: model.legacyMarks.map { ($0.startTime, $0.endTime) }, showLegacy: model.showLegacy && !model.legacyHidden,
                                  draft: draftBar, openSpanStart: model.editor?.openSpan?.start, selected: model.editor?.selected,
+                                 hideRallyTimes: model.secondReview, windows: model.pilotWindows.map { ($0.window[0], $0.window[1]) },
                                  seek: { t, exact in model.seek(to: t, exact: exact) }, select: { t in model.selectRally(at: t) })
                 .frame(height: 54)
             if let c = model.editor?.draftConflict {
@@ -117,6 +123,7 @@ struct RallyBoundariesView: View {
                 }
                 .controlSize(.small).padding(6).background(Color.red.opacity(0.12))
             }
+            if !model.pilotWindows.isEmpty { pilotList }
             inspector
             Text(model.status).font(.caption).foregroundStyle(model.lastRefused ? .red : .secondary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -140,7 +147,7 @@ struct RallyBoundariesView: View {
                     ScrollView(.vertical) {
                         VStack(alignment: .leading, spacing: 1) {
                             ForEach(reviewed, id: \.rallyId) { r in
-                                Button { model.select(r.rallyId) } label: { Text(Self.line(for: r)).font(.system(.caption, design: .monospaced)).foregroundStyle(r.rallyId == e.selected ? Color.accentColor : Color.primary) }
+                                Button { model.select(r.rallyId) } label: { Text(e.mode == .secondReview ? Self.blindLine(for: r) : Self.line(for: r)).font(.system(.caption, design: .monospaced)).foregroundStyle(r.rallyId == e.selected ? Color.accentColor : Color.primary) }
                                     .buttonStyle(.plain)
                             }
                         }
@@ -153,10 +160,34 @@ struct RallyBoundariesView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The pilot's windows in this recording: stratum, window, state; a click opens the window paused.
+    private var pilotList: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Pilot \(model.pilot?.id ?? ""): \(model.pilotWindows.count) rallies here · blind until committed · the repeat set is marked ↻").font(.caption.bold())
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(Array(model.pilotWindows.enumerated()), id: \.offset) { _, s in
+                        let state = model.pilotState(of: s)
+                        Button { model.jump(to: s) } label: {
+                            Text("\(s.stratum) \(BoundaryEditor.clock(s.window[0]))–\(BoundaryEditor.clock(s.window[1]))\(s.repeatReview ? " ↻" : "")\(state.second ? " ✓✓" : state.reviewed ? " ✓" : "")")
+                                .font(.system(.caption, design: .monospaced))
+                        }
+                        .buttonStyle(.bordered).controlSize(.small).tint(state.second ? .green : state.reviewed ? .blue : .yellow)
+                    }
+                }
+            }
+        }
+    }
+
     private static func line(for r: EventReview.Rally) -> String {
         let a = r.contact.map { BoundaryEditor.clock($0.earliest) } ?? "?"
         let b = r.dead.map { BoundaryEditor.clock($0.earliest) } ?? "?"
         return "\(r.kind.rawValue) \(a) → \(b)" + (r.flags.isEmpty ? "" : " ⚑")
+    }
+
+    /// In a second review the first result stays hidden: the rally is named by id and legacy mark only.
+    private static func blindLine(for r: EventReview.Rally) -> String {
+        "rally \(r.rallyId.uuidString.prefix(8))" + (r.legacyIndex.map { " (legacy #\($0))" } ?? "") + (r.secondReview == nil ? "" : " ✓✓")
     }
 
     /// The draft rally's extent for the timeline, when it has an event.

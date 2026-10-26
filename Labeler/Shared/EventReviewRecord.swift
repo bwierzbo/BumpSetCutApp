@@ -70,6 +70,14 @@ enum EventReview {
         var method: String
         var contact: EventTime?
         var dead: EventTime?
+        /// The app that recorded it (`RallyLab …` or `Labeler …`): a second review on the other
+        /// platform is the Mac-vs-iPhone comparison on identical source frames. nil from older records.
+        var tool: String?
+
+        static let sameReviewer = "blind_repeat_same_reviewer_24h"
+        static let otherReviewer = "second_reviewer"
+        /// The same reviewer may repeat blind only after this long (protocol §6).
+        static let repeatGap: TimeInterval = 24 * 3600
     }
 
     struct Rally: Codable, Equatable {
@@ -308,6 +316,28 @@ enum EventReview {
             if r.dead?.isAmbiguous == true { r.flags.append("ambiguous_dead") }
             if let i = file.rallies.firstIndex(where: { $0.rallyId == r.rallyId }) { file.rallies[i] = r } else { file.rallies.append(r) }
             return r.rallyId
+        }
+
+        /// The blind repeat of a reviewed rally's events: recorded beside the first result, which it never
+        /// changes. The method follows from who reviews: another person is a second reviewer; the same
+        /// person may repeat only after `SecondReview.repeatGap` from the first review (the first result
+        /// hidden by the tool). Throws when the gap is not met or the rally is not a reviewed one.
+        static func recordSecondReview(of id: UUID, contact: EventTime?, dead: EventTime?, in file: inout File, at: Date, annotator: String, tool: String) throws {
+            guard let i = file.rallies.firstIndex(where: { $0.rallyId == id && $0.reviewState == .reviewed }) else { throw Failure.invalid("second review: the rally is not on record as reviewed") }
+            let first = file.rallies[i]
+            let method: String
+            if first.annotator == annotator {
+                let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]
+                guard let firstAt = f.date(from: first.reviewedAt) else { throw Failure.invalid("second review: the first review's time (\(first.reviewedAt)) is unreadable") }
+                let gap = at.timeIntervalSince(firstAt)
+                guard gap >= SecondReview.repeatGap else {
+                    throw Failure.invalid(String(format: "second review by the same reviewer needs %.0f h after the first (%.1f h so far)", SecondReview.repeatGap / 3600, gap / 3600))
+                }
+                method = SecondReview.sameReviewer
+            } else {
+                method = SecondReview.otherReviewer
+            }
+            file.rallies[i].secondReview = SecondReview(annotator: annotator, reviewedAt: stamp(at), method: method, contact: contact, dead: dead, tool: tool)
         }
 
         /// A rally the reviewer removes stays, as withdrawn: its id is never reused or lost.

@@ -59,6 +59,16 @@
 //             rallies, spans, coverage and completion in <video>.rallyevents.json; withheld recordings named, not
 //             read. --event-inventory writes manifests/event-inventory-<stamp>.{json,csv}; --review-status prints
 //             the coverage table only. Neither writes a sidecar or a ledger row.)
+//    RallyLab --project v3 --pilot-freeze [--seed N] [--dry-run] [--new-draw]   (the 24-rally calibration pilot,
+//             D-004 / protocol §3: the pool of fully marked development recordings, the pipeline run once on each
+//             (exposure recorded first), every legacy mark a candidate with its strata, the seeded draw of 8 per
+//             surface spread over recording groups, the frozen windows and repeat set, written with the label and
+//             manifest hashes and the frozen raw/padded predictions to manifests/pilot/<stamp>-pilot.{json,md}.
+//             Never overwrites: a second draw needs --new-draw and names the record it supersedes. --dry-run runs
+//             no pipeline and writes nothing (the prediction strata are then unjudged).)
+//    RallyLab --project v3 --boundary-audit            (reads the latest pilot record and the pool's rallyevents.json:
+//             manifests/pilot/<stamp>-boundary_audit.csv, one row per event, with the offsets, ambiguity and repeat
+//             agreement by platform pair. Reads only.)
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
 //    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo] [--val] [--heat M]   (self-training: the newest multi-frame
@@ -208,6 +218,13 @@ enum HeadlessProjects {
             // reviewed events per recording, or the coverage table alone.
             if ok, args.contains("--event-inventory") || args.contains("--review-status") {
                 ok = eventInventory(projects, write: args.contains("--event-inventory"))
+            }
+            // The 24-rally pilot (D-004): the frozen draw, and the audit of its results.
+            if ok, args.contains("--pilot-freeze") {
+                ok = await pilotFreeze(projects, args: args)
+            }
+            if ok, args.contains("--boundary-audit") {
+                ok = boundaryAudit(projects)
             }
             if ok, args.contains("--confirm-youtube-source-ids") {
                 ok = confirmYouTubeSourceIDs(projects, apply: args.contains("--apply"))
@@ -987,6 +1004,108 @@ enum HeadlessProjects {
         }
         for line in EventInventory.statusLines(report) { log(line) }
         return true
+    }
+
+    /// `--pilot-freeze`: the frozen 24-rally draw (PilotDraw). The pool is built, exposure is recorded, the
+    /// pipeline runs once per recording, the candidates are judged and drawn with the seed, and the record is
+    /// written — none of it when any pool recording cannot be processed (a partial freeze is no freeze).
+    @MainActor
+    private static func pilotFreeze(_ projects: ProjectsModel, args: [String]) async -> Bool {
+        guard let root = projects.projectDir else { log("❌ No project folder."); return false }
+        let dryRun = args.contains("--dry-run")
+        let seed = value(after: "--seed", in: args).flatMap(UInt64.init) ?? 20_261_026
+        let existing = PilotDraw.existing(in: root)
+        if !dryRun, !existing.isEmpty, !args.contains("--new-draw") {
+            log("❌ \(PilotDraw.Failure.exists(existing.map(\.lastPathComponent)).localizedDescription)")
+            return false
+        }
+        let pool: [PilotDraw.PoolEntry]
+        do { pool = try PilotDraw.pool(root: root) } catch { log("❌ \(error.localizedDescription)"); return false }
+        log("\(dryRun ? "DRY RUN · " : "")pool: \(pool.count) recordings with every rally marked, \(pool.reduce(0) { $0 + $1.marks.count }) legacy marks, seed \(seed)")
+        let config = ProcessorConfig()
+        let model = config.ballModel.rawValue + (config.heatmapModel.map { " + " + $0.lastPathComponent } ?? "") + (config.heatmapOnly ? " (multi-frame only)" : "")
+        let now = Date()
+        if !dryRun {
+            // Exposure first: an interrupted freeze is still on record (D-002).
+            if !recorded(Set(pool.map(\.session.name)), .rallyScoring, ref: "--pilot-freeze", note: "pilot draw, model \(model)", in: root) { return false }
+        }
+        var videos: [PilotDraw.PoolVideo] = []
+        var candidates: [PilotDraw.Candidate] = []
+        var durations: [String: Double] = [:]
+        for entry in pool {
+            let name = entry.session.name
+            var evidence: PilotDraw.Evidence?
+            var duration: Double?
+            if dryRun {
+                duration = try? await FrameIdentity.videoFacts(entry.session.sourceURL).duration
+            } else {
+                log("\(name)…")
+                guard let v = await RallyCutScore.process(entry.session, config: config.withCamera(of: entry.session)) else {
+                    log("❌ \(name) could not be processed: nothing is frozen")
+                    return false
+                }
+                let raw = EvidenceReplayer.decidedRanges(evidence: v.evidence, duration: v.duration, config: config, minRallySec: 1.1653, padded: false)
+                let predictions = PilotDraw.Predictions(clipsRaw: raw.map { [$0.start, $0.end] }, clipsPadded: v.clips.map { [$0.start, $0.end] },
+                                                        serves: v.serves.map { PilotDraw.Serve(toss: $0.toss, contact: $0.contact, end: $0.end, approaching: $0.approaching) })
+                evidence = PilotDraw.Evidence(duration: v.duration, predictions: predictions, ball: v.evidence.map { ($0.time, $0.hasBall) })
+                duration = v.duration
+            }
+            if let d = duration { durations[name] = d }
+            videos.append(PilotDraw.PoolVideo(name: name, split: entry.session.split, surface: ClipID.surface(of: name)?.rawValue ?? "unknown", group: entry.group,
+                                              durationSec: duration, marks: entry.marks.count, labelsSHA256: entry.labelsSHA256, predictions: evidence?.predictions))
+            candidates += PilotDraw.candidates(entry, evidence: evidence)
+        }
+        let (selection, unfilled) = PilotDraw.draw(candidates, durations: durations, seed: seed)
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        let stamp = f.string(from: now)
+        let day = String(stamp.prefix(8))
+        let hashes = DatasetSplitManifest.Hashes(
+            projectJson: DatasetSplitManifest.sha256(of: root.appendingPathComponent("project.json")),
+            sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: root.appendingPathComponent("sessions", isDirectory: true)),
+            validationJson: DatasetSplitManifest.sha256(of: root.appendingPathComponent("pipeline_tuning/validation.json")))
+        let record = PilotDraw.Record(id: "EXP-\(day)-b2-boundary-pilot", createdAt: EventReview.stamp(now), project: root.lastPathComponent, seed: seed,
+                                      status: dryRun ? "dry run" : "frozen", manifestHashes: hashes, model: model, pool: videos, candidates: candidates,
+                                      selection: selection, unfilled: unfilled, supersedes: existing.last?.lastPathComponent,
+                                      dryRun: dryRun, note: dryRun ? "no pipeline run: the farEnd / ambiguous / hardCase strata are unjudged" : nil)
+        if dryRun {
+            for line in PilotDraw.markdown(record).split(separator: "\n") { log(String(line)) }
+            log("DRY RUN: nothing written, no exposure recorded.")
+            return true
+        }
+        do {
+            let out = try PilotDraw.write(record, in: root, stamp: stamp)
+            log("✅ Pilot draw frozen: \(selection.count) rallies (\(selection.filter(\.repeatReview).count) in the repeat set)\(unfilled.isEmpty ? "" : "; unfilled: " + unfilled.joined(separator: ", ")) → \(out.json.path) and \(out.md.lastPathComponent)")
+            return true
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// `--boundary-audit`: boundary_audit.csv from the latest pilot record and the pool's records (reads only).
+    @MainActor
+    private static func boundaryAudit(_ projects: ProjectsModel) -> Bool {
+        guard let root = projects.projectDir else { log("❌ No project folder."); return false }
+        do {
+            guard let record = try PilotDraw.latest(in: root) else { log("❌ No pilot record under manifests/pilot (run --pilot-freeze first)."); return false }
+            let sessions = try DatasetStore(root: root).loadSessionsStrict()
+            let audit = try PilotDraw.audit(record, root: root, sessions: sessions)
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.timeZone = TimeZone(identifier: "UTC")
+            f.dateFormat = "yyyyMMdd-HHmmss"
+            let url = PilotDraw.directory(in: root).appendingPathComponent("\(f.string(from: Date()))-boundary_audit.csv")
+            try audit.csv.data(using: .utf8)!.write(to: url, options: .withoutOverwriting)
+            log("✅ \(record.id): \(audit.rows.count) rows → \(url.path)")
+            for line in audit.summary { log("   " + line) }
+            return true
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
     }
 
     /// Record a use, or say why it couldn't be and report failure (the command then fails).
