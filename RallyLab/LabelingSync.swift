@@ -277,7 +277,7 @@ final class LabelingSync {
         var failed: [String] = []
         // Withheld recordings (the L2 closure) are never uploaded for the phone. When the closure cannot be read,
         // nothing is uploaded at all (fail closed).
-        guard let withheld = withheldClosure() else { return (0, 0, []) }
+        guard let withheld = await withheldClosure() else { return (0, 0, []) }
         let sessions = projects.sampler.sessions.filter { FileManager.default.fileExists(atPath: $0.sourcePath) && !withheld.contains($0.name) }
         for (i, session) in sessions.enumerated() {
             guard let surface = LabelSurface(rawValue: Coverage.environment(session.name)) else { continue }
@@ -406,9 +406,10 @@ final class LabelingSync {
     /// path or content** — a session over a withheld recording's file or a byte-identical copy — with the project's
     /// identities and sessions read strictly first. Anything unreadable gives nil, and nothing is published or
     /// uploaded then; the server keeps the list it has (fail closed).
-    private func withheldClosure() -> Set<String>? {
+    private func withheldClosure() async -> Set<String>? {
         guard let root = projects.projectDir else { return nil }
-        return try? EventReview.publishedWithheldNames(in: root)
+        // Fingerprinting the withheld recordings' files is file work: off the main actor, so playback and editing go on.
+        return await Task.detached(priority: .utility) { try? EventReview.publishedWithheldNames(in: root) }.value
     }
 
     /// Publishes the project's withheld list (the server refuses events for a project without one), then reconciles
@@ -417,7 +418,7 @@ final class LabelingSync {
     /// keeps the server's version beside the local one (`…rallyevents.conflict-r<n>.json`) and changes nothing.
     /// The legacy `rallylabels.json` is never touched; withheld recordings are never read or sent.
     private func syncRallyEvents(project: String) async throws -> (pushed: Int, pulled: Int, conflicts: [String], withheldPublished: Int?) {
-        guard let withheld = withheldClosure() else { return (0, 0, [], nil) }
+        guard let withheld = await withheldClosure() else { return (0, 0, [], nil) }
         var published: Int?
         do { published = try await client.publishWithheld(project: project, names: Array(withheld)) } catch LabelingClient.Failure.notSignedIn {
             throw LabelingClient.Failure.notSignedIn

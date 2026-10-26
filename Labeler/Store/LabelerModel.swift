@@ -34,6 +34,10 @@ final class LabelerModel: ReviewStore {
 
     private let client = LabelingClient.shared
     @ObservationIgnored private var flushTask: Task<Void, Never>?
+    /// The flush in progress, so a pull, a reload and the debounced save never send the same pending record
+    /// twice (the second save would conflict with this device's own first one).
+    @ObservationIgnored private var flushInFlight: Task<Void, Never>?
+    @ObservationIgnored private var flushAgain = false
 
     init() {
         snapshot = LocalStore.load(LabelSnapshot.self, "snapshot.json") ?? LabelSnapshot()
@@ -542,8 +546,27 @@ final class LabelerModel: ReviewStore {
         }
     }
 
-    /// Save everything waiting. What fails stays for next time.
+    /// Save everything waiting. What fails stays for next time. Flushes are serialised: a caller arriving while
+    /// one runs waits for it, and the running flush goes round once more so nothing queued meanwhile is missed.
     func flush() async {
+        if let running = flushInFlight {
+            flushAgain = true
+            await running.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            repeat {
+                self.flushAgain = false
+                await self.flushOnce()
+            } while self.flushAgain
+        }
+        flushInFlight = task
+        await task.value
+        flushInFlight = nil
+    }
+
+    private func flushOnce() async {
         guard !outbox.isEmpty else { return }
         for (id, times) in outbox.times {
             do {

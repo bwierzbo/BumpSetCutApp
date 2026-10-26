@@ -56,10 +56,11 @@ enum EventInventory {
             sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: root.appendingPathComponent("sessions", isDirectory: true)),
             validationJson: DatasetSplitManifest.sha256(of: root.appendingPathComponent("pipeline_tuning/validation.json")))
         var rows: [Recording] = []
+        // The same guard as opening a recording, judged once per scan: a session over a withheld recording's
+        // file or content is withheld here too, and its sidecars are not read.
+        let context = try EventReview.withheldContext(root: root, sessions: sessions)
         for s in sessions.sorted(by: { $0.name < $1.name }) {
-            // The same guard as opening a recording: a session over a withheld recording's file or
-            // content is withheld here too, and its sidecars are not read.
-            let refused = try EventReview.refusal(of: s, root: root, sessions: sessions)
+            let refused = context.flatMap { EventReview.refusal(of: s, context: $0) }
             if withheld.contains(s.name) || refused != nil {
                 rows.append(Recording(name: s.name, split: s.split, withheld: true, durationSec: nil, legacyMarks: nil, legacyFile: false, eventsFile: false,
                                       reviewedRallies: 0, withdrawnRallies: 0, spans: 0, coverageSec: 0, coverageFraction: nil, unknownGaps: 0, stage1Complete: false, recordProblem: nil))
