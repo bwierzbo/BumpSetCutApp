@@ -398,6 +398,20 @@ final class BoundaryEditorTests: XCTestCase {
         XCTAssertNil(e.selected); XCTAssertTrue(e.canUndo)
     }
 
+    func testTheSameAccountOnTheOtherPlatformIsTheSameReviewer() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)   // "BW" on the Mac
+        var phone = BoundaryEditor(file: e.file, annotator: "bw", tool: "Labeler 1.0")   // the same account, differently cased
+        phone.setMode(.secondReview)
+        _ = phone.apply(.select(id), at: 0, now: now)
+        _ = phone.apply(.mark(.contact, .earliest), at: 10.1, now: now)
+        _ = phone.apply(.mark(.dead, .earliest), at: 19.9, now: now)
+        XCTAssertTrue(phone.apply(.commit, at: 19.9, now: now.addingTimeInterval(3600)).refused, "the same person: the 24-h rule applies across platforms")
+        XCTAssertTrue(phone.apply(.commit, at: 19.9, now: now.addingTimeInterval(25 * 3600)).changed)
+        XCTAssertEqual(phone.file.rallies[0].secondReview?.method, EventReview.SecondReview.sameReviewer)
+        XCTAssertEqual(phone.file.rallies[0].secondReview?.tool, "Labeler 1.0")
+    }
+
     func testAnotherReviewerIsASecondReviewerAtOnce() {
         var e = editor(duration: 60)
         let id = commitRally(&e, contact: 10, dead: 20)

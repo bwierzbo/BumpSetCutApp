@@ -49,6 +49,8 @@ struct RallyLabApp: App {
         phone.onTracksChanged = { tracker.reloadRallies(session: $0) }
         phone.onTimesChanged = { marker.reloadMarks(session: $0) }
         phone.onRecordSynced = { boundaries.recordSynced(root: $0, $1, $2) }
+        // One reviewer identity on both platforms: the labeling account when signed in.
+        boundaries.reviewer = { phone.account ?? NSUserName() }
         // A rally finished here or on the phone gets its boxes fitted to the
         // ball before it's reviewed.
         let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker, sync: phone)

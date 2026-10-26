@@ -349,7 +349,7 @@ struct RallyBoundariesPhoneView: View {
             return (a, b)
         }()
         return BoundaryTimelineView(file: m.file, duration: m.duration, playhead: m.playhead,
-                                    legacyMarks: m.model.rallyTimes(for: m.video).rallies.map { ($0.start, $0.end) }, showLegacy: showLegacy,
+                                    legacyMarks: m.model.rallyTimes(for: m.video).rallies.map { ($0.start, $0.end) }, showLegacy: showLegacy && !m.secondReview,
                                     draft: draft, openSpanStart: e?.openSpan?.start, selected: e?.selected, hideRallyTimes: m.secondReview,
                                     seek: { t, exact in m.seek(to: t, exact: exact) }, select: { t in m.selectRally(at: t) })
     }

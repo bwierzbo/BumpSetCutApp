@@ -329,7 +329,9 @@ enum EventReview {
             guard let i = file.rallies.firstIndex(where: { $0.rallyId == id && $0.reviewState == .reviewed }) else { throw Failure.invalid("second review: the rally is not on record as reviewed") }
             let first = file.rallies[i]
             let method: String
-            if first.annotator == annotator {
+            // The same person on either platform: the reviewer identity is the labeling account's e-mail on both,
+            // compared without regard to case.
+            if first.annotator.lowercased() == annotator.lowercased() {
                 let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]
                 guard let firstAt = f.date(from: first.reviewedAt) else { throw Failure.invalid("second review: the first review's time (\(first.reviewedAt)) is unreadable") }
                 let gap = at.timeIntervalSince(firstAt)

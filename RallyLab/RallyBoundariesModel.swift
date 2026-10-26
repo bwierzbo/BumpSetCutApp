@@ -46,12 +46,16 @@ final class RallyBoundariesModel {
     private var generation = 0
     /// The dataset root the open recording belongs to; a project change closes it.
     private var openedRoot: URL?
-    let annotator: String
+    /// Who reviews, asked when a recording opens: the labeling account's e-mail when the Mac is signed in (the
+    /// identity the phone records too, so the same person is the same reviewer on both and the 24-h repeat rule
+    /// applies across platforms), else the macOS user name. Set by RallyLabApp.
+    var reviewer: () -> String
+    var annotator: String { reviewer() }
     let tool: String
 
     init(sampler: SamplerModel, annotator: String = NSUserName(), tool: String = "RallyLab " + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")) {
         self.sampler = sampler
-        self.annotator = annotator
+        self.reviewer = { annotator }
         self.tool = tool
     }
 
