@@ -35,6 +35,8 @@ final class RallyBoundariesModel {
     private var seeking = false
     private var seekTarget: Double?
     private var seekExact = true
+    /// The position last asked for while seeks are in flight (relative moves count from it).
+    private var seekClock = SeekClock()
     private var framesTask: Task<Void, Never>?
     /// Bumped by every open and close: an open that finishes after a newer one (or after a close) is stale and changes nothing.
     private var generation = 0
@@ -126,6 +128,7 @@ final class RallyBoundariesModel {
         player?.pause()
         framesTask?.cancel()
         player = nil; timeObserver = nil; session = nil; editor = nil; legacyMarks = []; openedRoot = nil
+        seekTarget = nil; seeking = false; seekClock = SeekClock()
         frames = FrameClock(times: [], frameRate: 30)
         playhead = 0; duration = 0; isPlaying = false; lastRefused = false
     }
@@ -160,6 +163,7 @@ final class RallyBoundariesModel {
         playhead = clamped
         seekTarget = clamped
         seekExact = exact
+        seekClock.request(clamped)
         chaseSeek()
     }
 
@@ -172,19 +176,23 @@ final class RallyBoundariesModel {
             Task { @MainActor in
                 guard let self else { return }
                 self.seeking = false
+                if self.seekTarget == nil { self.seekClock.settled() }
                 self.chaseSeek()
             }
         }
     }
 
+    /// The time a relative move counts from: the position last asked for while a seek is in flight, else the player's.
+    private var moveBase: Double { seekClock.base(playerTime: now) }
+
     func step(frames count: Int) {
         if isPlaying { togglePlay() }
-        seek(to: frames.step(from: now, by: count))
+        seek(to: frames.step(from: moveBase, by: count))
     }
 
     func skip(seconds: Double) {
         if isPlaying { togglePlay() }
-        seek(to: now + seconds)
+        seek(to: moveBase + seconds)
     }
 
     var readout: String { frames.label(at: playhead) }

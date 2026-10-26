@@ -152,6 +152,52 @@ final class BoundaryEditorTests: XCTestCase {
         XCTAssertTrue(e.draft.isEmpty, "selecting an unknown id selects nothing")
     }
 
+    func testEditingKeepsTheSecondReviewAndTheLegacyLink() {
+        var e = editor()
+        _ = e.apply(.reviewedThrough, at: 3, now: now)
+        let id = commitRally(&e, contact: 0.5, dead: 1.0)
+        // A second review and a legacy link arrive on the record (the pilot's selector and repeat pass write them).
+        var f = e.file
+        f.rallies[0].secondReview = EventReview.SecondReview(annotator: "BW", reviewedAt: "2026-10-28T10:00:00Z", method: "blind_repeat_same_reviewer_24h",
+                                                             contact: EventReview.EventTime(earliest: 0.5, latest: 0.5), dead: EventReview.EventTime(earliest: 1.0, latest: 1.0))
+        f.rallies[0].legacyIndex = 3; f.rallies[0].legacyStart = 0.4; f.rallies[0].legacyEnd = 1.1; f.rallies[0].sourceMethod = "manual_event"
+        e = BoundaryEditor(file: f, annotator: "CD", tool: "t")
+        _ = e.apply(.select(id), at: 0, now: now)
+        _ = e.apply(.cycleKind, at: 0, now: now)   // a change that leaves the events alone
+        XCTAssertTrue(e.apply(.commit, at: 0, now: now).changed)
+        var r = e.file.rallies[0]
+        XCTAssertEqual(r.rallyId, id); XCTAssertEqual(r.kind, .missedServe)
+        XCTAssertNotNil(r.secondReview, "an edit keeps the second review")
+        XCTAssertEqual(r.legacyIndex, 3); XCTAssertEqual(r.legacyStart, 0.4); XCTAssertEqual(r.sourceMethod, "manual_event")
+        XCTAssertEqual(r.annotator, "CD")
+        XCTAssertFalse(r.flags.contains("second_review_before_edit"), "the events did not change")
+        _ = e.apply(.select(id), at: 0, now: now)
+        _ = e.apply(.mark(.dead, .earliest), at: 1.2, now: now)
+        XCTAssertTrue(e.apply(.commit, at: 0, now: now).changed)
+        r = e.file.rallies[0]
+        XCTAssertEqual(r.dead?.earliest, 1.2)
+        XCTAssertEqual(r.secondReview?.dead?.earliest, 1.0, "the second review stays as it was made")
+        XCTAssertTrue(r.flags.contains("second_review_before_edit"), "and is flagged as predating the change")
+        _ = e.apply(.select(id), at: 0, now: now)
+        XCTAssertTrue(e.apply(.commit, at: 0, now: now).changed)
+        XCTAssertEqual(e.file.rallies[0].flags.filter { $0 == "second_review_before_edit" }.count, 1, "flagged once")
+    }
+
+    func testSeekClockCountsRelativeMovesFromThePendingPosition() {
+        var clock = SeekClock()
+        let frames = FrameClock(times: (0..<90).map { Double($0) / 30 }, frameRate: 30)
+        // Three quick presses while the player still shows frame 10: each counts from the position last asked for.
+        var requested: [Double] = []
+        for _ in 0..<3 {
+            let base = clock.base(playerTime: 10.0 / 30)
+            let t = frames.step(from: base, by: 1)
+            clock.request(t); requested.append(t)
+        }
+        XCTAssertEqual(requested.map { frames.index(at: $0) }, [11, 12, 13], "one frame per press, not three requests for frame 11")
+        clock.settled()
+        XCTAssertEqual(frames.index(at: clock.base(playerTime: 13.0 / 30)), 13, "settled: the player's own time counts again")
+    }
+
     func testAdjacentRalliesWalkTheRecordingInOrder() {
         var e = editor(duration: 10, frameRate: 30)
         _ = e.apply(.reviewedThrough, at: 10, now: now)

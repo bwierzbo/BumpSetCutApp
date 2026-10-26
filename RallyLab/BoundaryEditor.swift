@@ -52,6 +52,19 @@ struct FrameClock: Equatable {
     }
 }
 
+/// Where relative moves start from while a seek is in flight: the position last asked for, not the
+/// frame the player still shows — so each arrow press advances one frame even when presses outrun seeks.
+struct SeekClock: Equatable {
+    private(set) var pending: Double?
+
+    /// A seek to `t` was requested.
+    mutating func request(_ t: Double) { pending = t }
+    /// The player landed and no further seek is queued.
+    mutating func settled() { pending = nil }
+    /// The time a relative move counts from.
+    func base(playerTime: Double) -> Double { pending ?? playerTime }
+}
+
 struct BoundaryEditor: Equatable {
     /// The rally being built or edited: the selected rally's copy, or a fresh one.
     struct Draft: Equatable {
@@ -69,7 +82,7 @@ struct BoundaryEditor: Equatable {
 
         static func of(_ r: EventReview.Rally) -> Draft {
             Draft(rallyId: r.rallyId, kind: r.kind, contact: r.contact, dead: r.dead, edge: r.edge,
-                  flags: r.flags.filter { $0 != "ambiguous_contact" && $0 != "ambiguous_dead" },
+                  flags: r.flags.filter { $0 != "ambiguous_contact" && $0 != "ambiguous_dead" && $0 != "second_review_before_edit" },
                   legacyIndex: r.legacyIndex, legacyStart: r.legacyStart, legacyEnd: r.legacyEnd)
         }
     }
@@ -218,9 +231,23 @@ struct BoundaryEditor: Equatable {
             if let c = draft.contact, let d = draft.dead, d.latest < c.earliest { return Outcome(message: "the rally ends before it starts", changed: false, refused: true) }
             push()
             let stamp = EventReview.stamp(now)
-            let rally = EventReview.Rally(rallyId: draft.rallyId ?? UUID(), legacyIndex: draft.legacyIndex, legacyStart: draft.legacyStart, legacyEnd: draft.legacyEnd,
+            var rally: EventReview.Rally
+            if let id = draft.rallyId, let existing = file.rallies.first(where: { $0.rallyId == id }) {
+                // An edit keeps everything the draft does not carry: the legacy link, the source method,
+                // and the second review. A second review that predates a change of the events stays as
+                // evidence and is flagged, never dropped.
+                rally = existing
+                var flags = draft.flags
+                let predates = existing.flags.contains("second_review_before_edit")
+                    || (existing.secondReview != nil && (existing.contact != draft.contact || existing.dead != draft.dead))
+                if predates, !flags.contains("second_review_before_edit") { flags.append("second_review_before_edit") }
+                rally.kind = draft.kind; rally.contact = draft.contact; rally.dead = draft.dead; rally.edge = draft.edge; rally.flags = flags
+                rally.reviewState = .reviewed; rally.annotator = annotator; rally.reviewedAt = stamp
+            } else {
+                rally = EventReview.Rally(rallyId: UUID(), legacyIndex: draft.legacyIndex, legacyStart: draft.legacyStart, legacyEnd: draft.legacyEnd,
                                           kind: draft.kind, contact: draft.contact, dead: draft.dead, flags: draft.flags, edge: draft.edge,
                                           annotator: annotator, reviewedAt: stamp)
+            }
             let id = EventReview.Mutation.upsert(rally, in: &file)
             let wasEdit = draft.rallyId != nil
             draft = Draft(); lastMarked = nil; selected = id
