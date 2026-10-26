@@ -343,6 +343,8 @@ enum EventReview {
                 method = SecondReview.otherReviewer
             }
             file.rallies[i].secondReview = SecondReview(annotator: annotator, reviewedAt: stamp(at), method: method, contact: contact, dead: dead, tool: tool)
+            // This repeat is against the current primary review: the older one it replaces is no longer the evidence.
+            file.rallies[i].flags.removeAll { $0 == "second_review_before_edit" }
         }
 
         /// A rally the reviewer removes stays, as withdrawn: its id is never reused or lost.

@@ -207,6 +207,9 @@ struct BoundaryEditor: Equatable {
         }
         // The rally under the draft changed on the other side: an untouched draft follows it; an edited draft
         // keeps its base and waits for the reviewer's decision — never committed over the newer version unseen.
+        // A blind second review never sees the primary events: its draft is its own marks, so a change to the primary
+        // review elsewhere neither loads into it nor raises a conflict that would show the primary times.
+        if mode == .secondReview { return changed }
         if let before, before != now, draft.rallyId == id {
             if draft == Draft.of(before) { draft = Draft.of(now) } else { draftConflict = DraftConflict(base: before, incoming: now) }
         }
@@ -216,7 +219,7 @@ struct BoundaryEditor: Equatable {
     /// The reviewer decided a draft conflict: keep mine (the draft goes on over the incoming rally and the next
     /// commit replaces it, explicitly), or take theirs (the draft reloads from the incoming rally).
     mutating func resolveDraftConflict(keepMine: Bool) {
-        guard let c = draftConflict else { return }
+        guard let c = draftConflict, mode == .first else { return }
         if !keepMine { draft = Draft.of(c.incoming); lastMarked = c.incoming.dead != nil ? .dead : (c.incoming.contact != nil ? .contact : nil) }
         draftConflict = nil
     }

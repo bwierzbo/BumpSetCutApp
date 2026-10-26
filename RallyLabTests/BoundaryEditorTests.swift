@@ -441,4 +441,44 @@ final class BoundaryEditorTests: XCTestCase {
         e.setMode(.first)
         XCTAssertEqual(e.mode, .first); XCTAssertNil(e.selected)
     }
+
+    func testAFreshRepeatAfterAnEditIsCurrentAgain() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        let later = now.addingTimeInterval(25 * 3600)
+        e.setMode(.secondReview)
+        _ = e.apply(.select(id), at: 0, now: later)
+        _ = e.apply(.mark(.contact, .earliest), at: 10.1, now: later)
+        _ = e.apply(.mark(.dead, .earliest), at: 20, now: later)
+        XCTAssertTrue(e.apply(.commit, at: 20, now: later).changed)
+        // The primary review is edited: the repeat becomes stale evidence.
+        e.setMode(.first)
+        _ = e.apply(.select(id), at: 0, now: later)
+        _ = e.apply(.mark(.contact, .earliest), at: 11, now: later)
+        XCTAssertTrue(e.apply(.commit, at: 11, now: later).changed)
+        XCTAssertTrue(e.file.rallies[0].flags.contains("second_review_before_edit"))
+        // A fresh repeat against the edited review clears it.
+        let evenLater = later.addingTimeInterval(25 * 3600)
+        e.setMode(.secondReview)
+        _ = e.apply(.select(id), at: 0, now: evenLater)
+        _ = e.apply(.mark(.contact, .earliest), at: 11, now: evenLater)
+        _ = e.apply(.mark(.dead, .earliest), at: 20, now: evenLater)
+        XCTAssertTrue(e.apply(.commit, at: 20, now: evenLater).changed)
+        XCTAssertFalse(e.file.rallies[0].flags.contains("second_review_before_edit"))
+        XCTAssertEqual(e.file.rallies[0].secondReview?.contact?.earliest, 11)
+    }
+
+    func testASyncDuringABlindRepeatNeverShowsOrLoadsThePrimaryEvents() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        e.setMode(.secondReview)
+        _ = e.apply(.select(id), at: 0, now: now)
+        _ = e.apply(.mark(.contact, .earliest), at: 10.2, now: now)
+        var theirs = e.file; theirs.revision = 5; theirs.rallies[0].contact = .init(earliest: 9, latest: 9)
+        XCTAssertTrue(e.adopt(theirs))
+        XCTAssertNil(e.draftConflict, "no conflict banner with the primary times")
+        XCTAssertEqual(e.draft.contact?.earliest, 10.2, "the blind marks stay the reviewer's own")
+        e.resolveDraftConflict(keepMine: false)
+        XCTAssertEqual(e.draft.contact?.earliest, 10.2)
+    }
 }
