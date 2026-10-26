@@ -458,6 +458,11 @@ final class LabelingSync {
             // A mismatch leaves both records exactly as they are and says why.
             let path = session.sourcePath
             let original = await Task.detached(priority: .utility) { ProjectsModel.fileFingerprint(atPath: path) }.value
+            // The reviewer may have committed while the fingerprint was computed: the decision above was made on the
+            // record as it was then. If the file changed, nothing is done with this recording this round (the next
+            // sync decides on the new record); from here to any write below there is no suspension point except the
+            // push's own save, whose reply is reconciled with the file again (afterPush).
+            guard RallyEventsSync.localState(at: url) == localState, projects.projectDir == root else { continue }
             if let local, let why = RallyEventsSync.identityMismatch(of: local, session: name, originalFingerprint: original) {
                 conflicts.append("\(name) (local record not sent: \(why) — open it in the Review tab to check it)")
                 continue
