@@ -19,6 +19,8 @@ struct RallyLabApp: App {
     @State private var marker: RallyMarkModel
     /// Keeps the open project synced with RallyLab on the iPhone.
     @State private var phone: LabelingSync
+    /// Stage 1 rally-boundary review (D-024).
+    @State private var boundaries: RallyBoundariesModel
 
     init() {
         // `RallyLab --export-training-data [path]` batch-exports classifier
@@ -41,6 +43,7 @@ struct RallyLabApp: App {
         let tracker = TrackLabelModel(sampler: sampler), marker = RallyMarkModel(sampler: sampler)
         _tracker = State(initialValue: tracker)
         _marker = State(initialValue: marker)
+        _boundaries = State(initialValue: RallyBoundariesModel(sampler: sampler))
         let phone = LabelingSync(projects: projects)
         phone.onTracksChanged = { tracker.reloadRallies(session: $0) }
         phone.onTimesChanged = { marker.reloadMarks(session: $0) }
@@ -54,7 +57,7 @@ struct RallyLabApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker, phone: phone)
+            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker, boundaries: boundaries, phone: phone)
         }
         .commands {
             CommandGroup(replacing: .newItem) {
