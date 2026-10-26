@@ -135,7 +135,7 @@ final class EventReviewTests: XCTestCase {
         let a = try fixture("open-gop-hevc-leading3", as: "a")
         let b = try fixture("open-gop-hevc-leading3", as: "b")
         let ta = try await FrameIdentity.allFrameTimes(of: a), tb = try await FrameIdentity.allFrameTimes(of: b)
-        XCTAssertEqual(ta.count, 179)
+        XCTAssertEqual(ta.count, 180, "every frame of 3 s at 60 fps, on the presentation timeline")
         XCTAssertEqual(FrameIdentity.digest(of: ta), FrameIdentity.digest(of: tb), "a byte copy shows the same frames")
         let other = try await FrameIdentity.allFrameTimes(of: try fixture("h264-damaged-inter-frame", as: "c"))
         XCTAssertNotEqual(FrameIdentity.digest(of: other), FrameIdentity.digest(of: ta))

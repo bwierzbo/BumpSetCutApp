@@ -2,8 +2,11 @@
 //  FrameIdentity.swift
 //  Labeler/Shared — compiled by RallyLab (macOS) and the Labeler iPhone app
 //
-//  Which frames a video has, as the frames themselves say: every presentation time from
-//  the video track's sample cursor, and a digest of that list. A Stage 1 event is a
+//  Which frames a video has, as the frames themselves say: every frame's time on the
+//  presentation timeline — the sample cursor's media times mapped through the track's edit
+//  list, which is the timeline the player shows and seeks on — and a digest of that list.
+//  (Media times alone are not it: iPhone H.264, trimmed cuts and every B-frame encode carry
+//  an edit list, so their media times run ahead of what is shown.) A Stage 1 event is a
 //  frame of the ORIGINAL recording; a copy on another device may stand in for it only
 //  when its frame times reproduce the original's digest — a re-encoded copy whose
 //  timestamps were kept passes, one that was snapped to a grid, trimmed or dropped frames
@@ -29,13 +32,39 @@ enum FrameIdentity {
         return times
     }
 
-    /// Every frame's presentation time of the video at `url` (a local file; a streamed item offers no cursor).
+    /// Every frame of the video at `url` as the player presents it: each sample's media time mapped through
+    /// the track's edit list onto the presentation timeline, ascending; samples outside every edit (cut off by a
+    /// trim) are not frames of the video. A frame that starts before an edit but is still showing when it begins
+    /// is presented from the edit's start. A local file only; a streamed item offers no cursor.
     static func allFrameTimes(of url: URL) async throws -> [Double] {
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw EventReview.Failure.videoUnreadable("no video track") }
-        let duration = try await asset.load(.duration).seconds
-        guard let times = frameTimes(track: track, step: 1, start: -1, end: duration) else { throw EventReview.Failure.videoUnreadable("no sample cursor") }
-        return times
+        let edits = try await track.load(.segments).filter { !$0.isEmpty }.map(\.timeMapping)
+        guard let cursor = track.makeSampleCursor(presentationTimeStamp: CMTime(seconds: -1_000_000, preferredTimescale: 600)) else {
+            throw EventReview.Failure.videoUnreadable("no sample cursor")
+        }
+        var media: [Double] = []
+        repeat { media.append(cursor.presentationTimeStamp.seconds) } while cursor.stepInPresentationOrder(byCount: 1) == 1
+        return presentationTimes(media: media, edits: edits)
+    }
+
+    /// The presentation times of frames with these media times (ascending) under these edits. With no edit list
+    /// the media times are the presentation times.
+    static func presentationTimes(media: [Double], edits: [CMTimeMapping]) -> [Double] {
+        let sorted = media.sorted()
+        guard !edits.isEmpty else { return sorted }
+        var out: [Double] = []
+        for (i, m) in sorted.enumerated() {
+            let next = i + 1 < sorted.count ? sorted[i + 1] : .infinity   // the frame shows until the next one starts
+            for e in edits {
+                let s0 = e.source.start.seconds, s1 = s0 + e.source.duration.seconds
+                let t0 = e.target.start.seconds, rate = e.target.duration.seconds / max(e.source.duration.seconds, 1e-12)
+                // Shown in this edit when its display interval [m, next) overlaps the edit's media range [s0, s1).
+                guard m < s1 - 1e-9, next > s0 + 1e-9 else { continue }
+                out.append(t0 + (max(m, s0) - s0) * rate)
+            }
+        }
+        return out.sorted()
     }
 
     /// The video track's nominal frame rate and the asset's duration.
