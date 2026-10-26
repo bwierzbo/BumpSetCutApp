@@ -230,6 +230,15 @@ final class RallyBoundariesModel {
         if changed { status = "record updated from the sync (revision \(record.revision))" }
     }
 
+    /// The rally under the draft changed elsewhere: keep mine (commit replaces theirs, explicitly) or take theirs.
+    func resolveDraftConflict(keepMine: Bool) {
+        guard var e = editor, e.draftConflict != nil else { return }
+        e.resolveDraftConflict(keepMine: keepMine)
+        editor = e
+        status = keepMine ? "keeping my edits over the other side's version; ⏎ commits them" : "took the other side's version"
+        lastRefused = false
+    }
+
     func select(_ id: UUID?) {
         perform(.select(id))
         if let r = editor?.selectedRally, let t = r.contact?.earliest ?? r.dead?.earliest { seek(to: t) }

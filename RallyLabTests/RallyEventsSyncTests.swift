@@ -158,6 +158,42 @@ final class RallyEventsSyncTests: XCTestCase {
         XCTAssertEqual(RallyEventsSync.decide(local: e.file, shadow: saved, server: row(saved, revision: 1)), .push(expected: 1), "a change at the current revision, not a conflict")
     }
 
+    func testADraftOverARallyTheOtherSideChangedIsNotCommittedUnseen() {
+        var e = BoundaryEditor(file: file(revision: 1, rallies: 0), annotator: "BW", tool: "t")
+        _ = e.apply(.mark(.contact, .earliest), at: 1, now: now)
+        _ = e.apply(.mark(.dead, .earliest), at: 3, now: now)
+        XCTAssertTrue(e.apply(.commit, at: 3, now: now).changed)
+        let id = e.selected!
+        var pushed = e.file; pushed.revision = 2
+        XCTAssertFalse(e.adopt(pushed))
+        // Editing it: a flag only, the times untouched in the draft.
+        _ = e.apply(.select(id), at: 0, now: now)
+        _ = e.apply(.toggleFlag("ambiguous"), at: 0, now: now)
+        // Meanwhile the other side moved the contact to 2 s (revision 3).
+        var theirs = pushed; theirs.revision = 3
+        theirs.rallies[0].contact = .init(earliest: 2, latest: 2); theirs.rallies[0].annotator = "KD"
+        XCTAssertTrue(e.adopt(theirs))
+        XCTAssertNotNil(e.draftConflict); XCTAssertEqual(e.draftConflict?.incoming.contact?.earliest, 2)
+        let refused = e.apply(.commit, at: 3, now: now)
+        XCTAssertTrue(refused.refused, "the draft's 1 s contact must not overwrite their 2 s unseen"); XCTAssertEqual(e.file.rallies[0].contact?.earliest, 2)
+        // Take theirs: the draft reloads from the incoming rally, my flag is gone, a commit changes nothing of the times.
+        e.resolveDraftConflict(keepMine: false)
+        XCTAssertNil(e.draftConflict); XCTAssertEqual(e.draft.contact?.earliest, 2); XCTAssertFalse(e.draft.flags.contains("ambiguous"))
+        // Keep mine, explicitly: the commit replaces theirs at the current revision.
+        _ = e.apply(.toggleFlag("ambiguous"), at: 0, now: now)
+        var again = theirs; again.revision = 4; again.rallies[0].dead = .init(earliest: 3.5, latest: 3.5)
+        XCTAssertTrue(e.adopt(again)); XCTAssertNotNil(e.draftConflict)
+        e.resolveDraftConflict(keepMine: true)
+        XCTAssertTrue(e.apply(.commit, at: 3, now: now).changed)
+        XCTAssertEqual(e.file.rallies[0].contact?.earliest, 2, "mine was loaded from theirs at 2 s"); XCTAssertEqual(e.file.rallies[0].dead?.earliest, 3)
+        XCTAssertTrue(e.file.rallies[0].flags.contains("ambiguous")); XCTAssertEqual(e.file.revision, 4)
+        // An untouched draft simply follows the other side's change.
+        _ = e.apply(.select(id), at: 0, now: now)
+        var moved = e.file; moved.revision = 5; moved.rallies[0].dead = .init(earliest: 3.25, latest: 3.25)
+        XCTAssertTrue(e.adopt(moved))
+        XCTAssertNil(e.draftConflict); XCTAssertEqual(e.draft.dead?.earliest, 3.25)
+    }
+
     func testShadowAndConflictFilesSitBesideTheRecordNeverOverIt() {
         let record = EventReview.url(forVideo: URL(fileURLWithPath: "/footage/clip.mp4"))
         XCTAssertEqual(record.lastPathComponent, "clip.rallyevents.json")
