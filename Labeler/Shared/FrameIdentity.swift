@@ -101,3 +101,48 @@ extension FrameClock {
     /// The digest of these frame times (`FrameIdentity.digest`).
     var digest: String { FrameIdentity.digest(of: times) }
 }
+
+/// Whether a Stage 1 commit may be made on this device for this recording, and why not. Playback is always
+/// allowed; a commit needs the recording to be reviewable here (not withheld, its project's list published)
+/// and, on a device that plays a copy, the copy's frames to reproduce the original's digest.
+struct CommitGate: Equatable {
+    enum Verdict: Equatable {
+        case allowed
+        case withheld
+        /// The Mac has not published the original's frame identity yet.
+        case noDigestPublished
+        /// The copy is streamed, not downloaded: no frames to compare.
+        case copyNotDownloaded
+        /// The copy's frames differ from the original's.
+        case framesDiffer(copy: Int, original: String)
+        /// The copy's frame times could not be read.
+        case framesUnreadable(String)
+    }
+
+    let verdict: Verdict
+    var allowed: Bool { verdict == .allowed }
+
+    var reason: String {
+        switch verdict {
+        case .allowed: return "frames verified against the original"
+        case .withheld: return "this recording is withheld: review is refused"
+        case .noDigestPublished: return "the Mac has not published this recording's frame identity yet: playback only"
+        case .copyNotDownloaded: return "download the copy for frame-exact review: playback only until then"
+        case .framesDiffer(let n, _): return "the copy's \(n) frames do not match the original's: playback only, commits refused"
+        case .framesUnreadable(let why): return "the copy's frames could not be read (\(why)): playback only"
+        }
+    }
+
+    /// The decision from what is known: reviewable here, the published digest, and the copy's own frame times
+    /// (nil when the copy is not downloaded; `.failure` when it could not be read).
+    static func decide(reviewable: Bool, publishedDigest: String?, copyFrames: Result<[Double], Error>?) -> CommitGate {
+        guard reviewable else { return CommitGate(verdict: .withheld) }
+        guard let publishedDigest, !publishedDigest.isEmpty else { return CommitGate(verdict: .noDigestPublished) }
+        guard let copyFrames else { return CommitGate(verdict: .copyNotDownloaded) }
+        switch copyFrames {
+        case .failure(let error): return CommitGate(verdict: .framesUnreadable(error.localizedDescription))
+        case .success(let times):
+            return FrameIdentity.matches(copy: times, original: publishedDigest) ? CommitGate(verdict: .allowed) : CommitGate(verdict: .framesDiffer(copy: times.count, original: publishedDigest))
+        }
+    }
+}

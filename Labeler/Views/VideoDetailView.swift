@@ -33,6 +33,12 @@ struct VideoDetailView: View {
                 NavigationLink {
                     RallyTimesView(model: model, video: video)
                 } label: { Label("Edit rally times", systemImage: "slider.horizontal.3") }
+                // Stage 1 rally boundaries (D-024): the same record and rules as RallyLab's Review tab.
+                NavigationLink {
+                    RallyBoundariesPhoneView(model: model, video: video)
+                } label: {
+                    Label(model.isReviewable(video) ? "Rally boundaries" : "Rally boundaries (withheld or not yet published)", systemImage: "flag.checkered")
+                }
             }
             Section("Tracked rallies (\(tracks.filter(\.done).count) done)") {
                 ForEach(tracks) { t in
