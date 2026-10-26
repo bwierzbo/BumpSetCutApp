@@ -64,7 +64,13 @@ enum PilotBlind {
             return a <= w.window[1] + 1e-9 && b >= w.window[0] - 1e-9
         }
         if let r = linked.first { return r }
-        let candidates = file.rallies.filter { $0.reviewState == .reviewed && overlap($0) != nil }
+        // The fallback never takes a rally reliably linked to a different legacy mark (its recorded legacy times name
+        // another interval): one annotation answers one selection.
+        func linkedElsewhere(_ r: EventReview.Rally) -> Bool {
+            guard let ls = r.legacyStart, let le = r.legacyEnd else { return false }
+            return abs(ls - w.legacyStart) >= 1e-3 || abs(le - w.legacyEnd) >= 1e-3
+        }
+        let candidates = file.rallies.filter { $0.reviewState == .reviewed && overlap($0) != nil && !linkedElsewhere($0) }
         return candidates.max { l, r in
             let lo = overlap(l)!, ro = overlap(r)!
             if abs(lo - ro) > 1e-9 { return lo < ro }

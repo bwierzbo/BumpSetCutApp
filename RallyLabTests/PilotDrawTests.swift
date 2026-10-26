@@ -323,4 +323,23 @@ final class PilotDrawTests: XCTestCase {
         let audit = try PilotDraw.audit(record, root: root, sessions: [session])
         XCTAssertEqual(audit.rows.map(\.status), ["record_not_this_recording"])
     }
+
+    func testAnAnswerLinkedToOneSelectionDoesNotAnswerItsNeighbour() {
+        let now = ISO8601DateFormatter().date(from: "2026-10-26T20:00:00Z")!
+        let first = PilotWindow(video: "v", legacyIndex: 1, legacyStart: 10, legacyEnd: 13, window: [5, 18], stratum: "short", repeatReview: false)
+        let second = PilotWindow(video: "v", legacyIndex: 2, legacyStart: 13, legacyEnd: 16, window: [8, 21], stratum: "short", repeatReview: false)
+        var f = EventReview.File(video: "v", sourceFingerprint: "file:x", frameRate: 30, durationSec: 60, tool: "t")
+        let r = EventReview.Rally(rallyId: UUID(), legacyIndex: 1, legacyStart: 10, legacyEnd: 13, kind: .rally,
+                                  contact: .init(earliest: 10.2, latest: 10.2), dead: .init(earliest: 13.2, latest: 13.2), annotator: "BW", reviewedAt: EventReview.stamp(now))
+        EventReview.Mutation.upsert(r, in: &f)
+        XCTAssertEqual(PilotBlind.answer(to: first, in: f)?.rallyId, r.rallyId)
+        XCTAssertNil(PilotBlind.answer(to: second, in: f), "linked to the first mark: never the neighbour's answer")
+        // The neighbour's legacy marks therefore stay hidden.
+        let marks: [(start: Double, end: Double)] = [(10, 13), (13, 16)]
+        XCTAssertEqual(PilotBlind.visible(marks, windows: [first, second], record: f), [false, false], "both marks touch the still-blind second window")
+        // An unlinked rally still pairs by overlap.
+        var g = EventReview.File(video: "v", sourceFingerprint: "file:x", frameRate: 30, durationSec: 60, tool: "t")
+        EventReview.Mutation.upsert(EventReview.Rally(rallyId: UUID(), kind: .rally, contact: .init(earliest: 13.5, latest: 13.5), dead: .init(earliest: 15.5, latest: 15.5), annotator: "BW", reviewedAt: EventReview.stamp(now)), in: &g)
+        XCTAssertNotNil(PilotBlind.answer(to: second, in: g))
+    }
 }
