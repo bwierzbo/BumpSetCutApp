@@ -77,6 +77,8 @@ struct LabelVideo: Codable, Identifiable, Hashable {
     var ralliesFound: [[Double]]
     var status: Status
     var updatedAt: Date?
+    /// The original's frame identity (FrameIdentity.digest), published with the copy; nil until the Mac read it.
+    var frameTimesDigest: String?
 
     var name: String { sessionName ?? (title.isEmpty ? "Phone video" : title) }
 }

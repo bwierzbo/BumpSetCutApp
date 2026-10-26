@@ -129,7 +129,13 @@ final class LabelerModel: ReviewStore {
             async let t = client.rallyTimes()
             async let k = client.tracks()
             async let s = client.projectStates()
-            let loaded = try await LabelSnapshot(videos: v, times: t, tracks: k, states: s)
+            async let e = client.rallyEvents()
+            var loaded = try await LabelSnapshot(videos: v, times: t, tracks: k, states: s, events: e)
+            // The withheld list of every project seen: a project without one makes its recordings unreviewable here.
+            for project in Set(loaded.videos.compactMap(\.project)) {
+                let (listed, names) = try await client.withheld(project: project)
+                if listed { loaded.withheld[project] = names.sorted() }
+            }
             account = await client.email
             guard try await client.isLabeler() else { phase = .notLabeler; return }
             snapshot = loaded
@@ -175,6 +181,13 @@ final class LabelerModel: ReviewStore {
                 snapshot.times.removeAll { $0.videoId == r.videoId }
                 snapshot.times.append(r)
             }
+            if let events = try? await client.rallyEvents(since: last.addingTimeInterval(-Self.pullOverlap)) {
+                for row in events where outbox.events[row.videoId] == nil {
+                    snapshot.events.removeAll { $0.videoId == row.videoId }
+                    snapshot.events.append(row)
+                }
+                if !events.isEmpty { LocalStore.save(snapshot, "snapshot.json") }
+            }
             for r in tracks {
                 snapshot.tracks.removeAll { $0.id == r.id }
                 snapshot.tracks.append(r)
@@ -196,6 +209,54 @@ final class LabelerModel: ReviewStore {
     func rallyTimes(for video: LabelVideo) -> LabelRallyTimes {
         outbox.times[video.id] ?? snapshot.times.first { $0.videoId == video.id }
             ?? LabelRallyTimes(videoId: video.id, rallies: [], complete: false)
+    }
+
+    // MARK: - Stage 1 rally-boundary records (shared with the Mac; migration 048)
+
+    /// Conflicts the server reported for records edited here: the server's row, kept beside the local edit until
+    /// the person decides (never merged over, never dropped).
+    private(set) var eventConflicts: [UUID: LabelRallyEvents] = [:]
+
+    /// The record as last loaded from the server for this recording, or the pending local edit.
+    func rallyEvents(for video: LabelVideo) -> (record: EventReview.File, revision: Int)? {
+        if let pending = outbox.events[video.id] { return (pending.record, pending.expected) }
+        guard let row = snapshot.events.first(where: { $0.videoId == video.id }) else { return nil }
+        return (row.record, row.revision)
+    }
+
+    /// Whether the recording may be reviewed here: the project has a published withheld list and the recording is not on it.
+    func isReviewable(_ video: LabelVideo) -> Bool {
+        guard let project = video.project, let session = video.sessionName, let list = snapshot.withheld[project] else { return false }
+        return !list.contains(session)
+    }
+
+    /// Queues a Stage 1 record for saving at the revision it was loaded from. Refused for a recording that is not
+    /// reviewable here, so nothing is even queued for a withheld one.
+    @discardableResult
+    func saveRallyEvents(_ record: EventReview.File, for video: LabelVideo, expected: Int) -> Bool {
+        guard isReviewable(video), record.video == video.sessionName else { return false }
+        outbox.events[video.id] = PendingRallyEvents(videoId: video.id, expected: expected, record: record)
+        queueFlush()
+        return true
+    }
+
+    /// The person took the server's version: drop the local edit and the conflict.
+    func resolveEventConflict(_ video: LabelVideo, takeServer: Bool) {
+        guard let server = eventConflicts[video.id] else { return }
+        if takeServer {
+            outbox.events[video.id] = nil
+            snapshot.events.removeAll { $0.videoId == video.id }
+            snapshot.events.append(server)
+        } else if var pending = outbox.events[video.id] {
+            // Keep mine, on top of the server's revision: the next flush saves it as the newer version.
+            pending.expected = server.revision
+            pending.record.revision = server.revision
+            outbox.events[video.id] = pending
+        }
+        eventConflicts[video.id] = nil
+        LocalStore.save(outbox, "outbox.json")
+        LocalStore.save(snapshot, "snapshot.json")
+        queueFlush()
     }
 
     /// The video's tracked rallies (not deleted), in time order.
@@ -482,6 +543,22 @@ final class LabelerModel: ReviewStore {
                 if outbox.times[id] == times { outbox.times[id] = nil }
                 snapshot.times.removeAll { $0.videoId == id }
                 snapshot.times.append(saved)
+            } catch { isOffline = true; break }
+        }
+        // Stage 1 records: each at the revision it was loaded from. A stale revision is a conflict the person
+        // decides; a withheld refusal drops the edit (it should never have been possible) and says so.
+        for (id, pending) in outbox.events where eventConflicts[id] == nil {
+            do {
+                let saved = try await client.saveRallyEvents(videoId: id, expected: pending.expected, record: pending.record)
+                if outbox.events[id] == pending { outbox.events[id] = nil }
+                snapshot.events.removeAll { $0.videoId == id }
+                snapshot.events.append(saved)
+            } catch let conflict as RallyEventsConflict {
+                if let server = try? await client.rallyEvents().first(where: { $0.videoId == id }) { eventConflicts[id] = server }
+                syncProblem = conflict.errorDescription
+            } catch LabelingClient.Failure.server(let code, let message) where RallyEventsSync.isWithheld(message) || code == 403 {
+                outbox.events[id] = nil
+                syncProblem = message
             } catch { isOffline = true; break }
         }
         // Rally checks, in the order they were made (a taken-back one last).

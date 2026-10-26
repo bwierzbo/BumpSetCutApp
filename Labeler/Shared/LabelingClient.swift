@@ -241,6 +241,55 @@ actor LabelingClient {
     }
 
     /// A filter for rows changed after `since` (UTC, so the time has no "+").
+    // MARK: - Stage 1 rally-boundary records (migration 048)
+
+    /// Every recording's record row (or those saved after `since`).
+    func rallyEvents(since: Date? = nil) async throws -> [LabelRallyEvents] {
+        try await get("label_rally_events", query: "select=*" + Self.changed(since))
+    }
+
+    /// Saves a record at the revision it was loaded from (0 = none on the server yet) through `rally_events_save`.
+    /// The record travels with its own camelCase keys (never this client's snake-case encoder). A stale revision
+    /// throws `RallyEventsConflict`; a withheld recording throws `Failure.server(403, "withheld: …")`.
+    func saveRallyEvents(videoId: UUID, expected: Int, record: EventReview.File) async throws -> LabelRallyEvents {
+        struct Params: Encodable { let p_video: String; let p_expected: Int; let p_record: EventReview.File }
+        var request = try await rest("rpc/rally_events_save", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_video: videoId.uuidString.lowercased(), p_expected: expected, p_record: record))
+        do {
+            let rows = try Self.decoder.decode([LabelRallyEvents].self, from: try await send(request))
+            guard let row = rows.first else { throw Failure.unreadable }
+            return row
+        } catch Failure.server(let code, let message) {
+            if let conflict = RallyEventsSync.conflict(in: message) { throw conflict }
+            throw Failure.server(code, message)
+        }
+    }
+
+    /// The project's withheld recordings as published by the Mac (empty when none is published: then nothing is
+    /// accepted by the server either — the phone shows every listed recording as not reviewable).
+    func withheld(project: String) async throws -> (listed: Bool, names: Set<String>) {
+        struct Listing: Decodable { let project: String; let names: Int }
+        struct Row: Decodable { let sessionName: String }
+        let lists: [Listing] = try await get("label_withheld_lists", query: "select=project,names&project=eq.\(Self.encoded(project))")
+        let rows: [Row] = try await get("label_withheld", query: "select=session_name&project=eq.\(Self.encoded(project))")
+        return (!lists.isEmpty, Set(rows.map(\.sessionName)))
+    }
+
+    /// Publishes a project's withheld list whole (leads only on the server). Returns the count stored.
+    func publishWithheld(project: String, names: [String]) async throws -> Int {
+        struct Params: Encodable { let p_project: String; let p_names: [String] }
+        var request = try await rest("rpc/label_withheld_publish", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_project: project, p_names: names.sorted()))
+        let data = try await send(request)
+        return Int(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) ?? names.count
+    }
+
+    private static func encoded(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
+    }
+
     private static func changed(_ since: Date?) -> String {
         guard let since else { return "" }
         let f = ISO8601DateFormatter()

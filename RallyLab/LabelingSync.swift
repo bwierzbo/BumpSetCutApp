@@ -192,6 +192,9 @@ final class LabelingSync {
             let (tracksSent, tracksReceived) = try await syncTracks(project: project, framesSent: framesSent)
             try await publishPlan(project: project)
             parts.append("rally times \(pushed) sent · \(pulled) received, tracked rallies \(tracksSent) sent · \(tracksReceived) received")
+            let events = try await syncRallyEvents(project: project)
+            parts.append("boundary records \(events.pushed) sent · \(events.pulled) received" + (events.conflicts.isEmpty ? "" : " · conflicts kept for: \(events.conflicts.joined(separator: ", "))")
+                         + (events.withheldPublished.map { " · withheld list published (\($0))" } ?? " · withheld list NOT published — no boundary record sent"))
             status = "Synced: " + parts.joined(separator: ", ") + "."
             lastSynced = Date()
             return true
@@ -272,7 +275,10 @@ final class LabelingSync {
         let remote = try await client.videos().filter { $0.project == project }
         var listed = 0, uploaded = 0
         var failed: [String] = []
-        let sessions = projects.sampler.sessions.filter { FileManager.default.fileExists(atPath: $0.sourcePath) }
+        // Withheld recordings (the L2 closure) are never uploaded for the phone. When the closure cannot be read,
+        // nothing is uploaded at all (fail closed).
+        guard let withheld = withheldClosure() else { return (0, 0, []) }
+        let sessions = projects.sampler.sessions.filter { FileManager.default.fileExists(atPath: $0.sourcePath) && !withheld.contains($0.name) }
         for (i, session) in sessions.enumerated() {
             guard let surface = LabelSurface(rawValue: Coverage.environment(session.name)) else { continue }
             let existing = remote.first { $0.sessionName == session.name }
@@ -288,6 +294,10 @@ final class LabelingSync {
             video.ralliesFound = Self.ralliesFound(in: session)
             if video.duration <= 0 {
                 video.duration = (try? await AVURLAsset(url: source).load(.duration).seconds) ?? 0
+            }
+            // The original's frame identity, published once with the copy: the phone proves its copy against it.
+            if video.frameTimesDigest == nil, let times = try? await FrameIdentity.allFrameTimes(of: source) {
+                video.frameTimesDigest = FrameIdentity.digest(of: times)
             }
             // A copy RallyLab made with an older encoding is made again when
             // asked (the new name tells the phone to fetch it); the old one is
@@ -383,6 +393,69 @@ final class LabelingSync {
     }
 
     // MARK: - 3. Rally times, both ways
+
+    // MARK: - Stage 1 rally-boundary records (migration 048)
+
+    /// The withheld closure as RallyLab computes it, or nil when it cannot be read (fail closed: nothing is sent then).
+    private func withheldClosure() -> Set<String>? {
+        guard let root = projects.projectDir else { return nil }
+        return try? ReservedVideos.lineageWithheldNames(in: root)
+    }
+
+    /// Publishes the project's withheld list (the server refuses events for a project without one), then reconciles
+    /// every eligible recording's `rallyevents.json` with the server by `RallyEventsSync.decide`: a push sends the
+    /// record at the revision it was loaded from, a pull writes the server's record (and the shadow), a conflict
+    /// keeps the server's version beside the local one (`…rallyevents.conflict-r<n>.json`) and changes nothing.
+    /// The legacy `rallylabels.json` is never touched; withheld recordings are never read or sent.
+    private func syncRallyEvents(project: String) async throws -> (pushed: Int, pulled: Int, conflicts: [String], withheldPublished: Int?) {
+        guard let withheld = withheldClosure() else { return (0, 0, [], nil) }
+        var published: Int?
+        do { published = try await client.publishWithheld(project: project, names: Array(withheld)) } catch LabelingClient.Failure.notSignedIn {
+            throw LabelingClient.Failure.notSignedIn
+        } catch {
+            // Not a lead, or the server refused: the server will refuse every save for the project, so none is attempted.
+            return (0, 0, [], nil)
+        }
+        let videos = try await client.videos().filter { $0.project == project && $0.sessionName != nil }
+        let remote = Dictionary(uniqueKeysWithValues: try await client.rallyEvents().map { ($0.videoId, $0) })
+        var pushed = 0, pulled = 0
+        var conflicts: [String] = []
+        for video in videos {
+            guard let name = video.sessionName, !withheld.contains(name), let session = projects.session(named: name) else { continue }
+            let url = EventReview.url(forVideo: URL(fileURLWithPath: session.sourcePath))
+            let shadowURL = RallyEventsSync.shadowURL(for: url)
+            let local = FileManager.default.fileExists(atPath: url.path) ? try? EventReview.read(url) : nil
+            let shadow = FileManager.default.fileExists(atPath: shadowURL.path) ? try? EventReview.read(shadowURL) : nil
+            switch RallyEventsSync.decide(local: local, shadow: shadow, server: remote[video.id]) {
+            case .upToDate:
+                continue
+            case .push(let expected):
+                guard let local else { continue }
+                do {
+                    let saved = try await client.saveRallyEvents(videoId: video.id, expected: expected, record: local)
+                    try EventReview.write(saved.record, to: url)
+                    try EventReview.write(saved.record, to: shadowURL)
+                    pushed += 1
+                } catch let conflict as RallyEventsConflict {
+                    if let server = try? await client.rallyEvents().first(where: { $0.videoId == video.id }) {
+                        try? EventReview.write(server.record, to: RallyEventsSync.conflictURL(for: url, serverRevision: server.revision))
+                    }
+                    conflicts.append("\(name) (\(conflict.message))")
+                }
+            case .pull:
+                guard let server = remote[video.id] else { continue }
+                try EventReview.write(server.record, to: url)
+                try EventReview.write(server.record, to: shadowURL)
+                pulled += 1
+            case .conflict(_, let serverRevision):
+                if let server = remote[video.id] {
+                    try? EventReview.write(server.record, to: RallyEventsSync.conflictURL(for: url, serverRevision: serverRevision))
+                }
+                conflicts.append(name)
+            }
+        }
+        return (pushed, pulled, conflicts, published)
+    }
 
     private func syncRallyTimes(project: String) async throws -> (pushed: Int, pulled: Int) {
         let videos = try await client.videos().filter { $0.project == project && $0.sessionName != nil }

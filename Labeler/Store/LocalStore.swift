@@ -18,6 +18,32 @@ struct LabelSnapshot: Codable {
     var times: [LabelRallyTimes] = []
     var tracks: [LabelTrack] = []
     var states: [LabelProjectState] = []
+    /// Stage 1 rally-boundary records, by recording (migration 048).
+    var events: [LabelRallyEvents] = []
+    /// The project's withheld recordings as published; nil = no list published for that project (nothing reviewable).
+    var withheld: [String: [String]] = [:]
+
+    init(videos: [LabelVideo] = [], times: [LabelRallyTimes] = [], tracks: [LabelTrack] = [], states: [LabelProjectState] = [],
+         events: [LabelRallyEvents] = [], withheld: [String: [String]] = [:]) {
+        self.videos = videos; self.times = times; self.tracks = tracks; self.states = states; self.events = events; self.withheld = withheld
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        videos = try c.decodeIfPresent([LabelVideo].self, forKey: .videos) ?? []
+        times = try c.decodeIfPresent([LabelRallyTimes].self, forKey: .times) ?? []
+        tracks = try c.decodeIfPresent([LabelTrack].self, forKey: .tracks) ?? []
+        states = try c.decodeIfPresent([LabelProjectState].self, forKey: .states) ?? []
+        events = try c.decodeIfPresent([LabelRallyEvents].self, forKey: .events) ?? []
+        withheld = try c.decodeIfPresent([String: [String]].self, forKey: .withheld) ?? [:]
+    }
+}
+
+/// A Stage 1 record edited on the phone and not saved yet: the record and the server revision it was loaded from.
+struct PendingRallyEvents: Codable, Equatable {
+    var videoId: UUID
+    var expected: Int
+    var record: EventReview.File
 }
 
 /// Edits waiting to be saved: the latest version of each, by id.
@@ -29,8 +55,10 @@ struct Outbox: Codable {
     /// Rally checks of pre-tracked rallies (see LabelingClient.reviewRally).
     var rallies: [LabelingClient.RallyVerdict] = []
 
-    var isEmpty: Bool { times.isEmpty && tracks.isEmpty && frames.isEmpty && rallies.isEmpty }
-    var count: Int { times.count + tracks.count + frames.count + rallies.count }
+    /// Stage 1 records waiting to be saved, by recording (the latest edit of each).
+    var events: [UUID: PendingRallyEvents] = [:]
+    var isEmpty: Bool { times.isEmpty && tracks.isEmpty && frames.isEmpty && rallies.isEmpty && events.isEmpty }
+    var count: Int { times.count + tracks.count + frames.count + rallies.count + events.count }
 
     init() {}
 
@@ -40,6 +68,7 @@ struct Outbox: Codable {
         tracks = try c.decodeIfPresent([UUID: LabelTrack].self, forKey: .tracks) ?? [:]
         frames = try c.decodeIfPresent([LabelingClient.FrameEdit].self, forKey: .frames) ?? []
         rallies = try c.decodeIfPresent([LabelingClient.RallyVerdict].self, forKey: .rallies) ?? []
+        events = try c.decodeIfPresent([UUID: PendingRallyEvents].self, forKey: .events) ?? [:]
     }
 }
 
