@@ -225,6 +225,21 @@ final class EventReviewTests: XCTestCase {
         // An unreadable validation.json means the reserved set is unknown: refused, not assumed empty.
         try writeValidation("{not json")
         await XCTAssertThrowsErrorAsync(try await EventReview.open(other, root: root, tool: "t", now: now))
+        // The withheld original gone (no stored fingerprint, session kept): its content can't be fingerprinted,
+        // so a surviving byte copy could not be told apart — nothing opens, and the inventory refuses too.
+        try writeValidation(#"{"tune":[],"holdout":[],"lineageHoldout":["w"]}"#)
+        try FileManager.default.removeItem(at: w)
+        for s in [sameContent, other] {
+            do {
+                _ = try await EventReview.open(s, root: root, tool: "t", now: now)
+                XCTFail("\(s.name) must be refused while w's content is unknown")
+            } catch let failure as EventReview.Failure {
+                guard case .withheldIdentityUnknown(let why) = failure else { return XCTFail("\(failure)") }
+                XCTAssertTrue(why.contains("w"), why)
+            }
+        }
+        XCTAssertThrowsError(try EventInventory.build(root: root, now: now))
+        XCTAssertEqual(try ledgerRows().map(\.video), ["z"], "only the earlier, permitted open is on the ledger")
     }
 
     /// A withheld recording the project knows only from project.json (no session file) still protects

@@ -132,6 +132,7 @@ enum EventReview {
         case ledgerNotWritten(String)
         case sessionsUnreadable(String)
         case projectUnreadable(String)
+        case withheldIdentityUnknown(String)
         case incomplete([String])
 
         var errorDescription: String? {
@@ -147,6 +148,7 @@ enum EventReview {
             case .ledgerNotWritten(let why): return "The exposure ledger could not record this review, so it does not open: \(why)"
             case .sessionsUnreadable(let why): return "The project's sessions can't all be read, so the withheld recordings' files are unknown; nothing opens: \(why)"
             case .projectUnreadable(let why): return "project.json exists but can't be read, so the withheld recordings' identities are unknown; nothing opens: \(why)"
+            case .withheldIdentityUnknown(let why): return "A withheld recording's content cannot be fingerprinted, so a copy of it could not be told apart; nothing opens: \(why)"
             case .incomplete(let gaps): return "The recording is not fully reviewed: " + gaps.joined(separator: "; ")
             }
         }
@@ -352,14 +354,21 @@ enum EventReview {
             if !origin.isEmpty, origin.hasPrefix("/") || origin.hasPrefix("~") { files.append((standard(origin), name, "original file")) }
         }
         if let hit = files.first(where: { $0.path == path }) { return "its video is \(hit.owner)'s \(hit.what)" }
+        // Every withheld recording must have a content fingerprint on hand (stored, derived from its file, its
+        // session file or its cut file) — the same rule the lineage package applies — or a byte copy of a missing
+        // original could not be told apart: then nothing opens.
+        let protected: Set<String>
+        do { protected = try LineagePackage.protectedSourceFingerprints(sessions: sessions.filter { $0.name != session.name }, withheld: withheld.subtracting([session.name]), sources: sources) }
+        catch { throw Failure.withheldIdentityUnknown(error.localizedDescription) }
         guard fm.fileExists(atPath: session.sourcePath), let mine = ProjectsModel.fileFingerprint(atPath: session.sourcePath) else { return nil }
+        guard protected.contains(mine) else { return nil }
         for (name, s) in sources where withheld.contains(name) && name != session.name {
             if ReservedVideos.effectiveFingerprint(s) == mine { return "its content is \(name)'s" }
         }
         for f in files where fm.fileExists(atPath: f.path) {
             if ProjectsModel.fileFingerprint(atPath: f.path) == mine { return "its content is \(f.owner)'s" }
         }
-        return nil
+        return "its content is a withheld recording's"
     }
 
     /// Opens a recording for Stage 1 review: refuses the withheld closure (every session read strictly,
