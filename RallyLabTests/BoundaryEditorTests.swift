@@ -481,4 +481,28 @@ final class BoundaryEditorTests: XCTestCase {
         e.resolveDraftConflict(keepMine: false)
         XCTAssertEqual(e.draft.contact?.earliest, 10.2)
     }
+
+    func testASecondReviewNeedsBothEventsUnlessTheEdgeCutOneOff() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        let later = now.addingTimeInterval(25 * 3600)
+        e.setMode(.secondReview)
+        _ = e.apply(.select(id), at: 0, now: later)
+        _ = e.apply(.mark(.contact, .earliest), at: 10.1, now: later)
+        let half = e.apply(.commit, at: 10.1, now: later)
+        XCTAssertTrue(half.refused); XCTAssertTrue(half.message.contains("ball dead"), half.message)
+        XCTAssertNil(e.file.rallies[0].secondReview, "nothing recorded"); XCTAssertEqual(e.draft.contact?.earliest, 10.1, "the incomplete repeat stays in the draft")
+        _ = e.apply(.mark(.dead, .earliest), at: 20, now: later)
+        XCTAssertTrue(e.apply(.commit, at: 20, now: later).changed)
+        // A rally cut off at the start: the repeat may lack the contact, as the first review does.
+        var f = editor(duration: 60)
+        _ = f.apply(.cycleEdge, at: 0, now: now)
+        _ = f.apply(.mark(.dead, .earliest), at: 3, now: now)
+        XCTAssertTrue(f.apply(.commit, at: 3, now: now).changed)
+        let edgeId = f.selected!
+        f.setMode(.secondReview)
+        _ = f.apply(.select(edgeId), at: 0, now: later)
+        _ = f.apply(.mark(.dead, .earliest), at: 3.1, now: later)
+        XCTAssertTrue(f.apply(.commit, at: 3.1, now: later).changed)
+    }
 }

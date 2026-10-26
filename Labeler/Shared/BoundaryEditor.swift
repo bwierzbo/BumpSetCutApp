@@ -282,6 +282,12 @@ struct BoundaryEditor: Equatable {
             case .commit:
                 guard let id = selected, file.rallies.contains(where: { $0.rallyId == id && $0.reviewState == .reviewed }) else { return Outcome(message: "select the rally to review again first", changed: false, refused: true) }
                 guard draft.contact != nil || draft.dead != nil else { return Outcome(message: "mark the serve contact (S) and the ball dead (D) again, blind", changed: false, refused: true) }
+                // Both observable events, as the first review requires them: an event may be missing only where the
+                // recording's edge cut it off (the first review's own edge). An incomplete repeat stays in the draft.
+                if let first = file.rallies.first(where: { $0.rallyId == id }), first.kind != .other {
+                    if draft.contact == nil, first.edge != .start { return Outcome(message: "mark the serve contact (S) too — a second review needs both events", changed: false, refused: true) }
+                    if draft.dead == nil, first.edge != .end { return Outcome(message: "mark the ball dead (D) too — a second review needs both events", changed: false, refused: true) }
+                }
                 if let c = draft.contact, let d = draft.dead, d.latest < c.earliest { return Outcome(message: "the rally ends before it starts", changed: false, refused: true) }
                 var copy = file
                 do { try EventReview.Mutation.recordSecondReview(of: id, contact: draft.contact, dead: draft.dead, in: &copy, at: now, annotator: annotator, tool: tool) } catch {
