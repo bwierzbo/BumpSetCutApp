@@ -130,6 +130,7 @@ enum EventReview {
         case wrongVideo(expected: String, found: String)
         case sourceChanged(recorded: String, current: String)
         case ledgerNotWritten(String)
+        case sessionsUnreadable(String)
         case incomplete([String])
 
         var errorDescription: String? {
@@ -143,6 +144,7 @@ enum EventReview {
             case .wrongVideo(let expected, let found): return "rallyevents.json belongs to \(found), not \(expected)."
             case .sourceChanged(let recorded, let current): return "The video's content changed since its events were recorded (\(recorded.prefix(21))… → \(current.prefix(21))…)."
             case .ledgerNotWritten(let why): return "The exposure ledger could not record this review, so it does not open: \(why)"
+            case .sessionsUnreadable(let why): return "The project's sessions can't all be read, so the withheld recordings' files are unknown; nothing opens: \(why)"
             case .incomplete(let gaps): return "The recording is not fully reviewed: " + gaps.joined(separator: "; ")
             }
         }
@@ -346,11 +348,14 @@ enum EventReview {
         return nil
     }
 
-    /// Opens a recording for Stage 1 review: refuses the withheld closure, requires the original
-    /// video, records the use in the exposure ledger (an unwritable ledger refuses the open), then
+    /// Opens a recording for Stage 1 review: refuses the withheld closure (every session read strictly,
+    /// since an unreadable one may be a withheld recording's), requires the original video, records the use in the exposure ledger (an unwritable ledger refuses the open), then
     /// loads its record or starts a fresh one. GUI and headless callers both come through here.
     static func open(_ session: VideoSession, root: URL, tool: String, now: Date = Date()) async throws -> Session {
-        let all = DatasetStore(root: root).loadSessions()
+        // Every session, or nothing: a session file that can't be read may be a withheld recording's,
+        // and its file identity would otherwise drop out of the guard (fail closed, as the audit does).
+        let all: [VideoSession]
+        do { all = try DatasetStore(root: root).loadSessionsStrict() } catch { throw Failure.sessionsUnreadable(error.localizedDescription) }
         if let why = try refusal(of: session, root: root, sessions: all) { throw Failure.withheld(name: session.name, reason: why) }
         guard session.isOnMac else { throw Failure.videoMissing(session.sourcePath) }
         let (frameRate, duration) = try await videoFacts(session.sourceURL)
@@ -361,12 +366,22 @@ enum EventReview {
         let fingerprint = ProjectsModel.fileFingerprint(atPath: session.sourcePath)
         if FileManager.default.fileExists(atPath: url.path) {
             let file = try read(url)
-            guard file.video == session.name else { throw Failure.wrongVideo(expected: session.name, found: file.video) }
-            if let recorded = file.sourceFingerprint, let current = fingerprint, recorded != current { throw Failure.sourceChanged(recorded: recorded, current: current) }
+            if let problem = identityProblem(of: file, for: session) { throw problem }
             return Session(session: session, fileURL: url, file: file, isNew: false)
         }
         let fresh = File(video: session.name, sourceFingerprint: fingerprint, frameRate: frameRate, durationSec: duration, tool: tool)
         return Session(session: session, fileURL: url, file: fresh, isNew: true)
+    }
+
+    /// Why `file` is not `session`'s record: it names another video, or the video's content is no longer
+    /// what it recorded. nil when the record belongs to the session as it is now.
+    static func identityProblem(of file: File, for session: VideoSession) -> Failure? {
+        guard file.video == session.name else { return .wrongVideo(expected: session.name, found: file.video) }
+        if let recorded = file.sourceFingerprint, FileManager.default.fileExists(atPath: session.sourcePath),
+           let current = ProjectsModel.fileFingerprint(atPath: session.sourcePath), recorded != current {
+            return .sourceChanged(recorded: recorded, current: current)
+        }
+        return nil
     }
 
     /// The video track's nominal frame rate and the asset's duration, from the original file.
