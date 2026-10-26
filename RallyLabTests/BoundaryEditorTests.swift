@@ -53,14 +53,50 @@ final class BoundaryEditorTests: XCTestCase {
         let clock = await RallyBoundariesModel.frameClock(of: url, frameRate: 60)
         let shared = try await FrameIdentity.allFrameTimes(of: url)
         XCTAssertEqual(clock.digest, FrameIdentity.digest(of: shared), "the Mac's clock is the shared enumerator's")
-        // The x265 fixture shows its first frame at 1/30 s (a one-frame encoder delay): 179 frames, 0.0333…3.0 s.
-        XCTAssertEqual(clock.times.count, 179)
-        XCTAssertEqual(clock.times.first ?? -1, 1.0 / 30, accuracy: 1e-6)
-        XCTAssertEqual(clock.times.last ?? -1, 3.0, accuracy: 1e-6)
-        XCTAssertEqual(clock.index(at: 0), 0, "before the first frame: the first")
-        XCTAssertEqual(clock.step(from: 0.5, by: 1), 31.0 / 60, accuracy: 1e-6)
-        XCTAssertEqual(clock.index(at: 2.999), 177)
-        XCTAssertEqual(clock.label(at: 0.5), "0:00.500 · frame 28")
+        // The x265 fixture's media times start at 1/30 s (its encoder delay) and its edit list shows that frame at
+        // 0: on the presentation timeline it has all 180 frames of 3 s at 60 fps, 0 to 2.9833 s — what the player
+        // shows and seeks on. (Read as media times it seemed to have 179, from 1/30 s: the last frame fell past the
+        // window and every time was one frame late.)
+        XCTAssertEqual(clock.times.count, 180)
+        XCTAssertEqual(clock.times.first ?? -1, 0, accuracy: 1e-6)
+        XCTAssertEqual(clock.times.last ?? -1, 179.0 / 60, accuracy: 1e-6)
+        XCTAssertEqual(clock.index(at: 0), 0)
+        XCTAssertEqual(clock.index(at: 2.999), 179)
+        XCTAssertEqual(clock.step(from: 0, by: 1), clock.times[1], accuracy: 1e-9)
+    }
+
+    func testFrameTimesAreThePlayersPresentationTimesThroughTheEditList() async throws {
+        // Ground truth: the image generator, asked for a frame's time with zero tolerance, returns that same time
+        // when the time is a presented frame's. Both fixtures carry an edit list (media starts at 1/30 or 2/30 s).
+        let bundle = Bundle(for: Self.self)
+        for name in ["h264-damaged-inter-frame", "open-gop-hevc-leading3"] {
+            let url = try XCTUnwrap(bundle.url(forResource: name, withExtension: "mp4") ?? bundle.url(forResource: name, withExtension: "mp4", subdirectory: "Fixtures"))
+            let times = try await FrameIdentity.allFrameTimes(of: url)
+            XCTAssertEqual(times.first ?? -1, 0, accuracy: 1e-6, "\(name): the first presented frame is at 0")
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+            generator.requestedTimeToleranceBefore = .zero; generator.requestedTimeToleranceAfter = .zero
+            // (The H.264 fixture is damaged near its end on purpose; the generator substitutes there, so only
+            // frames before the damage are asked for.)
+            for i in [0, 1, 2, 30, 60] {
+                guard let shown = try? await generator.image(at: CMTime(seconds: times[i], preferredTimescale: 600_000)).actualTime.seconds else { continue }
+                XCTAssertEqual(shown, times[i], accuracy: 1e-4, "\(name) frame \(i)")
+            }
+        }
+    }
+
+    func testPresentationTimesFollowTrimsAndOffsets() {
+        func edit(_ s: Double, _ d: Double, to t: Double) -> CMTimeMapping {
+            CMTimeMapping(source: CMTimeRange(start: CMTime(seconds: s, preferredTimescale: 600_000), duration: CMTime(seconds: d, preferredTimescale: 600_000)),
+                          target: CMTimeRange(start: CMTime(seconds: t, preferredTimescale: 600_000), duration: CMTime(seconds: d, preferredTimescale: 600_000)))
+        }
+        let media = (0..<10).map { Double($0) / 10 }                         // 0, 0.1 … 0.9
+        XCTAssertEqual(FrameIdentity.presentationTimes(media: media, edits: []), media, "no edit list: media times are shown as they are")
+        // An encoder delay: media 0.2… shown from 0.
+        let delayed = FrameIdentity.presentationTimes(media: media, edits: [edit(0.2, 0.8, to: 0)])
+        XCTAssertEqual(delayed.count, 8); XCTAssertEqual(delayed.first!, 0, accuracy: 1e-9); XCTAssertEqual(delayed.last!, 0.7, accuracy: 1e-9)
+        // A trim that starts mid-frame: the frame showing at the cut is presented from the cut; frames cut off are not frames.
+        let trimmed = FrameIdentity.presentationTimes(media: media, edits: [edit(0.35, 0.4, to: 0)])
+        XCTAssertEqual(trimmed.map { ($0 * 1000).rounded() / 1000 }, [0, 0.05, 0.15, 0.25, 0.35], "media 0.3 (showing at the cut) to 0.7 (starts before the cut's end)")
     }
 
     // MARK: - Marking and committing
