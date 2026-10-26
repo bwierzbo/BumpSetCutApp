@@ -144,13 +144,8 @@ final class LabelerModel: ReviewStore {
                 if listed { loaded.withheld[project] = names.sorted() }
                 // The frozen pilot draw, if one is published: the blind rule depends on it, so a draw known before
                 // stays when it cannot be fetched now (never silently dropped).
-                do {
-                    if let pilot = try await client.pilot(project: project) { loaded.pilots[project] = pilot }
-                    loaded.pilotsChecked.insert(project)
-                } catch {
-                    if let known = snapshot.pilots[project] { loaded.pilots[project] = known }
-                    if snapshot.pilotsChecked.contains(project) { loaded.pilotsChecked.insert(project) }
-                }
+                loaded.pilots[project] = snapshot.pilots[project]
+                await refreshPilot(project, into: &loaded)
             }
             account = await client.email
             guard try await client.isLabeler() else { phase = .notLabeler; return }
@@ -201,6 +196,13 @@ final class LabelerModel: ReviewStore {
         }
         quarantineUnreviewable()
         await flush()
+        // A draw published (or replaced) while the app is open must reach the blind rule now, not at the next reload.
+        var pilots = snapshot
+        for project in Set(snapshot.videos.compactMap(\.project)) { await refreshPilot(project, into: &pilots) }
+        if pilots.pilots != snapshot.pilots || pilots.pilotsChecked != snapshot.pilotsChecked {
+            snapshot.pilots = pilots.pilots; snapshot.pilotsChecked = pilots.pilotsChecked
+            LocalStore.save(snapshot, "snapshot.json")
+        }
         do {
             async let t = client.rallyTimes(since: last.addingTimeInterval(-Self.pullOverlap))
             async let k = client.tracks(since: last.addingTimeInterval(-Self.pullOverlap))
@@ -273,6 +275,17 @@ final class LabelerModel: ReviewStore {
         snapshot.events.removeAll { blocked.contains($0.videoId) }
         for id in blocked where outbox.events[id] != nil { eventIdentityProblems[id] = "withheld: this recording is not reviewable now; the edit is kept on this phone and not sent" }
         if snapshot.events.count != before { LocalStore.save(snapshot, "snapshot.json") }
+    }
+
+    /// Reads a project's pilot status from the server. Success records it (a draw, or none) as known; a failure
+    /// keeps a draw known before but marks the status unknown, so the phone stays blind until a read succeeds.
+    private func refreshPilot(_ project: String, into s: inout LabelSnapshot) async {
+        do {
+            if let pilot = try await client.pilot(project: project) { s.pilots[project] = pilot } else { s.pilots[project] = nil }
+            s.pilotsChecked.insert(project)
+        } catch {
+            s.pilotsChecked.remove(project)
+        }
     }
 
     /// The frozen pilot's selected rallies in this recording (empty when there is no published draw).

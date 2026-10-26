@@ -462,6 +462,9 @@ enum PilotDraw {
                 files[s.video] = FileManager.default.fileExists(atPath: url.path) ? (try? EventReview.read(url)) : nil
             }
             guard let file = files[s.video]! else { rows.append(blank(s, status: FileManager.default.fileExists(atPath: EventReview.url(forVideo: session.sourceURL).path) ? "record_unreadable" : "not_reviewed")); continue }
+            // The same identity check as opening the recording: a record for another recording, or for footage that
+            // has been replaced, is reported, never counted.
+            if EventReview.identityProblem(of: file, for: session) != nil { rows.append(blank(s, status: "record_not_this_recording")); continue }
             // The same pairing the blind rule uses on both devices: the reviewed rally overlapping the legacy interval most
             // (independent of how either device numbered its legacy marks).
             guard let r = PilotBlind.answer(to: s.pilotWindow, in: file) else { rows.append(blank(s, status: "not_reviewed")); continue }
@@ -501,8 +504,7 @@ enum PilotDraw {
         func stats(_ v: [Double]) -> String {
             guard !v.isEmpty else { return "—" }
             let s = v.sorted()
-            let med = s[s.count / 2], q1 = s[s.count / 4], q3 = s[(3 * s.count) / 4]
-            return String(format: "median %+.3f s (IQR %+.3f…%+.3f, n=%d)", med, q1, q3, v.count)
+            return String(format: "median %+.3f s (IQR %+.3f…%+.3f, n=%d)", quantile(s, 0.5), quantile(s, 0.25), quantile(s, 0.75), v.count)
         }
         for surface in Array(Set(reviewed.map(\.surface))).sorted() + ["all"] {
             let mine = surface == "all" ? reviewed : reviewed.filter { $0.surface == surface }
@@ -528,6 +530,14 @@ enum PilotDraw {
     }
 
     /// The platform a review was committed on; "unknown" for a record that kept no per-rally tool.
+    /// The q-quantile of sorted values by linear interpolation (q = 0.5 is the median: the mean of the two middle
+    /// values for an even count).
+    static func quantile(_ sorted: [Double], _ q: Double) -> Double {
+        guard !sorted.isEmpty else { return .nan }
+        let pos = q * Double(sorted.count - 1), lo = Int(pos.rounded(.down)), hi = min(lo + 1, sorted.count - 1)
+        return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - Double(lo))
+    }
+
     static func platform(_ tool: String) -> String {
         tool.hasPrefix("Labeler") ? "iPhone" : tool.hasPrefix("RallyLab") ? "Mac" : (tool.isEmpty ? "unknown" : tool)
     }

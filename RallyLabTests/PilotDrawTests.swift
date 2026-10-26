@@ -298,4 +298,29 @@ final class PilotDrawTests: XCTestCase {
                                                       contact: .init(earliest: 12, latest: 12), dead: .init(earliest: 14, latest: 14), annotator: "BW", reviewedAt: EventReview.stamp(now)), in: &g)
         XCTAssertNil(PilotBlind.answer(to: w, in: g))
     }
+
+    func testMediansOfEvenCountsAverageTheMiddlePair() {
+        XCTAssertEqual(PilotDraw.quantile([-1, -1, -1, -1, 1, 1, 1, 1], 0.5), 0, accuracy: 1e-12, "8 per surface: no bias reported where there is none")
+        XCTAssertEqual(PilotDraw.quantile([1, 2, 3], 0.5), 2, accuracy: 1e-12)
+        XCTAssertEqual(PilotDraw.quantile([1, 2, 3, 4], 0.25), 1.75, accuracy: 1e-12)
+        XCTAssertEqual(PilotDraw.quantile([5], 0.75), 5, accuracy: 1e-12)
+    }
+
+    func testTheAuditCountsNoRecordThatIsNotThisRecordings() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("pilot-id-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = ISO8601DateFormatter().date(from: "2026-10-26T20:00:00Z")!
+        let video = root.appendingPathComponent("bch_c.mp4")
+        let session = VideoSession(name: "bch_c", sourcePath: video.path, split: "train", addedAt: now, frames: [])
+        let sel = PilotDraw.Selected(video: "bch_c", legacyIndex: 0, surface: "beach", group: "g", stratum: "short", substitutedFor: nil, legacyStart: 10, legacyEnd: 13, window: [5, 18], repeatReview: false)
+        let record = PilotDraw.Record(id: "EXP-z", createdAt: EventReview.stamp(now), project: "T", seed: 1, manifestHashes: .init(), model: "m", pool: [], candidates: [],
+                                      selection: [sel], unfilled: [], supersedes: nil, dryRun: false, note: nil)
+        // Another recording's record copied beside this one.
+        var foreign = EventReview.File(video: "other", sourceFingerprint: "file:x", frameRate: 30, durationSec: 60, tool: "RallyLab 1")
+        EventReview.Mutation.upsert(EventReview.Rally(rallyId: UUID(), kind: .rally, contact: .init(earliest: 10, latest: 10), dead: .init(earliest: 13, latest: 13), annotator: "BW", reviewedAt: EventReview.stamp(now)), in: &foreign)
+        try EventReview.write(foreign, to: EventReview.url(forVideo: video))
+        let audit = try PilotDraw.audit(record, root: root, sessions: [session])
+        XCTAssertEqual(audit.rows.map(\.status), ["record_not_this_recording"])
+    }
 }
