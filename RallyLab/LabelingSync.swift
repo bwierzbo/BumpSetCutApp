@@ -170,7 +170,7 @@ final class LabelingSync {
     /// encoding is made again — otherwise only videos without one get one.
     func sync(videos: Bool = true, remaking: @escaping (String) -> Bool = { _ in false }) async -> Bool {
         guard !isSyncing else { again = true; return false }
-        guard let project = projects.project?.name else { return false }
+        guard let project = projects.project?.name, let root = projects.projectDir else { return false }
         isSyncing = true
         defer {
             isSyncing = false
@@ -184,7 +184,7 @@ final class LabelingSync {
             var parts: [String] = []
             if videos {
                 let imported = try await importPhoneVideos(project: project)
-                let (listed, uploaded, failed) = try await publishVideos(project: project, remaking: remaking)
+                let (listed, uploaded, failed) = try await publishVideos(project: project, root: root, remaking: remaking)
                 try await publishBallPaths(project: project)
                 parts.append("\(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), \(imported) phone videos pulled in")
             }
@@ -192,7 +192,7 @@ final class LabelingSync {
             let (tracksSent, tracksReceived) = try await syncTracks(project: project, framesSent: framesSent)
             try await publishPlan(project: project)
             parts.append("rally times \(pushed) sent · \(pulled) received, tracked rallies \(tracksSent) sent · \(tracksReceived) received")
-            let events = try await syncRallyEvents(project: project)
+            let events = try await syncRallyEvents(project: project, root: root)
             parts.append("boundary records \(events.pushed) sent · \(events.pulled) received" + (events.conflicts.isEmpty ? "" : " · conflicts kept for: \(events.conflicts.joined(separator: ", "))")
                          + (events.withheldPublished.map { " · withheld list published (\($0))" } ?? " · withheld list NOT published — no boundary record sent"))
             status = "Synced: " + parts.joined(separator: ", ") + "."
@@ -271,14 +271,15 @@ final class LabelingSync {
 
     // MARK: - 2. Project videos to the phone
 
-    private func publishVideos(project: String, remaking: (String) -> Bool) async throws -> (listed: Int, uploaded: Int, failed: [String]) {
+    private func publishVideos(project: String, root: URL, remaking: (String) -> Bool) async throws -> (listed: Int, uploaded: Int, failed: [String]) {
         let remote = try await client.videos().filter { $0.project == project }
         var listed = 0, uploaded = 0
         var failed: [String] = []
         // Withheld recordings (the L2 closure) are never uploaded for the phone. When the closure cannot be read,
-        // nothing is uploaded at all (fail closed).
-        guard let withheld = await withheldClosure() else { return (0, 0, []) }
-        let sessions = projects.sampler.sessions.filter { FileManager.default.fileExists(atPath: $0.sourcePath) && !withheld.contains($0.name) }
+        // nothing is uploaded at all (fail closed). The closure is the captured project's: if the open project
+        // changed meanwhile, nothing of it is published under this project's name.
+        guard let withheld = await withheldClosure(root: root), projects.projectDir == root else { return (0, 0, []) }
+        let sessions = try DatasetStore(root: root).loadSessionsStrict().filter { FileManager.default.fileExists(atPath: $0.sourcePath) && !withheld.contains($0.name) }
         for (i, session) in sessions.enumerated() {
             guard let surface = LabelSurface(rawValue: Coverage.environment(session.name)) else { continue }
             let existing = remote.first { $0.sessionName == session.name }
@@ -406,10 +407,16 @@ final class LabelingSync {
     /// path or content** — a session over a withheld recording's file or a byte-identical copy — with the project's
     /// identities and sessions read strictly first. Anything unreadable gives nil, and nothing is published or
     /// uploaded then; the server keeps the list it has (fail closed).
-    private func withheldClosure() async -> Set<String>? {
-        guard let root = projects.projectDir else { return nil }
+    private func withheldClosure(root: URL) async -> Set<String>? {
         // Fingerprinting the withheld recordings' files is file work: off the main actor, so playback and editing go on.
-        return await Task.detached(priority: .utility) { try? EventReview.publishedWithheldNames(in: root) }.value
+        await Task.detached(priority: .utility) { try? EventReview.publishedWithheldNames(in: root) }.value
+    }
+
+    enum SyncFailure: LocalizedError {
+        case projectChanged(String)
+        var errorDescription: String? {
+            switch self { case .projectChanged(let p): return "the open project changed while syncing \(p): nothing more of it was published or written" }
+        }
     }
 
     /// Publishes the project's withheld list (the server refuses events for a project without one), then reconciles
@@ -417,8 +424,11 @@ final class LabelingSync {
     /// record at the revision it was loaded from, a pull writes the server's record (and the shadow), a conflict
     /// keeps the server's version beside the local one (`…rallyevents.conflict-r<n>.json`) and changes nothing.
     /// The legacy `rallylabels.json` is never touched; withheld recordings are never read or sent.
-    private func syncRallyEvents(project: String) async throws -> (pushed: Int, pulled: Int, conflicts: [String], withheldPublished: Int?) {
-        guard let withheld = await withheldClosure() else { return (0, 0, [], nil) }
+    private func syncRallyEvents(project: String, root: URL) async throws -> (pushed: Int, pulled: Int, conflicts: [String], withheldPublished: Int?) {
+        // The exclusions and the records are the captured project's (`root`): a project switched under a running
+        // sync must never publish another project's list under this name, nor write another project's files.
+        guard let withheld = await withheldClosure(root: root) else { return (0, 0, [], nil) }
+        guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
         var published: Int?
         do { published = try await client.publishWithheld(project: project, names: Array(withheld)) } catch LabelingClient.Failure.notSignedIn {
             throw LabelingClient.Failure.notSignedIn
@@ -430,8 +440,10 @@ final class LabelingSync {
         let remote = Dictionary(uniqueKeysWithValues: try await client.rallyEvents().map { ($0.videoId, $0) })
         var pushed = 0, pulled = 0
         var conflicts: [String] = []
+        let sessions = try DatasetStore(root: root).loadSessionsStrict()
         for video in videos {
-            guard let name = video.sessionName, !withheld.contains(name), let session = projects.session(named: name) else { continue }
+            guard let name = video.sessionName, !withheld.contains(name), let session = sessions.first(where: { $0.name == DatasetStore.safeName(name) }) else { continue }
+            guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
             let url = EventReview.url(forVideo: URL(fileURLWithPath: session.sourcePath))
             let shadowURL = RallyEventsSync.shadowURL(for: url)
             // A record that is present but cannot be read is left exactly as it is, and said so; never taken as absent.
