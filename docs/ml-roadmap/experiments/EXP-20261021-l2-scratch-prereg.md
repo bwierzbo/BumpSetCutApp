@@ -3,8 +3,8 @@ id: EXP-20261021-l2-scratch-prereg
 lineage: L2
 status: final approval given by the owner 2026-10-25 (record as merged in PR #95, incl. the §10 preservation policy); first L2 training run `l2_scratch_768_color_s20261021` started 2026-10-26T01:17Z and, after a desktop memory-commit crash in epoch 5, restarted clean at 07:02Z on the approved recipe (default loader workers; a 2-worker restart at 05:57Z was stopped as GPU-starved) (768, colour, 9 frames, 60 epochs, batch 8, seed 20261021, from scratch, no pseudo-labels); training in progress; holdout not evaluated; second seed, promotion and deployment not authorised
 created: 2026-10-21T20:19:11Z
-updated: 2026-10-26T07:06:21Z
-approved_by: recipe — owner, 2026-10-21 (D-019); completed record — not yet
+updated: 2026-10-26T15:16:00Z
+approved_by: recipe — owner, 2026-10-21 (D-019); completed record — owner, 2026-10-25 (final approval of the record as merged in PR #95, incl. the §10 preservation policy; verbatim in docs/decisions/2026-10-25-l2-final-approval-and-training-authorization.md)
 decision: D-017, D-018, D-019, D-022, D-023, D-025
 pr: data/l2-dataset-isolation (#73, merged), data/l2-package-export (#75, merged), feat/l2-export-resume (#85, merged), docs/l2-prereg-recovery (#87, merged), fix/l2-window-playable-range (#91, merged), fix/l2-window-fits-playable-end (#92, merged), fix/l2-undecodable-leading-pictures (#93, merged), docs/l2-run5-completion (#95, merged), docs/l2-training-start
 ---
