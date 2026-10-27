@@ -33,6 +33,12 @@ struct VideoDetailView: View {
                 NavigationLink {
                     RallyTimesView(model: model, video: video)
                 } label: { Label("Edit rally times", systemImage: "slider.horizontal.3") }
+                // Stage 1 rally boundaries (D-024): the same record and rules as RallyLab's Review tab.
+                NavigationLink {
+                    RallyBoundariesPhoneView(model: model, video: video)
+                } label: {
+                    Label(boundariesTitle, systemImage: "flag.checkered")
+                }
             }
             Section("Tracked rallies (\(tracks.filter(\.done).count) done)") {
                 ForEach(tracks) { t in
@@ -79,5 +85,15 @@ struct VideoDetailView: View {
         }
         .navigationTitle(video.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// The Stage 1 entry with where the review stands, so an unfinished recording is easy to resume.
+    private var boundariesTitle: String {
+        guard model.isReviewable(video) else { return "Rally boundaries (withheld or not yet published)" }
+        guard let f = model.rallyEvents(for: video)?.record else { return "Rally boundaries · not started" }
+        if f.stage1Complete != nil { return "Rally boundaries · fully reviewed" }
+        let reviewed = EventReview.union(f.coverage).reduce(0) { $0 + $1.end - $1.start }
+        let share = f.durationSec > 0 ? Int((reviewed / f.durationSec * 100).rounded(.down)) : 0
+        return "Rally boundaries · \(share) % reviewed · \(f.rallies.filter { $0.reviewState == .reviewed }.count) rallies"
     }
 }

@@ -37,6 +37,13 @@ struct FrameClock: Equatable {
         return lo
     }
 
+    /// The presentation time of the frame shown at `t` — what an event is marked at, never the player's clock
+    /// between frames; nil until the frame times are known.
+    func snap(_ t: Double) -> Double? {
+        guard !times.isEmpty else { return nil }
+        return times[index(at: t)]
+    }
+
     /// The frame's start time, `count` frames from the one shown at `t`, clamped to the video.
     func step(from t: Double, by count: Int) -> Double {
         guard !times.isEmpty else { return max(0, t + Double(count) / max(frameRate, 1)) }
@@ -105,6 +112,11 @@ struct BoundaryEditor: Equatable {
         case undo                           // Z
         case select(UUID?)
         case cancel                         // ⎋: drop the draft and an open span
+
+        /// Whether the action names a frame: an event mark lands on the presentation time of the frame being
+        /// shown. Coverage, spans and the rest take the playhead as it is — "reviewed through here" at the
+        /// recording's end must reach the end, which can lie past the last frame's start.
+        var landsOnFrame: Bool { if case .mark = self { return true } else { return false } }
     }
 
     /// The rally being edited changed on the other side while the draft was open: the draft's base and what

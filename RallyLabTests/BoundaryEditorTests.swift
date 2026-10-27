@@ -327,4 +327,36 @@ final class BoundaryEditorTests: XCTestCase {
         commitRally(&e, contact: 1, dead: 2)
         XCTAssertNoThrow(try EventReview.validate(e.file))
     }
+    func testEventsLandOnTheDisplayedFramesPresentationTimeNotThePlayersClock() {
+        // 29.97 fps-like times: a scrub or a pause leaves the player's clock between frames.
+        let times = (0..<90).map { Double($0) * 1001 / 30000 }
+        let clock = FrameClock(times: times, frameRate: 29.97)
+        XCTAssertEqual(clock.snap(1.02), times[30], "between frames 30 and 31: frame 30 is shown")
+        XCTAssertEqual(clock.snap(times[31] - 1e-9), times[31], "a hair before a frame's start is that frame")
+        XCTAssertEqual(clock.snap(-0.5), times[0]); XCTAssertEqual(clock.snap(10), times[89])
+        XCTAssertNil(FrameClock(times: [], frameRate: 30).snap(1), "no frame times: nothing to land on")
+        // The editor, given the snapped time, records exactly that frame.
+        var e = editor(duration: 3, frameRate: 29.97)
+        _ = e.apply(.mark(.contact, .earliest), at: clock.snap(1.02)!, now: now)
+        XCTAssertEqual(e.draft.contact?.earliest, times[30]); XCTAssertEqual(e.draft.contact?.latest, times[30])
+    }
+
+    func testOnlyMarksLandOnFramesSoCoverageCanReachTheRecordingsEnd() {
+        // The last frame starts at 0.1 s but the recording lasts 0.3 s (a long final frame, an audio tail):
+        // "reviewed through here" at the end must reach 0.3, which no frame start can give.
+        let clock = FrameClock(times: [0, 0.0333, 0.0667, 0.1], frameRate: 30)
+        XCTAssertEqual(clock.snap(0.3), 0.1, "the shown frame at the end is the last one")
+        XCTAssertTrue(BoundaryEditor.Action.mark(.contact, .earliest).landsOnFrame)
+        for action in [BoundaryEditor.Action.reviewedThrough, .span(.transition), .commit, .complete, .select(nil), .cancel, .undo, .withdraw] {
+            XCTAssertFalse(action.landsOnFrame, "\(action) takes the playhead itself")
+        }
+        var e = editor(duration: 0.3, frameRate: 30)
+        _ = e.apply(.reviewedThrough, at: clock.snap(0.3)!, now: now)
+        XCTAssertFalse(e.unknownGaps.isEmpty, "snapped to the last frame's start, the end stays unknown")
+        var f = editor(duration: 0.3, frameRate: 30)
+        _ = f.apply(.reviewedThrough, at: 0.3, now: now)
+        XCTAssertTrue(f.unknownGaps.isEmpty)
+        XCTAssertTrue(f.apply(.complete, at: 0.3, now: now).changed, "the recording completes")
+    }
+
 }

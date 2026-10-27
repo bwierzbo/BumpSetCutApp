@@ -103,7 +103,11 @@ struct RallyBoundariesView: View {
                 Toggle("legacy marks", isOn: Binding(get: { model.showLegacy }, set: { model.showLegacy = $0 })).toggleStyle(.checkbox).controlSize(.small)
                 Button("Keys") { showHelp.toggle() }.controlSize(.small).popover(isPresented: $showHelp) { KeyHelp().padding() }
             }
-            BoundaryTimeline(model: model).frame(height: 54)
+            BoundaryTimelineView(file: model.file, duration: model.duration, playhead: model.playhead,
+                                 legacyMarks: model.legacyMarks.map { ($0.startTime, $0.endTime) }, showLegacy: model.showLegacy,
+                                 draft: draftBar, openSpanStart: model.editor?.openSpan?.start, selected: model.editor?.selected,
+                                 seek: { t, exact in model.seek(to: t, exact: exact) }, select: { t in model.selectRally(at: t) })
+                .frame(height: 54)
             if let c = model.editor?.draftConflict {
                 HStack(spacing: 8) {
                     Text("This rally changed on the other side while you were editing it (contact \(describe(c.incoming.contact)), dead \(describe(c.incoming.dead)) there).").font(.caption)
@@ -153,6 +157,12 @@ struct RallyBoundariesView: View {
         let a = r.contact.map { BoundaryEditor.clock($0.earliest) } ?? "?"
         let b = r.dead.map { BoundaryEditor.clock($0.earliest) } ?? "?"
         return "\(r.kind.rawValue) \(a) → \(b)" + (r.flags.isEmpty ? "" : " ⚑")
+    }
+
+    /// The draft rally's extent for the timeline, when it has an event.
+    private var draftBar: (start: Double, end: Double)? {
+        guard let d = model.editor?.draft, let a = d.contact?.earliest ?? d.dead?.earliest, let b = d.dead?.latest ?? d.contact?.latest else { return nil }
+        return (a, b)
     }
 
     private func describe(_ e: EventReview.EventTime?) -> String {
@@ -225,67 +235,5 @@ private struct CoverageBar: View {
             }
         }
         .frame(height: 5)
-    }
-}
-
-/// The whole recording: reviewed coverage (green floor), unknown (dark), spans (amber / grey / purple),
-/// rallies (blue; withdrawn dimmed; ambiguous ends hatched), legacy marks (thin orange, optional),
-/// the draft (white outline), the playhead. Click or drag to seek.
-private struct BoundaryTimeline: View {
-    let model: RallyBoundariesModel
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width, h = geo.size.height
-            let d = max(model.duration, 0.001)
-            let x: (Double) -> CGFloat = { CGFloat($0 / d) * w }
-            Canvas { ctx, _ in
-                ctx.fill(Path(roundedRect: CGRect(x: 0, y: 0, width: w, height: h), cornerRadius: 4), with: .color(.black.opacity(0.35)))
-                if let f = model.file {
-                    for c in EventReview.union(f.coverage) {
-                        ctx.fill(Path(CGRect(x: x(c.start), y: h - 8, width: max(1, x(c.end) - x(c.start)), height: 8)), with: .color(.green.opacity(0.8)))
-                    }
-                    for s in f.spans {
-                        let color: Color = s.kind == .nonRallyActivity ? .orange : s.kind == .transition ? .gray : .purple
-                        ctx.fill(Path(CGRect(x: x(s.start), y: h * 0.55, width: max(2, x(s.end) - x(s.start)), height: h * 0.25)), with: .color(color.opacity(0.7)))
-                    }
-                    for r in f.rallies {
-                        guard let a = r.contact?.earliest ?? r.dead?.earliest, let b = r.dead?.latest ?? r.contact?.latest else { continue }
-                        let selected = r.rallyId == model.editor?.selected
-                        let rect = CGRect(x: x(a), y: h * 0.12, width: max(2, x(b) - x(a)), height: h * 0.38)
-                        ctx.fill(Path(rect), with: .color((r.reviewState == .withdrawn ? Color.gray : Color.blue).opacity(selected ? 1 : 0.7)))
-                        for e in [r.contact, r.dead].compactMap({ $0 }) where e.earliest < e.latest {
-                            ctx.fill(Path(CGRect(x: x(e.earliest), y: h * 0.12, width: max(1, x(e.latest) - x(e.earliest)), height: h * 0.38)), with: .color(.white.opacity(0.35)))
-                        }
-                    }
-                    if model.showLegacy {
-                        for m in model.legacyMarks {
-                            ctx.fill(Path(CGRect(x: x(m.startTime), y: h * 0.02, width: max(1, x(m.endTime) - x(m.startTime)), height: 3)), with: .color(.orange.opacity(0.9)))
-                        }
-                    }
-                    if let e = model.editor {
-                        if let a = e.draft.contact?.earliest ?? e.draft.dead?.earliest, let b = e.draft.dead?.latest ?? e.draft.contact?.latest {
-                            ctx.stroke(Path(CGRect(x: x(a), y: h * 0.10, width: max(2, x(b) - x(a)), height: h * 0.42)), with: .color(.white), lineWidth: 1.5)
-                        }
-                        if let s = e.openSpan { ctx.fill(Path(CGRect(x: x(s.start) - 1, y: h * 0.5, width: 2, height: h * 0.35)), with: .color(.orange)) }
-                    }
-                }
-                ctx.fill(Path(CGRect(x: x(model.playhead) - 1, y: 0, width: 2, height: h)), with: .color(.white))
-                var m = 60.0
-                while m < d {
-                    ctx.fill(Path(CGRect(x: x(m), y: h - 12, width: 1, height: 4)), with: .color(.white.opacity(0.5)))
-                    m += 60
-                }
-            }
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { drag in model.seek(to: Double(min(max(0, drag.location.x), w) / w) * d, exact: false) }
-                .onEnded { drag in
-                    let t = Double(min(max(0, drag.location.x), w) / w) * d
-                    model.seek(to: t)
-                    // A click (no real drag) selects the rally under it for correction.
-                    if abs(drag.translation.width) < 3 { model.selectRally(at: t) }
-                })
-        }
     }
 }
