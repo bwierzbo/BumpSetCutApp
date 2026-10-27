@@ -2,7 +2,7 @@
 title: Migration 049 — restrict protected footage — deployment, verification and residual risk
 status: prepared for the owner's deployment approval; NOT applied
 created: 2026-10-27T00:10:00Z
-updated: 2026-10-27T06:12:46Z
+updated: 2026-10-27T06:19:20Z
 pr: fix/protect-withheld-footage
 decision: owner decision of 2026-10-26 (docs/decisions/2026-10-26-stage1-integration-approvals.md §5); corrections requested 2026-10-27 (docs/decisions/2026-10-27-next-owner-decisions.md §2); D-002, D-017, D-018
 ---
@@ -32,10 +32,11 @@ The check runs at access time, so a recording withheld later is protected at onc
 | Storage: rename, move | any name in the bucket | the destination name must be readable too, so an object cannot be renamed or moved onto a protected or unreferenced name |
 | Storage: ball-path sidecar (`<clip>.ballpath.json`) | every object | follows its clip |
 | `label_videos`: creating rows and changing identities | anything | an ordinary labeler may create only a phone upload's own row (no project, recording or identities; a `phone/` object nobody else claims) and may never change a row's project, recording, copy path or identities (048's trigger `label_videos_guard`, live since 2026-10-27); no labeler-made row can point at a RallyLab copy or the unreferenced object |
-| Storage: upload | allowed | unchanged |
+| Storage: upload | allowed | unchanged; the uploader can read back its own new `phone/` object until the clip's row is saved (below) |
 
 Signed URLs: the storage API checks the caller's SELECT access on the object before it signs. Supabase's documentation shows that signed URLs serve private buckets and that object access is governed by `storage.objects` policies, but it gives no per-operation table. After deployment this is checked live (§4 step 4).
 
+- **A phone upload before its row exists.** The phone uploads a new clip first and saves its `label_videos` row afterwards. The storage API authorises an upload by writing the object and reading it back (`INSERT … ON CONFLICT DO UPDATE … RETURNING`, Supabase storage `src/storage/database/pg.ts`), which needs read access to the fresh object. An ordinary labeler may therefore also read an object that is under `phone/`, records the labeler as its `owner_id` (the storage API sets it to the caller's id), and that no row references yet. Once a row claims the path, the referencing rule alone decides, so a phone upload a lead later files under a protected recording is restricted like any other copy. Another labeler's unclaimed upload, an upload claiming someone else's id and any path outside `phone/` stay unreadable.
 - **The unreferenced object** `rallylab/Scratch/ind_gnd_dim_land_self_02_v2-v2.mp4` is referenced by no row, so no ordinary labeler can read, sign, change or delete it until its identity is established.
 - **Leads are unaffected.** The lead publishes the list and runs RallyLab's sync. The owner is the only lead.
 - **Lead-only paths are unaffected.** The SECURITY DEFINER functions over these tables are either lead-only (`labeler_frames`, `labeler_summary`, `rally_finals`, `label_verdicts`) or return counts only (`rallycoin_board`). `label_rally_finals` has RLS with no policies, so the API cannot read it.
@@ -55,6 +56,7 @@ Run without the fix, the same tests fail at the first check: an ordinary labeler
 **What the tests cover**, for an ordinary labeler:
 - **Reads:** sees only the eligible recording and the phone upload. The withheld recording, its alias and the unlisted project's recording are hidden. The copies of protected recordings and the unreferenced object cannot be listed or read by name, so they cannot be signed. Rally times, tracks and the labeler's own frame log on protected recordings are hidden.
 - **Writes:** cannot update, delete or recreate a protected row, track, copy or the unreferenced object. Cannot forge a reference: a new row pointing at a protected copy or the unreferenced object, a second claim on a phone upload, a row with a project, or rewriting a row's copy path, project or identities are all refused. Can still edit an eligible row's status, add its own phone upload's row and upload from the phone. A protected clip's sidecar is refused and an eligible clip's is readable.
+- **Phone uploads:** a fresh upload passes the storage API's upsert check, and so does a retry that replaces it. The phone then saves the clip's row and the clip stays readable through it. An upload claiming another labeler's id, an unreferenced path outside `phone/`, and another labeler's unclaimed upload are all refused. Run against the previous head of this migration, the fresh-upload check fails, which is the defect the review found.
 - **Renames and moves:** an object cannot be renamed onto a protected copy's name or sidecar, onto an unreferenced name, or into another bucket. Replacing a readable object under its own name, as the phone's upsert upload does, still works. Postgres already checks the new row against the read policy when the update's `WHERE` reads a column, which the storage API's move does. The update policy's own check closes the case of an update that reads no column. Two tests cover that case, and both fail on the earlier version of this migration.
 - **Later withholding:** a recording withheld later is hidden at once, together with its copy.
 
@@ -88,6 +90,7 @@ The stand-in `label_videos` carries the live `label_videos_status_check` constra
    - Simulate a non-lead labeler session in SQL (`SET LOCAL ROLE authenticated` plus the JWT subject of a non-lead labeler, inside a transaction that is rolled back) and confirm the reads in §2 against the live rows: no protected row, track, copy, or the unreferenced object.
    - Signing needs a non-lead labeler's token. A tester account can ask to sign the URL of a protected copy and must be refused.
    - The lead's RallyLab sync still lists and uploads normally.
+   - A phone upload by an ordinary labeler still succeeds. This needs a non-lead labeler's token and a small test file under `phone/`, removed afterwards, and therefore the owner's go at that point; until then the local upsert test above is the evidence.
 5. The first phone reload after deployment prunes local protected copies.
 
 ## 5. Rollback (restores the previous access; deletes nothing)

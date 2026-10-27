@@ -75,7 +75,7 @@ ALTER TABLE public.label_frame_log ENABLE ROW LEVEL SECURITY;
 CREATE POLICY label_frame_log_select ON public.label_frame_log FOR SELECT TO authenticated USING ((labeler = (SELECT auth.uid())) OR (SELECT private.is_lead()));
 CREATE SCHEMA IF NOT EXISTS storage;
 GRANT USAGE ON SCHEMA storage TO anon, authenticated;
-CREATE TABLE storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text NOT NULL, name text NOT NULL, owner uuid DEFAULT auth.uid(), UNIQUE (bucket_id, name));
+CREATE TABLE storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text NOT NULL, name text NOT NULL, owner uuid DEFAULT auth.uid(), owner_id text DEFAULT (auth.uid())::text, UNIQUE (bucket_id, name));
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 GRANT ALL ON storage.objects TO anon, authenticated;
 CREATE POLICY labeling_select ON storage.objects FOR SELECT TO authenticated USING ((bucket_id = 'labeling') AND (SELECT private.is_labeler()));

@@ -44,14 +44,21 @@ AS $$
 $$;
 
 -- A storage object of the labeling bucket the caller may read: a lead always; a labeler when a row references the
--- object (or, for a ball-path sidecar, its clip) and no protected row does.
-CREATE OR REPLACE FUNCTION private.label_object_readable(p_name text) RETURNS boolean
+-- object (or, for a ball-path sidecar, its clip) and no protected row does; and the labeler's own phone upload that no
+-- row references yet. The phone uploads a clip before it saves the clip's row, and the storage API authorises an
+-- upload by inserting the object and reading it back (an upsert: INSERT … ON CONFLICT DO UPDATE … RETURNING), so
+-- the uploader must be able to read the fresh object. Only under phone/, only its owner (the storage API records the
+-- caller's id as owner_id), and only until a row claims the path: from then on the first rule decides, so a phone
+-- upload a lead later files under a protected recording is restricted like any other copy.
+CREATE OR REPLACE FUNCTION private.label_object_readable(p_name text, p_owner text) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''
 AS $$
     WITH clip AS (SELECT regexp_replace(p_name, '\.ballpath\.json$', '') AS path)
     SELECT (SELECT private.is_lead())
         OR (EXISTS (SELECT 1 FROM public.label_videos v, clip WHERE v.clip_path = clip.path)
             AND NOT EXISTS (SELECT 1 FROM public.label_videos v, clip WHERE v.clip_path = clip.path AND private.label_session_protected(v.project, v.session_name)))
+        OR (p_name LIKE 'phone/%' AND p_owner IS NOT NULL AND p_owner = (SELECT auth.uid())::text
+            AND NOT EXISTS (SELECT 1 FROM public.label_videos v, clip WHERE v.clip_path = clip.path))
 $$;
 
 -- References cannot be forged: 048's guard (private.label_videos_guard) lets an ordinary labeler add only a phone
@@ -59,9 +66,9 @@ $$;
 -- point at a RallyLab copy or the unreferenced object.
 
 REVOKE ALL ON FUNCTION private.label_session_protected(text, text), private.label_video_readable(uuid),
-                       private.label_track_readable(uuid), private.label_object_readable(text) FROM PUBLIC, anon;
+                       private.label_track_readable(uuid), private.label_object_readable(text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION private.label_session_protected(text, text), private.label_video_readable(uuid),
-                          private.label_track_readable(uuid), private.label_object_readable(text) TO authenticated;
+                          private.label_track_readable(uuid), private.label_object_readable(text, text) TO authenticated;
 
 -- label_videos: one policy per command, protected rows refused to ordinary labelers.
 DROP POLICY IF EXISTS "label_videos_labelers" ON public.label_videos;
@@ -92,16 +99,17 @@ DROP POLICY IF EXISTS "label_frame_log_select" ON public.label_frame_log;
 CREATE POLICY "label_frame_log_select" ON public.label_frame_log FOR SELECT TO authenticated
     USING ((SELECT private.is_lead()) OR (labeler = (SELECT auth.uid()) AND private.label_track_readable(track)));
 
--- Storage: reading (and so signing), replacing and deleting a labeling object needs a readable row referencing it. An
+-- Storage: reading (and so signing), replacing and deleting a labeling object needs a readable row referencing it (or
+-- is the caller's own phone upload not yet claimed by a row, as above). An
 -- update needs it on both names, the object's and the one it would have afterwards, so a rename or move can neither
 -- take a readable object onto a protected or unreferenced name nor leave the bucket.
 DROP POLICY IF EXISTS "labeling_select" ON storage.objects;
 CREATE POLICY "labeling_select" ON storage.objects FOR SELECT TO authenticated
-    USING (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name));
+    USING (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name, owner_id));
 DROP POLICY IF EXISTS "labeling_update" ON storage.objects;
 CREATE POLICY "labeling_update" ON storage.objects FOR UPDATE TO authenticated
-    USING (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name))
-    WITH CHECK (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name));
+    USING (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name, owner_id))
+    WITH CHECK (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name, owner_id));
 DROP POLICY IF EXISTS "labeling_delete" ON storage.objects;
 CREATE POLICY "labeling_delete" ON storage.objects FOR DELETE TO authenticated
-    USING (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name));
+    USING (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name, owner_id));
