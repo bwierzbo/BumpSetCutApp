@@ -125,6 +125,7 @@
 				Shared/MarkingProgress.swift,
 				Shared/PipelineVideo.swift,
 				Shared/RallyEvents.swift,
+				Shared/RallyEventsSync.swift,
 				Shared/RallyTimesBar.swift,
 				Shared/RallyTrack.swift,
 				Shared/ReviewCanvas.swift,

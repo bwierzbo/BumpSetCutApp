@@ -107,6 +107,13 @@ struct BoundaryEditor: Equatable {
         case cancel                         // ⎋: drop the draft and an open span
     }
 
+    /// The rally being edited changed on the other side while the draft was open: the draft's base and what
+    /// arrived. Nothing is committed over it until the reviewer decides (keep mine, or take theirs).
+    struct DraftConflict: Equatable {
+        var base: EventReview.Rally
+        var incoming: EventReview.Rally
+    }
+
     struct Outcome: Equatable {
         var message: String
         /// The record changed: write it.
@@ -119,6 +126,7 @@ struct BoundaryEditor: Equatable {
     private(set) var openSpan: (kind: EventReview.SpanKind, start: Double)?
     private(set) var selected: UUID?
     private(set) var lastMarked: Event?
+    private(set) var draftConflict: DraftConflict?
     private var history: [EventReview.File] = []
     let annotator: String
     let tool: String
@@ -136,6 +144,48 @@ struct BoundaryEditor: Equatable {
     }
 
     var canUndo: Bool { !history.isEmpty }
+
+    /// A synchronised version of this record arrived (a push's reply or a pull): take it, keeping the draft and
+    /// an open span — a draft is not in the record — and the selection when its rally still exists. Equal content
+    /// only updates the revision bookkeeping. Returns whether the content changed.
+    @discardableResult
+    mutating func adopt(_ synced: EventReview.File) -> Bool {
+        let changed = !RallyEventsSync.sameContent(file, synced)
+        if changed { push() }
+        let before = selectedRally
+        file = synced
+        // A selected rally that the other side withdrew (or that is gone) can no longer be edited: deselect it.
+        guard let id = selected, let now = file.rallies.first(where: { $0.rallyId == id && $0.reviewState != .withdrawn }) else {
+            // Deselect the withdrawn rally; a draft is dropped only when it is that rally's (a new rally being built
+            // after a commit — rallyId nil — is the reviewer's work and stays).
+            if let gone = selected {
+                selected = nil
+                if draft.rallyId == gone { draft = Draft(); draftConflict = nil }
+            }
+            return changed
+        }
+        // The rally under the draft changed on the other side: an untouched draft follows it; an edited draft
+        // keeps its base and waits for the reviewer's decision — never committed over the newer version unseen.
+        if let before, before != now, draft.rallyId == id {
+            if draft == Draft.of(before) { draft = Draft.of(now) } else { draftConflict = DraftConflict(base: before, incoming: now) }
+        }
+        return changed
+    }
+
+    /// The reviewer decided a draft conflict: keep mine (the draft goes on over the incoming rally and the next
+    /// commit replaces it, explicitly), or take theirs (the draft reloads from the incoming rally).
+    mutating func resolveDraftConflict(keepMine: Bool) {
+        guard let c = draftConflict else { return }
+        if !keepMine { draft = Draft.of(c.incoming); lastMarked = c.incoming.dead != nil ? .dead : (c.incoming.contact != nil ? .contact : nil) }
+        draftConflict = nil
+    }
+
+    /// The original's content fingerprint for a record from before it was kept, recorded once (the next commit
+    /// writes it); a record that has one is never changed.
+    mutating func recordSourceFingerprint(_ fingerprint: String) {
+        guard file.sourceFingerprint == nil else { return }
+        file.sourceFingerprint = fingerprint
+    }
 
     /// The original's frame identity, recorded once (the next commit writes it); never overwritten.
     mutating func recordFrameTimesDigest(_ digest: String) {
@@ -231,6 +281,7 @@ struct BoundaryEditor: Equatable {
             EventReview.Mutation.markReviewed(from: from, to: t, in: &file, at: now, annotator: annotator)
             return Outcome(message: "reviewed through \(Self.clock(t)) (\(Int((EventReview.union(file.coverage).reduce(0) { $0 + $1.end - $1.start }) / file.durationSec * 100)) %)", changed: true)
         case .commit:
+            if draftConflict != nil { return Outcome(message: "this rally changed on the other side while you were editing it: Keep mine or Take theirs first", changed: false, refused: true) }
             guard !draft.isEmpty || draft.rallyId != nil else { return Outcome(message: "nothing to commit: mark the serve contact (S) and the ball dead (D)", changed: false, refused: true) }
             if draft.kind != .other, draft.contact == nil, draft.edge != .start { return Outcome(message: "no serve contact: mark it (S) or an edge (E) when the recording starts after it", changed: false, refused: true) }
             if draft.kind != .other, draft.dead == nil, draft.edge != .end { return Outcome(message: "no ball dead: mark it (D) or an edge (E) when the recording ends before it", changed: false, refused: true) }
@@ -270,15 +321,20 @@ struct BoundaryEditor: Equatable {
             guard let id = selected, file.rallies.contains(where: { $0.rallyId == id && $0.reviewState == .reviewed }) else { return Outcome(message: "select a rally to withdraw", changed: false, refused: true) }
             push()
             _ = EventReview.Mutation.withdraw(id, in: &file, at: now, annotator: annotator)
-            draft = Draft(); selected = nil
+            draft = Draft(); selected = nil; draftConflict = nil
             return Outcome(message: "rally withdrawn (kept on record)", changed: true)
         case .undo:
-            guard let previous = history.popLast() else { return Outcome(message: "nothing to undo", changed: false, refused: true) }
+            guard var previous = history.popLast() else { return Outcome(message: "nothing to undo", changed: false, refused: true) }
+            // The revision is sync bookkeeping, not content: an undo restores the content at the revision the
+            // record has now, so the next sync pushes it as a change, never as a stale copy.
+            previous.revision = file.revision
+            previous.frameTimesDigest = file.frameTimesDigest ?? previous.frameTimesDigest
             file = previous
-            draft = Draft(); openSpan = nil; selected = nil
+            draft = Draft(); openSpan = nil; selected = nil; draftConflict = nil
             return Outcome(message: "undone", changed: true)
         case .select(let id):
             selected = id
+            if draft.rallyId != id { draftConflict = nil }
             if let r = selectedRally {
                 // The draft already holds this rally's edits: keep them. Otherwise load the rally (also right
                 // after a commit, which leaves the rally selected but the draft empty).
@@ -286,7 +342,7 @@ struct BoundaryEditor: Equatable {
             } else { draft = Draft() }
             return Outcome(message: selectedRally.map { "editing rally \($0.rallyId.uuidString.prefix(8))" } ?? "", changed: false)
         case .cancel:
-            draft = Draft(); openSpan = nil; selected = nil; lastMarked = nil
+            draft = Draft(); openSpan = nil; selected = nil; lastMarked = nil; draftConflict = nil
             return Outcome(message: "cancelled", changed: false)
         }
     }

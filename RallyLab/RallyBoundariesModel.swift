@@ -85,7 +85,11 @@ final class RallyBoundariesModel {
             guard mine == generation else { return }
             openedRoot = root
             session = opened
-            editor = BoundaryEditor(file: opened.file, annotator: annotator, tool: tool)
+            var e = BoundaryEditor(file: opened.file, annotator: annotator, tool: tool)
+            // A record from before the footage fingerprint was kept: open has just checked the name, so the footage
+            // on disk is recorded as its original (written with the next commit; never overwrites one that exists).
+            if opened.file.sourceFingerprint == nil, let current = ProjectsModel.fileFingerprint(atPath: video.sourcePath) { e.recordSourceFingerprint(current) }
+            editor = e
             legacyMarks = (try? Data(contentsOf: RallyMarkModel.labelsURL(for: video.sourceURL))).flatMap { try? JSONDecoder().decode([RallyMarkRecord].self, from: $0) } ?? []
             duration = opened.file.durationSec
             let player = AVPlayer(url: video.sourceURL)
@@ -219,6 +223,26 @@ final class RallyBoundariesModel {
         lastRefused = outcome.refused
         if outcome.changed { refreshRecordings() }
         return !outcome.refused
+    }
+
+    /// The sync wrote this recording's record (a push's reply or a pull): take it, keeping the draft, so the next
+    /// commit carries the server's revision and shows what the server has.
+    func recordSynced(root: URL, _ name: String, _ record: EventReview.File) {
+        // The same session name exists in other projects: only the record of the project this recording was
+        // opened from is taken.
+        guard root == openedRoot, name == sessionName, var e = editor else { return }
+        let changed = e.adopt(record)
+        editor = e
+        if changed { status = "record updated from the sync (revision \(record.revision))" }
+    }
+
+    /// The rally under the draft changed elsewhere: keep mine (commit replaces theirs, explicitly) or take theirs.
+    func resolveDraftConflict(keepMine: Bool) {
+        guard var e = editor, e.draftConflict != nil else { return }
+        e.resolveDraftConflict(keepMine: keepMine)
+        editor = e
+        status = keepMine ? "keeping my edits over the other side's version; ⏎ commits them" : "took the other side's version"
+        lastRefused = false
     }
 
     func select(_ id: UUID?) {

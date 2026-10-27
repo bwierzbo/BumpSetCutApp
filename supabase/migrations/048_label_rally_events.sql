@@ -1,0 +1,222 @@
+-- 048_label_rally_events.sql
+--
+-- Stage 1 rally-boundary records (D-024) shared between the Mac and the phone:
+-- one row per recording holding the whole versioned `rallyevents.json` record
+-- (rally_event_truth_v1), a server-kept revision, and who saved it. Writes go
+-- through `rally_events_save` only: it refuses a stale revision (optimistic
+-- concurrency — the conflict comes back to the client, nothing is merged over),
+-- refuses any recording on the project's withheld list (the L2 withheld
+-- closure, published by the Mac), refuses a project whose list has never
+-- been published (unknown = withheld), and refuses a record whose footage
+-- identity (sourceFingerprint, and frameTimesDigest when both sides have one)
+-- is not the recording's published original — missing identity fails closed.
+-- Reads are protected the same way: a labeler sees a record only while its
+-- project has a published list and the recording is not on it, judged at read
+-- time, so a recording withheld after publication disappears from reads at once.
+-- The legacy label_rally_times rows are untouched.
+
+-- The withheld closure per project, as RallyLab computes it (ReservedVideos.lineageWithheldNames):
+-- lineage holdout, legacy holdout, final test, candidates and every alias. Published whole by a lead.
+CREATE TABLE IF NOT EXISTS public.label_withheld (
+    project      text NOT NULL,
+    session_name text NOT NULL,
+    listed_by    uuid REFERENCES auth.users(id) ON DELETE SET NULL DEFAULT auth.uid(),
+    listed_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (project, session_name)
+);
+ALTER TABLE public.label_withheld ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.label_withheld FROM anon;
+
+-- Which projects have a published list at all: a project without one is unknown, so no event is accepted for it.
+CREATE TABLE IF NOT EXISTS public.label_withheld_lists (
+    project    text PRIMARY KEY,
+    names      integer NOT NULL DEFAULT 0,
+    listed_by  uuid REFERENCES auth.users(id) ON DELETE SET NULL DEFAULT auth.uid(),
+    listed_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.label_withheld_lists ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.label_withheld_lists FROM anon;
+
+CREATE TABLE IF NOT EXISTS public.label_rally_events (
+    video_id           uuid PRIMARY KEY REFERENCES public.label_videos(id) ON DELETE CASCADE,
+    project            text NOT NULL,
+    session_name       text NOT NULL,
+    annotation_version text NOT NULL,
+    -- The record as the apps write it (camelCase keys, EventReview.File); `revision` inside it equals the column.
+    record             jsonb NOT NULL,
+    revision           integer NOT NULL DEFAULT 1,
+    updated_by         uuid REFERENCES auth.users(id) ON DELETE SET NULL DEFAULT auth.uid(),
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (project, session_name)
+);
+ALTER TABLE public.label_rally_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.label_rally_events FROM anon;
+CREATE INDEX IF NOT EXISTS label_rally_events_updated_at_idx ON public.label_rally_events (updated_at);
+
+-- Labelers read the withheld list (names only: the clients need them to refuse locally too). No direct write
+-- policy exists on any of the three tables — writes go through the functions below.
+DO $$
+DECLARE t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['label_withheld', 'label_withheld_lists'] LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "%1$s_labelers_read" ON public.%1$I', t);
+        EXECUTE format('CREATE POLICY "%1$s_labelers_read" ON public.%1$I FOR SELECT TO authenticated
+                        USING ((SELECT private.is_labeler()))', t);
+    END LOOP;
+END $$;
+
+-- A record is readable only while its project has a published withheld list and the recording is not on it —
+-- checked at read time, so a recording (or alias) added to the list later is hidden from every read at once.
+-- Leads are held to the same rule: a protected record is protected from everyone through the API.
+DROP POLICY IF EXISTS "label_rally_events_labelers_read" ON public.label_rally_events;
+CREATE POLICY "label_rally_events_labelers_read" ON public.label_rally_events FOR SELECT TO authenticated
+    USING (
+        (SELECT private.is_labeler())
+        AND EXISTS (SELECT 1 FROM public.label_withheld_lists l WHERE l.project = label_rally_events.project)
+        AND NOT EXISTS (SELECT 1 FROM public.label_withheld w
+                         WHERE w.project = label_rally_events.project AND w.session_name = label_rally_events.session_name)
+    );
+
+-- The frame identity of the copy's original (FrameIdentity.digest), published by the Mac with the copy; the
+-- phone compares its downloaded copy's own frames with it before any event commit. The original's content
+-- fingerprint (ProjectsModel.fileFingerprint, `file:<sha256>`) travels with it so a record started on the phone
+-- names the original exactly as one started on the Mac does.
+ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS frame_times_digest text;
+ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS source_fingerprint text;
+
+-- The identities above, and a recording's project and name, are what every save and read here is judged by: only a
+-- lead (RallyLab's publication) sets or changes them. 028's labeler policy still lets an ordinary labeler write
+-- label_videos, so a guard narrows it: such a labeler may add only a phone upload's own row (no project, recording or
+-- identities; a phone/ object no other row claims) and may never change a row's project, recording, copy path or
+-- identities. Server-side work (migrations, the service role) has no signed-in user and is not limited.
+CREATE OR REPLACE FUNCTION private.label_videos_guard() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $$
+BEGIN
+    IF (SELECT auth.uid()) IS NULL OR (SELECT private.is_lead()) THEN RETURN NEW; END IF;
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.project IS NOT NULL OR NEW.session_name IS NOT NULL OR NEW.source_fingerprint IS NOT NULL OR NEW.frame_times_digest IS NOT NULL
+           OR (NEW.clip_path IS NOT NULL AND NEW.clip_path NOT LIKE 'phone/%')
+           OR (NEW.clip_path IS NOT NULL AND EXISTS (SELECT 1 FROM public.label_videos v WHERE v.clip_path = NEW.clip_path)) THEN
+            RAISE EXCEPTION 'label_videos: a labeler may add only a phone upload''s own row' USING ERRCODE = '42501';
+        END IF;
+    ELSIF NEW.project IS DISTINCT FROM OLD.project OR NEW.session_name IS DISTINCT FROM OLD.session_name
+          OR NEW.clip_path IS DISTINCT FROM OLD.clip_path OR NEW.source_fingerprint IS DISTINCT FROM OLD.source_fingerprint
+          OR NEW.frame_times_digest IS DISTINCT FROM OLD.frame_times_digest THEN
+        RAISE EXCEPTION 'label_videos: a labeler may not change a recording''s project, name, copy or identities' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION private.label_videos_guard() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS label_videos_guard ON public.label_videos;
+CREATE TRIGGER label_videos_guard BEFORE INSERT OR UPDATE ON public.label_videos FOR EACH ROW EXECUTE FUNCTION private.label_videos_guard();
+
+-- Publish a project's withheld list whole (leads only). Replaces the previous list in one transaction.
+CREATE OR REPLACE FUNCTION public.label_withheld_publish(p_project text, p_names text[]) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $$
+DECLARE n integer;
+BEGIN
+    IF NOT (SELECT private.is_lead()) THEN
+        RAISE EXCEPTION 'label_withheld_publish: leads only' USING ERRCODE = '42501';
+    END IF;
+    IF p_project IS NULL OR p_project = '' THEN
+        RAISE EXCEPTION 'label_withheld_publish: a project name is required' USING ERRCODE = '22023';
+    END IF;
+    -- The same list as published: nothing is written (no broadcast, so two RallyLab instances never re-trigger each other).
+    IF EXISTS (SELECT 1 FROM public.label_withheld_lists WHERE project = p_project)
+       AND (SELECT coalesce(array_agg(session_name ORDER BY session_name), ARRAY[]::text[]) FROM public.label_withheld WHERE project = p_project)
+         = (SELECT coalesce(array_agg(DISTINCT x ORDER BY x), ARRAY[]::text[]) FROM unnest(coalesce(p_names, ARRAY[]::text[])) AS x WHERE x <> '') THEN
+        RETURN (SELECT names FROM public.label_withheld_lists WHERE project = p_project);
+    END IF;
+    DELETE FROM public.label_withheld WHERE project = p_project;
+    INSERT INTO public.label_withheld (project, session_name, listed_by, listed_at)
+        SELECT DISTINCT p_project, x, (SELECT auth.uid()), now() FROM unnest(coalesce(p_names, ARRAY[]::text[])) AS x WHERE x <> '';
+    GET DIAGNOSTICS n = ROW_COUNT;
+    INSERT INTO public.label_withheld_lists (project, names, listed_by, listed_at) VALUES (p_project, n, (SELECT auth.uid()), now())
+        ON CONFLICT (project) DO UPDATE SET names = excluded.names, listed_by = excluded.listed_by, listed_at = excluded.listed_at;
+    RETURN n;
+END;
+$$;
+
+-- Save a recording's record at an expected revision. Returns the row as saved (new revision inside and out).
+--   stale revision  → P0001 'conflict: …'   (the client keeps both versions and asks the person)
+--   withheld        → 42501 'withheld: …'   (also when the project has no published list)
+--   identity        → 22023 'identity: …'  (no published original fingerprint, a record without one, a record
+--                                            for other footage, or a frame digest that differs from the published one)
+--   wrong record    → 22023                (version, or a record naming another recording)
+CREATE OR REPLACE FUNCTION public.rally_events_save(p_video uuid, p_expected integer, p_record jsonb)
+    RETURNS SETOF public.label_rally_events
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $$
+DECLARE
+    v_project text;
+    v_session text;
+    v_fingerprint text;
+    v_digest text;
+    v_current integer;
+    v_next integer;
+BEGIN
+    IF NOT (SELECT private.is_labeler()) THEN
+        RAISE EXCEPTION 'rally_events_save: labelers only' USING ERRCODE = '42501';
+    END IF;
+    SELECT project, session_name, source_fingerprint, frame_times_digest INTO v_project, v_session, v_fingerprint, v_digest
+      FROM public.label_videos WHERE id = p_video;
+    IF NOT FOUND OR v_project IS NULL OR v_session IS NULL THEN
+        RAISE EXCEPTION 'rally_events_save: no such recording' USING ERRCODE = '22023';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.label_withheld_lists WHERE project = v_project) THEN
+        RAISE EXCEPTION 'withheld: project % has no published withheld list; nothing is accepted until RallyLab publishes it', v_project USING ERRCODE = '42501';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.label_withheld WHERE project = v_project AND session_name = v_session) THEN
+        RAISE EXCEPTION 'withheld: % is a withheld recording', v_session USING ERRCODE = '42501';
+    END IF;
+    IF coalesce(p_record->>'annotationVersion', '') <> 'rally_event_truth_v1' THEN
+        RAISE EXCEPTION 'rally_events_save: annotationVersion % is not accepted', coalesce(p_record->>'annotationVersion', '(none)') USING ERRCODE = '22023';
+    END IF;
+    IF coalesce(p_record->>'video', '') <> v_session THEN
+        RAISE EXCEPTION 'rally_events_save: the record names %, not %', coalesce(p_record->>'video', '(none)'), v_session USING ERRCODE = '22023';
+    END IF;
+    -- The footage the record describes must be the recording's published original: unknown fails closed.
+    IF v_fingerprint IS NULL OR v_fingerprint = '' THEN
+        RAISE EXCEPTION 'identity: % has no published original fingerprint; nothing is accepted until RallyLab publishes it', v_session USING ERRCODE = '22023';
+    END IF;
+    IF coalesce(p_record->>'sourceFingerprint', '') <> v_fingerprint THEN
+        RAISE EXCEPTION 'identity: the record describes footage %, but % is %', coalesce(p_record->>'sourceFingerprint', '(none)'), v_session, v_fingerprint USING ERRCODE = '22023';
+    END IF;
+    IF v_digest IS NOT NULL AND v_digest <> '' AND coalesce(p_record->>'frameTimesDigest', '') <> '' AND p_record->>'frameTimesDigest' <> v_digest THEN
+        RAISE EXCEPTION 'identity: the record''s frame digest % is not the published original''s %', p_record->>'frameTimesDigest', v_digest USING ERRCODE = '22023';
+    END IF;
+    SELECT revision INTO v_current FROM public.label_rally_events WHERE video_id = p_video FOR UPDATE;
+    IF NOT FOUND THEN
+        IF p_expected <> 0 THEN
+            RAISE EXCEPTION 'conflict: no record on the server yet, expected revision % (server 0)', p_expected USING ERRCODE = 'P0001';
+        END IF;
+        v_next := 1;
+        INSERT INTO public.label_rally_events (video_id, project, session_name, annotation_version, record, revision, updated_by, updated_at)
+            VALUES (p_video, v_project, v_session, 'rally_event_truth_v1', jsonb_set(p_record, '{revision}', to_jsonb(v_next), true), v_next, (SELECT auth.uid()), now());
+    ELSE
+        IF v_current <> p_expected THEN
+            RAISE EXCEPTION 'conflict: the record changed on the server (revision %, expected %)', v_current, p_expected USING ERRCODE = 'P0001';
+        END IF;
+        v_next := v_current + 1;
+        UPDATE public.label_rally_events
+           SET record = jsonb_set(p_record, '{revision}', to_jsonb(v_next), true), revision = v_next,
+               annotation_version = 'rally_event_truth_v1', updated_by = (SELECT auth.uid()), updated_at = now()
+         WHERE video_id = p_video;
+    END IF;
+    RETURN QUERY SELECT * FROM public.label_rally_events WHERE video_id = p_video;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.label_withheld_publish(text, text[]), public.rally_events_save(uuid, integer, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.label_withheld_publish(text, text[]), public.rally_events_save(uuid, integer, jsonb) TO authenticated;
+
+-- Live notices as for the other labeling tables (045): a tiny broadcast, no row data.
+DROP TRIGGER IF EXISTS label_rally_events_live ON public.label_rally_events;
+CREATE TRIGGER label_rally_events_live AFTER INSERT OR UPDATE OR DELETE ON public.label_rally_events
+    FOR EACH STATEMENT EXECUTE FUNCTION private.notify_labeling();
+DROP TRIGGER IF EXISTS label_withheld_live ON public.label_withheld;
+CREATE TRIGGER label_withheld_live AFTER INSERT OR UPDATE OR DELETE ON public.label_withheld
+    FOR EACH STATEMENT EXECUTE FUNCTION private.notify_labeling();

@@ -104,6 +104,15 @@ struct RallyBoundariesView: View {
                 Button("Keys") { showHelp.toggle() }.controlSize(.small).popover(isPresented: $showHelp) { KeyHelp().padding() }
             }
             BoundaryTimeline(model: model).frame(height: 54)
+            if let c = model.editor?.draftConflict {
+                HStack(spacing: 8) {
+                    Text("This rally changed on the other side while you were editing it (contact \(describe(c.incoming.contact)), dead \(describe(c.incoming.dead)) there).").font(.caption)
+                    Button("Keep mine") { model.resolveDraftConflict(keepMine: true) }
+                    Button("Take theirs") { model.resolveDraftConflict(keepMine: false) }
+                    Spacer()
+                }
+                .controlSize(.small).padding(6).background(Color.red.opacity(0.12))
+            }
             inspector
             Text(model.status).font(.caption).foregroundStyle(model.lastRefused ? .red : .secondary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
         }

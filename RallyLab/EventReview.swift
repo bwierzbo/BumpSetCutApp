@@ -31,6 +31,54 @@ extension EventReview {
         try ReservedVideos.lineageWithheldNames(in: root)
     }
 
+    /// What the sync publishes as withheld, so the server refuses exactly what `open` refuses: the named closure
+    /// plus every session `refusal` refuses by path or content (a session over a withheld recording's file, or a
+    /// byte-identical copy). Identities and sessions are read strictly; anything unreadable throws, and the caller
+    /// publishes nothing then (fail closed).
+    static func publishedWithheldNames(in root: URL) throws -> Set<String> {
+        _ = try projectSourcesStrict(in: root)
+        let sessions = try DatasetStore(root: root).loadSessionsStrict()
+        // The protected identities (every withheld recording's files fingerprinted) are computed once for the scan.
+        guard let context = try withheldContext(root: root, sessions: sessions) else { return [] }
+        var names = context.withheld
+        for s in sessions where !names.contains(s.name) {
+            if refusal(of: s, context: context) != nil { names.insert(s.name) }
+        }
+        return names
+    }
+
+    /// What every refusal is judged against: the named closure, the project's sources, the files that belong to
+    /// withheld recordings, and the withheld recordings' content fingerprints. Built once and reused across a scan.
+    struct WithheldContext {
+        let withheld: Set<String>
+        let sources: [String: ClipSource]
+        let files: [(path: String, owner: String, what: String)]
+        let protected: Set<String>
+    }
+
+    /// nil when nothing is withheld. Throws when the identities cannot be read or a withheld recording's content
+    /// fingerprint cannot be established (withheldIdentityUnknown): then nothing opens.
+    static func withheldContext(root: URL, sessions: [VideoSession]) throws -> WithheldContext? {
+        let withheld = try withheldNames(in: root)
+        guard !withheld.isEmpty else { return nil }
+        let sources = try projectSourcesStrict(in: root)
+        func standard(_ path: String) -> String { URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path }
+        var files: [(path: String, owner: String, what: String)] = []
+        for w in sessions where withheld.contains(w.name) { files.append((standard(w.sourcePath), w.name, "file")) }
+        for (name, s) in sources where withheld.contains(name) {
+            if !s.clipFile.isEmpty { files.append((standard(s.clipFile), name, "cut file")) }
+            let origin = s.origin.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !origin.isEmpty, origin.hasPrefix("/") || origin.hasPrefix("~") { files.append((standard(origin), name, "original file")) }
+        }
+        // Every withheld recording must have a content fingerprint on hand (stored, derived from its file, its
+        // session file or its cut file) — the same rule the lineage package applies — or a byte copy of a missing
+        // original could not be told apart: then nothing opens.
+        let protected: Set<String>
+        do { protected = try LineagePackage.protectedSourceFingerprints(sessions: sessions, withheld: withheld, sources: sources) }
+        catch { throw Failure.withheldIdentityUnknown(error.localizedDescription) }
+        return WithheldContext(withheld: withheld, sources: sources, files: files, protected: protected)
+    }
+
     /// The project's videos by session name, strictly: a project.json that exists but can't be decoded
     /// throws, since the withheld recordings' cut files and fingerprints would otherwise vanish from
     /// the guard. No project.json (a project from before the Projects tab) is an empty map.
@@ -50,28 +98,19 @@ extension EventReview {
     /// or not it has a session: a YouTube source's effective fingerprint is its link, so its cut file
     /// is compared by content as well.
     static func refusal(of session: VideoSession, root: URL, sessions: [VideoSession]) throws -> String? {
-        let withheld = try withheldNames(in: root)
-        guard !withheld.isEmpty else { return nil }
+        guard let context = try withheldContext(root: root, sessions: sessions) else { return nil }
+        return refusal(of: session, context: context)
+    }
+
+    /// The same judgement against a context built once (a listed session is refused by name before its own
+    /// files, which the context also holds, could match it).
+    static func refusal(of session: VideoSession, context: WithheldContext) -> String? {
+        let withheld = context.withheld, sources = context.sources, protected = context.protected
         if withheld.contains(session.name) { return "listed, or aliased to a listed recording" }
         let fm = FileManager.default
-        func standard(_ path: String) -> String { URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path }
-        let path = standard(session.sourcePath)
-        let sources = try projectSourcesStrict(in: root)
-        // Files that belong to withheld recordings, and whose they are.
-        var files: [(path: String, owner: String, what: String)] = []
-        for w in sessions where withheld.contains(w.name) && w.name != session.name { files.append((standard(w.sourcePath), w.name, "file")) }
-        for (name, s) in sources where withheld.contains(name) && name != session.name {
-            if !s.clipFile.isEmpty { files.append((standard(s.clipFile), name, "cut file")) }
-            let origin = s.origin.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !origin.isEmpty, origin.hasPrefix("/") || origin.hasPrefix("~") { files.append((standard(origin), name, "original file")) }
-        }
+        let path = URL(fileURLWithPath: (session.sourcePath as NSString).expandingTildeInPath).standardizedFileURL.path
+        let files = context.files.filter { $0.owner != session.name }
         if let hit = files.first(where: { $0.path == path }) { return "its video is \(hit.owner)'s \(hit.what)" }
-        // Every withheld recording must have a content fingerprint on hand (stored, derived from its file, its
-        // session file or its cut file) — the same rule the lineage package applies — or a byte copy of a missing
-        // original could not be told apart: then nothing opens.
-        let protected: Set<String>
-        do { protected = try LineagePackage.protectedSourceFingerprints(sessions: sessions.filter { $0.name != session.name }, withheld: withheld.subtracting([session.name]), sources: sources) }
-        catch { throw Failure.withheldIdentityUnknown(error.localizedDescription) }
         guard fm.fileExists(atPath: session.sourcePath), let mine = ProjectsModel.fileFingerprint(atPath: session.sourcePath) else { return nil }
         guard protected.contains(mine) else { return nil }
         for (name, s) in sources where withheld.contains(name) && name != session.name {
