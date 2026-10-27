@@ -42,6 +42,12 @@ SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b
 SELECT pg_temp.expect($q$SELECT public.label_withheld_publish('Scratch', ARRAY['b'])$q$, '42501', 'leads only');
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
 SELECT pg_temp.check(public.label_withheld_publish('Scratch', ARRAY['b']) = 1, 'lead publishes one name');
+-- Publishing the same list again writes nothing (no broadcast loop between two RallyLab instances).
+RESET ROLE;
+UPDATE public.label_withheld_lists SET listed_at = '2000-01-01' WHERE project = 'Scratch';
+SET ROLE authenticated;
+SELECT pg_temp.check(public.label_withheld_publish('Scratch', ARRAY['b', 'b', '']) = 1, 'same list → same count');
+SELECT pg_temp.check((SELECT listed_at FROM public.label_withheld_lists WHERE project = 'Scratch') = '2000-01-01', 'same list → nothing rewritten');
 
 -- 2. Saving: a labeler, at the expected revision, for the published original only.
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);

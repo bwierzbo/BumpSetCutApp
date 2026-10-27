@@ -96,9 +96,15 @@ BEGIN
     IF p_project IS NULL OR p_project = '' THEN
         RAISE EXCEPTION 'label_withheld_publish: a project name is required' USING ERRCODE = '22023';
     END IF;
+    -- The same list as published: nothing is written (no broadcast, so two RallyLab instances never re-trigger each other).
+    IF EXISTS (SELECT 1 FROM public.label_withheld_lists WHERE project = p_project)
+       AND (SELECT coalesce(array_agg(session_name ORDER BY session_name), ARRAY[]::text[]) FROM public.label_withheld WHERE project = p_project)
+         = (SELECT coalesce(array_agg(DISTINCT x ORDER BY x), ARRAY[]::text[]) FROM unnest(coalesce(p_names, ARRAY[]::text[])) AS x WHERE x <> '') THEN
+        RETURN (SELECT names FROM public.label_withheld_lists WHERE project = p_project);
+    END IF;
     DELETE FROM public.label_withheld WHERE project = p_project;
     INSERT INTO public.label_withheld (project, session_name, listed_by, listed_at)
-        SELECT p_project, x, (SELECT auth.uid()), now() FROM unnest(coalesce(p_names, ARRAY[]::text[])) AS x WHERE x <> '';
+        SELECT DISTINCT p_project, x, (SELECT auth.uid()), now() FROM unnest(coalesce(p_names, ARRAY[]::text[])) AS x WHERE x <> '';
     GET DIAGNOSTICS n = ROW_COUNT;
     INSERT INTO public.label_withheld_lists (project, names, listed_by, listed_at) VALUES (p_project, n, (SELECT auth.uid()), now())
         ON CONFLICT (project) DO UPDATE SET names = excluded.names, listed_by = excluded.listed_by, listed_at = excluded.listed_at;
