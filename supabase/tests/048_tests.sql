@@ -72,6 +72,20 @@ SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c
 SELECT pg_temp.expect($q$SELECT * FROM public.rally_events_save('10000000-0000-0000-0000-00000000000a', 2, pg_temp.rec('a', 'file:a'))$q$, '42501', 'labelers only');
 SELECT pg_temp.check((SELECT count(*) FROM public.label_rally_events) = 0, 'a non-labeler reads nothing');
 
+-- 2b. The identities every save is judged by cannot be rewritten by an ordinary labeler (the live 028 policy allows writes).
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+SELECT pg_temp.expect($q$UPDATE public.label_videos SET source_fingerprint = 'file:other' WHERE session_name = 'a'$q$, '42501', 'may not change');
+SELECT pg_temp.expect($q$UPDATE public.label_videos SET frame_times_digest = 'dg-other' WHERE session_name = 'a'$q$, '42501', 'may not change');
+SELECT pg_temp.expect($q$UPDATE public.label_videos SET session_name = 'renamed' WHERE session_name = 'b'$q$, '42501', 'may not change');
+SELECT pg_temp.expect($q$UPDATE public.label_videos SET project = 'Other' WHERE session_name = 'b'$q$, '42501', 'may not change');
+SELECT pg_temp.expect($q$INSERT INTO public.label_videos (project, session_name, source_fingerprint) VALUES ('Scratch', 'forged', 'file:x')$q$, '42501', 'only a phone upload');
+SELECT pg_temp.check((SELECT source_fingerprint FROM public.label_videos WHERE session_name = 'a') = 'file:a', 'identities intact');
+-- The phone's own upload row and a status change still work; the lead still publishes identities.
+SELECT pg_temp.check(pg_temp.affected($q$INSERT INTO public.label_videos (clip_path, status) VALUES ('phone/p1.mp4', 'uploaded')$q$) = 1, 'a phone upload row');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET status = 'labeled' WHERE session_name = 'a'$q$) = 1, 'a status change');
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET frame_times_digest = 'dg-a' WHERE session_name = 'a'$q$) = 1, 'the lead publishes identities');
+
 -- 3. Direct writes are impossible for everyone; anon has no table access at all.
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
 SELECT pg_temp.expect($q$INSERT INTO public.label_rally_events (video_id, project, session_name, annotation_version, record) VALUES ('10000000-0000-0000-0000-00000000000e', 'Scratch', 'e', 'rally_event_truth_v1', '{}')$q$, '42501', 'row-level security');

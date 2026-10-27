@@ -52,4 +52,7 @@ CREATE TABLE public.label_videos (
     title        text NOT NULL DEFAULT ''
 );
 ALTER TABLE public.label_videos ENABLE ROW LEVEL SECURITY;
-CREATE POLICY label_videos_read ON public.label_videos FOR SELECT TO authenticated USING ((SELECT private.is_labeler()));
+-- As live (028): labelers have every command on label_videos.
+CREATE POLICY label_videos_labelers ON public.label_videos FOR ALL TO authenticated USING ((SELECT private.is_labeler())) WITH CHECK ((SELECT private.is_labeler()));
+ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS clip_path text;
+ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'rallylab';

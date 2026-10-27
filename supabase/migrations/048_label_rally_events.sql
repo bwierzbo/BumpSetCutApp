@@ -84,6 +84,34 @@ CREATE POLICY "label_rally_events_labelers_read" ON public.label_rally_events FO
 ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS frame_times_digest text;
 ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS source_fingerprint text;
 
+-- The identities above, and a recording's project and name, are what every save and read here is judged by: only a
+-- lead (RallyLab's publication) sets or changes them. 028's labeler policy still lets an ordinary labeler write
+-- label_videos, so a guard narrows it: such a labeler may add only a phone upload's own row (no project, recording or
+-- identities; a phone/ object no other row claims) and may never change a row's project, recording, copy path or
+-- identities. Server-side work (migrations, the service role) has no signed-in user and is not limited.
+CREATE OR REPLACE FUNCTION private.label_videos_guard() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $$
+BEGIN
+    IF (SELECT auth.uid()) IS NULL OR (SELECT private.is_lead()) THEN RETURN NEW; END IF;
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.project IS NOT NULL OR NEW.session_name IS NOT NULL OR NEW.source_fingerprint IS NOT NULL OR NEW.frame_times_digest IS NOT NULL
+           OR (NEW.clip_path IS NOT NULL AND NEW.clip_path NOT LIKE 'phone/%')
+           OR (NEW.clip_path IS NOT NULL AND EXISTS (SELECT 1 FROM public.label_videos v WHERE v.clip_path = NEW.clip_path)) THEN
+            RAISE EXCEPTION 'label_videos: a labeler may add only a phone upload''s own row' USING ERRCODE = '42501';
+        END IF;
+    ELSIF NEW.project IS DISTINCT FROM OLD.project OR NEW.session_name IS DISTINCT FROM OLD.session_name
+          OR NEW.clip_path IS DISTINCT FROM OLD.clip_path OR NEW.source_fingerprint IS DISTINCT FROM OLD.source_fingerprint
+          OR NEW.frame_times_digest IS DISTINCT FROM OLD.frame_times_digest THEN
+        RAISE EXCEPTION 'label_videos: a labeler may not change a recording''s project, name, copy or identities' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION private.label_videos_guard() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS label_videos_guard ON public.label_videos;
+CREATE TRIGGER label_videos_guard BEFORE INSERT OR UPDATE ON public.label_videos FOR EACH ROW EXECUTE FUNCTION private.label_videos_guard();
+
 -- Publish a project's withheld list whole (leads only). Replaces the previous list in one transaction.
 CREATE OR REPLACE FUNCTION public.label_withheld_publish(p_project text, p_names text[]) RETURNS integer
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
