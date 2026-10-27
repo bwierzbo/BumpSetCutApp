@@ -146,6 +146,7 @@ final class LabelerModel: ReviewStore {
             account = await client.email
             guard try await client.isLabeler() else { phase = .notLabeler; return }
             snapshot = loaded
+            quarantineUnreviewable()
             lastPull = started
             lastEventsPull = started
             syncProblem = nil
@@ -180,6 +181,16 @@ final class LabelerModel: ReviewStore {
     func pullChanges() async {
         guard phase == .ready, let last = lastPull else { return await reload() }
         let started = Date()
+        // The withheld lists first, every time: a recording the Mac withholds while the phone is open stops being
+        // reviewable at the next pull — its cached record is dropped from what the phone shows and its pending edits
+        // stay on the phone, unsent (quarantined), instead of waiting for a full reload. A list that cannot be read
+        // now keeps the one known before.
+        for project in Set(snapshot.videos.compactMap(\.project)) {
+            if let (listed, names) = try? await client.withheld(project: project) {
+                snapshot.withheld[project] = listed ? names.sorted() : nil
+            }
+        }
+        quarantineUnreviewable()
         await flush()
         do {
             async let t = client.rallyTimes(since: last.addingTimeInterval(-Self.pullOverlap))
@@ -239,9 +250,20 @@ final class LabelerModel: ReviewStore {
 
     /// The record as last loaded from the server for this recording, or the pending local edit.
     func rallyEvents(for video: LabelVideo) -> (record: EventReview.File, revision: Int)? {
+        guard isReviewable(video) else { return nil }
         if let pending = outbox.events[video.id] { return (pending.record, pending.expected) }
         guard let row = snapshot.events.first(where: { $0.videoId == video.id }) else { return nil }
         return (row.record, row.revision)
+    }
+
+    /// Records of recordings that are not reviewable here (withheld, or their project's list unknown) leave what the
+    /// phone shows; their pending edits stay in the outbox but are never sent while that holds.
+    private func quarantineUnreviewable() {
+        let blocked = Set(snapshot.videos.filter { !isReviewable($0) }.map(\.id))
+        let before = snapshot.events.count
+        snapshot.events.removeAll { blocked.contains($0.videoId) }
+        for id in blocked where outbox.events[id] != nil { eventIdentityProblems[id] = "withheld: this recording is not reviewable now; the edit is kept on this phone and not sent" }
+        if snapshot.events.count != before { LocalStore.save(snapshot, "snapshot.json") }
     }
 
     /// Whether the recording may be reviewed here: the project has a published withheld list and the recording is not on it.
@@ -612,7 +634,8 @@ final class LabelerModel: ReviewStore {
         }
         // Stage 1 records: each at the revision it was loaded from. A stale revision is a conflict the person
         // decides; a withheld refusal drops the edit (it should never have been possible) and says so.
-        for (id, pending) in outbox.events where eventConflicts[id] == nil && eventIdentityProblems[id] == nil {
+        let reviewable = Set(snapshot.videos.filter { isReviewable($0) }.map(\.id))
+        for (id, pending) in outbox.events where eventConflicts[id] == nil && eventIdentityProblems[id] == nil && reviewable.contains(id) {
             do {
                 let saved = try await client.saveRallyEvents(videoId: id, expected: pending.expected, record: pending.record)
                 // The person may have committed again while the save was in flight: the newer edit stays queued,
@@ -639,7 +662,8 @@ final class LabelerModel: ReviewStore {
                 eventIdentityProblems[id] = "refused by the server: " + message
                 syncProblem = message
             } catch LabelingClient.Failure.server(let code, let message) where RallyEventsSync.isWithheld(message) || code == 403 {
-                outbox.events[id] = nil
+                // Withheld on the server: the edit is kept on the phone, not sent again (quarantined).
+                eventIdentityProblems[id] = "refused by the server: " + message
                 syncProblem = message
             } catch { isOffline = true; break }
         }
