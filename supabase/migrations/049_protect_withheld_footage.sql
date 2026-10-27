@@ -92,14 +92,16 @@ DROP POLICY IF EXISTS "label_frame_log_select" ON public.label_frame_log;
 CREATE POLICY "label_frame_log_select" ON public.label_frame_log FOR SELECT TO authenticated
     USING ((SELECT private.is_lead()) OR (labeler = (SELECT auth.uid()) AND private.label_track_readable(track)));
 
--- Storage: reading (and so signing), replacing and deleting a labeling object needs a readable row referencing it.
+-- Storage: reading (and so signing), replacing and deleting a labeling object needs a readable row referencing it. An
+-- update needs it on both names, the object's and the one it would have afterwards, so a rename or move can neither
+-- take a readable object onto a protected or unreferenced name nor leave the bucket.
 DROP POLICY IF EXISTS "labeling_select" ON storage.objects;
 CREATE POLICY "labeling_select" ON storage.objects FOR SELECT TO authenticated
     USING (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name));
 DROP POLICY IF EXISTS "labeling_update" ON storage.objects;
 CREATE POLICY "labeling_update" ON storage.objects FOR UPDATE TO authenticated
     USING (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name))
-    WITH CHECK (bucket_id = 'labeling' AND (SELECT private.is_labeler()));
+    WITH CHECK (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name));
 DROP POLICY IF EXISTS "labeling_delete" ON storage.objects;
 CREATE POLICY "labeling_delete" ON storage.objects FOR DELETE TO authenticated
     USING (bucket_id = 'labeling' AND (SELECT private.is_labeler()) AND private.label_object_readable(name));

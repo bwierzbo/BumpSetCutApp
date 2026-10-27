@@ -2,9 +2,9 @@
 title: Migration 049 — restrict protected footage — deployment, verification and residual risk
 status: prepared for the owner's deployment approval; NOT applied
 created: 2026-10-27T00:10:00Z
-updated: 2026-10-27T00:10:00Z
+updated: 2026-10-27T06:12:46Z
 pr: fix/protect-withheld-footage
-decision: owner decision of 2026-10-26 (docs/decisions/2026-10-26-stage1-integration-approvals.md §5); D-002, D-017, D-018
+decision: owner decision of 2026-10-26 (docs/decisions/2026-10-26-stage1-integration-approvals.md §5); corrections requested 2026-10-27 (docs/decisions/2026-10-27-next-owner-decisions.md §2); D-002, D-017, D-018
 ---
 
 # Migration 049: restrict protected footage
@@ -29,6 +29,7 @@ The check runs at access time, so a recording withheld later is protected at onc
 | Storage, bucket `labeling`: read, list, download | every object | only objects referenced by a readable `label_videos` row |
 | Storage: create a signed URL | every object | same as read |
 | Storage: replace, delete | every object | same as read |
+| Storage: rename, move | any name in the bucket | the destination name must be readable too, so an object cannot be renamed or moved onto a protected or unreferenced name |
 | Storage: ball-path sidecar (`<clip>.ballpath.json`) | every object | follows its clip |
 | `label_videos`: creating rows and changing identities | anything | an ordinary labeler may create only a phone upload's own row (no project, recording or identities; a `phone/` object nobody else claims) and may never change a row's project, recording, copy path or identities (048's trigger `label_videos_guard`, live since 2026-10-27); no labeler-made row can point at a RallyLab copy or the unreferenced object |
 | Storage: upload | allowed | unchanged |
@@ -54,14 +55,17 @@ Run without the fix, the same tests fail at the first check: an ordinary labeler
 **What the tests cover**, for an ordinary labeler:
 - **Reads:** sees only the eligible recording and the phone upload. The withheld recording, its alias and the unlisted project's recording are hidden. The copies of protected recordings and the unreferenced object cannot be listed or read by name, so they cannot be signed. Rally times, tracks and the labeler's own frame log on protected recordings are hidden.
 - **Writes:** cannot update, delete or recreate a protected row, track, copy or the unreferenced object. Cannot forge a reference: a new row pointing at a protected copy or the unreferenced object, a second claim on a phone upload, a row with a project, or rewriting a row's copy path, project or identities are all refused. Can still edit an eligible row's status, add its own phone upload's row and upload from the phone. A protected clip's sidecar is refused and an eligible clip's is readable.
+- **Renames and moves:** an object cannot be renamed onto a protected copy's name or sidecar, onto an unreferenced name, or into another bucket. Replacing a readable object under its own name, as the phone's upsert upload does, still works. Postgres already checks the new row against the read policy when the update's `WHERE` reads a column, which the storage API's move does. The update policy's own check closes the case of an update that reads no column. Two tests cover that case, and both fail on the earlier version of this migration.
 - **Later withholding:** a recording withheld later is hidden at once, together with its copy.
 
 For other callers:
-- A lead reads every row and object.
+- A lead reads every row and object, and may still rename an object.
 - A non-labeler reads nothing.
 - `anon` cannot call the helpers.
 
 Finally, every object and row is preserved.
+
+The stand-in `label_videos` carries the live `label_videos_status_check` constraint (`rallylab`, `uploaded`, `imported`, read from `pg_constraint` on 2026-10-27), so no test can pass on a status the live table refuses. The status changes in the 048 and 049 tests use `imported`.
 
 ## 3. Residual exposure (documented, not fixable by access control)
 

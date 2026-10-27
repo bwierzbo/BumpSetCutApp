@@ -58,6 +58,10 @@ ALTER TABLE public.label_videos ENABLE ROW LEVEL SECURITY;
 CREATE POLICY label_videos_labelers ON public.label_videos FOR ALL TO authenticated USING ((SELECT private.is_labeler())) WITH CHECK ((SELECT private.is_labeler()));
 ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS clip_path text;
 ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'rallylab';
+-- The live CHECK (label_videos_status_check), so a test cannot pass on a status the live table refuses.
+DO $$ BEGIN
+    ALTER TABLE public.label_videos ADD CONSTRAINT label_videos_status_check CHECK (status = ANY (ARRAY['rallylab'::text, 'uploaded'::text, 'imported'::text]));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- The legacy annotation tables and the storage bucket as live (028, 030, 039), for 049_protect_withheld_footage.
 CREATE TABLE public.label_rally_times (video_id uuid PRIMARY KEY REFERENCES public.label_videos(id) ON DELETE CASCADE, rallies jsonb NOT NULL DEFAULT '[]');

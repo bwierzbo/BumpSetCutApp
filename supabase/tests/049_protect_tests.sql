@@ -50,7 +50,7 @@ SELECT pg_temp.expect($q$UPDATE public.label_videos SET project = NULL, session_
 SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name IN ('rallylab/Scratch/w-v2.mp4', 'rallylab/Scratch/orphan-v2.mp4')) = 0, 'still refused after the forgery attempts');
 -- What the phone legitimately does still works: add its own upload's row, update its status.
 SELECT pg_temp.check(pg_temp.affected($q$INSERT INTO public.label_videos (clip_path, status) VALUES ('phone/new2.mp4', 'uploaded')$q$) = 1, 'a phone upload''s own row');
-SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET status = 'labeled' WHERE clip_path = 'phone/b1.mp4'$q$) = 1, 'a status update');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET status = 'imported' WHERE clip_path = 'phone/b1.mp4'$q$) = 1, 'a status update');
 SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name = 'rallylab/Scratch/w-v2.mp4') = 0, 'the withheld copy cannot be read by name (so it cannot be signed)');
 SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name = 'rallylab/Scratch/orphan-v2.mp4') = 0, 'the unreferenced object is restricted');
 SELECT pg_temp.check((SELECT array_agg(video_id) FROM public.label_rally_times) = ARRAY['10000000-0000-0000-0000-00000000000a'::uuid], 'rally times of protected recordings hidden');
@@ -68,6 +68,18 @@ SELECT pg_temp.expect($q$INSERT INTO public.label_tracks (id, video_id) VALUES (
 -- Uploads from the phone are unchanged.
 SELECT pg_temp.check(pg_temp.affected($q$INSERT INTO storage.objects (bucket_id, name) VALUES ('labeling', 'phone/new.mp4')$q$) = 1, 'a phone upload still lands');
 SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name = 'rallylab/Scratch/w-v2.mp4.ballpath.json') = 0, 'a protected clip''s sidecar is refused');
+-- Renames and moves: the destination name must be readable too. A readable object cannot be renamed onto a protected
+-- copy's sidecar, a protected or unreferenced name, or another bucket; replacing it under its own name still works.
+SELECT pg_temp.expect($q$UPDATE storage.objects SET name = 'rallylab/Scratch/x-v3.mp4.ballpath.json' WHERE name = 'rallylab/Scratch/a-v3.mp4.ballpath.json'$q$, '42501', 'row-level security');
+SELECT pg_temp.expect($q$UPDATE storage.objects SET name = 'rallylab/Scratch/w-v2.mp4' WHERE name = 'phone/b1.mp4'$q$, '42501', 'row-level security');
+SELECT pg_temp.expect($q$UPDATE storage.objects SET name = 'phone/unreferenced.mp4' WHERE name = 'phone/b1.mp4'$q$, '42501', 'row-level security');
+SELECT pg_temp.expect($q$UPDATE storage.objects SET bucket_id = 'other' WHERE name = 'phone/b1.mp4'$q$, '42501', 'row-level security');
+-- An update that reads no column is not checked against the read policy, only against the update policy's own check:
+-- it must refuse the destination too (the case the update policy alone has to close).
+SELECT pg_temp.expect($q$UPDATE storage.objects SET name = 'rallylab/Scratch/w-v2.mp4.moved'$q$, '42501', 'row-level security');
+SELECT pg_temp.expect($q$UPDATE storage.objects SET name = name || '.moved'$q$, '42501', 'row-level security');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE storage.objects SET owner = owner WHERE name = 'phone/b1.mp4'$q$) = 1, 'replacing a readable object under its own name still works');
+SELECT pg_temp.check((SELECT array_agg(name ORDER BY name) FROM storage.objects WHERE bucket_id = 'labeling') = ARRAY['phone/b1.mp4', 'rallylab/Scratch/a-v3.mp4', 'rallylab/Scratch/a-v3.mp4.ballpath.json'], 'no object was renamed or moved');
 -- Withheld later: hidden at once.
 RESET ROLE;
 INSERT INTO public.label_withheld (project, session_name) VALUES ('Scratch', 'a');
@@ -80,6 +92,7 @@ SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a
 SELECT pg_temp.check((SELECT count(*) FROM public.label_videos) = 6, 'the lead reads every row');
 SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE bucket_id = 'labeling') = 9, 'the lead reads every object');
 SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET source_fingerprint = 'file:a' WHERE session_name = 'a'$q$) = 1, 'the lead still publishes identities');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE storage.objects SET name = 'phone/new-moved.mp4' WHERE name = 'phone/new.mp4'$q$) = 1, 'the lead may still rename an object');
 -- Not a labeler: nothing.
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
 SELECT pg_temp.check((SELECT count(*) FROM public.label_videos) + (SELECT count(*) FROM storage.objects) = 0, 'a non-labeler reads nothing');
