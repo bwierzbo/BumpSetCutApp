@@ -1,10 +1,10 @@
 ---
 title: Migration 049 — restrict protected footage — deployment, verification and residual risk
-status: prepared for the owner's deployment approval; NOT applied
+status: APPLIED to the live project 2026-10-27T06:39:52Z and verified (§6)
 created: 2026-10-27T00:10:00Z
-updated: 2026-10-27T06:19:20Z
+updated: 2026-10-27T06:42:55Z
 pr: fix/protect-withheld-footage
-decision: owner decision of 2026-10-26 (docs/decisions/2026-10-26-stage1-integration-approvals.md §5); corrections requested 2026-10-27 (docs/decisions/2026-10-27-next-owner-decisions.md §2); D-002, D-017, D-018
+decision: owner decision of 2026-10-26 (docs/decisions/2026-10-26-stage1-integration-approvals.md §5); corrections requested 2026-10-27 (docs/decisions/2026-10-27-next-owner-decisions.md §2); merge and deployment authorised 2026-10-27 (docs/decisions/2026-10-27-final-security-testflight-decisions.md §2–3); D-002, D-017, D-018
 ---
 
 # Migration 049: restrict protected footage
@@ -120,3 +120,49 @@ DROP POLICY "labeling_delete" ON storage.objects;
 CREATE POLICY "labeling_delete" ON storage.objects FOR DELETE TO authenticated USING ((bucket_id = 'labeling') AND (SELECT private.is_labeler()));
 -- The helper functions can stay (unused) or be dropped.
 ```
+
+## 6. Deployment record (2026-10-27)
+
+Authorised by the owner on 2026-10-27 ([verbatim](../decisions/2026-10-27-final-security-testflight-decisions.md), §2–3). PR #104 was merged at its reviewed head `7abcbe4` (no unresolved review threads, checks green) as `91cca0b`.
+
+**Before deployment**
+- 048 present in the live migration list (`20261027032411`). The Scratch withheld list is published with 21 names and 21 rows.
+- The migration file on `main` is byte-identical to the reviewed head (sha256 `ea52cfdb…7f`).
+- The policies it replaces were read from `pg_policies` and match §5's rollback exactly.
+- Preservation snapshot, taken as the owner (no RLS):
+
+| Item | Count | Digest |
+|---|---|---|
+| `labeling` objects (name, eTag, size) | 124 | `90d85846…` |
+| `label_videos` (id, copy path, identities) | 123 | `9ebc87b7…` |
+| `label_tracks` (id, points) | 282 | `19a64fea…` |
+| `label_rally_times` | 33 | — |
+| `label_frame_log` | 25,811 | — |
+| `label_rally_events` | 0 | — |
+
+**Deployment:** `apply_migration` named `049_protect_withheld_footage` with the file's exact contents, recorded as version `20261027063952` (2026-10-27T06:39:52Z, 00:39 MDT).
+
+**After deployment**
+- The four helper functions' bodies have the same MD5 as the reviewed file. One `label_object_readable(text, text)` exists. `anon` cannot execute any of them. The new policies are present.
+- Advisors (security and performance): no new finding from 049. The findings are the same as after 048: the long-standing signed-in SECURITY DEFINER warnings, the two RLS-without-policy notes, leaked-password protection off, three INFO foreign-key-index notes on 048's audit columns, and unused-index notes.
+- Access, simulated in SQL for each labeler (reads only):
+
+| Caller | Recordings | Objects | Unreferenced object | Rally times | Tracks |
+|---|---|---|---|---|---|
+| Expected for an ordinary labeler | 101 eligible (22 protected) | 101 eligible (23 restricted) | hidden | 30 (3 protected) | 266 (16 protected) |
+| Each of the three ordinary labelers | 101, none withheld | 101 | 0 | 30 | 266 |
+| Lead | 123 | 124 | 1 | 33 | 282 |
+
+- Through the real APIs, as a temporary non-lead labeler (the disposable test account, added to `labelers` for the test and removed afterwards), 17 of 17 checks passed:
+  - **Protected material:** a protected copy, its ball-path sidecar and the unreferenced object were each refused, both for signing and for a direct read (HTTP 400).
+  - **Listing and rows:** the bucket listing and the REST `label_videos` read showed 101 entries and no protected or unreferenced one.
+  - **Eligible material:** an eligible copy was signed (200) and read (one byte, 206).
+  - **Controlled upload:** a 1-second synthetic test pattern (6,053 bytes) was uploaded to the phone's path with upsert, before its row (200), and the retry succeeded (200). The phone row was saved (201) and the upload signed through it (200). Moving it onto a protected name was refused (400). Then only that row and that object were deleted (200, 200), and both were confirmed gone.
+- **Preservation:** after the tests, every count and digest in the snapshot above is unchanged, and `labelers` is back to its four rows.
+
+**Residual risk**
+- Signed URLs issued before 06:39:52Z stay valid until they expire. The apps request at most 6 hours, so the last one expires by 12:39:52Z on 2026-10-27 (06:39 MDT). They cannot be revoked without rotating the storage signing key (§3).
+- Copies already on labelers' phones are pruned when each app next reloads. A device that never reopens the app keeps its copy.
+- Anything copied off a device or a signed URL before deployment is beyond control. The inventory (`docs/ml-roadmap/PROTECTED_FOOTAGE_INVENTORY_2026-10-26.md`) records which recordings and dates were exposed.
+- The lead's real RallyLab sync was not exercised by these checks. The lead's access was verified in SQL; the next sync from the owner's Mac exercises it for real.
+
