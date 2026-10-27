@@ -1,0 +1,119 @@
+-- Tests for 049_protect_withheld_footage, on a fresh database: stubs (live-equivalent prior policies), 048, 049.
+\set ON_ERROR_STOP on
+SET client_min_messages = warning;
+INSERT INTO auth.users VALUES ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b'), ('00000000-0000-0000-0000-00000000000c');
+INSERT INTO public.labelers VALUES ('00000000-0000-0000-0000-00000000000a', true), ('00000000-0000-0000-0000-00000000000b', false);
+-- a eligible; w withheld; x an alias of w (listed too); p a phone-only upload; t a recording of a project with no list.
+INSERT INTO public.label_videos (id, project, session_name, clip_path) VALUES
+  ('10000000-0000-0000-0000-00000000000a', 'Scratch', 'a', 'rallylab/Scratch/a-v3.mp4'),
+  ('10000000-0000-0000-0000-0000000000f1', 'Scratch', 'w', 'rallylab/Scratch/w-v2.mp4'),
+  ('10000000-0000-0000-0000-0000000000f2', 'Scratch', 'x', 'rallylab/Scratch/x-v3.mp4'),
+  ('10000000-0000-0000-0000-0000000000b1', NULL, NULL, 'phone/b1.mp4'),
+  ('10000000-0000-0000-0000-0000000000c1', 'Test1', 't', 'rallylab/Test1/t-v2.mp4');
+INSERT INTO storage.objects (bucket_id, name) VALUES ('labeling', 'rallylab/Scratch/a-v3.mp4'), ('labeling', 'rallylab/Scratch/w-v2.mp4'), ('labeling', 'rallylab/Scratch/x-v3.mp4'),
+  ('labeling', 'rallylab/Scratch/a-v3.mp4.ballpath.json'), ('labeling', 'rallylab/Scratch/w-v2.mp4.ballpath.json'),
+  ('labeling', 'phone/b1.mp4'), ('labeling', 'rallylab/Test1/t-v2.mp4'), ('labeling', 'rallylab/Scratch/orphan-v2.mp4');
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES ('labeling', 'phone/lead-pending.mp4', '00000000-0000-0000-0000-00000000000a');
+INSERT INTO public.label_rally_times (video_id) VALUES ('10000000-0000-0000-0000-00000000000a'), ('10000000-0000-0000-0000-0000000000f1');
+INSERT INTO public.label_tracks (id, video_id) VALUES ('20000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a'), ('20000000-0000-0000-0000-0000000000f1', '10000000-0000-0000-0000-0000000000f1');
+INSERT INTO public.label_frame_log (track, i, labeler) VALUES ('20000000-0000-0000-0000-00000000000a', 1, '00000000-0000-0000-0000-00000000000b'), ('20000000-0000-0000-0000-0000000000f1', 1, '00000000-0000-0000-0000-00000000000b');
+INSERT INTO public.label_withheld_lists (project, names) VALUES ('Scratch', 2);
+INSERT INTO public.label_withheld (project, session_name) VALUES ('Scratch', 'w'), ('Scratch', 'x');
+CREATE FUNCTION pg_temp.expect(q text, code text, msg text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+    BEGIN EXECUTE q;
+    EXCEPTION WHEN OTHERS THEN
+        IF SQLSTATE <> code OR position(msg IN SQLERRM) = 0 THEN RAISE EXCEPTION 'FAIL: % → % % (wanted % containing "%")', q, SQLSTATE, SQLERRM, code, msg; END IF;
+        RETURN;
+    END;
+    RAISE EXCEPTION 'FAIL: % succeeded (wanted %)', q, code;
+END $$;
+CREATE FUNCTION pg_temp.check(ok boolean, what text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN IF NOT coalesce(ok, false) THEN RAISE EXCEPTION 'FAIL: %', what; END IF; END $$;
+CREATE FUNCTION pg_temp.affected(q text) RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE n integer; BEGIN EXECUTE q; GET DIAGNOSTICS n = ROW_COUNT; RETURN n; END $$;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pg_temp TO authenticated, anon;
+SET ROLE authenticated;
+
+-- An ordinary labeler.
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+SELECT pg_temp.check((SELECT array_agg(coalesce(session_name, 'phone') ORDER BY coalesce(session_name, 'phone')) FROM public.label_videos) = ARRAY['a', 'phone'], 'videos: a and the phone upload only (w, its alias x, and the unlisted project hidden)');
+SELECT pg_temp.check((SELECT array_agg(name ORDER BY name) FROM storage.objects WHERE bucket_id = 'labeling') = ARRAY['phone/b1.mp4', 'rallylab/Scratch/a-v3.mp4', 'rallylab/Scratch/a-v3.mp4.ballpath.json'], 'objects: the eligible clip and its ball-path sidecar; no protected copy or sidecar, no unreferenced object');
+-- Forged references are refused: a new row pointing at a protected copy or the unreferenced object, a duplicate claim on a
+-- phone upload, a row with a project, and rewriting an eligible row's copy path, project or identities.
+SELECT pg_temp.expect($q$INSERT INTO public.label_videos (clip_path) VALUES ('rallylab/Scratch/w-v2.mp4')$q$, '42501', 'only a phone upload');
+SELECT pg_temp.expect($q$INSERT INTO public.label_videos (clip_path) VALUES ('rallylab/Scratch/orphan-v2.mp4')$q$, '42501', 'only a phone upload');
+SELECT pg_temp.expect($q$INSERT INTO public.label_videos (clip_path) VALUES ('phone/b1.mp4')$q$, '42501', 'only a phone upload');
+SELECT pg_temp.expect($q$INSERT INTO public.label_videos (project, session_name, clip_path) VALUES ('Scratch', 'zz', 'phone/zz.mp4')$q$, '42501', 'only a phone upload');
+SELECT pg_temp.expect($q$UPDATE public.label_videos SET clip_path = 'rallylab/Scratch/w-v2.mp4' WHERE session_name = 'a'$q$, '42501', 'may not change');
+SELECT pg_temp.expect($q$UPDATE public.label_videos SET clip_path = 'rallylab/Scratch/orphan-v2.mp4' WHERE clip_path = 'phone/b1.mp4'$q$, '42501', 'may not change');
+SELECT pg_temp.expect($q$UPDATE public.label_videos SET project = NULL, session_name = NULL WHERE session_name = 'a'$q$, '42501', 'may not change');
+SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name IN ('rallylab/Scratch/w-v2.mp4', 'rallylab/Scratch/orphan-v2.mp4')) = 0, 'still refused after the forgery attempts');
+-- What the phone legitimately does still works: add its own upload's row, update its status.
+SELECT pg_temp.check(pg_temp.affected($q$INSERT INTO public.label_videos (clip_path, status) VALUES ('phone/new2.mp4', 'uploaded')$q$) = 1, 'a phone upload''s own row');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET status = 'imported' WHERE clip_path = 'phone/b1.mp4'$q$) = 1, 'a status update');
+SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name = 'rallylab/Scratch/w-v2.mp4') = 0, 'the withheld copy cannot be read by name (so it cannot be signed)');
+SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name = 'rallylab/Scratch/orphan-v2.mp4') = 0, 'the unreferenced object is restricted');
+SELECT pg_temp.check((SELECT array_agg(video_id) FROM public.label_rally_times) = ARRAY['10000000-0000-0000-0000-00000000000a'::uuid], 'rally times of protected recordings hidden');
+SELECT pg_temp.check((SELECT array_agg(id) FROM public.label_tracks) = ARRAY['20000000-0000-0000-0000-00000000000a'::uuid], 'tracks of protected recordings hidden');
+SELECT pg_temp.check((SELECT array_agg(track) FROM public.label_frame_log) = ARRAY['20000000-0000-0000-0000-00000000000a'::uuid], 'own frame log on protected tracks hidden');
+-- Writes: nothing protected can be changed, deleted or recreated; eligible rows still work.
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET title = 'x' WHERE session_name = 'w'$q$) = 0, 'no update of a protected row');
+SELECT pg_temp.check(pg_temp.affected($q$DELETE FROM public.label_videos WHERE session_name = 'w'$q$) = 0, 'no delete of a protected row');
+SELECT pg_temp.expect($q$INSERT INTO public.label_videos (project, session_name) VALUES ('Scratch', 'w')$q$, '42501', 'only a phone upload');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET title = 'ok' WHERE session_name = 'a'$q$) = 1, 'an eligible row is still editable');
+SELECT pg_temp.check(pg_temp.affected($q$DELETE FROM storage.objects WHERE name = 'rallylab/Scratch/w-v2.mp4'$q$) = 0, 'no delete of a protected object');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE storage.objects SET owner = NULL WHERE name = 'rallylab/Scratch/orphan-v2.mp4'$q$) = 0, 'no change to the unreferenced object');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_tracks SET points = '[1]' WHERE id = '20000000-0000-0000-0000-0000000000f1'$q$) = 0, 'no change to a protected track');
+SELECT pg_temp.expect($q$INSERT INTO public.label_tracks (id, video_id) VALUES ('20000000-0000-0000-0000-0000000000f9', '10000000-0000-0000-0000-0000000000f1')$q$, '42501', 'row-level security');
+-- Uploads from the phone are unchanged.
+SELECT pg_temp.check(pg_temp.affected($q$INSERT INTO storage.objects (bucket_id, name) VALUES ('labeling', 'phone/new.mp4')$q$) = 1, 'a phone upload still lands');
+-- The storage API authorises an upload the way it stores it: an upsert that reads the row back
+-- (INSERT … ON CONFLICT DO UPDATE … RETURNING), before the phone has saved the clip's row. The uploader reads its own
+-- unclaimed phone upload, a retry (the conflict branch) works, and the row then takes over.
+SELECT pg_temp.check(pg_temp.affected($q$INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES ('labeling', 'phone/fresh.mp4', '00000000-0000-0000-0000-00000000000b')
+    ON CONFLICT (bucket_id, name) DO UPDATE SET owner_id = excluded.owner_id RETURNING *$q$) = 1, 'a fresh phone upload passes the storage API''s upsert probe');
+SELECT pg_temp.check(pg_temp.affected($q$INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES ('labeling', 'phone/fresh.mp4', '00000000-0000-0000-0000-00000000000b')
+    ON CONFLICT (bucket_id, name) DO UPDATE SET owner_id = excluded.owner_id RETURNING *$q$) = 1, 'and its retry, which replaces it');
+SELECT pg_temp.check(pg_temp.affected($q$INSERT INTO public.label_videos (clip_path, status) VALUES ('phone/fresh.mp4', 'uploaded')$q$) = 1, 'then the phone saves the clip''s row');
+SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name = 'phone/fresh.mp4') = 1, 'and the clip stays readable through its row');
+-- Only the uploader, only under phone/, only while no row claims the path.
+SELECT pg_temp.expect($q$INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES ('labeling', 'phone/forged.mp4', '00000000-0000-0000-0000-00000000000a') RETURNING *$q$, '42501', 'row-level security');
+SELECT pg_temp.expect($q$INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES ('labeling', 'rallylab/Scratch/new-v3.mp4', '00000000-0000-0000-0000-00000000000b') RETURNING *$q$, '42501', 'row-level security');
+SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name = 'phone/lead-pending.mp4') = 0, 'another labeler''s unclaimed phone upload stays unreadable');
+SELECT pg_temp.check(pg_temp.affected($q$DELETE FROM storage.objects WHERE name = 'phone/lead-pending.mp4'$q$) = 0, 'and cannot be deleted');
+SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name = 'rallylab/Scratch/w-v2.mp4.ballpath.json') = 0, 'a protected clip''s sidecar is refused');
+-- Renames and moves: the destination name must be readable too. A readable object cannot be renamed onto a protected
+-- copy's sidecar, a protected or unreferenced name, or another bucket; replacing it under its own name still works.
+SELECT pg_temp.expect($q$UPDATE storage.objects SET name = 'rallylab/Scratch/x-v3.mp4.ballpath.json' WHERE name = 'rallylab/Scratch/a-v3.mp4.ballpath.json'$q$, '42501', 'row-level security');
+SELECT pg_temp.expect($q$UPDATE storage.objects SET name = 'rallylab/Scratch/w-v2.mp4' WHERE name = 'phone/b1.mp4'$q$, '42501', 'row-level security');
+SELECT pg_temp.expect($q$UPDATE storage.objects SET name = 'phone/unreferenced.mp4' WHERE name = 'phone/b1.mp4'$q$, '42501', 'row-level security');
+SELECT pg_temp.expect($q$UPDATE storage.objects SET bucket_id = 'other' WHERE name = 'phone/b1.mp4'$q$, '42501', 'row-level security');
+-- An update that reads no column is not checked against the read policy, only against the update policy's own check:
+-- it must refuse the destination too (the case the update policy alone has to close).
+SELECT pg_temp.expect($q$UPDATE storage.objects SET name = 'rallylab/Scratch/w-v2.mp4.moved'$q$, '42501', 'row-level security');
+SELECT pg_temp.expect($q$UPDATE storage.objects SET name = name || '.moved'$q$, '42501', 'row-level security');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE storage.objects SET owner = owner WHERE name = 'phone/b1.mp4'$q$) = 1, 'replacing a readable object under its own name still works');
+SELECT pg_temp.check((SELECT array_agg(name ORDER BY name) FROM storage.objects WHERE bucket_id = 'labeling') = ARRAY['phone/b1.mp4', 'phone/fresh.mp4', 'phone/new.mp4', 'rallylab/Scratch/a-v3.mp4', 'rallylab/Scratch/a-v3.mp4.ballpath.json'], 'no object was renamed or moved');
+-- Withheld later: hidden at once.
+RESET ROLE;
+INSERT INTO public.label_withheld (project, session_name) VALUES ('Scratch', 'a');
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+SELECT pg_temp.check((SELECT count(*) FROM public.label_videos WHERE session_name = 'a') = 0, 'a recording withheld later is hidden immediately');
+SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE name = 'rallylab/Scratch/a-v3.mp4') = 0, 'and its copy');
+-- A lead sees everything (RallyLab's sync and the list publication keep working); nothing was deleted.
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+SELECT pg_temp.check((SELECT count(*) FROM public.label_videos) = 7, 'the lead reads every row');
+SELECT pg_temp.check((SELECT count(*) FROM storage.objects WHERE bucket_id = 'labeling') = 11, 'the lead reads every object');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET source_fingerprint = 'file:a' WHERE session_name = 'a'$q$) = 1, 'the lead still publishes identities');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE storage.objects SET name = 'phone/new-moved.mp4' WHERE name = 'phone/new.mp4'$q$) = 1, 'the lead may still rename an object');
+-- Not a labeler: nothing.
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+SELECT pg_temp.check((SELECT count(*) FROM public.label_videos) + (SELECT count(*) FROM storage.objects) = 0, 'a non-labeler reads nothing');
+RESET ROLE;
+SET ROLE anon;
+SELECT pg_temp.check(NOT has_function_privilege('anon', 'private.label_object_readable(text, text)', 'EXECUTE'), 'anon cannot call the helpers');
+RESET ROLE;
+SELECT pg_temp.check((SELECT count(*) FROM storage.objects) = 11 AND (SELECT count(*) FROM public.label_videos) = 7 AND (SELECT count(*) FROM public.label_tracks) = 2, 'every object and row preserved');
+SELECT 'ALL 049 PROTECT TESTS PASSED' AS result;

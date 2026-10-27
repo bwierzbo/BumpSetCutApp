@@ -2,8 +2,10 @@
 -- PostgreSQL cluster (supabase/tests/run_048_tests.sh). Definitions of private.is_labeler, private.is_lead and
 -- private.notify_labeling are copied from migrations 028, 039 and 045; auth.uid() reads the JWT subject the way
 -- Supabase's does; default privileges mirror Supabase's (anon and authenticated get table privileges, RLS decides).
-CREATE ROLE anon NOLOGIN;
-CREATE ROLE authenticated NOLOGIN;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+END $$;
 CREATE SCHEMA auth;
 CREATE SCHEMA private;
 CREATE SCHEMA realtime;
@@ -56,3 +58,27 @@ ALTER TABLE public.label_videos ENABLE ROW LEVEL SECURITY;
 CREATE POLICY label_videos_labelers ON public.label_videos FOR ALL TO authenticated USING ((SELECT private.is_labeler())) WITH CHECK ((SELECT private.is_labeler()));
 ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS clip_path text;
 ALTER TABLE public.label_videos ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'rallylab';
+-- The live CHECK (label_videos_status_check), so a test cannot pass on a status the live table refuses.
+DO $$ BEGIN
+    ALTER TABLE public.label_videos ADD CONSTRAINT label_videos_status_check CHECK (status = ANY (ARRAY['rallylab'::text, 'uploaded'::text, 'imported'::text]));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- The legacy annotation tables and the storage bucket as live (028, 030, 039), for 049_protect_withheld_footage.
+CREATE TABLE public.label_rally_times (video_id uuid PRIMARY KEY REFERENCES public.label_videos(id) ON DELETE CASCADE, rallies jsonb NOT NULL DEFAULT '[]');
+ALTER TABLE public.label_rally_times ENABLE ROW LEVEL SECURITY;
+CREATE POLICY label_rally_times_labelers ON public.label_rally_times FOR ALL TO authenticated USING ((SELECT private.is_labeler())) WITH CHECK ((SELECT private.is_labeler()));
+CREATE TABLE public.label_tracks (id uuid PRIMARY KEY, video_id uuid NOT NULL REFERENCES public.label_videos(id) ON DELETE CASCADE, points jsonb NOT NULL DEFAULT '[]');
+ALTER TABLE public.label_tracks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY label_tracks_labelers ON public.label_tracks FOR ALL TO authenticated USING ((SELECT private.is_labeler())) WITH CHECK ((SELECT private.is_labeler()));
+CREATE TABLE public.label_frame_log (track uuid NOT NULL, i integer NOT NULL, labeler uuid NOT NULL, verdict boolean, PRIMARY KEY (track, i, labeler));
+ALTER TABLE public.label_frame_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY label_frame_log_select ON public.label_frame_log FOR SELECT TO authenticated USING ((labeler = (SELECT auth.uid())) OR (SELECT private.is_lead()));
+CREATE SCHEMA IF NOT EXISTS storage;
+GRANT USAGE ON SCHEMA storage TO anon, authenticated;
+CREATE TABLE storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text NOT NULL, name text NOT NULL, owner uuid DEFAULT auth.uid(), owner_id text DEFAULT (auth.uid())::text, UNIQUE (bucket_id, name));
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON storage.objects TO anon, authenticated;
+CREATE POLICY labeling_select ON storage.objects FOR SELECT TO authenticated USING ((bucket_id = 'labeling') AND (SELECT private.is_labeler()));
+CREATE POLICY labeling_insert ON storage.objects FOR INSERT TO authenticated WITH CHECK ((bucket_id = 'labeling') AND (SELECT private.is_labeler()));
+CREATE POLICY labeling_update ON storage.objects FOR UPDATE TO authenticated USING ((bucket_id = 'labeling') AND (SELECT private.is_labeler())) WITH CHECK ((bucket_id = 'labeling') AND (SELECT private.is_labeler()));
+CREATE POLICY labeling_delete ON storage.objects FOR DELETE TO authenticated USING ((bucket_id = 'labeling') AND (SELECT private.is_labeler()));

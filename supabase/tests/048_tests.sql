@@ -82,7 +82,7 @@ SELECT pg_temp.expect($q$INSERT INTO public.label_videos (project, session_name,
 SELECT pg_temp.check((SELECT source_fingerprint FROM public.label_videos WHERE session_name = 'a') = 'file:a', 'identities intact');
 -- The phone's own upload row and a status change still work; the lead still publishes identities.
 SELECT pg_temp.check(pg_temp.affected($q$INSERT INTO public.label_videos (clip_path, status) VALUES ('phone/p1.mp4', 'uploaded')$q$) = 1, 'a phone upload row');
-SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET status = 'labeled' WHERE session_name = 'a'$q$) = 1, 'a status change');
+SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET status = 'imported' WHERE session_name = 'a'$q$) = 1, 'a status change');
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
 SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET frame_times_digest = 'dg-a' WHERE session_name = 'a'$q$) = 1, 'the lead publishes identities');
 
