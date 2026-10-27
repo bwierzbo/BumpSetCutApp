@@ -517,13 +517,15 @@ final class LabelingSync {
                 guard let local else { continue }
                 do {
                     let saved = try await client.saveRallyEvents(videoId: video.id, expected: expected, record: local)
-                    // The project may have been switched while the save was in flight: nothing is written or handed
-                    // to an editor then (the server has the record; the next sync of this project reconciles it).
-                    guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
-                    // The reviewer may have committed again while the save was in flight: keep the newer content.
+                    // The server accepted the save: its acknowledgement is recorded in the captured project's own files
+                    // (the record's revision and the shadow) even if another project was opened meanwhile — those
+                    // paths are the captured project's — so this Mac's own save never later reads as a conflict. The
+                    // reviewer may have committed again while the save was in flight: the newer content is kept.
                     let (keep, shadowRecord) = RallyEventsSync.afterPush(sent: local, current: RallyEventsSync.localState(at: url).record, saved: saved.record)
                     try EventReview.write(keep, to: url)
                     try EventReview.write(shadowRecord, to: shadowURL)
+                    // Only the editor of the project still open hears of it; a switched project stops the sync here.
+                    guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
                     onRecordSynced?(root, name, keep)
                     pushed += 1
                 } catch let conflict as RallyEventsConflict {

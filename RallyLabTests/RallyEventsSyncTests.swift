@@ -267,6 +267,17 @@ final class RallyEventsSyncTests: XCTestCase {
         XCTAssertTrue(e.apply(.commit, at: 7, now: now).changed)
     }
 
+    func testALostAcknowledgementIsRepairedNotAConflict() {
+        // The Mac saved revision 2 but its bookkeeping still says 1 (local and shadow), with the same content as the server.
+        let content = file(revision: 1, rallies: 2)
+        var stale = content; stale.revision = 1
+        var older = file(revision: 1, rallies: 1)   // the shadow from before the save
+        older.revision = 1
+        XCTAssertEqual(RallyEventsSync.decide(local: stale, shadow: older, server: row(content, revision: 2)), .pull, "identical content: repair the revision")
+        // Different content at different revisions is still a conflict.
+        XCTAssertEqual(RallyEventsSync.decide(local: file(revision: 1, rallies: 3), shadow: older, server: row(content, revision: 2)), .conflict(local: 1, server: 2))
+    }
+
     func testShadowAndConflictFilesSitBesideTheRecordNeverOverIt() {
         let record = EventReview.url(forVideo: URL(fileURLWithPath: "/footage/clip.mp4"))
         XCTAssertEqual(record.lastPathComponent, "clip.rallyevents.json")

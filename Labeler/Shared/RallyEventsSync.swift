@@ -55,6 +55,9 @@ enum RallyEventsSync {
             return .push(expected: mine.revision == 0 ? 0 : mine.revision)
         case (nil, _?): return .pull
         case (let mine?, let theirs?):
+            // The same content on both sides at different revisions (an acknowledgement that never reached the
+            // bookkeeping): taking the server's copy only repairs the revision — never a conflict with oneself.
+            if theirs.revision != mine.revision, Self.sameContent(theirs.record, mine) { return .pull }
             let localChanged = shadow.map { !Self.sameContent($0, mine) } ?? (mine.revision == 0 || !Self.sameContent(theirs.record, mine))
             let serverChanged = theirs.revision != mine.revision
             switch (localChanged, serverChanged) {
