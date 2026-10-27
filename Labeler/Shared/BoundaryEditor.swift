@@ -97,6 +97,17 @@ struct BoundaryEditor: Equatable {
     enum Event: Equatable { case contact, dead }
     enum Bound: Equatable { case earliest, latest }
 
+    /// `first`: the review itself. `secondReview`: the blind repeat (protocol §6) — the selected rally's
+    /// first result is hidden, the two events are marked again and recorded beside it, nothing else changes.
+    enum Mode: Equatable { case first, secondReview }
+
+    /// A legacy mark (`rallylabels.json`), for the link a committed rally keeps to the mark it corrects.
+    struct LegacyMark: Equatable {
+        var index: Int
+        var start: Double
+        var end: Double
+    }
+
     enum Action: Equatable {
         /// `S` / `⇧S`, `D` / `⇧D`: one press sets both bounds; the shifted press widens to an interval.
         case mark(Event, Bound)
@@ -139,6 +150,10 @@ struct BoundaryEditor: Equatable {
     private(set) var selected: UUID?
     private(set) var lastMarked: Event?
     private(set) var draftConflict: DraftConflict?
+    private(set) var mode: Mode = .first
+    /// The recording's legacy marks, set by the app: a new rally is linked to the mark it overlaps most
+    /// (or the nearest start within 3 s), so the audit can compare the two. Information, never truth.
+    var legacyMarks: [LegacyMark] = []
     private var history: [EventReview.File] = []
     let annotator: String
     let tool: String
@@ -156,6 +171,21 @@ struct BoundaryEditor: Equatable {
     }
 
     var canUndo: Bool { !history.isEmpty }
+
+    /// Switches between the review and the blind repeat; the draft, an open span and the selection go.
+    mutating func setMode(_ m: Mode) {
+        guard m != mode else { return }
+        mode = m
+        // A conflict raised before the switch would show the primary times in a blind repeat: it goes with the draft.
+        draft = Draft(); openSpan = nil; selected = nil; lastMarked = nil; draftConflict = nil
+    }
+
+    /// The legacy mark a committed interval stands for: the greatest overlap, else the nearest start within 3 s.
+    func legacyLink(for start: Double, _ end: Double) -> LegacyMark? {
+        let overlapping = legacyMarks.map { ($0, max(0, min(end, $0.end) - max(start, $0.start))) }.filter { $0.1 > 0 }
+        if let best = overlapping.max(by: { $0.1 < $1.1 }) { return best.0 }
+        return legacyMarks.filter { abs($0.start - start) <= 3 }.min { abs($0.start - start) < abs($1.start - start) }
+    }
 
     /// A synchronised version of this record arrived (a push's reply or a pull): take it, keeping the draft and
     /// an open span — a draft is not in the record — and the selection when its rally still exists. Equal content
@@ -178,6 +208,9 @@ struct BoundaryEditor: Equatable {
         }
         // The rally under the draft changed on the other side: an untouched draft follows it; an edited draft
         // keeps its base and waits for the reviewer's decision — never committed over the newer version unseen.
+        // A blind second review never sees the primary events: its draft is its own marks, so a change to the primary
+        // review elsewhere neither loads into it nor raises a conflict that would show the primary times.
+        if mode == .secondReview { return changed }
         if let before, before != now, draft.rallyId == id {
             if draft == Draft.of(before) { draft = Draft.of(now) } else { draftConflict = DraftConflict(base: before, incoming: now) }
         }
@@ -187,7 +220,7 @@ struct BoundaryEditor: Equatable {
     /// The reviewer decided a draft conflict: keep mine (the draft goes on over the incoming rally and the next
     /// commit replaces it, explicitly), or take theirs (the draft reloads from the incoming rally).
     mutating func resolveDraftConflict(keepMine: Bool) {
-        guard let c = draftConflict else { return }
+        guard let c = draftConflict, mode == .first else { return }
         if !keepMine { draft = Draft.of(c.incoming); lastMarked = c.incoming.dead != nil ? .dead : (c.incoming.contact != nil ? .contact : nil) }
         draftConflict = nil
     }
@@ -243,6 +276,39 @@ struct BoundaryEditor: Equatable {
     private var frame: Double { file.frameDuration }
 
     mutating func apply(_ action: Action, at t: Double, now: Date) -> Outcome {
+        if mode == .secondReview {
+            switch action {
+            case .cycleKind, .cycleEdge, .toggleFlag, .span, .reviewedThrough, .complete, .withdraw:
+                return Outcome(message: "a second review marks the serve contact and the ball dead only", changed: false, refused: true)
+            case .commit:
+                guard let id = selected, file.rallies.contains(where: { $0.rallyId == id && $0.reviewState == .reviewed }) else { return Outcome(message: "select the rally to review again first", changed: false, refused: true) }
+                guard draft.contact != nil || draft.dead != nil else { return Outcome(message: "mark the serve contact (S) and the ball dead (D) again, blind", changed: false, refused: true) }
+                // Both observable events, as the first review requires them: an event may be missing only where the
+                // recording's edge cut it off (the first review's own edge). An incomplete repeat stays in the draft.
+                if let first = file.rallies.first(where: { $0.rallyId == id }), first.kind != .other {
+                    if draft.contact == nil, first.edge != .start { return Outcome(message: "mark the serve contact (S) too — a second review needs both events", changed: false, refused: true) }
+                    if draft.dead == nil, first.edge != .end { return Outcome(message: "mark the ball dead (D) too — a second review needs both events", changed: false, refused: true) }
+                }
+                if let c = draft.contact, let d = draft.dead, d.latest < c.earliest { return Outcome(message: "the rally ends before it starts", changed: false, refused: true) }
+                var copy = file
+                do { try EventReview.Mutation.recordSecondReview(of: id, contact: draft.contact, dead: draft.dead, in: &copy, at: now, annotator: annotator, tool: tool) } catch {
+                    return Outcome(message: error.localizedDescription, changed: false, refused: true)
+                }
+                push()
+                file = copy
+                let method = copy.rallies.first { $0.rallyId == id }?.secondReview?.method ?? ""
+                draft = Draft(); lastMarked = nil; selected = nil
+                return Outcome(message: "second review recorded (\(method))", changed: true)
+            case .select(let id):
+                selected = id
+                // Blind: the rally is named, its first result is not loaded.
+                draft = selectedRally.map { Draft(rallyId: $0.rallyId) } ?? Draft()
+                lastMarked = nil
+                return Outcome(message: selectedRally.map { "second review of rally \($0.rallyId.uuidString.prefix(8)) — its first result is hidden" } ?? "", changed: false)
+            default:
+                break
+            }
+        }
         switch action {
         case .mark(let event, let bound):
             let existing = event == .contact ? draft.contact : draft.dead
@@ -311,11 +377,14 @@ struct BoundaryEditor: Equatable {
                     || (existing.secondReview != nil && (existing.contact != draft.contact || existing.dead != draft.dead))
                 if predates, !flags.contains("second_review_before_edit") { flags.append("second_review_before_edit") }
                 rally.kind = draft.kind; rally.contact = draft.contact; rally.dead = draft.dead; rally.edge = draft.edge; rally.flags = flags
-                rally.reviewState = .reviewed; rally.annotator = annotator; rally.reviewedAt = stamp
+                rally.reviewState = .reviewed; rally.annotator = annotator; rally.reviewedAt = stamp; rally.tool = tool
             } else {
-                rally = EventReview.Rally(rallyId: UUID(), legacyIndex: draft.legacyIndex, legacyStart: draft.legacyStart, legacyEnd: draft.legacyEnd,
+                // A new rally keeps the legacy mark it stands for, when there is one.
+                var link = draft.legacyIndex.map { LegacyMark(index: $0, start: draft.legacyStart ?? 0, end: draft.legacyEnd ?? 0) }
+                if link == nil, let a = draft.contact?.earliest ?? draft.dead?.earliest, let b = draft.dead?.latest ?? draft.contact?.latest { link = legacyLink(for: a, b) }
+                rally = EventReview.Rally(rallyId: UUID(), legacyIndex: link?.index, legacyStart: link?.start, legacyEnd: link?.end,
                                           kind: draft.kind, contact: draft.contact, dead: draft.dead, flags: draft.flags, edge: draft.edge,
-                                          annotator: annotator, reviewedAt: stamp)
+                                          annotator: annotator, reviewedAt: stamp, tool: tool)
             }
             let id = EventReview.Mutation.upsert(rally, in: &file)
             let wasEdit = draft.rallyId != nil

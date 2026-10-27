@@ -359,4 +359,179 @@ final class BoundaryEditorTests: XCTestCase {
         XCTAssertTrue(f.apply(.complete, at: 0.3, now: now).changed, "the recording completes")
     }
 
+
+    // MARK: - Second review (blind repeat, protocol §6) and the legacy link
+
+    func testANewRallyIsLinkedToTheLegacyMarkItOverlapsMost() {
+        var e = editor(duration: 60)
+        e.legacyMarks = [.init(index: 0, start: 2, end: 6), .init(index: 1, start: 10, end: 20), .init(index: 2, start: 40, end: 45)]
+        commitRally(&e, contact: 11, dead: 19)
+        XCTAssertEqual(e.file.rallies[0].legacyIndex, 1); XCTAssertEqual(e.file.rallies[0].legacyStart, 10); XCTAssertEqual(e.file.rallies[0].legacyEnd, 20)
+        // No overlap: the nearest start within 3 s, else none.
+        commitRally(&e, contact: 38, dead: 39.5)
+        XCTAssertEqual(e.file.rallies[1].legacyIndex, 2)
+        commitRally(&e, contact: 30, dead: 33)
+        XCTAssertNil(e.file.rallies[2].legacyIndex)
+    }
+
+    func testTheSameReviewerMayRepeatBlindOnlyAfter24Hours() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        e.setMode(.secondReview)
+        XCTAssertNil(e.selected, "switching modes drops the selection")
+        _ = e.apply(.select(id), at: 0, now: now)
+        XCTAssertEqual(e.draft.rallyId, id); XCTAssertNil(e.draft.contact, "blind: the first result is not loaded into the draft")
+        _ = e.apply(.mark(.contact, .earliest), at: 10.1, now: now.addingTimeInterval(3600))
+        _ = e.apply(.mark(.dead, .earliest), at: 19.9, now: now.addingTimeInterval(3600))
+        let early = e.apply(.commit, at: 19.9, now: now.addingTimeInterval(3600))
+        XCTAssertTrue(early.refused); XCTAssertTrue(early.message.contains("24 h"), early.message)
+        XCTAssertNil(e.file.rallies[0].secondReview)
+        // A day later it is recorded beside the first result, which is untouched.
+        let later = now.addingTimeInterval(24 * 3600 + 1)
+        let out = e.apply(.commit, at: 19.9, now: later)
+        XCTAssertTrue(out.changed, out.message)
+        let r = e.file.rallies[0]
+        XCTAssertEqual(r.contact?.earliest, 10); XCTAssertEqual(r.dead?.earliest, 20)
+        XCTAssertEqual(r.secondReview?.method, EventReview.SecondReview.sameReviewer)
+        XCTAssertEqual(r.secondReview?.contact?.earliest, 10.1); XCTAssertEqual(r.secondReview?.dead?.earliest, 19.9)
+        XCTAssertEqual(r.secondReview?.tool, "RallyLab test"); XCTAssertEqual(r.secondReview?.annotator, "BW")
+        XCTAssertNil(e.selected); XCTAssertTrue(e.canUndo)
+    }
+
+    func testTheSameAccountOnTheOtherPlatformIsTheSameReviewer() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)   // "BW" on the Mac
+        var phone = BoundaryEditor(file: e.file, annotator: "bw", tool: "Labeler 1.0")   // the same account, differently cased
+        phone.setMode(.secondReview)
+        _ = phone.apply(.select(id), at: 0, now: now)
+        _ = phone.apply(.mark(.contact, .earliest), at: 10.1, now: now)
+        _ = phone.apply(.mark(.dead, .earliest), at: 19.9, now: now)
+        XCTAssertTrue(phone.apply(.commit, at: 19.9, now: now.addingTimeInterval(3600)).refused, "the same person: the 24-h rule applies across platforms")
+        XCTAssertTrue(phone.apply(.commit, at: 19.9, now: now.addingTimeInterval(25 * 3600)).changed)
+        XCTAssertEqual(phone.file.rallies[0].secondReview?.method, EventReview.SecondReview.sameReviewer)
+        XCTAssertEqual(phone.file.rallies[0].secondReview?.tool, "Labeler 1.0")
+    }
+
+    func testAnotherReviewerIsASecondReviewerAtOnce() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        var other = BoundaryEditor(file: e.file, annotator: "KD", tool: "Labeler 1.0")
+        other.setMode(.secondReview)
+        _ = other.apply(.select(id), at: 0, now: now)
+        _ = other.apply(.mark(.contact, .earliest), at: 10.05, now: now)
+        _ = other.apply(.mark(.dead, .earliest), at: 20.2, now: now)
+        XCTAssertTrue(other.apply(.commit, at: 20.2, now: now).changed)
+        XCTAssertEqual(other.file.rallies[0].secondReview?.method, EventReview.SecondReview.otherReviewer)
+        XCTAssertEqual(other.file.rallies[0].secondReview?.tool, "Labeler 1.0")
+    }
+
+    func testASecondReviewRecordsTheTwoEventsOnly() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        e.setMode(.secondReview)
+        for action in [BoundaryEditor.Action.withdraw, .complete, .reviewedThrough, .span(.transition), .cycleKind, .cycleEdge, .toggleFlag("ambiguous")] {
+            let out = e.apply(action, at: 30, now: now)
+            XCTAssertTrue(out.refused, "\(action) must be refused in a second review")
+            XCTAssertFalse(out.changed)
+        }
+        XCTAssertTrue(e.apply(.commit, at: 30, now: now).refused, "nothing selected")
+        _ = e.apply(.select(id), at: 0, now: now)
+        XCTAssertTrue(e.apply(.commit, at: 30, now: now).refused, "nothing marked")
+        XCTAssertEqual(e.file.rallies.count, 1); XCTAssertNil(e.file.rallies[0].secondReview)
+        e.setMode(.first)
+        XCTAssertEqual(e.mode, .first); XCTAssertNil(e.selected)
+    }
+
+    func testAFreshRepeatAfterAnEditIsCurrentAgain() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        let later = now.addingTimeInterval(25 * 3600)
+        e.setMode(.secondReview)
+        _ = e.apply(.select(id), at: 0, now: later)
+        _ = e.apply(.mark(.contact, .earliest), at: 10.1, now: later)
+        _ = e.apply(.mark(.dead, .earliest), at: 20, now: later)
+        XCTAssertTrue(e.apply(.commit, at: 20, now: later).changed)
+        // The primary review is edited: the repeat becomes stale evidence.
+        e.setMode(.first)
+        _ = e.apply(.select(id), at: 0, now: later)
+        _ = e.apply(.mark(.contact, .earliest), at: 11, now: later)
+        XCTAssertTrue(e.apply(.commit, at: 11, now: later).changed)
+        XCTAssertTrue(e.file.rallies[0].flags.contains("second_review_before_edit"))
+        // A fresh repeat against the edited review clears it.
+        let evenLater = later.addingTimeInterval(25 * 3600)
+        e.setMode(.secondReview)
+        _ = e.apply(.select(id), at: 0, now: evenLater)
+        _ = e.apply(.mark(.contact, .earliest), at: 11, now: evenLater)
+        _ = e.apply(.mark(.dead, .earliest), at: 20, now: evenLater)
+        XCTAssertTrue(e.apply(.commit, at: 20, now: evenLater).changed)
+        XCTAssertFalse(e.file.rallies[0].flags.contains("second_review_before_edit"))
+        XCTAssertEqual(e.file.rallies[0].secondReview?.contact?.earliest, 11)
+    }
+
+    func testASyncDuringABlindRepeatNeverShowsOrLoadsThePrimaryEvents() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        e.setMode(.secondReview)
+        _ = e.apply(.select(id), at: 0, now: now)
+        _ = e.apply(.mark(.contact, .earliest), at: 10.2, now: now)
+        var theirs = e.file; theirs.revision = 5; theirs.rallies[0].contact = .init(earliest: 9, latest: 9)
+        XCTAssertTrue(e.adopt(theirs))
+        XCTAssertNil(e.draftConflict, "no conflict banner with the primary times")
+        XCTAssertEqual(e.draft.contact?.earliest, 10.2, "the blind marks stay the reviewer's own")
+        e.resolveDraftConflict(keepMine: false)
+        XCTAssertEqual(e.draft.contact?.earliest, 10.2)
+    }
+
+    func testASecondReviewNeedsBothEventsUnlessTheEdgeCutOneOff() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        let later = now.addingTimeInterval(25 * 3600)
+        e.setMode(.secondReview)
+        _ = e.apply(.select(id), at: 0, now: later)
+        _ = e.apply(.mark(.contact, .earliest), at: 10.1, now: later)
+        let half = e.apply(.commit, at: 10.1, now: later)
+        XCTAssertTrue(half.refused); XCTAssertTrue(half.message.contains("ball dead"), half.message)
+        XCTAssertNil(e.file.rallies[0].secondReview, "nothing recorded"); XCTAssertEqual(e.draft.contact?.earliest, 10.1, "the incomplete repeat stays in the draft")
+        _ = e.apply(.mark(.dead, .earliest), at: 20, now: later)
+        XCTAssertTrue(e.apply(.commit, at: 20, now: later).changed)
+        // A rally cut off at the start: the repeat may lack the contact, as the first review does.
+        var f = editor(duration: 60)
+        _ = f.apply(.cycleEdge, at: 0, now: now)
+        _ = f.apply(.mark(.dead, .earliest), at: 3, now: now)
+        XCTAssertTrue(f.apply(.commit, at: 3, now: now).changed)
+        let edgeId = f.selected!
+        f.setMode(.secondReview)
+        _ = f.apply(.select(edgeId), at: 0, now: later)
+        _ = f.apply(.mark(.dead, .earliest), at: 3.1, now: later)
+        XCTAssertTrue(f.apply(.commit, at: 3.1, now: later).changed)
+    }
+
+    func testAConflictRaisedBeforeABlindRepeatIsClearedWhenItStarts() {
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        _ = e.apply(.select(id), at: 0, now: now)
+        _ = e.apply(.toggleFlag("ambiguous"), at: 0, now: now)
+        var theirs = e.file; theirs.revision = 3; theirs.rallies[0].contact = .init(earliest: 9, latest: 9)
+        XCTAssertTrue(e.adopt(theirs)); XCTAssertNotNil(e.draftConflict)
+        e.setMode(.secondReview)
+        XCTAssertNil(e.draftConflict, "no banner with the primary times in a blind repeat")
+        _ = e.apply(.select(id), at: 0, now: now)
+        XCTAssertNil(e.draftConflict); XCTAssertNil(e.draft.contact)
+    }
+
+    func testTakingTheServersRecordDuringABlindRepeatKeepsItBlind() {
+        // The phone resolves a full-record conflict ("take the server's") by adopting the server's record into the
+        // same editor: the repeat stays a repeat and shows nothing of the primary events.
+        var e = editor(duration: 60)
+        let id = commitRally(&e, contact: 10, dead: 20)
+        e.setMode(.secondReview)
+        _ = e.apply(.select(id), at: 0, now: now)
+        _ = e.apply(.mark(.dead, .earliest), at: 19.9, now: now)
+        var server = e.file; server.revision = 7; server.rallies[0].dead = .init(earliest: 21, latest: 21)
+        e.adopt(server)
+        XCTAssertEqual(e.mode, .secondReview)
+        XCTAssertNil(e.draft.contact); XCTAssertEqual(e.draft.dead?.earliest, 19.9, "the reviewer's own marks, not the primary's")
+        XCTAssertNil(e.draftConflict)
+        XCTAssertEqual(e.file.revision, 7)
+    }
 }

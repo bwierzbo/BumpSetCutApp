@@ -80,17 +80,20 @@ final class PhoneBoundaryModel {
                 }
             }
             // The record: the server's (or the pending edit's), else a fresh one naming the ORIGINAL.
+            var e: BoundaryEditor
             if let existing = model.rallyEvents(for: video) {
-                editor = BoundaryEditor(file: existing.record, annotator: annotator, tool: tool)
+                e = BoundaryEditor(file: existing.record, annotator: annotator, tool: tool)
                 revision = existing.revision
             } else {
                 // A fresh record names the original: its published duration, never the copy's (a copy can keep
                 // every frame start and still end earlier).
                 let fresh = EventReview.File(video: video.sessionName ?? video.name, sourceFingerprint: video.sourceFingerprint, frameRate: rate > 0 ? rate : 30,
                                              durationSec: video.duration > 0 ? video.duration : duration, tool: tool, frameTimesDigest: video.frameTimesDigest)
-                editor = BoundaryEditor(file: fresh, annotator: annotator, tool: tool)
+                e = BoundaryEditor(file: fresh, annotator: annotator, tool: tool)
                 revision = 0
             }
+            e.legacyMarks = model.rallyTimes(for: video).rallies.enumerated().map { BoundaryEditor.LegacyMark(index: $0.offset, start: $0.element.start, end: $0.element.end) }
+            editor = e
             await verifyFrames(local: isLocal ? url : nil)
             if let f = editor?.file, let resume = EventReview.firstUnknown(in: f), resume > 0 { seek(to: resume) }
             status = gate.reason + (unreachableTail > 0 ? String(format: " · the copy ends %.2f s before the original: that stretch is reviewed on the Mac", unreachableTail) : "")
@@ -233,7 +236,39 @@ final class PhoneBoundaryModel {
 
     func select(_ id: UUID?) {
         perform(.select(id))
-        if let r = editor?.selectedRally, let t = r.contact?.earliest ?? r.dead?.earliest { seek(to: t) }
+        guard let r = editor?.selectedRally else { return }
+        if secondReview { if let s = r.legacyStart { seek(to: max(0, s - 3)) } } else if let t = r.contact?.earliest ?? r.dead?.earliest { seek(to: t) }
+    }
+
+    var secondReview: Bool { editor?.mode == .secondReview }
+
+    // MARK: - Pilot (blind first review, the same rule as the Mac: PilotBlind)
+
+    var pilotWindows: [PilotWindow] { model.pilotWindows(for: video) }
+
+    /// Legacy marks the timeline may draw: none inside the window of a pilot rally whose first review is not
+    /// committed — enforced here, whatever the legacy toggle says.
+    var visibleLegacyMarks: [(start: Double, end: Double)] {
+        // Until the project's pilot status is known, no legacy mark is drawn: an unknown draw must not unblind.
+        guard model.pilotStatusKnown(for: video) else { return [] }
+        return PilotBlind.filter(model.rallyTimes(for: video).rallies.map { ($0.start, $0.end) }, windows: pilotWindows, record: file)
+    }
+
+    func pilotCommitted(_ w: PilotWindow) -> Bool { PilotBlind.firstReviewCommitted(w, in: file) }
+
+    /// Opens a pilot window as the protocol says: paused, 3 s before the legacy start (inside the window).
+    func jump(to w: PilotWindow) {
+        if isPlaying { togglePlay() }
+        seek(to: max(w.window[0], w.legacyStart - 3))
+    }
+
+    /// The blind repeat (protocol §6), the same rule as the Mac: the first result hidden, S and D marked again.
+    func setSecondReview(_ on: Bool) {
+        guard var e = editor else { return }
+        e.setMode(on ? .secondReview : .first)
+        editor = e
+        status = on ? "second review: pick a rally, mark contact and dead again blind, then Commit" : "review"
+        lastRefused = false
     }
 
     func selectAdjacent(forward: Bool) {
@@ -264,8 +299,13 @@ final class PhoneBoundaryModel {
     /// The person decided a conflict: take the server's version (and reload it) or keep mine on top of it.
     func resolveConflict(takeServer: Bool) {
         model.resolveEventConflict(video, takeServer: takeServer)
-        if takeServer, let existing = model.rallyEvents(for: video) {
-            editor = BoundaryEditor(file: existing.record, annotator: annotator, tool: tool)
+        if takeServer, let existing = model.rallyEvents(for: video), var e = editor {
+            // The same editor takes the server's record (adopt), so its mode, legacy links and — in a blind repeat —
+            // the reviewer's own marks stay; a fresh editor would reopen in the first review and show the primary times.
+            e.adopt(existing.record)
+            // In the first review, taking the server's version also drops a local draft built on the replaced record.
+            if e.mode == .first { _ = e.apply(.cancel, at: 0, now: Date()) }
+            editor = e
             revision = existing.revision
         } else if let existing = model.rallyEvents(for: video) {
             revision = existing.revision
@@ -292,6 +332,7 @@ struct RallyBoundariesPhoneView: View {
             timeline.frame(height: 44).padding(.horizontal).padding(.top, 4)
             transport.padding(.vertical, 6)
             gateBanner
+            if !m.pilotWindows.isEmpty { pilotStrip }
             if let c = m.conflict { conflictBanner(c) }
             if let why = m.identityProblem {
                 Label(why, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red)
@@ -334,8 +375,8 @@ struct RallyBoundariesPhoneView: View {
             return (a, b)
         }()
         return BoundaryTimelineView(file: m.file, duration: m.duration, playhead: m.playhead,
-                                    legacyMarks: m.model.rallyTimes(for: m.video).rallies.map { ($0.start, $0.end) }, showLegacy: showLegacy,
-                                    draft: draft, openSpanStart: e?.openSpan?.start, selected: e?.selected,
+                                    legacyMarks: m.visibleLegacyMarks, showLegacy: showLegacy && !m.secondReview,
+                                    draft: draft, openSpanStart: e?.openSpan?.start, selected: e?.selected, hideRallyTimes: m.secondReview, windows: m.pilotWindows.map { ($0.window[0], $0.window[1]) },
                                     seek: { t, exact in m.seek(to: t, exact: exact) }, select: { t in m.selectRally(at: t) })
     }
 
@@ -376,6 +417,24 @@ struct RallyBoundariesPhoneView: View {
             .buttonStyle(.bordered).controlSize(.small)
         }
         .padding(8).background(Color.red.opacity(0.12)).padding(.horizontal)
+    }
+
+    /// The published pilot draw's rallies in this recording: tap to open a window (blind until committed).
+    private var pilotStrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Pilot \(m.model.pilot(for: m.video)?.id ?? "") · \(m.pilotWindows.count) here · blind until committed").font(.caption.bold())
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(m.pilotWindows.enumerated()), id: \.offset) { _, w in
+                        Button { m.jump(to: w) } label: {
+                            Text("\(w.stratum) \(BoundaryEditor.clock(w.window[0]))\(w.repeatReview ? " ↻" : "")\(m.pilotCommitted(w) ? " ✓" : "")").font(.system(.caption2, design: .monospaced))
+                        }
+                        .buttonStyle(.bordered).controlSize(.small).tint(m.pilotCommitted(w) ? .blue : .yellow)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
     }
 
     private func draftConflictBanner(_ d: BoundaryEditor.DraftConflict) -> some View {
@@ -423,7 +482,8 @@ struct RallyBoundariesPhoneView: View {
                 Button { m.selectAdjacent(forward: false) } label: { Label("Previous rally", systemImage: "chevron.left") }
                 Button { m.selectAdjacent(forward: true) } label: { Label("Next rally", systemImage: "chevron.right") }
                 Spacer()
-                Toggle("legacy", isOn: $showLegacy).toggleStyle(.switch).controlSize(.mini)
+                Toggle("legacy", isOn: $showLegacy).toggleStyle(.switch).controlSize(.mini).disabled(m.secondReview)
+                Toggle("2nd review", isOn: Binding(get: { m.secondReview }, set: { m.setSecondReview($0) })).toggleStyle(.switch).controlSize(.mini)
             }
             .buttonStyle(.bordered).controlSize(.small)
         }
@@ -437,20 +497,26 @@ struct RallyBoundariesPhoneView: View {
     private var inspector: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let e = m.editor {
-                Text(e.draft.rallyId == nil ? "New rally" : "Editing rally \(e.draft.rallyId!.uuidString.prefix(8))").font(.caption.bold())
+                Text(e.mode == .secondReview ? "Second review (blind)" + (e.draft.rallyId.map { " of \($0.uuidString.prefix(8))" } ?? ": pick a rally") : e.draft.rallyId == nil ? "New rally" : "Editing rally \(e.draft.rallyId!.uuidString.prefix(8))").font(.caption.bold())
                 Text(draftLine(e.draft)).font(.caption)
                 if let s = e.openSpan { Text("\(s.kind.rawValue) open from \(BoundaryEditor.clock(s.start))").font(.caption).foregroundStyle(.orange) }
                 let reviewed = e.reviewedRallies
                 Text("\(reviewed.count) rallies · \(e.file.rallies.count - reviewed.count) withdrawn · \(e.file.spans.count) spans").font(.caption.bold()).padding(.top, 4)
                 ForEach(reviewed, id: \.rallyId) { r in
                     Button { m.select(r.rallyId) } label: {
-                        Text("\(r.kind.rawValue) \(r.contact.map { BoundaryEditor.clock($0.earliest) } ?? "?") → \(r.dead.map { BoundaryEditor.clock($0.earliest) } ?? "?")" + (r.flags.isEmpty ? "" : " ⚑"))
+                        Text(rallyLine(r, blind: e.mode == .secondReview))
                             .font(.system(.caption, design: .monospaced)).foregroundStyle(r.rallyId == e.selected ? Color.accentColor : Color.primary)
                     }.buttonStyle(.plain)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A reviewed rally's line; blind in a second review (the first result is not shown).
+    private func rallyLine(_ r: EventReview.Rally, blind: Bool) -> String {
+        if blind { return "rally \(r.rallyId.uuidString.prefix(8))" + (r.legacyIndex.map { " (legacy #\($0))" } ?? "") + (r.secondReview == nil ? "" : " ✓✓") }
+        return "\(r.kind.rawValue) \(r.contact.map { BoundaryEditor.clock($0.earliest) } ?? "?") → \(r.dead.map { BoundaryEditor.clock($0.earliest) } ?? "?")" + (r.flags.isEmpty ? "" : " ⚑")
     }
 
     private func draftLine(_ d: BoundaryEditor.Draft) -> String {

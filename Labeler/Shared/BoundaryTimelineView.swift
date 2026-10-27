@@ -20,6 +20,11 @@ struct BoundaryTimelineView: View {
     let draft: (start: Double, end: Double)?
     let openSpanStart: Double?
     let selected: UUID?
+    /// A blind second review: the reviewed rallies' times are not drawn (a thin tick marks where one is
+    /// selected, nothing says where its events were).
+    var hideRallyTimes = false
+    /// Windows under review (the pilot's), drawn as faint brackets.
+    var windows: [(start: Double, end: Double)] = []
     /// Seek, loosely while dragging (`exact == false`) and exactly when the drag ends.
     let seek: (Double, Bool) -> Void
     /// A click or tap with no real drag: select the rally under it (nil when none).
@@ -40,7 +45,7 @@ struct BoundaryTimelineView: View {
                         let color: Color = s.kind == .nonRallyActivity ? .orange : s.kind == .transition ? .gray : .purple
                         ctx.fill(Path(CGRect(x: x(s.start), y: h * 0.55, width: max(2, x(s.end) - x(s.start)), height: h * 0.25)), with: .color(color.opacity(0.7)))
                     }
-                    for r in f.rallies {
+                    for r in f.rallies where !hideRallyTimes {
                         guard let a = r.contact?.earliest ?? r.dead?.earliest, let b = r.dead?.latest ?? r.contact?.latest else { continue }
                         let isSelected = r.rallyId == selected
                         let rect = CGRect(x: x(a), y: h * 0.12, width: max(2, x(b) - x(a)), height: h * 0.38)
@@ -49,6 +54,9 @@ struct BoundaryTimelineView: View {
                             ctx.fill(Path(CGRect(x: x(e.earliest), y: h * 0.12, width: max(1, x(e.latest) - x(e.earliest)), height: h * 0.38)), with: .color(.white.opacity(0.35)))
                         }
                     }
+                }
+                for win in windows {
+                    ctx.stroke(Path(CGRect(x: x(win.start), y: h * 0.06, width: max(2, x(win.end) - x(win.start)), height: h * 0.5)), with: .color(.yellow.opacity(0.6)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
                 }
                 if showLegacy {
                     for m in legacyMarks {

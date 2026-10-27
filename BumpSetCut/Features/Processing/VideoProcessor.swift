@@ -198,6 +198,9 @@ final class VideoProcessor: @unchecked Sendable {
     /// serve-primed start), else ServeDetector's search of the evidence —
     /// so only when it's collected. For the debug video; not used to cut.
     @ObservationIgnored private(set) var serves: [ServeDetector.Serve] = []
+    /// Each retained segment's RAW decided boundaries (before pre/post-roll), in the same order as the padded
+    /// clips the run returned — what a raw-boundary scorer compares; kept with the evidence.
+    @ObservationIgnored private(set) var rawRanges: [Interval] = []
     /// The serves rallies started on, as the decider took them.
     @ObservationIgnored private var startedServes: [ServeDetector.Serve] = []
     @ObservationIgnored private(set) var lastVideoDurationSec: Double = 0
@@ -1045,6 +1048,7 @@ final class VideoProcessor: @unchecked Sendable {
         }
         let keep = kept.map { $0.padded }
         if collectFrameEvidence {
+            rawRanges = kept.map { Interval(start: CMTimeGetSeconds($0.raw.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd($0.raw))) }
             let frames = ServeDetector.Frame.from(frameEvidence)
             serves = kept.compactMap { seg in
                 let raw = Interval(start: CMTimeGetSeconds(seg.raw.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd(seg.raw)))

@@ -124,6 +124,7 @@
 				Shared/LabelQueue.swift,
 				Shared/LiveTagger.swift,
 				Shared/MarkingProgress.swift,
+				Shared/PilotBlind.swift,
 				Shared/PipelineVideo.swift,
 				Shared/RallyEvents.swift,
 				Shared/RallyEventsSync.swift,

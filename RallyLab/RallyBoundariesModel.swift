@@ -20,6 +20,12 @@ final class RallyBoundariesModel {
     let sampler: SamplerModel
     private(set) var recordings: [EventInventory.Recording] = []
     private(set) var inventoryProblem: String?
+    /// The frozen 24-rally pilot (manifests/pilot, the latest record), when one exists: its windows are shown
+    /// on the timeline and listed for the open recording, and the legacy marks stay hidden inside a window
+    /// until its rally is committed (blind review, protocol §6).
+    private(set) var pilot: PilotDraw.Record?
+    /// Why the frozen pilot record could not be read, when it could not (blind until it can).
+    private(set) var pilotProblem: String?
     private(set) var session: EventReview.Session?
     private(set) var editor: BoundaryEditor?
     private(set) var player: AVPlayer?
@@ -42,12 +48,16 @@ final class RallyBoundariesModel {
     private var generation = 0
     /// The dataset root the open recording belongs to; a project change closes it.
     private var openedRoot: URL?
-    let annotator: String
+    /// Who reviews, asked when a recording opens: the labeling account's e-mail when the Mac is signed in (the
+    /// identity the phone records too, so the same person is the same reviewer on both and the 24-h repeat rule
+    /// applies across platforms), else the macOS user name. Set by RallyLabApp.
+    var reviewer: () -> String
+    var annotator: String { reviewer() }
     let tool: String
 
     init(sampler: SamplerModel, annotator: String = NSUserName(), tool: String = "RallyLab " + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")) {
         self.sampler = sampler
-        self.annotator = annotator
+        self.reviewer = { annotator }
         self.tool = tool
     }
 
@@ -66,6 +76,59 @@ final class RallyBoundariesModel {
             recordings = []
             inventoryProblem = error.localizedDescription
         }
+        // An unreadable frozen record is not an absent one: the draw loaded before is kept, and until the record
+        // reads again no legacy mark is drawn (the blind rule cannot be applied to a draw it cannot see).
+        do {
+            pilot = try PilotDraw.latest(in: root).flatMap { $0.dryRun ? nil : $0 }
+            pilotProblem = nil
+        } catch {
+            pilotProblem = "the pilot record cannot be read (\(error.localizedDescription)): legacy marks are hidden until it can"
+        }
+    }
+
+    // MARK: - Pilot and blind review
+
+    /// The pilot's selected rallies in the open recording, in window order.
+    var pilotWindows: [PilotDraw.Selected] {
+        (pilot?.selection.filter { $0.video == sessionName } ?? []).sorted { $0.window[0] < $1.window[0] }
+    }
+
+    func pilotCount(for name: String) -> Int { pilot?.selection.filter { $0.video == name }.count ?? 0 }
+
+    /// Whether the selected rally's first review is committed (the shared pairing), and whether a second review exists.
+    func pilotState(of s: PilotDraw.Selected) -> (reviewed: Bool, second: Bool) {
+        guard let r = PilotBlind.answer(to: s.pilotWindow, in: file) else { return (false, false) }
+        return (true, r.secondReview != nil)
+    }
+
+    /// Opens the window as the protocol says: paused, 3 s before the legacy start (inside the window).
+    func jump(to s: PilotDraw.Selected) {
+        if isPlaying { togglePlay() }
+        seek(to: max(s.window[0], s.legacyStart - 3))
+    }
+
+    /// Blind: a pilot rally's legacy mark is never drawn until that rally is committed, wherever the playhead
+    /// is (seeing it anywhere on the timeline would give the answer away); in a second review nothing of the
+    /// first result is shown either.
+    var legacyHidden: Bool { secondReview }
+
+    /// The legacy marks the timeline may draw: the shared blind rule (PilotBlind) — none inside the window of a
+    /// selected rally whose first review is not committed.
+    var visibleLegacyMarks: [(start: Double, end: Double)] {
+        guard pilotProblem == nil else { return [] }
+        return PilotBlind.filter(legacyMarks.map { ($0.startTime, $0.endTime) }, windows: pilotWindows.map(\.pilotWindow), record: file)
+    }
+
+    var secondReview: Bool { editor?.mode == .secondReview }
+
+    /// The blind repeat (protocol §6): the selected rally's first result is hidden, S and D mark it again,
+    /// ⏎ records the second review beside the first. Same reviewer: refused within 24 h of the first review.
+    func setSecondReview(_ on: Bool) {
+        guard var e = editor else { return }
+        e.setMode(on ? .secondReview : .first)
+        editor = e
+        status = on ? "second review: select a rally ([ ] or the list), mark S and D again blind, ⏎ records it" : "review"
+        lastRefused = false
     }
 
     var eligible: [EventInventory.Recording] { recordings.filter { !$0.withheld } }
@@ -85,12 +148,13 @@ final class RallyBoundariesModel {
             guard mine == generation else { return }
             openedRoot = root
             session = opened
+            legacyMarks = (try? Data(contentsOf: RallyMarkModel.labelsURL(for: video.sourceURL))).flatMap { try? JSONDecoder().decode([RallyMarkRecord].self, from: $0) } ?? []
             var e = BoundaryEditor(file: opened.file, annotator: annotator, tool: tool)
+            e.legacyMarks = legacyMarks.enumerated().map { BoundaryEditor.LegacyMark(index: $0.offset, start: $0.element.startTime, end: $0.element.endTime) }
             // A record from before the footage fingerprint was kept: open has just checked the name, so the footage
             // on disk is recorded as its original (written with the next commit; never overwrites one that exists).
             if opened.file.sourceFingerprint == nil, let current = ProjectsModel.fileFingerprint(atPath: video.sourcePath) { e.recordSourceFingerprint(current) }
             editor = e
-            legacyMarks = (try? Data(contentsOf: RallyMarkModel.labelsURL(for: video.sourceURL))).flatMap { try? JSONDecoder().decode([RallyMarkRecord].self, from: $0) } ?? []
             duration = opened.file.durationSec
             let player = AVPlayer(url: video.sourceURL)
             player.isMuted = false
@@ -256,7 +320,9 @@ final class RallyBoundariesModel {
 
     func select(_ id: UUID?) {
         perform(.select(id))
-        if let r = editor?.selectedRally, let t = r.contact?.earliest ?? r.dead?.earliest { seek(to: t) }
+        guard let r = editor?.selectedRally else { return }
+        // A second review is blind: open at the legacy mark (3 s before), never at the first result.
+        if secondReview { if let s = r.legacyStart { seek(to: max(0, s - 3)) } } else if let t = r.contact?.earliest ?? r.dead?.earliest { seek(to: t) }
     }
 
     /// `[` / `]`: the reviewed rally before or after the playhead (by its start), selected and shown.

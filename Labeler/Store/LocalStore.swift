@@ -22,6 +22,11 @@ struct LabelSnapshot: Codable {
     var events: [LabelRallyEvents] = []
     /// The project's withheld recordings as published; nil = no list published for that project (nothing reviewable).
     var withheld: [String: [String]] = [:]
+    /// The frozen pilot draw published for each project (migration 050), read-only; absent when none is.
+    var pilots: [String: PilotPublication] = [:]
+    /// Projects whose pilot status has been read from the server at least once (with or without a draw). Until a
+    /// project is here, its pilot status is unknown and the phone shows no legacy marks for it (blind).
+    var pilotsChecked: Set<String> = []
 
     init(videos: [LabelVideo] = [], times: [LabelRallyTimes] = [], tracks: [LabelTrack] = [], states: [LabelProjectState] = [],
          events: [LabelRallyEvents] = [], withheld: [String: [String]] = [:]) {
@@ -36,6 +41,8 @@ struct LabelSnapshot: Codable {
         states = try c.decodeIfPresent([LabelProjectState].self, forKey: .states) ?? []
         events = try c.decodeIfPresent([LabelRallyEvents].self, forKey: .events) ?? []
         withheld = try c.decodeIfPresent([String: [String]].self, forKey: .withheld) ?? [:]
+        pilots = try c.decodeIfPresent([String: PilotPublication].self, forKey: .pilots) ?? [:]
+        pilotsChecked = try c.decodeIfPresent(Set<String>.self, forKey: .pilotsChecked) ?? []
     }
 }
 

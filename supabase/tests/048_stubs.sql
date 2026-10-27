@@ -2,8 +2,10 @@
 -- PostgreSQL cluster (supabase/tests/run_048_tests.sh). Definitions of private.is_labeler, private.is_lead and
 -- private.notify_labeling are copied from migrations 028, 039 and 045; auth.uid() reads the JWT subject the way
 -- Supabase's does; default privileges mirror Supabase's (anon and authenticated get table privileges, RLS decides).
-CREATE ROLE anon NOLOGIN;
-CREATE ROLE authenticated NOLOGIN;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+END $$;
 CREATE SCHEMA auth;
 CREATE SCHEMA private;
 CREATE SCHEMA realtime;

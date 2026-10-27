@@ -286,6 +286,23 @@ actor LabelingClient {
         return Int(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) ?? names.count
     }
 
+    /// The latest frozen pilot draw published for a project (migration 050), or nil when none is. Read-only here.
+    func pilot(project: String) async throws -> PilotPublication? {
+        let rows: [PilotPublication] = try await get("label_pilot_records",
+            query: "select=id,project,record_sha256,selection,selection_digest,published_at&project=eq.\(Self.encoded(project))&order=published_at.desc&limit=1")
+        return rows.first
+    }
+
+    /// Publishes a frozen pilot draw (leads only; an id is published once and never changed). The selection travels
+    /// with its own camelCase keys, as the apps write it.
+    func publishPilot(id: String, project: String, recordSha256: String, selection: [PilotWindow]) async throws -> PilotPublication {
+        struct Params: Encodable { let p_id: String; let p_project: String; let p_record_sha256: String; let p_selection: [PilotWindow] }
+        var request = try await rest("rpc/label_pilot_publish", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_id: id, p_project: project, p_record_sha256: recordSha256, p_selection: selection))
+        return try Self.decoder.decode(PilotPublication.self, from: try await send(request))
+    }
+
     private static func encoded(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
     }

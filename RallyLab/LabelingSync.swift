@@ -58,15 +58,22 @@ final class LabelingSync {
 
     private let client = LabelingClient.shared
 
+    /// The signed-in labeling account's e-mail: the reviewer identity shared with the phone.
+    private(set) var account: String?
+
     init(projects: ProjectsModel) {
         self.projects = projects
-        Task { signedIn = await client.hasSession }
+        Task {
+            signedIn = await client.hasSession
+            account = await client.email
+        }
     }
 
     func signIn(email: String, password: String) async {
         do {
             try await client.signIn(email: email, password: password)
             signedIn = true
+            account = await client.email
             status = try await client.isLabeler() ? "Signed in." : "Signed in, but this account isn't a labeler (public.labelers)."
         } catch {
             status = error.localizedDescription
