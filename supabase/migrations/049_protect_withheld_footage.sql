@@ -16,10 +16,8 @@
 --     the object), changed or deleted only when a label_videos row references it and no protected row does; a
 --     clip's ball-path sidecar (`<clip>.ballpath.json`) follows its clip. A copy of a protected recording, and any
 --     object no row references (its identity unknown), is therefore refused, through the apps and the API alike.
---   * references cannot be forged: an ordinary labeler may create only a phone upload's row (no project, no
---     recording, no identities, a `phone/` object no other row claims) and may never change a row's project,
---     recording, copy path or identities — so no labeler-made row can point at a RallyLab copy or the
---     unreferenced object. Uploads are unchanged.
+--   * references cannot be forged: 048's guard on label_videos keeps every labeler-made row away from RallyLab's
+--     copies and the unreferenced object. Uploads are unchanged.
 -- Nothing is deleted or moved: every object, row, hash and historical annotation stays as it is.
 
 CREATE OR REPLACE FUNCTION private.label_session_protected(p_project text, p_session text) RETURNS boolean
@@ -56,31 +54,9 @@ AS $$
             AND NOT EXISTS (SELECT 1 FROM public.label_videos v, clip WHERE v.clip_path = clip.path AND private.label_session_protected(v.project, v.session_name)))
 $$;
 
--- No forged references: what an ordinary labeler may write to label_videos (leads are not limited).
-CREATE OR REPLACE FUNCTION private.label_videos_guard() RETURNS trigger
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
-AS $$
-BEGIN
-    -- Server-side work (migrations, the service role) has no signed-in user; API callers always do.
-    IF (SELECT auth.uid()) IS NULL OR (SELECT private.is_lead()) THEN RETURN NEW; END IF;
-    IF TG_OP = 'INSERT' THEN
-        -- Only a phone upload's own row: no project or recording, no identities, a phone/ object nobody else claims.
-        IF NEW.project IS NOT NULL OR NEW.session_name IS NOT NULL OR NEW.source_fingerprint IS NOT NULL OR NEW.frame_times_digest IS NOT NULL
-           OR (NEW.clip_path IS NOT NULL AND NEW.clip_path NOT LIKE 'phone/%')
-           OR (NEW.clip_path IS NOT NULL AND EXISTS (SELECT 1 FROM public.label_videos v WHERE v.clip_path = NEW.clip_path)) THEN
-            RAISE EXCEPTION 'label_videos: a labeler may add only a phone upload''s own row' USING ERRCODE = '42501';
-        END IF;
-    ELSIF NEW.project IS DISTINCT FROM OLD.project OR NEW.session_name IS DISTINCT FROM OLD.session_name
-          OR NEW.clip_path IS DISTINCT FROM OLD.clip_path OR NEW.source_fingerprint IS DISTINCT FROM OLD.source_fingerprint
-          OR NEW.frame_times_digest IS DISTINCT FROM OLD.frame_times_digest THEN
-        RAISE EXCEPTION 'label_videos: a labeler may not change a recording''s project, name, copy or identities' USING ERRCODE = '42501';
-    END IF;
-    RETURN NEW;
-END;
-$$;
-REVOKE ALL ON FUNCTION private.label_videos_guard() FROM PUBLIC, anon, authenticated;
-DROP TRIGGER IF EXISTS label_videos_guard ON public.label_videos;
-CREATE TRIGGER label_videos_guard BEFORE INSERT OR UPDATE ON public.label_videos FOR EACH ROW EXECUTE FUNCTION private.label_videos_guard();
+-- References cannot be forged: 048's guard (private.label_videos_guard) lets an ordinary labeler add only a phone
+-- upload's own row and never change a row's project, recording, copy path or identities, so no labeler-made row can
+-- point at a RallyLab copy or the unreferenced object.
 
 REVOKE ALL ON FUNCTION private.label_session_protected(text, text), private.label_video_readable(uuid),
                        private.label_track_readable(uuid), private.label_object_readable(text) FROM PUBLIC, anon;

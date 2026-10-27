@@ -30,7 +30,7 @@ The check runs at access time, so a recording withheld later is protected at onc
 | Storage: create a signed URL | every object | same as read |
 | Storage: replace, delete | every object | same as read |
 | Storage: ball-path sidecar (`<clip>.ballpath.json`) | every object | follows its clip |
-| `label_videos`: creating rows and changing identities | anything | an ordinary labeler may create only a phone upload's own row (no project, recording or identities; a `phone/` object nobody else claims) and may never change a row's project, recording, copy path or identities (trigger `label_videos_guard`); no labeler-made row can point at a RallyLab copy or the unreferenced object |
+| `label_videos`: creating rows and changing identities | anything | an ordinary labeler may create only a phone upload's own row (no project, recording or identities; a `phone/` object nobody else claims) and may never change a row's project, recording, copy path or identities (048's trigger `label_videos_guard`, live since 2026-10-27); no labeler-made row can point at a RallyLab copy or the unreferenced object |
 | Storage: upload | allowed | unchanged |
 
 Signed URLs: the storage API checks the caller's SELECT access on the object before it signs. Supabase's documentation shows that signed URLs serve private buckets and that object access is governed by `storage.objects` policies, but it gives no per-operation table. After deployment this is checked live (§4 step 4).
