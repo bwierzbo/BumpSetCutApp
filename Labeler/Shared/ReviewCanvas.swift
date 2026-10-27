@@ -129,8 +129,14 @@ struct FrameCanvas: View {
     }
 
     static func shown(image: CGImage, zoom: CGFloat, view: CGSize) -> CGSize {
-        let fit = min(view.width / CGFloat(image.width), view.height / CGFloat(image.height)) * zoom
-        return CGSize(width: CGFloat(image.width) * fit, height: CGFloat(image.height) * fit)
+        shown(content: CGSize(width: image.width, height: image.height), zoom: zoom, view: view)
+    }
+
+    /// A picture of `content`'s proportions fitted to `view`, `zoom` times.
+    static func shown(content: CGSize, zoom: CGFloat, view: CGSize) -> CGSize {
+        guard content.width > 0, content.height > 0 else { return view }
+        let fit = min(view.width / content.width, view.height / content.height) * zoom
+        return CGSize(width: content.width * fit, height: content.height * fit)
     }
 
     /// Where the picture's top-left goes: `centre` in the middle, the

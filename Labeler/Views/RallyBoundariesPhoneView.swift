@@ -36,6 +36,13 @@ final class PhoneBoundaryModel {
     /// How much of the original lies past the copy's end (a shorter final frame, a lost audio tail): that stretch
     /// cannot be reviewed from this copy and stays unknown here — the Mac reviews it on the original.
     private(set) var unreachableTail = 0.0
+    /// The video's displayed proportions (rotation applied), so a zoomed picture pans over the video, not its bars.
+    private(set) var videoSize = CGSize(width: 16, height: 9)
+    /// The magnification of the shown frame and the point of it in the middle (top-down fractions). It stays while
+    /// frames step and play — only the display changes, never which frame is shown or marked — and is kept per
+    /// recording on this phone, so reopening the recording comes back to the same view.
+    private(set) var zoom: CGFloat = 1
+    private(set) var centre = CGPoint(x: 0.5, y: 0.5)
     private var observer: Any?
     private var seekClock = SeekClock()
     private var seeking = false
@@ -48,6 +55,26 @@ final class PhoneBoundaryModel {
         self.model = model
         self.video = video
         self.annotator = model.account ?? "phone"
+        if let v = UserDefaults.standard.array(forKey: zoomKey) as? [Double], v.count == 3, v[0] >= 1 {
+            zoom = v[0]; centre = CGPoint(x: v[1], y: v[2])
+        }
+    }
+
+    private var zoomKey: String { "rallyBoundaries.zoom." + video.id.uuidString }
+
+    static let maxZoom: CGFloat = 8
+
+    /// Sets the view: magnification clamped to 1…maxZoom, the centre clamped so the picture keeps covering the view.
+    func setView(zoom z: CGFloat, centre c: CGPoint, in view: CGSize) {
+        zoom = min(max(z, 1), Self.maxZoom)
+        centre = zoom == 1 ? CGPoint(x: 0.5, y: 0.5)
+            : FrameCanvas.clampedCentre(c, shown: FrameCanvas.shown(content: videoSize, zoom: zoom, view: view), view: view)
+    }
+
+    /// Keeps the current view for this recording.
+    func keepView() {
+        if zoom == 1 { UserDefaults.standard.removeObject(forKey: zoomKey) }
+        else { UserDefaults.standard.set([Double(zoom), Double(centre.x), Double(centre.y)], forKey: zoomKey) }
     }
 
     var file: EventReview.File? { editor?.file }
@@ -71,7 +98,12 @@ final class PhoneBoundaryModel {
             // The player's range is the copy's; the record's duration is the ORIGINAL's (published with the copy).
             duration = (try? await asset.load(.duration).seconds) ?? video.duration
             if video.duration > duration + 1.0 / 30 { unreachableTail = video.duration - duration }
-            let rate = Double((try? await asset.loadTracks(withMediaType: .video).first?.load(.nominalFrameRate)) ?? 30)
+            let track = try? await asset.loadTracks(withMediaType: .video).first
+            let rate = Double((try? await track?.load(.nominalFrameRate)) ?? 30)
+            if let track, let (natural, transform) = try? await track.load(.naturalSize, .preferredTransform) {
+                let shown = natural.applying(transform)
+                if abs(shown.width) > 0, abs(shown.height) > 0 { videoSize = CGSize(width: abs(shown.width), height: abs(shown.height)) }
+            }
             observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] t in
                 MainActor.assumeIsolated {
                     guard let self, !self.seeking else { return }
@@ -277,6 +309,8 @@ final class PhoneBoundaryModel {
 struct RallyBoundariesPhoneView: View {
     @State private var m: PhoneBoundaryModel
     @State private var showLegacy = false
+    @State private var pinchBase: CGFloat?
+    @State private var panBase: CGPoint?
 
     init(model: LabelerModel, video: LabelVideo) {
         _m = State(initialValue: PhoneBoundaryModel(model: model, video: video))
@@ -284,9 +318,8 @@ struct RallyBoundariesPhoneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PlayerLayer(player: m.player)
+            picture
                 .aspectRatio(16 / 9, contentMode: .fit)
-                .background(.black)
                 .overlay { if let e = m.loadError { Text(e).foregroundStyle(.white).padding() } }
             readout.padding(.horizontal).padding(.top, 6)
             timeline.frame(height: 44).padding(.horizontal).padding(.top, 4)
@@ -313,6 +346,45 @@ struct RallyBoundariesPhoneView: View {
         .onChange(of: m.model.rallyEvents(for: m.video)?.revision) { m.storeChanged() }
         .onChange(of: m.model.rallyEvents(for: m.video)?.record) { m.storeChanged() }
         .onDisappear { m.unload() }
+    }
+
+    /// The frame, pinch to zoom and drag to look around; the view stays while frames step and play. Double-tap
+    /// goes back to the whole frame. Only the display changes: marks land on the frame shown, as without zoom.
+    private var picture: some View {
+        GeometryReader { geo in
+            let shown = FrameCanvas.shown(content: m.videoSize, zoom: m.zoom, view: geo.size)
+            let o = FrameCanvas.origin(shown: shown, centre: m.centre, view: geo.size)
+            PlayerLayer(player: m.player)
+                .frame(width: shown.width, height: shown.height)
+                .offset(x: o.x, y: o.y)
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .background(.black)
+                .clipped()
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 4)
+                    .onChanged { g in
+                        guard m.zoom > 1 else { return }
+                        let base = panBase ?? m.centre
+                        if panBase == nil { panBase = base }
+                        m.setView(zoom: m.zoom, centre: CGPoint(x: base.x - g.translation.width / shown.width,
+                                                                y: base.y - g.translation.height / shown.height), in: geo.size)
+                    }
+                    .onEnded { _ in panBase = nil; m.keepView() })
+                .simultaneousGesture(MagnifyGesture()
+                    .onChanged { g in
+                        let base = pinchBase ?? m.zoom
+                        if pinchBase == nil { pinchBase = base }
+                        m.setView(zoom: base * g.magnification, centre: m.centre, in: geo.size)
+                    }
+                    .onEnded { _ in pinchBase = nil; m.keepView() })
+                .onTapGesture(count: 2) { m.setView(zoom: 1, centre: m.centre, in: geo.size); m.keepView() }
+                .overlay(alignment: .topTrailing) {
+                    if m.zoom > 1 {
+                        Text(String(format: "%.1f×", m.zoom)).font(.caption2.monospacedDigit()).padding(4)
+                            .background(.black.opacity(0.5)).foregroundStyle(.white).padding(6)
+                    }
+                }
+        }
     }
 
     private var readout: some View {
@@ -390,38 +462,24 @@ struct RallyBoundariesPhoneView: View {
         .padding(8).background(Color.red.opacity(0.12)).padding(.horizontal)
     }
 
+    /// The marking controls: the two events and Commit always in view, everything else under More. Holding an
+    /// event button marks the LATEST frame it could be (an uncertain event); a tap marks the earliest.
     private var marking: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                action("Serve contact", "s") { m.perform(.mark(.contact, .earliest)) }
-                action("…latest", "s") { m.perform(.mark(.contact, .latest)) }
-                action("Ball dead", "d") { m.perform(.mark(.dead, .earliest)) }
-                action("…latest", "d") { m.perform(.mark(.dead, .latest)) }
+                eventButton("Serve contact", .contact)
+                eventButton("Ball dead", .dead)
             }
             HStack(spacing: 8) {
-                action("Occluded", "eye.slash") { m.perform(.toggleOccluded) }
-                action("Ambiguous", "questionmark") { m.perform(.toggleFlag("ambiguous")) }
-                action("Kind: \(m.editor?.draft.kind.rawValue ?? "rally")", "k") { m.perform(.cycleKind) }
-                action("Edge", "e") { m.perform(.cycleEdge) }
+                Button { m.perform(.commit) } label: { Text("Commit rally").font(.callout.bold()).frame(maxWidth: .infinity) }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                Button { m.perform(.undo) } label: { Label("Undo", systemImage: "arrow.uturn.backward").labelStyle(.iconOnly).frame(minWidth: 28) }
+                    .buttonStyle(.bordered).controlSize(.large)
+                more
             }
             HStack(spacing: 8) {
-                action("Non-rally span", "n", tint: .orange) { m.perform(.span(.nonRallyActivity)) }
-                action("Transition", "t", tint: .gray) { m.perform(.span(.transition)) }
-                action("Uncertain", "u", tint: .purple) { m.perform(.span(.uncertain)) }
-            }
-            HStack(spacing: 8) {
-                action("Reviewed through here", "r", tint: .green) { m.perform(.reviewedThrough) }
-                action("Commit rally", "return", prominent: true) { m.perform(.commit) }
-            }
-            HStack(spacing: 8) {
-                action("Withdraw", "delete.left") { m.perform(.withdraw) }
-                action("Undo", "arrow.uturn.backward") { m.perform(.undo) }
-                action("Cancel", "xmark") { m.perform(.cancel) }
-                action("Complete", "flag.checkered", tint: .green) { m.perform(.complete) }
-            }
-            HStack(spacing: 8) {
-                Button { m.selectAdjacent(forward: false) } label: { Label("Previous rally", systemImage: "chevron.left") }
-                Button { m.selectAdjacent(forward: true) } label: { Label("Next rally", systemImage: "chevron.right") }
+                Button { m.selectAdjacent(forward: false) } label: { Label("Previous", systemImage: "chevron.left") }
+                Button { m.selectAdjacent(forward: true) } label: { Label("Next", systemImage: "chevron.right") }
                 Spacer()
                 Toggle("legacy", isOn: $showLegacy).toggleStyle(.switch).controlSize(.mini)
             }
@@ -429,9 +487,40 @@ struct RallyBoundariesPhoneView: View {
         }
     }
 
-    private func action(_ title: String, _ symbol: String, tint: Color? = nil, prominent: Bool = false, _ run: @escaping () -> Void) -> some View {
-        Button(action: run) { Text(title).font(.caption).lineLimit(1).frame(maxWidth: .infinity) }
-            .buttonStyle(.bordered).tint(prominent ? Color.accentColor : tint).controlSize(.regular)
+    private func eventButton(_ title: String, _ event: BoundaryEditor.Event) -> some View {
+        Menu {
+            Button { m.perform(.mark(event, .latest)) } label: { Label("Latest possible frame here", systemImage: "arrow.right.to.line") }
+        } label: {
+            Text(title).font(.callout.bold()).lineLimit(1).minimumScaleFactor(0.8).frame(maxWidth: .infinity)
+        } primaryAction: {
+            m.perform(.mark(event, .earliest))
+        }
+        .buttonStyle(.bordered).controlSize(.large)
+    }
+
+    private var more: some View {
+        Menu {
+            Section("This event") {
+                Button { m.perform(.toggleOccluded) } label: { Label("Occluded", systemImage: "eye.slash") }
+                Button { m.perform(.toggleFlag("ambiguous")) } label: { Label("Ambiguous", systemImage: "questionmark") }
+                Button { m.perform(.cycleKind) } label: { Label("Kind: \(m.editor?.draft.kind.rawValue ?? "rally") (change)", systemImage: "tag") }
+                Button { m.perform(.cycleEdge) } label: { Label("Edge: \(m.editor?.draft.edge?.rawValue ?? "none") (change)", systemImage: "rectangle.portrait.and.arrow.right") }
+            }
+            Section("Spans (tap at start and end)") {
+                Button { m.perform(.span(.nonRallyActivity)) } label: { Label("Non-rally span", systemImage: "figure.walk") }
+                Button { m.perform(.span(.transition)) } label: { Label("Transition", systemImage: "arrow.left.arrow.right") }
+                Button { m.perform(.span(.uncertain)) } label: { Label("Uncertain", systemImage: "questionmark.circle") }
+            }
+            Section("Review") {
+                Button { m.perform(.reviewedThrough) } label: { Label("Reviewed through here", systemImage: "checkmark.circle") }
+                Button { m.perform(.cancel) } label: { Label("Cancel draft", systemImage: "xmark") }
+                Button(role: .destructive) { m.perform(.withdraw) } label: { Label("Withdraw rally", systemImage: "delete.left") }
+                Button { m.perform(.complete) } label: { Label("Complete recording", systemImage: "flag.checkered") }
+            }
+        } label: {
+            Label("More", systemImage: "ellipsis.circle").labelStyle(.iconOnly).frame(minWidth: 28)
+        }
+        .buttonStyle(.bordered).controlSize(.large)
     }
 
     private var inspector: some View {
