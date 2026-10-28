@@ -541,29 +541,45 @@ struct RallyBoundariesPhoneView: View {
         .buttonStyle(.bordered).controlSize(.large)
     }
 
+    /// The clean Stage 1 screen: serve contact and ball dead are the only marks in view. This menu holds only what
+    /// the protocol needs besides them — an unseen event (occluded), a rally's type, a rally the recording cuts off,
+    /// coverage and completion — and Withdraw, so a rally committed by mistake can still be removed. Ambiguity is
+    /// derived on commit from the interval (wider than 0.2 s), and spans are left to the Mac; touches and actions
+    /// are a later, separate Stage 2 screen.
     private var more: some View {
         Menu {
             Section("This event") {
-                Button { m.perform(.toggleOccluded) } label: { Label("Occluded", systemImage: "eye.slash") }
-                Button { m.perform(.toggleFlag("ambiguous")) } label: { Label("Ambiguous", systemImage: "questionmark") }
-                Button { m.perform(.cycleKind) } label: { Label("Kind: \(m.editor?.draft.kind.rawValue ?? "rally") (change)", systemImage: "tag") }
-                Button { m.perform(.cycleEdge) } label: { Label("Edge: \(m.editor?.draft.edge?.rawValue ?? "none") (change)", systemImage: "rectangle.portrait.and.arrow.right") }
+                Button { m.perform(.toggleOccluded) } label: { Label("Occluded (not visible)", systemImage: "eye.slash") }
             }
-            Section("Spans (tap at start and end)") {
-                Button { m.perform(.span(.nonRallyActivity)) } label: { Label("Non-rally span", systemImage: "figure.walk") }
-                Button { m.perform(.span(.transition)) } label: { Label("Transition", systemImage: "arrow.left.arrow.right") }
-                Button { m.perform(.span(.uncertain)) } label: { Label("Uncertain", systemImage: "questionmark.circle") }
-            }
-            Section("Review") {
-                Button { m.perform(.reviewedThrough) } label: { Label("Reviewed through here", systemImage: "checkmark.circle") }
-                Button { m.perform(.cancel) } label: { Label("Cancel draft", systemImage: "xmark") }
+            Section("This rally") {
+                Button { m.perform(.cycleKind) } label: { Label("Type: \(kindName(m.editor?.draft.kind)) (change)", systemImage: "tag") }
+                Button { m.perform(.cycleEdge) } label: { Label("Cut off by the recording: \(edgeName(m.editor?.draft.edge)) (change)", systemImage: "scissors") }
                 Button(role: .destructive) { m.perform(.withdraw) } label: { Label("Withdraw rally", systemImage: "delete.left") }
+            }
+            Section("This recording") {
+                Button { m.perform(.reviewedThrough) } label: { Label("Reviewed through here", systemImage: "checkmark.circle") }
                 Button { m.perform(.complete) } label: { Label("Complete recording", systemImage: "flag.checkered") }
             }
         } label: {
             Label("More", systemImage: "ellipsis.circle").labelStyle(.iconOnly).frame(minWidth: 28)
         }
         .buttonStyle(.bordered).controlSize(.large)
+    }
+
+    private func kindName(_ kind: EventReview.RallyKind?) -> String {
+        switch kind ?? .rally {
+        case .rally: return "rally"
+        case .missedServe: return "missed serve"
+        case .other: return "not a rally"
+        }
+    }
+
+    private func edgeName(_ edge: EventReview.Edge?) -> String {
+        switch edge {
+        case nil: return "no"
+        case .start?: return "at the start"
+        case .end?: return "at the end"
+        }
     }
 
     private var inspector: some View {

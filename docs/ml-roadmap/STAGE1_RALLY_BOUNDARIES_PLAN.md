@@ -2,7 +2,7 @@
 name: stage1-rally-boundaries-plan
 status: living plan for the Stage 1 review (D-024); S1-a (PR #97) and S1-b (PR #98) merged on the Mac; §8 is the Mac + iPhone plan of 2026-10-26 (owner direction, verbatim in docs/decisions/2026-10-26-stage1-mac-iphone-direction.md)
 created: 2026-10-25T06:09:28Z
-updated: 2026-10-26T18:34:12Z
+updated: 2026-10-28T15:14:03Z
 decision: D-024 (accepted), D-021 (C1 first), D-004 (24-rally pilot), D-010 (rally activity ≠ ball visibility)
 ---
 
@@ -106,6 +106,10 @@ G1b (protected-holdout refusal for routine scoring, `--score-heat`, `desktop.sh 
 | **2 — sync and storage** | Supabase: `label_rally_events(video_id, project, session_name, record jsonb, annotation_version, revision, updated_by, updated_at)` with a server-side trigger that bumps `revision` and sets `updated_at`, an RPC `rally_events_save(video_id, expected_revision, record)` that refuses a stale `expected_revision` (optimistic concurrency, the conflict returned to the client, never last-write-wins), RLS `is_labeler()` plus a server-side **withheld list** (`label_withheld(project, session_name)` written by the Mac from `lineageWithheldNames`; the RPC and a policy refuse events for a withheld recording), Realtime broadcast as today; Mac `LabelingSync` publishes the frame digest with the copy, pushes and pulls `rallyevents.json` with the revision, surfaces conflicts (both versions kept, the user chooses) and never touches `rallylabels.json`; phone client methods; offline outbox entries for events. Migration numbered after `047`. | 1 |
 | **3 — iPhone UI and frame-accurate playback** | `Labeler/Views/RallyBoundariesView` (touch): recording list with coverage, player on the downloaded copy, frame step buttons driven by `FrameClock` from the copy's real frame times, a scrubber, hold-to-step, large buttons for S / ⇧S / D / ⇧D / occluded / kind / edge / spans / reviewed-through / commit / complete / withdraw / undo, previous/next rally, the same `BoundaryEditor`; the frame-identity gate before any commit; resume at the first unknown stretch | 1, 2 |
 | **4 — pilot** | the frozen 24-rally draw (selector, hashes, windows, record), blind mode, second review with the 24-h gate, `boundary_audit.csv`, and the Mac-vs-iPhone comparison on identical source frames | 1, 3 |
+
+**Phone screens after the first device pass (owner, 2026-10-28).** The owner asked for "one clean version for just serve and dead ball and another detailed version with all the activities for a later date", and approved the recommendation:
+- **Stage 1, the clean screen (now).** In view: the frame (pinch zoom, kept while stepping), the frame-step controls, Serve contact, Ball dead (tap = the frame shown; hold = the latest possible frame), Commit and Undo. Upright or sideways. A small menu holds only what the protocol needs besides the two events: Occluded, the rally's type (rally, missed serve, not a rally), "cut off by the recording" (edge), Reviewed through here, Complete recording, and Withdraw. Ambiguity is derived on commit from the interval; spans stay on the Mac. The record and the rules are unchanged.
+- **Stage 2, the detailed screen (later, not built).** Frame-exact touches and actions (pass, set, attack, block, free ball) attached to each rally by its persistent id, as a separate mode. It needs its own record fields and an owner decision before work starts. Until then, the legacy "Mark the rallies" live-tag screen stays as it is.
 
 **TestFlight (fastest safe route).** PRs 1–3 merged → `scripts/rallylab_ios_release.sh` (archive scheme `Labeler`, upload to App Store Connect app 6820196175, internal group only, no App Review) — owner-only, no external testers. Pre-upload checks: both targets built and tested, record round trip and schema compatibility, withheld refusal on client and server, offline edits and a concurrent-edit conflict, frame identity against known recordings, clean Codex reviews, no protected footage in the bucket.
 
