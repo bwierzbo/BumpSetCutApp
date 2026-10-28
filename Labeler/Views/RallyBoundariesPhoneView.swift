@@ -316,29 +316,52 @@ struct RallyBoundariesPhoneView: View {
         _m = State(initialValue: PhoneBoundaryModel(model: model, video: video))
     }
 
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// Turned sideways the screen is short: the frame takes the left side at full height and the controls a scrolling
+    /// column on the right. Upright, the controls sit under the frame. Same controls, same model, either way.
+    private var landscape: Bool { verticalSizeClass == .compact }
+
     var body: some View {
-        VStack(spacing: 0) {
-            picture
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .overlay { if let e = m.loadError { Text(e).foregroundStyle(.white).padding() } }
-            readout.padding(.horizontal).padding(.top, 6)
-            timeline.frame(height: 44).padding(.horizontal).padding(.top, 4)
-            transport.padding(.vertical, 6)
-            gateBanner
-            if let c = m.conflict { conflictBanner(c) }
-            if let why = m.identityProblem {
-                Label(why, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red)
-                    .padding(8).frame(maxWidth: .infinity, alignment: .leading).background(Color.red.opacity(0.12)).padding(.horizontal)
-            }
-            if let d = m.editor?.draftConflict { draftConflictBanner(d) }
-            ScrollView {
-                VStack(spacing: 10) {
-                    marking
-                    inspector
+        Group {
+            if landscape {
+                HStack(spacing: 0) {
+                    framedPicture
+                        .frame(maxHeight: .infinity)
+                    VStack(spacing: 0) {
+                        ScrollView {
+                            VStack(spacing: 8) {
+                                readout
+                                timeline.frame(height: 36)
+                                transport
+                                banners
+                                marking
+                                inspector
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                        }
+                        statusLine
+                    }
+                    .frame(width: 330)
                 }
-                .padding(.horizontal)
+                .toolbar(.hidden, for: .tabBar)
+            } else {
+                VStack(spacing: 0) {
+                    framedPicture
+                    readout.padding(.horizontal).padding(.top, 6)
+                    timeline.frame(height: 44).padding(.horizontal).padding(.top, 4)
+                    transport.padding(.vertical, 6)
+                    banners
+                    ScrollView {
+                        VStack(spacing: 10) {
+                            marking
+                            inspector
+                        }
+                        .padding(.horizontal)
+                    }
+                    statusLine
+                }
             }
-            Text(m.status).font(.caption).foregroundStyle(m.lastRefused ? .red : .secondary).lineLimit(2).padding(.horizontal).padding(.bottom, 4)
         }
         .navigationTitle(m.video.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -346,6 +369,26 @@ struct RallyBoundariesPhoneView: View {
         .onChange(of: m.model.rallyEvents(for: m.video)?.revision) { m.storeChanged() }
         .onChange(of: m.model.rallyEvents(for: m.video)?.record) { m.storeChanged() }
         .onDisappear { m.unload() }
+    }
+
+    private var framedPicture: some View {
+        picture
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .overlay { if let e = m.loadError { Text(e).foregroundStyle(.white).padding() } }
+    }
+
+    @ViewBuilder private var banners: some View {
+        gateBanner
+        if let c = m.conflict { conflictBanner(c) }
+        if let why = m.identityProblem {
+            Label(why, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red)
+                .padding(8).frame(maxWidth: .infinity, alignment: .leading).background(Color.red.opacity(0.12)).padding(.horizontal)
+        }
+        if let d = m.editor?.draftConflict { draftConflictBanner(d) }
+    }
+
+    private var statusLine: some View {
+        Text(m.status).font(.caption).foregroundStyle(m.lastRefused ? .red : .secondary).lineLimit(2).padding(.horizontal).padding(.bottom, 4)
     }
 
     /// The frame, pinch to zoom and drag to look around; the view stays while frames step and play. Double-tap
