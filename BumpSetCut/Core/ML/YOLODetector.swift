@@ -102,6 +102,17 @@ final class YOLODetector {
 
     var isLoaded: Bool { model != nil }
 
+    /// Bundled models tried, in order, after the requested one.
+    private static let fallbackModels = ["bestv3", "bestv2"]
+
+    /// Whether this bundle ships any YOLO ball model. The public iOS app
+    /// doesn't (D-012, Ultralytics licensing); RallyLab and the Labeler do.
+    static var isBundled: Bool {
+        ([BallModel.shipping.rawValue] + fallbackModels).contains { name in
+            ["mlpackage", "mlmodelc"].contains { Bundle.main.url(forResource: name, withExtension: $0) != nil }
+        }
+    }
+
     private func loadModel() {
         // Prefer mlpackage; fall back to mlmodelc if present.
         // Try the requested model first, then fall back to known bundled models.
@@ -109,7 +120,7 @@ final class YOLODetector {
             (modelName, "mlpackage"),
             (modelName, "mlmodelc")
         ]
-        for fallback in ["bestv3", "bestv2"] where modelName != fallback {
+        for fallback in YOLODetector.fallbackModels where modelName != fallback {
             candidates.append((fallback, "mlpackage"))
             candidates.append((fallback, "mlmodelc"))
         }
@@ -118,11 +129,9 @@ final class YOLODetector {
                 return
             }
         }
-        print("❌ No CoreML model found in bundle (tried \(modelName), fallback bestv2)")
-        print("ℹ️  AI video processing will be disabled. To enable:")
-        print("   1. Add bestv2.mlpackage or bestv2.mlmodelc to the Xcode project bundle")
-        print("   2. Ensure the model is included in the target and bundle resources") 
-        print("   3. The model should be a YOLO volleyball detection model")
+        // Expected in the public app, which ships no YOLO model (D-012):
+        // the multi-frame model finds the ball there.
+        print("ℹ️ No YOLO ball model in this bundle (tried \(modelName), \(YOLODetector.fallbackModels.joined(separator: ", ")))")
     }
 
     /// Load a compiled model or package the runtime can open directly.
@@ -368,11 +377,14 @@ enum BallFinder: String, CaseIterable, Identifiable {
 
     static let defaultsKey = "debugBallFinder"
 
-    /// The multi-frame model alone by default — YOLO is leaving processing
-    /// (see the Ultralytics licensing decision); YOLO and hybrid stay in the
-    /// debug picker for comparison while their models ship.
+    /// The multi-frame model alone by default — YOLO left processing with the
+    /// Ultralytics licensing decision (D-012). YOLO and hybrid stay choosable
+    /// in RallyLab and the Labeler, which still bundle YOLO; where no YOLO
+    /// model ships (the public app) a stored YOLO or hybrid pick from an
+    /// earlier build falls back to the multi-frame model.
     static var current: BallFinder {
-        UserDefaults.standard.string(forKey: defaultsKey).flatMap(BallFinder.init(rawValue:)) ?? .multiFrameOnly
+        let stored = UserDefaults.standard.string(forKey: defaultsKey).flatMap(BallFinder.init(rawValue:)) ?? .multiFrameOnly
+        return stored == .multiFrameOnly || YOLODetector.isBundled ? stored : .multiFrameOnly
     }
 }
 

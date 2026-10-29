@@ -309,16 +309,6 @@ private extension SettingsView {
         BSCSettingsSection(title: "TestFlight", subtitle: "Visible to beta testers only", icon: "hammer.fill", iconColor: .bscTealText) {
             VStack(spacing: BSCSpacing.md) {
                 proModeToggle
-
-                Divider()
-                    .overlay(Color.bscSurfaceBorder)
-
-                BallModelPicker()
-
-                Divider()
-                    .overlay(Color.bscSurfaceBorder)
-
-                BallFinderPicker()
             }
         }
     }
@@ -353,16 +343,6 @@ private extension SettingsView {
                     icon: "gauge.with.needle.fill",
                     isOn: $appSettings.showPerformanceMetrics
                 )
-
-                Divider()
-                    .overlay(Color.bscSurfaceBorder)
-
-                BallModelPicker()
-
-                Divider()
-                    .overlay(Color.bscSurfaceBorder)
-
-                BallFinderPicker()
             }
         }
     }
