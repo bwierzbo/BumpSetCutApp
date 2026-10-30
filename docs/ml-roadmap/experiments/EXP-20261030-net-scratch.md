@@ -3,7 +3,7 @@ id: EXP-20261030-net-scratch
 lineage: net (N1, first non-Ultralytics net model)
 status: proposed
 created: 2026-10-30T02:30:00Z
-updated: 2026-10-30T02:30:00Z
+updated: 2026-10-30T15:45:00Z
 approved_by: not yet
 decision: D-012 (no Ultralytics weights ship); a new decision entry records the owner's choices below
 pr: n/a (plan only; code follows on this branch)
@@ -23,20 +23,24 @@ Replace `net.mlpackage` with a model whose code and weights are ours: random ini
 - **H2 (pipeline parity).** RallyLab rally scoring on dev_val + tune with the new net is no worse than with `net.mlpackage` (same config, paired by recording). The YOLO net is used here only as an internal comparison, which D-012 allows.
 - **Not claimed:** generalisation to venues outside the project's footage. The net rules stay off for corner and sideline cameras, as today (`CameraSetup` zone).
 
-## 2. What the model predicts — owner decision
+## 2. What the model predicts — set by the labels
 
-| Option | Output | For | Against |
-|---|---|---|---|
-| **A. Four corners (recommended)** | Heatmaps for the net's 4 corners: tape at the left and right post, mesh bottom at the left and right post | Heatmaps learn well from few recordings (same approach as `ball_heat`); a tilted net is still described; the box the rules use is the corners' extent, so `NetDetector`'s API is unchanged | 4 clicks per label instead of one drag |
-| B. Box | One box (x, y, w, h) + presence score | One drag per label; matches today's output exactly | Direct box regression from scratch needs more data to be accurate; no tilt |
+The owner has a large set of labeled nets on Roboflow (2026-10-30) and will train on it. Its label kind decides the output; `get_net_dataset.py` reports it (`labelKinds` in `manifest.json`):
 
-## 3. Data and labeling
+| Labels | Output | Notes |
+|---|---|---|
+| Polygons (outlines) | Heatmaps for the net's 4 corners, taken from each outline's extreme points | Tilt-aware; the rules' box is the corners' extent |
+| Boxes | Heatmaps for the box's 4 corners (same network and head) | No tilt, which today's YOLO net doesn't give either |
+| Mixed | Corners from outlines where drawn, from boxes elsewhere | |
 
-- **Source:** frames from the Scratch project's recordings on the Mac. No existing person-made net label exists: every stored net box (`SessionMeta.netBox`, the Labeler's live-tag net) came from the YOLO net model, so none is used, not even as a starting box to adjust.
-- **Labeling:** RallyLab's Net tab gains a "Mark the net" mode: one frame per recording, four clicks (or one drag for option B), saved on the session with the labeler and date, plus a "camera moved" flag. The net is fixed for a tripod recording, so one label covers the whole video; the tab checks it against a frame near the end and asks again if the net has moved.
-- **Effort:** about 140 eligible recordings at roughly 20 seconds each: about 45 minutes, in one or several sittings.
-- **Split:** the existing split manifest. dev_val + tune for validation and selection. **Withheld** (`ReservedVideos.reservedNames`): the 16 `lineageHoldout` recordings and the 5 `legacy_holdout`, so the pipeline's holdout evaluation stays clean of a model that saw them. The withholding is enforced in the packager itself (guards live in the shared function), with an exposure-ledger row per recording at export.
-- **Package:** `RallyLab --project Scratch --package-net` writes K = 20 frames per labeled recording, spread over the middle 90%, as JPEG at 1280 px, with `labels.json` (corners in Vision-normalised coordinates), the split, and `net-manifest.json` with the SHA-256 of every file and a preflight (every withheld recording absent, every label person-made). About 2,800 frames, well under 1 GB.
+Either way `NetDetector` returns the same `(rect, confidence)`, so the rules and their callers don't change.
+
+## 3. Data
+
+- **Training data: the owner's Roboflow net dataset**, exported as **COCO JSON** (not the "YOLO" format, to keep Ultralytics out of every step; the format itself isn't licensed code). `scripts/desktop_training/get_net_dataset.py` fetches it with the owner's own `ROBOFLOW_API_KEY` on the desktop, or reads a COCO zip he exported from the website, then keeps only the net class, keeps one image per original (Roboflow's augmented copies dropped, across splits too), un-stretches square exports to 16:9, and writes `labels.json` plus `manifest.json` with the origin, licence, counts and the SHA-256 of every file. It uses the standard library, Pillow and, for the download only, the `roboflow` package (Apache-2.0).
+- **To confirm before training (owner):** the project is his own (not a Universe copy; if it includes Universe images, each one's licence is recorded, as `get_extra_datasets.py` does for the ball sets), and the nets were drawn by a person, not auto-labeled by a model (D-023's people-only rule, applied here too).
+- **Withheld recordings:** if any image was cut from the Scratch project's recordings, the 16 `lineageHoldout` and 5 `legacy_holdout` recordings are left out with `--exclude <names.txt>` (matched against each image's original file name), so the pipeline's holdout evaluation stays clean. The count left out is in the manifest.
+- **Validation on our own footage:** Roboflow's images may not look like an endline phone recording, so H1 is scored on the Scratch project's dev_val + tune recordings (13) with a net drawn by a person on one frame of each in RallyLab's Net tab: about 5 minutes. No stored net box is used: every one came from the YOLO net model. The 140-recording labeling pass is dropped unless the val score shows the Roboflow set doesn't cover our footage.
 
 ## 4. Model
 
@@ -45,7 +49,7 @@ Replace `net.mlpackage` with a model whose code and weights are ours: random ini
 
 ## 5. Training (Windows desktop, RTX 3060)
 
-- `scripts/desktop_training/train_net_model.py <package>`: Gaussian targets (sigma 2 px at 128×72), focal loss; augmentation: colour jitter, blur, JPEG, ±10% scale and shift, small rotation, horizontal flip with left and right swapped. 60 epochs, batch 32, AdamW, cosine schedule, seed 20261030, one run. Checkpoint selection on dev_val + tune only, by the H1 pass rate.
+- `scripts/desktop_training/train_net_model.py <net_dataset folder>`: Gaussian targets (sigma 2 px at 128×72), focal loss; augmentation: colour jitter, blur, JPEG, ±10% scale and shift, small rotation, horizontal flip with left and right swapped. 60 epochs, batch 32, AdamW, cosine schedule, seed 20261030, one run. Checkpoint selection by the H1 pass rate on the 13 drawn val recordings (frames sampled from each), never the holdouts; Roboflow's own valid split is reported too.
 - Expected time: under an hour on the 3060. It waits until the L2 ball run (`l2_scratch_768_color_s20261021`) is no longer using the GPU.
 - Outputs follow the ball trainer: `runs/net/<name>/` and `bring_back/<name>/` (best.pt, metrics.json with per-recording errors, log.csv).
 
@@ -57,5 +61,5 @@ Replace `net.mlpackage` with a model whose code and weights are ours: random ini
 
 ## 7. Open owner decisions
 
-1. Output: four corners (A) or a box (B).
-2. Approval of this record before the package goes to the trainer (D-014 PR review applies to the model and the code).
+1. The Roboflow workspace, project and version, and whether its nets were drawn by a person.
+2. Approval of this record before the dataset goes to the trainer (D-014 PR review applies to the model and the code).
