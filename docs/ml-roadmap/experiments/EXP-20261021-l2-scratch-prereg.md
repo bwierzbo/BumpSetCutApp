@@ -1,12 +1,12 @@
 ---
 id: EXP-20261021-l2-scratch-prereg
 lineage: L2
-status: final approval given by the owner 2026-10-25 (record as merged in PR #95, incl. the §10 preservation policy); first L2 training run `l2_scratch_768_color_s20261021` started 2026-10-26T01:17Z and, after a desktop memory-commit crash in epoch 5, restarted clean at 07:02Z on the approved recipe (default loader workers; a 2-worker restart at 05:57Z was stopped as GPU-starved) (768, colour, 9 frames, 60 epochs, batch 8, seed 20261021, from scratch, no pseudo-labels); training in progress; holdout not evaluated; second seed, promotion and deployment not authorised
+status: final approval given by the owner 2026-10-25 (record as merged in PR #95, incl. the §10 preservation policy); first L2 run `l2_scratch_768_color_s20261021` completed 60/60 epochs 2026-10-28 on the approved recipe (two memory-commit failures in epoch 44, both resumed from the checkpoint, §11.1); best epoch 47, val F1 0.914; H1 paired comparison with L1 run 2026-10-30 under the owner's authorisation of 2026-10-29 (§11.2); holdout not evaluated; second seed, promotion and deployment not authorised
 created: 2026-10-21T20:19:11Z
-updated: 2026-10-26T15:16:00Z
+updated: 2026-10-30T21:19:06Z
 approved_by: recipe — owner, 2026-10-21 (D-019); completed record — owner, 2026-10-25 (final approval of the record as merged in PR #95, incl. the §10 preservation policy; verbatim in docs/decisions/2026-10-25-l2-final-approval-and-training-authorization.md)
 decision: D-017, D-018, D-019, D-022, D-023, D-025
-pr: data/l2-dataset-isolation (#73, merged), data/l2-package-export (#75, merged), feat/l2-export-resume (#85, merged), docs/l2-prereg-recovery (#87, merged), fix/l2-window-playable-range (#91, merged), fix/l2-window-fits-playable-end (#92, merged), fix/l2-undecodable-leading-pictures (#93, merged), docs/l2-run5-completion (#95, merged), docs/l2-training-start
+pr: data/l2-dataset-isolation (#73, merged), data/l2-package-export (#75, merged), feat/l2-export-resume (#85, merged), docs/l2-prereg-recovery (#87, merged), fix/l2-window-playable-range (#91, merged), fix/l2-window-fits-playable-end (#92, merged), fix/l2-undecodable-leading-pictures (#93, merged), docs/l2-run5-completion (#95, merged), docs/l2-training-start, docs/l2-h1-paired-result
 ---
 
 # EXP-20261021-l2-scratch-prereg — first L2 detector, from scratch, on the manifest-isolated package
@@ -106,9 +106,98 @@ The 16 lineage-holdout recordings have **no reviewed ball labels and no rally ma
 - **Failure:** a protocol deviation — a failed preflight, a digest mismatch on the training machine, a ledger row on a withheld recording, a change to the recipe or seed, or any look at the holdout → **the run is void: its result is not reported as an L2 number, its checkpoint is not added to RallyLab or promoted, and the registry row says so; the package, its journal, the record, the ledger rows, the run's logs and metrics are preserved unchanged as evidence until the owner explicitly decides their disposition** (consistent with D-022 item 3 "no deletion or wholesale replacement is authorised", the exposure-ledger rule that nothing recorded is rewritten, and `CONFIGURATION_MANAGEMENT.md`: frozen records are never deleted). *Wording proposed 2026-10-25 in PR #95 in place of the record's earlier "the run is void and the package is deleted", which contradicted those rules; **approved by the owner on 2026-10-25 with the record's final approval** ([verbatim](../../decisions/2026-10-25-l2-final-approval-and-training-authorization.md)).* An interval entirely below zero is a finding that sends the recipe back for examination on L2 data before any other L2 experiment, not a protocol failure.
 - **Limitations:** (1) the L1–L2 comparison is paired on identical windows (§1) but favours L1, whose checkpoint was selected on a val set containing these recordings; the historical L1 numbers come from a different val set and are descriptive only; (2) the holdout cannot be evaluated until labels exist; (3) 144 train/dev recordings have unknown venue/session relations to the holdout; (4) the ball labels are human-verified and complete per rally (§2), but the *selection* of which rallies were tracked started from L1 proposals, so a rally the L1 model never proposed may be under-represented — a possible model-assisted rally-selection bias, noted, not a label-quality limitation; (5) broad generalisation claims still need the planned new-footage final test.
 
+## 11. Results (development validation only)
+
+### 11.1 Training run
+
+`l2_scratch_768_color_s20261021` finished all 60 epochs on 2026-10-28 (log last written 11:01 MDT) on the approved recipe and seed (§4). The trainer selected **epoch 47** as `best.pt`.
+
+**Recovery history.** The run that started clean at 2026-10-26T07:02Z failed twice in epoch 44 on 2026-10-28. Both failures were Windows error 1455 (`Couldn't open shared file mapping`, the commit limit hit under memory pressure on the desktop), the same failure as the first crash on 10-26.
+- The watcher's `desktop.sh train … --resume` was refused, because `desktop.sh` refuses an existing run name even with `--resume`.
+- The trainer was therefore started directly with the same command plus `--resume`, through WMI as `desktop.sh` does, appending to the same log. That process failed with 1455 too.
+- A second direct `--resume` at 2026-10-28T02:39Z (pid 46096) continued from epoch 44 (`Resuming … at epoch 44/60 (best so far F1 0.911)`) and completed. The package digest was re-verified before the resumes (`digest OK … over 80966 files`).
+- Recipe, seed, package and val windows were unchanged. Both failed attempts' logs are preserved on the desktop: `l2_scratch_768_color_s20261021.crash-20261028T0130Z.log` and `.crash-20261028T0239Z.log`. They sit beside the 10-26 crash folder and the aborted two-worker log, and the full appended log is also on the Mac.
+
+**Fetched** with `desktop.sh fetch l2_scratch_768_color_s20261021 --no-score` into `~/Movies/RallyLab/Projects/Scratch/incoming/l2_scratch_768_color_s20261021/`. It was not added to RallyLab and not scored by RallyLab.
+
+| File | SHA-256 |
+|---|---|
+| `best.pt` (epoch 47) | `d736147b51cc7efbd605610f36911c301316dbd9c756ed11ca39308cc24f0e7a` |
+| `best.onnx` | `e88b1be9a5ff76b40b20af2f24d7190ca874d1a64f189a97ec570bec94d20311` |
+| `metrics.json` | `a39b57c0545b5edbac956b703581d0ef5864e2d3561477d184242243e239482a` |
+| `log.csv` | `0f41b594ff8b9f61da795ccfe6637b27e99a0633ee2428d398fdea40f178ca99` |
+| training log | `b808bfe1fb6990abcc95527d74f78db4fb2aaacbf44d26547b5182be137b9c9f` |
+
+Val windows digest `9b5cf79f57da0d10dc9d740e296241b42776bbf4670c3a449b03af352ae1a5de` (4,778 windows).
+
+| Best epoch 47, balls in play at 4 px | Recall | Precision | F1 | 90 % range (videos) |
+|---|---|---|---|---|
+| all (12 videos) | 91.9 % | 90.9 % | **0.914** | 0.895–0.928 |
+| beach | 92.6 % | 90.5 % | 0.915 | |
+| grass | 94.8 % | 90.5 % | 0.926 | |
+| indoor | 81.0 % | 93.8 % | 0.869 | |
+
+- Occluded-ball recall: 10.8 %.
+- Dead-time windows: fires on 21.3 % of the 602.
+- After epoch 47, val F1 stayed between 0.908 and 0.913 through epoch 60.
+
+### 11.2 H1: paired comparison with the shipped L1 model (authorised 2026-10-29)
+
+Authorisation: the owner's decisions of 2026-10-29 ([verbatim](../../decisions/2026-10-29-stage1-phone-validation-l2-comparison.md)). Only this comparison was authorised: no holdout evaluation, second seed, promotion, Core ML deployment or dataset change.
+
+**Procedure, as §1, run 2026-10-30.**
+- The L1 checkpoint on the desktop hashed to the preregistered `46385a171fe4314581203dbbca47e0231273e08fb562313582dd82e162a56c3c` (epoch 12).
+- The package digest was re-verified in place (`digest OK: 04e3551b… over 80966 files matches l2-manifest.json`).
+- The desktop's trainer was byte-identical to main's and to the L2 run's (`81494cbc…`), so both models had the same scorer.
+- Command: `train_heatmap_model.py "D:\RallyLabStaging\Scratch-exports\Scratch-L2-multiframe-20261021-1917" --size 768 --epochs 60 --color --score-only C:\BallTraining\runs\heatmap\scratch_768_1014\best.pt --name l1_scratch_768_1014_on_l2val`. These are the trainer arguments `desktop.sh train` would pass; `--epochs` has no effect with `--score-only`.
+- It was launched through WMI exactly as `desktop.sh` launches and fetched with `desktop.sh fetch`'s copy steps and no RallyLab scoring (the `--no-score` path). This was done by hand over the desktop's Tailscale address, because the LAN alias `bsc-desktop` that `desktop.sh` uses did not resolve. Only the network route differed.
+- Output in `incoming/l1_scratch_768_1014_on_l2val/`: `metrics.json` `cfdeadfc95b04e2cbf13485ad30c218dddaef01eff831730962b8b774dbc1786`, log `f60f1b44ae0b519fc0ec6ca17dcfe6b6a303d3860fb4a1cba0108dc10ad0ad3f`. Its `val_digest` is `9b5cf79f…`, **identical to the L2 run's**, so `paired_compare.py` accepted the pair.
+
+| L1 `scratch_768_1014` on the same windows | Recall | Precision | F1 | 90 % range (videos) |
+|---|---|---|---|---|
+| all (12 videos) | 87.1 % | 89.3 % | 0.882 | 0.852–0.900 |
+| beach | 88.9 % | 89.2 % | 0.890 | |
+| grass | 92.1 % | 88.3 % | 0.902 | |
+| indoor | 66.6 % | 94.0 % | 0.779 | |
+
+- Occluded-ball recall: 10.8 %.
+- Dead-time windows: fires on 19.8 % of the 602.
+
+**Paired comparison.** `paired_compare.py <L2 metrics.json> <L1 metrics.json> --manifest docs/ml-roadmap/manifests/Scratch/manifest.json`: tracked-rally windows, balls in play at 4 px, 1,000 paired draws, seed 0.
+- Output: `incoming/h1_paired_l2_vs_l1_20261030/delta.json` `a45044db13cf39d669860994cd73f1019fa07ce374884d5d1fb3233d75f9bb07`, printed report `aac9d45b904c026eaf5f41ce6a887e719ef47dde9eb4d71b4cb0026b83dd2b19`.
+- Run against the project's own `manifests/manifest.json` instead, the result is identical.
+
+ΔF1 = F1(L2) − F1(L1):
+
+| Resampling unit | Scope | Units | F1 L2 | F1 L1 | ΔF1 | 90 % interval | Reading |
+|---|---|---|---|---|---|---|---|
+| recording group | all | 5 | 0.914 | 0.882 | **+0.032** | [+0.024, +0.063] | excludes zero: L2 higher |
+| recording group | beach | 2 | 0.915 | 0.890 | +0.025 | [+0.022, +0.036] | excludes zero, but see below |
+| recording group | indoor | 2 | 0.869 | 0.779 | +0.090 | [+0.039, +0.184] | excludes zero, but see below |
+| recording group | grass | 1 | 0.926 | 0.902 | +0.024 | none (one group) | no interval |
+| video | all | 12 | 0.914 | 0.882 | **+0.032** | [+0.022, +0.048] | excludes zero: L2 higher |
+| video | beach | 5 | 0.915 | 0.890 | +0.025 | [+0.016, +0.036] | excludes zero: L2 higher |
+| video | grass | 4 | 0.926 | 0.902 | +0.024 | [+0.009, +0.029] | excludes zero: L2 higher |
+| video | indoor | 3 | 0.869 | 0.779 | +0.090 | [+0.037, +0.165] | excludes zero: L2 higher |
+
+**Reading (§1, preregistered, exploratory).**
+- Overall, both intervals exclude zero, so on these development-validation windows the L2 model scored higher than the shipped L1 model. That holds at the recording-group level (5 groups), the unit §1 names as the honest one.
+- This happened although the comparison favours L1, whose checkpoint was selected on a val set containing these recordings (§10 limitation 1).
+- The difference comes mostly from recall (87.1 % → 91.9 %), with precision about level (89.3 % → 90.9 %). The largest change is indoor recall (66.6 % → 81.0 %).
+
+**Limits on the reading.**
+1. Per-surface group-level intervals rest on 2 groups (beach, indoor) or 1 (grass). Resampling two units gives only three distinct draws, so those "intervals" are the spread of a handful of values, not usable uncertainty estimates. Per surface, every result is *indicative only*, as §7 says; the video-level per-surface intervals treat `_v2`… variants and same-uploader videos as independent and are optimistic.
+2. 12 videos are scored, not the 13 val recordings of §2: `ind_ele_dim_land_self_02` (45 window lines) has no entry in either model's per-video tallies, so it is outside both sides of the pair equally.
+3. This is development validation, not generalisation. No holdout was looked at (§8), and no non-inferiority or equivalence claim is made.
+4. Dead-time firing is not part of H1. It is reported descriptively: L2 fires on 21.3 % of the 602 no-rally windows against L1's 19.8 %, a slightly higher false-alarm rate that the rally layer would see.
+
+**Not done (not authorised):** protected-holdout evaluation, a second seed, adding either result to RallyLab, promotion, Core ML conversion or deployment, any dataset change. The completed L2 checkpoints, metrics, logs and recovery history above are preserved unchanged.
+
 ## Approval
 - [x] Owner approved the ball-tracking annotations for L2 detector training on 2026-10-21 ("These are human-verified, complete-rally tracking annotations … The annotations are approved for L2 detector training.").
 - [x] Owner approved the technical recipe on 2026-10-21 (D-019: "Approve the proposed from-scratch VballNetV4c configuration: 768×432, color, nine frames, 60 epochs, batch size 8, seed 20261021, and no pseudo-labels."), with the amendments applied in this revision (H1 paired comparison; label provenance; first seed only).
 - [x] Owner gave final approval of the completed preregistration on 2026-10-25 (MDT; [verbatim](../../decisions/2026-10-25-l2-final-approval-and-training-authorization.md)): "I give final approval of `EXP-20261021-l2-scratch-prereg` as merged in PR #95. This includes explicit approval of the revised §10 preservation policy: if a protocol violation occurs, the experiment is invalidated, but the dataset package, journals, records, logs, checkpoints, and other evidence must be preserved until I separately authorize their disposition."
 - [x] Dataset preflight passed: `Scratch-L2-multiframe-20261021-1917`, digest `04e3551b1cf929658e39770bf1d368c8932234fdb895c03b050a13028fb375ca` (exporter's 13/13 checks 2026-10-25T16:05:41Z; desktop digest check 17:22Z and again at launch 2026-10-26T01:17Z: `digest OK … over 80966 files matches l2-manifest.json`).
 - [x] Training started on 2026-10-26T01:17:32Z (2026-10-25 19:17 MDT) on `BENS-DESKTOP`, run `l2_scratch_768_color_s20261021` (pid 24268), with the owner's authorisation: "I explicitly authorize starting the first L2 training run using the approved preregistered configuration … Proceed with this approved first training run without requesting another start authorization." Command as §4 (package read in place on the staging share; `--size 768 --from-scratch --color --epochs 60 --batch 8 --seed 20261021`; trainer `scripts/desktop_training/train_heatmap_model.py` SHA-256 `81494cbc8777baf2943df4795628c7de73a90667e0f79f594357d4c9741fc5f1`, `VBALLNET_COMMIT` `7d295c53fa733782a58dd85f772685044414f8d3`; torch 2.11.0+cu128, Python 3.11.9, RTX 3060). **Holdout not evaluated**; second seed, promotion and deployment not authorised. **Interruption and clean restart:** that process failed at 2026-10-26T05:44Z in epoch 5 (`RuntimeError: Couldn't open shared file mapping … error code 1455` — the Windows commit limit, hit while a game ran on the desktop; epochs 1–4 had reached in-play F1 0.441 / 0.769 / 0.818 / 0.825). Its log, log.csv, best.pt and last.pt are preserved beside the run (`runs\heatmap\l2_scratch_768_color_s20261021-crash-20261026T0544Z\`, log copy `l2_scratch_768_color_s20261021.crash-20261026T0544Z.log`); nothing of it is reported as a result. On the owner's decision (2026-10-26 ~00:00 MDT: "restart clean; if it happens again just resume from the last checkpoint") the run was **started again from scratch at 2026-10-26T05:57:31Z (pid 7128)** with the identical recipe and seed and the loader's worker count lowered from the default 6 to **2** (`--workers 2`; not a recipe field — epochs, batch, learning rate, optimiser, augmentations, seed, stopping and precision are unchanged), after the package digest was verified again (`digest OK … over 80966 files`). With two loader workers the GPU idled (about 2 % busy, both workers at a full core each decoding frames), so that process was stopped after 63 minutes before its first epoch ended (nothing of it is reported; its log is kept as `l2_scratch_768_color_s20261021.aborted-2workers-20261026T0700Z.log`) and **the run was started clean a third time at 2026-10-26T07:02:13Z (pid 30108) with the trainer's default six loader workers** — the configuration that ran at full GPU load before — after the digest was verified again. Should that process fail, it is resumed from its last checkpoint (`--resume`, same name, same recipe, default workers) by a watcher on the Mac, and the resumption is recorded here.
+- [x] Training completed 2026-10-28 (60/60; two 1455 failures in epoch 44 resumed from the checkpoint as authorised, §11.1). Fetched with `--no-score`; not added to RallyLab; holdout not evaluated.
+- [x] H1 paired comparison with L1 authorised by the owner on 2026-10-29 ([verbatim](../../decisions/2026-10-29-stage1-phone-validation-l2-comparison.md)) and run 2026-10-30 (§11.2). Second seed, holdout evaluation, promotion and deployment remain unauthorised.
