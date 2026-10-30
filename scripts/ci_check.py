@@ -74,6 +74,7 @@ FAMILY_OPTIONAL = {"exclude", "maintainer", "decisions", "sources", "triggers",
 DECISION_RE = re.compile(r"^D-\d{3}$")
 EXPERIMENT_RE = re.compile(r"^EXP-\d{8}-[a-z0-9][a-z0-9-]*$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+PLACEHOLDER_RE = re.compile(r"^<[^>]*>`?\s*$")
 WAIVER_RE = re.compile(r"\b((?:CI|CF)-[A-Z]+-\d{3}):[ \t]*no update needed[ \t]*[—–-]+[ \t]*(\S.*)$", re.M)
 UNREGISTERED_RE = re.compile(r"^[ \t]*[-*]?[ \t]*unregistered:[ \t]*`?([^`\s]+)`?[ \t]*[—–-]+[ \t]*(\S.*)$", re.M)
 APPROVAL_HEADING_RE = re.compile(r"^(#{2,4})\s*Owner approval requested\b.*$", re.M | re.I)
@@ -537,8 +538,12 @@ def parse_body(body: str | None):
         section = re.sub(r"<!--.*?-->", "", section, flags=re.S)
         declared |= set(re.findall(r"\b(?:CI|CF)-[A-Z]+-\d{3}\b|\bD-\d{3}\b", section))
         declared |= set(re.findall(r"`([^`]+)`", section))
-    waivers = {k: v.strip() for k, v in WAIVER_RE.findall(body) if v.strip()}
-    unregistered = {k: v.strip() for k, v in UNREGISTERED_RE.findall(body) if v.strip()}
+    # A waiver is a line the author wrote, not one quoted back from this checker's own output
+    # (which sits in a fenced block and shows the form "CI-BSC-NNN: no update needed — <reason>"),
+    # and its reason is a reason, not the placeholder.
+    prose = re.sub(r"^```.*?^```[ \t]*$", "", body, flags=re.S | re.M)
+    waivers = {k: v.strip() for k, v in WAIVER_RE.findall(prose) if v.strip() and not PLACEHOLDER_RE.match(v.strip())}
+    unregistered = {k: v.strip() for k, v in UNREGISTERED_RE.findall(prose) if v.strip() and not PLACEHOLDER_RE.match(v.strip())}
     return declared, waivers, unregistered
 
 
