@@ -90,6 +90,9 @@ final class NetLabelsTests: XCTestCase {
         private(set) var durationCalls: [String] = []
         private(set) var frameCalls: [(String, Double)] = []
         private(set) var proposalCalls = 0
+        /// Every call in order, so a test can see the ledger row land before the model runs.
+        private(set) var events: [String] = []
+        var modelAvailable = true
         var gate: CheckedContinuation<Void, Never>?
         var holdFrames = false
         var waiting: (() -> Void)?
@@ -108,9 +111,11 @@ final class NetLabelsTests: XCTestCase {
         }
 
         func proposal(on frame: CGImage) -> (rect: CGRect, confidence: Float)? {
-            lock.withLock { proposalCalls += 1 }
+            lock.withLock { proposalCalls += 1; events.append("proposal") }
             return (CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.1), 0.9)
         }
+
+        func noteExposure(_ video: String) { lock.withLock { events.append("exposure \(video)") } }
 
         func release() { lock.withLock { gate?.resume(); gate = nil } }
 
@@ -146,9 +151,10 @@ final class NetLabelsTests: XCTestCase {
         let dir = try Self.tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let footage = ScriptedFootage()
+        var recorded: [String] = []
         let model = NetLabelsModel(items: [try item("a_withheld", skip: .withheld, in: dir), try item("b_handheld", skip: .handheld, in: dir),
                                            try item("c_ok", in: dir)],
-                                   labels: [:], store: NetLabelStore(projectDir: dir), footage: footage)
+                                   labels: [:], store: NetLabelStore(projectDir: dir), footage: footage) { v, _ in recorded.append(v) }
         model.select("a_withheld")
         await settle()
         model.step(seconds: 1)
@@ -158,6 +164,7 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertTrue(footage.durationCalls.isEmpty, "a withheld recording's file was read")
         XCTAssertTrue(footage.frameCalls.isEmpty, "a withheld recording was decoded")
         XCTAssertEqual(footage.proposalCalls, 0, "a withheld recording was shown to the model")
+        XCTAssertTrue(recorded.isEmpty, "no exposure row for a recording that was never opened")
         XCTAssertNil(model.frame)
         XCTAssertFalse(model.canConfirm)
 
@@ -171,6 +178,7 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertEqual(footage.durationCalls, ["c_ok.mp4"])
         XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4"])
         XCTAssertEqual(footage.proposalCalls, 1)
+        XCTAssertEqual(recorded, ["c_ok"])
         XCTAssertNotNil(model.frame)
         XCTAssertTrue(model.canConfirm)
     }
@@ -181,7 +189,7 @@ final class NetLabelsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let footage = ScriptedFootage()
         let store = NetLabelStore(projectDir: dir)
-        let model = NetLabelsModel(items: [try item("c_ok", in: dir), try item("d_next", in: dir)], labels: [:], store: store, footage: footage)
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir), try item("d_next", in: dir)], labels: [:], store: store, footage: footage) { _, _ in }
         model.select("c_ok")
         await settle()
         XCTAssertEqual(model.frameTime, 50)   // no rally marks: the middle of 100 s
@@ -222,7 +230,7 @@ final class NetLabelsTests: XCTestCase {
         let footage = ScriptedFootage()
         let model = NetLabelsModel(items: [try item("c_ok", fingerprint: "fp-new", in: dir)],
                                    labels: ["c_ok": Self.label(fingerprint: "fp-old", time: 7)],
-                                   store: NetLabelStore(projectDir: dir), footage: footage)
+                                   store: NetLabelStore(projectDir: dir), footage: footage) { _, _ in }
         let it = try XCTUnwrap(model.items.first)
         XCTAssertFalse(it.labeled)
         XCTAssertTrue(it.stale)
@@ -233,5 +241,78 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertNil(model.current)
         XCTAssertEqual(model.frameTime, 50, "the stale label's frame time is not used")
         XCTAssertEqual(footage.proposalCalls, 1, "treated as unlabeled: a proposal is offered")
+    }
+
+    // MARK: - The proposal's exposure
+
+    @MainActor
+    func testAProposalIsInTheLedgerBeforeTheModelRunsAndStaysWhenThePersonLeaves() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("manifests"), withIntermediateDirectories: true)
+        let footage = ScriptedFootage()
+        // The real ledger, in a project folder of the test's own.
+        let real = NetProposalExposure.recorder(projectDir: dir)
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir), try item("d_next", in: dir)], labels: [:],
+                                   store: NetLabelStore(projectDir: dir), footage: footage) { v, t in
+            footage.noteExposure(v)
+            try real(v, t)
+        }
+        model.select("c_ok")
+        await settle()
+        XCTAssertEqual(footage.events, ["exposure c_ok", "proposal"], "the row is written before the model runs")
+        XCTAssertNotNil(model.proposal)
+
+        // Leave without confirming or exporting: the row is on file.
+        model.select("d_next")
+        await settle()
+        XCTAssertEqual(try NetLabelStore(projectDir: dir).load(), [:])
+        let rows = try ExposureLog.readStrict(in: dir)
+        XCTAssertEqual(rows.map(\.video), ["c_ok", "d_next"])
+        XCTAssertEqual(Set(rows.map(\.kind)), [.netProposal])
+        XCTAssertEqual(Set(rows.map(\.ref)), [NetProposalExposure.ref])
+        XCTAssertTrue(rows.allSatisfy { $0.note?.contains("proposed a net box") == true })
+        // Rows survive a round trip through the file with their kind spelled out.
+        let text = try String(contentsOf: ExposureLog.url(in: dir), encoding: .utf8)
+        XCTAssertTrue(text.contains("\"net_proposal\""))
+    }
+
+    @MainActor
+    func testNoProposalWhenTheLedgerCannotBeWritten() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        struct Unwritable: LocalizedError { var errorDescription: String? { "disk full" } }
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir)], labels: [:], store: NetLabelStore(projectDir: dir), footage: footage) { v, _ in
+            footage.noteExposure(v)
+            throw Unwritable()
+        }
+        model.select("c_ok")
+        await settle()
+        XCTAssertEqual(footage.events, ["exposure c_ok"], "the model never ran")
+        XCTAssertEqual(footage.proposalCalls, 0)
+        XCTAssertNil(model.proposal)
+        XCTAssertNil(model.box)
+        XCTAssertTrue(model.status.contains("could not be recorded"), model.status)
+        XCTAssertTrue(model.status.contains("disk full"), model.status)
+        // The frame is still there to draw on by hand, and a hand-drawn box can be confirmed.
+        XCTAssertNotNil(model.frame)
+        model.setBox(CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1))
+        XCTAssertTrue(model.canConfirm)
+    }
+
+    @MainActor
+    func testNoLedgerRowWhenThereIsNoModelToRun() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        footage.modelAvailable = false
+        var recorded: [String] = []
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir)], labels: [:], store: NetLabelStore(projectDir: dir), footage: footage) { v, _ in recorded.append(v) }
+        model.select("c_ok")
+        await settle()
+        XCTAssertTrue(recorded.isEmpty)
+        XCTAssertEqual(footage.proposalCalls, 0)
+        XCTAssertNotNil(model.frame)
     }
 }

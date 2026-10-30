@@ -18,17 +18,36 @@ import Observation
 protocol NetLabelFootage: Sendable {
     func duration(of url: URL) async -> Double
     func frame(of url: URL, at time: Double) async throws -> CGImage
-    /// The old net model's best box on the frame, if the model is there and finds one.
+    /// Whether the old net model is there to propose boxes: asked before any exposure is recorded.
+    var modelAvailable: Bool { get }
+    /// The old net model's best box on the frame, if it finds one. Runs the model: only after
+    /// the use is in the exposure ledger.
     func proposal(on frame: CGImage) -> (rect: CGRect, confidence: Float)?
 }
 
 struct RealNetLabelFootage: NetLabelFootage {
     func duration(of url: URL) async -> Double { await NetLabels.duration(of: url) }
     func frame(of url: URL, at time: Double) async throws -> CGImage { try await NetLabels.frame(of: url, at: time) }
+    var modelAvailable: Bool { NetDetector().isLoaded }
     func proposal(on frame: CGImage) -> (rect: CGRect, confidence: Float)? {
         let detector = NetDetector()
         guard detector.isLoaded else { return nil }
         return detector.detect(in: frame).first
+    }
+}
+
+/// Writes the model-proposal use to the exposure ledger; throws when it can't, and then no model runs.
+typealias NetProposalRecorder = @MainActor (_ video: String, _ time: Double) throws -> Void
+
+enum NetProposalExposure {
+    static let ref = "Net labels tab"
+
+    /// The real ledger: one `net_proposal` row for the recording, written before inference.
+    static func recorder(projectDir: URL) -> NetProposalRecorder {
+        { video, time in
+            try ExposureLog.record(videos: [video], kind: .netProposal, ref: ref,
+                                   note: "old net model proposed a net box on the frame at \(NetLabelsModel.clock(time))", in: projectDir)
+        }
     }
 }
 
@@ -51,6 +70,8 @@ final class NetLabelsModel {
 
     private let projects: ProjectsModel?
     private let footage: any NetLabelFootage
+    /// Set with the project: records a proposal use before the model runs.
+    private var recordProposal: NetProposalRecorder?
     private(set) var items: [Item] = []
     private(set) var labels: [String: NetLabel] = [:]
     private(set) var selected: String?
@@ -80,11 +101,12 @@ final class NetLabelsModel {
         reload()
     }
 
-    /// For tests: a fixed list and store, no project.
-    init(items: [Item], labels: [String: NetLabel], store: NetLabelStore, footage: any NetLabelFootage) {
+    /// For tests: a fixed list and store, no project; `exposure` stands in for the ledger.
+    init(items: [Item], labels: [String: NetLabel], store: NetLabelStore, footage: any NetLabelFootage, exposure: @escaping NetProposalRecorder) {
         projects = nil
         self.footage = footage
         self.store = store
+        recordProposal = exposure
         self.labels = labels
         self.items = items.map { Self.marked($0, labels: labels) }.sorted { $0.video < $1.video }
         status = summary
@@ -132,6 +154,7 @@ final class NetLabelsModel {
         }
         let store = NetLabelStore(projectDir: dir)
         self.store = store
+        recordProposal = NetProposalExposure.recorder(projectDir: dir)
         do { labels = try store.load() } catch {
             blocked = "\(store.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
         }
@@ -187,16 +210,24 @@ final class NetLabelsModel {
         if item.labeled {
             status = "\(item.video): labeled. Change the box and confirm to replace it, or remove the label."
         } else if let frame {
-            if let best = footage.proposal(on: frame) {
-                proposal = best.rect
-                box = best.rect
-                proposed = true
-                status = "\(item.video): the old model's box, \(String(format: "%.2f", best.confidence)) — confirm it, move it, or draw your own."
-            } else {
-                status = "\(item.video): no proposal — drag a box around the net."
-            }
+            status = propose(on: frame, for: item)
             if item.stale { status += " (The label on file is another recording's and is replaced when you confirm.)" }
         }
+    }
+
+    /// The old model's box as a proposal, with the use in the exposure ledger first: if the
+    /// ledger can't be written, the model does not run and the person draws the box.
+    private func propose(on frame: CGImage, for item: Item) -> String {
+        guard footage.modelAvailable else { return "\(item.video): no net model — drag a box around the net." }
+        guard let recordProposal else { return "\(item.video): no exposure ledger for this project — drag a box around the net." }
+        do { try recordProposal(item.video, time) } catch {
+            return "\(item.video): the model's proposal was not made because its use could not be recorded (\(error.localizedDescription)) — drag a box around the net."
+        }
+        guard let best = footage.proposal(on: frame) else { return "\(item.video): no proposal — drag a box around the net." }
+        proposal = best.rect
+        box = best.rect
+        proposed = true
+        return "\(item.video): the old model's box, \(String(format: "%.2f", best.confidence)) — confirm it, move it, or draw your own."
     }
 
     /// Decode the frame at `t`; it goes on screen only if no later request superseded it.

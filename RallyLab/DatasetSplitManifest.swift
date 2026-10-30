@@ -85,6 +85,10 @@ struct ExposureRecord: Codable, Equatable, Hashable {
         /// A person opened the video for Stage 1 rally-boundary review (EventReview, D-024): an
         /// annotation use, written on open, never a training or scoring use.
         case eventReview = "event_review"
+        /// The old net model ran on one frame of the video to propose a net box in the Net labels
+        /// tab (NetLabelsModel): a model-assisted annotation use, written before the model runs,
+        /// whether or not the person then confirms a label.
+        case netProposal = "net_proposal"
     }
 
     var kind: Kind

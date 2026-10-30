@@ -2,7 +2,7 @@
 name: net-model-plan
 status: active
 created: 2026-10-30T21:54:35Z
-updated: 2026-10-30T22:30:00Z
+updated: 2026-10-30T23:05:00Z
 decisions: D-002, D-017, D-018 (exclusions honoured); owner direction 2026-10-30 (verbatim: ../decisions/2026-10-30-net-model-direction.md)
 ---
 
@@ -22,6 +22,7 @@ One upright frame per recording, labeled by hand in RallyLab's **Net labels** ta
 
 - **Frame:** the middle of the recording's first marked rally at least 2 s long (the court in play, nobody standing in front of the net), else the middle of the video. ← / → move a second either way if that frame is poor.
 - **Box:** where the old model finds the net its box is pre-drawn as a *proposal* (dashed); the person confirms it, moves or resizes it, or draws one. The label records whether it started as a proposal and whether it was adjusted. Only a person's confirmation makes a label, and only for the frame on screen: while a stepped frame is still decoding, confirming is refused, and the saved time is the decoded frame's.
+- **Exposure:** the proposal is a model run on the recording, so it is a use. Before the old model runs, the tab writes a `net_proposal` row to the exposure ledger (ref "Net labels tab", the frame's time in the note); if the row can't be written, the model does not run and the person draws the box. The row stays whether or not a label is confirmed, so a visit that is abandoned is still on record. `net_proposal` is a **new ledger kind** (`ExposureRecord.Kind`), added in PR #111 beside `event_review`; like that one it marks an annotation use, not training or scoring. It is identified here as a protocol addition for the owner's approval with the PR.
 - **Identity:** every label carries the recording's file fingerprint (`ReservedVideos.effectiveFingerprint`). A label whose fingerprint is not the file's — a video removed and another added under the same id — is shown as *stale*, not as a label, and the export refuses it. A recording with no fingerprint is skipped as *unidentified*.
 - **Skipped, never opened:** the 21 withheld recordings (lineage holdout 16 + legacy holdout 5, by `ReservedVideos.lineageWithheldNames`, fail-closed) — a net model trained on them would change the pipeline on exactly the recordings kept for evaluation — and the 8 handheld recordings (camera "Handheld / …"), whose net moves. Selecting one names the reason; its file is not read, decoded or shown to the old model (a test holds this).
 - **Stored** in `<project>/net-labels.json` (video id → label), apart from the sessions the open app re-saves from memory. An unreadable file blocks the tab rather than reading as empty.
