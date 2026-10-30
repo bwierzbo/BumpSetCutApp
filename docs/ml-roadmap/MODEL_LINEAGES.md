@@ -2,8 +2,8 @@
 name: model-lineages
 status: authoritative
 created: 2026-10-21T18:30:00Z
-updated: 2026-10-21T20:19:11Z
-decisions: D-016, D-017, D-018
+updated: 2026-10-30T21:32:22Z
+decisions: D-016, D-017, D-018, D-026
 ---
 
 # Model lineages
@@ -20,13 +20,15 @@ Three things are kept apart (D-016 as amended by D-017):
 
 | Field | Value |
 |---|---|
-| Members | every ball detector trained before 2026-10-21: `ball_v2_small` (YOLO, Ultralytics-derived), `bestv2/3`, the heat models `heat_20261009-*`, `r3_*`, `scratch_512/768/1024_*` (Oct 12–17), incl. the shipped `ball_heat` = `scratch_768_1014` (canonical digest `09620ab77519bd9d`) |
+| Members | every ball detector trained before 2026-10-21: `ball_v2_small` (YOLO, Ultralytics-derived), `bestv2/3`, the heat models `heat_20261009-*`, `r3_*`, `scratch_512/768/1024_*` (Oct 12–17), incl. `scratch_768_1014`, the shipped `ball_heat` until D-026 (2026-10-30) (canonical digest `09620ab77519bd9d`) |
 | Training data | Scratch packages up to `Scratch-multiframe-20261016-2018` (94 recordings exposed as `training_package`) |
 | Model selection | `Scratch-val-multiframe-20261016-1100` (25 val sessions = the tuning set; not independent) |
 | Relation to the lineage holdout | none of the 16 was in any L1 training package (all 16 were imported on 2026-10-17, after the last export). All 16 were **pre-tracked** on 2026-10-17/18 by an L1 heat model (which one is not recorded; the newest in the project at the time). So L1 models have *development exposure* to the 16 (machine tracks written from their output) but no training exposure. |
 | Scores on the lineage holdout | **exposed, diagnostic-only**. Report them marked as such; never for selection or claims. |
 
-## L2 — from-scratch lineage after the D-017 cut-over (planned, not started)
+## L2 — from-scratch lineage after the D-017 cut-over (first member trained; shipped as `ball_heat` by D-026)
+
+First member: `l2_scratch_768_color_s20261021`, epoch 47 (`best.pt` `d736147b51cc7efb`). Trained 2026-10-26 → 10-28 on the preregistered recipe, with val F1 0.914 and H1 ΔF1 +0.032 against L1 on identical windows ([EXP-20261021-l2-scratch-prereg](experiments/EXP-20261021-l2-scratch-prereg.md) §11). It is the bundled `ball_heat` from D-026; the L1 `scratch_768_1014` is retired from the bundle, kept in git history and on the desktop. Holdout evaluation is still pending (below).
 
 | Field | Value |
 |---|---|

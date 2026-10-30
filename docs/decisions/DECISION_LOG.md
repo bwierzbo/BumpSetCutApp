@@ -2,7 +2,7 @@
 name: decision-log
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-10-25T07:07:19Z
+updated: 2026-10-30T21:32:22Z
 ---
 
 # Decision log
@@ -40,6 +40,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-023](#d-023) | 2026-10-23 | accepted | L2 labels are people's only; unreviewed pre-tracked rallies excluded |
 | [D-024](#d-024) | 2026-10-23 | accepted | Progressive RallyLab rally review: full-video boundaries first, optional contacts second, player IDs later |
 | [D-025](#d-025) | 2026-10-24 | accepted | Amends D-022: a planned frame the decoder reproducibly cannot produce — an HEVC leading picture, and only that — is recorded in the journal and the summary and left out with every window that needed it, instead of stopping the export; every other failure stays fatal; plan and run identity unchanged; the three affected recordings stay in the package |
+| [D-026](#d-026) | 2026-10-30 | proposed | The first L2 model (`l2_scratch_768_color_s20261021`, epoch 47) replaces the L1 `scratch_768_1014` as the bundled `ball_heat` for BumpSetCut, RallyLab and RallyLab on the iPhone; holdout not evaluated; pipeline thresholds unchanged |
 
 ---
 
@@ -339,3 +340,25 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** `MultiFramePackage.Undecodable` (rule and verdicts), `judgeUndecodable`, `ClipFrames.codec/freshGenerator/adjacent`, `ExportJournal.Line.undecodable`, `Summary.undecodable*`, `LineagePackage` check and `ClipRow` fields, `--package-l2` log lines; three committed fixtures under `RallyLabTests/Fixtures/` (open-GOP HEVC with three and with five leading pictures; H.264 with a damaged inter frame) and tests that the exception holds, that a resume judges again, and that a longer run or another codec stays fatal. The preregistration's §2a records run 4, the cause, the reconciled counts and the rule; the final counts of frames and windows left out, per clip and split, come from the completed run's `summary.json` and record. Expected loss: well under 1 % of the package's windows, all in the three clips.
 
 **Status 2026-10-25.** Accepted: the owner's overnight authorisation of 2026-10-24 ([verbatim](2026-10-24-l2-overnight-recovery-authorization.md)) authorised the merge of PR #93 — "This approval includes D-025, the D-022 amendment, and the controlled documentation changes identified in PR #93" — once the rebase was correct, the checks passed, Codex was clean on the final commit and nothing outside the reviewed scope had changed; all four held on `2085ed0`, merged 2026-10-25T06:01Z as `be05c4c`. The same authorisation resumed the Stage D export in place (run 5, 2026-10-25T06:02Z). Item 5's remaining gates — L2 training, protected-holdout evaluation, model promotion — stay unauthorised.
+
+### D-026
+
+**The first L2 model becomes the bundled multi-frame ball model everywhere** — 2026-10-30 — proposed (accepted when its PR merges) — owner. Source: [owner direction, verbatim](2026-10-30-l2-promotion-and-net-model.md) ("use l2 for everything that we currently have").
+
+**Context.**
+- The first L2 run finished on the preregistered recipe ([EXP-20261021-l2-scratch-prereg](../ml-roadmap/experiments/EXP-20261021-l2-scratch-prereg.md) §11.1). Its best epoch, 47, scored val F1 0.914.
+- On the same 4,778 development-validation windows, the preregistered paired comparison (H1, §11.2) put it above the shipped L1 `scratch_768_1014`: ΔF1 +0.032, 90 % [+0.024, +0.063] over 5 recording groups.
+- The gain is mostly recall, largest indoors.
+- With no rally on, it fires slightly more often: 21.3 % against 19.8 % of 602 windows.
+
+**Decision.**
+1. `BumpSetCut/Resources/ML/ball_heat.mlpackage` is replaced by the Core ML conversion of the L2 `best.pt` (SHA-256 `d736147b51cc7efbd605610f36911c301316dbd9c756ed11ca39308cc24f0e7a`). The converter is `scripts/desktop_training/heatmap_to_coreml.py` (coremltools 9.0, torch 2.2.2; largest heatmap difference against PyTorch 0.0017).
+2. The new model has the same input (`clip` [1, 27, 432, 768]), the same output (`maps`) and the same 0.5 threshold metadata, so every user of `ball_heat` takes it unchanged: BumpSetCut processing, RallyLab (pre-tracking, Pipeline, HeatmapLab, scoring) and RallyLab on the iPhone (tracking). These are the three targets that list the package.
+3. The L1 package stays in git history (`ed25d2c`), and `scratch_768_1014/best.pt` stays on the desktop. Reverting this change restores L1.
+
+**Consequences.**
+- **Not done:** the protected-holdout evaluation has not been run (no reviewed labels exist, §8), so there is no generalisation evidence beyond development validation.
+- **Tuning:** the pipeline's gates, serve calibration and tuner thresholds were tuned on L1 output and are unchanged. The end-to-end rally effect of the new detector has not been measured, because the footage is on the desktop.
+- **Licensing:** this is a from-scratch VballNetV4c model (MIT architecture), so it adds no Ultralytics-derived weights.
+- **Delivery:** Xcode Cloud delivers `main` to BumpSetCut testers, so merging the PR puts L2 in their builds. The internal RallyLab iPhone build needs a release-script upload.
+
