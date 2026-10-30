@@ -2,7 +2,7 @@
 name: configuration-management
 status: proposed (D-020)
 created: 2026-10-22T02:29:29Z
-updated: 2026-10-22T02:29:29Z
+updated: 2026-10-30T23:20:00Z
 decision: D-020
 ---
 
@@ -51,7 +51,7 @@ The check never edits files, never comments, labels or approves, and needs no se
 ## What a PR does
 
 1. Fill the **Configuration items** section of the [PR template](../../.github/PULL_REQUEST_TEMPLATE.md): every item or family member touched, and the list *Owner approval requested*.
-2. For a trigger that fired but needs no update, add a waiver line with a reason: `CI-BSC-030: no update needed — refactor only, no change to what is packaged`.
+2. For a trigger that fired but needs no update, add a waiver line with a reason: `CI-BSC-030: no update needed — refactor only, no change to what is packaged`. The line must be the author's own, in the body's prose: the checker's output pasted into the body (its fenced block, with the hint `… no update needed — <reason>`) and a placeholder reason are not waivers, and `ci_check` does not count them.
 3. For a new document that should stay unregistered: ``unregistered: `docs/x.md` — reason``.
 4. Run `python3 scripts/ci_check.py --base origin/main --pr-body-file <filled body>` and paste the result; the `ci-impact` job re-runs it on GitHub with the real PR body.
 
