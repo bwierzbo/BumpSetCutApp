@@ -1010,26 +1010,28 @@ enum HeadlessProjects {
                                                       url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0)) }
         }
         guard !FileManager.default.fileExists(atPath: dir.path) else { log("❌ \(dir.path) exists; name a new folder."); return false }
-        let partial = dir.deletingLastPathComponent().appendingPathComponent(dir.lastPathComponent + ".partial")
-        try? FileManager.default.removeItem(at: partial)
+        // A staging folder of this run's own, beside the destination (same volume, so the final move is a rename);
+        // only it is ever removed. The dataset folder itself is created by the export, inside it.
+        let staging = dir.deletingLastPathComponent().appendingPathComponent(".\(dir.lastPathComponent).export-\(UUID().uuidString)")
+        do { try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false) } catch {
+            log("❌ Couldn't make a staging folder beside \(dir.path): \(error.localizedDescription)"); return false
+        }
+        defer { try? FileManager.default.removeItem(at: staging) }
+        let partial = staging.appendingPathComponent(dir.lastPathComponent)
         let manifest: NetDatasetExport.Manifest
         do {
             manifest = try await NetDatasetExport.write(labels: labels, sources: sources, withheld: withheld, project: project.name,
                                                         to: partial) { log("  \($0)") }
         } catch {
             log("❌ \(error.localizedDescription)")
-            try? FileManager.default.removeItem(at: partial)
             return false
         }
         for r in manifest.skipped where labels[r.video] != nil && r.reason != "unlabeled" {
             log("⚠️ \(r.video): labeled but not exported — \(r.reason).")
         }
-        guard manifest.labeled > 0 else { log("❌ No labeled recording to export."); try? FileManager.default.removeItem(at: partial); return false }
+        guard manifest.labeled > 0 else { log("❌ No labeled recording to export."); return false }
         guard recorded(Set(manifest.entries.map(\.video)), .trainingPackage, ref: dir.lastPathComponent,
-                       note: "net dataset: one labeled frame per recording", in: root) else {
-            try? FileManager.default.removeItem(at: partial)
-            return false
-        }
+                       note: "net dataset: one labeled frame per recording", in: root) else { return false }
         do { try FileManager.default.moveItem(at: partial, to: dir) } catch { log("❌ \(error.localizedDescription)"); return false }
         let byReason = Dictionary(grouping: manifest.skipped, by: \.reason).mapValues(\.count)
         log("✅ \(manifest.labeled) labeled recordings → \(dir.path) (skipped: \(byReason.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")))")
