@@ -16,6 +16,7 @@ struct ContentView: View {
     let tracker: TrackLabelModel
     let marker: RallyMarkModel
     let boundaries: RallyBoundariesModel
+    let netLabels: NetLabelsModel
     let phone: LabelingSync
     @State private var showingImporter = false
     /// The tab you were on last time, so RallyLab reopens where you left off.
@@ -23,7 +24,7 @@ struct ContentView: View {
     /// Set by "Continue without a project" on the welcome window.
     @State private var workingWithoutProject = false
 
-    enum Tab: String, Hashable { case label, projects, sampler, track, review, models, pipeline, net, compare, fsm }
+    enum Tab: String, Hashable { case label, projects, sampler, track, review, netLabels, models, pipeline, net, compare, fsm }
 
     var body: some View {
         Group {
@@ -49,6 +50,7 @@ struct ContentView: View {
             library.reload()
             // The review tab holds a recording of the old project: nothing of it stays open.
             boundaries.projectChanged()
+            netLabels.reload()
         }
     }
 
@@ -91,6 +93,16 @@ struct ContentView: View {
             }
             .tabItem { Label("Review", systemImage: "flag.checkered") }
             .tag(Tab.review)
+            // One net box per recording, by hand, for the net model's dataset (--export-net-dataset).
+            Group {
+                if projects.project != nil {
+                    NetLabelsView(model: netLabels, isActive: tab == .netLabels)
+                } else {
+                    ProjectWelcomeView(projects: projects) { tab = .pipeline }
+                }
+            }
+            .tabItem { Label("Net labels", systemImage: "rectangle.dashed.badge.record") }
+            .tag(Tab.netLabels)
             ModelsTabView(library: library) { sessionName, frame in
                 if let session = sampler.sessions.first(where: { $0.name == sessionName }) {
                     SamplerTabView.showStills(session, frame: frame, in: sampler)

@@ -59,6 +59,9 @@
 //             rallies, spans, coverage and completion in <video>.rallyevents.json; withheld recordings named, not
 //             read. --event-inventory writes manifests/event-inventory-<stamp>.{json,csv}; --review-status prints
 //             the coverage table only. Neither writes a sidecar or a ledger row.)
+//    RallyLab --project v3 --export-net-dataset <dir>    (the net labels (Net labels tab): one upright JPEG and one
+//             YOLO line per labeled recording, data.yaml and net-dataset.json, into <dir> (must not exist); withheld
+//             and handheld recordings refused; the use goes in the exposure ledger first, or nothing is put in place)
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
 //    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo] [--val] [--heat M]   (self-training: the newest multi-frame
@@ -208,6 +211,9 @@ enum HeadlessProjects {
             // reviewed events per recording, or the coverage table alone.
             if ok, args.contains("--event-inventory") || args.contains("--review-status") {
                 ok = eventInventory(projects, write: args.contains("--event-inventory"))
+            }
+            if ok, let out = value(after: "--export-net-dataset", in: args) {
+                ok = await exportNetDataset(projects, to: URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true))
             }
             if ok, args.contains("--confirm-youtube-source-ids") {
                 ok = confirmYouTubeSourceIDs(projects, apply: args.contains("--apply"))
@@ -986,6 +992,46 @@ enum HeadlessProjects {
             }
         }
         for line in EventInventory.statusLines(report) { log(line) }
+        return true
+    }
+
+    /// `--export-net-dataset <dir>`: the net labels as a dataset. Written beside the destination first; the
+    /// exposure-ledger rows are recorded, and only then is the folder moved into place — a use that can't be
+    /// recorded leaves nothing behind.
+    @MainActor
+    private static func exportNetDataset(_ projects: ProjectsModel, to dir: URL) async -> Bool {
+        guard let root = projects.projectDir, let project = projects.project else { log("❌ No project folder."); return false }
+        let withheld: Set<String>
+        do { withheld = try ReservedVideos.lineageWithheldNames(in: root) } catch { log("❌ \(error.localizedDescription)"); return false }
+        let labels: [String: NetLabel]
+        do { labels = try NetLabelStore(projectDir: root).load() } catch { log("❌ net-labels.json: \(error.localizedDescription)"); return false }
+        let sources = project.clips.flatMap { clip in
+            clip.videos.map { NetDatasetExport.Source(video: clip.videoId(of: $0), clip: clip.id, camera: clip.camera,
+                                                      url: URL(fileURLWithPath: $0.clipFile)) }
+        }
+        guard !FileManager.default.fileExists(atPath: dir.path) else { log("❌ \(dir.path) exists; name a new folder."); return false }
+        let partial = dir.deletingLastPathComponent().appendingPathComponent(dir.lastPathComponent + ".partial")
+        try? FileManager.default.removeItem(at: partial)
+        let manifest: NetDatasetExport.Manifest
+        do {
+            manifest = try await NetDatasetExport.write(labels: labels, sources: sources, withheld: withheld, project: project.name,
+                                                        to: partial) { log("  \($0)") }
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            try? FileManager.default.removeItem(at: partial)
+            return false
+        }
+        let refused = manifest.skipped.filter { $0.reason == NetLabels.Skip.withheld.rawValue && labels[$0.video] != nil }
+        for r in refused { log("⚠️ \(r.video) is withheld; its label was not exported.") }
+        guard manifest.labeled > 0 else { log("❌ No labeled recording to export."); try? FileManager.default.removeItem(at: partial); return false }
+        guard recorded(Set(manifest.entries.map(\.video)), .trainingPackage, ref: dir.lastPathComponent,
+                       note: "net dataset: one labeled frame per recording", in: root) else {
+            try? FileManager.default.removeItem(at: partial)
+            return false
+        }
+        do { try FileManager.default.moveItem(at: partial, to: dir) } catch { log("❌ \(error.localizedDescription)"); return false }
+        let byReason = Dictionary(grouping: manifest.skipped, by: \.reason).mapValues(\.count)
+        log("✅ \(manifest.labeled) labeled recordings → \(dir.path) (skipped: \(byReason.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")))")
         return true
     }
 
