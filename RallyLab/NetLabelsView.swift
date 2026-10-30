@@ -43,11 +43,12 @@ struct NetLabelsView: View {
             List(selection: Binding(get: { model.selected }, set: { if let v = $0 { model.select(v) } })) {
                 ForEach(model.items.filter { !hideSkipped || $0.skip == nil }) { item in
                     HStack(spacing: 6) {
-                        Image(systemName: item.labeled ? "checkmark.circle.fill" : item.skip == nil ? "circle" : "minus.circle")
-                            .foregroundStyle(item.labeled ? .green : item.skip == nil ? .secondary : .orange)
+                        Image(systemName: item.labeled ? "checkmark.circle.fill" : item.stale ? "exclamationmark.triangle" : item.skip == nil ? "circle" : "minus.circle")
+                            .foregroundStyle(item.labeled ? .green : item.stale ? .red : item.skip == nil ? .secondary : .orange)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(item.video).font(.system(.body, design: .monospaced)).lineLimit(1)
-                            Text(item.skip.map { "skipped: \($0.rawValue)" } ?? item.camera).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            Text(item.skip.map { "skipped: \($0.rawValue)" } ?? (item.stale ? "label on file is another recording's" : item.camera))
+                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                     .tag(item.video)
@@ -75,6 +76,9 @@ struct NetLabelsView: View {
                     ProgressView()
                 } else if model.blocked != nil {
                     ContentUnavailableView("Nothing can be labeled", systemImage: "lock.fill", description: Text(model.blocked ?? ""))
+                } else if let item = model.selectedItem, let skip = item.skip {
+                    ContentUnavailableView("Skipped: \(skip.rawValue)", systemImage: "minus.circle",
+                                           description: Text(skip == .withheld ? "A withheld recording is never opened here." : skip == .handheld ? "Handheld: the net doesn't hold still." : "No file identity for this recording."))
                 } else if model.selected == nil {
                     ContentUnavailableView("Pick a recording", systemImage: "rectangle.split.3x1",
                                            description: Text("\(model.toLabelCount) to label. Return confirms the box and goes to the next one."))
@@ -97,6 +101,7 @@ struct NetLabelsView: View {
             Button { model.step(seconds: -1) } label: { Image(systemName: "gobackward") }.help("A second earlier (←)")
             Text(NetLabelsModel.clock(model.time)).font(.system(.caption, design: .monospaced)).frame(width: 60)
             Button { model.step(seconds: 1) } label: { Image(systemName: "goforward") }.help("A second later (→)")
+            if model.loading { ProgressView().controlSize(.small) }
             Divider().frame(height: 18)
             Button("Use proposal") { model.useProposal() }.disabled(model.proposal == nil)
             Button("Clear") { model.clearBox() }.disabled(model.box == nil)
@@ -106,11 +111,11 @@ struct NetLabelsView: View {
             } else {
                 boxReadout
             }
-            Button("Remove label", role: .destructive) { model.removeLabel() }.disabled(model.current == nil)
+            Button("Remove label", role: .destructive) { model.removeLabel() }.disabled(model.selectedItem.map { $0.labeled || $0.stale } != true)
             Button("Next to label") { model.nextToLabel() }.disabled(model.toLabelCount == 0)
             Button("Confirm ⏎") { model.confirm() }
                 .keyboardShortcut(.defaultAction)
-                .disabled(model.box == nil || model.frame == nil || model.selectedItem?.skip != nil)
+                .disabled(!model.canConfirm)
         }
         .disabled(model.blocked != nil)
     }

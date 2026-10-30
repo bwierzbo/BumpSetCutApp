@@ -36,6 +36,9 @@ struct NetLabel: Codable, Equatable {
     /// The upright frame's pixel size at labeling, so an export can check its decode.
     var frameWidth: Int
     var frameHeight: Int
+    /// The recording's file identity (ReservedVideos.effectiveFingerprint) when labeled:
+    /// a video that later takes the same id does not inherit the label.
+    var fingerprint: String
 }
 
 /// `<project>/net-labels.json`: video id → label. Read whole, written atomically;
@@ -61,12 +64,15 @@ struct NetLabelStore {
 }
 
 enum NetLabels {
-    enum Skip: String, Codable { case withheld, handheld }
+    enum Skip: String, Codable { case withheld, handheld, unidentified }
 
-    /// Why a recording gets no net label, or nil when it should have one.
-    static func skip(video: String, camera: String, withheld: Set<String>) -> Skip? {
+    /// Why a recording gets no net label, or nil when it should have one. A
+    /// recording without a file identity can't carry a label that is checked
+    /// against the file later, so it is skipped too.
+    static func skip(video: String, camera: String, withheld: Set<String>, fingerprint: String?) -> Skip? {
         if withheld.contains(video) { return .withheld }
         if camera.lowercased().hasPrefix("handheld") { return .handheld }
+        if fingerprint == nil { return .unidentified }
         return nil
     }
 
@@ -130,6 +136,7 @@ enum NetDatasetExport {
         var imageSHA256: String
         var width: Int
         var height: Int
+        var fingerprint: String
     }
 
     struct Skipped: Codable, Equatable {
@@ -151,22 +158,26 @@ enum NetDatasetExport {
         var clip: String
         var camera: String
         var url: URL
+        /// The file's identity now (ReservedVideos.effectiveFingerprint).
+        var fingerprint: String?
     }
 
     /// Which recordings go out and which stay, in a stable order. A withheld
-    /// recording is refused even if someone labeled it; a recording without
-    /// a label is listed as skipped so the count is explained.
+    /// recording is refused even if someone labeled it; a label whose
+    /// fingerprint is not this file's is another recording's and is refused;
+    /// a recording without a label is listed as skipped so the count is explained.
     static func plan(labels: [String: NetLabel], sources: [Source], withheld: Set<String>)
         -> (export: [Source], skipped: [Skipped]) {
         var export: [Source] = []
         var skipped: [Skipped] = []
         for s in sources.sorted(by: { $0.video < $1.video }) {
-            if let why = NetLabels.skip(video: s.video, camera: s.camera, withheld: withheld) {
+            if let why = NetLabels.skip(video: s.video, camera: s.camera, withheld: withheld, fingerprint: s.fingerprint) {
                 skipped.append(Skipped(video: s.video, reason: why.rawValue))
-            } else if labels[s.video] == nil {
-                skipped.append(Skipped(video: s.video, reason: "unlabeled"))
+            } else if let label = labels[s.video] {
+                if label.fingerprint == s.fingerprint { export.append(s) }
+                else { skipped.append(Skipped(video: s.video, reason: "label is another recording's (fingerprint differs)")) }
             } else {
-                export.append(s)
+                skipped.append(Skipped(video: s.video, reason: "unlabeled"))
             }
         }
         return (export, skipped)
@@ -204,7 +215,8 @@ enum NetDatasetExport {
             }
             entries.append(Entry(video: s.video, clip: s.clip, camera: s.camera, time: label.time, box: label.box,
                                  proposed: label.proposed, adjusted: label.adjusted, reviewedAt: label.reviewedAt,
-                                 image: imageFile, imageSHA256: digest, width: image.width, height: image.height))
+                                 image: imageFile, imageSHA256: digest, width: image.width, height: image.height,
+                                 fingerprint: label.fingerprint))
         }
         let yaml = """
         # One labeled frame per recording; split by recording group before training, never here.
@@ -217,7 +229,7 @@ enum NetDatasetExport {
         """
         try yaml.write(to: dir.appendingPathComponent("data.yaml"), atomically: true, encoding: .utf8)
         let manifest = Manifest(createdAt: Date(), project: project, labeled: entries.count, entries: entries, skipped: skipped,
-                                note: "Upright frames; boxes Vision-normalised (bottom-up) in the manifest, YOLO top-down in labels/. Withheld and handheld recordings are not exported.")
+                                note: "Upright frames; boxes Vision-normalised (bottom-up) in the manifest, YOLO top-down in labels/. Withheld, handheld and unidentified recordings are not exported; a label whose fingerprint is not the file's is refused.")
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]

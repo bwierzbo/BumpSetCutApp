@@ -2,7 +2,7 @@
 name: net-model-plan
 status: active
 created: 2026-10-30T21:54:35Z
-updated: 2026-10-30T21:54:35Z
+updated: 2026-10-30T22:30:00Z
 decisions: D-002, D-017, D-018 (exclusions honoured); owner direction 2026-10-30 (verbatim: ../decisions/2026-10-30-net-model-direction.md)
 ---
 
@@ -21,8 +21,9 @@ The bundled `net.mlpackage` is an Ultralytics YOLO26n (trained 2026-06-19, 640×
 One upright frame per recording, labeled by hand in RallyLab's **Net labels** tab (`NetLabelsView`, `NetLabelsModel`, `NetLabels.swift`):
 
 - **Frame:** the middle of the recording's first marked rally at least 2 s long (the court in play, nobody standing in front of the net), else the middle of the video. ← / → move a second either way if that frame is poor.
-- **Box:** where the old model finds the net its box is pre-drawn as a *proposal* (dashed); the person confirms it, moves or resizes it, or draws one. The label records whether it started as a proposal and whether it was adjusted. Only a person's confirmation makes a label.
-- **Skipped, never labeled:** the 21 withheld recordings (lineage holdout 16 + legacy holdout 5, by `ReservedVideos.lineageWithheldNames`, fail-closed) — a net model trained on them would change the pipeline on exactly the recordings kept for evaluation — and the 8 handheld recordings (camera "Handheld / …"), whose net moves.
+- **Box:** where the old model finds the net its box is pre-drawn as a *proposal* (dashed); the person confirms it, moves or resizes it, or draws one. The label records whether it started as a proposal and whether it was adjusted. Only a person's confirmation makes a label, and only for the frame on screen: while a stepped frame is still decoding, confirming is refused, and the saved time is the decoded frame's.
+- **Identity:** every label carries the recording's file fingerprint (`ReservedVideos.effectiveFingerprint`). A label whose fingerprint is not the file's — a video removed and another added under the same id — is shown as *stale*, not as a label, and the export refuses it. A recording with no fingerprint is skipped as *unidentified*.
+- **Skipped, never opened:** the 21 withheld recordings (lineage holdout 16 + legacy holdout 5, by `ReservedVideos.lineageWithheldNames`, fail-closed) — a net model trained on them would change the pipeline on exactly the recordings kept for evaluation — and the 8 handheld recordings (camera "Handheld / …"), whose net moves. Selecting one names the reason; its file is not read, decoded or shown to the old model (a test holds this).
 - **Stored** in `<project>/net-labels.json` (video id → label), apart from the sessions the open app re-saves from memory. An unreadable file blocks the tab rather than reading as empty.
 - **Exported** with `RallyLab --project Scratch --export-net-dataset <dir>`: `images/<video>.jpg` (the frame decoded again at the label's time; it must come back at the labeled size), `labels/<video>.txt` (YOLO `0 cx cy w h`, top-down), `data.yaml`, `net-dataset.json` (every entry with its box, origin flags, image SHA-256; every skipped recording with its reason). The export is written beside the destination, the exposure-ledger rows (`training_package`, ref = the folder name) are recorded, and only then is the folder moved into place: a use that can't be recorded leaves nothing behind. A withheld recording is refused even if someone labeled it.
 

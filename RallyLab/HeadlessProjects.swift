@@ -1007,7 +1007,7 @@ enum HeadlessProjects {
         do { labels = try NetLabelStore(projectDir: root).load() } catch { log("❌ net-labels.json: \(error.localizedDescription)"); return false }
         let sources = project.clips.flatMap { clip in
             clip.videos.map { NetDatasetExport.Source(video: clip.videoId(of: $0), clip: clip.id, camera: clip.camera,
-                                                      url: URL(fileURLWithPath: $0.clipFile)) }
+                                                      url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0)) }
         }
         guard !FileManager.default.fileExists(atPath: dir.path) else { log("❌ \(dir.path) exists; name a new folder."); return false }
         let partial = dir.deletingLastPathComponent().appendingPathComponent(dir.lastPathComponent + ".partial")
@@ -1021,8 +1021,9 @@ enum HeadlessProjects {
             try? FileManager.default.removeItem(at: partial)
             return false
         }
-        let refused = manifest.skipped.filter { $0.reason == NetLabels.Skip.withheld.rawValue && labels[$0.video] != nil }
-        for r in refused { log("⚠️ \(r.video) is withheld; its label was not exported.") }
+        for r in manifest.skipped where labels[r.video] != nil && r.reason != "unlabeled" {
+            log("⚠️ \(r.video): labeled but not exported — \(r.reason).")
+        }
         guard manifest.labeled > 0 else { log("❌ No labeled recording to export."); try? FileManager.default.removeItem(at: partial); return false }
         guard recorded(Set(manifest.entries.map(\.video)), .trainingPackage, ref: dir.lastPathComponent,
                        note: "net dataset: one labeled frame per recording", in: root) else {
