@@ -2,19 +2,23 @@
 //  NetLabels.swift
 //  RallyLab
 //
-//  A person's net box for a recording: one upright frame, taken from the
+//  A person's net label for a recording: one upright frame, taken from the
 //  middle of its first marked rally (the court in play, nobody parked in
-//  front of the net), the box drawn or confirmed by hand. Where the old net
-//  model finds the net, its box is offered as a proposal and stays marked
-//  as one; only what a person confirmed is a label. Kept in
-//  <project>/net-labels.json, apart from the sessions (the open app re-saves
-//  those from memory every half minute). Withheld recordings (the lineage
-//  and legacy holdouts) and handheld ones are never labeled: the first must
-//  stay out of every training set, the second has no net that holds still.
+//  front of the net), and the net's four corners placed by hand — the net
+//  is a quadrilateral in a perspective view, not a rectangle. Where the old
+//  net model finds the net, its box is offered as a proposal (its four
+//  corners) and stays marked as one; only what a person confirmed is a
+//  label. The box a consumer reads is the rectangle that just contains the
+//  corners. Kept in <project>/net-labels.json, apart from the sessions (the
+//  open app re-saves those from memory every half minute). Withheld
+//  recordings (the lineage and legacy holdouts) and handheld ones are never
+//  labeled: the first must stay out of every training set, the second has
+//  no net that holds still.
 //
 //  `RallyLab --project P --export-net-dataset <dir>` writes one JPEG and one
-//  YOLO-format line per labeled recording, with a manifest, and records the
-//  use in the exposure ledger before the folder is put in place.
+//  YOLO-format line per labeled recording, with a manifest carrying the
+//  corners, and records the use in the exposure ledger before the folder is
+//  put in place.
 //
 
 import AVFoundation
@@ -23,14 +27,93 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
+/// The net's four corners in the upright frame, Vision-normalised (bottom-up),
+/// named as the net is seen: the top two on the tape, the bottom two where the
+/// mesh meets the posts. The names are roles a person assigns by dragging, not
+/// a sort; `bounds` is the box a consumer reads.
+struct NetQuad: Codable, Equatable {
+    struct Point: Codable, Equatable {
+        var x: Double
+        var y: Double
+        init(x: Double, y: Double) { self.x = x; self.y = y }
+        init(_ p: CGPoint) { x = Double(p.x); y = Double(p.y) }
+        var cgPoint: CGPoint { CGPoint(x: x, y: y) }
+    }
+
+    var topLeft: Point
+    var topRight: Point
+    var bottomRight: Point
+    var bottomLeft: Point
+
+    init(topLeft: Point, topRight: Point, bottomRight: Point, bottomLeft: Point) {
+        self.topLeft = topLeft; self.topRight = topRight; self.bottomRight = bottomRight; self.bottomLeft = bottomLeft
+    }
+
+    /// A rectangle's corners (Vision: the top is maxY).
+    init(rect: CGRect) {
+        let r = rect.standardized
+        topLeft = Point(x: r.minX, y: r.maxY); topRight = Point(x: r.maxX, y: r.maxY)
+        bottomRight = Point(x: r.maxX, y: r.minY); bottomLeft = Point(x: r.minX, y: r.minY)
+    }
+
+    /// In the order top-left, top-right, bottom-right, bottom-left.
+    var points: [CGPoint] { [topLeft.cgPoint, topRight.cgPoint, bottomRight.cgPoint, bottomLeft.cgPoint] }
+
+    /// The rectangle that just contains the four corners.
+    var bounds: CGRect {
+        let xs = points.map(\.x), ys = points.map(\.y)
+        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+    }
+
+    /// The quadrilateral's area (shoelace, frame fractions squared), whatever its winding.
+    var area: Double {
+        let p = points
+        var twice = 0.0
+        for i in 0..<4 {
+            let a = p[i], b = p[(i + 1) % 4]
+            twice += Double(a.x * b.y - b.x * a.y)
+        }
+        return abs(twice) / 2
+    }
+
+    /// Big enough to be a net and not collapsed onto a line — including a diagonal, whose
+    /// bounding box has width and height but whose area is nothing.
+    var isUsable: Bool { bounds.width > 0.005 && bounds.height > 0.005 && area > 0.0005 }
+
+    /// Corner `i` (in `points` order) moved to `p`, kept inside the frame.
+    func moving(corner i: Int, to p: CGPoint) -> NetQuad {
+        var q = self
+        let c = Point(x: min(1, max(0, Double(p.x))), y: min(1, max(0, Double(p.y))))
+        switch i {
+        case 0: q.topLeft = c
+        case 1: q.topRight = c
+        case 2: q.bottomRight = c
+        default: q.bottomLeft = c
+        }
+        return q
+    }
+
+    /// Every corner shifted by the same amount, the shift limited so none leaves the frame.
+    func offset(dx: CGFloat, dy: CGFloat) -> NetQuad {
+        let b = bounds
+        let x = min(max(dx, -b.minX), 1 - b.maxX), y = min(max(dy, -b.minY), 1 - b.maxY)
+        func moved(_ p: Point) -> Point { Point(x: p.x + Double(x), y: p.y + Double(y)) }
+        return NetQuad(topLeft: moved(topLeft), topRight: moved(topRight), bottomRight: moved(bottomRight), bottomLeft: moved(bottomLeft))
+    }
+}
+
 struct NetLabel: Codable, Equatable {
-    /// Seconds into the video of the frame the box was drawn on.
+    /// Seconds into the video of the frame the corners were placed on.
     var time: Double
-    /// Vision-normalised (bottom-up) box in the upright frame.
+    /// Vision-normalised (bottom-up) box in the upright frame: the corners' bounds. Kept for
+    /// every reader of a box; a label written before corners existed has only this.
     var box: TrackCandidate
+    /// The net's four corners; nil on a label from before corners were marked (box only),
+    /// which the tab lists as still to label and the export refuses.
+    var corners: NetQuad?
     /// The box started as the old net model's proposal.
     var proposed: Bool
-    /// A person moved or resized it (false: confirmed as proposed, or drawn by hand).
+    /// A person moved a corner or the whole net (false: confirmed as proposed, or drawn by hand).
     var adjusted: Bool
     var reviewedAt: Date
     /// The upright frame's pixel size at labeling, so an export can check its decode.
@@ -128,7 +211,10 @@ enum NetDatasetExport {
         var clip: String
         var camera: String
         var time: Double
+        /// The corners' bounds, Vision-normalised; the YOLO line is this box top-down.
         var box: TrackCandidate
+        /// The four corners, Vision-normalised (bottom-up): top-left, top-right, bottom-right, bottom-left.
+        var corners: NetQuad
         var proposed: Bool
         var adjusted: Bool
         var reviewedAt: Date
@@ -162,9 +248,12 @@ enum NetDatasetExport {
         var fingerprint: String?
     }
 
+    static let cornersNotMarked = "corners not marked (a box-only label from before) — mark them in the Net labels tab"
+
     /// Which recordings go out and which stay, in a stable order. A withheld
     /// recording is refused even if someone labeled it; a label whose
     /// fingerprint is not this file's is another recording's and is refused;
+    /// a label without corners (from before they existed) is not a label yet;
     /// a recording without a label is listed as skipped so the count is explained.
     static func plan(labels: [String: NetLabel], sources: [Source], withheld: Set<String>)
         -> (export: [Source], skipped: [Skipped]) {
@@ -174,8 +263,9 @@ enum NetDatasetExport {
             if let why = NetLabels.skip(video: s.video, camera: s.camera, withheld: withheld, fingerprint: s.fingerprint) {
                 skipped.append(Skipped(video: s.video, reason: why.rawValue))
             } else if let label = labels[s.video] {
-                if label.fingerprint == s.fingerprint { export.append(s) }
-                else { skipped.append(Skipped(video: s.video, reason: "label is another recording's (fingerprint differs)")) }
+                if label.fingerprint != s.fingerprint { skipped.append(Skipped(video: s.video, reason: "label is another recording's (fingerprint differs)")) }
+                else if label.corners == nil { skipped.append(Skipped(video: s.video, reason: cornersNotMarked)) }
+                else { export.append(s) }
             } else {
                 skipped.append(Skipped(video: s.video, reason: "unlabeled"))
             }
@@ -197,14 +287,14 @@ enum NetDatasetExport {
         try fm.createDirectory(at: dir.appendingPathComponent("labels"), withIntermediateDirectories: true)
         var entries: [Entry] = []
         for (i, s) in export.enumerated() {
-            guard let label = labels[s.video] else { continue }
+            guard let label = labels[s.video], let corners = label.corners else { continue }
             progress("\(i + 1)/\(export.count) \(s.video)")
             let image = try await NetLabels.frame(of: s.url, at: label.time)
             guard image.width == label.frameWidth, image.height == label.frameHeight else {
                 throw NetDatasetError.frameSizeChanged(s.video, labeled: (label.frameWidth, label.frameHeight),
                                                        decoded: (image.width, image.height))
             }
-            let line = NetLabels.yoloLine(label.box.rect)
+            let line = NetLabels.yoloLine(corners.bounds)
             guard !line.isEmpty else { throw NetDatasetError.emptyBox(s.video) }
             let imageFile = "images/\(s.video).jpg"
             let imageURL = dir.appendingPathComponent(imageFile)
@@ -213,7 +303,8 @@ enum NetDatasetExport {
             guard let digest = DatasetSplitManifest.sha256(of: imageURL) else {
                 throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: imageURL.path])
             }
-            entries.append(Entry(video: s.video, clip: s.clip, camera: s.camera, time: label.time, box: label.box,
+            entries.append(Entry(video: s.video, clip: s.clip, camera: s.camera, time: label.time,
+                                 box: TrackCandidate(rect: corners.bounds, confidence: 1), corners: corners,
                                  proposed: label.proposed, adjusted: label.adjusted, reviewedAt: label.reviewedAt,
                                  image: imageFile, imageSHA256: digest, width: image.width, height: image.height,
                                  fingerprint: label.fingerprint))
@@ -229,7 +320,7 @@ enum NetDatasetExport {
         """
         try yaml.write(to: dir.appendingPathComponent("data.yaml"), atomically: true, encoding: .utf8)
         let manifest = Manifest(createdAt: Date(), project: project, labeled: entries.count, entries: entries, skipped: skipped,
-                                note: "Upright frames; boxes Vision-normalised (bottom-up) in the manifest, YOLO top-down in labels/. Withheld, handheld and unidentified recordings are not exported; a label whose fingerprint is not the file's is refused.")
+                                note: "Upright frames; corners (top-left, top-right, bottom-right, bottom-left) and their bounding box Vision-normalised (bottom-up) in the manifest, the box YOLO top-down in labels/. Withheld, handheld and unidentified recordings are not exported; a label whose fingerprint is not the file's, or without corners, is refused.")
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]

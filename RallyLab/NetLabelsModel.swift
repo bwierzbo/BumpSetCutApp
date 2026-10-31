@@ -4,10 +4,12 @@
 //
 //  The Net labels tab's state: the project's recordings with why each is
 //  skipped or whether it's labeled, the one being labeled with its frame,
-//  the old model's proposal and the box as the person has it. A skipped
-//  recording is never opened: not decoded, not shown to the old model. A
-//  label is saved only for the frame on screen, and carries the recording's
-//  fingerprint so it can't be inherited by a video that later takes the id.
+//  the old model's proposal and the net's four corners as the person has
+//  them. A skipped recording is never opened: not decoded, not shown to the
+//  old model. A label is saved only for the frame on screen, and carries the
+//  recording's fingerprint so it can't be inherited by a video that later
+//  takes the id. A label from before corners existed (a box) is still to
+//  label: its box seeds the corners, no proposal is made for it.
 //
 
 import CoreGraphics
@@ -77,10 +79,12 @@ final class NetLabelsModel {
         /// The file's identity as the split manifest recorded it (NetInventory); nil → skipped as unidentified.
         let fingerprint: String?
         let skip: NetLabels.Skip?
-        /// A label with this recording's fingerprint exists.
+        /// A label with this recording's fingerprint and its corners exists.
         var labeled: Bool
         /// A label exists under this id but with another recording's fingerprint: not a label of this video.
         var stale: Bool
+        /// This recording's label has a box but no corners (from before corners were marked): still to label.
+        var boxOnly = false
     }
 
     private let projects: ProjectsModel?
@@ -97,8 +101,10 @@ final class NetLabelsModel {
     private(set) var duration: Double = 0
     /// The old net model's box on this frame, if it found one.
     private(set) var proposal: CGRect?
-    /// The box as it stands: the proposal, the saved label, or what was drawn.
-    var box: CGRect?
+    /// The net's corners as they stand: the proposal's, the saved label's, or what was drawn and dragged.
+    private(set) var quad: NetQuad?
+    /// The box the corners span.
+    var box: CGRect? { quad?.bounds }
     private(set) var proposed = false
     private(set) var adjusted = false
     private(set) var loading = false
@@ -110,25 +116,45 @@ final class NetLabelsModel {
     /// Counts decode requests; a decode publishes its frame only while it is the latest.
     private var decodeSerial = 0
 
-    init(projects: ProjectsModel, footage: any NetLabelFootage = RealNetLabelFootage()) {
+    /// Frames read ahead of the selection, so the next recordings open at once: the
+    /// share takes seconds per frame. Only recordings still to label are read, never a
+    /// skipped one, and nothing but the frame — the old model runs only when a
+    /// recording is shown. At most `prefetchAhead` after the selection are kept.
+    struct Prefetched: Equatable {
+        let time: Double
+        let duration: Double
+        let frame: CGImage
+    }
+    private(set) var prefetched: [String: Prefetched] = [:]
+    private let prefetchAhead: Int
+    private var prefetchTask: Task<Void, Never>?
+    /// The recordings whose frames are being read now.
+    private(set) var prefetching: String?
+
+    init(projects: ProjectsModel, footage: any NetLabelFootage = RealNetLabelFootage(), prefetchAhead: Int = 8) {
         self.projects = projects
         self.footage = footage
+        self.prefetchAhead = prefetchAhead
         reload()
     }
 
     /// For tests: a fixed list and store, no project; `exposure` stands in for the ledger.
-    init(items: [Item], labels: [String: NetLabel], store: NetLabelStore, footage: any NetLabelFootage, exposure: @escaping NetProposalRecorder) {
+    init(items: [Item], labels: [String: NetLabel], store: NetLabelStore, footage: any NetLabelFootage, prefetchAhead: Int = 0,
+         exposure: @escaping NetProposalRecorder) {
         projects = nil
         self.footage = footage
         self.store = store
+        self.prefetchAhead = prefetchAhead
         recordProposal = exposure
         self.labels = labels
         self.items = items.map { Self.marked($0, labels: labels) }.sorted { $0.video < $1.video }
         status = summary
+        prefetch()
     }
 
     var labeledCount: Int { items.filter(\.labeled).count }
     var toLabelCount: Int { items.filter { $0.skip == nil && !$0.labeled }.count }
+    var boxOnlyCount: Int { items.filter(\.boxOnly).count }
     var selectedItem: Item? { items.first { $0.video == selected } }
     /// This recording's label, when it is of this recording.
     var current: NetLabel? {
@@ -138,20 +164,23 @@ final class NetLabelsModel {
     /// The frame on screen is the one `time` names and nothing is still decoding.
     var frameIsCurrent: Bool { !loading && frame != nil && frameTime == time }
     var canConfirm: Bool {
-        guard let item = selectedItem, item.skip == nil, frameIsCurrent, let box, box.width > 0, box.height > 0 else { return false }
+        guard let item = selectedItem, item.skip == nil, frameIsCurrent, let quad, quad.isUsable else { return false }
         return blocked == nil
     }
     private var summary: String {
-        "\(labeledCount) labeled · \(toLabelCount) to label · \(items.count - labeledCount - toLabelCount) skipped"
+        "\(labeledCount) labeled · \(toLabelCount) to label" + (boxOnlyCount > 0 ? " (\(boxOnlyCount) box-only, corners to mark)" : "")
+            + " · \(items.count - labeledCount - toLabelCount) skipped"
     }
 
     private static func marked(_ item: Item, labels: [String: NetLabel]) -> Item {
         var it = item
         if let label = labels[item.video] {
-            it.labeled = item.fingerprint != nil && label.fingerprint == item.fingerprint
-            it.stale = !it.labeled
+            let mine = item.fingerprint != nil && label.fingerprint == item.fingerprint
+            it.labeled = mine && label.corners != nil
+            it.boxOnly = mine && label.corners == nil
+            it.stale = !mine
         } else {
-            it.labeled = false; it.stale = false
+            it.labeled = false; it.stale = false; it.boxOnly = false
         }
         return it
     }
@@ -162,8 +191,10 @@ final class NetLabelsModel {
     /// a labels file that can't be read, blocks the tab.
     func reload() {
         loadTask?.cancel()
+        prefetchTask?.cancel()
+        prefetched = [:]; prefetching = nil
         decodeSerial += 1
-        items = []; labels = [:]; selected = nil; frame = nil; frameTime = nil; box = nil; proposal = nil; blocked = nil
+        items = []; labels = [:]; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; blocked = nil
         guard let projects, let project = projects.project, let dir = projects.projectDir else { status = "Open a project."; return }
         let inventory: NetInventory
         do { inventory = try NetInventory.load(projectDir: dir) } catch {
@@ -187,6 +218,49 @@ final class NetLabelsModel {
         }
         .sorted { $0.video < $1.video }
         status = summary
+        prefetch()
+    }
+
+    /// The recordings still to label after the selection (wrapping round), in list order.
+    private func upcoming() -> [Item] {
+        let todo = items.filter { $0.skip == nil && !$0.labeled && !$0.boxOnly }
+        guard !todo.isEmpty else { return [] }
+        let start = selected.flatMap { s in todo.firstIndex { $0.video > s } } ?? 0
+        return Array(todo[start...] + todo[..<start])
+    }
+
+    /// Read the next `prefetchAhead` recordings' frames in the background, one at a
+    /// time; drop frames that have fallen out of the window.
+    private func prefetch() {
+        guard prefetchAhead > 0 else { return }
+        let window = Array(upcoming().prefix(prefetchAhead))
+        let keep = Set(window.map(\.video)).union(selected.map { [$0] } ?? [])
+        prefetched = prefetched.filter { keep.contains($0.key) }
+        let todo = window.filter { prefetched[$0.video] == nil }
+        guard !todo.isEmpty else { return }
+        if let prefetching, todo.first?.video == prefetching { return }   // already on it, in this order
+        prefetchTask?.cancel()
+        prefetchTask = Task { await prefetch(todo) }
+    }
+
+    private func prefetch(_ queue: [Item]) async {
+        defer { prefetching = nil }
+        for item in queue {
+            guard !Task.isCancelled, prefetched[item.video] == nil else { continue }
+            if selected == item.video { continue }   // the selection reads its own frame
+            prefetching = item.video
+            guard await footage.isReadable(item.url), !Task.isCancelled else { continue }
+            let dur = await footage.duration(of: item.url)
+            guard dur > 0, !Task.isCancelled else { continue }
+            let marks = await footage.rallyMarks(for: item.url)
+            guard !Task.isCancelled else { return }
+            let t = NetLabels.frameTime(duration: dur, rallies: marks)
+            guard let frame = try? await footage.frame(of: item.url, at: t), !Task.isCancelled else { continue }
+            // Only while it is still wanted: the selection may have moved on past it.
+            if items.contains(where: { $0.video == item.video && $0.skip == nil && !$0.labeled && !$0.boxOnly }) {
+                prefetched[item.video] = Prefetched(time: t, duration: dur, frame: frame)
+            }
+        }
     }
 
     /// Show a recording. A skipped one is named and nothing of it is opened.
@@ -195,17 +269,30 @@ final class NetLabelsModel {
         loadTask?.cancel()
         decodeSerial += 1
         selected = video
-        frame = nil; frameTime = nil; proposal = nil; box = nil; proposed = false; adjusted = false; duration = 0; time = 0
+        frame = nil; frameTime = nil; proposal = nil; quad = nil; proposed = false; adjusted = false; duration = 0; time = 0
         if let skip = item.skip {
             status = "\(item.video): skipped (\(skip.rawValue)) — not opened."
             return
         }
         loadTask = Task { await load(item) }
+        prefetch()
     }
 
     private func load(_ item: Item) async {
+        // Superseded before it began (another recording picked, or a skipped one, which starts no load).
+        guard !Task.isCancelled, selected == item.video else { return }
         loading = true
         defer { loading = false }
+        if !item.labeled, !item.boxOnly, let ready = prefetched[item.video] {
+            // Read ahead already: on screen at once, no file touched.
+            time = ready.time
+            duration = ready.duration
+            frame = ready.frame
+            frameTime = ready.time
+            status = propose(on: ready.frame, for: item)
+            if item.stale { status += " (The label on file is another recording's and is replaced when you confirm.)" }
+            return
+        }
         let readable = await footage.isReadable(item.url)
         guard !Task.isCancelled, selected == item.video else { return }
         guard readable else {
@@ -215,9 +302,10 @@ final class NetLabelsModel {
         guard !Task.isCancelled, selected == item.video else { return }
         duration = dur
         guard duration > 0 else { status = "\(item.video): couldn't read the duration."; return }
-        if item.labeled, let label = labels[item.video] {
+        if item.labeled || item.boxOnly, let label = labels[item.video] {
             time = label.time
-            box = label.box.rect
+            // A box-only label's box seeds the corners; the person places them and confirms.
+            quad = label.corners ?? NetQuad(rect: label.box.rect)
             proposed = label.proposed
             adjusted = label.adjusted
         } else {
@@ -228,7 +316,9 @@ final class NetLabelsModel {
         await decode(item, at: time)
         guard !Task.isCancelled, selected == item.video else { return }
         if item.labeled {
-            status = "\(item.video): labeled. Change the box and confirm to replace it, or remove the label."
+            status = "\(item.video): labeled. Move a corner and confirm to replace it, or remove the label."
+        } else if item.boxOnly {
+            status = "\(item.video): a box from before corners were marked — drag the four corners onto the net's corners and confirm."
         } else if let frame {
             status = propose(on: frame, for: item)
             if item.stale { status += " (The label on file is another recording's and is replaced when you confirm.)" }
@@ -238,16 +328,17 @@ final class NetLabelsModel {
     /// The old model's box as a proposal, with the use in the exposure ledger first: if the
     /// ledger can't be written, the model does not run and the person draws the box.
     private func propose(on frame: CGImage, for item: Item) -> String {
-        guard footage.modelAvailable else { return "\(item.video): no net model — drag a box around the net." }
-        guard let recordProposal else { return "\(item.video): no exposure ledger for this project — drag a box around the net." }
+        let byHand = "drag a box around the net, then drag its corners onto the net's corners."
+        guard footage.modelAvailable else { return "\(item.video): no net model — \(byHand)" }
+        guard let recordProposal else { return "\(item.video): no exposure ledger for this project — \(byHand)" }
         do { try recordProposal(item.video, time) } catch {
-            return "\(item.video): the model's proposal was not made because its use could not be recorded (\(error.localizedDescription)) — drag a box around the net."
+            return "\(item.video): the model's proposal was not made because its use could not be recorded (\(error.localizedDescription)) — \(byHand)"
         }
-        guard let best = footage.proposal(on: frame) else { return "\(item.video): no proposal — drag a box around the net." }
+        guard let best = footage.proposal(on: frame) else { return "\(item.video): no proposal — \(byHand)" }
         proposal = best.rect
-        box = best.rect
+        quad = NetQuad(rect: best.rect)
         proposed = true
-        return "\(item.video): the old model's box, \(String(format: "%.2f", best.confidence)) — confirm it, move it, or draw your own."
+        return "\(item.video): the old model's box, \(String(format: "%.2f", best.confidence)) — drag its corners onto the net's corners and confirm, or draw your own."
     }
 
     /// Decode the frame at `t`; it goes on screen only if no later request superseded it.
@@ -274,28 +365,35 @@ final class NetLabelsModel {
         loadTask = Task { await decode(item, at: t) }
     }
 
-    /// The box as the person dragged it.
+    /// A new rectangle drawn by hand: its corners replace whatever was there.
     func setBox(_ rect: CGRect) {
-        box = rect.standardized.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        quad = NetQuad(rect: rect.standardized.intersection(CGRect(x: 0, y: 0, width: 1, height: 1)))
+        adjusted = true
+    }
+
+    /// The corners as the person dragged them (one corner, or all four together).
+    func setQuad(_ q: NetQuad) {
+        quad = q
         adjusted = true
     }
 
     func useProposal() {
         guard let proposal else { return }
-        box = proposal; proposed = true; adjusted = false
+        quad = NetQuad(rect: proposal); proposed = true; adjusted = false
     }
 
     func clearBox() {
-        box = nil; proposed = false; adjusted = false
+        quad = nil; proposed = false; adjusted = false
     }
 
-    /// Save the box as this recording's label — for the frame on screen, at its
+    /// Save the corners as this recording's label — for the frame on screen, at its
     /// time, with the recording's fingerprint — and move on to the next one to label.
     @discardableResult
     func confirm() -> Bool {
-        guard canConfirm, let item = selectedItem, let frame, let frameTime, let box, let fingerprint = item.fingerprint, let store else { return false }
+        guard canConfirm, let item = selectedItem, let frame, let frameTime, let quad, let fingerprint = item.fingerprint, let store else { return false }
         var next = labels
-        next[item.video] = NetLabel(time: frameTime, box: TrackCandidate(rect: box, confidence: 1), proposed: proposed, adjusted: adjusted,
+        next[item.video] = NetLabel(time: frameTime, box: TrackCandidate(rect: quad.bounds, confidence: 1), corners: quad,
+                                    proposed: proposed, adjusted: adjusted,
                                     reviewedAt: Date(), frameWidth: frame.width, frameHeight: frame.height, fingerprint: fingerprint)
         do { try store.save(next) } catch { status = "Not saved: \(error.localizedDescription)"; return false }
         labels = next

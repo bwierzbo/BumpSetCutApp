@@ -17,9 +17,72 @@ final class NetLabelsTests: XCTestCase {
 
     private static let box = TrackCandidate(rect: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1), confidence: 1)
 
-    private static func label(fingerprint: String = "fp-a", time: Double = 1) -> NetLabel {
-        NetLabel(time: time, box: box, proposed: false, adjusted: false, reviewedAt: Date(timeIntervalSince1970: 1_800_000_000),
-                 frameWidth: 1920, frameHeight: 1080, fingerprint: fingerprint)
+    /// A label with corners spanning `box`; `boxOnly` makes one from before corners existed.
+    private static func label(fingerprint: String = "fp-a", time: Double = 1, boxOnly: Bool = false) -> NetLabel {
+        NetLabel(time: time, box: box, corners: boxOnly ? nil : NetQuad(rect: box.rect), proposed: false, adjusted: false,
+                 reviewedAt: Date(timeIntervalSince1970: 1_800_000_000), frameWidth: 1920, frameHeight: 1080, fingerprint: fingerprint)
+    }
+
+    func testCornersSpanABoxAndMoveOneAtATimeOrTogether() {
+        let q = NetQuad(rect: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1))
+        // Vision: the top is the larger y.
+        XCTAssertEqual(q.topLeft, .init(x: 0.2, y: 0.5)); XCTAssertEqual(q.topRight, .init(x: 0.8, y: 0.5))
+        XCTAssertEqual(q.bottomRight, .init(x: 0.8, y: 0.4)); XCTAssertEqual(q.bottomLeft, .init(x: 0.2, y: 0.4))
+        func near(_ a: CGRect, _ b: CGRect, line: UInt = #line) {
+            for (x, y) in [(a.minX, b.minX), (a.minY, b.minY), (a.width, b.width), (a.height, b.height)] { XCTAssertEqual(x, y, accuracy: 1e-9, line: line) }
+        }
+        func near(_ a: NetQuad.Point, _ b: NetQuad.Point, line: UInt = #line) {
+            XCTAssertEqual(a.x, b.x, accuracy: 1e-9, line: line); XCTAssertEqual(a.y, b.y, accuracy: 1e-9, line: line)
+        }
+        near(q.bounds, CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1))
+        XCTAssertTrue(q.isUsable)
+        // A perspective net: the right tape end lower than the left. The box grows to contain it.
+        let tilted = q.moving(corner: 1, to: CGPoint(x: 0.85, y: 0.45)).moving(corner: 2, to: CGPoint(x: 0.85, y: 0.36))
+        XCTAssertEqual(tilted.topRight, .init(x: 0.85, y: 0.45))
+        XCTAssertEqual(tilted.topLeft, q.topLeft, "the other corners stay")
+        near(tilted.bounds, CGRect(x: 0.2, y: 0.36, width: 0.65, height: 0.14))
+        XCTAssertEqual(NetLabels.yoloLine(tilted.bounds), "0 0.525000 0.570000 0.650000 0.140000")
+        // A corner dragged out of the frame stops at its edge.
+        XCTAssertEqual(q.moving(corner: 0, to: CGPoint(x: -0.3, y: 1.4)).topLeft, .init(x: 0, y: 1))
+        // The whole net moved: every corner by the same amount, no further than the frame allows.
+        let moved = tilted.offset(dx: 0.1, dy: -0.1)
+        near(moved.topLeft, .init(x: 0.3, y: 0.4)); near(moved.bottomRight, .init(x: 0.95, y: 0.26))
+        XCTAssertEqual(tilted.offset(dx: 0.5, dy: 0).bounds.maxX, 1, accuracy: 1e-9)
+        XCTAssertEqual(tilted.offset(dx: 0.5, dy: 0).topLeft.x, 0.35, accuracy: 1e-9)
+        XCTAssertFalse(NetQuad(rect: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0)).isUsable)
+        // Collapsed onto a diagonal: a bounding box with width and height, but no area.
+        let diagonal = NetQuad(topLeft: .init(x: 0.2, y: 0.2), topRight: .init(x: 0.8, y: 0.8), bottomRight: .init(x: 0.7, y: 0.7), bottomLeft: .init(x: 0.3, y: 0.3))
+        XCTAssertEqual(diagonal.area, 0, accuracy: 1e-12)
+        XCTAssertFalse(diagonal.isUsable)
+        XCTAssertEqual(q.area, 0.06, accuracy: 1e-12, "a rectangle's area")
+        XCTAssertGreaterThan(tilted.area, 0.05)
+        // Winding does not matter: the same corners the other way round have the same area.
+        let reversed = NetQuad(topLeft: q.topRight, topRight: q.topLeft, bottomRight: q.bottomLeft, bottomLeft: q.bottomRight)
+        XCTAssertEqual(reversed.area, q.area, accuracy: 1e-12)
+    }
+
+    /// A label written before corners existed (a box) still decodes, with no corners;
+    /// one with corners round-trips through the file with them.
+    func testALabelFromBeforeCornersDecodesAsBoxOnly() throws {
+        let old = """
+        {"bch_a": {"adjusted": true, "box": {"confidence": 1, "h": 0.1, "w": 0.6, "x": 0.2, "y": 0.4}, "fingerprint": "fp-a",
+                   "frameHeight": 1080, "frameWidth": 1920, "proposed": true, "reviewedAt": "2026-10-31T03:56:38Z", "time": 10.5}}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let labels = try decoder.decode([String: NetLabel].self, from: Data(old.utf8))
+        let label = try XCTUnwrap(labels["bch_a"])
+        XCTAssertNil(label.corners)
+        XCTAssertEqual(label.box.rect, CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1))
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = NetLabelStore(projectDir: dir)
+        try store.save(["bch_a": label, "bch_b": Self.label(time: 3)])
+        let back = try store.load()
+        XCTAssertEqual(back["bch_a"], label)
+        XCTAssertEqual(back["bch_b"]?.corners, NetQuad(rect: Self.box.rect))
+        let text = try String(contentsOf: store.url, encoding: .utf8)
+        XCTAssertTrue(text.contains("\"topLeft\""), "corners are on file by name")
     }
 
     func testWithheldHandheldAndUnidentifiedAreSkipped() {
@@ -169,16 +232,18 @@ final class NetLabelsTests: XCTestCase {
             NetDatasetExport.Source(video: v, clip: v, camera: camera, url: URL(fileURLWithPath: "/nonexistent/\(v).mp4"), fingerprint: fp)
         }
         let sources = [src("c_labeled"), src("a_withheld_but_labeled"), src("b_unlabeled"), src("d_handheld", "Handheld / corner"),
-                       src("e_replaced_video", fp: "fp-new"), src("f_no_identity", fp: nil)]
+                       src("e_replaced_video", fp: "fp-new"), src("f_no_identity", fp: nil), src("g_box_only")]
         let labels = ["c_labeled": Self.label(), "a_withheld_but_labeled": Self.label(), "d_handheld": Self.label(),
-                      "e_replaced_video": Self.label(fingerprint: "fp-old"), "f_no_identity": Self.label()]
+                      "e_replaced_video": Self.label(fingerprint: "fp-old"), "f_no_identity": Self.label(),
+                      "g_box_only": Self.label(boxOnly: true)]
         let plan = NetDatasetExport.plan(labels: labels, sources: sources, withheld: ["a_withheld_but_labeled"])
         XCTAssertEqual(plan.export.map(\.video), ["c_labeled"])
         XCTAssertEqual(plan.skipped, [.init(video: "a_withheld_but_labeled", reason: "withheld"),
                                       .init(video: "b_unlabeled", reason: "unlabeled"),
                                       .init(video: "d_handheld", reason: "handheld"),
                                       .init(video: "e_replaced_video", reason: "label is another recording's (fingerprint differs)"),
-                                      .init(video: "f_no_identity", reason: "unidentified")])
+                                      .init(video: "f_no_identity", reason: "unidentified"),
+                                      .init(video: "g_box_only", reason: NetDatasetExport.cornersNotMarked)])
     }
 
     // MARK: - The tab
@@ -365,7 +430,99 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertEqual(saved.fingerprint, "fp-a")
         XCTAssertTrue(saved.proposed)
         XCTAssertEqual(saved.frameWidth, 64)
+        XCTAssertEqual(saved.corners, NetQuad(rect: CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.1)), "the proposal's corners")
+        XCTAssertEqual(saved.box.rect, saved.corners?.bounds)
         XCTAssertEqual(model.selected, "d_next", "moves on to the next recording to label")
+    }
+
+    /// A label from before corners existed is still to label: its box seeds the corners (no
+    /// proposal, no ledger row), the person drags them, and the saved label carries them.
+    @MainActor
+    func testABoxOnlyLabelSeedsTheCornersAndIsStillToLabel() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        let store = NetLabelStore(projectDir: dir)
+        var recorded: [String] = []
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir)], labels: ["c_ok": Self.label(time: 7, boxOnly: true)],
+                                   store: store, footage: footage) { v, _ in recorded.append(v) }
+        let it = try XCTUnwrap(model.items.first)
+        XCTAssertTrue(it.boxOnly); XCTAssertFalse(it.labeled); XCTAssertFalse(it.stale)
+        XCTAssertEqual(model.toLabelCount, 1)
+        XCTAssertTrue(model.status.contains("1 box-only"), model.status)
+        model.select("c_ok")
+        await settle()
+        XCTAssertEqual(model.frameTime, 7, "the box label's frame")
+        XCTAssertEqual(model.quad, NetQuad(rect: Self.box.rect), "its box seeds the corners")
+        XCTAssertEqual(footage.proposalCalls, 0); XCTAssertTrue(recorded.isEmpty)
+        XCTAssertNil(model.current)
+        XCTAssertTrue(model.status.contains("drag the four corners"), model.status)
+        let placed = try XCTUnwrap(model.quad).moving(corner: 1, to: CGPoint(x: 0.82, y: 0.47))
+        model.setQuad(placed)
+        XCTAssertTrue(model.adjusted)
+        XCTAssertTrue(model.confirm())
+        let saved = try XCTUnwrap(try store.load()["c_ok"])
+        XCTAssertEqual(saved.corners, placed)
+        XCTAssertEqual(saved.box.rect, placed.bounds)
+        XCTAssertTrue(saved.adjusted)
+        XCTAssertTrue(try XCTUnwrap(model.items.first).labeled)
+        XCTAssertEqual(model.toLabelCount, 0)
+    }
+
+    /// The share takes seconds per frame: the next recordings' frames are read in the
+    /// background while one is being labeled, never a skipped or labeled one, and a
+    /// recording read ahead opens at once without touching its file again.
+    @MainActor
+    func testFramesAreReadAheadOfTheSelection() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir), try item("d_next", in: dir), try item("e_withheld", skip: .withheld, in: dir),
+                                           try item("f_labeled", in: dir), try item("g_later", in: dir)],
+                                   labels: ["f_labeled": Self.label()], store: NetLabelStore(projectDir: dir), footage: footage,
+                                   prefetchAhead: 2) { _, _ in }
+        await settle()
+        // Nothing selected: reading starts at the top of the list, two ahead.
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4", "d_next.mp4"])
+        XCTAssertEqual(Set(model.prefetched.keys), ["c_ok", "d_next"])
+        XCTAssertEqual(footage.proposalCalls, 0, "reading ahead runs no model")
+        model.select("c_ok")
+        await settle()
+        XCTAssertNotNil(model.frame)
+        XCTAssertEqual(model.frameTime, 50)
+        XCTAssertEqual(model.duration, 100)
+        XCTAssertEqual(footage.proposalCalls, 1, "the proposal is made when the recording is shown")
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4", "d_next.mp4", "g_later.mp4"], "the window moves on past the selection")
+        XCTAssertFalse(footage.frameCalls.contains { $0.0 == "e_withheld.mp4" || $0.0 == "f_labeled.mp4" })
+        XCTAssertTrue(model.confirm())
+        await settle()
+        XCTAssertEqual(model.selected, "d_next")
+        XCTAssertNotNil(model.frame, "read ahead: on screen without a decode")
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4", "d_next.mp4", "g_later.mp4"])
+        XCTAssertNil(model.prefetched["c_ok"], "labeled: no longer kept")
+    }
+
+    /// A recording read ahead, picked and then superseded before its load ran — by a skipped
+    /// recording, which starts no load of its own — shows nothing and makes no proposal.
+    @MainActor
+    func testAPrefetchedLoadSupersededBeforeItRunsChangesNothing() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        var recorded: [String] = []
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir), try item("e_withheld", skip: .withheld, in: dir)],
+                                   labels: [:], store: NetLabelStore(projectDir: dir), footage: footage, prefetchAhead: 1) { v, _ in recorded.append(v) }
+        await settle()
+        XCTAssertNotNil(model.prefetched["c_ok"])
+        model.select("c_ok")
+        model.select("e_withheld")   // before c_ok's load task has run
+        await settle()
+        XCTAssertEqual(model.selected, "e_withheld")
+        XCTAssertNil(model.frame, "the superseded load published nothing")
+        XCTAssertNil(model.quad)
+        XCTAssertEqual(footage.proposalCalls, 0)
+        XCTAssertTrue(recorded.isEmpty, "no ledger row for a recording that was never shown")
+        XCTAssertFalse(model.canConfirm)
     }
 
     @MainActor
