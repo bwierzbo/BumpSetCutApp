@@ -280,6 +280,59 @@ class DataTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             t.split_by_group(samples, 0.3, random.Random(0), {"not-a-group"})
 
+    def test_a_group_spanning_surfaces_never_empties_a_surface_from_training(self):
+        """Two groups, each with a beach and a grass frame (a session with two courts): per-surface
+        picking would take one group for beach and the other for grass and leave nothing to train."""
+        def sample(video, group, surface):
+            return t.Sample(image=Path(f"/nonexistent/{video}.jpg"), video=video, group=group, surface=surface, source="rallylab",
+                            box=(0.5, 0.4, 0.6, 0.05), corners=t.rect_corners((0.5, 0.4, 0.6, 0.05)))
+        two = [sample("b1", "g1", "beach"), sample("r1", "g1", "grass"), sample("b2", "g2", "beach"), sample("r2", "g2", "grass")]
+        for seed in range(20):
+            train, val, groups = t.split_by_group(two, 0.5, random.Random(seed))
+            self.assertEqual(len(groups), 1, f"seed {seed}: one group val, one train")
+            self.assertEqual(len(train), 2); self.assertEqual(len(val), 2)
+            self.assertEqual({s.surface for s in train}, {"beach", "grass"}, "both surfaces still train")
+        # Three groups, two of them cross-surface and one beach-only: beach may hold out two groups
+        # (half its frames) only while grass keeps a group in train.
+        three = two + [sample("b3", "g3", "beach"), sample("b4", "g3", "beach")]
+        for seed in range(20):
+            train, val, groups = t.split_by_group(three, 0.5, random.Random(seed))
+            self.assertTrue({s.surface for s in train} >= {"beach", "grass"}, f"seed {seed}: {groups}")
+        # A pinned split that empties a surface is refused.
+        with self.assertRaises(SystemExit) as cm:
+            t.split_by_group(two, 0.5, random.Random(0), {"g1", "g2"})
+        self.assertIn("would not train", str(cm.exception))
+
+    def test_an_entry_as_the_swift_export_writes_it_is_read(self):
+        """The shape `NetDatasetExport.Entry` encodes (JSONEncoder, sorted keys, ISO dates): corners by
+        name with x/y, the box as TrackCandidate's x/y/w/h/confidence, Vision-normalised (bottom-up)."""
+        f = Fixture(self.tmp)
+        entry = json.loads("""
+        {"adjusted": true, "box": {"confidence": 1, "h": 0.14, "w": 0.65, "x": 0.2, "y": 0.36},
+         "camera": "End line, elevated (stands/tripod 2m+)", "clip": "grs_onl_sun_land_onl_01",
+         "corners": {"bottomLeft": {"x": 0.2, "y": 0.4}, "bottomRight": {"x": 0.85, "y": 0.36},
+                     "topLeft": {"x": 0.2, "y": 0.5}, "topRight": {"x": 0.85, "y": 0.45}},
+         "fingerprint": "fp-grs_onl_sun_land_onl_01", "frameHeight": 108, "frameWidth": 192,
+         "image": "images/grs_onl_sun_land_onl_01.jpg", "imageSHA256": "", "proposed": true,
+         "reviewedAt": "2026-10-31T16:02:10Z", "time": 45.0, "video": "grs_onl_sun_land_onl_01"}
+        """)
+        record = json.loads((f.export / "net-dataset.json").read_text())
+        for i, e in enumerate(record["entries"]):
+            if e["video"] == entry["video"]:
+                entry["imageSHA256"] = e["imageSHA256"]
+                record["entries"][i] = entry
+        (f.export / "net-dataset.json").write_text(json.dumps(record))
+        # The YOLO line the export writes for it: the corners' bounds, top-down.
+        (f.export / "labels" / f"{entry['video']}.txt").write_text("0 0.525000 0.570000 0.650000 0.140000\n")
+        _, rows = t.load_manifest(f.manifest)
+        samples, _ = t.read_rallylab_export(f.export, rows)
+        s = {s.video: s for s in samples}[entry["video"]]
+        # y-down: the top-left is (0.2, 0.5) from the bottom → 0.5 from the top.
+        for a, b in zip(s.corners, ((0.2, 0.5), (0.85, 0.55), (0.85, 0.64), (0.2, 0.6))):
+            self.assertAlmostEqual(a[0], b[0], places=6); self.assertAlmostEqual(a[1], b[1], places=6)
+        for a, b in zip(s.box, (0.525, 0.57, 0.65, 0.14)):
+            self.assertAlmostEqual(a, b, places=5)
+
     def test_letterbox_maps_boxes_there_and_back(self):
         for w, h in ((1920, 1080), (1080, 1920), (640, 640), (160, 90)):
             box = (0.5, 0.42, 0.7, 0.06)

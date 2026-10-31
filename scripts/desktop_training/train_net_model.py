@@ -350,21 +350,40 @@ def group_samples(samples: list[Sample], manifest_path: Path) -> None:
 def split_by_group(samples: list[Sample], fraction: float, rng: random.Random,
                    val_groups: Optional[set[str]] = None) -> tuple[list[Sample], list[Sample], list[str]]:
     """Hold out whole recording groups per surface until about `fraction` of that
-    surface's frames are val (at least one group where a surface has two). Extra
-    images always train. With `val_groups` given, exactly those are val."""
+    surface's frames are val (at least one group where a surface has two), and
+    never every group of a surface: a group can span surfaces (a session with
+    two courts), so each pick is checked on every surface it touches, and a
+    group already chosen for one surface counts for the others. Extra images
+    always train. With `val_groups` given, exactly those are val."""
     ours = [s for s in samples if s.source == "rallylab"]
+    surfaces_of: dict[str, set[str]] = {}
+    groups_of: dict[str, set[str]] = {}
+    for s in ours:
+        surfaces_of.setdefault(s.group, set()).add(s.surface)
+        groups_of.setdefault(s.surface, set()).add(s.group)
     if val_groups is None:
         chosen: set[str] = set()
-        for surface in sorted({s.surface for s in ours}):
+
+        def keeps_training(g: str) -> bool:
+            """Every surface `g` touches keeps at least one group in train after it."""
+            return all(len(groups_of[t] - chosen - {g}) >= 1 for t in surfaces_of[g])
+
+        for surface in sorted(groups_of):
             of_surface = [s for s in ours if s.surface == surface]
-            groups = sorted({s.group for s in of_surface})
+            groups = sorted(groups_of[surface])
             if len(groups) < 2:
                 continue   # one group: nothing to hold out without losing the surface from training
             rng.shuffle(groups)
-            want, got, taken = fraction * len(of_surface), 0, 0
+            want = fraction * len(of_surface)
+            got = sum(1 for s in of_surface if s.group in chosen)
+            taken = sum(1 for g in groups if g in chosen)
             for g in groups:
-                if got >= want and taken > 0 or taken >= len(groups) - 1:
+                if g in chosen:
+                    continue
+                if got >= want and taken > 0:
                     break
+                if not keeps_training(g):
+                    continue
                 chosen.add(g)
                 taken += 1
                 got += sum(1 for s in of_surface if s.group == g)
@@ -372,6 +391,9 @@ def split_by_group(samples: list[Sample], fraction: float, rng: random.Random,
     unknown = sorted(val_groups - {s.group for s in ours})
     if unknown:
         fail(f"--split names groups that are not in this dataset: {unknown}")
+    emptied = sorted(t for t, gs in groups_of.items() if len(gs) >= 2 and not (gs - val_groups))
+    if emptied:
+        fail(f"--split holds out every group of {emptied}: that surface would not train")
     val = [s for s in ours if s.group in val_groups]
     train = [s for s in samples if s.source != "rallylab" or s.group not in val_groups]
     return train, val, sorted(val_groups)
